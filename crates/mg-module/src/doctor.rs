@@ -1273,6 +1273,30 @@ pub(crate) const STRREF_COLUMNS: [(&str, &str); 15] = [
     ("iprp_paramtable", "Name"),
 ];
 
+/// Columns that name a script the engine runs, by table: a spell's
+/// (`spells.2da` ImpactScript), an area of effect's three
+/// (`vfx_persistent.2da`), the scripts an effect's state runs on its
+/// creature (`statescripts.2da`: charmed, confused, dominated...), a
+/// trap's (`traps.2da`: one made by a script, a DM or a player), and a
+/// disease's and a poison's (`disease.2da`, `poison.2da`). Each is in
+/// nwn.wiki's page of its table as a script's ResRef, and its cells name
+/// the game's own scripts (`script_columns_name_the_game_s_scripts`).
+/// `areaeffects.2da` names scripts too, none of which the game has: the
+/// engine doesn't read it (nwn.wiki's 2da Files: "Unused, see
+/// vfx_persistent.2da instead").
+pub const SCRIPT_COLUMNS: [(&str, &str); 10] = [
+    ("spells", "ImpactScript"),
+    ("vfx_persistent", "ONENTER"),
+    ("vfx_persistent", "ONEXIT"),
+    ("vfx_persistent", "HEARTBEAT"),
+    ("statescripts", "SCRIPTNAME"),
+    ("traps", "TrapScript"),
+    ("disease", "End_Incu_Script"),
+    ("disease", "24_Hour_Script"),
+    ("poison", "Script_1"),
+    ("poison", "Script_2"),
+];
+
 /// Columns that name a model, by table: the ones an object's appearance
 /// is checked through.
 const APPEARANCE_MODEL: (&str, &str) = ("appearance", "RACE");
@@ -1447,6 +1471,9 @@ pub enum ColumnKind {
     RowBy { by: &'static str, tables: &'static [(&'static str, &'static str)] },
     /// The name of another table, without `.2da` (a class's `FeatsTable`).
     Table,
+    /// A script's name, which the engine runs (a spell's `ImpactScript`):
+    /// [`SCRIPT_COLUMNS`].
+    Script,
 }
 
 impl ColumnKind {
@@ -1501,6 +1528,7 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
         .chain(of(&MODEL_COLUMNS, ColumnKind::Model))
         .chain(rows)
         .chain(of(&TABLE_COLUMNS, ColumnKind::Table))
+        .chain(of(&SCRIPT_COLUMNS, ColumnKind::Script))
         .chain(named)
         .collect()
 }
@@ -1583,7 +1611,9 @@ pub fn table_faults(
                 // never shipped, and an appearance's is a letter for a
                 // body of parts. A row's model matters when something
                 // uses the row, which Verify Module looks at.)
-                ColumnKind::Model => None,
+                // (Nor a script: the game's own spells.2da names 26 it
+                // doesn't have, which run nothing.)
+                ColumnKind::Model | ColumnKind::Script => None,
                 ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
                     let named = mg_2da::parse_int(text).and_then(|v| row_named(name, column, v));
                     match (kind.row_table(t, row), named) {
@@ -1722,7 +1752,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
                         d.push(Error, Check::TwoDaStrRef, source, key, at, message);
                     }
                 }
-                ColumnKind::Model => {}
+                ColumnKind::Model | ColumnKind::Script => {}
                 // Rows of other tables (as the module has them, this
                 // hak's and the others' over the game's).
                 ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {

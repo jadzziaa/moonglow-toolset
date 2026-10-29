@@ -78,6 +78,113 @@ fn shipped_modules_round_trip_through_the_workspace() {
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
+/// A script's source without its comments (`//` to the line's end, `/*`
+/// to `*/`), its strings kept (`"a // b"`, `"\""`).
+fn without_comments(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len());
+    let mut i = 0;
+    let mut string = false;
+    while i < src.len() {
+        let (c, next) = (src[i], src.get(i + 1).copied());
+        if string {
+            out.push(c);
+            if c == b'\\'
+                && let Some(n) = next
+            {
+                out.push(n);
+                i += 1;
+            } else if c == b'"' || c == b'\n' {
+                string = false;
+            }
+        } else if c == b'/' && next == Some(b'/') {
+            while i < src.len() && src[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        } else if c == b'/' && next == Some(b'*') {
+            i += 2;
+            while i < src.len() && !(src[i] == b'*' && src.get(i + 1) == Some(&b'/')) {
+                i += 1;
+            }
+            i += 2;
+            out.push(b' ');
+            continue;
+        } else {
+            string = c == b'"';
+            out.push(c);
+        }
+        i += 1;
+    }
+    out
+}
+
+/// The Unused report of the shipped modules says no script one of the
+/// game's tables runs (as the module sees them, its haks' over the
+/// game's: a spell's impact script...), nor a resource a string in one of
+/// the module's scripts spells (`"name"`, looked for in the source's
+/// bytes outside comments, apart from the script's own name), nor one
+/// that what the module reaches in its haks names (Kingmaker's
+/// conversations, in its hak, run the module's scripts), and says each
+/// script once.
+#[test]
+fn shipped_modules_report_nothing_their_tables_or_strings_use() {
+    use mg_module::verify::{also_used, module_references, table_scripts_in, unused_of};
+    let root = corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let modules = mg_testkit::sweep(bundled_modules(&root), 3);
+    let counts: Vec<(String, usize, usize, usize)> = modules
+        .par_iter()
+        .map(|path| {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let m = Module::open(path).unwrap();
+            let mut rm = ResMan::for_game(&install).unwrap();
+            let (missing, wrong) = m.stack_onto(&mut rm, &install);
+            assert!(missing.is_empty() && wrong.is_none(), "{name}: {missing:?} {wrong:?}");
+            let refs = module_references(&m);
+            let also = also_used(&m, &refs, &rm);
+            let unused = unused_of(&m, &refs, &also);
+            let before = unused_of(&m, &refs, &[]).len();
+            let run: std::collections::HashSet<_> =
+                table_scripts_in(&rm).iter().map(|r| r.target).collect();
+            let named: std::collections::HashSet<_> =
+                also.iter().flat_map(|r| r.candidates()).collect();
+            let sources: Vec<(ResKey, Vec<u8>)> = m
+                .keys_of(ResType::NSS)
+                .map(|k| (*k, without_comments(m.get(k).unwrap()).to_ascii_lowercase()))
+                .collect();
+            let mut scripts = std::collections::HashSet::new();
+            for u in &unused {
+                let script = u.script.is_some();
+                assert!(
+                    !script || scripts.insert(u.key.resref),
+                    "{name}: {} said twice",
+                    u.key.resref
+                );
+                assert!(!script || !run.contains(&u.key.resref), "{name}: a table runs {u}");
+                assert!(u.files().iter().all(|k| !named.contains(k)), "{name}: {u} is named");
+                let quoted = format!("\"{}\"", u.key.resref.to_string().to_ascii_lowercase());
+                let spelled = sources.iter().find(|(k, src)| {
+                    !(script && k.resref == u.key.resref)
+                        && src.windows(quoted.len()).any(|w| w == quoted.as_bytes())
+                });
+                assert!(spelled.is_none(), "{name}: {u} is spelled in {:?}", spelled.map(|s| s.0));
+            }
+            let n = unused.iter().filter(|u| u.script.is_some()).count();
+            (name, n, unused.len(), before)
+        })
+        .collect();
+    for (name, scripts, all, before) in &counts {
+        eprintln!(
+            "{name}: {all} unused ({scripts} scripts); {before} by the module's own references"
+        );
+    }
+    assert!(counts.len() >= mg_testkit::at_least(28, 3), "{} modules", counts.len());
+    // (Kingmaker's conversations and blueprints are in its hak.)
+    if let Some((_, scripts, _, before)) = counts.iter().find(|c| c.0 == "Kingmaker.mod") {
+        assert!(*scripts < before / 4, "Kingmaker: {scripts} unused scripts of {before}");
+    }
+}
+
 /// The hak report for every shipped module with haks: each hak is found,
 /// every hak resource is listed with the haks that have it (first hak
 /// first), conflicts are exactly the multi-hak entries, and overrides exist

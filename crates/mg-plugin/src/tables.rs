@@ -163,6 +163,7 @@ pub(crate) fn twoda_api(lua: &Lua, game: Option<Arc<mg_rules::GameData>>) -> mlu
                         LuaValue::String(lua.create_string(format!("row:{table}"))?)
                     }
                     ColumnKind::Table => LuaValue::String(lua.create_string("table")?),
+                    ColumnKind::Script => LuaValue::String(lua.create_string("script")?),
                     // (The table by another column's value.)
                     ColumnKind::RowBy { by, tables } => {
                         let t = lua.create_table()?;
@@ -207,6 +208,7 @@ fn describe(lua: &Lua, (text, scripts): (String, Option<Table>)) -> mlua::Result
             Kind::Flags { .. } => "flags".to_string(),
             Kind::Row(table) => format!("row:{table}"),
             Kind::StrRef => "strref".to_string(),
+            Kind::Script => "script".to_string(),
         };
         columns.set(name.as_str(), kind)?;
     }

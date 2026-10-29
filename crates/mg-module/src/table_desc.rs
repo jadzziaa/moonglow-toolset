@@ -74,6 +74,9 @@ pub enum Kind {
     Row(String),
     /// A talk-table string's number.
     StrRef,
+    /// A script's name (one `ExecuteScript` runs by the cell's value): the
+    /// Unused report counts the scripts the module's table names as used.
+    Script,
 }
 
 /// A described column.
@@ -475,6 +478,7 @@ impl Kind {
             Kind::Flags { entries } => format!("any of {} flags", entries.len()),
             Kind::Row(table) => format!("a row of {table}.2da"),
             Kind::StrRef => "a talk-table string's number".to_string(),
+            Kind::Script => "a script's name".to_string(),
         }
     }
 }
@@ -579,6 +583,7 @@ impl Description {
             "int" => Kind::Int { min: int("min"), max: int("max") },
             "float" => Kind::Float { min: float("min"), max: float("max") },
             "strref" => Kind::StrRef,
+            "script" => Kind::Script,
             "row" => match text(c, "table") {
                 Some(table) => Kind::Row(table.trim_end_matches(".2da").to_ascii_lowercase()),
                 None => {
@@ -786,6 +791,9 @@ fn cell_fault(kind: &Kind, cell: &str, length: Option<usize>, tlk: TalkTables) -
             None => Some(format!("\"{cell}\" is not a string's number")),
             Some(v) => strref_problem(v, tlk).map(|p| format!("string {v} doesn't exist: {p}")),
         },
+        Kind::Script => mg_core::ResRef::from_str(cell.trim()).is_err().then(|| {
+            format!("\"{cell}\" is not a script's name (16 letters, digits and _ at most)")
+        }),
     }
 }
 
@@ -946,12 +954,13 @@ require = "Cures"
             |name: &str| (name == "nwscript").then(|| b"int DAMAGE_TYPE_ACID = 16;\n".to_vec());
         let d = Description::parse(example, &nwscript).unwrap();
         assert!(d.notes.is_empty(), "{:?}", d.notes);
-        assert_eq!((d.rows.as_deref(), d.columns.len(), d.rules.len()), (Some("spells"), 5, 1));
+        assert_eq!((d.rows.as_deref(), d.columns.len(), d.rules.len()), (Some("spells"), 6, 1));
         let kinds: Vec<String> = d.columns.iter().map(|(_, c)| c.kind.words()).collect();
         for word in ["a number from -1 to 10", "any of 1 flags", "or another", "classes.2da"] {
             assert!(kinds.iter().any(|k| k.contains(word)), "{word} in {kinds:?}");
         }
         assert_eq!(d.column("Name").unwrap().kind, Kind::StrRef);
+        assert_eq!(d.column("Script").unwrap().kind, Kind::Script);
     }
 
     #[test]

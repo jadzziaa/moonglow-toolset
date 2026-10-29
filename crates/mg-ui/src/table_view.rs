@@ -1532,6 +1532,9 @@ fn grid(
                             (None, Some(ColumnKind::Table)) => {
                                 format!("{c}: a table's name, without .2da")
                             }
+                            (None, Some(ColumnKind::Script)) => {
+                                format!("{c}: a script's name, which the game runs")
+                            }
                             (None, None) => c.clone(),
                         };
                         r.on_hover_text(
@@ -2003,6 +2006,9 @@ fn inspector(
             }
             Some(ColumnKind::Table) => {
                 ui.weak("a table's name, without .2da");
+            }
+            Some(ColumnKind::Script) => {
+                ui.weak("a script's name, which the game runs");
             }
             None => {}
         }

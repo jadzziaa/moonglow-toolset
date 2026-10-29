@@ -246,6 +246,44 @@ fn row_columns_hold_for_the_game_s_tables() {
     assert!(named > 60, "{named}");
 }
 
+/// Every column the engine runs a script from (`SCRIPT_COLUMNS`) is in
+/// the game's own table, known as a script's, and names the game's own
+/// scripts (all but a few: spells.2da names 26 scripts the game doesn't
+/// have, vfx_persistent.2da 7).
+#[test]
+fn script_columns_name_the_game_s_scripts() {
+    use mg_module::doctor::{ColumnKind, SCRIPT_COLUMNS, column_kinds};
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    for (name, column) in SCRIPT_COLUMNS {
+        let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap();
+        let t = mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap();
+        assert!(t.column(column).is_some(), "{name}.2da has a column {column}");
+        assert!(column_kinds(name).contains(&(column, ColumnKind::Script)), "{name} {column}");
+        let cells: Vec<&str> = (0..t.len()).filter_map(|r| t.get(r, column)).collect();
+        let there = cells
+            .iter()
+            .filter(|c| {
+                mg_resman::ResKey::parse(c.trim(), mg_core::ResType::NCS)
+                    .is_some_and(|k| rm.contains(&k))
+            })
+            .count();
+        assert!(
+            !cells.is_empty() && there * 10 >= cells.len() * 8,
+            "{name} {column}: {there} of {}",
+            cells.len()
+        );
+    }
+    // And areaeffects.2da, which the engine doesn't read, names none.
+    let key = mg_resman::ResKey::parse("areaeffects", mg_core::ResType::TWODA).unwrap();
+    let t = mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap();
+    for row in 0..t.len() {
+        let script = t.get(row, "ONENTER").unwrap();
+        let key = mg_resman::ResKey::parse(script, mg_core::ResType::NCS).unwrap();
+        assert!(!rm.contains(&key), "areaeffects.2da row {row}: {script}");
+    }
+}
+
 #[test]
 fn the_game_s_own_tables_have_only_their_known_cell_faults() {
     // What the 2DA editor marks wrong as a table is typed must find

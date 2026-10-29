@@ -28,12 +28,26 @@ pub struct References {
     pub query: Option<Query>,
     pub usages: Vec<Usage>,
     pub mentions: Vec<Mention>,
+    /// Of a script, the cells of the game's tables (as the module sees
+    /// them) that run it: a spell's impact script...
+    pub run: Vec<mg_module::refs::Reference>,
+    /// Of a resource, the project file's `[used]` glob that counts it as
+    /// used.
+    pub marked: Option<String>,
     /// The workspace revision the results are for.
     revision: Option<u64>,
     /// The Find field.
     pub input: String,
     /// The module's references, kept between questions.
     index: rename::UsageIndex,
+}
+
+impl References {
+    /// Looks again at the next frame: what it says changed outside the
+    /// module (the project file's `[used]`).
+    pub(crate) fn look_again(&mut self) {
+        self.revision = None;
+    }
 }
 
 /// The Rename window, while open.
@@ -695,11 +709,30 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         };
         app.references.usages = usages;
         app.references.mentions = mentions;
+        // (The tables are the game data's, kept read: a scan of their
+        // script columns.)
+        app.references.run = match (&query, app.game.as_deref()) {
+            (Query::Resource(k), Some(game)) if k.restype == ResType::NSS => {
+                let read = |name: &str| game.table(name).ok();
+                let mut run = mg_module::verify::table_scripts(&read);
+                run.extend(mg_module::verify::described_scripts(&ws.module));
+                run.retain(|r| r.target == k.resref);
+                run
+            }
+            _ => Vec::new(),
+        };
+        app.references.marked = match &query {
+            Query::Resource(k) => {
+                ws.module.project_file.used.marking(k.resref, k.restype).map(String::from)
+            }
+            _ => None,
+        };
         app.references.revision = Some(ws.revision());
     }
     ui.separator();
     let mut go = None;
     let mut go_line = None;
+    let mut go_table = None;
     let mut rename_key = None;
     ui.horizontal(|ui| match &query {
         Query::Resource(k) => {
@@ -720,6 +753,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             );
         }
     });
+    // (Which tables that run it are the module's own, to open.)
+    let own_tables: Vec<bool> =
+        app.references.run.iter().map(|r| ws.module.contains(&r.from)).collect();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // An area's objects are said to be in the area as the rest of the
         // window names it (Options › General: Show areas by name).
@@ -761,6 +797,34 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         app.references.usages = usages;
         let refs = &app.references;
+        if !refs.run.is_empty() {
+            ui.add_space(8.0);
+            ui.label(format!("Run by the game, from its 2DAs ({}):", refs.run.len()))
+                .on_hover_text(
+                    "Cells of the tables the game runs scripts from (a spell's impact script, \
+                     an area of effect's, a state's, a trap's, a disease's, a poison's), as the \
+                     module sees them: its own 2DAs and its haks' over the game's; and of the \
+                     module's own tables whose description says a column holds a script",
+                );
+            for (r, own) in refs.run.iter().zip(&own_tables) {
+                if out_of_sight(ui) {
+                    continue;
+                }
+                let text = format!("{} › {}", r.from, r.path);
+                if *own {
+                    if ui.link(text).on_hover_text("Open the module's table").clicked() {
+                        go_table = Some(r.from);
+                    }
+                } else {
+                    ui.label(text);
+                }
+            }
+        }
+        if let Some(glob) = &refs.marked {
+            ui.add_space(8.0);
+            ui.label(format!("Counted as used by the project file's [used]: {glob}"))
+                .on_hover_text("Build Module's Unused and mg verify --unused don't list it");
+        }
         if !refs.mentions.is_empty() {
             ui.add_space(8.0);
             ui.label(format!("Spelled out in scripts ({}):", refs.mentions.len())).on_hover_text(
@@ -782,6 +846,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if let Some((k, line)) = go_line {
         app.go_to_line(k, line);
+    }
+    if let Some(k) = go_table {
+        crate::table_view::open_in_module(app, k);
     }
     if let Some(k) = rename_key {
         app.rename_dialog(k);

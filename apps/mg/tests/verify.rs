@@ -278,3 +278,115 @@ fn verify_finds_the_talk_table_where_the_game_does() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     assert_eq!(verify(&path)["errors"], 0);
 }
+
+/// `mg verify --unused` says a script once, with the files the module
+/// has of it; a script the game's spells.2da runs, or a string in another
+/// script names, is used; and what `mg used` counts as used (moonglow.toml's
+/// `[used]`) is not said.
+#[test]
+fn verify_unused_says_a_script_once_and_counts_what_runs_it() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-verify-unused").join("chess");
+    let mut m = Module::open(&chess).unwrap();
+    let key = |n: &str, t| ResKey::new(ResRef::from_str(n).unwrap(), t);
+    let main = b"void main() {}\n".to_vec();
+    for (n, t) in [
+        ("mg_both", ResType::NSS),
+        ("mg_both", ResType::NCS),
+        ("mg_source", ResType::NSS),
+        ("mg_compiled", ResType::NCS),
+        ("mg_ai_fight", ResType::NCS),
+        ("mg_named", ResType::NCS),
+        // The game's spells.2da runs it (Acid Fog's impact script).
+        ("nw_s0_acidfog", ResType::NCS),
+    ] {
+        m.set(key(n, t), main.clone());
+    }
+    m.set(
+        key("mg_caller", ResType::NSS),
+        b"void main() { ExecuteScript(\"mg_named\", OBJECT_SELF); }\n".to_vec(),
+    );
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let unused = || {
+        let out = crate::mg()
+            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "verify"])
+            .arg("--unused")
+            .arg(&dir)
+            .output()
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let mut ours: Vec<(String, serde_json::Value)> = json["unused"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|u| {
+                let r = u["resource"].as_str().unwrap();
+                r.starts_with("mg_") || r.starts_with("nw_s0_acidfog")
+            })
+            .map(|u| (u["resource"].as_str().unwrap().to_string(), u["files"].clone()))
+            .collect();
+        ours.sort_by(|a, b| a.0.cmp(&b.0));
+        ours
+    };
+    let s = |v: &str| serde_json::json!(v);
+    assert_eq!(
+        unused(),
+        [
+            ("mg_ai_fight.ncs".into(), s("compiled")),
+            ("mg_both.nss".into(), s("both")),
+            ("mg_caller.nss".into(), s("source")),
+            ("mg_compiled.ncs".into(), s("compiled")),
+            ("mg_source.nss".into(), s("source")),
+        ]
+    );
+    // As text: a line a script, with what it has.
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--unused"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("unused\tmg_both.nss\tsource and compiled\n"), "{text}");
+    assert!(text.contains("unused\tmg_compiled.ncs\tcompiled only (no source)\n"), "{text}");
+    assert!(text.contains("unused\tmg_source.nss\tsource only (not compiled)\n"), "{text}");
+    assert!(!text.contains("mg_both.ncs"), "{text}");
+
+    // Marked as used: in moonglow.toml, made by `mg used`.
+    let used = |args: &[&str]| {
+        let out = crate::mg().args(["--json", "used"]).arg(&dir).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    let json = used(&["--add", "mg_ai_*", "--add", "mg_compiled"]);
+    assert_eq!(json["scripts"], serde_json::json!(["mg_ai_*", "mg_compiled"]));
+    let toml = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
+    assert!(toml.contains("[used]") && toml.contains("mg_ai_*"), "{toml}");
+    assert_eq!(
+        unused(),
+        [
+            ("mg_both.nss".into(), s("both")),
+            ("mg_caller.nss".into(), s("source")),
+            ("mg_source.nss".into(), s("source")),
+        ]
+    );
+    let json = used(&["--remove", "mg_compiled"]);
+    assert_eq!(json["scripts"], serde_json::json!(["mg_ai_*"]));
+    // Where it is used: by the game's table, or by the project file.
+    let refs = |name: &str| {
+        let out = crate::mg()
+            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "refs"])
+            .arg(&dir)
+            .arg(name)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    let json = refs("nw_s0_acidfog.nss");
+    let at = json["tables"].as_array().unwrap();
+    let spell = |t: &serde_json::Value| {
+        t["table"] == "spells.2da" && t["at"].as_str().unwrap().ends_with(", ImpactScript")
+    };
+    assert!(at.iter().any(spell), "{json}");
+    assert_eq!(refs("mg_ai_fight.nss")["marked"], "mg_ai_*");
+}

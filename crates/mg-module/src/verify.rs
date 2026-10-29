@@ -194,17 +194,240 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
     out
 }
 
-/// Module resources of the given kinds that nothing in the module references:
-/// blueprints, conversations and scripts (script sources count as used when
-/// `#include`d; a compiled script and its source are one script).
-pub fn unused(module: &Module) -> Vec<ResKey> {
-    unused_of(module, &module_references(module))
+/// Which of a script's two files the module has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ScriptFiles {
+    /// Its source (`.nss`) and its compiled script (`.ncs`).
+    Both,
+    /// Its compiled script alone.
+    CompiledOnly,
+    /// Its source alone.
+    SourceOnly,
 }
 
-/// [`unused`] by the module's references already gathered.
-pub fn unused_of(module: &Module, references: &[Reference]) -> Vec<ResKey> {
+impl ScriptFiles {
+    /// What the report says of it.
+    pub fn words(self) -> &'static str {
+        match self {
+            ScriptFiles::Both => "source and compiled",
+            ScriptFiles::CompiledOnly => "compiled only (no source)",
+            ScriptFiles::SourceOnly => "source only (not compiled)",
+        }
+    }
+
+    /// Its name in `mg verify --json`: `both`, `compiled`, `source`.
+    pub fn id(self) -> &'static str {
+        match self {
+            ScriptFiles::Both => "both",
+            ScriptFiles::CompiledOnly => "compiled",
+            ScriptFiles::SourceOnly => "source",
+        }
+    }
+}
+
+/// A resource of the module that nothing uses: a blueprint, a
+/// conversation, or a script, once for its source and its compiled
+/// script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Unused {
+    /// The resource: of a script, its source where the module has it,
+    /// else its compiled script.
+    pub key: ResKey,
+    /// Of a script, which of its files the module has.
+    pub script: Option<ScriptFiles>,
+}
+
+impl Unused {
+    /// The module's files of it (a script's source and compiled script).
+    pub fn files(&self) -> Vec<ResKey> {
+        let r = self.key.resref;
+        match self.script {
+            Some(ScriptFiles::Both) => {
+                vec![ResKey::new(r, ResType::NSS), ResKey::new(r, ResType::NCS)]
+            }
+            _ => vec![self.key],
+        }
+    }
+}
+
+impl std::fmt::Display for Unused {
+    /// `name.nss (source and compiled)`, `name.utc`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.script {
+            Some(s) => write!(f, "{} ({})", self.key, s.words()),
+            None => write!(f, "{}", self.key),
+        }
+    }
+}
+
+/// The scripts the game's tables name in the columns the engine runs a
+/// script from ([`crate::doctor::SCRIPT_COLUMNS`]: a spell's impact
+/// script, an area of effect's, a state's, a trap's, a disease's and a
+/// poison's), each table as the module sees it (`table`: its own and its
+/// haks' over the game's): references from the table (`spells.2da`) at
+/// `row 12, ImpactScript`.
+pub fn table_scripts(table: &crate::doctor::TableOf) -> Vec<Reference> {
+    let mut out = Vec::new();
+    let mut tables: Vec<&str> = crate::doctor::SCRIPT_COLUMNS.iter().map(|(t, _)| *t).collect();
+    tables.dedup();
+    for name in tables {
+        let (Some(t), Some(from)) = (table(name), ResKey::parse(name, ResType::TWODA)) else {
+            continue;
+        };
+        let columns = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(n, _)| *n == name);
+        for (_, column) in columns {
+            for row in 0..t.len() {
+                let Some(cell) = t.get(row, column) else { continue };
+                let Ok(target) = mg_core::ResRef::from_str(cell.trim()) else { continue };
+                if target.is_empty() {
+                    continue;
+                }
+                let path = format!("row {row}, {column}");
+                out.push(Reference { from, path, kind: RefKind::Script, target });
+            }
+        }
+    }
+    out
+}
+
+/// [`table_scripts`] of the tables `rm` finds (the game's, under the haks
+/// and the module where those are stacked on it).
+pub fn table_scripts_in(rm: &ResMan) -> Vec<Reference> {
+    let read = |name: &str| {
+        let data = rm.get(&ResKey::parse(name, ResType::TWODA)?).ok()?;
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).ok().map(std::sync::Arc::new)
+    };
+    table_scripts(&read)
+}
+
+/// The scripts the module's own 2DAs name in the columns their
+/// descriptions say hold a script's name (`kind = "script"` in
+/// `name.2da.toml`: a table of the module's that a script reads with
+/// `Get2DAString` and runs with `ExecuteScript`).
+pub fn described_scripts(module: &Module) -> Vec<Reference> {
+    use crate::table_desc::{Description, Kind, path_in_module};
+    let mut out = Vec::new();
+    let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
+    keys.sort();
+    for key in keys {
+        let Some(text) = path_in_module(module, &key).and_then(|p| std::fs::read_to_string(p).ok())
+        else {
+            continue;
+        };
+        let script = |name: &str| ResKey::parse(name, ResType::NSS).and_then(|k| module.get(&k));
+        let script = |name: &str| script(name).map(<[u8]>::to_vec);
+        let Ok(d) = Description::parse(&text, &script) else { continue };
+        let data = module.get(&key).unwrap_or_default();
+        let Ok(t) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default()) else { continue };
+        for (column, c) in &d.columns {
+            if c.kind != Kind::Script {
+                continue;
+            }
+            for row in 0..t.len() {
+                let Some(cell) = t.get(row, column) else { continue };
+                let Ok(target) = mg_core::ResRef::from_str(cell.trim()) else { continue };
+                if !target.is_empty() {
+                    let path = format!("row {row}, {column}");
+                    out.push(Reference { from: key, path, kind: RefKind::Script, target });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What a script's strings may name, as references (`string`): a
+/// script, a conversation, a blueprint of any type.
+fn string_references(from: ResKey, source: &[u8]) -> Vec<Reference> {
+    let kinds = std::iter::once(RefKind::Script)
+        .chain(std::iter::once(RefKind::Conversation))
+        .chain(ObjectKind::ALL.iter().map(|k| RefKind::Blueprint(k.restype())));
+    let kinds: Vec<RefKind> = kinds.collect();
+    let mut out = Vec::new();
+    for target in crate::refs::script_strings(source) {
+        if target == from.resref {
+            continue;
+        }
+        for kind in &kinds {
+            out.push(Reference { from, path: "string".into(), kind: *kind, target });
+        }
+    }
+    out
+}
+
+/// What the module reaches outside it names, however far: a conversation
+/// of a hak that a placed creature has, or a hak's blueprint a string in
+/// a script spells (`CreateObject`), and the scripts, conversations and
+/// blueprints those name in turn (`rm`: the game, the haks and the module
+/// stacked). Kingmaker keeps its conversations and blueprints in its hak,
+/// and they run the module's scripts.
+pub fn outside_references(
+    module: &Module,
+    references: &[Reference],
+    rm: &ResMan,
+) -> Vec<Reference> {
+    let mut seen: HashSet<ResKey> = HashSet::new();
+    let mut queue: Vec<ResKey> = Vec::new();
+    let mut reach = |refs: &[Reference], queue: &mut Vec<ResKey>| {
+        for k in refs.iter().flat_map(Reference::candidates) {
+            let followed = k.restype.is_gff() || k.restype == ResType::NSS;
+            if followed && !module.contains(&k) && seen.insert(k) && rm.contains(&k) {
+                queue.push(k);
+            }
+        }
+    };
+    reach(references, &mut queue);
+    for k in module.keys_of(ResType::NSS) {
+        reach(&string_references(*k, module.get(k).unwrap_or_default()), &mut queue);
+    }
+    let mut out = Vec::new();
+    while let Some(k) = queue.pop() {
+        let Ok(data) = rm.get(&k) else { continue };
+        let mut found = crate::refs::references(k, &data);
+        if k.restype == ResType::NSS {
+            found.extend(string_references(k, &data));
+        }
+        reach(&found, &mut queue);
+        out.extend(found);
+    }
+    out
+}
+
+/// What counts as a use of the module's resources beside what the module
+/// names ([`unused_of`]'s `also`): the scripts the game's tables run
+/// ([`table_scripts_in`]), those the module's described tables name
+/// ([`described_scripts`]) and what the module reaches outside it names
+/// ([`outside_references`]), by `rm` (the game, the haks and the module
+/// stacked).
+pub fn also_used(module: &Module, references: &[Reference], rm: &ResMan) -> Vec<Reference> {
+    let mut also = table_scripts_in(rm);
+    also.extend(described_scripts(module));
+    // (From the scripts the tables run too: the game's Dirge, x0_s0_dirge,
+    // names its area of effect's scripts, x0_s0_dirgeen...)
+    let from: Vec<Reference> = references.iter().chain(&also).cloned().collect();
+    also.extend(outside_references(module, &from, rm));
+    also
+}
+
+/// Module resources of the given kinds that nothing in the module
+/// references: blueprints, conversations and scripts (a compiled script
+/// and its source are one script). One is used when a field names it, a
+/// script `#include`s it, a string in a script spells its name (whatever
+/// the string is passed to: `ExecuteScript("x")`, `SetEventScript`,
+/// `CreateObject`...; a script's own name in it doesn't count) or the
+/// module's project file counts it as used (`[used]`). A name made as the
+/// script runs (`"ai_" + sMode`) is not seen. (Without the game's tables:
+/// [`unused_of`] takes the scripts they run.)
+pub fn unused(module: &Module) -> Vec<Unused> {
+    unused_of(module, &module_references(module), &[])
+}
+
+/// [`unused`] by the module's references already gathered, and with the
+/// scripts the game's tables run as the module sees them
+/// ([`table_scripts`]) counted as used.
+pub fn unused_of(module: &Module, references: &[Reference], tables: &[Reference]) -> Vec<Unused> {
     let mut used: HashSet<(mg_core::ResRef, ResType)> = HashSet::new();
-    for r in references {
+    for r in references.iter().chain(tables) {
         for k in r.candidates() {
             used.insert((k.resref, k.restype));
         }
@@ -223,6 +446,26 @@ pub fn unused_of(module: &Module, references: &[Reference]) -> Vec<ResKey> {
         ResType::NSS,
         ResType::NCS,
     ];
+    // A script's strings that spell a name: another script's
+    // (`ExecuteScript("x")`; not its own, as a script naming itself runs
+    // only once something else runs it), a blueprint's (`CreateObject`), a
+    // conversation's.
+    let names: HashSet<mg_core::ResRef> =
+        module.keys().filter(|k| checked.contains(&k.restype)).map(|k| k.resref).collect();
+    for k in module.keys_of(ResType::NSS) {
+        let Some(src) = module.get(k) else { continue };
+        for name in crate::refs::script_strings(src) {
+            if !names.contains(&name) {
+                continue;
+            }
+            for t in checked {
+                if name != k.resref || !matches!(t, ResType::NSS | ResType::NCS) {
+                    used.insert((name, t));
+                }
+            }
+        }
+    }
+    let marked = &module.project_file.used;
     let mut out = BTreeSet::new();
     for k in module.keys().filter(|k| checked.contains(&k.restype)) {
         let script = matches!(k.restype, ResType::NSS | ResType::NCS);
@@ -231,9 +474,23 @@ pub fn unused_of(module: &Module, references: &[Reference]) -> Vec<ResKey> {
         } else {
             used.contains(&(k.resref, k.restype))
         };
-        if !is_used {
-            out.insert(*k);
+        if is_used || marked.marking(k.resref, k.restype).is_some() {
+            continue;
         }
+        if !script {
+            out.insert(Unused { key: *k, script: None });
+            continue;
+        }
+        // A script once: by its source where there is one.
+        let source = ResKey::new(k.resref, ResType::NSS);
+        let compiled = ResKey::new(k.resref, ResType::NCS);
+        let files = match (module.contains(&source), module.contains(&compiled)) {
+            (true, true) => ScriptFiles::Both,
+            (true, false) => ScriptFiles::SourceOnly,
+            _ => ScriptFiles::CompiledOnly,
+        };
+        let key = if files == ScriptFiles::CompiledOnly { compiled } else { source };
+        out.insert(Unused { key, script: Some(files) });
     }
     out.into_iter().collect()
 }
@@ -319,7 +576,223 @@ mod tests {
             ]
         );
         let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
-        assert_eq!(unused, ["lonely.ncs", "spare_bp.utc"]);
+        assert_eq!(unused, ["lonely.ncs (compiled only (no source))", "spare_bp.utc"]);
+    }
+
+    /// A script is said once, with the files the module has of it.
+    #[test]
+    fn a_script_is_one_line_with_its_files() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        for (n, t) in [
+            ("both", ResType::NSS),
+            ("both", ResType::NCS),
+            ("compiled", ResType::NCS),
+            ("source", ResType::NSS),
+        ] {
+            m.set(key(n, t), b"void main() {}".to_vec());
+        }
+        let got: Vec<(String, Option<ScriptFiles>)> =
+            unused(&m).iter().map(|u| (u.key.to_string(), u.script)).collect();
+        assert_eq!(
+            got,
+            [
+                ("both.nss".into(), Some(ScriptFiles::Both)),
+                ("compiled.ncs".into(), Some(ScriptFiles::CompiledOnly)),
+                ("source.nss".into(), Some(ScriptFiles::SourceOnly)),
+            ]
+        );
+        let u = unused(&m);
+        assert_eq!(u[0].to_string(), "both.nss (source and compiled)");
+        assert_eq!(u[0].files(), [key("both", ResType::NSS), key("both", ResType::NCS)]);
+        assert_eq!(u[1].to_string(), "compiled.ncs (compiled only (no source))");
+        assert_eq!(u[2].to_string(), "source.nss (source only (not compiled))");
+    }
+
+    fn table(text: &str) -> Vec<u8> {
+        text.replace('\n', "\r\n").into_bytes()
+    }
+
+    /// A script the game runs from a table (a spell's, an area of
+    /// effect's, a state's...) is used, by the table the module sees: the
+    /// module's own over its haks' over the game's.
+    #[test]
+    fn a_script_a_table_runs_is_used_by_the_table_the_module_sees() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        for n in ["sp_fire", "sp_old", "sp_new", "aoe_in", "aoe_hb", "st_fear", "lonely"] {
+            m.set(key(n, ResType::NCS), Vec::new());
+        }
+        // The game's: two spells and a state.
+        let mut base = MemContainer::new();
+        base.insert(
+            key("spells", ResType::TWODA),
+            table(
+                "2DA V2.0\n\n   Label   ImpactScript\n0  Fire  sp_fire\n1  Old   sp_old\n2  None  ****\n",
+            ),
+        );
+        base.insert(
+            key("statescripts", ResType::TWODA),
+            table("2DA V2.0\n\n   STATENAME  SCRIPTNAME\n0  Normal  ****\n1  Fear  ST_FEAR\n"),
+        );
+        // A hak's areas of effect.
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("vfx_persistent", ResType::TWODA),
+            table(
+                "2DA V2.0\n\n   LABEL  ONENTER  ONEXIT  HEARTBEAT\n0  Cloud  aoe_in  ****  aoe_hb\n",
+            ),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        rm.add(priority::HAK, "hak:x", LayerClass::Erf, hak);
+        let names = |rm: &ResMan, m: &Module| -> Vec<String> {
+            let refs = module_references(m);
+            let tables = table_scripts_in(rm);
+            unused_of(m, &refs, &tables).iter().map(|u| u.key.resref.to_string()).collect()
+        };
+        assert_eq!(names(&rm, &m), ["lonely", "sp_new"]);
+        // The module's own spells.2da, which the game reads in place of
+        // its own: sp_old is no spell's now.
+        m.set(
+            key("spells", ResType::TWODA),
+            table("2DA V2.0\n\n   Label   ImpactScript\n0  Fire  sp_fire\n1  New   sp_new\n"),
+        );
+        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        assert_eq!(names(&rm, &m), ["lonely", "sp_old"]);
+        // Where: the table and its cell.
+        let fear = table_scripts_in(&rm).into_iter().find(|r| r.target == rr("st_fear")).unwrap();
+        assert_eq!(
+            (fear.from, fear.path.as_str()),
+            (key("statescripts", ResType::TWODA), "row 1, SCRIPTNAME")
+        );
+        // Without the tables, they are unused.
+        assert_eq!(unused(&m).len(), 7);
+    }
+
+    /// A string in a script that spells another script's name uses it,
+    /// whatever it is passed to; one naming itself doesn't, nor a comment.
+    #[test]
+    fn a_script_s_string_naming_a_script_uses_it() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        let src =
+            b"// \"in_comment\"\nvoid main() {\n  ExecuteScript(\"Run_Me\", OBJECT_SELF);\n  \
+                    SetLocalString(OBJECT_SELF, \"next\", \"later\");\n  \
+                    DelayCommand(1.0, ExecuteScript(\"caller\", OBJECT_SELF));\n  \
+                    ExecuteScript(\"ai_\" + \"x\", OBJECT_SELF);\n  \
+                    CreateObject(OBJECT_TYPE_CREATURE, \"orc_b\", GetLocation(OBJECT_SELF));\n  \
+                    ExecuteScriptChunk(\"ExecuteScript(\\\"in_chunk\\\", OBJECT_SELF);\");\n}\n";
+        m.set(key("caller", ResType::NSS), src.to_vec());
+        for n in ["run_me", "later", "in_comment", "ai_x", "in_chunk"] {
+            m.set(key(n, ResType::NCS), Vec::new());
+        }
+        m.set(key("orc_b", ResType::UTC), Vec::new());
+        m.set(key("orc_c", ResType::UTC), Vec::new());
+        let names: Vec<String> = unused(&m).iter().map(|u| u.key.resref.to_string()).collect();
+        // (caller names itself; a name made as it runs isn't seen.)
+        assert_eq!(names, ["ai_x", "caller", "in_comment", "orc_c"]);
+    }
+
+    /// What the module reaches in its haks names is used: a hak's
+    /// conversation a placed creature has, and a hak's blueprint a string
+    /// creates, and their scripts (Kingmaker keeps its conversations and
+    /// blueprints in its hak).
+    #[test]
+    fn what_the_module_reaches_in_its_haks_names_is_used() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        let mut c = git::CREATURE_LIST.new_item();
+        c.write(&git::creature_list::CONVERSATION, rr("hak_talk"));
+        g.root.items_mut(&git::CREATURE_LIST).push(c);
+        m.set_gff(key("area1", ResType::GIT), &g).unwrap();
+        m.set(
+            key("spawner", ResType::NSS),
+            b"void main() { CreateObject(OBJECT_TYPE_CREATURE, \"hak_kai\", GetLocation(OBJECT_SELF)); }"
+                .to_vec(),
+        );
+        for n in ["talk_action", "kai_spawn", "kai_talk_action", "lonely"] {
+            m.set(key(n, ResType::NCS), Vec::new());
+        }
+        let mut dlg = Gff::new(*b"DLG ");
+        let mut entry = mg_gff::Struct::new(0);
+        entry.set("Script", mg_gff::Value::resref(rr("talk_action")));
+        dlg.root.set("EntryList", mg_gff::Value::List(vec![entry]));
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root.set("ScriptSpawn", mg_gff::Value::resref(rr("kai_spawn")));
+        utc.root.set("Conversation", mg_gff::Value::resref(rr("hak_kai")));
+        let mut kai = Gff::new(*b"DLG ");
+        let mut entry = mg_gff::Struct::new(0);
+        entry.set("Script", mg_gff::Value::resref(rr("kai_talk_action")));
+        kai.root.set("EntryList", mg_gff::Value::List(vec![entry]));
+        let mut hak = MemContainer::new();
+        hak.insert(key("hak_talk", ResType::DLG), dlg.to_bytes().unwrap());
+        hak.insert(key("hak_kai", ResType::UTC), utc.to_bytes().unwrap());
+        hak.insert(key("hak_kai", ResType::DLG), kai.to_bytes().unwrap());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK, "hak:x", LayerClass::Erf, hak);
+        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        let refs = module_references(&m);
+        let also = also_used(&m, &refs, &rm);
+        let names: Vec<String> =
+            unused_of(&m, &refs, &also).iter().map(|u| u.key.resref.to_string()).collect();
+        assert_eq!(names, ["lonely", "spawner"]);
+        let alone: Vec<String> =
+            unused_of(&m, &refs, &[]).iter().map(|u| u.key.resref.to_string()).collect();
+        assert_eq!(alone.len(), 5, "{alone:?}");
+    }
+
+    /// A script the module's own table names, in a column its description
+    /// says holds a script (`kind = "script"`), is used.
+    #[test]
+    fn a_script_a_described_table_names_is_used() {
+        let dir = mg_testkit::scratch_dir("verify-described-scripts");
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.set(
+            key("j_modes", ResType::TWODA),
+            table("2DA V2.0\n\n   Label  Script   Other\n0  Fight  j_fight  j_not\n1  None  ****  ****\n"),
+        );
+        for n in ["j_fight", "j_not"] {
+            m.set(key(n, ResType::NCS), Vec::new());
+        }
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        let names = |m: &Module| -> Vec<String> {
+            let also = described_scripts(m);
+            let refs = module_references(m);
+            unused_of(m, &refs, &also).iter().map(|u| u.key.resref.to_string()).collect()
+        };
+        assert_eq!(names(&m), ["j_fight", "j_not"], "undescribed");
+        std::fs::write(dir.join("j_modes.2da.toml"), "[columns.Script]\nkind = \"script\"\n")
+            .unwrap();
+        let m = Module::open(&dir).unwrap();
+        assert_eq!(names(&m), ["j_not"]);
+        let r = &described_scripts(&m)[0];
+        assert_eq!((r.from, r.path.as_str()), (key("j_modes", ResType::TWODA), "row 0, Script"));
+    }
+
+    /// The project file's `[used]` counts what it names as used.
+    #[test]
+    fn what_the_project_file_marks_is_used() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        for (n, t) in [
+            ("ai_fight", ResType::NSS),
+            ("ai_flee", ResType::NCS),
+            ("other", ResType::NCS),
+            ("spawn_orc", ResType::UTC),
+            ("chat_1", ResType::DLG),
+        ] {
+            m.set(key(n, t), Vec::new());
+        }
+        m.project_file.apply(
+            "moonglow.toml",
+            "[used]\nscripts = [\"AI_*\"]\nblueprints = [\"spawn_*\"]\nconversations = [\"chat_?\"]\n",
+            false,
+        );
+        let names: Vec<String> = unused(&m).iter().map(|u| u.key.to_string()).collect();
+        assert_eq!(names, ["other.ncs"]);
     }
 
     /// What only userpatch.ini's haks have is said, as a warning: a player

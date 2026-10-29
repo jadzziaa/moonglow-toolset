@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
 ---
 
 # Coming from Aurora
@@ -144,7 +144,12 @@ own.
 - **Tile variants**: Shift + right click steps the tile under the pointer
   through its variants.
 - **Unused resources**: Build › Build Module can list the resources that
-  nothing in the module uses (**Unused** is off by default).
+  nothing in the module uses (**Unused** is off by default): a script
+  once, with the files it has; a script the game's 2DAs run (a spell's,
+  an area of effect's) or a string in a script names counts as used, and
+  what a script runs by a name made as it runs can be marked as used in
+  the project file, which Aurora leaves alone
+  ([What counts as used](09-build-and-test.md#what-counts-as-used)).
 - **Hak conflicts**: Module Properties › Custom Content › Check for
   Conflicts… lists the resources several haks provide (and which one the
   game uses) and the game's resources the haks replace.

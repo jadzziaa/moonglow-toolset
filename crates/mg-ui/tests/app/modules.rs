@@ -953,6 +953,61 @@ fn build_module_compiles_and_reports() {
     assert!(cr < 99.0, "CR {cr}");
 }
 
+/// Build Module's Unused says a script once, with its files; Mark as Used
+/// writes its name into the project file's `[used]`, which Counted as
+/// Used lists and takes out again.
+#[test]
+fn build_module_marks_an_unused_script_as_used() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = project_folder("ui-build-used", &[("moonglow.toml", "# the team's\n")]);
+    let mut app = game_app(&root, None);
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut w = mg_ui::build_view::BuildWindow::default();
+    w.unused = true;
+    app.build = Some(w);
+    let mut h = Harness::builder()
+        .with_size([900.0, 900.0])
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(2);
+    h.get_all_by_label("Build").last().unwrap().click();
+    h.run_steps(3);
+    let results = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect()
+    };
+    let line = "Unused: hello.nss (source and compiled)";
+    assert!(results(&h).iter().any(|r| r == line), "{:?}", results(&h));
+    assert!(!results(&h).iter().any(|r| r.contains("hello.ncs")), "once: {:?}", results(&h));
+    h.get_by_label(line).click();
+    h.run();
+    h.get_by_label("Mark as Used").click();
+    h.run_steps(2);
+    let toml = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
+    assert!(toml.starts_with("# the team's\n"), "{toml}");
+    assert!(toml.contains("[used]\nscripts = [\"hello\"]"), "{toml}");
+    assert!(!results(&h).iter().any(|r| r == line), "no longer said: {:?}", results(&h));
+    let used = &h.state().ws.as_ref().unwrap().module.project_file.used;
+    assert_eq!(used.scripts.globs, ["hello"]);
+    // Counted as Used lists it, and takes it out.
+    h.get_by_label("Counted as Used").click();
+    h.run();
+    h.get_by_label("Script: hello");
+    h.get_by_label("Remove").click();
+    h.run_steps(2);
+    let toml = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
+    assert!(!toml.contains("\"hello\""), "{toml}");
+    assert!(h.state().ws.as_ref().unwrap().module.project_file.used.is_empty());
+    // And one typed: a glob.
+    type_into_hint(&mut h, "name or glob (ai_*)", "ai_*");
+    h.get_by_label("Add").click();
+    h.run_steps(2);
+    let toml = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
+    assert!(toml.contains("scripts = [\"ai_*\"]"), "{toml}");
+}
+
 #[test]
 fn saving_keeps_the_module_as_it_was_as_a_backup() {
     let dir = mg_testkit::scratch_dir("ui-backup");

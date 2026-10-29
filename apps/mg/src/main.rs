@@ -181,6 +181,24 @@ enum Cmd {
         #[arg(long, conflicts_with = "code")]
         clear: bool,
     },
+    /// What `mg verify --unused` and Build Module's Unused count as used
+    /// though nothing in the module names them (moonglow.toml's `[used]`;
+    /// beside a .mod, NAME.moonglow.toml): scripts ExecuteScript runs by a
+    /// name made as it runs, and blueprints and conversations so used.
+    /// Lists them; adds or takes out names and globs (`ai_*`).
+    Used {
+        /// A module archive, folder or nasher project.
+        module: PathBuf,
+        /// Count this name or glob as used (repeatable).
+        #[arg(long)]
+        add: Vec<String>,
+        /// No longer count this name or glob as used (repeatable).
+        #[arg(long)]
+        remove: Vec<String>,
+        /// What the names are of: scripts, conversations or blueprints.
+        #[arg(long, default_value = "scripts", value_parser = ["scripts", "conversations", "blueprints"])]
+        kind: String,
+    },
     /// The project's claims table (moonglow.toml's `[claims] file`): who
     /// is building which area. Lists every area of the table and the
     /// module, whose each is; claims areas by your builder code, releases
@@ -1331,6 +1349,43 @@ fn undescribed_vars(
 
 /// What the module's project file (`moonglow.toml`) said that wasn't
 /// understood, as notes.
+/// `mg used`: the project file's `[used]`, listed after the changes asked
+/// for.
+fn used(module: &Path, add: &[String], remove: &[String], kind: &str) -> Result<Output> {
+    use mg_module::project_file::ProjectFile;
+    let mut m = crate::open_module(module)?;
+    if !add.is_empty() || !remove.is_empty() {
+        let place = m
+            .location
+            .as_ref()
+            .and_then(ProjectFile::place_to_write)
+            .context("the module has no folder to keep a project file in")?;
+        for (pattern, on) in add.iter().map(|p| (p, true)).chain(remove.iter().map(|p| (p, false)))
+        {
+            ProjectFile::set_used(&place, kind, pattern, on)
+                .with_context(|| format!("{}: [used] {kind}", place.team_name()))?;
+        }
+        m.reread_project_file();
+    }
+    let mut out = Output::default();
+    project_file_notes(&m, &mut out);
+    let used = &m.project_file.used;
+    let mut json = serde_json::Map::new();
+    for key in ["scripts", "conversations", "blueprints"] {
+        let globs = used.of(key).map(|p| p.globs.clone()).unwrap_or_default();
+        for g in &globs {
+            out.line(format!("{key}\t{g}"));
+        }
+        json.insert(key.into(), serde_json::json!(globs));
+    }
+    json.insert("file".into(), serde_json::json!(m.project_file.path.as_deref().map(path_text)));
+    out.json = serde_json::Value::Object(json);
+    if used.is_empty() {
+        out.note("nothing is counted as used beyond what the module names");
+    }
+    Ok(out)
+}
+
 fn project_file_notes(m: &Module, out: &mut Output) {
     let p = &m.project_file;
     for line in p.errors.iter().chain(&p.warnings) {
@@ -1930,6 +1985,7 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
+        Cmd::Used { module, add, remove, kind } => used(module, add, remove, kind)?,
         Cmd::Claims { project, action, areas, force } => {
             claims::run(project, *action, areas, *force)?
         }
@@ -2481,29 +2537,70 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Refs { module, name, tag } => {
             let m = crate::open_module(module)?;
-            let (usages, mentions) = if *tag {
+            let mut out = Output::default();
+            let (usages, mentions, run) = if *tag {
                 (
                     mg_module::rename::tag_usages(&m, name),
                     mg_module::rename::mentions(&m, name, false),
+                    Vec::new(),
                 )
             } else {
                 let key = ResKey::from_filename(name).context("give the resource as name.ext")?;
+                // A script the game's tables run (as the module sees
+                // them), where the game is found.
+                let run = if matches!(key.restype, ResType::NSS | ResType::NCS) {
+                    match install(cli).and_then(|gi| module_resman(&gi, &m, &mut out)) {
+                        Ok(rm) => mg_module::verify::table_scripts_in(&rm)
+                            .into_iter()
+                            .chain(mg_module::verify::described_scripts(&m))
+                            .filter(|r| r.target == key.resref)
+                            .collect(),
+                        Err(e) => {
+                            out.note(format!("warning: the game's tables not read: {e:#}"));
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
                 (
                     mg_module::rename::usages(&m, key),
                     mg_module::rename::mentions(&m, &key.resref.to_string(), true),
+                    run,
                 )
             };
-            let mut out = Output::new(json!({
+            out.json = json!({
                 "uses": usages.iter().map(|u| json!({ "place": u.place, "from": u.from.to_string(), "path": u.path })).collect::<Vec<_>>(),
                 "script_strings": mentions.iter().map(|x| json!({ "script": x.script.to_string(), "line": x.line, "text": x.text })).collect::<Vec<_>>(),
-            }));
+                "tables": run.iter().map(|r| json!({ "table": r.from.to_string(), "at": r.path })).collect::<Vec<_>>(),
+                "marked": (!*tag).then(|| ResKey::from_filename(name))
+                    .flatten()
+                    .and_then(|k| m.project_file.used.marking(k.resref, k.restype)),
+            });
             for u in &usages {
                 out.line(format!("{}\t{} {}", u.place, u.from, u.path));
+            }
+            for r in &run {
+                out.line(format!("run by the game\t{} {}", r.from, r.path));
             }
             for x in &mentions {
                 out.line(format!("{} line {}: {}", x.script, x.line, x.text));
             }
-            out.note(format!("{} uses, {} script strings", usages.len(), mentions.len()));
+            if let Some(glob) = out.json["marked"].as_str().map(String::from) {
+                out.line(format!(
+                    "counted as used\t{}'s [used]: {glob}",
+                    m.project_file.path.as_deref().and_then(|p| p.file_name()).map_or_else(
+                        || mg_module::project_file::FILE_NAME.into(),
+                        |n| n.to_string_lossy()
+                    )
+                ));
+            }
+            out.note(format!(
+                "{} uses, {} by the game's tables, {} script strings",
+                usages.len(),
+                run.len(),
+                mentions.len()
+            ));
             out
         }
         Cmd::Rename { module, from, to, strings } => {
@@ -3603,8 +3700,14 @@ fn verify(
     } else {
         Vec::new()
     };
-    let unused =
-        if show_unused { mg_module::verify::unused_of(&m, &references) } else { Vec::new() };
+    // (The scripts the game's tables run, as the module sees them, count
+    // as used, and what the module reaches in its haks and the game names.)
+    let unused = if show_unused {
+        let also = mg_module::verify::also_used(&m, &references, &rm);
+        mg_module::verify::unused_of(&m, &references, &also)
+    } else {
+        Vec::new()
+    };
     let mut missing = if skip.contains(&Group::References) {
         Vec::new()
     } else {
@@ -3679,7 +3782,12 @@ fn verify(
             "message": f.message,
             "fix": x.fix.as_ref().map(|fix| fix_json(fix, codepage)),
         })}).collect::<Vec<_>>(),
-        "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+        // (A script once: `files` says which of its two the module has.)
+        "unused": unused.iter().map(|u| serde_json::json!({
+            "resource": u.key.to_string(),
+            "files": u.script.map(|s| s.id()),
+            "names": u.files().iter().map(ToString::to_string).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
         // (A group left out isn't checked: null, nothing is counted of it.)
         "skipped": left.iter().map(|g| (g.id().to_string(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
     });
@@ -3722,8 +3830,11 @@ fn verify(
         out.line(format!("left out\t{}: not checked", g.id()));
     }
     if show_unused {
-        for k in &unused {
-            out.line(format!("unused\t{k}"));
+        for u in &unused {
+            match u.script {
+                Some(s) => out.line(format!("unused\t{}\t{}", u.key, s.words())),
+                None => out.line(format!("unused\t{}", u.key)),
+            }
         }
         out.line(format!("{} unused resources", unused.len()));
     }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:25:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
 ---
 
 # Modules
@@ -555,6 +555,11 @@ keeper_variable = "tdod_store"      # the shopkeeper's variable: the store's tag
 [resrefs]
 pattern = "{code}_{name}"           # a new ResRef, by each builder's code
 
+[used]                              # what Unused counts as used, nothing naming it
+scripts = ["j_ai_*", "tdod_exec_*"] # run by ExecuteScript by a name made as it runs
+blueprints = ["tdod_spawn_*"]       # made by CreateObject so
+conversations = []
+
 [claims]
 file = "builders/claims.2da"        # who is building which area
 others = "warn"                     # another builder's area: "warn" before a save, or "read-only"
@@ -589,6 +594,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
 | `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
 | `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
+| `[used] scripts`, `conversations`, `blueprints` | what [Unused](09-build-and-test.md#what-counts-as-used) (Build Module, `mg verify --unused`) counts as used though nothing in the module names it: a script `ExecuteScript` runs by a name made as it runs (`"j_ai_" + sMode`), a blueprint `CreateObject` makes so (any type, by its ResRef), a conversation so started. Build Module's **Mark as Used** and **Counted as Used** write it, and `mg used`; the rest of the file is kept as written. Aurora never touches the file | none |
 | `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
@@ -1097,6 +1103,11 @@ the game's script), and what that names in turn:
 - **A model's own files**: walkmeshes, textures (the DDS or TGA the game
   picks, and a PLT), materials and TXIs and what they name, its
   emitters' models and its supermodels.
+- **The scripts the game runs from its 2DAs**, as the module sees them
+  (a hak's `spells.2da` over the game's): a spell's impact script, an
+  area of effect's three (`vfx_persistent.2da`), the scripts of states
+  (`statescripts.2da`), traps', diseases' and poisons' (the columns
+  [Unused](09-build-and-test.md#what-counts-as-used) reads), reached from the table.
 
 Each hak resource is then **used** (reached, and this hak's copy is the
 one the game loads), **shadowed** (a hak higher in the list, or the
@@ -1387,6 +1398,9 @@ table = "classes"
 [columns.Name]
 kind = "strref"                 # a talk-table string's number
 
+[columns.Script]
+kind = "script"                 # a script's name, one ExecuteScript runs
+
 [[rules]]                       # a cell that must be filled...
 when = { column = "Effect", is = "CURE" }
 require = "Cures"               # ...where another says so
@@ -1401,6 +1415,7 @@ require = "Cures"               # ...where another says so
 | `flags` | any of the values together, each a bit | a bit no value has is set, or it is no number |
 | `row`, with `table` | a row's number in that table | the table has no such row |
 | `strref` | a talk-table string's number | there is no such string |
+| `script` | a script's name: a script reads the cell (`Get2DAString`) and runs it, so [Unused](09-build-and-test.md#what-counts-as-used) counts the scripts the module's table names as used | it can be no resource's name |
 
 - **A list's values** are written `values = { NAME = 1, OTHER = 2 }`
   (a value in the table's own way of writing it goes in quotes:
