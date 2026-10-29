@@ -488,8 +488,8 @@ impl TabViewer for Viewer<'_> {
             Tab::Options => "Options".into(),
             Tab::TileProperties => "Tile Properties".into(),
             Tab::Tile { tileset, tile } => {
-                let model = (self.app.area_views.values().filter_map(|v| v.terrain.as_ref()))
-                    .find(|t| t.tileset == *tileset)
+                // (As an open area has the tileset: not read for a title.)
+                let model = (self.app.open_tileset(*tileset))
                     .and_then(|t| t.set.tiles.get(*tile as usize).map(|t| t.model.clone()));
                 format!("{} (tile)", model.unwrap_or_else(|| format!("{tileset} tile {tile}")))
                     .into()
