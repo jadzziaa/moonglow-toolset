@@ -925,6 +925,11 @@ pub struct Moonglow {
     /// with the tabs in it: they leave room along its inner edge for the
     /// button that folds it away (`palettes_edge`).
     palette_edge: Option<(Side, Vec<Tab>)>,
+    /// Where the palettes' pane's covered arrow (egui_dock's) was drawn:
+    /// the keyboard is moved on past it ([`Moonglow::pass_covered_arrow`]).
+    palette_arrow: Option<egui::Rect>,
+    /// The last Tab pressed was Shift+Tab: the way the keyboard goes.
+    tab_back: bool,
     /// A module was opened: the Palettes pane opens once the module tree
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
@@ -1162,6 +1167,8 @@ impl Moonglow {
             dock_width: None,
             palette_share: None,
             palette_edge: None,
+            palette_arrow: None,
+            tab_back: false,
             open_palette: false,
             plugins: Default::default(),
             plugin_dir: None,
@@ -1451,6 +1458,7 @@ impl Moonglow {
             // window as tall as its tab bar, margin included, which left
             // half the bar (and half the arrow that opens it again).
             ui.spacing_mut().window_margin = egui::Margin::ZERO;
+            self.pass_covered_arrow(ui.ctx());
             {
                 let mut viewer = tabs::Viewer { app: self };
                 DockArea::new(&mut dock).show_close_buttons(true).show_inside(ui, &mut viewer);
@@ -1705,7 +1713,7 @@ impl Moonglow {
     /// Where the next window of a kind opens: where one of its kind was
     /// last dragged to (GitHub issue 14), a window of its own otherwise.
     fn place_for(&self, tab: &Tab) -> Place {
-        let kept = self.settings.window_places.iter().find(|(k, _)| k == tab.kind());
+        let kept = kept_by_kind(&self.settings.window_places, tab);
         match kept.map(|(_, p)| p.as_str()) {
             Some("middle") => Place::Middle,
             Some("palettes") => Place::Palettes,
@@ -1869,6 +1877,37 @@ impl Moonglow {
         }
     }
 
+    /// The keyboard on the palettes' covered arrow (reached by Tab or
+    /// Shift+Tab, where Enter pressed it): moved on past it, the way it was
+    /// going, before the dock draws its widgets again (egui gives the
+    /// focus to the next widget as they ask for it).
+    fn pass_covered_arrow(&mut self, ctx: &egui::Context) {
+        let tab = ctx.input(|i| {
+            i.events.iter().rev().find_map(|e| match e {
+                egui::Event::Key { key: egui::Key::Tab, pressed: true, modifiers, .. } => {
+                    Some(modifiers.shift)
+                }
+                _ => None,
+            })
+        });
+        if let Some(back) = tab {
+            self.tab_back = back;
+        }
+        let Some(arrow) = self.palette_arrow else { return };
+        let on_arrow = ctx.memory(|m| m.focused()).is_some_and(|id| {
+            ctx.read_response(id).is_some_and(|r| arrow.contains(r.rect.center()))
+        });
+        if on_arrow {
+            let way = if self.tab_back {
+                egui::FocusDirection::Previous
+            } else {
+                egui::FocusDirection::Next
+            };
+            ctx.memory_mut(|m| m.move_focus(way));
+            ctx.request_repaint();
+        }
+    }
+
     /// The palettes' pane's fold button, on the edge it faces the middle
     /// by, once the dock has drawn it (a pane of the dock's, not a panel:
     /// its tabs leave the room for it, `palette_edge`). Only where it is a
@@ -1876,6 +1915,7 @@ impl Moonglow {
     /// tabs, in a window of its own, above or below it, View folds it away.
     fn palettes_edge(&mut self, ui: &mut egui::Ui) {
         self.palette_edge = None;
+        self.palette_arrow = None;
         let Some(dock) = self.dock_rect else { return };
         let leaf = self.dock.iter_leaves().find(|(p, leaf)| {
             p.surface.is_main()
@@ -1909,7 +1949,8 @@ impl Moonglow {
             let fill = visuals.extreme_bg_color;
             let cover = arrow.with_max_y(arrow.bottom() - px).expand2(egui::vec2(px, 0.0));
             ui.painter().rect_filled(cover, corner, fill);
-            ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::click());
+            ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::CLICK);
+            self.palette_arrow = Some(arrow);
         }
         let x = match side {
             Side::Right => rect.left(),
@@ -2006,10 +2047,18 @@ impl Moonglow {
 
     /// The tab Close Tab closes: the one in front of the pane with the
     /// focus (a window's, or the middle's), if it can be closed.
-    pub(crate) fn front_tab(&self) -> Option<Tab> {
+    pub fn front_tab(&self) -> Option<Tab> {
         let pane = self.dock.focused_leaf().or_else(|| self.tab_pane())?;
         let leaf = self.dock.leaf(pane).ok()?;
         leaf.tabs.get(leaf.active.0).filter(|t| t.closeable()).cloned()
+    }
+
+    /// The tab in front ([`Moonglow::front_tab`]) where it is in a window
+    /// of its own: what Maximize Window maximizes.
+    pub(crate) fn front_window_tab(&self) -> Option<Tab> {
+        let tab = self.front_tab()?;
+        let path = self.dock.find_tab(&tab)?;
+        (!path.surface.is_main()).then_some(tab)
     }
 
     /// Next Tab and Previous Tab: the pane's next tab brought to the
@@ -2286,8 +2335,7 @@ impl Moonglow {
         // Below the menu and toolbar (the main pane's top), never over them.
         let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
         // As wide and tall as one of its kind was last left.
-        let kind = tab.kind();
-        let left = self.settings.window_sizes.iter().find(|(k, _)| k == kind);
+        let left = kept_by_kind(&self.settings.window_sizes, &tab);
         // (One left too small to use, by an older version, is passed over.)
         let left = left
             .filter(|(_, s)| s[0] as f32 >= MIN_REMEMBERED.x && s[1] as f32 >= MIN_REMEMBERED.y);
@@ -2321,8 +2369,10 @@ impl Moonglow {
 
     /// The bar beside a window's tabs does what its tab does: a double
     /// click maximizes the window and restores it, and a right click
-    /// offers that. (egui_dock gives the bar nothing; a builder looked for
-    /// both there, as on any window's title.) The window is still dragged
+    /// offers that; a button at its right end before the close button
+    /// does it too, and shows which the window is (🗖 Maximize, 🗗
+    /// Restore). (egui_dock gives the bar nothing; a builder looked for
+    /// them there, as on any window's title.) The window is still dragged
     /// by it.
     fn window_bars(&mut self, ui: &mut egui::Ui) {
         let buttons = std::mem::take(&mut self.tab_buttons);
@@ -2351,7 +2401,28 @@ impl Moonglow {
             if response.double_clicked() {
                 toggle = Some(tab.clone());
             }
-            let label = if self.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
+            let maximized = self.windows_maximized(&leaf.tabs);
+            let label = if maximized { "Restore" } else { "Maximize" };
+            // (Registered after the bar: it takes its clicks.)
+            let glyph = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
+            let side = (bar.height() - 4.0).clamp(12.0, 20.0);
+            let at = egui::Rect::from_center_size(
+                egui::pos2(bar.right() - side / 2.0 - 2.0, bar.center().y),
+                egui::vec2(side, side),
+            );
+            let button = egui::Button::new(glyph).frame(false).small();
+            let pressed = ui
+                .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
+                    let r = ui.put(at, button);
+                    r.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
+                    });
+                    r.on_hover_text(label).clicked()
+                })
+                .inner;
+            if pressed {
+                toggle = Some(tab.clone());
+            }
             response.context_menu(|ui| {
                 if ui.button(label).clicked() {
                     toggle = Some(tab.clone());
@@ -2362,6 +2433,16 @@ impl Moonglow {
         if let Some(tab) = toggle {
             self.actions.push(Action::ToggleMaximize(tab));
         }
+    }
+
+    /// Whether the window of these tabs (one of its panes') is maximized:
+    /// it is known by its first tab.
+    fn windows_maximized(&self, tabs: &[Tab]) -> bool {
+        let Some(path) = tabs.first().and_then(|t| self.dock.find_tab(t)) else { return false };
+        (self.dock.iter_leaves())
+            .find(|(p, _)| p.surface == path.surface)
+            .and_then(|(_, leaf)| leaf.tabs.first())
+            .is_some_and(|first| self.maximized.contains_key(first))
     }
 
     /// Where each window is: its first tab, and the room its panes take.
@@ -2387,6 +2468,18 @@ impl Moonglow {
     /// maximized one's).
     fn remember_window_sizes(&mut self) {
         let mut again = Vec::new();
+        // A maximized window stays so as Moonglow's window is resized:
+        // put over the room again where it changed.
+        if let Some(room) = self.maximize_room() {
+            let moved = |put: egui::Rect| {
+                (put.min - room.min).length() > 0.5 || (put.max - room.max).length() > 0.5
+            };
+            for tab in self.maximized.keys() {
+                if self.windows.get(tab).is_some_and(|w| moved(w.put)) {
+                    again.push((tab.clone(), room));
+                }
+            }
+        }
         // The windows with a pane folded (the arrow at their bar's left).
         let folded: Vec<Tab> = self
             .dock
@@ -4026,11 +4119,7 @@ impl Moonglow {
         let program = self.settings.external_compiler.clone()?;
         let haks = self.listed_haks();
         let install = self.install.as_ref();
-        let dirs = install.map(mg_resman::GameInstall::hak_dirs).unwrap_or_default();
-        let haks = haks
-            .iter()
-            .filter_map(|h| dirs.iter().map(|d| d.join(format!("{h}.hak"))).find(|p| p.is_file()))
-            .collect();
+        let haks = haks.iter().filter_map(|h| install?.find_hak(h)).collect();
         Some(mg_module::external_compiler::ExternalCompiler {
             program,
             arguments: self.settings.external_compiler_args.clone(),
@@ -4080,41 +4169,18 @@ impl Moonglow {
             },
             |app, made| {
                 let Some(results) = made else { return };
-                let (mut edits, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
-                for c in results {
-                    match c.result {
-                        Ok((binary, said)) => {
-                            notes += said.len();
-                            edits.push(mg_edit::Edit::SetResource {
-                                key: c.model,
-                                data: Some(binary),
-                            });
-                        }
-                        Err(why) => left.push(format!("{}: {why}", c.model)),
-                    }
-                }
-                let compiled = edits.len();
-                if compiled == 0 && left.is_empty() {
-                    app.log.info("Compile Models: the module has no models kept as text");
-                    return;
-                }
+                let sorted = model_view::CompiledModels::sort(&mut app.log, "the module", results);
+                let Some(sorted) = sorted else { return };
+                let edits: Vec<_> = (sorted.made.iter())
+                    .map(|(key, b)| mg_edit::Edit::SetResource { key: *key, data: Some(b.clone()) })
+                    .collect();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile Models", edits))
                 {
                     app.log.error(e.to_string());
                     return;
                 }
-                app.log.info(format!(
-                    "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} \
-                     left as text",
-                    left.len()
-                ));
-                for l in left.iter().take(12) {
-                    app.log.warn(format!("Left as text: {l}"));
-                }
-                if left.len() > 12 {
-                    app.log.warn(format!("…and {} more left as text", left.len() - 12));
-                }
+                sorted.say(&mut app.log);
             },
         );
     }
@@ -4661,24 +4727,7 @@ impl Moonglow {
 
     /// The haks Module Properties lists now, unsaved changes included.
     fn listed_haks(&mut self) -> Vec<String> {
-        use mg_schema::StructExt;
-        let Some(ws) = &mut self.ws else { return Vec::new() };
-        let Ok(info) = ws.doc(&module_props::info_key()) else { return Vec::new() };
-        let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
-        let mut haks: Vec<String> = info
-            .root
-            .items(&mg_schema::ifo::MOD_HAK_LIST)
-            .iter()
-            .map(|h| text(h.read(&mg_schema::ifo::mod_hak_list::MOD_HAK).as_bytes()))
-            .filter(|h| !h.is_empty())
-            .collect();
-        if haks.is_empty() {
-            haks.extend(
-                Some(text(info.root.read(&mg_schema::ifo::MOD_HAK).as_bytes()))
-                    .filter(|h| !h.is_empty()),
-            );
-        }
-        haks
+        self.ws.as_mut().map(listed_haks).unwrap_or_default()
     }
 
     /// Layers the module's haks as Module Properties lists them, when the
@@ -4736,7 +4785,9 @@ impl Moonglow {
     }
 
     /// Every few seconds, with Options › General's reloading on: the haks
-    /// and folders that changed.
+    /// and folders that changed. With it off, the project file
+    /// (`moonglow.toml`) alone, as frames are drawn: a few small files,
+    /// and the rules the module is worked by.
     fn reload_timer(&mut self, ui: &egui::Ui) {
         // A look at the module's files under way: taken once it is done.
         if self.take_looked() {
@@ -4746,17 +4797,24 @@ impl Moonglow {
         if self.look_at_palettes() {
             ui.ctx().request_repaint();
         }
-        // (Not under a job, which reads the game data.)
-        if self.settings.no_auto_reload || self.game.is_none() || self.busy() {
+        // (Not under a job, which reads the game data and the module.)
+        if self.busy() {
             return;
         }
         let every = std::time::Duration::from_secs(3);
         let now = std::time::Instant::now();
+        let off = self.settings.no_auto_reload || self.game.is_none();
         if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) {
-            ui.ctx().request_repaint_after(every);
+            if !off {
+                ui.ctx().request_repaint_after(every);
+            }
             return;
         }
         self.reload_checked = Some(now);
+        if off {
+            self.reread_project_file();
+            return;
+        }
         self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
@@ -5060,6 +5118,22 @@ pub(crate) use mg_module::build::user_content;
 const RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Moonglow {
+    /// An open area view's terrain tools on `tileset`: the tileset as the
+    /// view read it, its tiles' index and rules.
+    pub(crate) fn open_tileset(&self, tileset: mg_core::ResRef) -> Option<&terrain_mode::Tools> {
+        (self.area_views.values().filter_map(|v| v.terrain.as_ref())).find(|t| t.tileset == tileset)
+    }
+
+    /// Tileset `tileset`: as an open area's view has it, else read from
+    /// the game (`None`: there is none, or it can't be read).
+    pub fn tileset(&self, tileset: mg_core::ResRef) -> Option<Arc<mg_set::Tileset>> {
+        if let Some(open) = self.open_tileset(tileset) {
+            return Some(open.set.clone());
+        }
+        let game = self.game.as_deref()?;
+        mg_area::tileset(game, tileset).ok().map(Arc::new)
+    }
+
     /// Has what reads the game data apart from the window let go of it, so
     /// that it can be changed ([`exclusive`], called after this): the 3D
     /// views' texture readers (taken again when an area view next draws);
@@ -5098,6 +5172,21 @@ impl Moonglow {
         let views = self.viewport.as_ref().is_some_and(|vp| vp.holds(game));
         Arc::strong_count(game) - 1 > usize::from(views)
     }
+}
+
+/// The module's haks as Module Properties lists them, unsaved changes
+/// included ([`mg_module::haks_of`], as the module's saved haks are read).
+pub(crate) fn listed_haks(ws: &mut mg_edit::Workspace) -> Vec<String> {
+    ws.doc(&module_props::info_key()).map(|info| mg_module::haks_of(&info.root)).unwrap_or_default()
+}
+
+/// What is kept for windows of `tab`'s kind (a size, a place), or for its
+/// kind as it was called before ([`Tab::kind_before`]).
+fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String, T)> {
+    let kind = tab.kind();
+    kept.iter()
+        .find(|(k, _)| k == kind)
+        .or_else(|| tab.kind_before().and_then(|b| kept.iter().find(|(k, _)| k == b)))
 }
 
 /// The game data to change (its layers, its talk table): only while

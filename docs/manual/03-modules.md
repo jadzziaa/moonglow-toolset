@@ -27,8 +27,10 @@ a directory), nasher projects (see below) and the game's campaign files
   the main pane, the windows, each where it was, with the same tabs,
   and split into the same panes), each pane's tab in front in front,
   and the one that had the keys has them again. Each shows what it
-  showed: an area's view its camera where it was, a script its scroll
-  and cursor, a conversation its selected line, bookmarks and folded
+  showed: an area's view its camera where it was, a script its scroll,
+  cursor and bookmarks (numbered or not; those past its end, if it
+  changed since, are let go), the talk table its line, a conversation
+  its selected line, bookmarks and folded
   branches (if the conversation is as it was: changed since, outside
   Moonglow, they would be on other lines, and are let go), a Properties
   window (and the Options) its page. A placed object's Properties are
@@ -525,8 +527,9 @@ yet.
 A team's rules for Moonglow are kept with its module, in version
 control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
 at the root of a module folder. Moonglow reads it when the module opens,
-and again when it changes (with reloading on, Options › General), and
-the log says so. A module kept in one file (`.mod`) keeps its own
+and again when it changes (with Options › General's reloading off too),
+and the log says so; a window open then (Setup Store) follows the rules
+as they are now. A module kept in one file (`.mod`) keeps its own
 beside it, named by it, as its folder holds other modules too:
 `krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
 `krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a
@@ -1054,7 +1057,11 @@ is Windows-1252.
 top: where two haks have a resource of the same name, the game takes the
 one from the hak higher in the list. A hak that is in none of the hak
 folders is marked **not found**: the game will not load the module until
-it is there, or taken off the list.
+it is there, or taken off the list. A module from before the list (1.69)
+names a single hak in its own field, `Mod_Hak`: Moonglow and `mg` use
+it where the module has no list, and the empty list says which it is. A
+hak added starts the list, which is then read in its place, so add that
+hak to it too.
 - **Choose** a row with a click; Ctrl + click adds or takes out a row,
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots

@@ -42,6 +42,7 @@ mg-tlk.workspace = true
 ron.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+siphasher.workspace = true
 skrifa.workspace = true
 toml.workspace = true
 wgpu.workspace = true

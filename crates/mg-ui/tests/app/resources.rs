@@ -323,6 +323,39 @@ fn a_module_s_haks_are_layered_after_one_closed_while_its_area_was_read() {
     has_the_two_haks(h.state()).unwrap();
 }
 
+/// An older module's single hak (`Mod_Hak`, and no list) is layered, as
+/// `mg` layers it, and Module Properties says so rather than that the
+/// module has none.
+#[test]
+fn an_older_module_s_single_hak_is_layered_and_said() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-older");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let key = ResKey::parse("mg_older_hak", ResType::TWODA).unwrap();
+    hak.add(key.resref, key.restype, b"2DA V2.0\n".to_vec()).unwrap();
+    std::fs::write(user.join("hak/older.hak"), hak.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_HAK, ExoString::from("older"));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run();
+    h.get_by_label("Hak Files (0)");
+    h.get_by_label_contains("names its hak, older, in the older single field (Mod_Hak)");
+    assert!(h.query_by_label_contains("uses the game's own resources").is_none());
+}
+
 /// Module Properties › Custom Content: the module's haks in a list of
 /// their own, numbered from the one that overrides the others. Rows are
 /// chosen (Ctrl and Shift for more) and moved by the keys, the arrows

@@ -26,26 +26,6 @@ fn in_module(module: &mg_module::Module, name: &str) -> Vec<ResKey> {
     TYPES.iter().filter_map(|ty| ResKey::parse(name, *ty)).filter(|k| module.contains(k)).collect()
 }
 
-/// The module's haks as Module Properties lists them, unsaved edits included.
-pub(super) fn listed_haks(ws: &mut mg_edit::Workspace) -> Vec<String> {
-    use mg_schema::StructExt;
-    let Ok(info) = ws.doc(&crate::module_props::info_key()) else { return Vec::new() };
-    info.root
-        .items(&mg_schema::ifo::MOD_HAK_LIST)
-        .iter()
-        .map(|h| {
-            String::from_utf8_lossy(h.read(&mg_schema::ifo::mod_hak_list::MOD_HAK).as_bytes())
-                .trim()
-                .to_owned()
-        })
-        .filter(|h| !h.is_empty())
-        .collect()
-}
-
-fn hak_folder(app: &Moonglow) -> Option<PathBuf> {
-    app.install.as_ref()?.user_dir.as_ref().map(|u| u.join("hak"))
-}
-
 /// A file from disk as a resource: its name is the resource name.
 fn resource(path: &Path) -> Result<ResKey, String> {
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -224,7 +204,7 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
 /// The hak pictures go into: the one chosen (in the user's hak folder) or a
 /// new one asked for. A hak saved elsewhere is copied into the hak folder.
 fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option<PathBuf> {
-    let Some(folder) = hak_folder(app) else {
+    let Some(folder) = app.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir) else {
         app.log.error("Haks need the game's user folder (Tools › Options)");
         return None;
     };
@@ -321,7 +301,9 @@ fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -
 /// module doesn't list yet is added at the top of its list (Undo takes it
 /// off), one it lists is read again. False when the hak can't be used.
 fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) -> bool {
-    let Some(folder) = hak_folder(app) else { return false };
+    let Some(folder) = app.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir) else {
+        return false;
+    };
     let hak = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     if path.parent() != Some(folder.as_path()) {
         let user = folder.parent().unwrap_or(&folder).to_owned();
@@ -343,7 +325,7 @@ fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) -> bool {
         }
     }
     let Some(ws) = &mut app.ws else { return false };
-    if listed_haks(ws).iter().any(|h| h.eq_ignore_ascii_case(&hak)) {
+    if crate::listed_haks(ws).iter().any(|h| h.eq_ignore_ascii_case(&hak)) {
         app.actions.push(Action::ReloadResources);
     } else if let Ok(info) = ws.doc(&crate::module_props::info_key()) {
         edits.push(Edit::SetField {
@@ -369,7 +351,7 @@ pub(super) fn page(
     let Some(ws) = &mut app.ws else { return edits };
     let names = used(doc, s);
     let module_images: Vec<ResKey> = names.iter().flat_map(|n| in_module(&ws.module, n)).collect();
-    let haks = listed_haks(ws);
+    let haks = crate::listed_haks(ws);
     // Pictures added to the module that no control shows yet.
     let unused: BTreeSet<String> = TYPES
         .iter()

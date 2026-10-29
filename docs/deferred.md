@@ -1583,23 +1583,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **What a module's tabs open again without:** a module opens again with
   its tabs, side editors and tools, split windows and views as they were
-  (Options › General, `crates/mg-ui/src/open_tabs.rs`). Not kept: a hak
-  never saved (no file to open) and a 2DA in one; a 2DA's Edit a Copy
-  not saved yet (its file isn't there); what a side editor's view
-  showed (a hak's selection, a 2DA's cell, a tileset's page), a
-  script's bookmarks, the talk table's line, a model view's camera,
-  Advanced Search's question (the next session's tab is empty); Tile
-  Properties that is waiting for its area's view (its area's tab not
-  shown since the module opened) when the module is closed again. What
-  a view showed is written with the tabs (when they change, a window is
-  moved, the module closes, Moonglow quits), not as the camera moves or
-  the cursor does: a crash loses a camera moved since. A conversation's marks are checked by a hash of its contents
-  (Rust's `DefaultHasher`): a toolchain that changes it lets them go
-  once. A placed object moved outside Moonglow and another of its tag
-  and blueprint added: neither is taken for it. A kept Options tab
-  makes its draft as Tools › Options does, which looks for the game's
-  install (Steam's library files) as the module opens. (S each) (a
-  builder's report, October 2026)
+  (Options › General, `crates/mg-ui/src/open_tabs.rs`), a script's
+  bookmarks, the talk table's line and a Tile Properties still waiting
+  for its area's view among them. Not kept, each an optional field of
+  `open_tabs::View` written by `view_of` and taken at the view's first
+  draw (S each): what a side editor's view showed (a hak's selection, a
+  2DA's cell, a tileset's page) and a model view's camera. Advanced
+  Search's question (the next session's tab is empty) wants its
+  conditions kept as text, nine kinds with their rows, parts and ranges
+  (`search::Condition` has no serde form) (S–M). Proposed to the owner
+  as kept as they are (settle or drop), by design: a hak never saved
+  and a 2DA in one, and a 2DA's Edit a Copy not saved yet (no file to
+  open again); a crash losing a camera moved since the tabs were last
+  written (they are written when they change, a window is moved, the
+  module closes or Moonglow quits, not as the camera moves); a placed
+  object moved outside Moonglow with another of its tag and blueprint
+  added (neither is taken for it); a kept Options tab making its draft
+  as Tools › Options does, which looks for the game's install (Steam's
+  library files) as the module opens. (a builder's report, October 2026)
 - **Deleting from the module tree:** Delete… removes the resource (an
   area with its GIT and GIC and its area-list entry, a script with its
   NCS) and nothing else: transitions, scripts and conversations that name
@@ -1607,41 +1608,35 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
   start area; Aurora removes it (after asking twice) and then refuses
   to save: "A module must have a starting location to be valid." (S)
-- **Windows' sizes and Maximize:** a window's size is remembered by the
-  kind of editor, not its place on screen; Maximize is a double click on
-  the tab or its menu, with no button in the window's bar (egui_dock
-  offers no place for one) and no key; a maximized window isn't kept so
-  when the main window is resized, and nothing shows that it is
-  maximized. That a size dragged by hand is remembered is not under
-  test (the tests set the size). (S–M)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M) (a senior builder's review, October 2026)
-- **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
-  Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
+- **Panes folded away** (GitHub issue 10, open: waits on its reporter's
+  retest of the one-button rule, built on 1.31.0): a View menu (Module
+  Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
   pane folded away leaves a strip at its edge that brings it back, as
   wide as it was; the palettes' pane closed by its ✕ counts as folded;
   the state is kept in the settings. Each pane has one button of its
-  own to fold it away, by the reporter's rule on 1.31.0: a chevron on
-  the edge it faces the middle by (the tree's right, the palettes'
-  left, or right where they were split off the middle's left, the
-  log's top), centered along it, in a thin strip that is all a folded
-  pane leaves, the button in the same place (the tree's «, the
-  palettes' » among their type icons, the log's ⏷ and ⏶ Log, and
-  egui_dock's arrow in the palettes' tab bar went). Not done: the
-  strip names its pane only in the tip; egui_dock's arrow on the
-  palettes' tab bar is covered over (egui_dock has it on every pane or
-  none, and windows fold to their bar by it), so the bar keeps its
-  blank room before the first tab, the covered arrow can still be
-  reached by Tab and pressed by Enter, and the middle's panes keep
-  theirs;
-  palettes joined to the middle's tabs, split above or below it or in
-  a window have no edge button (View and their ✕ fold them), and those
-  split above or below leave their strip on the right. (S)
-  (from builders' reports after 1.19.1)
+  own to fold it away, by the reporter's rule: a chevron on the edge it
+  faces the middle by (the tree's right, the palettes' left, or right
+  where they were split off the middle's left, the log's top), centered
+  along it, in a thin strip that is all a folded pane leaves, the button
+  in the same place. egui_dock's arrow on the palettes' tab bar is
+  covered over and its clicks taken (egui_dock has it on every pane or
+  none, and windows fold to their bar by it), and the keyboard passes
+  it (Tab and Shift+Tab, `the_palettes_covered_arrow_is_passed_by_the_keyboard`).
+  Left for the reporter's word, as their rule shapes each (S each): the
+  strip names its pane only in the tip (a name along a 16-point strip
+  would be drawn turned); the palettes' bar keeps the arrow's blank room
+  before its first tab, and the middle's panes keep their arrows
+  (egui_dock offers no per-pane choice: a patched egui_dock, or the
+  middle's arrows covered the same way); palettes joined to the middle's
+  tabs, split above or below it or in a window have no edge button (View
+  and their ✕ fold them), and those split above or below leave their
+  strip on the right. (from builders' reports after 1.19.1)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
@@ -1649,18 +1644,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   separators and rows that can't be chosen), Enter and Space choose,
   Right and Left open and close a submenu, and the pointer over another
   menu's name opens it while one is open. The marked row is drawn as
-  selected. Since 1.20.5: Alt and a menu's first letter (underlined)
-  opens it, a letter with a menu open goes to the next row that begins
-  with it, and Escape closes the submenu the keys are in before the
-  menus. Not done: a letter of its own for each row (they go by first
-  letters, and a letter only marks the row: Enter chooses); Alt and a
-  letter opens a menu while text is typed in too, as menus do, and
-  takes the key from a command given Alt and that letter in Options ›
-  Keyboard; Alt alone was not tried in a test (the harness sends no
-  modifier on its own: F10 was), nor on Windows, where the system may
-  take Alt for its own menu; a submenu inside a submenu has no keys
-  (there is none today); the bar itself is never "focused" without a
-  menu open. (S each) (from builders' reports after 1.19.1)
+  selected. Alt and a menu's first letter (underlined) opens it (unless
+  a command was given that key in Options › Keyboard; not AltGr), a
+  letter with a menu open goes to the next row that begins with it, and
+  Escape closes the submenu the keys are in before the menus; all of it
+  under test (`menus_by_the_keyboard`, Alt alone by its modifier
+  events). Waits: Alt alone on Windows, where the system may take Alt
+  for its own menu (a Windows build). Proposed to the owner as dropped
+  (nobody asked, or nothing to do today): a letter of its own for each
+  row (they go by first letters, and a letter only marks the row: Enter
+  chooses); keys for a submenu inside a submenu (there is none); the bar
+  itself "focused" without a menu open. (S each) (from builders' reports
+  after 1.19.1)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. The
@@ -2297,13 +2292,6 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Still made every frame, each needing something kept:** a blueprint's
-  category list (`Form::category` reads and parses the palette),
-  Module Properties' list of the hak folder, the script
-  editor's sorted symbols and its templates folder, Find in Files'
-  results (copied twice), the thumbnails' lists for the Appearance
-  Gallery and the Creature Wizard, the module tree's rows for the
-  keyboard (each group's resources copied). (S each)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same
@@ -2374,16 +2362,6 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **The placed objects' kind, still spelled out in the window:** the
-  GIT's lists and the nine types are one `mg_rules::ObjectKind` now
-  (`mg_area::ObjectKind` and `mg_module::palette::BlueprintKind` are
-  that type under the names their callers use), but mg-ui keeps tables
-  of its own that the merge with the editors' work in progress left
-  alone: Advanced Search's kinds (`search.rs:58`), the module tree's
-  categories (`tree.rs:22`) and its New wizard per type
-  (`tree.rs:1280`), the palettes' New menu items (`palette_view.rs:1117`),
-  the tabs' kind names (`tabs.rs:116`, five types), `icons::blueprint`
-  (a kind turned into itself). (S)
 - **A localized string's text, without the toolset's language or the
   talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
   `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
@@ -2483,23 +2461,10 @@ of truth, and does each caller's difference matter.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
-- A tileset read by hand where it is open: `tile_view.rs:19`,
-  `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
-  `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.
 - The eight corners of a box five times (`model_view.rs:441`, `:459`,
   `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
   renderer.rs:1709`); lightcolor.2da's toolset colors twice
   (`tile_select.rs:375`, `area_view.rs:5080`).
-- A module's hak list read four ways (`Module::haks`, `lib.rs:3658`,
-  `nui_view/images.rs:29` with no fallback, `module_props.rs:351`);
-  `hak_dir` and `hak_folder` the same (`hak_view.rs:194`,
-  `nui_view/images.rs:44`); a hak's file found by hand five times
-  (`install.rs:299` and four `hak_dirs().find`).
-- Compile Models' report twice (`hak_view.rs:650`, `lib.rs:3195`), the
-  "Files Already in…" window twice (`hak_view.rs:710`,
-  `model_view.rs:264`), "A, B and N more" by hand five times beside
-  `transfer::listed`, and the 2DA and talk-table file dialogs with no
-  kind of their own (`FileKind::Any`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
 - `DialogSearch` keeps its own match options and rebuilds
@@ -2548,9 +2513,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **The project file is read again only with reloading on** (Options ›
-  General), when the folder's watch sees a change; a window open then
-  (Setup Store) keeps the rules it opened with. (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**
   not when a tag is typed in Properties, an object is placed from the
   palette (its blueprint's tag), Create Set names waypoints, Find and

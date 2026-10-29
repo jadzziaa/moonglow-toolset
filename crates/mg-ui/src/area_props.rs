@@ -280,12 +280,10 @@ fn tileset_name(app: &mut Moonglow, tileset: ResRef) -> String {
     if let Some(name) = app.palette.tileset_names.get(&tileset) {
         return name.clone();
     }
-    let name = app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            let set = mg_area::tileset(g, tileset).ok()?;
-            g.string(set.general.display_name).or(set.general.unlocalized_name)
+    let set = app.tileset(tileset);
+    let name = (app.game.as_ref().zip(set))
+        .and_then(|(g, set)| {
+            g.string(set.general.display_name).or(set.general.unlocalized_name.clone())
         })
         .unwrap_or_else(|| tileset.to_string());
     app.palette.tileset_names.insert(tileset, name.clone());

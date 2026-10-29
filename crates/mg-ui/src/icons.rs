@@ -3,7 +3,6 @@
 //! fonts.
 
 use mg_area::ObjectKind;
-use mg_module::palette::BlueprintKind;
 
 pub(crate) const TILES: &str = "🗻";
 pub(crate) const ERASER: &str = "🗑";
@@ -59,6 +58,9 @@ pub(crate) const CLAIMED_MINE: &str = "✔";
 pub(crate) const MERGED: &str = "📌";
 /// Prefabs: groups of placed objects kept to place again.
 pub(crate) const PREFABS: &str = "🗐";
+/// A window's bar: Maximize, and Restore while it is maximized.
+pub(crate) const MAXIMIZE: &str = "🗖";
+pub(crate) const RESTORE: &str = "🗗";
 
 /// An object type's glyph.
 pub(crate) fn object(kind: ObjectKind) -> &'static str {
@@ -73,11 +75,6 @@ pub(crate) fn object(kind: ObjectKind) -> &'static str {
         ObjectKind::Trigger => "⚡",
         ObjectKind::Waypoint => "📍",
     }
-}
-
-/// A blueprint type's glyph: its objects'.
-pub(crate) fn blueprint(kind: BlueprintKind) -> &'static str {
-    ObjectKind::from_restype(kind.restype()).map_or("", object)
 }
 
 /// `text` after `glyph`.
@@ -338,6 +335,8 @@ impl Tools {
             ONTO_OBJECTS,
             TO_SCRATCH,
             FADE,
+            MAXIMIZE,
+            RESTORE,
             SNAP,
             TURN,
             PREFABS,

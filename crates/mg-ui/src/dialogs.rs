@@ -37,6 +37,12 @@ pub enum FileKind {
     Plugin,
     /// The log, as text: `.txt`.
     Log,
+    /// A 2DA table: `.2da`.
+    Table,
+    /// A talk table: `.tlk`.
+    TalkTable,
+    /// A talk table's lines, as CSV or (`json`) as `nwn_tlk`'s JSON.
+    TalkLines { json: bool },
 }
 
 impl FileKind {
@@ -68,6 +74,12 @@ impl FileKind {
             (FileKind::Tileset, true) => "New Tileset",
             (FileKind::Plugin, _) => "Install Plugin from File",
             (FileKind::Log, _) => "Save Log",
+            (FileKind::Table, false) => "Open 2DA",
+            (FileKind::Table, true) => "Save 2DA As",
+            (FileKind::TalkTable, false) => "Open Talk Table",
+            (FileKind::TalkTable, true) => "New Talk Table",
+            (FileKind::TalkLines { .. }, false) => "Import Lines",
+            (FileKind::TalkLines { .. }, true) => "Export Lines",
         }
     }
 
@@ -93,6 +105,10 @@ impl FileKind {
             (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
             (FileKind::Plugin, _) => Some(("Plugin archives", &["zip"])),
             (FileKind::Log, _) => Some(("Text", &["txt", "log"])),
+            (FileKind::Table, _) => Some(("2DA tables", &["2da"])),
+            (FileKind::TalkTable, _) => Some(("Talk tables", &["tlk"])),
+            (FileKind::TalkLines { json: false }, _) => Some(("CSV", &["csv"])),
+            (FileKind::TalkLines { json: true }, _) => Some(("JSON", &["json"])),
         }
     }
 }

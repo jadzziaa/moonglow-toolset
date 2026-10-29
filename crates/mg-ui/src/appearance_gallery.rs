@@ -235,7 +235,7 @@ pub(crate) fn grid(
     let side = tile_side(app);
     let needle = mg_core::text::Needle::new(&state.filter);
     let rows: Vec<&mg_rules::Choice> = all.iter().filter(|c| needle.finds(&c.text)).collect();
-    let ready = app.thumbnails.every();
+    let ready = &app.thumbnails;
     let (mut shown, mut pick) = (Vec::new(), None);
     let gap = 4.0;
     // (The room less the scroll bar's.)
@@ -260,7 +260,7 @@ pub(crate) fn grid(
                 for c in rows.iter().skip(line * per_row).take(per_row) {
                     let key = kind.pictured(&table, c.row, gender);
                     let made = match key {
-                        Some(k) => ready.get(&k).copied(),
+                        Some(k) => ready.made(k),
                         None => Some(None),
                     };
                     let chosen = current == Some(c.row as i64);

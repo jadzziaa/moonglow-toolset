@@ -2521,6 +2521,59 @@ pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.escape && d.open.is_empty())
 }
 
+/// What a "Files Already in…" window was answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Already {
+    /// Write (or add) every file, over those there.
+    Replace,
+    /// Write the others, and leave those there as they are.
+    Skip,
+    Cancel,
+}
+
+/// Asks what to do with files that are there already, before they are
+/// written over: the hak editor's adding ("Files Already in the Hak") and
+/// a model's Export Files ("…in the Folder"). `said` heads the list of
+/// them (each with what it is on hover, where given); `replace` and
+/// `skip` say what Replace and Skip Those do. `None` while unanswered.
+pub(crate) fn files_already(
+    ctx: &egui::Context,
+    place: &str,
+    said: &str,
+    files: &[(String, Option<String>)],
+    [replace, skip]: [&str; 2],
+) -> Option<Already> {
+    let mut answer = None;
+    egui::Window::new(format!("Files Already in the {place}"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(said);
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for (name, about) in files {
+                    let r = ui.label(egui::RichText::new(name).monospace());
+                    if let Some(about) = about {
+                        r.on_hover_text(about);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let n = files.len();
+                if ui.button(format!("Replace {n}")).on_hover_text(replace).clicked() {
+                    answer = Some(Already::Replace);
+                }
+                if ui.button("Skip Those").on_hover_text(skip).clicked() {
+                    answer = Some(Already::Skip);
+                }
+                if cancel(ui) {
+                    answer = Some(Already::Cancel);
+                }
+            });
+        });
+    answer
+}
+
 /// A dialog's Cancel button: clicked, or Escape pressed for its window.
 pub(crate) fn cancel(ui: &mut Ui) -> bool {
     cancel_button(ui, None)

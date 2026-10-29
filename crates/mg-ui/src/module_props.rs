@@ -338,6 +338,28 @@ pub struct HakList {
     cursor: Option<usize>,
     /// The cursor's row is to be brought into view.
     reveal: bool,
+    /// The haks in the hak folders ([`haks_on_disk`]), and when they were
+    /// read (egui's time).
+    on_disk: Option<(f64, std::sync::Arc<Vec<String>>)>,
+}
+
+/// How long the hak folders' listing is kept before they are read again
+/// (a hak copied in meanwhile shows then): not read every frame.
+const ON_DISK_KEPT: f64 = 2.0;
+
+/// The haks in the hak folders (lower case, without `.hak`): the list
+/// read at most [`ON_DISK_KEPT`] seconds ago, else read now. `None`
+/// without a game install.
+fn haks_on_disk(app: &mut Moonglow, now: f64) -> Option<std::sync::Arc<Vec<String>>> {
+    let install = app.install.as_ref()?;
+    match &app.hak_list.on_disk {
+        Some((read, haks)) if (0.0..ON_DISK_KEPT).contains(&(now - read)) => Some(haks.clone()),
+        _ => {
+            let haks = std::sync::Arc::new(GameInstall::file_names(&install.hak_dirs(), "hak"));
+            app.hak_list.on_disk = Some((now, haks.clone()));
+            Some(haks)
+        }
+    }
 }
 
 /// A row of the hak list being dragged.
@@ -388,8 +410,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let command = |edits: Vec<Edit>, label: &str| Action::Apply(Command::new(label, edits));
     // The haks there are to attach, and those of the module's that are not
     // among them: not found, which the game will not load the module with.
-    let on_disk: Option<Vec<String>> =
-        app.install.as_ref().map(|i| GameInstall::file_names(&i.hak_dirs(), "hak"));
+    let on_disk = haks_on_disk(app, ui.ctx().input(|i| i.time));
     let missing = |h: &str| {
         on_disk.as_ref().is_some_and(|all| !all.iter().any(|x| x.eq_ignore_ascii_case(h)))
     };
@@ -418,8 +439,18 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         let mut rects = Vec::with_capacity(n);
         egui::ScrollArea::vertical().id_salt("ifo-haks").max_height(tall).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            if n == 0 {
-                ui.weak("No haks: the module uses the game's own resources.");
+            // (An older module's single hak, `Mod_Hak`, read where it has
+            // no list: the haks layered, `mg_module::haks_of`.)
+            match mg_module::haks_of(root).first().filter(|_| n == 0) {
+                Some(old) => {
+                    _ = ui.weak(format!(
+                        "No list of haks: the module names its hak, {old}, in the older single \
+                     field (Mod_Hak), which is read where there is no list. A hak added here \
+                     starts the list in its place: add {old} to it too, to keep it."
+                    ))
+                }
+                None if n == 0 => _ = ui.weak("No haks: the module uses the game's own resources."),
+                None => {}
             }
             for (i, h) in haks.iter().enumerate() {
                 let row = ui.horizontal(|ui| {
@@ -567,10 +598,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         state.reveal = false;
     }
 
-    let available: Vec<String> = on_disk
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
+    let available: Vec<&String> = (on_disk.iter().flat_map(|all| all.iter()))
         .filter(|h| !haks.iter().any(|x| x.eq_ignore_ascii_case(h)))
         .collect();
     // The list's commands, under it: what adds to it and checks it, and
@@ -581,7 +609,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             ui,
             |ui, keys| {
                 for h in &available {
-                    let r = ui.selectable_label(false, h);
+                    let r = ui.selectable_label(false, h.as_str());
                     if keys.row(&r) || r.clicked() {
                         let mut item = ifo::MOD_HAK_LIST.new_item();
                         item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
@@ -879,5 +907,24 @@ mod tests {
         assert!(speed(60.0) > speed(100.0), "and past it");
         assert_eq!(speed(0.0), speed(-500.0), "up to a most");
         assert_eq!(speed(395.0), -speed(105.0));
+    }
+
+    /// The hak folders are listed for Custom Content once a couple of
+    /// seconds, not every frame: a hak copied in shows then.
+    #[test]
+    fn the_hak_folders_are_read_again_after_a_while() {
+        let dir = mg_testkit::scratch_dir("ui-hak-folders");
+        let user = dir.join("user");
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        std::fs::write(user.join("hak/first.hak"), "").unwrap();
+        let mut app = crate::Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        assert!(super::haks_on_disk(&mut app, 0.0).is_none(), "no install");
+        app.install = Some(mg_resman::GameInstall::new(dir.join("game"), Some(user.clone()), "en"));
+        let listed =
+            |app: &mut crate::Moonglow, now| super::haks_on_disk(app, now).unwrap().to_vec();
+        assert_eq!(listed(&mut app, 1.0), ["first"]);
+        std::fs::write(user.join("hak/second.hak"), "").unwrap();
+        assert_eq!(listed(&mut app, 2.5), ["first"], "kept a while");
+        assert_eq!(listed(&mut app, 3.0), ["first", "second"]);
     }
 }

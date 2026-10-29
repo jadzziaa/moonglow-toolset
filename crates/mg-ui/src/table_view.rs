@@ -308,7 +308,7 @@ pub fn open_path(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
 
 /// A 2DA file anywhere, asked for.
 pub fn open_file(app: &mut Moonglow) {
-    if let Some(path) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
+    if let Some(path) = app.dialogs.open_file(crate::dialogs::FileKind::Table, None) {
         open_path(app, &path);
     }
 }
@@ -474,7 +474,7 @@ pub fn edit_copy(app: &mut Moonglow, key: ResKey, home: Home) -> Option<u32> {
 /// Edit a Copy In › a file: asks where.
 pub fn edit_copy_in_file(app: &mut Moonglow, key: ResKey) {
     let suggested = PathBuf::from(key.to_string());
-    if let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Any, Some(&suggested)) {
+    if let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Table, Some(&suggested)) {
         let path = if path.extension().is_some() { path } else { path.with_extension("2da") };
         edit_copy(app, key, Home::File(path));
     }
@@ -543,7 +543,8 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
 fn save_as_file(app: &mut Moonglow, id: u32) {
     let Some(doc) = app.tables.iter().find(|d| d.id == id) else { return };
     let suggested = PathBuf::from(doc.key.to_string());
-    let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Any, Some(&suggested)) else {
+    let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Table, Some(&suggested))
+    else {
         return;
     };
     let path = if path.extension().is_some() { path } else { path.with_extension("2da") };

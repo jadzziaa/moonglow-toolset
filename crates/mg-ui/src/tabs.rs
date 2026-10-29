@@ -96,6 +96,20 @@ impl Tab {
         matches!(self, Tab::Area(_) | Tab::Welcome | Tab::NoArea)
     }
 
+    /// What its kind was called before, where it was another: the
+    /// encounters', sounds', triggers' and waypoints' blueprints were all
+    /// `blueprint` until each type had its own. A size or place kept by
+    /// that name is used until one is kept by the new.
+    pub(crate) fn kind_before(&self) -> Option<&'static str> {
+        match self {
+            Tab::Blueprint(k) => {
+                matches!(k.restype, ResType::UTE | ResType::UTS | ResType::UTT | ResType::UTW)
+                    .then_some("blueprint")
+            }
+            _ => None,
+        }
+    }
+
     /// The kind of tab, whatever it shows: what its window's size is
     /// remembered by.
     pub(crate) fn kind(&self) -> &'static str {
@@ -117,14 +131,9 @@ impl Tab {
             Tab::Resource(_) | Tab::ResourceCopy { .. } => "resource",
             Tab::Model(_) | Tab::InstanceModel { .. } => "model",
             Tab::Palette => "palette",
-            Tab::Blueprint(k) => match k.restype {
-                ResType::UTC => "creature",
-                ResType::UTI => "item",
-                ResType::UTP => "placeable",
-                ResType::UTD => "door",
-                ResType::UTM => "store",
-                _ => "blueprint",
-            },
+            Tab::Blueprint(k) => {
+                mg_area::ObjectKind::from_restype(k.restype).map_or("blueprint", |k| k.name())
+            }
             Tab::Blueprints(_) => "blueprints",
             Tab::Area(_) => "area",
             Tab::AreaProperties(_) | Tab::AreasProperties(_) => "area-properties",
@@ -479,8 +488,8 @@ impl TabViewer for Viewer<'_> {
             Tab::Options => "Options".into(),
             Tab::TileProperties => "Tile Properties".into(),
             Tab::Tile { tileset, tile } => {
-                let model = (self.app.area_views.values().filter_map(|v| v.terrain.as_ref()))
-                    .find(|t| t.tileset == *tileset)
+                // (As an open area has the tileset: not read for a title.)
+                let model = (self.app.open_tileset(*tileset))
                     .and_then(|t| t.set.tiles.get(*tile as usize).map(|t| t.model.clone()));
                 format!("{} (tile)", model.unwrap_or_else(|| format!("{tileset} tile {tile}")))
                     .into()
@@ -792,6 +801,20 @@ fn welcome(app: &mut Moonglow, ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each blueprint type's windows are kept by its own name, and the
+    /// four once kept together as `blueprint` say so, for the sizes and
+    /// places kept by it before.
+    #[test]
+    fn each_blueprint_type_is_a_kind_of_window() {
+        let tab = |t| Tab::Blueprint(ResKey::parse("x", t).unwrap());
+        let kinds: Vec<_> =
+            mg_area::ObjectKind::ALL.map(|k| (tab(k.restype()).kind(), k.name())).into();
+        assert!(kinds.iter().all(|(a, b)| a == b), "{kinds:?}");
+        assert_eq!(tab(ResType::UTC).kind_before(), None);
+        assert_eq!(tab(ResType::UTW).kind_before(), Some("blueprint"));
+        assert_eq!(Tab::Factions.kind_before(), None);
+    }
 
     /// A window's last tab closed takes the window with it, and the
     /// others stay where they are; the window drawn after it is whole.

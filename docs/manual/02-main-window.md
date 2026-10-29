@@ -48,7 +48,9 @@ Escape closes the submenu the keys are in, else the menus. With a menu
 open, the pointer over another menu's name opens that one. Alt and a
 menu's first letter (underlined: Alt+F for File, Alt+V for View) opens
 that menu, and with a menu open a letter goes to the next row that
-begins with it.
+begins with it. A command given Alt and a menu's letter in Options ›
+Keyboard has that key instead of the menu; AltGr and a letter (another
+layout's character) opens none.
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and
@@ -103,6 +105,7 @@ changes them; the menus show the current keys.
 | Ctrl+Tab, Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
+| Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
 | F6, Shift+F6 | The arrow keys to the next pane (the module tree, the middle, the palettes), or the one before: to what the pane's tab in front has (in the middle a talk table's lines, a 2DA's cells, at its first cell if none is selected, the resource browser's list, else an area's view; a palette at its first row) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
@@ -371,10 +374,17 @@ click: the panes beside it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
-kind of editor has its own). **Double-click a window's tab** to maximize
+kind of editor has its own, and each type of blueprint: a waypoint's
+Properties opens at the size the last waypoint's was left, not an
+encounter's), and a size dragged at its edge or corner is kept so.
+**Double-click a window's tab** (or the bar beside it) to maximize
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
-**Restore** are on the tab's right-click menu too. **The module tree
+**Restore** are on the tab's right-click menu too, and the button at the
+right of the window's bar, before its ✕, does it and shows which it is:
+🗖 Maximize, 🗗 Restore. **Ctrl+Shift+M** (Maximize Window in Options ›
+Keyboard) does it for the window of the tab in front. A maximized
+window stays over the whole of Moonglow's window as that is resized. **The module tree
 follows the tab chosen**: a tab clicked, reached by the keys (Ctrl+Tab,
 Ctrl+Page Down, Ctrl and a digit) or opened (from the tree, a script
 field's Edit, Find References…) marks its resource's row in the tree as
@@ -411,9 +421,10 @@ window to its bar.
 conversations, side editors and tools open when it was closed, in the
 same panes and windows (split as they were, where they were moved to),
 each pane's tab in front in front, and each view as it was left: an
-area's camera, a script's scroll and cursor, a conversation's selected
-line, bookmarks and folded branches, a Properties window's page
-(Options › General; see [Modules](03-modules.md)).
+area's camera, a script's scroll, cursor and bookmarks, a
+conversation's selected line, bookmarks and folded branches, the talk
+table's line, a Properties window's page (Options › General; see
+[Modules](03-modules.md)).
 
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.

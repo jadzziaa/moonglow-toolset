@@ -98,6 +98,9 @@ pub enum Id {
     NextTab,
     PreviousTab,
     ReopenTab,
+    /// The window of the tab in front made to fill Moonglow's window, or
+    /// put back (as its bar's button, a double click on it, its menu).
+    MaximizeWindow,
     /// The arrow keys given to the next pane, or the one before.
     NextPane,
     PreviousPane,
@@ -274,6 +277,12 @@ pub const TOOLBAR: [Option<(Id, &str, &str, &str)>; 16] = [
 ];
 
 impl Id {
+    /// The Wizards menu's command that makes a new blueprint of `kind`:
+    /// the Creature Wizard for creatures, a blueprint wizard otherwise.
+    pub(crate) fn new_blueprint(kind: BlueprintKind) -> Id {
+        if kind == BlueprintKind::Creature { Id::CreatureWizard } else { Id::Wizard(kind) }
+    }
+
     /// Every command, in the menus' order, then those no menu has.
     pub fn all() -> Vec<Id> {
         fn walk(items: &[Item], out: &mut Vec<Id>) {
@@ -298,6 +307,7 @@ impl Id {
         }
         out.extend([Id::PreviewWindow, Id::FullScreen]);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
+        out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
         out
     }
@@ -488,6 +498,11 @@ impl Id {
             Id::PreviewWindow => ("preview-window", "Preview Window", ""),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
             Id::CloseTab => ("close-tab", "Close Tab", "The tab in front"),
+            Id::MaximizeWindow => (
+                "maximize-window",
+                "Maximize Window",
+                "The window of the tab in front over the whole of Moonglow's, or back",
+            ),
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
@@ -554,6 +569,7 @@ impl Id {
             Id::FullScreen => Cmd::FullScreen,
             Id::Close => Cmd::Close,
             Id::CloseTab => Cmd::CloseTab,
+            Id::MaximizeWindow => Cmd::MaximizeWindow,
             Id::NextTab => Cmd::NextTab,
             Id::PreviousTab => Cmd::PreviousTab,
             Id::ReopenTab => Cmd::ReopenTab,
@@ -658,6 +674,7 @@ impl Id {
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
+            Id::MaximizeWindow => app.front_window_tab().is_some(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
             // (A script's, with the keys in its editor: as its Ctrl+Z,
@@ -865,6 +882,10 @@ impl Id {
             }
             Id::CloseTab => match app.front_tab() {
                 Some(tab) => Action::CloseTabs(vec![tab]),
+                None => return,
+            },
+            Id::MaximizeWindow => match app.front_window_tab() {
+                Some(tab) => Action::ToggleMaximize(tab),
                 None => return,
             },
             Id::NextTab => return app.step_tab(1),
@@ -1095,9 +1116,11 @@ impl MenuKeys {
 pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     use egui::{Key, Modifiers, Popup};
     let ctx = ui.ctx().clone();
-    // A letter pressed: with Alt alone held, a menu's; with a menu open
-    // and nothing held, a row's. Taken from the frame's keys, with the
-    // text it typed.
+    // A letter pressed: with Alt alone held, a menu's (unless a command
+    // was given Alt and that letter in Options › Keyboard: the command's
+    // then); with a menu open and nothing held, a row's. Taken from the
+    // frame's keys, with the text it typed.
+    let keymap = &app.keymap;
     let letter = |alt: bool| {
         ctx.input_mut(|i| {
             let m = i.modifiers;
@@ -1105,7 +1128,9 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
                 return None;
             }
             let found = i.events.iter().find_map(|e| match e {
-                egui::Event::Key { key, pressed: true, repeat: false, .. } => {
+                egui::Event::Key { key, pressed: true, repeat: false, .. }
+                    if !(alt && keymap.bound(e)) =>
+                {
                     let name = key.name();
                     let c = name.chars().next().filter(|c| name.len() == 1 && c.is_alphabetic())?;
                     Some((*key, c.to_ascii_lowercase()))
