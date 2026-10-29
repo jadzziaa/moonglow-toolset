@@ -1098,17 +1098,11 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
             // The sets kept for this module, and the ticked kept as one.
             ui.horizontal(|ui| {
                 let mut picked: Option<String> = None;
-                egui::ComboBox::from_id_salt("area-chooser-sets")
+                let options: Vec<Option<String>> = sets.iter().cloned().map(Some).collect();
+                crate::widgets::dropdown("area-chooser-sets")
                     .selected_text(if sets.is_empty() { "No sets kept" } else { "Tick a Set…" })
                     .width(160.0)
-                    .show_ui(ui, |ui| {
-                        for name in &sets {
-                            if ui.selectable_label(false, name).clicked() {
-                                picked = Some(name.clone());
-                            }
-                        }
-                    })
-                    .response
+                    .show(ui, &mut picked, &options, |s| s.clone().unwrap_or_default())
                     .on_hover_text("Ticks the areas of a set kept for this module, as they are");
                 if let Some(name) = picked {
                     match crate::area_sets::read(app.area_set_dir.as_deref(), &name) {
