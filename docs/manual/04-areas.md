@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
 ---
 
 # Areas
@@ -1306,11 +1306,17 @@ it left, and why. Left dynamic are placeables that:
   loaded. The log names each kept for its variables;
 - or the [project file](03-modules.md#the-project-file-moonglowtoml)
   says so (`[make_static]`): its tags or blueprints by name, and which
-  variables count (all, unless it names them).
+  variables count (all, unless it names them);
+- have a tag one of the module's scripts names: the tag written in a
+  script as text (`GetObjectByTag("GATE_LEVER")`, a constant
+  `"LAMP_01"`), which it may destroy, animate or make usable. The log
+  names the script and the line. Tags compare exactly, as the game's
+  lookups do.
 
-One a script destroys or animates by its tag, with no variables, can't
-be told from the rest: make it dynamic again from its menu in the area
-view. **Make
+A tag a script makes up as it runs (`"LAMP_" + IntToString(n)`), or one
+named only in a compiled script with no source (a hak's), can't be seen:
+name such tags in the project file's `keep_tags`, or make the placeable
+dynamic again from its menu in the area view. **Make
 Placeables Dynamic**, on the same menus, clears Static on every
 placeable of the area or the module. From the command line, `mg areas
 --static-placeables` and `--dynamic-placeables` do the same.

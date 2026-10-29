@@ -4633,11 +4633,12 @@ impl Moonglow {
     /// Makes the placeables of `areas` static, as one command, where
     /// nothing is lost by it (`mg_module::areas::static_plan`: not the
     /// Useable ones, those a visual transform changes, those with scripts
-    /// and the like, nor those with variables or the project's rules
-    /// name), and says in the log what was left, and why.
+    /// and the like, nor those with variables, the project's rules name or
+    /// whose tags the module's scripts name), and says in the log what was
+    /// left, and why.
     fn static_placeables(&mut self, areas: &[mg_core::ResRef]) {
         let Some(ws) = self.ws.as_mut() else { return };
-        let rules = ws.module.project_file.make_static.clone();
+        let rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
         let mut edits = Vec::new();
         let (mut made, mut within) = (0, 0);
         let mut left = mg_module::areas::StaticPlan::default();
@@ -4661,7 +4662,10 @@ impl Moonglow {
             }
             for (i, why) in &plan.kept {
                 use mg_module::areas::Kept;
-                if matches!(why, Kept::Variable(_) | Kept::Tag(_) | Kept::ResRef(_)) {
+                if matches!(
+                    why,
+                    Kept::Variable(_) | Kept::Tag(_) | Kept::ResRef(_) | Kept::Script(..)
+                ) {
                     let tag = list[*i].string("Tag").map(text::decode).unwrap_or_default();
                     named.push(format!("{tag} in {area}: {}", why.describe()));
                 }
@@ -4696,7 +4700,7 @@ impl Moonglow {
         }
         if named.len() > SHOWN {
             self.log.info(format!(
-                "Left dynamic: {} more by variables or the project",
+                "Left dynamic: {} more by variables, the project or scripts",
                 named.len() - SHOWN
             ));
         }

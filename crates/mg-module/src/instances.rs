@@ -23,7 +23,6 @@
 //! Aurora's two quirks with blueprints lacking `Comment` (a creature then
 //! gets an empty `Comment`, and its first skill another) are not copied.
 
-
 use mg_core::{LocString, ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_rules::{GameData, ObjectKind};

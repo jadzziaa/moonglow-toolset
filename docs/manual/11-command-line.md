@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
 ---
 
 # Command-line tools
@@ -246,8 +246,9 @@ mg areas mymodule.mod --where 'Fog*=0' --where OnEnter=kz_enter
 - **`--static-placeables`**: sets Static on each area's placeables that
   lose nothing by it (not the Useable ones, those a visual transform
   changes, those with a script, conversation, trap, inventory or
-  animation switched on, those with variables, nor those the project
-  file keeps dynamic); see [Areas](04-areas.md). Each placeable left
+  animation switched on, those with variables, those the project
+  file keeps dynamic, nor those whose tags the module's scripts name as
+  text); see [Areas](04-areas.md#static-placeables-many-at-once). Each placeable left
   dynamic is named with why (a note, and `left_dynamic` in the JSON).
   **`--dynamic-placeables`** clears Static on every placeable.
 

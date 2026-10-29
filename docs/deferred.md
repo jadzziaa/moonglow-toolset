@@ -409,11 +409,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Bulk editing
 
-- **Make Placeables Static, what it can't see:** a placeable that a
-  script destroys, animates or makes usable by its tag, and has no
-  variables, looks like scenery and is made static; nothing scans the
-  scripts for its tag (a project names such tags in `[make_static]`
-  `keep_tags`). (M)
 - **Lists across several blueprints:** Edit Together leaves out the
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the

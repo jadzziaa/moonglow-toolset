@@ -351,6 +351,10 @@ pub struct StaticPlan {
     pub variables: usize,
     /// Left dynamic: the project's rules name its tag or its blueprint.
     pub project: usize,
+    /// Left dynamic: a script of the module names its tag (a string
+    /// literal of it: `GetObjectByTag("LAMP_01")`, a constant), which it
+    /// may destroy, animate or make usable.
+    pub scripted: usize,
     /// Each left dynamic, and why.
     pub kept: Vec<(usize, Kept)>,
 }
@@ -369,6 +373,8 @@ pub enum Kept {
     Tag(String),
     /// The project's `keep_resrefs` pattern its blueprint matches.
     ResRef(String),
+    /// A script names its tag: the first that does, and the line.
+    Script(ResRef, usize),
 }
 
 impl Kept {
@@ -381,6 +387,7 @@ impl Kept {
             Kept::Variable(name) => format!("it has the variable {name}"),
             Kept::Tag(p) => format!("the project keeps tags {p} dynamic"),
             Kept::ResRef(p) => format!("the project keeps blueprints {p} dynamic"),
+            Kept::Script(script, line) => format!("{script}.nss names its tag (line {line})"),
         }
     }
 }
@@ -395,6 +402,7 @@ impl StaticPlan {
             (self.active, "with a script, conversation, trap, inventory or animation"),
             (self.variables, "with variables"),
             (self.project, "kept by the project's rules"),
+            (self.scripted, "whose tags a script names"),
         ];
         let said: Vec<String> =
             parts.iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect();
@@ -409,6 +417,7 @@ impl StaticPlan {
         self.active += other.active;
         self.variables += other.variables;
         self.project += other.project;
+        self.scripted += other.scripted;
     }
 }
 
@@ -451,7 +460,61 @@ fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
     if let Some(glob) = rules.keep_resrefs.matching(&resref).filter(|_| !resref.is_empty()) {
         return Some(Kept::ResRef(glob.into()));
     }
+    let tag = p.string("Tag").unwrap_or_default();
+    if let Some(&(script, line)) = rules.scripts.find(tag) {
+        return Some(Kept::Script(script, line));
+    }
     None
+}
+
+/// The string literals of a module's scripts (its `.nss`), each with the
+/// first script and line it is in: what Make Placeables Static looks a
+/// placeable's tag up in, as a script that destroys, animates or makes
+/// usable a placeable by its tag names it (`GetObjectByTag("LAMP_01")`,
+/// `GetNearestObjectByTag`, a constant of it). Compared exactly, as the
+/// game's tag lookups compare. A tag a script makes up as it runs
+/// (`"LAMP_" + IntToString(n)`) isn't seen, nor one in a script the
+/// module has only compiled (a hak's): `[make_static]` `keep_tags` names
+/// those.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScriptStrings(std::collections::HashMap<Vec<u8>, (ResRef, usize)>);
+
+impl ScriptStrings {
+    /// Of `module`'s scripts, in the order of their names.
+    pub fn of(module: &Module) -> ScriptStrings {
+        let mut keys: Vec<&ResKey> = module.keys_of(ResType::NSS).collect();
+        keys.sort();
+        ScriptStrings::of_sources(keys.into_iter().filter_map(|k| Some((k.resref, module.get(k)?))))
+    }
+
+    /// Of the sources `scripts` (each script's name and text).
+    pub fn of_sources<'a>(scripts: impl IntoIterator<Item = (ResRef, &'a [u8])>) -> ScriptStrings {
+        use mg_script::lex::{TokenKind, tokenize};
+        let mut out = std::collections::HashMap::new();
+        for (name, src) in scripts {
+            let mut line = 1;
+            let mut counted = 0;
+            for t in tokenize(src) {
+                if !matches!(t.kind, TokenKind::String { terminated: true }) {
+                    continue;
+                }
+                let text = &src[t.span.start + 1..t.span.end - 1];
+                if text.is_empty() {
+                    continue;
+                }
+                line += src[counted..t.span.start].iter().filter(|&&b| b == b'\n').count();
+                counted = t.span.start;
+                out.entry(text.to_vec()).or_insert((name, line));
+            }
+        }
+        ScriptStrings(out)
+    }
+
+    /// Where `text` is first a string literal (the script and its line),
+    /// if it is one; never for no text.
+    pub fn find(&self, text: &[u8]) -> Option<&(ResRef, usize)> {
+        self.0.get(text).filter(|_| !text.is_empty())
+    }
 }
 
 /// What making an area's placeables static would do (`git`: the area's
@@ -474,6 +537,7 @@ pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
             Kept::Active(_) => plan.active += 1,
             Kept::Variable(_) => plan.variables += 1,
             Kept::Tag(_) | Kept::ResRef(_) => plan.project += 1,
+            Kept::Script(..) => plan.scripted += 1,
         }
         plan.kept.push((i, why));
     }
@@ -604,7 +668,10 @@ pub fn apply(
 ) -> Result<Vec<Changed>, String> {
     let mut done = Vec::new();
     let mut write = Vec::new();
-    let rules = m.project_file.make_static.clone();
+    let mut rules = m.project_file.make_static.clone();
+    if changes.iter().any(|c| matches!(c, Change::StaticPlaceables)) {
+        rules = rules.with_scripts(m);
+    }
     let mut rng = fastrand::Rng::with_seed(seed);
     for &area in areas {
         let are_key = ResKey::new(area, ResType::ARE);
@@ -1064,6 +1131,7 @@ mod tests {
             keep_variables: p(&["tdod_*"]),
             keep_tags: p(&["LAMP_*"]),
             keep_resrefs: p(&["TDOD_*"]),
+            ..StaticRules::default()
         };
         let plan = static_plan(&git.root, &rules);
         assert_eq!(plan.convert, [0, 2, 5], "x_note is not the project's");
@@ -1085,6 +1153,58 @@ mod tests {
         assert_eq!(
             what,
             ["placeable 0 ROCK Static", "placeable 2 CRATE Static", "placeable 5 TABLE Static"]
+        );
+    }
+
+    /// A placeable whose tag a script of the module names (a string
+    /// literal: what `GetObjectByTag` takes) stays dynamic, the script and
+    /// its line said; a tag only in a comment, or a part of a literal,
+    /// doesn't keep one; nor does no tag.
+    #[test]
+    fn a_placeable_a_script_names_by_its_tag_stays_dynamic() {
+        let mut m = module();
+        let key = ResKey::new(r("inn"), ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placeable("ROCK", &[]),
+                placeable("GATE_LEVER", &[]),
+                placeable("LAMP_01", &[]),
+                placeable("", &[]),
+                placeable("BENCH", &[]),
+            ]),
+        );
+        m.set_gff(key, &git).unwrap();
+        let scripts = [
+            (
+                "inn_open",
+                "// BENCH is moved by hand\nvoid main()\n{\n    object o = \
+                 GetObjectByTag(\"GATE_LEVER\");\n    DestroyObject(o);\n}\n",
+            ),
+            ("inn_lamps", "const string LAMP = \"LAMP_01\";\nstring s = \"LAMP_01X\" + \"\";\n"),
+        ];
+        for (name, text) in scripts {
+            m.set(ResKey::new(r(name), ResType::NSS), text.as_bytes().to_vec());
+        }
+        let rules = StaticRules::default().with_scripts(&m);
+        let plan = static_plan(&git.root, &rules);
+        assert_eq!(plan.convert, [0, 3, 4], "the rock, the one of no tag and the bench");
+        assert_eq!(plan.scripted, 2);
+        let why: Vec<String> = plan.kept.iter().map(|(_, k)| k.describe()).collect();
+        assert_eq!(
+            why,
+            ["inn_open.nss names its tag (line 4)", "inn_lamps.nss names its tag (line 1)"]
+        );
+        assert_eq!(plan.left(), "2 whose tags a script names");
+        // Without the scripts read, they would be made static.
+        assert_eq!(static_plan(&git.root, &StaticRules::default()).convert, [0, 1, 2, 3, 4]);
+        // `mg areas --static-placeables` reads them.
+        let done = apply(&mut m, &[r("inn")], &[Change::StaticPlaceables], CP, 1).unwrap();
+        let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
+        assert_eq!(
+            what,
+            ["placeable 0 ROCK Static", "placeable 3  Static", "placeable 4 BENCH Static"]
         );
     }
 

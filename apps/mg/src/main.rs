@@ -3234,7 +3234,7 @@ fn run(cli: &Cli) -> Result<Output> {
             // before the change, by the project's rules).
             let mut left_dynamic = Vec::new();
             if *static_placeables {
-                let rules = m.project_file.make_static.clone();
+                let rules = m.project_file.make_static.clone().with_scripts(&m);
                 for &area in &resrefs {
                     let key = ResKey::new(area, ResType::GIT);
                     let Some(Ok(git)) = m.gff(&key) else { continue };
