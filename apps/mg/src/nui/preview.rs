@@ -32,7 +32,7 @@ pub(crate) struct Drawn {
     /// disabled:cancel --state pressed:read@2. A control its binds disable
     /// stays disabled.
     #[arg(long = "state", value_name = "STATE[:ID[@ROW]]", value_parser = parse_state)]
-    states: Vec<(Option<(String, Option<usize>)>, mg_ui::nui_render::Look)>,
+    states: Vec<(StateOf, mg_ui::nui_render::Look)>,
     /// Binds' values from a JSON file, in place of their first ones: an
     /// object of bind names and values as NuiSetBind sets them (a string,
     /// number, boolean, an array for a list's rows, {"r","g","b","a"} for

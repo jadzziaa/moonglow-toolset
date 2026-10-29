@@ -433,7 +433,13 @@ Cancel:
 
 `mg nui schema --layout` prints a new window and each control as the
 Creator adds it, with the fields the game's `nw_inc_nui` functions write;
-the game's `nw_inc_nui.nss` says what they mean.
+the game's `nw_inc_nui.nss` says what they mean. `mg nui schema --jui`
+prints the layout's form as a JSON Schema: the window's properties and
+each control's by its type, the kind of value each takes, and whether a
+bind may give it or `nw_inc_nui` makes it static. It is made of the
+tables the checks hold a window to, so the two agree; what the checks
+hold beyond a property's value (a group's one child, a child that doesn't
+fit across its row, a text field's `max`) `mg nui validate` says.
 
 ## Build and export
 

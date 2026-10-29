@@ -554,6 +554,13 @@ fn schema_prints_the_settings_form_and_the_controls() {
     let (ok, layout) = mg(None, &["schema", "--layout"]);
     assert!(ok);
     assert_eq!(layout["controls"]["textedit"]["max"], 255);
+    // The layout's schema: each control's properties, bound or static.
+    let (ok, jui) = mg(None, &["schema", "--jui"]);
+    assert!(ok, "{jui}");
+    let label = &jui["$defs"]["element_label"]["properties"];
+    assert_eq!(label["value"]["anyOf"][1]["$ref"], "#/$defs/bind");
+    assert_eq!(jui["$defs"]["element_list"]["properties"]["row_height"]["$ref"], "#/$defs/number");
+    assert!(!output(None, &["nui", "schema", "--jui", "--layout"]).status.success());
     assert_eq!(layout["window"]["version"], 1);
 }
 
