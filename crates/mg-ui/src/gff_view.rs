@@ -129,7 +129,19 @@ impl Ctx<'_> {
     }
 }
 
+/// The field tree of `key`, over its OK and Cancel, as a Properties
+/// window's (`blueprint::ok_cancel`): every change is the module's at
+/// once, and Cancel sets back what the window changed since it opened.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    let targets = [(key, GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    fields(app, ui, key);
+    let tab = crate::Tab::Gff(key);
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+}
+
+fn fields(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Moonglow { ws, actions, buffers, game, .. } = app;
     let Some(ws) = ws else { return };
     let factions = faction_names(ws);

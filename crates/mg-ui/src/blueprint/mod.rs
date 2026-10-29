@@ -90,17 +90,47 @@ pub enum Was {
     Resource(ResKey, Option<Vec<u8>>),
 }
 
+/// A Properties window's text field that has the keyboard
+/// ([`Moonglow::held_text`]).
+#[derive(Debug, Clone)]
+pub(crate) struct HeldText {
+    /// The field.
+    pub id: egui::Id,
+    /// The frame it was last drawn in.
+    pub drawn: u64,
+    /// What it would set if left now (`None`: nothing typed).
+    pub command: Option<Command>,
+    /// The window it is in, for its Cancel: set once that is drawn.
+    pub window: Option<HeldIn>,
+}
+
+/// The window a [`HeldText`] is in: what its Cancel is given to note
+/// ([`window_drawn_but`]'s `tab`, `targets` and `kept`).
+#[derive(Debug, Clone)]
+pub(crate) struct HeldIn {
+    pub tab: Tab,
+    pub targets: Vec<(ResKey, GffPath)>,
+    pub kept: Vec<ResKey>,
+}
+
 /// The field of the object at `form` that an edit at `path` (the object's
-/// own, or further in: an item it holds) changes: `label` at the object
-/// itself, else the field the path goes into from it.
-fn field_changed(form: &GffPath, path: &GffPath, label: &str) -> Option<String> {
+/// own, or further in) changes, as its window's Cancel sets it back: the
+/// struct it is in and its label. In a struct of the object's (an area's
+/// sounds and music, its GIT's `AreaProperties`), the field itself: its
+/// others, changed elsewhere, are not set back with it. In a list (an
+/// item it holds), the list: its items may come and go meanwhile.
+fn field_changed(form: &GffPath, path: &GffPath, label: &str) -> Option<(GffPath, String)> {
     if !path.0.starts_with(&form.0) {
         return None;
     }
-    Some(match path.0.get(form.0.len()) {
-        Some(mg_edit::Step::Field(l) | mg_edit::Step::Item(l, _)) => l.clone(),
-        None => label.to_string(),
-    })
+    let mut at = form.clone();
+    for step in &path.0[form.0.len()..] {
+        match step {
+            mg_edit::Step::Field(l) => at = at.field(l),
+            mg_edit::Step::Item(l, _) => return Some((at, l.clone())),
+        }
+    }
+    Some((at, label.to_string()))
 }
 
 /// Whether a command reaches some of `targets` (each a document and the
@@ -158,19 +188,19 @@ pub(crate) fn note_command(
             .filter(|(k, form)| k == key && path.0.starts_with(&form.0))
             .max_by_key(|(_, form)| form.0.len());
         let Some((k, form)) = within else { continue };
-        let Some(field) = field_changed(form, path, label) else { continue };
+        let Some((at, field)) = field_changed(form, path, label) else { continue };
         let entry = app
             .properties_changed
             .entry(first.clone())
             .or_insert_with(|| WindowChanges { tab: tab.clone(), was: Vec::new() });
         let known = |w: &Was| match w {
-            Was::Field(wk, wp, wl, _) => wk == k && wp == form && *wl == field,
+            Was::Field(wk, wp, wl, _) => wk == k && *wp == at && *wl == field,
             // (Set back whole: its fields with it.)
             Was::Resource(wk, _) => wk == k,
         };
         if !entry.was.iter().any(known) {
-            let before = ws.doc(k).ok().and_then(|g| form.get(&g.root)?.get(&field).cloned());
-            entry.was.push(Was::Field(*k, form.clone(), field, before));
+            let before = ws.doc(k).ok().and_then(|g| at.get(&g.root)?.get(&field).cloned());
+            entry.was.push(Was::Field(*k, at, field, before));
         }
     }
 }
@@ -323,6 +353,14 @@ pub(crate) fn window_drawn_but(
     more: impl FnOnce(&mut Moonglow, &[Edit]) -> Vec<Edit>,
 ) {
     note_changes(app, pending, tab, targets, kept);
+    // (A text field of this window's, drawn just now with the keyboard:
+    // should it be gone before the keyboard leaves it, what it sets then,
+    // after the window is drawn, is this window's to set back. A window
+    // drawn after it this frame finds it claimed.)
+    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none()) {
+        let (tab, targets, kept) = (tab.clone(), targets.to_vec(), kept.to_vec());
+        held.window = Some(HeldIn { tab, targets, kept });
+    }
     // (Escape, for the window in front: its Cancel, `tabs.rs`.)
     let escaped = app.escape_cancel.as_ref() == Some(tab);
     if escaped {
@@ -767,7 +805,7 @@ impl Form<'_> {
     ) {
         let id = self.id(label);
         if !ui.memory(|m| m.has_focus(id)) {
-            if self.app.held_text.as_ref().is_some_and(|(held, ..)| *held == id) {
+            if self.app.held_text.as_ref().is_some_and(|held| held.id == id) {
                 self.app.held_text = None;
             }
             return;
@@ -778,7 +816,9 @@ impl Form<'_> {
         let typed =
             (self.app.buffers.get(&id)).filter(|buf| **buf != shown).map(|buf| ends(buf, stored));
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
-        self.app.held_text = Some((id, ui.ctx().cumulative_pass_nr(), command));
+        let drawn = ui.ctx().cumulative_pass_nr();
+        // (Its window says which it is once it is drawn: `window_drawn_but`.)
+        self.app.held_text = Some(HeldText { id, drawn, command, window: None });
     }
 
     /// Sets an integer field, keeping its stored type (for a field the
@@ -1870,14 +1910,19 @@ mod tests {
     #[test]
     fn a_window_s_change_is_noted_by_its_object_s_field() {
         let chest = GffPath::root().item("Placeable List", 2);
+        let noted = |form: &GffPath, path: &GffPath, label: &str| {
+            field_changed(form, path, label).map(|(at, l)| (at, l.to_string()))
+        };
         // The object's own field, and one further in: the list it is in.
-        assert_eq!(field_changed(&chest, &chest, "Tag").as_deref(), Some("Tag"));
+        assert_eq!(noted(&chest, &chest, "Tag"), Some((chest.clone(), "Tag".into())));
         let held = chest.item("ItemList", 0);
-        assert_eq!(field_changed(&chest, &held, "StackSize").as_deref(), Some("ItemList"));
-        assert_eq!(
-            field_changed(&GffPath::root(), &chest, "Tag").as_deref(),
-            Some("Placeable List")
-        );
+        assert_eq!(noted(&chest, &held, "StackSize"), Some((chest.clone(), "ItemList".into())));
+        let root = GffPath::root();
+        assert_eq!(noted(&root, &chest, "Tag"), Some((root.clone(), "Placeable List".into())));
+        // In a struct of the object's, the field itself: an area's music
+        // is not set back with its sounds.
+        let audio = root.field("AreaProperties");
+        assert_eq!(noted(&root, &audio, "MusicDay"), Some((audio.clone(), "MusicDay".into())));
         // Another object's is not this one's.
         let other = GffPath::root().item("Placeable List", 3);
         assert_eq!(field_changed(&chest, &other, "Tag"), None);

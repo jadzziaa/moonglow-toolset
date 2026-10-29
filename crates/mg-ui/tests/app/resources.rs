@@ -790,7 +790,8 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     h.get_by_label("Files Already in the Hak");
     assert!(h.query_by_label_contains("already has 1 of the 2 files").is_some());
     assert_eq!(sizes(&h).len(), 1, "nothing added before the answer");
-    h.get_by_label("Cancel").click();
+    // (The question's, not the hak editor's own.)
+    h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
     // Skip Those: the other is added, the hak's own stays.
@@ -842,7 +843,7 @@ fn closing_two_changed_haks_asks_of_both() {
     // The second is asked of too.
     h.get_by_label("Save changes to second.hak?");
     assert!(h.query_by_label_contains("more tab").is_none());
-    h.get_by_label("Cancel").click();
+    h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert!(h.query_by_label("Save changes to second.hak?").is_none());
     assert!(h.state().dock.find_tab(&Tab::Hak(ids[1])).is_some(), "kept open");

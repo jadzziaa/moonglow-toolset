@@ -451,9 +451,12 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         let Some(to) = to else { continue };
         moved_tab(&mut changes.tab, &moved);
         for was in &mut changes.was {
-            if let super::Was::Field(k, p, ..) = was
-                && let Some(Some((k2, p2))) = now(k, p)
-            {
+            // (The object's path, and the structs of it the field is in.)
+            let super::Was::Field(k, p, ..) = was else { continue };
+            let object = p.0.iter().rposition(|s| matches!(s, Step::Item(..)));
+            let (object, within) = p.0.split_at(object.map_or(0, |i| i + 1));
+            if let Some(Some((k2, mut p2))) = now(k, &GffPath(object.to_vec())) {
+                p2.0.extend_from_slice(within);
                 (*k, *p) = (k2, p2);
             }
         }

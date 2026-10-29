@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
 ---
 
 # Blueprints
@@ -350,13 +350,24 @@ plugin) stays. A placed object's Properties have the two as well, and so
 do several blueprints or objects edited together; the game's own
 blueprint, shown to look at, has **Close**. Module Properties, Area
 Properties (of one area or several), the conversation editor, the
-journal and the faction editor have the same two under them. There
-Cancel sets back the fields and lists the window changed (a
-conversation's lines, a journal's categories); a file the window made
+journal, the faction editor and the raw fields view have the same two
+under them. There Cancel sets back the fields and lists the window
+changed (a conversation's lines, a journal's categories), each field
+alone (an area's music, not its sounds with it); a file the window made
 (`module.jrl`, `repute.fac`) is gone again, and where a faction was
-removed, the areas and creatures renumbered for it are set back whole,
-with whatever else was changed in them meanwhile. Fields Moonglow does not
-show are kept as they are.
+removed, the objects renumbered for it are numbered back, keeping what
+else was changed in them meanwhile. A text field typed in and left by a
+key (its page or window gone with it) is set as it goes, and Cancel sets
+that back too. Fields Moonglow does not show are kept as they are.
+
+The editors of files saved when asked (a 2DA, a hak, a tileset, the
+talk table, a script) have **OK** and **Cancel** too: OK saves (a new
+hak asks where; a script's Save puts its text into the module) and
+closes the window; Cancel closes it as last saved, asking first where
+there are unsaved changes (**Save**, **Don't Save** or **Cancel**). The
+talk table's and a script's × keep what is unsaved for the module's
+Save, as before; their Cancel drops it. A talk table found in a hak has
+**Close**.
 
 Shared parts:
 

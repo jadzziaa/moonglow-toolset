@@ -339,14 +339,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **OK and Cancel where there is none yet:** the hak editor, the
-  tileset editor, the talk table, the raw field editor and a script
-  (each saved, or asked about, in its own way). In the windows that
-  have them: a text field's change set after its page was left by a key
-  (not by the pointer) is not among what Cancel sets back, and a
-  faction's removal is set back by the whole of each area and creature
-  it renumbered, as an area's sounds and music (one struct of its GIT)
-  are set back together. (S) (a builder's ask, October 2026)
 
 ## Bulk editing
 

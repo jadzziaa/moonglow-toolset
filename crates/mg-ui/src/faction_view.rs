@@ -19,6 +19,68 @@ pub struct FactionView {
     pub full_detail: bool,
     pub adding: Option<AddFaction>,
     pub renaming: Option<(u32, String)>,
+    /// What the window did since it was opened, for its Cancel.
+    cancel: CancelSteps,
+}
+
+/// The faction editor's changes since it was opened, for its Cancel: the
+/// factions file is set back whole (it is the window's), and the objects
+/// a removal renumbered are numbered back as they are now, so that what
+/// was changed in them elsewhere meanwhile (a creature placed in the
+/// area) stays.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct CancelSteps {
+    /// The factions file as the window found it, then after each of its
+    /// changes, with the faction that change removed, if one.
+    steps: Vec<(Option<u32>, Option<Vec<u8>>)>,
+    /// The objects a removal renumbered, as they were before the first:
+    /// set back so when the factions file is as none of the window's
+    /// changes left it (an Undo took one back, or it was changed
+    /// elsewhere), and the numbers can't be told.
+    renumbered: std::collections::BTreeMap<ResKey, Option<Vec<u8>>>,
+}
+
+/// A removal's old-to-new id map, for the objects that refer to factions.
+type Renumbering = Box<dyn Fn(u32) -> Option<u32>>;
+
+/// A removal's renumbering taken back: a faction after `removed` moves up
+/// one id again.
+fn put_back(removed: &[u32]) -> impl Fn(u32) -> Option<u32> + use<> {
+    let removed = removed.to_vec();
+    move |mut id| {
+        for r in removed.iter().rev() {
+            if id >= *r {
+                id += 1;
+            }
+        }
+        Some(id)
+    }
+}
+
+/// The edits that number the objects the window's removals renumbered as
+/// they were, for its Cancel (`window_drawn_but`'s `more`).
+fn numbered_back(app: &mut Moonglow) -> Vec<mg_edit::Edit> {
+    let cancel = &app.faction_view.cancel;
+    let Some(ws) = app.ws.as_mut().filter(|_| cancel.steps.iter().any(|(r, _)| r.is_some())) else {
+        return Vec::new();
+    };
+    if ws.flush().is_err() {
+        return Vec::new();
+    }
+    let now = ws.module.get(&key());
+    let Some(at) = cancel.steps.iter().rposition(|(_, after)| after.as_deref() == now) else {
+        return (cancel.renumbered.iter())
+            .filter(|(k, was)| ws.module.get(k) != was.as_deref())
+            .map(|(k, was)| mg_edit::Edit::SetResource { key: *k, data: was.clone() })
+            .collect();
+    };
+    let removed: Vec<u32> = cancel.steps[..=at].iter().filter_map(|(r, _)| *r).collect();
+    if removed.is_empty() {
+        return Vec::new();
+    }
+    let mut staged = ws.module.clone();
+    renumber_faction_users(&mut staged, put_back(&removed));
+    ws.edits_to(&staged)
 }
 
 /// The Add Faction window.
@@ -68,7 +130,8 @@ impl Moonglow {
         &mut self,
         what: &str,
         f: &Factions,
-        renumber: Option<Box<dyn Fn(u32) -> Option<u32>>>,
+        renumber: Option<(u32, Renumbering)>,
+        cancel: &mut CancelSteps,
     ) {
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
@@ -79,20 +142,35 @@ impl Moonglow {
         if staged.set_gff(key(), &f.to_gff()).is_err() {
             return;
         }
-        if let Some(map) = renumber {
-            renumber_faction_users(&mut staged, map);
-        }
+        let removed = renumber.as_ref().map(|(id, _)| *id);
+        let users = match renumber {
+            Some((_, map)) => renumber_faction_users(&mut staged, map),
+            None => Vec::new(),
+        };
         let edits = ws.edits_to(&staged);
         if edits.is_empty() {
             return;
         }
+        if cancel.steps.is_empty() {
+            cancel.steps.push((None, ws.module.get(&key()).map(<[u8]>::to_vec)));
+        }
+        for u in &users {
+            let was = ws.module.get(u).map(<[u8]>::to_vec);
+            cancel.renumbered.entry(*u).or_insert(was);
+        }
         let command = Command::new(what, edits);
-        // (For the window's Cancel: what the command replaces, as it is.)
+        // (For the window's Cancel: the factions file as it is; the
+        // objects renumbered are numbered back, `numbered_back`.)
         let targets = [(key(), mg_edit::GffPath::root())];
-        crate::blueprint::note_command(self, &crate::Tab::Factions, &targets, &command);
+        let noted = crate::blueprint::but_for(&command, &users);
+        crate::blueprint::note_command(self, &crate::Tab::Factions, &targets, &noted);
         if let Err(e) = self.apply(command) {
             self.log.error(e.to_string());
+            return;
         }
+        let Some(ws) = &mut self.ws else { return };
+        let _ = ws.flush();
+        cancel.steps.push((removed, ws.module.get(&key()).map(<[u8]>::to_vec)));
     }
 }
 
@@ -103,11 +181,19 @@ const HEAD_WIDTH: f32 = 64.0;
 /// (Its changes are noted as they are made: `store_factions`.)
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let targets = [(key(), mg_edit::GffPath::root())];
+    // (Opened afresh, or nothing changed yet: nothing of before is its
+    // Cancel's.)
+    if !app.properties_changed.contains_key(&targets[0]) {
+        app.faction_view.cancel = CancelSteps::default();
+    }
     let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
     let pending = app.actions.len();
     editor(app, ui);
     let tab = crate::Tab::Factions;
-    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+    let pressed = pressed.flatten();
+    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &[], |app, _| {
+        numbered_back(app)
+    });
 }
 
 fn editor(app: &mut Moonglow, ui: &mut Ui) {
@@ -306,7 +392,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         if users.is_empty() {
             let name = f.factions[id as usize].name.clone();
             if let Some(map) = f.remove(id) {
-                app.store_factions(&format!("Remove faction {name}"), &f, Some(Box::new(map)));
+                let what = format!("Remove faction {name}");
+                app.store_factions(&what, &f, Some((id, Box::new(map))), &mut view.cancel);
                 view.selected = view.selected.min(f.factions.len() as u32 - 1);
             }
         } else {
@@ -318,7 +405,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             ));
         }
     } else if let Some(what) = changed {
-        app.store_factions(&what, &f, None);
+        app.store_factions(&what, &f, None, &mut view.cancel);
     }
     app.faction_view = view;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removals_are_numbered_back_last_first() {
+        // Factions 0 to 8: 5 removed (6 to 8 move down), then 6 (the 7th
+        // as it was).
+        let back = put_back(&[5, 6]);
+        assert_eq!([4, 5, 6].map(|id| back(id).unwrap()), [4, 6, 8]);
+    }
 }

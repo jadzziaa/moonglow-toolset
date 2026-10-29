@@ -547,7 +547,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut fit = ui.max_rect();
     fit.max.x = fit.max.x.min(ui.clip_rect().max.x - margin).max(fit.min.x + 120.0);
     fit.max.y = fit.max.y.min(ui.clip_rect().max.y - margin).max(fit.min.y + 120.0);
-    ui.scope_builder(egui::UiBuilder::new().max_rect(fit), |ui| editor(app, ui, key));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(fit), |ui| {
+        // OK and Cancel, as the other editors have: a script is saved when
+        // asked (its Save puts its text into the module), so OK saves it
+        // and Cancel drops what is unsaved, asking first (its × keeps that
+        // for the module's Save). (At the foot of what is in sight.)
+        if !crate::side_doc::ok_cancel(app, ui, &Tab::Script(key), false, |_| {}) {
+            editor(app, ui, key);
+        }
+    });
 }
 
 fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {

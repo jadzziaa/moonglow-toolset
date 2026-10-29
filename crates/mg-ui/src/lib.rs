@@ -536,12 +536,11 @@ pub struct Moonglow {
     pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
-    /// The text field of a Properties window that has the keyboard: when
-    /// it was drawn last, and what it would set if left now (`None`:
-    /// nothing typed). A field that is gone before the keyboard left it
-    /// (another page chosen, its window closed) is set from this, so that
-    /// what was typed is not lost.
-    pub(crate) held_text: Option<(egui::Id, u64, Option<Command>)>,
+    /// The text field of a Properties window that has the keyboard, and
+    /// what it would set if left now. A field that is gone before the
+    /// keyboard left it (another page chosen, its window closed) is set
+    /// from this, so that what was typed is not lost.
+    pub(crate) held_text: Option<blueprint::HeldText>,
     /// The tabs by when each was last in front, the latest first.
     tabs_recent: Vec<Tab>,
     /// Next Tab going through the tabs by when they were last used: the
@@ -1582,20 +1581,22 @@ impl Moonglow {
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
+        // A Properties text field that was typed in and is not drawn any
+        // more: set now, as it would have been when left, and among what
+        // its window's Cancel sets back.
+        if let Some(held) = self.held_text.take_if(|h| h.drawn != ui.ctx().cumulative_pass_nr()) {
+            if let Some(command) = held.command {
+                if let Some(w) = &held.window {
+                    let noted = blueprint::but_for(&command, &w.kept);
+                    blueprint::note_command(self, &w.tab, &w.targets, &noted);
+                }
+                self.actions.push(Action::Apply(command));
+            }
+            self.buffers.remove(&held.id);
+        }
         // (What a Properties window changed is kept while it is open.)
         let dock = &self.dock;
         self.properties_changed.retain(|_, changes| dock.find_tab(&changes.tab).is_some());
-        // A Properties text field that was typed in and is not drawn any
-        // more: set now, as it would have been when left.
-        if let Some((id, drawn, typed)) = &self.held_text
-            && *drawn != ui.ctx().cumulative_pass_nr()
-        {
-            if let Some(command) = typed.clone() {
-                self.actions.push(Action::Apply(command));
-            }
-            self.buffers.remove(id);
-            self.held_text = None;
-        }
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.

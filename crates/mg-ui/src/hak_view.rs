@@ -374,6 +374,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         ui.label("This hak was closed.");
         return;
     };
+    // OK and Cancel, as the other editors have: a hak is saved when asked.
+    if crate::side_doc::ok_cancel(app, ui, &crate::Tab::Hak(id), false, |_| {}) {
+        return;
+    }
     // What the toolbar asks for, done once the doc is let go.
     enum Do {
         AddFiles,
