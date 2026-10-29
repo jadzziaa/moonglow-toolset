@@ -523,12 +523,12 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
-            ui.label("Popup Text");
+            crate::widgets::field_label(ui, "Popup Text");
             let field = egui::TextEdit::multiline(&mut p.text).desired_rows(4);
             let field =
                 crate::widgets::text_area(ui, egui::Id::new("popup-text"), field).response.response;
             crate::widgets::autofocus(ui, &field);
-            ui.label("Conversation File");
+            crate::widgets::field_label(ui, "Conversation File");
             ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
             if exists {
                 ui.colored_label(

@@ -10,7 +10,7 @@ use mg_edit::{Command, Edit};
 use mg_module::blueprints::{self, CreatureSpec};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns, GameData};
+use mg_rules::{Choice, GameData};
 
 use crate::images::Loader;
 use crate::{Action, Moonglow, Tab};
@@ -82,10 +82,6 @@ impl Default for CreatureWizard {
     }
 }
 
-fn choices(game: &GameData, table: &str, name: &str, label: &str) -> Vec<Choice> {
-    game.choices(table, ChoiceColumns { name: Some(name), label: Some(label) }).unwrap_or_default()
-}
-
 /// The portraits of a race and gender (portraits.2da, not plot ones):
 /// those of the gender, then those of no gender (`Sex` 2 both, 3 other, 4
 /// none), which are all that monsters' races have (an outsider's are all
@@ -130,9 +126,8 @@ fn portraits(game: &GameData, race: u32, gender: u8, all: bool) -> Vec<(u16, Str
 
 /// The racial types a creature can be given: racialtypes.2da's rows that
 /// have a name (its `DELETED` and `INVALID_RACE` rows have none).
-fn races(game: &GameData) -> Vec<Choice> {
-    game.choices("racialtypes", ChoiceColumns { name: Some("Name"), label: None })
-        .unwrap_or_default()
+fn races(game: &GameData) -> std::sync::Arc<Vec<Choice>> {
+    crate::widgets::table_choices(Some(game), "racialtypes", Some("Name"), None)
 }
 
 impl CreatureWizard {
@@ -198,11 +193,9 @@ fn review(app: &Moonglow, w: &CreatureWizard) -> String {
     let g = blueprints::creature(game, &w.spec(ResRef::EMPTY), &item);
     let c = &g.root;
     let name_of = |table: &str, row: i64| {
-        choices(game, table, if table == "appearance" { "STRING_REF" } else { "Name" }, "Label")
-            .into_iter()
-            .find(|x| x.row as i64 == row)
-            .map(|x| x.text)
-            .unwrap_or_default()
+        let name = if table == "appearance" { "STRING_REF" } else { "Name" };
+        let names = crate::widgets::table_choices(Some(game), table, Some(name), Some("Label"));
+        names.iter().find(|x| x.row as i64 == row).map(|x| x.text.clone()).unwrap_or_default()
     };
     let int = |l: &str| c.integer(l).unwrap_or(0);
     let rating = c.float("ChallengeRating").unwrap_or(0.0);
@@ -343,7 +336,7 @@ fn page(
                  Creature.",
             );
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-                for c in races(game) {
+                for c in races(game).iter() {
                     if ui.selectable_label(w.race == Some(c.row as u32), &c.text).clicked() {
                         w.choose_race(game, c.row as u32);
                     }
@@ -352,7 +345,8 @@ fn page(
         }
         2 => {
             ui.label("Please choose 1 to 8 classes for this creature and select the level for each class.");
-            let names = choices(game, "classes", "Name", "Label");
+            let names =
+                crate::widgets::table_choices(Some(game), "classes", Some("Name"), Some("Label"));
             let name = |k: u32| {
                 names.iter().find(|c| c.row == k as usize).map_or(String::new(), |c| c.text.clone())
             };
@@ -364,7 +358,7 @@ fn page(
                     ui.set_width(160.0);
                     egui::ScrollArea::vertical().id_salt("cw-classes").show(ui, |ui| {
                         ui.set_width(160.0);
-                        for c in &names {
+                        for c in names.iter() {
                             let k = c.row as u32;
                             if w.classes.iter().any(|(x, _)| *x == k) {
                                 continue;
@@ -432,7 +426,15 @@ fn page(
             });
             // The appearances as pictures (a plain body of each), narrowed by
             // Find: the list of names alone is long, and many are alike.
-            let appearances = mg_rules::by_name(choices(game, "appearance", "STRING_REF", "LABEL"));
+            let appearances = mg_rules::by_name(
+                crate::widgets::table_choices(
+                    Some(game),
+                    "appearance",
+                    Some("STRING_REF"),
+                    Some("LABEL"),
+                )
+                .to_vec(),
+            );
             let chosen = appearances
                 .iter()
                 .find(|c| c.row == usize::from(w.appearance))

@@ -269,8 +269,9 @@ fn number_after(name: &str, prefix: &str) -> Option<u16> {
     rest.parse().ok()
 }
 
-/// The numbers `nnn` for which a model `{prefix}{nnn:03}` exists, cached.
-fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
+/// The numbers `nnn` for which a model `{prefix}{nnn:03}` exists, cached:
+/// an item's parts, and a part-based creature's body parts (`pmh0_chest`).
+pub(super) fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     let id = egui::Id::new(("model-numbers", prefix));
     if let Some(v) = ui.data(|d| d.get_temp::<Arc<Vec<u16>>>(id)) {
         return v;
@@ -325,8 +326,9 @@ fn icon_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     v
 }
 
-/// Sets a model or body part number: the BYTE field and its EE twin.
-fn set_part(f: &mut Form<'_>, what: &str, labels: &[&str], v: i64) {
+/// Sets a model or body part number: the BYTE field and its EE twin (an
+/// item's, a creature's body part's).
+pub(super) fn set_part(f: &mut Form<'_>, what: &str, labels: &[&str], v: i64) {
     let mut fields = Vec::new();
     for label in labels {
         fields.push((label.to_string(), v.min(255), FieldType::Byte));

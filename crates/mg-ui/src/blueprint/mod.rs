@@ -11,7 +11,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_english};
@@ -511,9 +511,7 @@ impl Form<'_> {
         name: Option<&str>,
         label: Option<&str>,
     ) -> std::sync::Arc<Vec<Choice>> {
-        let game = self.app.game.as_ref();
-        game.and_then(|g| g.choice_list(table, ChoiceColumns { name, label }).ok())
-            .unwrap_or_default()
+        crate::widgets::table_choices(self.app.game.as_deref(), table, name, label)
     }
 
     /// A text field of a localized string, in the talk table's color where
@@ -1359,9 +1357,8 @@ impl Form<'_> {
     /// The Variables… button.
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
-        let label = format!("Variables ({})…", list.len());
         self.mark_mixed(ui, "VarTable");
-        if ui.button(label).on_hover_text("Edit scripting variables").clicked() {
+        if crate::widgets::variables_button(ui, list.len()) {
             self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
         }
     }

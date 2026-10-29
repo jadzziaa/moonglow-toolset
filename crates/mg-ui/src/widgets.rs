@@ -1402,17 +1402,11 @@ pub(crate) fn open_variables(app: &mut Moonglow, key: ResKey, path: GffPath) {
     app.var_edit = Some(VarTableEdit::new(FieldTarget::new(key, path, "VarTable"), &list));
 }
 
-/// A "Variables…" button for an object's VarTable.
-pub(crate) fn variables_button(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    target: FieldTarget,
-    list: &[Struct],
-) {
-    let label = format!("Variables ({})…", list.len());
-    if ui.button(label).clicked() {
-        app.var_edit = Some(VarTableEdit::new(target, list));
-    }
+/// The "Variables (N)…" button of an object's, an area's or the module's
+/// VarTable of `count` variables: whether it was pressed.
+pub(crate) fn variables_button(ui: &mut Ui, count: usize) -> bool {
+    let label = format!("Variables ({count})…");
+    ui.button(label).on_hover_text("Edit scripting variables").clicked()
 }
 
 /// Whether the text kept under `id` (a list's filter) is another than at
@@ -2655,6 +2649,19 @@ pub(crate) const FILTERED_CHOICES: usize = 30;
 
 /// The greatest height of a filtered list's rows, under its Filter field.
 const ROWS_HEIGHT: f32 = 170.0;
+
+/// The rows of a 2DA as a list's choices, by its `name` column (StrRefs
+/// read in the talk tables) else its `label` (`GameData::choice_list`:
+/// the list made once and kept, not copied); none without a game.
+pub(crate) fn table_choices(
+    game: Option<&mg_rules::GameData>,
+    table: &str,
+    name: Option<&str>,
+    label: Option<&str>,
+) -> std::sync::Arc<Vec<mg_rules::Choice>> {
+    let columns = mg_rules::ChoiceColumns { name, label };
+    game.and_then(|g| g.choice_list(table, columns).ok()).unwrap_or_default()
+}
 
 /// A list of `choices` with `current` chosen (`None`: no row), its box
 /// `id`: see [`RowChoice`].

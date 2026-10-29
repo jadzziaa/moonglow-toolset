@@ -470,7 +470,7 @@ pub struct Settings {
     /// Options > General: Keep recovery copies of unsaved work, off (on by
     /// default; Moonglow's, Aurora has none).
     pub no_autosave: bool,
-    /// Every so many minutes (`None`: 5).
+    /// Every so many minutes (`None`: [`AUTOSAVE_MINUTES`]).
     pub autosave_minutes: Option<u32>,
     /// Options > General: Reload haks, override and development when they
     /// change, off (on by default; Moonglow's).
@@ -645,7 +645,7 @@ pub struct Settings {
     /// Options > Conversation Editor: Automatically backup the conversation
     /// files, off (Aurora's default: on).
     pub dialog_no_backup: bool,
-    /// The backup interval in minutes (`None`: Aurora's 5).
+    /// The backup interval in minutes (`None`: [`DIALOG_BACKUP_MINUTES`], Aurora's).
     pub dialog_backup_minutes: Option<u32>,
     /// Options › Updates: Check for updates automatically, off (on by
     /// default: GitHub is asked for the latest release once a day at most).
@@ -664,7 +664,26 @@ pub struct Settings {
 /// kept on disk). A builder's own choice is kept whatever this says.
 pub const GAME_SHADERS_BY_DEFAULT: bool = true;
 
+/// Recovery copies of unsaved work every so many minutes, where
+/// `autosave_minutes` is unset.
+pub const AUTOSAVE_MINUTES: u32 = 5;
+
+/// A conversation's backup every so many minutes, where
+/// `dialog_backup_minutes` is unset (Aurora's 5).
+pub const DIALOG_BACKUP_MINUTES: u32 = 5;
+
 impl Settings {
+    /// The minutes between recovery copies ([`AUTOSAVE_MINUTES`] unset).
+    pub fn autosave_every(&self) -> u32 {
+        self.autosave_minutes.unwrap_or(AUTOSAVE_MINUTES)
+    }
+
+    /// The minutes between a conversation's backups
+    /// ([`DIALOG_BACKUP_MINUTES`] unset).
+    pub fn dialog_backup_every(&self) -> u32 {
+        self.dialog_backup_minutes.unwrap_or(DIALOG_BACKUP_MINUTES)
+    }
+
     /// The settings kept under `key` in eframe's settings file (`app.ron`:
     /// a RON map of keys to RON text), read before eframe opens it, or
     /// `None` without the file or the key, or where they can't be read.

@@ -2305,16 +2305,6 @@ of truth, and does each caller's difference matter.
   and panic handling (`nwsync_view.rs:113`).
 - `DialogSearch` keeps its own match options and rebuilds
   `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
-- The wizards' "choices of a table, none without a game" six times,
-  each copying the kept list (`area_props.rs:25`, `creature_wizard.rs:85`,
-  `creature.rs:115`, `levelup_view.rs:77`, `situated.rs:207`,
-  `Form::choices`); the Variables button three times (`Form::variables`,
-  `widgets::variables_button`, `area_props.rs:645`); the model-number
-  scan and `set_part` twice (`item.rs:244`, `:308`, `creature.rs:405`,
-  `:451`; the creature's drops the three-digit check); the autosave and backup default of five
-  minutes in four places; `ui.label` where `field_label` is meant
-  (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
-  `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)

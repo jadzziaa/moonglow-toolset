@@ -4995,7 +4995,7 @@ impl Moonglow {
         if self.settings.dialog_no_backup {
             return;
         }
-        let minutes = u64::from(self.settings.dialog_backup_minutes.unwrap_or(5).max(1));
+        let minutes = u64::from(self.settings.dialog_backup_every().max(1));
         let every = std::time::Duration::from_secs(60 * minutes);
         let now = std::time::Instant::now();
         let since = *self.dialog_backup_at.get_or_insert(now);

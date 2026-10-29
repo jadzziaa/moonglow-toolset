@@ -64,7 +64,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         None => {}
         Some(Wizard::NewModule { name }) => {
             crate::widgets::window("New Module").show(&ctx, |ui| {
-                ui.label("Module name");
+                crate::widgets::field_label(ui, "Module name");
                 let field = ui.text_edit_singleline(name);
                 crate::widgets::autofocus(ui, &field);
                 ui.horizontal(|ui| {
@@ -83,7 +83,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         Some(Wizard::NewArea(w)) => {
             crate::widgets::window("Area Wizard").show(&ctx, |ui| {
-                ui.label("Name");
+                crate::widgets::field_label(ui, "Name");
                 let field = ui.text_edit_singleline(&mut w.name);
                 crate::widgets::autofocus(ui, &field);
                 // The ResRef the name gives, where the builder's code
@@ -100,7 +100,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
                 ui.add_space(6.0);
-                ui.label("Tileset");
+                crate::widgets::field_label(ui, "Tileset");
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     let mut list = egui::ScrollArea::vertical().max_height(220.0);
                     if std::mem::take(&mut w.fresh) {

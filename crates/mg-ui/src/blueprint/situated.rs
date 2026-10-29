@@ -7,7 +7,7 @@ use egui::Ui;
 use mg_core::ResType;
 use mg_gff::{FieldType, Value};
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use super::Form;
 use crate::text::{decode, encode};
@@ -221,8 +221,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     if state.open {
         let game = f.app.game.as_deref();
         let names = |t: &str, name: &str, label: Option<&str>| {
-            game.and_then(|g| g.choices(t, ChoiceColumns { name: Some(name), label }).ok())
-                .unwrap_or_default()
+            crate::widgets::table_choices(game, t, Some(name), label)
         };
         // (Races with a name alone: a row without one is `DELETED`,
         // `INVALID_RACE`, CEP's `CEP_RESERVED`.)

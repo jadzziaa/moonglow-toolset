@@ -238,8 +238,7 @@ impl Moonglow {
             return None;
         }
         let revision = ws.revision();
-        let every =
-            Duration::from_secs(60 * u64::from(self.settings.autosave_minutes.unwrap_or(5).max(1)));
+        let every = Duration::from_secs(60 * u64::from(self.settings.autosave_every().max(1)));
         // The first change starts the clock.
         let (since, saved) = *self.autosave.last.get_or_insert((now, u64::MAX));
         if now.saturating_duration_since(since) < every
