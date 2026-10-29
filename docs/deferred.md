@@ -762,11 +762,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 
-- **Grass in patches:** the client's tufts gather in patches across a
-  field (dark clumps, seen in `client_render.rs` grass_overrides_look);
-  Moonglow scatters them evenly by face area and density. The mean color
-  near the camera matches; how the engine places them (per face, by a
-  noise) isn't known. (S–M) (Bee AI's ask, October 2026)
 - **A grass tuft's sway:** a tuft is one upright quad turned at random,
   a texture quarter, as tall as wide, as the client's are (seen with
   white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
@@ -2252,10 +2247,6 @@ of truth, and does each caller's difference matter.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
-- The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
-  now but are still two (the edits wanted by the area view against the
-  module's mutations). (Making placeables static is one since
-  2026-10-22: `areas::static_plan` and `static_fields`.)
 
 ## A project's rules (the builders' proposal, C1 to C5)
 

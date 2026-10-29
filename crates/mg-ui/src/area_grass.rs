@@ -180,7 +180,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                 .changed()
             {
                 let what = if grows { "Grow the tileset's grass" } else { "No tileset grass" };
-                apply(app, &gits, what, |k, _| vec![grass::set_disabled(k, !grows)]);
+                apply(app, &gits, what, |k, root| grass::set_disabled(k, root, !grows));
             }
             ui.horizontal(|ui| {
                 texture_picture(app, ui, &look.texture);
@@ -356,7 +356,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         if let Some(m) = pick {
             let set = app.tileset(tileset);
             let o = GrassOverride::new(m, set.as_deref());
-            apply(app, &gits, "Add grass", |k, root| grass::add_override(k, root, &o));
+            apply(app, &gits, "Add grass", |k, root| grass::set_override(k, root, &o));
         }
     });
     ui.add_space(8.0);

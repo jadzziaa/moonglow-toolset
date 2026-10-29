@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:15:00Z }
 ---
 
 # Areas
@@ -1202,7 +1202,10 @@ the diffuse colors, which may be left out), `--remove-grass Dirt` and
 
 Moonglow draws the grass closely enough to judge an override by: a
 tuft's size, the density and the colors match the game near its camera.
-The game's tufts gather in patches, Moonglow's are spread evenly.
+Its tufts gather in clumps with bare ground between them, as the game's
+do, as dense on average as the Density says (a clump to every 5 square
+meters or so, its tufts within 1.4 m of its middle; sparse grass has a
+tuft or two a clump).
 
 ### Several areas together
 
