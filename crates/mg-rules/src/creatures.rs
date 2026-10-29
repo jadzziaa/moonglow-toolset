@@ -67,6 +67,16 @@ pub struct CreatureStats {
     /// Constitution per level and Toughness.
     pub hp_bonus: i32,
     pub max_hit_points: i32,
+    /// The hit points the Great Constitution feats add: the game adds them
+    /// to the maximum itself, but not to the hit points a creature starts
+    /// with, which it works out from `CurrentHitPoints` and the
+    /// Constitution without them (measured: `engine_saves.rs`).
+    pub great_hit_points: i32,
+    /// What `CurrentHitPoints` holds for the creature to start with all
+    /// its hit points in the game: the base hit points and
+    /// [`great_hit_points`](Self::great_hit_points). (Aurora writes the
+    /// base alone, and such a creature starts short of them.)
+    pub current_hit_points: i32,
 }
 
 /// The levels a creature's saves come from its classes' tables for; past
@@ -243,7 +253,9 @@ impl GameData {
         let toughness = if has(feat::TOUGHNESS) { levels } else { 0 };
         // (Nor does it count the Great Constitution feats: the stored
         // maximum is Aurora's, by the Constitution the blueprint has.)
-        let hp_bonus = modifier(c.abilities[2] + racial[2]) * levels + toughness;
+        let con = c.abilities[2] + racial[2];
+        let hp_bonus = modifier(con) * levels + toughness;
+        let great_hit_points = (modifier(con + great[2]) - modifier(con)) * levels;
         CreatureStats {
             racial,
             totals,
@@ -257,6 +269,8 @@ impl GameData {
             saves,
             hp_bonus,
             max_hit_points: (c.hit_points + hp_bonus).max(1),
+            great_hit_points,
+            current_hit_points: c.hit_points + great_hit_points,
         }
     }
 }

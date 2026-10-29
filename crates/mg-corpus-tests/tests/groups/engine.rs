@@ -35,6 +35,8 @@ mod engine_encoding;
 mod engine_facings;
 #[path = "../engine_factions.rs"]
 mod engine_factions;
+#[path = "../engine_git_runtime.rs"]
+mod engine_git_runtime;
 #[path = "../engine_grass.rs"]
 mod engine_grass;
 #[path = "../engine_item_cost.rs"]
@@ -53,10 +55,14 @@ mod engine_locked;
 mod engine_modules;
 #[path = "../engine_new_module.rs"]
 mod engine_new_module;
+#[path = "../engine_object_by_tag.rs"]
+mod engine_object_by_tag;
 #[path = "../engine_rename.rs"]
 mod engine_rename;
 #[path = "../engine_resman.rs"]
 mod engine_resman;
+#[path = "../engine_resource_names.rs"]
+mod engine_resource_names;
 #[path = "../engine_return_types.rs"]
 mod engine_return_types;
 #[path = "../engine_rules.rs"]

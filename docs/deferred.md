@@ -61,9 +61,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
   and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
   mg-render's tests'. (S)
-- **CI's time with the new workflow is not measured:** its first run
-  passed on the three systems from an empty cache (14 to 24 minutes);
-  compare a warm run with the 8 to 10 minutes of before. (S)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -106,7 +103,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   stay selected but aren't opened. (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
-  tests. (S)
+  tests. (S) (waits on Neovim and Helix: neither is on the
+  development machine, and putting them there is a download)
 - **The external compiler with `nwnsc`** (Options › Script Editor):
   its line of arguments (`-q -y -o -n {game} -i {src} -b {out}
   {files}`) is from its documentation, not run, and its messages are
@@ -116,12 +114,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (its bytecode is the built-in compiler's, byte for byte). (S) (waits
   on a copy of nwnsc: none is on the development machine) (from
   builders' reports after 1.14.1)
-- **A project's script in the external editor** opens in place (the
-  project's own `.nss`), and its saves come back by the reading of files
-  changed outside, so not at all with that turned off in Options ›
-  General (the copy's way is used then). Scripts of a module file still
-  open as a copy in the temporary folder. Tried with a stand-in editor;
-  not with VS Code. (S) (from builders' reports after 1.16.1)
 - **Indentation by file:** a script's indentation is guessed when its
   text is read (opened, read again from the module, a Save of it
   included, or from outside), from its indented lines (tabs or spaces as
@@ -432,17 +424,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   does, for those in sight), and the palette's own Gallery doesn't mark
   blueprints whose appearance has none. (S) (dansen9191's report,
   October 2026)
-- **Aurora's faults Moonglow was checked for:** an epic creature of
-  several classes had Aurora's wrong saves (nwn-issues 816) and has the
-  game's now, measured in the server ([findings](findings.md)); the
-  abilities count the Great feats. Not done: whether the game adds the
-  Great Constitution feats' hit points itself was not measured (the
-  stored maximum stays Aurora's); an item appearance of 100 or more
-  (nwn-issues 658) is listed by what models there are (three digits),
-  with no base item's range read, and was not tried with such a model;
-  a custom caster class's spells (566) are offered by `classes.2da`'s
-  `SpellCaster` and `SpellTableColumn` alone, and were not tried with a
-  custom class. (S each)
 - **Number fields' limits against Aurora:** measured in Aurora
   (v89.8193.37) by typing past them: a creature's save bonuses 250 (and,
   it seems, no lower than 0: Moonglow keeps -100, for the penalties files
@@ -1018,16 +999,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Add Grass to… lists every surfacemat.2da row:** which materials the
   area's tiles have isn't shown, nor a texture's picture beside its name;
   any texture is taken as four tufts, two by two, as the game's are. (S)
-- **The other runtime fields of an area's GIT:** a saved game holds
-  `SunDirectionX/Y/Z`, `MoonDirectionX/Y/Z` and `DisplayName` in the GIT's
-  `AreaProperties` and `CurrentWeather` at its root; whether the engine
-  reads them from a module's GIT (as it reads the grass) isn't tested. (S)
+- **The sun's and moon's directions in an area's GIT:** the server reads
+  a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
+  `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the
+  area's `GetName`), not the root's `CurrentWeather`
+  (`engine_git_runtime.rs`). Whether the client lights the area by those
+  directions, and so whether the area view should, isn't known. (S)
+  (waits on the client batch: an outdoor area at noon whose GIT's
+  `SunDirection` is low from one side, against the same area without,
+  its walls' lit sides and the shadows compared)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
-  itself. Moonglow draws it there; whether the engine does isn't tested.
-  (S)
+  itself. Moonglow draws it there; whether the engine does isn't known.
+  Tried in the server (2026-10-29, a probe not kept): a creature made
+  where the mesh would be, at the placeable or 72 m off, is not moved at
+  either, where one made on a wagon is moved off it; with the module's
+  own copy of the walkmesh twenty times as wide (3.4 m), the same. So
+  the engine ignores this mesh, or a module's copy of it, or making a
+  creature doesn't see it: telling which needs a creature's path across
+  each place, or the client. (M)
 - **Lighting off against Aurora:** the Lighting switch's working light
   (white, even, a little from the sun's side) is Moonglow's; how Aurora
   lights an area with its lighting off was not captured. (S)
@@ -2740,7 +2732,12 @@ of truth, and does each caller's difference matter.
   (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
   `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
   `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
-  Which the game takes, by an engine test. (S)
+  The game takes any name of up to 16 bytes but NUL, whatever its case
+  (found by either, listed in lower case), with `-`, `.`, a space or a
+  byte past ASCII (`engine_resource_names.rs`), as `ResRef` does; what
+  is left is the one rule for names Moonglow makes, chosen (narrower
+  than the game's, for names that are also a project's file names)
+  and put in mg-core for the eleven places. (S–M)
 - **A palette node's name, four readers:** `palette.rs:430` (NAME, then
   STRREF, then DELETE_ME), `:323`, `new.rs:242`, and the tile palette's
   `mg-area terrain.rs:119` (STRREF first, no DELETE_ME, NAME as UTF-8).
@@ -2878,9 +2875,6 @@ and duplicate tags on paste. What is left:
   rewrite them); in a persistent world of hundreds of areas a paste may
   take a moment. An index kept by the workspace's revision would answer
   at once. (S)
-- **Which object `GetObjectByTag` takes of several** was measured for
-  two in one area (the second placed); across areas, and for more,
-  not. (S)
 - **`unique_in_area` is quiet about other areas whatever
   `paste_warning` says:** with `"any"`, a store's tag pasted into
   another area isn't said, as the project says it may be there; and
