@@ -1575,6 +1575,62 @@ fn a_module_folder_s_files_changed_outside_are_read_again() {
     assert!(script(&h, "fresh").is_none());
 }
 
+/// A field typed in and not left (Module Properties' description) when
+/// the module's files are read again, changed outside: it sets what was
+/// typed first, which makes the file one changed here and outside both,
+/// asked about, with what was typed kept. (Read again under it, the field
+/// showed the file's text and what was typed went: a builder's report,
+/// October 2026.)
+#[test]
+fn a_field_typed_in_sets_its_text_before_files_changed_outside_are_read() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("ui-folder-outside-typed");
+    let folder = dir.join("module");
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    let at = h.get(memo).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("Typed here. ".into()));
+    h.run_steps(2);
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let has = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        let root = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.clone();
+        let d = root.locstring("Mod_Description").cloned().unwrap_or_default();
+        d.strings.iter().any(|(_, t)| String::from_utf8_lossy(t).contains(text))
+    };
+    assert!(!has(&mut h, "Typed here. "), "not set while it is typed");
+    assert!(h.ctx.egui_wants_keyboard_input());
+    // Another program changes the module's IFO (its tag), and the look
+    // at the files is taken as the window's frames go on.
+    let path = folder.join("module.ifo");
+    let mut outside = mg_gff::Gff::read(&std::fs::read(&path).unwrap()).unwrap();
+    outside.root.set("Mod_Tag", mg_gff::Value::String(b"CHANGED_OUTSIDE".to_vec()));
+    std::fs::write(&path, outside.to_bytes().unwrap()).unwrap();
+    h.state_mut().look_outside();
+    let started = std::time::Instant::now();
+    while h.state().looking_outside() {
+        assert!(started.elapsed().as_secs() < 30, "the look ends");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    h.run_steps(2);
+    assert!(has(&mut h, "Typed here. "), "what was typed is set and kept");
+    assert_eq!(h.state().outside_conflicts(), [path], "and the file changed outside asked about");
+    assert!(!h.ctx.egui_wants_keyboard_input(), "the keyboard left the field");
+}
+
 /// The window's own close button asks before Moonglow closes where there
 /// is nothing unsaved to ask about; with the option off it closes, and
 /// with unsaved work (a table's here) the question is about that.

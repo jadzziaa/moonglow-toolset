@@ -898,6 +898,51 @@ pub fn name_of(id: &str) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
+/// A command asked for by its key while a text field that sets its text
+/// when the keyboard leaves it held what was typed: the keyboard leaves
+/// it, and the command is run a frame on, with what was typed set.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum AfterText {
+    /// One of the window's own.
+    Command(Id),
+    /// A plugin's (it reads the module as the command begins).
+    Plugin { plugin: String, command: String },
+    /// The project's (`moonglow.toml`'s `[commands]`).
+    Project(String),
+}
+
+/// Asks for `after` to be run now, or a frame on if a text field typed in
+/// holds the keyboard (see [`AfterText`]).
+fn run_after_text(app: &mut Moonglow, ui: &Ui, after: AfterText) {
+    if crate::widgets::leave_text(ui.ctx()) {
+        app.command_after_text = Some(after);
+        ui.ctx().request_repaint();
+    } else {
+        run_after(app, ui, after);
+    }
+}
+
+fn run_after(app: &mut Moonglow, ui: &Ui, after: AfterText) {
+    match after {
+        AfterText::Command(id) => {
+            if id.enabled(app) {
+                id.run(app, ui.ctx());
+            }
+        }
+        // (Begun with the frame's actions, after the fields are drawn:
+        // egui says a field lost the keyboard in two frames, and one whose
+        // text a plugin's edits changed before it was drawn would set what
+        // was typed again, over them.)
+        AfterText::Plugin { plugin, command } => {
+            if app.ws.is_some() {
+                let selected = app.plugin_selection();
+                app.actions.push(Action::RunPluginCommand { plugin, command, selected });
+            }
+        }
+        AfterText::Project(name) => app.actions.push(Action::ProjectCommand(name)),
+    }
+}
+
 /// The commands whose key was pressed, run (a key pressed for a command
 /// that cannot be chosen now is still used up).
 pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
@@ -932,10 +977,8 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     let in_text = (app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input())
         || crate::script_view::has_keys(app, ui.ctx());
     // A command kept from the frame before (see below): run now.
-    if let Some(id) = app.command_after_text.take()
-        && id.enabled(app)
-    {
-        id.run(app, ui.ctx());
+    if let Some(after) = app.command_after_text.take() {
+        run_after(app, ui, after);
     }
     for id in Id::all() {
         if in_text && matches!(id, Id::Undo | Id::Redo) {
@@ -959,20 +1002,17 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
             // command is run a frame on: one that closes the field's tab,
             // goes to another or saves would else be done without what
             // was typed.
-            if crate::widgets::leave_text(ui.ctx()) {
-                app.command_after_text = Some(id);
-                ui.ctx().request_repaint();
-            } else {
-                id.run(app, ui.ctx());
-            }
+            run_after_text(app, ui, AfterText::Command(id));
         }
     }
     // The plugins' commands, after the window's own: a key both have is
-    // the window's.
+    // the window's. (They too wait for a field typed in to set its text:
+    // a plugin reads the module as its command begins.)
     for c in app.plugin_commands() {
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &c.key_id, typing));
         if pressed && app.ws.is_some() {
-            app.run_plugin_command(&c.plugin, &c.command);
+            let after = AfterText::Plugin { plugin: c.plugin, command: c.command };
+            run_after_text(app, ui, after);
         }
     }
     // And the project's.
@@ -981,7 +1021,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
         let id = crate::project_commands::key_id(&c.name);
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id, typing));
         if pressed && c.run.is_some() {
-            app.actions.push(Action::ProjectCommand(c.name));
+            run_after_text(app, ui, AfterText::Project(c.name));
         }
     }
 }

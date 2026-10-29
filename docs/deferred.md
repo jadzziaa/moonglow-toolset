@@ -324,17 +324,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **Text typed and its field gone before the keyboard left it:** a
-  text field that sets its text when the keyboard leaves it gives the
-  keyboard up at a press of the pointer anywhere else, and before a
-  command asked for by its key is run (Save, Close Tab, Next Tab: the
-  command is run a frame on), so that it sets what was typed while it
-  is still drawn. So in every window's fields of the kind, the hak
-  editor's description, a conversation script's parameters and a 2DA's
-  cell being typed in among them. Not so: a plugin's command by its key
-  (run at once), and a window taken away by nothing the builder did (a
-  module's files changed outside and read again). (S) (a builder's
-  report, October 2026)
 - **An appearance with no model, what the warning leaves out:** the rule
   (`mg_rules::appearance`) checks a placeable's, a door's, a
   single-model creature's and a waypoint's row and model by name (the

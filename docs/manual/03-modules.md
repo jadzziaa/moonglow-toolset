@@ -312,7 +312,9 @@ unpacking or packing between the toolset and git.
 - **Where you have unsaved changes to a file that also changed
   elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
   window asks: **Keep Moonglow's** (the next Save writes yours over the
-  file), **Take the Files'** (yours are lost) or **Later**.
+  file), **Take the Files'** (yours are lost) or **Later**. A field you
+  are typing in when the files come in sets what you typed first, so
+  that it is one of your changes, kept and asked about.
 - **Changes made elsewhere are never overwritten unasked.** Until you
   answer (and with reloading off), a save that would replace or delete a
   file changed on disk since it was read writes nothing, and the log

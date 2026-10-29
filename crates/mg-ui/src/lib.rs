@@ -701,7 +701,7 @@ pub struct Moonglow {
     pub(crate) text_typed: Option<egui::Id>,
     /// A command asked for by its key while a text field was typed in:
     /// run in the next frame, after the field has set its text.
-    pub(crate) command_after_text: Option<commands::Id>,
+    pub(crate) command_after_text: Option<commands::AfterText>,
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -4802,7 +4802,7 @@ impl Moonglow {
     /// and the rules the module is worked by.
     fn reload_timer(&mut self, ui: &egui::Ui) {
         // A look at the module's files under way: taken once it is done.
-        if self.take_looked() {
+        if self.take_looked(ui.ctx()) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
         // (Whether blueprints read again changed their palettes.)
