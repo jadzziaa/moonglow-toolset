@@ -212,15 +212,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's lights chosen and its values written. Fewer, larger chunks, and
   values kept from frame to frame for what doesn't move, would cut it.
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
-- **An area filling in as it opens:** read on a thread and its textures
-  apart (no frame holds it: TDoD's woods held the window 3.8 s), its
-  picture is drawn again as textures arrive, each such frame costing what
-  the view costs drawn whole (13 to 22 ms for the woods); and the frame it
-  is first shown in looks its materials (MTRs) up on the window's thread
-  (19 to 30 ms for the woods, 23 for a water area of 160 fires: not taken
-  apart). Its models show all at once, once the area is read, not one by
-  one. Edits, Reload Resources and tests still read in the
-  frame. (S–M)
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
@@ -755,9 +746,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   distances 3 and 12, from above and pitched). The random position's
   rectangle is as Aurora's now (its ranges wide, half each way). (S: the
   spheres, drawn as a few rings of dots)
-- **The minimap in Moonglow:** the area view has no map panel of its own,
-  and Area Transition setup picks its target from a list rather than a
-  map. (S–M)
+- **Setup Area Transition's Connection Type:** the window picks a door
+  or waypoint on the target area's map or in its lists, as Aurora's
+  `TdlgAreaTransition` does, but has none of its Connection Type (Both
+  Ways, Current To Target, Target To Current) nor its Target Type
+  Trigger: the target linked back to this door or trigger. What Aurora
+  writes to the target (its `LinkedTo`, and `LinkedToFlags` where either
+  end is a trigger) waits on a capture of the dialog in Aurora; Moonglow
+  then writes the same as one step. (S–M, needs Aurora) (what was left of
+  "The minimap in Moonglow", 2026-10-29)
 - **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
   were compared with Aurora (2026-10-29): its Object Mode Only fades in
   Select Objects and not in Select Terrain, as Moonglow's; the rural
@@ -925,10 +922,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   it is a line in `area_view.rs`'s `Held`; whether Moonglow keeps its
   Escape (the drag's other tools, brushes and pastes, drop on Escape
   too) is the owner's to say. (S)
-- **The scale handle** scales every way alike, as Adjust Location's
-  field does; the file keeps a scale for each axis. It stands where it
-  was taken while it is dragged, rather than follow the pointer. (S)
-  (from builders' reports after 1.10.1)
 
 ## Rendering: creatures, particles, water and shaders
 
@@ -2151,9 +2144,6 @@ of truth, and does each caller's difference matter.
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)
-- **The blueprint-to-instance pipeline four times** (`area_view.rs:3944`,
-  `:3784`, `paint_mode.rs:559`, `bulk.rs:144`; the paint stroke's cache
-  is deliberate). (M)
 
 ### Settled in the engine or Aurora first
 
@@ -2233,10 +2223,6 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **A read-only area still takes the pointer:** its objects can be
-  selected and dragged, its Properties typed in; each change is then
-  refused with a line in the log (the area view doesn't turn its tools
-  off, nor does a form go gray). (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)

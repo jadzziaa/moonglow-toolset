@@ -4137,7 +4137,8 @@ fn a_light_is_added_from_the_area_s_menu_and_recolored() {
 
 /// With Shift held, a selected placeable has a handle that scales its
 /// model about its feet: pulled twice as far from the object, twice the
-/// size, in one undoable step; Escape drops the drag.
+/// size, in one undoable step, the handle following the pointer; Escape
+/// drops the drag.
 #[test]
 fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     use glam::Vec3;
@@ -4205,6 +4206,22 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
         if shot {
             let img = h.render().expect("render");
             img.save(mg_testkit::scratch_dir("ui-area-scale").join("scale_handle.png")).unwrap();
+            // The handle follows the pointer: its white square is drawn
+            // where the pointer is (left of the pointer's arrow), not
+            // where it was taken.
+            let ppp = img.width() as f32 / h.ctx.content_rect().width();
+            let white = |at: egui::Pos2, dx: std::ops::RangeInclusive<i32>| {
+                let mut n = 0;
+                for x in dx {
+                    for y in 1..=4 {
+                        let (px, py) = ((at.x + x as f32) * ppp, (at.y + y as f32) * ppp);
+                        let p = img.get_pixel(px as u32, py as u32);
+                        n += usize::from(p[0] > 225 && p[1] > 225 && p[2] > 225);
+                    }
+                }
+                n
+            };
+            assert!(white(to, -5..=-2) >= 12, "the handle's square at the pointer");
         }
         if escape {
             h.key_press(egui::Key::Escape);
@@ -4230,6 +4247,223 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(scale(&mut h), None, "an undo each");
+}
+
+/// An area another builder holds, in a project that keeps those
+/// read-only (the builders' proposal, C6): looked at and selected in,
+/// its tools off, nothing in it changed and nothing refused in the log.
+/// Its objects are picked, not moved, turned or deleted; with Shift held
+/// there are no handles; its menu offers what looks at it; Paint and
+/// Select Tiles are off; its Properties and its objects' are gray, what
+/// is typed in them dropped.
+#[test]
+fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = read_only_area_harness("read-only") else { return };
+    let refused = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().find(|e| e.1.contains("not changed")).map(|e| e.1.clone())
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) = (Vec3::new(16.0, 20.0, 0.0), 0.3, 0.5, 18.0);
+    }
+    h.run_steps(2);
+    h.get_by_label_contains("read-only here. Ask them to release it");
+    let (x0, y0, turn) = waypoint(&mut h, area, 0).unwrap();
+    // A click selects the waypoint.
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(on);
+    press(&h, on, true, egui::Modifiers::NONE);
+    press(&h, on, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+    // Dragged, it stays where it is; Q, E and Delete do nothing.
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    let to = screen(&h, area, Vec3::new(25.0, 20.0, 0.02));
+    press(&h, on, true, egui::Modifiers::NONE);
+    for k in 1..=4 {
+        h.hover_at(on + (to - on) * (k as f32 / 4.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.hover_at(on);
+    h.key_press(egui::Key::Q);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(waypoint(&mut h, area, 0), Some((x0, y0, turn)), "not moved, turned or deleted");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None);
+    assert_eq!(refused(&h), None);
+    // The chest, selected with Shift held: no rings, arrows or scale
+    // handle to take (the picture), and a drag on it moves nothing.
+    let chest = screen(&h, area, Vec3::new(12.0, 20.0, 0.3));
+    h.hover_at(chest);
+    press(&h, chest, true, egui::Modifiers::NONE);
+    press(&h, chest, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)]);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-read-only-shot").join("read_only.png")).unwrap();
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+    // Paint and Select Tiles are off.
+    for tool in [" Paint", " Select Tiles"] {
+        let named = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.label().is_some_and(|l| l.ends_with(tool))
+        };
+        let node = h.get(egui_kittest::kittest::by().predicate(named));
+        assert!(node.accesskit_node().is_disabled(), "{tool} is off");
+    }
+    // Its menu: what looks at it, nothing that changes it.
+    h.hover_at(chest);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: chest,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label(&format!("{area} is claimed by cd since 2026-10-20: read-only here"));
+    for item in ["Delete", "Adjust Location…", "Make Static", "Variables…"] {
+        assert!(h.query_by_label(item).is_none(), "no {item}");
+    }
+    h.get_by_label("Properties").click();
+    h.run_steps(3);
+    // The chest's Properties: gray, Close alone, what is typed dropped.
+    // (And settled: a gray form keeps no frames coming.)
+    h.run();
+    h.get_by_label_contains("read-only here, shown to look at");
+    assert!(h.query_by_label("OK").is_none());
+    let tag = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let chest = &git.root.list("Placeable List").unwrap()[0];
+        String::from_utf8_lossy(chest.string("Tag").unwrap()).into_owned()
+    };
+    typed_name(&h, &tag).click();
+    h.run_steps(1);
+    h.event(egui::Event::Text("X".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None);
+    assert_eq!(refused(&h), None);
+    // The area's Properties too.
+    h.get_by_label("Close").click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run_steps(3);
+    h.run();
+    h.get_by_label_contains("read-only here, shown to look at");
+    h.get_by_label("Close");
+    assert_eq!(refused(&h), None);
+}
+
+/// The toolbar's Minimap: the area's map in the view's corner, as the
+/// game's map draws it, with where the camera looks; a click on it moves
+/// the camera's target there and leaves the selection be, and the switch
+/// is kept for the views opened after.
+#[test]
+fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("minimap") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].map_rect, None, "off at first");
+    let named = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.label().is_some_and(|l| l.ends_with(" Minimap"))
+    };
+    h.get(egui_kittest::kittest::by().predicate(named)).click();
+    h.run_steps(3);
+    assert!(h.state().settings.area_minimap, "kept");
+    let rect = h.state().area_views[&area].map_rect.expect("the map is shown");
+    let view = h.state().area_views[&area].rect;
+    assert!((rect.width() - rect.height()).abs() < 0.5, "a 4 by 4 area's is square");
+    assert!(view.contains_rect(rect) && rect.right() > view.center().x, "in the view's corner");
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-minimap-shot").join("minimap.png")).unwrap();
+    // The tiles' pictures, not the black of a tile without one.
+    let ppp = img.width() as f32 / h.ctx.content_rect().width();
+    let p = img.get_pixel(((rect.left() + 4.0) * ppp) as u32, ((rect.top() + 4.0) * ppp) as u32);
+    assert!(p[0] as u32 + p[1] as u32 + p[2] as u32 > 60, "a tile's picture: {p:?}");
+    // A click toward its south-east corner: the camera looks at 35, 5.
+    let at = rect.min + egui::vec2(rect.width() * 0.875, rect.height() * 0.875);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!((target.x - 35.0).abs() < 0.5 && (target.y - 5.0).abs() < 0.5, "{target}");
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+    assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
+}
+
+/// Setup Area Transition picks the door or waypoint a transition leads
+/// to on its area's map, as Aurora's `TdlgAreaTransition` does: a click
+/// on a waypoint's dot takes it, OK sets Destination Tag and its type;
+/// what is clicked in the lists and canceled changes nothing.
+#[test]
+fn setup_area_transition_picks_on_the_target_area_s_map() {
+    let prepare = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        for (w, tag) in
+            git.root.list_mut("WaypointList").unwrap().iter_mut().zip(["WP_WEST", "WP_EAST"])
+        {
+            w.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        }
+        m.set_gff(git_key, &git).unwrap();
+        let resref = ResRef::from_str("transit").unwrap();
+        let mut utt = mg_module::blueprints::trigger(game, resref, "Transit", 0);
+        utt.root.set("Type", mg_gff::Value::Int(1));
+        m.set_gff(ResKey::new(resref, ResType::UTT), &utt).unwrap();
+    };
+    let Some((mut h, _)) = area_harness_with("transition", "ttr01", None, 4, None, &prepare) else {
+        return;
+    };
+    let key = ResKey::parse("transit", ResType::UTT).unwrap();
+    let linked = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = &ws.doc(&key).unwrap().root;
+        let tag = String::from_utf8_lossy(root.string("LinkedTo").unwrap_or_default()).into_owned();
+        (tag, root.integer("LinkedToFlags").unwrap_or(0))
+    };
+    let before = linked(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    h.run_steps(3);
+    h.get_all_by_label("Area Transition").next().unwrap().click();
+    h.run_steps(2);
+    // Clicked in a list and canceled: nothing changes.
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(3);
+    h.get_by_label("WP_WEST").click();
+    h.run_steps(1);
+    h.get_by_label("Leads to the waypoint tagged WP_WEST");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(linked(&mut h), before);
+    // On the map: the east waypoint, at 30, 20 of the area's 40 by 40 m.
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(3);
+    let map = h.get_by_label("The area's map").rect();
+    let east = egui::pos2(map.left() + map.width() * 0.75, map.bottom() - map.height() * 0.5);
+    h.hover_at(east);
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-transition-shot").join("setup_transition.png")).unwrap();
+    press(&h, east, true, egui::Modifiers::NONE);
+    press(&h, east, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Leads to the waypoint tagged WP_EAST");
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(linked(&mut h), ("WP_EAST".to_string(), 2));
+    assert!(h.query_by_label("The area's map").is_none(), "closed");
 }
 
 /// A look (`MG_SHOT=1`): a dragon selected in an area, its box around it

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
 ---
 
 # Modules
@@ -951,7 +951,9 @@ log by line, as the project file's are.
   (`unclaimed = "warn"`), with **Claim This Area** beside it;
 - where the project keeps others' areas read-only (`others =
   "read-only"`), no change to one is taken (from any window, a rename
-  elsewhere that would change it, or a plugin): the log says why;
+  elsewhere that would change it, or a plugin): its view's tools are
+  off and its forms gray ([Areas](04-areas.md#claimed-and-protected-areas)),
+  and a change made another way is refused, the log saying why;
 - where it warns (the default), you may change it, and a save that
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed

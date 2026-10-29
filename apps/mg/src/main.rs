@@ -3427,22 +3427,25 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 let key = ResKey::new(a, mg_core::ResType::GIT);
                 let Some(Ok(git)) = m.gff(&key) else { continue };
-                let read = |k: ResKey| mg_module::gff_root(Some(&m), &game, &k);
-                let item = |r: mg_core::ResRef| read(ResKey::new(r, mg_core::ResType::UTI));
-                let placing = mg_module::instances::Placing { game: &game, item: &item };
-                let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
-                    let k = ResKey::new(r, t);
-                    if wanted.contains(&k) { read(k) } else { None }
-                };
-                // The items the area's objects hold (in chests, creatures'
-                // packs and hands, stores, bags) first, then the objects.
-                let held_item = |r: mg_core::ResRef| blueprint(mg_core::ResType::UTI, r);
-                let (root, held) =
-                    mg_module::instances::update_held(&placing, &git.root, &held_item, &|_| true)
-                        .unwrap_or_else(|| (git.root.clone(), 0));
                 let updated =
-                    mg_module::instances::update(&placing, &root, &blueprint, &|_, _| true)
-                        .map_or((root, held), |(new, n)| (new, n + held));
+                    mg_module::instances::with_placing(&game, Some(&m), |placing, read| {
+                        let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
+                            let k = ResKey::new(r, t);
+                            if wanted.contains(&k) { read(k) } else { None }
+                        };
+                        // The items the area's objects hold (in chests, creatures'
+                        // packs and hands, stores, bags) first, then the objects.
+                        let held_item = |r: mg_core::ResRef| blueprint(mg_core::ResType::UTI, r);
+                        let (root, held) = mg_module::instances::update_held(
+                            placing,
+                            &git.root,
+                            &held_item,
+                            &|_| true,
+                        )
+                        .unwrap_or_else(|| (git.root.clone(), 0));
+                        mg_module::instances::update(placing, &root, &blueprint, &|_, _| true)
+                            .map_or((root, held), |(new, n)| (new, n + held))
+                    });
                 if let (new, n @ 1..) = updated {
                     let mut g = git.clone();
                     g.root = new;

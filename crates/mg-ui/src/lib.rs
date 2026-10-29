@@ -37,6 +37,7 @@ pub mod keys;
 pub mod levelup_view;
 pub mod lighting;
 mod manual;
+mod minimap;
 mod model_textures;
 pub mod model_view;
 pub mod module_folder;

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:58:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
 ---
 
 # Build, verify and test
@@ -357,7 +357,10 @@ It looks a moment after the system says one changed (every few seconds
 where the system can't say; Options › General, on by default), or when
 you choose **Tools › Reload Resources**. Palettes, previews and open areas are
 redrawn from the new files, keeping the camera, and the log says what
-was reloaded.
+was reloaded. An open area's models and textures are read again as it
+was first opened, apart from the window (which stays at hand, the area
+saying "Reading area…" meanwhile), and its textures fill in as they are
+read.
 
 ## Area Statistics
 

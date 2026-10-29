@@ -297,6 +297,8 @@ pub struct Settings {
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
+    /// The area view's Minimap switch is on, in views opened from now on.
+    pub area_minimap: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,

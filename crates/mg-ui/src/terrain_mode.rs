@@ -443,6 +443,10 @@ pub fn spot(p: Vec3, width: u32, height: u32) -> Option<Spot> {
 /// The brush that applies to `view`'s area, if one is chosen for its
 /// tileset.
 pub(crate) fn active(app: &Moonglow, view: &AreaView) -> Option<TileBrush> {
+    // (None on a read-only area: its tiles aren't changed.)
+    if view.read_only.is_some() {
+        return None;
+    }
     let mut b = app.palette.tile_brush.clone()?;
     let tools = view.terrain.as_ref()?;
     b.exact = app.settings.exact_tiles && matches!(b.brush, Brush::Tile(_));

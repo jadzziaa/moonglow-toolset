@@ -201,10 +201,10 @@ impl Form<'_> {
         let bp = self.blueprint(BlueprintKind::Item, resref)?;
         let game = self.app.game.as_deref()?;
         let module = self.app.ws.as_ref().map(|w| &w.module);
-        let item =
-            |r: ResRef| mg_module::gff_root(module, game, &ResKey::new(r, mg_core::ResType::UTI));
-        let placing = mg_module::instances::Placing { game, item: &item };
-        Some(mg_module::instances::held(&placing, &bp, id))
+        let held = mg_module::instances::with_placing(game, module, |placing, _| {
+            mg_module::instances::held(placing, &bp, id)
+        });
+        Some(held)
     }
 
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
