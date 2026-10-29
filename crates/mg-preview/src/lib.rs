@@ -29,7 +29,7 @@ mod object;
 pub mod replaceable;
 
 pub use creature::{CreatureLook, creature, creature_look};
-pub use item::{ground_turn, item, item_on, item_placed};
+pub use item::{armor_part, ground_turn, item, item_on, item_placed};
 pub use object::{PLACEABLE_DEFAULT_ENV_MAP, door, placeable, sound, store, waypoint};
 
 /// Why a preview could not be made.

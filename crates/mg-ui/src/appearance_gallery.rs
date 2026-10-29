@@ -1,6 +1,7 @@
 //! The Appearance Gallery: every appearance of a kind as a picture, in a
 //! grid, in a tab of its own: placeables (placeables.2da's models),
-//! creatures (appearance.2da, a plain body of each) and doors
+//! creatures (appearance.2da: the creature given appearances as it is in
+//! each, its head, colors and what it wears, else a plain body) and doors
 //! (genericdoors.2da). Opened from Tools, the palette's All Appearances…,
 //! and Gallery… beside the appearance in a placeable's, creature's or
 //! door's Properties. A click gives the appearance to the object whose
@@ -115,14 +116,16 @@ impl Kind {
         }
     }
 
-    /// What pictures row `row`: its model, or a creature's look.
-    fn pictured(self, table: &mg_2da::TwoDa, row: usize, gender: u8) -> Option<Pictured> {
+    /// What pictures row `row`: its model, or a creature's look: the
+    /// creature the gallery gives appearances to as it is (`dressed`,
+    /// [`Thumbnails::creature`](crate::model_view::Thumbnails::creature)),
+    /// else a plain body.
+    fn pictured(self, table: &mg_2da::TwoDa, row: usize, dressed: Option<u64>) -> Option<Pictured> {
         match self {
-            Kind::Creature => {
-                let mut look = mg_preview::CreatureLook::new(row as u16);
-                look.gender = gender;
-                Some(Pictured::Look(look))
-            }
+            Kind::Creature => Some(match dressed {
+                Some(id) => Pictured::Creature(id, row as u16),
+                None => Pictured::Look(mg_preview::CreatureLook::new(row as u16)),
+            }),
             Kind::Placeable | Kind::Door => {
                 let model = table.get(row, "ModelName")?.to_ascii_lowercase();
                 ResKey::parse(&model, ResType::MDL).map(Pictured::Resource)
@@ -211,7 +214,7 @@ pub(crate) fn grid(
     ui: &mut egui::Ui,
     state: &mut Gallery,
     current: Option<i64>,
-    gender: u8,
+    dressed: Option<u64>,
 ) -> Option<i64> {
     let kind = state.kind;
     let game = app.game.clone()?;
@@ -258,7 +261,7 @@ pub(crate) fn grid(
         for line in lines {
             ui.horizontal(|ui| {
                 for c in rows.iter().skip(line * per_row).take(per_row) {
-                    let key = kind.pictured(&table, c.row, gender);
+                    let key = kind.pictured(&table, c.row, dressed);
                     let made = match key {
                         Some(k) => ready.made(k),
                         None => Some(None),
@@ -309,10 +312,15 @@ pub(crate) fn grid(
     pick
 }
 
-/// The objects of the gallery's kind selected in the area shown: the
-/// area's GIT, their places in its list, and the first one's appearance
-/// and gender.
-fn selected(app: &mut Moonglow, kind: Kind) -> Option<(ResKey, Vec<usize>, Option<i64>, u8)> {
+/// The objects a gallery gives appearances to: their document, their
+/// places in its list, and the first one's appearance and (a creature)
+/// its fields to picture it by
+/// ([`Thumbnails::creature`](crate::model_view::Thumbnails::creature)).
+type Chosen = (ResKey, Vec<usize>, Option<i64>, Option<u64>);
+
+/// The objects of the gallery's kind selected in the area shown (in its
+/// GIT).
+fn selected(app: &mut Moonglow, kind: Kind) -> Option<Chosen> {
     let area = app.palette.area?;
     let view = app.area_views.get(&area)?;
     let object = kind.object();
@@ -321,9 +329,9 @@ fn selected(app: &mut Moonglow, kind: Kind) -> Option<(ResKey, Vec<usize>, Optio
     let git = ResKey::new(area, ResType::GIT);
     let first = *chosen.first()?;
     let doc = app.ws.as_mut()?.doc(&git).ok()?;
-    let of = doc.root.list(object.list())?.get(first)?;
-    let gender = of.integer("Gender").unwrap_or(0).clamp(0, 1) as u8;
-    Some((git, chosen, of.integer(kind.field()), gender))
+    let of = doc.root.list(object.list())?.get(first)?.clone();
+    let dressed = (kind == Kind::Creature).then(|| app.thumbnails.creature(&of));
+    Some((git, chosen, of.integer(kind.field()), dressed))
 }
 
 /// The gallery's tab: to look through, and to give an appearance with a
@@ -344,18 +352,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // The one object it was opened for, as it is now.
     let one = state.target.clone().and_then(|(key, path)| {
         let doc = app.ws.as_mut()?.doc(&key).ok()?;
-        let of = path.get(&doc.root)?;
-        let gender = of.integer("Gender").unwrap_or(0).clamp(0, 1) as u8;
-        Some((key, path, of.integer(kind.field()), gender))
+        let of = path.get(&doc.root)?.clone();
+        let dressed = (kind == Kind::Creature).then(|| app.thumbnails.creature(&of));
+        Some((key, path, of.integer(kind.field()), dressed))
     });
     if one.is_none() {
         state.target = None;
     }
     let chosen = if one.is_none() { selected(app, kind) } else { None };
-    let (current, gender) = match (&one, &chosen) {
-        (Some((_, _, now, gender)), _) => (*now, *gender),
-        (None, Some((_, _, now, gender))) => (*now, *gender),
-        _ => (None, 0),
+    let (current, dressed) = match (&one, &chosen) {
+        (Some((_, _, now, dressed)), _) => (*now, *dressed),
+        (None, Some((_, _, now, dressed))) => (*now, *dressed),
+        _ => (None, None),
     };
     ui.horizontal_wrapped(|ui| match (&one, &chosen) {
         (Some((key, path, ..)), _) => {
@@ -383,7 +391,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             ));
         }
     });
-    let pick = grid(app, ui, &mut state, current, gender).filter(|row| Some(*row) != current);
+    let pick = grid(app, ui, &mut state, current, dressed).filter(|row| Some(*row) != current);
     let set = |key: ResKey, path: GffPath, row: i64| -> Vec<Edit> {
         kind.fields(row)
             .into_iter()

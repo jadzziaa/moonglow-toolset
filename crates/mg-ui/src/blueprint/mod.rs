@@ -344,11 +344,13 @@ pub(crate) fn window_drawn_but(
     app.actions.push(Action::CloseTab(tab.clone()));
 }
 
-/// A creature appearance's picture (a plain body of it), for the row the
-/// pointer rests on in the list.
-fn creature_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
-    let look = mg_preview::CreatureLook::new(row as u16);
-    picture(ui, app.thumbnails.get(crate::model_view::Pictured::Look(look)));
+/// A creature appearance's picture, for the row the pointer rests on in
+/// the list: the creature as it is (`dressed`, its fields as
+/// [`Thumbnails::creature`](crate::model_view::Thumbnails::creature)
+/// keeps them: its head, colors, what it wears) in that appearance.
+fn creature_picture(app: &mut Moonglow, ui: &mut Ui, dressed: u64, row: usize) {
+    let key = crate::model_view::Pictured::Creature(dressed, row as u16);
+    picture(ui, app.thumbnails.get(key));
 }
 
 /// A placeable appearance's picture (its model).
@@ -390,15 +392,32 @@ fn model_picture(app: &mut Moonglow, ui: &mut Ui, (table, column): (&str, &str),
 /// look, on a woman where `female` (armor and cloaks). (The icon tells
 /// apart what the model may not: the game's rings and amulets have none of
 /// their own, and lie as a bag.)
-pub(super) fn item_picture(app: &mut Moonglow, ui: &mut Ui, item: &mg_gff::Struct, female: bool) {
+///
+/// For one of an armor's parts (`pieces`: its models' names,
+/// [`mg_preview::armor_part`]), that part alone beside it too: small in
+/// the picture of the whole body.
+pub(super) fn item_part_picture(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    item: &mg_gff::Struct,
+    female: bool,
+    pieces: Option<&'static [&'static str]>,
+) {
     let key = app.thumbnails.item(item, female);
     let made = app.thumbnails.get(key);
+    let alone = pieces.map(|p| {
+        let key = app.thumbnails.item_part(item, female, Some(p));
+        app.thumbnails.get(key)
+    });
     let icon = app.loader().map(|mut l| l.item_icon_on(ui.ctx(), item, female)).unwrap_or_default();
     ui.horizontal_top(|ui| {
         if !icon.is_empty() {
             crate::images::stacked_drawn(ui, &icon, (1.5, PICTURE_SIDE), "Icon");
         }
         picture(ui, made);
+        if let Some(alone) = alone {
+            picture(ui, alone);
+        }
     });
 }
 
@@ -1146,8 +1165,16 @@ impl Form<'_> {
         creature: bool,
     ) {
         self.mark_mixed(ui, label);
-        let mut show = if creature { creature_picture } else { placeable_picture };
-        self.choice_shown(ui, "Appearance", label, choices, default, Some(&mut show));
+        if creature {
+            let dressed = self.app.thumbnails.creature(&self.root);
+            let mut show = move |app: &mut Moonglow, ui: &mut Ui, row| {
+                creature_picture(app, ui, dressed, row);
+            };
+            self.choice_shown(ui, "Appearance", label, choices, default, Some(&mut show));
+        } else {
+            let mut show = placeable_picture;
+            self.choice_shown(ui, "Appearance", label, choices, default, Some(&mut show));
+        }
     }
 
     /// [`choice`](Self::choice), with what `about` shows of a row (its

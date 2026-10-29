@@ -3657,3 +3657,38 @@ fn shown_on_a_woman_is_kept_and_the_icons_follow_it() {
     h.run_steps(4);
     assert!(names(&mut h, &armor).iter().all(|n| n.starts_with("ipm_")));
 }
+
+/// An armor's part is chosen by its picture too: under the Appearance
+/// page's lists, a part's models, each alone, opened at the one the armor
+/// has; a click gives the armor that one (both legs together).
+#[test]
+fn an_armor_s_part_is_chosen_by_its_picture() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "armor_parts", ResType::UTI) else {
+        return;
+    };
+    // (Tall enough for the pictures under the lists to be in sight.)
+    h.set_size(egui::vec2(1000.0, 1200.0));
+    let at = (egui::pos2(10.0, 10.0), egui::vec2(980.0, 1180.0));
+    own_window(&mut h, &Tab::Blueprint(key), at.0, at.1);
+    h.get_by_label("Appearance").click();
+    h.run();
+    let button = egui::accesskit::Role::Button;
+    let number = |l: &str| l.parse::<u16>().ok();
+    let tiles = |h: &Harness<'_, Moonglow>| -> Vec<u16> {
+        h.query_all_by(|n| n.role() == button && n.label().is_some_and(|l| number(&l).is_some()))
+            .filter_map(|n| number(&n.accesskit_node().label()?))
+            .collect()
+    };
+    // The thighs' pictures: the armor's own among those in sight.
+    h.get_by(|n| n.role() == button && n.label().as_deref() == Some("Thighs")).click();
+    h.run_steps(3);
+    let own = field(&mut h, &key).integer("ArmorPart_LThigh").unwrap() as u16;
+    let shown = tiles(&h);
+    assert!(shown.contains(&own), "{own} in {shown:?}");
+    let other = *shown.iter().find(|&&n| n != own).unwrap();
+    h.get_by_label(&other.to_string()).click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!(s.integer("ArmorPart_LThigh"), Some(i64::from(other)));
+    assert_eq!(s.integer("ArmorPart_RThigh"), Some(i64::from(other)), "both legs");
+}

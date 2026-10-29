@@ -168,8 +168,10 @@ The palette's buttons:
 - **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
   Appearances…** under **More** in the palette's Placeables): **Placeables**, **Creatures**
   and **Doors** at its top choose whose. Every appearance in
-  `placeables.2da`, `appearance.2da` (a plain body of each) or
-  `genericdoors.2da` as a picture, those that are only an effect (flames,
+  `placeables.2da`, `appearance.2da` or `genericdoors.2da` as a picture
+  (a creature's: the creature it gives appearances to as it is, its
+  head, colors, phenotype and what it wears, in each appearance; else a
+  plain body), those that are only an effect (flames,
   sparks, shafts of light) too. It is a tab like any other: it opens in a
   window of its own, and can be docked beside the area or maximized. Click
   a picture to give it to the objects of that kind selected in the area
@@ -225,7 +227,11 @@ The palette's buttons:
   follows the arrow keys. An item's lists of its model and parts (a
   model, a weapon's parts' shapes and colors, an armor's parts) show the
   item as it would be with each, its inventory icon beside its model,
-  the same way (on a woman where the item is shown on one). A body or armor part's list
+  the same way (on a woman where the item is shown on one); an armor
+  part's, that part alone beside them too. A creature's Appearance list
+  shows the creature as it is in each appearance: its head, colors,
+  gender, phenotype and what it wears (what it may not wear left off, as
+  the game does). A body or armor part's list
   takes the mouse wheel too, with the pointer resting on it: down to the
   next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
@@ -641,7 +647,11 @@ weapon's three parts are also chosen by picture: a model's by the item's
 icon as it would be with each (what of it is drawn, at most 128 points
 tall), a weapon's part by that part alone, as
 large as it is in the icon, a part with a model and no icon by its
-number; the item's model shows in the page and follows each
+number, and an armor's parts under their lists by **Pictures of**: the
+part chosen there (the torso first), each of its models alone as the
+body shown wears it, in the armor's colors, opened at the armor's own,
+a click giving the armor that one (the thighs, shins and feet both
+sides together); the item's model shows in the page and follows each
 change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and an armor's inventory icon is then the one a

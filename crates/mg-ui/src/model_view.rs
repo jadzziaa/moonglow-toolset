@@ -1129,9 +1129,13 @@ pub struct Thumbnails {
     /// Armor is shown on a woman in this frame (Options › General): an
     /// item blueprint's picture is hers.
     female: bool,
-    /// The items pictured by their looks ([`Pictured::Item`]), and whether
-    /// on a woman: those asked for and kept.
-    items: HashMap<u64, (Struct, bool)>,
+    /// The items pictured by their looks ([`Pictured::Item`]), whether on
+    /// a woman, and for one of an armor's parts alone, its models' names
+    /// ([`mg_preview::armor_part`]): those asked for and kept.
+    items: HashMap<u64, (Struct, bool, Option<&'static [&'static str]>)>,
+    /// The creatures pictured as they are in other appearances
+    /// ([`Pictured::Creature`]): those asked for and kept.
+    creatures: HashMap<u64, Struct>,
     /// The revision at which the editors' working copies were last written
     /// into the module for the blueprints' looks (once a revision: it
     /// writes every document the workspace has read).
@@ -1179,6 +1183,10 @@ pub(crate) enum Pictured {
     /// An item as its fields make it look (with another model or part, for
     /// choosing among them), by those fields: [`Thumbnails::item`].
     Item(u64),
+    /// A creature as its fields make it look (its head, colors, what it
+    /// wears), by those fields ([`Thumbnails::creature`]), in another
+    /// appearance (an appearance.2da row), for choosing among them.
+    Creature(u64, u16),
 }
 
 impl Pictured {
@@ -1218,14 +1226,38 @@ impl Thumbnails {
     /// What pictures `item` (an item's fields: as it would be with another
     /// model or part), on a woman where `female` (armor and cloaks).
     pub(crate) fn item(&mut self, item: &Struct, female: bool) -> Pictured {
+        self.item_part(item, female, None)
+    }
+
+    /// What pictures one of armor `item`'s parts alone (`pieces`, its
+    /// models' names: [`mg_preview::armor_part`]), on a woman where
+    /// `female`; with no `pieces`, the whole item ([`Thumbnails::item`]).
+    pub(crate) fn item_part(
+        &mut self,
+        item: &Struct,
+        female: bool,
+        pieces: Option<&'static [&'static str]>,
+    ) -> Pictured {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         // (Its fields as written out: a struct has no hash of its own.)
         format!("{item:?}").hash(&mut h);
         female.hash(&mut h);
+        pieces.hash(&mut h);
         let id = h.finish();
-        self.items.entry(id).or_insert_with(|| (item.clone(), female));
+        self.items.entry(id).or_insert_with(|| (item.clone(), female, pieces));
         Pictured::Item(id)
+    }
+
+    /// What pictures `creature` (a creature's fields) as it is in another
+    /// appearance: [`Pictured::Creature`] with this and the row.
+    pub(crate) fn creature(&mut self, creature: &Struct) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{creature:?}").hash(&mut h);
+        let id = h.finish();
+        self.creatures.entry(id).or_insert_with(|| creature.clone());
+        id
     }
 
     /// The pictures a view shows this frame: kept while they are shown,
@@ -1381,6 +1413,15 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
             made.contains_key(&key) || wanted.contains(&key)
         });
     }
+    if !thumbnails.creatures.is_empty() {
+        let mut used = std::collections::HashSet::new();
+        for (key, _) in thumbnails.made.keys().chain(&thumbnails.wanted) {
+            if let Pictured::Creature(id, _) = key {
+                used.insert(*id);
+            }
+        }
+        thumbnails.creatures.retain(|id, _| used.contains(id));
+    }
 }
 
 /// Makes a picture, or finds the one made before the module changed to be
@@ -1440,12 +1481,26 @@ fn pictured_look(app: &Moonglow, (key, female): Kept) -> Option<(Source, Preview
             Some((source, preview))
         }
         Pictured::Item(id) => {
-            let (item, female) = app.thumbnails.items.get(&id)?;
+            let (item, female, pieces) = app.thumbnails.items.get(&id)?;
             let game = app.game.as_deref()?;
-            let preview = mg_preview::item_on(game, item, *female).ok()?;
+            let preview = match pieces {
+                Some(pieces) => mg_preview::armor_part(game, item, *female, pieces).ok()?,
+                None => mg_preview::item_on(game, item, *female).ok()?,
+            };
             // (Named as an item's, which tells a shield's from the others'.)
             let source = Source::Resource(ResKey::parse("item", ResType::UTI)?);
             Some((source, mg_preview::replaced(preview, item)))
+        }
+        Pictured::Creature(id, row) => {
+            let mut utc = app.thumbnails.creatures.get(&id)?.clone();
+            utc.set("Appearance_Type", mg_gff::Value::Word(row));
+            let game = app.game.as_deref()?;
+            let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
+            let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
+            let kind = mg_rules::ObjectKind::Creature;
+            let shown = mg_preview::Shown::default();
+            let preview = mg_preview::of_object(game, kind, &utc, &items, shown)?.ok()?;
+            Some((Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview))
         }
         Pictured::Look(look) => {
             let preview = mg_preview::creature_look(app.game.as_deref()?, &look).ok()?;

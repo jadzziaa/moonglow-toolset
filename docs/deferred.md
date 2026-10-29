@@ -329,15 +329,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   looked at); blueprints made in a category the palette hides;
   new strings written to a talk-table range. (S–M)
   (a second builder's review, October 2026)
-- **Appearances as pictures** are placeables', creatures' and doors';
-  an item's model, and each of a weapon's three parts, are chosen from
-  its icons (the item as it would be with each). An armor's parts are
-  chosen from lists of numbers: the pointer resting on a row shows the
-  armor with that part on a body and its icon (the part is small in the
-  picture of the whole body), but there is no picture of a part alone
-  and no gallery of them. A creature's look is a plain body of the
-  appearance, male unless the creature is female. (S–M) (from builders'
-  reports after 1.10.1)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that

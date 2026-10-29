@@ -31,6 +31,30 @@ pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, P
     Ok(Preview { base: first, parts: parts.collect(), idle: None, lights: Vec::new() })
 }
 
+/// One of an armor's parts alone, as [`item_on`] has it worn (its model
+/// for the body, man's or woman's, in its colors, on the bones of the
+/// body, which has no mesh of its own): `pieces`, the part's name in its
+/// models' (`chest` of `pmh0_chest012`; both legs' `legl` and `legr`).
+/// For choosing among a part's models by their pictures. An armor's part
+/// 0 is the wearer's own there, as the game has it.
+pub fn armor_part(
+    game: &GameData,
+    uti: &Struct,
+    female: bool,
+    pieces: &[&str],
+) -> Result<Preview, PreviewError> {
+    let mut p = item_on(game, uti, female)?;
+    let of = |model: &str| {
+        let after = model.split_once('_').map_or("", |(_, rest)| rest);
+        after.trim_end_matches(|c: char| c.is_ascii_digit()).to_string()
+    };
+    p.parts.retain(|part| pieces.contains(&of(&part.model).as_str()));
+    if p.parts.is_empty() {
+        return Err(PreviewError::NoModel(pieces.join(", ")));
+    }
+    Ok(p)
+}
+
 /// An item as it lies in an area, as Aurora draws it there. Armour,
 /// which is its wearer's body parts, is the game's model of armour
 /// dropped (`gi_armor01`…`04`, by its weight); the game's cloak, which
