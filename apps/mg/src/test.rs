@@ -10,6 +10,7 @@ use mg_core::ResType;
 use mg_module::testing::{self, Report};
 use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, ResKey, ResMan};
+use serde_json::json;
 
 use crate::serve;
 
@@ -36,16 +37,92 @@ pub(crate) struct Run {
     pub ended: Option<String>,
 }
 
+impl Run {
+    /// Nothing failed: everything compiled, and every test ran to its end
+    /// and passed.
+    pub(crate) fn ok(&self) -> bool {
+        self.compile_errors.is_empty() && self.report.ok()
+    }
+
+    pub(crate) fn json(&self) -> serde_json::Value {
+        let mut v = self.report.to_json();
+        v["module"] = json!(self.name);
+        v["seconds"] = json!(self.seconds);
+        v["compile_errors"] = json!(self.compile_errors);
+        v["ended"] = json!(self.ended);
+        v["ok"] = json!(self.ok());
+        v
+    }
+
+    /// What didn't compile, then a line for each test (and below it, what
+    /// failed of it).
+    pub(crate) fn lines(&self) -> Vec<String> {
+        let mut out = self.compile_errors.clone();
+        for t in &self.report.tests {
+            out.push(match (&t.error, t.failed()) {
+                // (Run to its end with nothing asserted: said, not a
+                // failure.)
+                (None, 0) if t.cases.is_empty() => {
+                    format!("ok    {} (0: it made no assertion)", t.script)
+                }
+                (None, 0) => format!("ok    {} ({})", t.script, t.cases.len()),
+                (None, n) => format!("FAIL  {} ({n} of {})", t.script, t.cases.len()),
+                (Some(_), _) => format!("ERROR {}", t.script),
+            });
+            for c in t.cases.iter().filter(|c| !c.ok) {
+                let detail = match c.detail.is_empty() {
+                    true => String::new(),
+                    false => format!(": {}", c.detail),
+                };
+                out.push(format!("        {}{detail}", c.name));
+            }
+            for line in t.error.iter().flat_map(|e| e.lines()) {
+                out.push(format!("        {line}"));
+            }
+        }
+        out
+    }
+
+    /// How many passed, failed and ended in an error, and how long it took
+    /// (or why it was cut short).
+    pub(crate) fn summary(&self) -> String {
+        let why = match (&self.ended, self.compile_errors.len()) {
+            (_, n) if n > 0 => format!("{n} scripts did not compile; nothing was run"),
+            (Some(why), _) => why.clone(),
+            _ => format!("{:.1} s", self.seconds),
+        };
+        format!(
+            "{} passed, {} failed, {} errors in {} tests ({why})",
+            self.report.passed(),
+            self.report.failed(),
+            self.report.errors(),
+            self.report.tests.len()
+        )
+    }
+}
+
 pub(crate) fn run(
     gi: &GameInstall,
     c: &Config,
     resman: impl Fn(&Module, &mut Vec<String>) -> Result<ResMan>,
     echo: &mut dyn FnMut(&str),
 ) -> Result<Run> {
+    let m = crate::open_module(&c.module).with_context(|| c.module.display().to_string())?;
+    run_on(gi, c, m, resman, echo)
+}
+
+/// [`run`] on the module `c.module` names, as `m` has it (read already:
+/// `mg watch`'s, with what changed since it was read).
+pub(crate) fn run_on(
+    gi: &GameInstall,
+    c: &Config,
+    // (Changed in memory only, and saved elsewhere.)
+    mut m: Module,
+    resman: impl Fn(&Module, &mut Vec<String>) -> Result<ResMan>,
+    echo: &mut dyn FnMut(&str),
+) -> Result<Run> {
     let started = Instant::now();
     let mut notes = Vec::new();
-    // (Changed in memory only, and saved elsewhere.)
-    let mut m = crate::open_module(&c.module).with_context(|| c.module.display().to_string())?;
     // (The module as the builder has it, before the tests go in.)
     let as_read = m.clone();
     let mut added = Vec::new();

@@ -133,18 +133,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
   pipes, the links for haks, and Ctrl+C (the server in a console
   process group of its own, `CREATE_NEW_PROCESS_GROUP`, told to `exit`
   by `mg`). (S) (waits on a Windows machine)
-- **`mg watch`** (a project followed into a development folder): the
-  project is read whole again at each change, and looked at by its
-  files' sizes and times some twice a second (no file-system
-  notifications); a nasher project's default target only; debug files
-  (`.ndb`) are made where `--ndb` asks (`mg watch`, `mg compile`), and
-  by Compile All Scripts and Build Module with Generate Debug
-  Information on, and `mg build --ndb`; `mg rename` and the window's Rename give a script that had one a
-  new one; nothing
-  is pushed through NWNX's console; with `--serve`, tests are not run
-  again after a change (`mg test` is a run of its own). A test holds
-  the `--serve` half on Linux (a change put out, the server started
-  again at its port after a build, `/quit`). (M, S, S, M, S)
+- **`mg watch`** (a project followed into a development folder):
+  nothing is pushed through NWNX's console (what changed goes to the
+  development folder, which a server with NWNX reads as any other).
+  Dropping it is proposed: an NWNX integration no one asked for.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
+  (M)
 - **Test Module and Steam:** the game started for a test is told which
   Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
   Steam and loads the Workshop's content, as when started from Steam;

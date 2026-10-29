@@ -2664,6 +2664,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "notify",
  "png",
  "rayon",
  "regex-lite",

@@ -204,8 +204,18 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
         assert!(player.len() > 8 && player != dm, "{passwords}");
         assert!(admin.as_str().unwrap().len() > 8, "{passwords}");
         let carried = |pid: &Value| {
-            let Ok(args) = std::fs::read(format!("/proc/{pid}/cmdline")) else { return };
-            let args: Vec<&[u8]> = args.split(|b| *b == 0).collect();
+            // (Read until the server's: just started, the process may
+            // still be `mg`'s, before it has become the server.)
+            let mut read = Vec::new();
+            for _ in 0..100 {
+                let Ok(args) = std::fs::read(format!("/proc/{pid}/cmdline")) else { return };
+                read = args;
+                if read.split(|b| *b == 0).any(|a| a == b"-dmpassword") {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            let args: Vec<&[u8]> = read.split(|b| *b == 0).collect();
             let after = |flag: &str| {
                 let at = args.iter().position(|a| *a == flag.as_bytes()).unwrap();
                 String::from_utf8_lossy(args[at + 1]).into_owned()
@@ -261,4 +271,94 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
     if let Err(e) = result {
         std::panic::resume_unwind(e);
     }
+}
+
+/// With --test, the module's tests run (as `mg test` runs them, in a
+/// server of their own) at the start and again after a change: here an
+/// include its test reads, changed while the module is served.
+#[test]
+fn tests_run_again_after_a_change() {
+    use std::io::Write;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-watch-test");
+    let (project, served) = (dir.join("chess"), dir.join("served"));
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let unpack = [chess.to_str().unwrap(), project.to_str().unwrap()];
+    assert!(mg(&root, &[&["unpack"][..], &unpack[..]].concat()).status().unwrap().success());
+    let include = project.join("watch_inc.nss");
+    std::fs::write(&include, "int WatchValue() { return 2; }\n").unwrap();
+    std::fs::write(
+        project.join("test_watch.nss"),
+        "#include \"mg_test\"\n#include \"watch_inc\"\nvoid main() { \
+         AssertEqualInt(WatchValue(), 2, \"the include's value\"); }\n",
+    )
+    .unwrap();
+    let (p, s) = (project.to_str().unwrap(), served.to_str().unwrap());
+    let mut child = mg(&root, &["watch", p, "--serve", "--dir", s, "--test"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = child.stdout.take().unwrap();
+    let mut typed = child.stdin.take().unwrap();
+    let (send, events) = channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                let _ = send.send(v);
+            }
+        }
+    });
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let first = next(&events, "tested");
+        assert_eq!((&first["ok"], &first["passed"]), (&true.into(), &1.into()), "{first}");
+        assert_eq!(first["tests"][0]["script"], "test_watch", "{first}");
+        next(&events, "ready");
+
+        // The include changes: its includer is compiled, put out, and the
+        // tests run again on it.
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&include, "int WatchValue() { return 3; }\n").unwrap();
+        let synced = next(&events, "synced");
+        let compiled: Vec<&str> =
+            synced["compiled"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(compiled.contains(&"test_watch"), "{synced}");
+        let again = next(&events, "tested");
+        assert_eq!((&again["ok"], &again["failed"]), (&false.into(), &1.into()), "{again}");
+        let case = &again["tests"][0]["cases"][0];
+        assert_eq!(case["detail"], "got 3, expected 2", "{again}");
+
+        typed.write_all(b"/quit\n").unwrap();
+        typed.flush().unwrap();
+        next(&events, "ended");
+    }));
+    if result.is_ok() {
+        assert!(child.wait().unwrap().success());
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+
+/// `--test-filter` is --test's.
+#[test]
+fn the_test_filter_wants_test() {
+    let dir = mg_testkit::scratch_dir("mg-watch-test-filter");
+    let (p, d) = (dir.join("none"), dir.join("development"));
+    let out = crate::mg()
+        .args(["watch", p.to_str().unwrap(), "--dev-dir", d.to_str().unwrap()])
+        .args(["--test-filter", "x"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{said}");
+    assert!(said.contains("--test"), "{said}");
+    assert!(!d.exists(), "nothing made");
 }
