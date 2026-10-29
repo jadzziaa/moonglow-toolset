@@ -38,26 +38,26 @@ jobs:
           echo "runs of $SHA that passed: $passed"
           if [ "$passed" -gt 0 ]; then echo "already=true" >> "$GITHUB_OUTPUT"; fi
 
-  test:
+  # Format and clippy beside the tests, not before them: on Windows they
+  # were two of its job's fifteen minutes. A job of their own also keeps
+  # their check builds out of the tests' cache.
+  lint:
     needs: tested
     if: needs.tested.outputs.already != 'true'
-    name: Test (${{ matrix.os }})
+    name: Lint (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Free disk space
-        if: runner.os == 'Linux'
-        # The image's .NET, Android, Haskell and CodeQL toolchains, unused
-        # here: room for the tests' build.
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Linux libraries
         if: runner.os == 'Linux'
         # ALSA for sound playback (rodio).
@@ -74,6 +74,45 @@ jobs:
       - name: Clippy (mg and mg-preview without the GPU)
         # Their default features are on in everything above.
         run: cargo clippy -p mg -p mg-preview --no-default-features --all-targets -- -D warnings
+
+  test:
+    needs: tested
+    if: needs.tested.outputs.already != 'true'
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # The tests are built without debug information (Cargo.toml's
+      # line tables): less to compile, link and cache, and the doc tests'
+      # libraries are then the tests' own (on Linux the line tables made
+      # them another build of the 26 libraries, two minutes). A failing
+      # test still says its file and line; only a backtrace, which CI
+      # doesn't print, would lose its lines.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        # The image's .NET, Android, Haskell and CodeQL toolchains, unused
+        # here: room for the tests' build. Removed in the background while
+        # the toolchain and the cache are set up: on its own the removal
+        # took 0.8 to 2.3 minutes, before the build needs the room.
+        run: sudo nohup rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL > /dev/null 2>&1 &
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        # Saved by develop alone: other branches start from develop's (a
+        # branch may read its default branch's caches). GitHub keeps 10 GB
+        # per repository, and a branch's pushes (each change to a manifest
+        # is a new key) evicted develop's, whose next runs started cold.
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        # ALSA for sound playback (rodio).
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: DXC beside the test binaries
         # The pinned dxcompiler.dll the Windows packages ship, where the
         # test binaries run (target\debug\deps): Direct3D 12 compiles
@@ -85,9 +124,19 @@ jobs:
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all
-        # 22 of them; clippy has checked them above).
+        # 22 of them; the Lint job's clippy checks them).
         env:
           MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
-        run: cargo test --workspace --lib --bins --tests
+        # --timings: when each crate and test binary was built, how long it
+        # took and what waited on it (the build is most of the job).
+        run: cargo test --workspace --lib --bins --tests --timings
       - name: Documentation tests
         run: cargo test --workspace --doc
+      - name: Build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ matrix.os }}
+          path: target/cargo-timings/cargo-timing.html
+          retention-days: 14
+          if-no-files-found: ignore

@@ -15,6 +15,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+# Caches are saved by develop alone (as ci.yml's): a tag's could only be
+# read by that tag's runs again, and GitHub keeps 10 GB per repository,
+# so each release's evicted develop's tests' caches.
 jobs:
   linux:
     name: AppImage
@@ -25,6 +28,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Libraries
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: appimagetool
@@ -49,6 +54,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Inno Setup
         run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
       - name: Build
@@ -69,6 +76,8 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Build
         run: packaging/macos/build-app.sh
       - uses: actions/upload-artifact@v4
