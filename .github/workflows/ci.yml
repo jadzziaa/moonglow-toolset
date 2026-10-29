@@ -84,6 +84,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # The tests are built without debug information (Cargo.toml's
+      # line tables): less to compile, link and cache, and the doc tests'
+      # libraries are then the tests' own (on Linux the line tables made
+      # them another build of the 26 libraries, two minutes). A failing
+      # test still says its file and line; only a backtrace, which CI
+      # doesn't print, would lose its lines.
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - name: Free disk space
         if: runner.os == 'Linux'
@@ -116,7 +124,7 @@ jobs:
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all
-        # 22 of them; clippy has checked them above).
+        # 22 of them; the Lint job's clippy checks them).
         env:
           MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo test --workspace --lib --bins --tests
