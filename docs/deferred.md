@@ -647,8 +647,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2); Moonglow's stand still with either shader: the game's `vsgrass`
   reads no wind, so the engine moves the vertices itself, and the area
   view would have to as well. (M)
-- **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
-  added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
