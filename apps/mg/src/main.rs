@@ -39,6 +39,17 @@ struct Cli {
     /// Ignore the user directory (base game only).
     #[arg(long, global = true)]
     no_user_dir: bool,
+    /// Read the haks the user directory's userpatch.ini names, as the game
+    /// does (under the module and its haks, over override/), as Options ›
+    /// General's switch has the window read them.
+    #[arg(long, global = true)]
+    userpatch: bool,
+    /// Read the Steam Workshop items subscribed to, as the game started
+    /// through Steam does (each one's override/ under the user's, its hak/
+    /// and tlk/ searched), as Options › General's switch has the window
+    /// read them.
+    #[arg(long, global = true)]
+    workshop: bool,
     /// Print the result as one JSON object, for scripts and build
     /// pipelines (warnings in its "notes"; an error as {"error": …}).
     #[arg(long, global = true)]
@@ -1594,6 +1605,8 @@ fn install(cli: &Cli) -> Result<GameInstall> {
     if cli.no_user_dir {
         gi.user_dir = None;
     }
+    gi.userpatch = cli.userpatch;
+    gi.workshop = cli.workshop;
     Ok(gi)
 }
 
@@ -3914,7 +3927,8 @@ fn verify(
             "kind": x.reference.kind.name(),
             "target": x.reference.target.to_string(),
             "uncompiled": x.uncompiled,
-            "only_userpatch": x.only_userpatch,
+            "only_userpatch": x.only_local == Some(mg_module::verify::Local::Userpatch),
+            "only_in": x.only_local.map(mg_module::verify::Local::id),
         })).collect::<Vec<_>>(),
         "findings": found.iter().map(|x| { let f = &x.finding; serde_json::json!({
             "severity": severity(f.severity),

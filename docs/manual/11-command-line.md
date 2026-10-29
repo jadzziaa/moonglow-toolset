@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:58:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:13:14Z }
 ---
 
 # Command-line tools
@@ -20,13 +20,17 @@ Moonglow package:
 | macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
 
 ```text
-mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
+mg [--root GAME] [--user-dir DIR | --no-user-dir] [--userpatch] [--workshop] [--json] COMMAND ...
 ```
 
 `--root` is the game's folder (default: `$NWN_ROOT`, else Steam's);
 `--user-dir` the user folder (default: `$NWN_HOME`, else the platform's);
-`--no-user-dir` reads the game alone; `--json` prints the result as JSON
-(below). `mg COMMAND --help` describes each command.
+`--no-user-dir` reads the game alone; `--userpatch` reads the haks the
+user folder's `userpatch.ini` names and `--workshop` the Steam Workshop
+items you are subscribed to, as the game does and as Options › General's
+switches have the window read them (both off unless given: see
+[Options](10-options.md)); `--json` prints the result as JSON (below).
+`mg COMMAND --help` describes each command.
 
 ## Archives and files
 

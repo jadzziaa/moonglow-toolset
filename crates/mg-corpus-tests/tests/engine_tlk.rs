@@ -2,7 +2,10 @@
 //! one. The wiki says a table in a hak isn't read; the game reads it from
 //! the module's haks, the module or the user's `tlk/` folder, in that order
 //! (as Moonglow's resource manager does), and looks up the feminine table
-//! `<name>f` the same way on its own. A name it can't find stops the module
+//! `<name>f` the same way on its own. A table only in a hak userpatch.ini
+//! names, or only in the user's `override/`, is read too (the resource
+//! manager has them): a player without them can't load the module, which
+//! the content doctor warns of. A name it can't find stops the module
 //! from loading: one with `.tlk` on the end, or (on Linux) a file name in
 //! another case. The content doctor reports both. A row's text counts only
 //! with its text flag set; rows past the end are empty.
@@ -77,6 +80,15 @@ struct Case {
     folder: Option<&'static str>,
     hak: Option<&'static str>,
     module: Option<&'static str>,
+    /// Row 0 of the table in a hak userpatch.ini names, and in the user's
+    /// `override/` (as `mg_tlk.tlk`): the player's own, not the module's.
+    elsewhere: Option<(&'static str, Elsewhere)>,
+}
+
+#[derive(Clone, Copy)]
+enum Elsewhere {
+    Userpatch,
+    Override,
 }
 
 #[test]
@@ -89,8 +101,21 @@ fn where_the_game_reads_custom_talk_tables() {
     }
     let dir = scratch_dir("engine_tlk");
     let key = ResKey::new(ResRef::from_str("mg_tlk").unwrap(), ResType::TLK);
-    let case = |name, named, folder, hak, module| Case { name, named, folder, hak, module };
+    let case = |name, named, folder, hak, module| Case {
+        name,
+        named,
+        folder,
+        hak,
+        module,
+        elsewhere: None,
+    };
+    let away = |name, row, place| Case {
+        elsewhere: Some((row, place)),
+        ..case(name, "mg_tlk", None, None, None)
+    };
     let cases = [
+        away("userpatch", "userpatch", Elsewhere::Userpatch),
+        away("override", "override", Elsewhere::Override),
         case("folder", "mg_tlk", Some("folder"), None, None),
         case("hak", "mg_tlk", None, Some("hak"), None),
         case("module", "mg_tlk", None, None, Some("module")),
@@ -116,6 +141,24 @@ fn where_the_game_reads_custom_talk_tables() {
             std::fs::write(user.join("hak/mg_tlkhak.hak"), w.to_bytes().unwrap()).unwrap();
             haks.push("mg_tlkhak");
         }
+        match case.elsewhere {
+            Some((t, Elsewhere::Userpatch)) => {
+                std::fs::create_dir_all(user.join("patch")).unwrap();
+                std::fs::write(
+                    user.join("userpatch.ini"),
+                    "[Patch]\r\nPatchFile000=mg_tlkpatch\r\n",
+                )
+                .unwrap();
+                let mut w = ErfWriter::new(*b"HAK ");
+                w.add(key.resref, ResType::TLK, table(t)).unwrap();
+                std::fs::write(user.join("patch/mg_tlkpatch.hak"), w.to_bytes().unwrap()).unwrap();
+            }
+            Some((t, Elsewhere::Override)) => {
+                std::fs::create_dir_all(user.join("override")).unwrap();
+                std::fs::write(user.join("override/mg_tlk.tlk"), table(t)).unwrap();
+            }
+            None => {}
+        }
         let extra: Vec<_> = case.module.map(|t| (key, table(t))).into_iter().collect();
         probe_module(&root, &user, "mgtlk", PROBE, &haks, &extra);
         name_table(&user.join("modules/mgtlk.mod"), case.named);
@@ -139,6 +182,10 @@ fn where_the_game_reads_custom_talk_tables() {
     assert_eq!(
         seen,
         [
+            // The player's own, through the resource manager: a player
+            // without them can't load the module.
+            "userpatch: [userpatch] / [userpatch]",
+            "override: [override] / [override]",
             "folder: [folder] / [folder (f)]",
             "hak: [hak] / [hak]",
             "module: [module] / [module]",

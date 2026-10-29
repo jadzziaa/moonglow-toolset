@@ -134,6 +134,50 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     assert!(text.contains("nothing reaches 0 of 2 haks"), "{text}");
 }
 
+/// `mg --userpatch` reads the haks userpatch.ini names, as the window's
+/// Options › General switch does (off unless asked for), and Verify warns
+/// of a script only such a hak or the user's override has.
+#[test]
+fn userpatch_haks_are_read_when_asked_for() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-userpatch");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("patch")).unwrap();
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("userpatch.ini"), "[Patch]\r\nPatchFile000=mg_up\r\n").unwrap();
+    hak(&user.join("patch/mg_up.hak"), &[("mg_up_load.ncs", Vec::new())]);
+    std::fs::write(user.join("override/mg_up_beat.ncs"), b"").unwrap();
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_ON_MOD_LOAD, ResRef::from_str("mg_up_load").unwrap());
+    info.root.write(&ifo::MOD_ON_HEARTBEAT, ResRef::from_str("mg_up_beat").unwrap());
+    m.set_info(&info).unwrap();
+    let module = dir.join("module");
+    m.save_as(&ModuleLocation::Folder(module.clone())).unwrap();
+    let run = |args: &[&str]| -> Json {
+        let mut c = crate::mg_on(&root, Some(user.as_ref()));
+        let out = c.arg("--json").args(args).output().unwrap();
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)))
+    };
+    assert!(run(&["which", "mg_up_load.ncs"])["error"].is_string(), "off unless asked for");
+    let found = run(&["--userpatch", "which", "mg_up_load.ncs"]);
+    assert_eq!(found["layer"], "userpatch:mg_up", "{found}");
+    let verified = run(&["--userpatch", "verify", module.to_str().unwrap()]);
+    let mut said: Vec<(String, String, String)> = verified["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| {
+            let s = |k: &str| x[k].as_str().unwrap_or_default().to_string();
+            (s("target"), s("only_in"), s("severity"))
+        })
+        .collect();
+    said.sort();
+    let s = |a: &str, b: &str| (a.to_string(), b.to_string(), "warning".to_string());
+    assert_eq!(said, [s("mg_up_beat", "override"), s("mg_up_load", "userpatch")], "{verified}");
+}
+
 /// `mg which --module`: a table in two of the module's haks and the game
 /// (a builder's report: only the highest was found). Every copy, the one
 /// the game reads first, the others as overridden by it.

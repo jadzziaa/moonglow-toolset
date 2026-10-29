@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:13:14Z }
 ---
 
 # Options
@@ -191,18 +191,26 @@ the module is opened again from its file.
   Workshop items you are subscribed to are read with the game's data, as
   the game started through Steam reads them: each item's `override`
   under your own, its haks and talk tables found by name. Changing it
-  reads the game's data again.
+  reads the game's data again. `mg --workshop` reads them too.
 - **Read userpatch.ini's haks**: off by default, as in Aurora, for the
   same reason. On, the haks your
   `userpatch.ini` names (`PatchFile000=…` and on, the highest number
   winning), from the `patch` folder in your user folder (or the folder
   `nwn.ini` names as `PATCH`), are read under the module and its haks
-  and over `override`, as the game reads them: the HD Pack and the like
-  show in the area view and the previews. Aurora doesn't read them. A
-  module that needs what only they provide works only for players who
-  have them too, so Verify warns of each such reference ("only in
-  userpatch.ini's haks"). Their own files are not checked as the
-  module's custom content. Changing it reads the game's data again.
+  and over `override`, as the game reads them (measured in the game's
+  server): the HD Pack and the like show in the area view and the
+  previews. Aurora doesn't read them; `mg --userpatch` does. Their own
+  files are not checked as the module's custom content. Changing it
+  reads the game's data again.
+
+  What only your own content provides, a player has only if they have
+  the same: so Verify warns of each reference only userpatch.ini's
+  haks, your `override` folder or a Workshop item satisfies ("only in
+  userpatch.ini's haks", "only in your override folder", "only in a
+  Steam Workshop item"), and of a custom talk table found first there
+  (the game reads one from there too, and a player without it can't
+  load the module). Music and ambient sounds in these haks are read as
+  any of their resources, as the game reads them.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)). The same switch

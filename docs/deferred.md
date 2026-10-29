@@ -2014,15 +2014,6 @@ contribution itself states as not done or not checked.
   crashed on Linux, Windows or macOS. (S) (waits on a crash on Windows
   and macOS) (Sacha's report, 2026-10-25)
 
-- **userpatch.ini's haks** are read (Options › General, off by default), at the
-  game's priority for them as the wiki's load order gives it (13: under
-  the module, over `override/`); not measured in the client. Not done:
-  `mg` doesn't read them (as it doesn't read the Workshop: a flag would
-  do); Verify warns of a reference only they satisfy, but not of one
-  only the user's `override/` or a Workshop item satisfies, which a
-  player lacks just as much; their talk tables, music and ambient are
-  not looked for apart from the haks' own resources. (S each) (El
-  Grillo's question, 2026-10-21)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't
