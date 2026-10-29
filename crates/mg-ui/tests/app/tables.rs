@@ -768,6 +768,16 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
     assert!(app.game.as_deref().unwrap().custom_tlk().is_some());
+    // Opened in the editor, the game's own table is read only: its Save
+    // never writes into the install.
+    let mut h = harness(app, 1000.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().expect("the campaign's table open");
+    assert!(!t.editable(), "{}", t.source);
+    assert!(t.source.to_string().starts_with("the game's files ("), "{}", t.source);
+    assert!(h.query_by_label_contains("This table is in the game's files").is_some());
 }
 
 /// The talk table editor's split is kept for each table in Moonglow's

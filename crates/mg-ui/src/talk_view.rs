@@ -125,6 +125,18 @@ fn open(app: &mut Moonglow, name: &str) {
         }
         _ => find(&talk::feminine(name)).ok().flatten(),
     };
+    // (A table the game ships, `data/tlk`'s, or a Workshop item's, is read
+    // as a hak's is: never written over.)
+    let user = install.user_dir.clone();
+    let shipped = |mut f: talk::Found| {
+        if let talk::Source::File(p) = &f.source
+            && !user.as_ref().is_some_and(|u| p.starts_with(u))
+        {
+            f.source = talk::Source::Layer(format!("the game's files ({})", p.display()));
+        }
+        f
+    };
+    let (found, feminine) = (shipped(found), feminine.map(shipped));
     match Table::open(name, found, feminine) {
         Ok(t) => {
             app.talk = Some(t);
@@ -245,20 +257,14 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
         return true;
     }
     // (One kept in the module goes into it as a step, which the module's
-    // own save then writes, as a 2DA of the module's does.)
-    let mut into_module = Vec::new();
+    // own save then writes, as a 2DA of the module's does: the table is
+    // saved only once the module has taken it.)
+    let Some(mut t) = app.talk.take() else { return true };
     let saved = t.save_with_module(&mut |key, data| {
-        into_module.push(mg_edit::Edit::SetResource { key, data: Some(data) });
-        Ok(())
+        let edit = mg_edit::Edit::SetResource { key, data: Some(data) };
+        app.apply(mg_edit::Command::new("Save talk table", vec![edit])).map_err(|e| e.to_string())
     });
-    let saved = saved.and_then(|()| match into_module.is_empty() {
-        true => Ok(()),
-        false => {
-            let command = mg_edit::Command::new("Save talk table", into_module);
-            app.apply(command).map_err(|e| e.to_string())
-        }
-    });
-    let Some(t) = &mut app.talk else { return true };
+    let t = app.talk.insert(t);
     match saved {
         Ok(()) => {
             let in_module = t.source == talk::Source::Module;
@@ -671,10 +677,14 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         return;
     }
     if !editable {
+        let source = t.feminine.iter().map(|(s, _)| s).find(|s| !s.writable());
+        let source = source.filter(|_| t.source.writable()).unwrap_or(&t.source);
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            "This table is in a hak: change it where the hak is built (Moonglow edits tables \
-             in the tlk folder and in the module).",
+            format!(
+                "This table is in {source}: change it where that is built (Moonglow edits \
+                 tables in the user folder's tlk and in the module)."
+            ),
         );
     }
     let mut changed = false;

@@ -1212,8 +1212,9 @@ With no talk table, the editor makes one in the user folder's `tlk` (with
 a feminine table if you ask) and names it in Module Properties. A table
 kept in the module (a `.tlk` among its files) is edited there and saved
 into it: its Save puts it into the module, and the module's Save writes
-it. A table in a hak is shown read-only: change it where the hak is
-built.
+it. A table in a hak, or one the game ships (a premium campaign's, in
+`data/tlk`) or a Workshop item's, is shown read-only: change it where
+it is built.
 A nasher project's table kept as JSON is edited in its file, and where
 the project keeps it in several languages, the box beside its name
 chooses the one edited (with no unsaved changes).
