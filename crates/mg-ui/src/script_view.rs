@@ -1712,6 +1712,18 @@ fn compile_with_debug(
     debug: bool,
     external: Option<&mg_module::external_compiler::ExternalCompiler>,
 ) -> Result<Made, mg_script::compiler::CompileError> {
+    compile_reading(app, key, text, debug, external).0
+}
+
+/// [`compile_with_debug`], and the module's other scripts the compile read
+/// (its includes, however indirectly; [`sources`]).
+fn compile_reading(
+    app: &Moonglow,
+    key: ResKey,
+    text: &str,
+    debug: bool,
+    external: Option<&mg_module::external_compiler::ExternalCompiler>,
+) -> (Result<Made, mg_script::compiler::CompileError>, Vec<ResKey>) {
     // (An editor's text in the codepage it was read in; other text in the
     // script codepage. A string's bytes go into the compiled script as
     // they are.)
@@ -1730,30 +1742,60 @@ fn compile_with_debug(
         let game = resman.unwrap_or(&no_game);
         let sources =
             mg_module::build::external_sources(module, game, &[key], Some((key, &source)));
+        let read = (sources.iter())
+            .filter_map(|(n, _)| ResKey::parse(n, ResType::NSS))
+            .filter(|k| *k != key)
+            .collect();
         let failed = |message: String| mg_script::compiler::CompileError { code: -1, message };
-        let made = external
-            .compile(&sources, std::slice::from_ref(&name))
-            .map_err(|e| failed(format!("External compiler: {e}")))?;
-        let Some(made) = made.into_iter().next() else {
-            return Err(failed(format!("{name}.nss: the external compiler made nothing")));
+        let made = match external.compile(&sources, std::slice::from_ref(&name)) {
+            Ok(made) => made,
+            Err(e) => return (Err(failed(format!("External compiler: {e}"))), read),
         };
-        return match made.ncs {
+        let Some(made) = made.into_iter().next() else {
+            return (Err(failed(format!("{name}.nss: the external compiler made nothing"))), read);
+        };
+        let made = match made.ncs {
             Some(ncs) => Ok((ncs, made.ndb.filter(|_| debug), Vec::new())),
             None => Err(failed(made.message)),
         };
+        return (made, read);
     }
-    let mut c = Compiler::new(|n: &str, t: ResType| {
-        if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {
-            return Some(source.clone());
+    let read = std::cell::RefCell::new(Vec::new());
+    let mut c = Compiler::new(sources(module, resman, &name, &source, Some(&read)));
+    c.set_debug_output(debug);
+    let made = c.compile(&name).map(|out| (out.ncs, out.ndb, out.warnings));
+    drop(c);
+    (made, read.into_inner())
+}
+
+/// What a compile reads (the built-in compiler's resolver): the script
+/// compiled, `name`, as `source` (its editor's text, or the module's), and
+/// every other script it includes as the module has it, else the game.
+/// Never an open editor's unsaved text: the compiled script goes into the
+/// module beside the sources it was made from, which the build, an export
+/// and the test loop compile again from (as Aurora reads an include
+/// saved). Compile and the check as you type alike. The module's scripts
+/// read go into `read`.
+pub(crate) fn sources<'a>(
+    module: Option<&'a mg_module::Module>,
+    resman: Option<&'a mg_resman::ResMan>,
+    name: &'a str,
+    source: &'a [u8],
+    read: Option<&'a std::cell::RefCell<Vec<ResKey>>>,
+) -> impl FnMut(&str, ResType) -> Option<Vec<u8>> + 'a {
+    move |n: &str, t: ResType| {
+        if t == ResType::NSS && n.eq_ignore_ascii_case(name) {
+            return Some(source.to_vec());
         }
         let k = ResKey::parse(n, t)?;
-        module
-            .and_then(|m| m.get(&k))
-            .map(<[u8]>::to_vec)
-            .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
-    });
-    c.set_debug_output(debug);
-    c.compile(&name).map(|out| (out.ncs, out.ndb, out.warnings))
+        if let Some(own) = module.and_then(|m| m.get(&k)) {
+            if let Some(read) = read {
+                read.borrow_mut().push(k);
+            }
+            return Some(own.to_vec());
+        }
+        resman?.get(&k).ok().map(|d| d.into_owned())
+    }
 }
 
 /// Compiles again, into the module, those of `scripts` whose compiled
@@ -1938,7 +1980,23 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
         return false;
     }
     let external = app.external_compiler();
-    let result = compile_with_debug(app, key, text, app.settings.debug_info, external.as_ref());
+    let (result, read) =
+        compile_reading(app, key, text, app.settings.debug_info, external.as_ref());
+    // Its includes as the module has them: one open with changes not saved
+    // is said, or the check as you type and Compile seem to disagree.
+    let unsaved: Vec<String> = (read.iter())
+        .filter(|k| app.scripts.get(k).is_some_and(ScriptBuffer::is_dirty))
+        .map(|k| k.resref.to_string())
+        .collect();
+    if !unsaved.is_empty() {
+        let said = format!(
+            "{key}: compiled with {} as saved; the changes in {} are not saved",
+            crate::transfer::listed(&unsaved),
+            if unsaved.len() == 1 { "its editor" } else { "their editors" },
+        );
+        app.log.info(said.clone());
+        app.script_tools.messages.push(Message::new(key, said, None, false));
+    }
     match result {
         Ok((out, ndb, warnings)) => {
             let ncs = ResKey::new(key.resref, ResType::NCS);

@@ -2804,9 +2804,6 @@ of truth, and does each caller's difference matter.
   kind of their own (`FileKind::Any`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
-- Compile reads an include's module copy, the live check the open
-  editor's (`script_view.rs:1295`, `script_nav.rs:230`): an include
-  with unsaved changes passes one and fails the other.
 - `DialogSearch` keeps its own match options and rebuilds
   `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
 - The wizards' "choices of a table, none without a game" six times,

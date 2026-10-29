@@ -1240,6 +1240,58 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
     assert_eq!(said(&h, "fresh_copy"), 1, "{:?}", h.state().log.entries);
 }
 
+/// Compile and the check as you type read an include alike: as the module
+/// has it, not its editor's unsaved text (the compiled script goes into
+/// the module beside its sources); Compile says the include's changes
+/// were left out.
+#[test]
+fn compile_and_the_live_check_read_an_include_as_saved() {
+    let Some((mut h, _)) = area_harness("include-as-saved") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let edits = vec![
+        mg_edit::Edit::SetResource {
+            key: nss("inc_n"),
+            data: Some(b"int N() { return 1; }\n".into()),
+        },
+        mg_edit::Edit::SetResource {
+            key: nss("uses_n"),
+            data: Some(b"#include \"inc_n\"\nvoid main() { int n = N(); }\n".into()),
+        },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    // The include changed in its editor, not saved: N gone, P new.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("inc_n"))));
+    h.run_steps(3);
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int P() { return 1; }\n");
+    h.run_steps(1);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("uses_n"))));
+    h.run_steps(3);
+    let checked = |h: &mut Harness<'_, Moonglow>| {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        h.run_steps(2);
+        h.state().script_error_for_test(nss("uses_n"))
+    };
+    let compiled = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Compile").click();
+        h.run_steps(3);
+        let messages = &h.state().script_tools.messages;
+        !messages.iter().any(|m| m.script == nss("uses_n") && m.error)
+    };
+    // N, as saved: both pass, and Compile says the include's changes were
+    // left out.
+    assert_eq!(checked(&mut h), None);
+    assert!(compiled(&mut h), "{:?}", h.state().script_tools.messages);
+    let left_out =
+        "uses_n.nss: compiled with inc_n as saved; the changes in its editor are not saved";
+    assert!(h.state().script_tools.messages.iter().any(|m| m.text == left_out));
+    // P, not saved: both fail.
+    h.state_mut()
+        .scripts_mut_for_test(nss("uses_n"), "#include \"inc_n\"\nvoid main() { int n = P(); }\n");
+    h.run_steps(1);
+    assert!(checked(&mut h).is_some(), "the check as you type fails");
+    assert!(!compiled(&mut h), "and so does Compile");
+}
+
 #[test]
 fn script_navigation_definition_references_rename_and_live_errors() {
     let Some(root) = mg_testkit::nwn_root() else { return };

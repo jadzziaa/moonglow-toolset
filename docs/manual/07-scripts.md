@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T17:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:50:21Z }
 ---
 
 # Scripts
@@ -164,7 +164,8 @@ With that:
   refused. Compiled scripts stay valid, since names aren't in them.
 
 **Errors as you type**: half a second after you stop typing, Moonglow
-compiles the script (an include file needs no `main`). The first error
+compiles the script (an include file needs no `main`), with its
+includes as Compile reads them: as saved. The first error
 shows under the toolbar and its line is underlined. That line under the
 toolbar is kept whether or not there is an error, so the text doesn't
 move as errors come and go; a long message is cut to fit (hover over it
@@ -189,7 +190,10 @@ The buttons:
   on Ctrl+S as well. A script tab with text not yet saved into the
   module says so; Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler
-  messages and the log. With **Automatically Compile Scripts on Save**
+  messages and the log. The scripts it includes are compiled as the
+  module has them: an include open in another editor with changes not
+  yet saved is compiled as saved, and the Compiler messages say so
+  (save the include first to compile with its changes). With **Automatically Compile Scripts on Save**
   (Options › Script Editor), Save compiles too, and so does saving the
   module (File › Save) for the scripts whose text it saves. The scripts
   that include a script compiled or saved so are compiled again with it
