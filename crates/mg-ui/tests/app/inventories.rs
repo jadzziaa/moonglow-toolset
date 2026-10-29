@@ -30,8 +30,10 @@ fn items_pasted_into_a_store_share_the_page_they_make() {
             value: Some(mg_gff::Value::List(vec![misc])),
         }],
     )));
-    let sword = ResRef::from_str("nw_wswls001").unwrap();
-    h.state_mut().item_clip = vec![sword, sword];
+    // (Copied from a blueprint's inventory: entries naming the blueprint.)
+    let mut sword = mg_gff::Struct::new(0);
+    sword.set("InventoryRes", mg_gff::Value::resref(ResRef::from_str("nw_wswls001").unwrap()));
+    h.state_mut().item_clip = vec![sword.clone(), sword];
     h.run();
     h.get_by_label("Inventory…").click();
     h.run();
@@ -1290,4 +1292,179 @@ fn a_creature_s_inventory_shows_the_icons_of_its_gender() {
     let hers: Vec<String> = drawn(&mut h).into_iter().filter(|n| n.starts_with("ipf_")).collect();
     assert_eq!(hers.len(), his.len(), "{hers:?} against {his:?}");
     assert!(!h.state().settings.armor_on_woman, "the setting as it was");
+}
+
+/// A weapon dropped on the secondary weapon slot while the primary is
+/// free goes in the primary, as Aurora puts it (seen with a longsword);
+/// with the primary taken, in the secondary.
+#[test]
+fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
+    use mg_edit::{Command, Edit};
+    let Some((mut h, area)) = area_harness("secondary-slot") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let held = |game: &mg_rules::GameData| {
+        vec![
+            own_item(game, "nw_wswdg001", 0, ("MG_ONE", "First Dagger")),
+            own_item(game, "nw_wswdg001", 1, ("MG_TWO", "Second Dagger")),
+        ]
+    };
+    let bandit = bandit_holding(&mut h, area, &held);
+    // Its longsword taken off: the primary free.
+    let (worn, _) = creature_items(&mut h, area, &bandit);
+    let index = worn.iter().position(|s| s.id == 0x10).unwrap();
+    let list = "Equip_ItemList".into();
+    let off = Edit::RemoveItem { key: git, path: bandit.clone(), list, index };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Off", vec![off])));
+    h.run_steps(4);
+    let drop = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let row = h
+            .query_all_by_label(name)
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.rect().center())
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap();
+        let slot = h
+            .query_all_by_label("Secondary Weapon or Shield")
+            .map(|n| n.rect())
+            .min_by(|a, b| a.left().total_cmp(&b.left()))
+            .unwrap();
+        drag_pos(h, row, slot.center());
+    };
+    let tag_in = |h: &mut Harness<'_, Moonglow>, bit: u32| {
+        let (worn, _) = creature_items(h, area, &bandit);
+        let on = worn.iter().find(|s| s.id == bit)?;
+        Some(String::from_utf8_lossy(on.string("Tag")?).into_owned())
+    };
+    drop(&mut h, "First Dagger");
+    assert_eq!(tag_in(&mut h, 0x10).as_deref(), Some("MG_ONE"), "{:?}", h.state().log.entries);
+    assert_eq!(tag_in(&mut h, 0x20), None);
+    drop(&mut h, "Second Dagger");
+    assert_eq!(tag_in(&mut h, 0x20).as_deref(), Some("MG_TWO"), "the primary taken");
+    assert_eq!(tag_in(&mut h, 0x10).as_deref(), Some("MG_ONE"));
+}
+
+/// Drags between two objects' windows the other ways: a creature's worn
+/// item onto a chest's list (taken off, held by the chest as it is), and a
+/// chest's item onto a creature's taken slot (worn as it is, the slot's
+/// own item to the backpack), each one step.
+#[test]
+fn items_dragged_between_a_creature_s_slots_and_a_chest() {
+    let Some((mut h, area)) = area_harness("slots-and-chest") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = chest_of_three(&mut h, area);
+    let bandit = bandit_holding(&mut h, area, &|_| Vec::new());
+    let tab = Tab::Instance { area, path: chest.clone() };
+    h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(6);
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    let in_chest = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = &ws.doc(&git).unwrap().root;
+        chest.get(root).unwrap().list("ItemList").unwrap_or(&[]).to_vec()
+    };
+    // Buttons labeled `label`, the creature window's (left) or the chest's.
+    let rows = |h: &Harness<'_, Moonglow>, label: &str, right: bool| -> Vec<egui::Rect> {
+        let mut rows: Vec<egui::Rect> = h
+            .query_all_by_label(label)
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.rect())
+            .filter(|r| (r.left() > 920.0) == right && r.width() > 80.0)
+            .collect();
+        rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        rows
+    };
+    let before = (creature_items(&mut h, area, &bandit), in_chest(&mut h));
+    let armor = before.0.0.iter().find(|s| s.id == 0x2).unwrap().clone();
+
+    // The bandit's armor, from its slot onto the chest's last row.
+    let from = rows(&h, "Padded Armor", false)[0].center();
+    let to = *rows(&h, "Longsword", true).last().unwrap();
+    drag_pos(&mut h, from, to.center());
+    let held = in_chest(&mut h);
+    assert_eq!(held.len(), 4, "held by the chest: {:?}", h.state().log.entries);
+    let moved = held.iter().find(|s| s.integer("BaseItem") == Some(16)).expect("the armor");
+    assert_eq!(as_held_anywhere(moved), as_held_anywhere(&armor), "as it is");
+    let (worn, _) = creature_items(&mut h, area, &bandit);
+    assert!(!worn.iter().any(|s| s.id == 0x2), "taken off");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    assert_eq!((creature_items(&mut h, area, &bandit), in_chest(&mut h)), before, "one step");
+
+    // The chest's first sword onto the bandit's Primary Weapon, which holds
+    // its own: worn, and its own to the backpack.
+    let first = before.1[0].clone();
+    let own = before.0.0.iter().find(|s| s.id == 0x10).unwrap().clone();
+    let from = rows(&h, "Longsword", true)[0].center();
+    let slot = h
+        .query_all_by_label("Primary Weapon")
+        .map(|n| n.rect())
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap();
+    drag_pos(&mut h, from, slot.center());
+    let (worn, pack) = creature_items(&mut h, area, &bandit);
+    let on = worn.iter().find(|s| s.id == 0x10).expect("a primary weapon");
+    assert_eq!(on.string("Tag"), Some(&b"ITEM_A"[..]), "{:?}", h.state().log.entries);
+    assert_eq!(as_held_anywhere(on), as_held_anywhere(&first));
+    assert_eq!(pack.len(), 1);
+    assert_eq!(as_held_anywhere(&pack[0]), as_held_anywhere(&own), "its own to the backpack");
+    let tags: Vec<_> = in_chest(&mut h).iter().map(|s| s.string("Tag").unwrap().to_vec()).collect();
+    assert_eq!(tags, [&b"ITEM_B"[..], b"ITEM_C"], "taken from the chest");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    assert_eq!((creature_items(&mut h, area, &bandit), in_chest(&mut h)), before, "one step");
+}
+
+/// A placed object's own item copied and pasted into another placed
+/// object is carried as it is (its own tag kept), as a drag carries it;
+/// the copy stays where it was.
+#[test]
+fn a_placed_object_s_item_is_pasted_as_it_is() {
+    let Some((mut h, area)) = area_harness("pasted-as-it-is") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = chest_of_three(&mut h, area);
+    let bandit = bandit_holding(&mut h, area, &|_| Vec::new());
+    let tab = Tab::Instance { area, path: chest.clone() };
+    h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(6);
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let copied = chest.item("ItemList", 1).get(&ws.doc(&git).unwrap().root).unwrap().clone();
+    // The chest's second sword's menu (its rows at the right): Copy.
+    let mut rows: Vec<egui::Rect> = h
+        .query_all_by_label("Longsword")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect())
+        .filter(|r| r.left() > 920.0 && r.width() > 80.0)
+        .collect();
+    rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    let row = rows[1].center();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Copy").click();
+    h.run_steps(2);
+    // Pasted into the bandit's backpack (its window at the left).
+    let paste = h
+        .query_all_by_label("Paste (1)")
+        .map(|n| n.rect())
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .expect("the backpack's Paste");
+    click_pos(&h, paste.center());
+    h.run_steps(3);
+    let (_, pack) = creature_items(&mut h, area, &bandit);
+    assert_eq!(pack.len(), 1, "pasted: {:?}", h.state().log.entries);
+    assert_eq!(pack[0].string("Tag"), Some(&b"ITEM_B"[..]), "its own tag");
+    assert_eq!(as_held_anywhere(&pack[0]), as_held_anywhere(&copied), "as it is");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let left = chest.get(&ws.doc(&git).unwrap().root).unwrap().list("ItemList").unwrap().len();
+    assert_eq!(left, 3, "a copy: the chest keeps it");
 }

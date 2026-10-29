@@ -312,22 +312,51 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   color; a Variables window that is sized; drag and drop and right-click
   menus in the inventory, items dragged between inventories and within
   a list, Copy and Paste; an item moved as it is, in one step; what a
-  taken slot held sent to the backpack, as Aurora does): items
-  are carried one at a time; of the drags between two objects' windows
-  only a chest's item onto a creature's backpack is under test; an item
-  carried between a placed object and a blueprint is made from its
-  blueprint there (a blueprint holds only that); Copy and Paste carry
-  the blueprint, so what is pasted is made from it; a moved row keeps
-  its place in the game's inventory grid (only the list's order
-  changes); an item moved from one slot to another asks the question
-  about a missing feat as any Equip does (Aurora asks when a weapon is
-  dropped on another weapon slot, but a true move of an item that needs
-  a feat between two slots it takes was not seen); a weapon dropped on
-  the secondary weapon slot while the primary is empty goes in the
-  secondary slot, where Aurora puts it in the primary (seen with a
-  longsword only: whether every item that fits both does so was not
-  looked at); blueprints made in a category the palette hides;
-  new strings written to a talk-table range. (S–M)
+  taken slot held sent to the backpack, as Aurora does; Copy and Paste
+  carrying the item as it is, as a drag does; drags between two
+  objects' windows under test both ways, a slot's item onto a chest and
+  a chest's onto a taken slot; a weapon dropped on the secondary weapon
+  slot while the primary is free going in the primary, as Aurora puts a
+  longsword). Left:
+  - **Several items at once:** the inventory selects several (Ctrl,
+    Shift), but a drag, Copy and Paste carry one: `Dragged` and
+    `item_clip` hold one item each place; carrying the selection is a
+    drag of many rows, and where each lands (slots, grid places). (M)
+  - **The secondary slot, for other weapons:** Aurora was seen with a
+    longsword only; the Aurora batch should drop a dagger, a one-handed
+    axe and a torch (which fits the secondary alone) on the secondary
+    slot of a creature whose primary is empty, and say where each goes.
+    (waits on Aurora)
+  - **A move between two slots that needs a feat:** Moonglow asks the
+    question about a missing feat as any Equip does; Aurora asks when a
+    weapon is dropped on another weapon slot, but a true move of an item
+    that needs a feat between two slots it takes was not seen (the
+    Aurora batch: a creature without Martial Weapon Proficiency, a
+    longsword dragged from its primary slot to its secondary). (waits on
+    Aurora)
+  - **A blueprint made in Familiars:** the Creature Wizard offers every
+    category of `creaturepal.itp`, Familiars (ID 254, `TYPE` 1) too, and
+    the custom palette is made without `TYPE` 0 and 1 nodes, as Aurora
+    makes it (`docs/findings.md`, "Custom palettes"): a blueprint made
+    there is in no category the palette shows. Whether Aurora's wizard
+    offers Familiars, and where Aurora shows such a blueprint, the
+    Aurora batch should read. (S once read; waits on Aurora)
+  - **New strings written to a talk-table range:** a name or
+    description typed in a blueprint goes into the file, Aurora's way;
+    writing it as a line of the module's custom talk table instead, at
+    the next free line of a range the project keeps (`mg tlk-alloc`'s
+    map is one), touches every localized-string field and the talk
+    table's saving. (L)
+  - **Made from the blueprint, between a placed object and a
+    blueprint:** an item carried (dragged, pasted) between them is made
+    from its blueprint where it lands, keeping its flags, as a
+    blueprint's inventory holds only a blueprint's name. (settle?:
+    proposed by the sprint on 2026-10-29, the owner's to say)
+  - **A moved row keeps its grid place:** a row dragged within a list
+    takes its place in the list, and keeps its `Repos_PosX` and
+    `Repos_Posy` (where the game's inventory grid shows it), as
+    Moonglow shows a list, not Aurora's grid. (settle?: proposed by the
+    sprint on 2026-10-29, the owner's to say)
   (a second builder's review, October 2026)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script

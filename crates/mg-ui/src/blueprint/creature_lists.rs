@@ -941,6 +941,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
+/// The primary and the secondary weapon slots.
+const PRIMARY: u32 = 0x10;
+const SECONDARY: u32 = 0x20;
+
 /// Equipment slots: (bit, name). The last four are the creature's natural
 /// equipment.
 const SLOTS: [(u32, &str); 18] = [
@@ -1461,7 +1465,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     ui.close();
                                 }
                                 if ui.button("Copy").clicked() {
-                                    copy = Some(resref);
+                                    copy = Some(i);
                                     ui.close();
                                 }
                                 if ui.button("Remove").clicked() {
@@ -1570,8 +1574,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             Err(why) => f.app.log.warn(why),
         }
     }
-    if let Some(r) = copy {
-        f.copy_item(ui, r);
+    if let Some(item) = copy.and_then(|i: usize| equipped.get(i)) {
+        f.copy_item(ui, item);
     }
     if let Some(i) = unequip {
         edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
@@ -1583,6 +1587,12 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // taken out and equipped there; an equipped one moved to it; one from
     // another object's inventory equipped here, and taken from there unless
     // Ctrl is held, which copies it.
+    // (Whether it was a drop, and of the creature's primary weapon.)
+    let dropped = slot_drop.is_some();
+    let from_primary = slot_drop.as_ref().is_some_and(|(_, d)| {
+        matches!(d, inventory::Dragged::Equipped { owner, index, .. }
+            if *owner == whose && equipped.get(*index).is_some_and(|s| s.id == PRIMARY))
+    });
     match slot_drop {
         Some((bit, inventory::Dragged::Palette(r))) => (equip, chosen) = (Some(bit), Some(r)),
         Some((bit, inventory::Dragged::Listed { owner, index, resref, .. })) if owner == whose => {
@@ -1647,8 +1657,20 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // add the first (and does not equip it otherwise; one moved stays where
     // it was).
     let ask = egui::Id::new(("utc-equip-feat", key, base.clone()));
-    if let (Some(bit), Some(r)) = (equip, chosen) {
+    if let (Some(mut bit), Some(r)) = (equip, chosen) {
         let whole = moving.as_ref().map(|m| &m.item).filter(|s| inventory::is_whole(s));
+        // A weapon dropped on the secondary weapon slot while the primary
+        // is free goes in the primary, as in Aurora (seen with a
+        // longsword); one moved there from the primary stays moved.
+        let taken = moving.as_ref().map_or(&[][..], |m| &m.taken[..]);
+        if dropped
+            && bit == SECONDARY
+            && !from_primary
+            && item_slots(f, r, whole) & PRIMARY != 0
+            && !after_taken(f, &equipped, "Equip_ItemList", taken).iter().any(|s| s.id == PRIMARY)
+        {
+            bit = PRIMARY;
+        }
         if item_slots(f, r, whole) & bit == 0 {
             let name = whole.map_or_else(|| name_of(r), |s| f.entry_name(s, &names));
             f.app.log.error(format!("{name} does not go in that slot"));

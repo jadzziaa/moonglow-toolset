@@ -816,8 +816,8 @@ impl Form<'_> {
                 }
             }
             Some((i, Ask::Copy)) => {
-                if let Some(r) = items.get(i).map(entry_resref).filter(|r| !r.is_empty()) {
-                    self.copy_item(ui, r);
+                if let Some(item) = items.get(i).filter(|e| !entry_resref(e).is_empty()) {
+                    self.copy_item(ui, item);
                 }
             }
             _ => {}
@@ -827,7 +827,7 @@ impl Form<'_> {
             self.app.actions.push(Action::Apply(Command::new("Move item", moved)));
         }
         if out.paste {
-            adds.extend(self.app.item_clip.iter().copied().map(Added::Blueprint));
+            adds.extend(self.app.item_clip.iter().cloned().map(Added::Item));
         }
         match &out.dropped {
             Some(Dragged::Palette(r)) => adds.push(Added::Blueprint(*r)),
@@ -853,9 +853,14 @@ impl Form<'_> {
         dragged.removal().into_iter().filter(|e| !viewed(e)).collect()
     }
 
-    /// Copies an item (its blueprint), to paste into an inventory.
-    pub(super) fn copy_item(&mut self, ui: &Ui, resref: ResRef) {
-        self.app.item_clip = vec![resref];
+    /// Copies an item as this inventory holds it, to paste into an
+    /// inventory: pasted, it is carried as a drag carries it ([`carried`]:
+    /// as it is into a placed object from one, made from its blueprint
+    /// between a placed object and a blueprint).
+    ///
+    /// [`carried`]: Self::carried
+    pub(super) fn copy_item(&mut self, ui: &Ui, item: &Struct) {
+        self.app.item_clip = vec![item.clone()];
         crate::widgets::mark_clipboard(ui.ctx(), "1 item");
     }
 }

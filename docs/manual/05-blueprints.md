@@ -581,7 +581,10 @@ A domain or school left **Not set** is the game's to choose.
   from a slot onto the backpack, or onto another slot it goes in. An
   item put in a slot that holds one (dropped there, or with the Equip
   beside it) sends that one to the backpack, as it is, in the same step,
-  as Aurora does; two rings are not swapped. A
+  as Aurora does; two rings are not swapped. A weapon dropped on the
+  Secondary Weapon slot while the Primary Weapon slot is free goes in
+  the primary, as in Aurora (one moved there from the primary stays
+  where it is dropped). A
   right click on an item anywhere offers the same (**Equip** or **To
   Backpack**, **Copy**, **Remove**, and last, as in Aurora's menus,
   **Properties**), and on the palette's
@@ -598,8 +601,11 @@ A domain or school left **Not set** is the game's to choose.
   another row of its own list to move it to that place. **Copy** (a
   row's right-click menu, or Ctrl+C with the pointer over it) and
   **Paste** (the menu, **Paste (n)** in the list's heading, or Ctrl+V
-  over the list) carry an item's blueprint from any inventory to any
-  other, in any module open after it: what is pasted is made from it. Equipping an item the
+  over the list) carry an item from any inventory to any other, in any
+  module open after it, as a drag carries it: a placed object's own item
+  pasted into a placed object is itself (its own name, tag, properties),
+  and between a placed object and a blueprint it is made from its
+  blueprint. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. An item equipped that the creature
   may not wear is marked ⚠ in its slot, its tip saying why: the game
