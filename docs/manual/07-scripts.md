@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:59:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:06:31Z }
 ---
 
 # Scripts
@@ -218,14 +218,18 @@ The buttons:
 - **To Scratch**: save and compile the script, then copy it into the
   scratch folder: a folder you choose the first time (Tools › Options ›
   Folders changes it), such as the game's or a server's `development`
-  folder, for a quick fix. Its compiled script (and debug file) goes
-  with it when it compiled just now. A script that doesn't compile, an
+  folder, for a quick fix. Its compiled script goes with it when it
+  compiled just now, and its debug file when that compile made one
+  (Options › Script Editor › Generate Debug Information When Compiling
+  Scripts). A script that doesn't compile, an
   include file (no `main` or `StartingConditional`) or one with an
   error, is copied alone: the Compiler tab says it is an include file,
   or gives the compiler's error, then what was copied ("not compiled").
-  A compiled script of that name (and its debug file) that an earlier
-  copy left in the folder is removed, for the game would still run it,
-  and the Compiler tab and the log name what was removed. A compiled
+  A compiled script or debug file of that name that the copy did not
+  write is removed from the folder, whatever its spelling (`HELLO.NCS`
+  as well as `hello.ncs`): one an earlier copy left, which the game
+  would still run, or the debug file of an older compile; the Compiler
+  tab and the log name what was removed. A compiled
   script the module has from before is not copied with a script that no
   longer compiles. The module tree's Copy to Scratch Folder follows the
   same rule (see [Modules](03-modules.md), also for exporting files

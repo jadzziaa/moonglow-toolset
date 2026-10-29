@@ -319,6 +319,8 @@ pub enum Action {
     ScriptToScratch {
         key: ResKey,
         compiled: bool,
+        /// And made a debug file, which goes with it.
+        debug: bool,
     },
     /// Edit › Prefabs › a prefab: placed with a click in the area shown.
     PlacePrefab(String),
@@ -3443,7 +3445,9 @@ impl Moonglow {
             Action::SaveScript(key) => {
                 script_view::save_script(self, key, script_view::ScriptSave::Save);
             }
-            Action::ScriptToScratch { key, compiled } => self.script_to_scratch(key, compiled),
+            Action::ScriptToScratch { key, compiled, debug } => {
+                self.script_to_scratch(key, compiled, debug)
+            }
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }

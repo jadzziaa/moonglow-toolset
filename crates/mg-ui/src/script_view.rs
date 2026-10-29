@@ -1474,9 +1474,12 @@ pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
                 app.log.warn(w);
             }
         }
-        // Options > Script Editor: saving compiles too.
-        let compiled =
-            (compile || to_scratch || app.settings.auto_compile) && compile_one(app, key, &text);
+        // Options > Script Editor: saving compiles too. (Whether it
+        // compiled, and made a debug file.)
+        let made = match compile || to_scratch || app.settings.auto_compile {
+            true => compile_one(app, key, &text),
+            false => None,
+        };
         // (After the text is the module's: the scripts that include it.)
         if compile || app.settings.auto_compile {
             app.actions.push(Action::CompileIncluders(key));
@@ -1485,7 +1488,8 @@ pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
         // file, one with an error, El Grillo's request), its compiled
         // script only if it compiled just now (after the edits above).
         if to_scratch {
-            app.actions.push(Action::ScriptToScratch { key, compiled });
+            let (compiled, debug) = (made.is_some(), made == Some(true));
+            app.actions.push(Action::ScriptToScratch { key, compiled, debug });
         }
     }
 }
@@ -1496,14 +1500,21 @@ impl Moonglow {
     /// script and debug file if it `compiled` just now; else not (a
     /// compiled script the module has from before is older than the
     /// source). The Compiler tab and the log say what was copied.
-    pub(crate) fn script_to_scratch(&mut self, key: ResKey, compiled: bool) {
+    pub(crate) fn script_to_scratch(&mut self, key: ResKey, compiled: bool, debug: bool) {
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
             return;
         }
-        let files: Vec<ResKey> =
-            if compiled { mg_module::transfer::file_set(&ws.module, &key) } else { vec![key] };
+        // (A debug file only if this compile made one: not the module's
+        // from an older compile with debug information.)
+        let mut files = vec![key];
+        if compiled {
+            files.push(ResKey::new(key.resref, ResType::NCS));
+            if debug {
+                files.push(ResKey::new(key.resref, ResType::NDB));
+            }
+        }
         let Some(dir) = self.scratch_folder() else { return };
         let Some(ws) = &self.ws else { return };
         let (text, error) = match mg_module::transfer::export_files(&ws.module, &files, &dir) {
@@ -1517,15 +1528,15 @@ impl Moonglow {
                 let mut error = false;
                 if !compiled {
                     said.push_str(", not compiled (no compiled script copied)");
-                    let (removed, failed) =
-                        crate::transfer::remove_stale_compiled(&dir, &[key.resref]);
-                    if !removed.is_empty() {
-                        said.push_str(&format!("; {}", crate::transfer::removed_said(&removed)));
-                    }
-                    if !failed.is_empty() {
-                        said.push_str(&format!("; could not remove {}", failed.join(", ")));
-                        error = true;
-                    }
+                }
+                let (removed, failed) =
+                    crate::transfer::remove_stale_compiled(&dir, &[key.resref], &written);
+                if !removed.is_empty() {
+                    said.push_str(&format!("; {}", crate::transfer::removed_said(&removed)));
+                }
+                if !failed.is_empty() {
+                    said.push_str(&format!("; could not remove {}", failed.join(", ")));
+                    error = true;
                 }
                 (said, error)
             }
@@ -1963,11 +1974,9 @@ impl Moonglow {
 }
 
 /// Compiles one script (its text as in the editor) into the module;
-/// whether it compiled.
-fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
-    if app.ws.is_none() {
-        return false;
-    }
+/// whether it compiled (`Some`), and made a debug file (`Some(true)`).
+fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> Option<bool> {
+    app.ws.as_ref()?;
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
     // An include file (no `main`, no `StartingConditional`) isn't compiled
@@ -1977,7 +1986,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
         let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
         app.log.info(said.clone());
         app.script_tools.messages.push(Message::new(key, said, None, false));
-        return false;
+        return None;
     }
     let external = app.external_compiler();
     let (result, read) =
@@ -2002,6 +2011,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
             let ncs = ResKey::new(key.resref, ResType::NCS);
             let made = vec![(key, out.clone())];
             let mut edits = vec![Edit::SetResource { key: ncs, data: Some(out) }];
+            let debug = ndb.is_some();
             if let Some(ndb) = ndb {
                 edits.push(Edit::SetResource {
                     key: ResKey::new(key.resref, ResType::NDB),
@@ -2019,13 +2029,13 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
                 let location = Some((w.file, w.line));
                 app.script_tools.messages.push(Message::new(key, w.message, location, false));
             }
-            true
+            Some(debug)
         }
         Err(e) => {
             app.log.error(e.message.clone());
             let location = e.location();
             app.script_tools.messages.push(Message::new(key, e.message, location, true));
-            false
+            None
         }
     }
 }

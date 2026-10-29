@@ -1285,6 +1285,35 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     };
     let said = texts(&h);
     assert!(said.iter().any(|t| t.contains("copied hello.nss, hello.ncs to")), "{said:?}");
+    // Compiled without debug information: the debug file of an older
+    // compile is removed, and another program's spelling of the compiled
+    // script too (where the file system tells cases apart, a file of its
+    // own the game could read in its place).
+    std::fs::write(scratch.join("hello.ndb"), b"NDB older").unwrap();
+    let other_spelling = scratch.join("HELLO.NCS");
+    let apart = !other_spelling.exists();
+    if apart {
+        std::fs::write(&other_spelling, b"NCS V1.0 older").unwrap();
+    }
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert!(std::fs::read(scratch.join("hello.ncs")).unwrap().starts_with(b"NCS V1.0"));
+    assert!(!scratch.join("hello.ndb").exists(), "no debug file of an older compile");
+    let said = texts(&h);
+    let removed = match apart {
+        true => "removed HELLO.NCS, hello.ndb, left by an earlier copy (the game would still run",
+        false => "removed hello.ndb, left by an earlier copy (made by an older compile)",
+    };
+    assert!(said.iter().any(|t| t.contains(removed)), "{said:?}");
+    if apart {
+        assert!(!other_spelling.exists());
+    }
+    // With debug information: the debug file made goes with it.
+    h.state_mut().settings.debug_info = true;
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert!(scratch.join("hello.ndb").exists(), "{:?}", texts(&h));
+    h.state_mut().settings.debug_info = false;
     // A script with an error: its source copied, and the compiler's error
     // said; the compiled script the module has from before is not.
     let broken_path = sample_module(&dir.join("broken"));
@@ -1395,6 +1424,37 @@ fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
     h.run_steps(3);
     assert_eq!(std::fs::read(chosen.join("hello.ncs")).unwrap(), written);
     assert!(said(&h, "No longer compiles (the .ncs written is older than the script): hello"));
+}
+
+/// Without the game's data nothing can be compiled: a script goes out
+/// with the compiled script the module has, and the log says it may be
+/// older than its source.
+#[test]
+fn without_game_data_a_script_goes_out_with_the_module_s_compiled_script() {
+    let dir = mg_testkit::scratch_dir("ui-no-game-export");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::new(key.resref, ResType::NCS), b"NCS V1.0 old".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let scratch = dir.join("scratch");
+    app.settings.scratch_dir = Some(scratch.clone());
+    app.actions.push(mg_ui::Action::ExportFiles {
+        keys: vec![key],
+        dependencies: false,
+        scratch: true,
+    });
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(scratch.join("hello.ncs")).unwrap(), b"NCS V1.0 old");
+    let log = &h.state().log.entries;
+    let warned = "No game data to compile with: the scripts go out with the compiled scripts";
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning && m.starts_with(warned)),
+        "{log:?}"
+    );
 }
 
 /// The area view's To Scratch: the area as it is now (its .are, .git and

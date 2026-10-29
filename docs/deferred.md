@@ -89,18 +89,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   nothing unsaved in the script does nothing, as its grayed button.
   Aurora's script editor (a window of its own there) has its own Save on
   Ctrl+S; it was not driven to see what it writes. (S)
-- **To Scratch for a script that doesn't compile** (El Grillo's
-  request): the script editor's To Scratch and the module tree's Copy to
-  Scratch Folder are one rule (the source alone; the folder's
-  `name.ncs` and `name.ndb` from an earlier copy removed, and said).
-  Not done: Export as Files to a folder chosen still sends a script that
-  no longer compiles with the module's older compiled script, with a
-  warning (nothing is removed from a folder the builder picks); with no
-  game data nothing is compiled, so scripts go out with the compiled
-  scripts the module has; only those exact lower-case names are
-  removed (a `HELLO.NCS` another program wrote on a case-sensitive file
-  system stays); a debug file left by an earlier copy of a script that
-  now compiles without debug information stays. (S)
 - **Open Script's list** takes a click, Ctrl+click, Shift+click, the
   arrows (Shift to widen), Page Down and Up, Enter and a double click;
   not Home and End, Ctrl+A, or a right-click menu. Typing in the name
