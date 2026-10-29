@@ -3136,7 +3136,6 @@ fn hak_editor_and_attach() {
     h.run();
     shoot(&mut h, &dir, "hak-editor");
     // Its resources viewed: a picture, a table (`hak-editor-view-*`).
-    use egui_kittest::kittest::Queryable as _;
     for t in [mg_core::ResType::TGA, mg_core::ResType::DDS, mg_core::ResType::TWODA] {
         let items = h.state().haks[0].hak.items().to_vec();
         let Some(item) = items.iter().find(|i| i.key.restype == t) else { continue };
