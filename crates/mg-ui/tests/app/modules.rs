@@ -1662,6 +1662,25 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
         format!("A game is running on mgtest (process {}), not started by Moonglow", on_it.id());
     assert!(said.iter().any(|m| m.starts_with(&refused)), "{said:?}");
     assert!(!said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+    // F9 looks before Test Module's save: the module's file is not
+    // written under that game.
+    let file = user.join("modules/mgtest.mod");
+    let before = std::fs::read(&file).unwrap();
+    let edit = mg_edit::Edit::SetResource {
+        key: ResKey::parse("added", ResType::NSS).unwrap(),
+        data: Some(b"void main() { }\n".to_vec()),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+    h.run_steps(2);
+    let mut on_it = game("mgtest");
+    h.key_press(egui::Key::F9);
+    h.run_steps(3);
+    on_it.kill().unwrap();
+    on_it.wait().unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), before, "not saved under the game");
+    assert!(h.state().has_unsaved_work());
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains(&format!("(process {})", on_it.id()))), "{log:?}");
     // On another: warned of, and the test goes on.
     let mut other = game("elsewhere");
     let said = test(&mut h);

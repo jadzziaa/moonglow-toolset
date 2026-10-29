@@ -2044,7 +2044,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> Option<bool> {
         .collect();
     if !unsaved.is_empty() {
         let said = format!(
-            "{key}: compiled with {} as saved; the changes in {} are not saved",
+            "{key}: {} read as saved, not with the changes in {} (save to compile with them)",
             crate::transfer::listed(&unsaved),
             if unsaved.len() == 1 { "its editor" } else { "their editors" },
         );

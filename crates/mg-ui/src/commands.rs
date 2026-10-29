@@ -740,6 +740,9 @@ impl Id {
             Id::CompileAll => Action::CompileScripts,
             Id::CompileModels => Action::CompileModels,
             Id::Verify => Action::Verify,
+            // (The games running looked at before the save writes the
+            // module under one.)
+            Id::TestModule | Id::TestChoose if !app.test_may_start() => return,
             Id::TestModule => Action::SaveThen(Box::new(Action::TestModule)),
             Id::TestChoose => Action::SaveThen(Box::new(Action::TestModuleChoose)),
             Id::PackTarget => Action::PackTarget,

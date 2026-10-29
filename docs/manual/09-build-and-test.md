@@ -279,9 +279,9 @@ lagging combat, AI that overflows its time, and modules damaged when the
 game crashes. The module is always saved before
 the game starts, and Test From Here plays a copy.
 
-A test looks for a game already running first, for it would write the
-module under one that has it open (the game then says the module is
-damaged). While the game Moonglow started for the last test runs, a
+A test looks for a game already running first (Test Module before it
+saves), for it would write the module under one that has it open (the
+game then says the module is damaged). While the game Moonglow started for the last test runs, a
 test asks you to close it first. So it does for a game Moonglow did not
 start (one you started, or one left from an earlier session) that was
 started on the same module (`+TestNewModule moonglow-test`, as a test

@@ -6514,7 +6514,7 @@ fn table_game_s_own_wrong_cells() {
 fn open_script_menu() {
     mg_testkit::gpu::hold();
     let out = mg_testkit::output_dir("screens");
-    let dir = mg_testkit::scratch_dir("screens-open-script");
+    let dir = mg_testkit::scratch_dir("screens-open-script-menu");
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     for name in ["hello", "gate_open", "gate_close", "guard_spawn", "inc_guard"] {
@@ -6555,7 +6555,7 @@ fn open_script_menu() {
 fn script_selection_menu() {
     mg_testkit::gpu::hold();
     let out = mg_testkit::output_dir("screens");
-    let dir = mg_testkit::scratch_dir("screens-script-selection");
+    let dir = mg_testkit::scratch_dir("screens-script-selection-menu");
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     let text = "void main()\n{\n  int n;\n  if (n)\n    n++;\n}\n";

@@ -626,6 +626,10 @@ pub struct Moonglow {
     /// and Redo and the toolbar's are that editor's, as its keys are
     /// (`script_view::undo_target`).
     pub(crate) undo_script: Option<ResKey>,
+    /// The module Test Module looked for running games on before its save
+    /// ([`Moonglow::test_may_start`]): not looked for, and warned of, again
+    /// once saved.
+    test_checked: Option<String>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
@@ -1029,6 +1033,7 @@ impl Moonglow {
             undo_under_pointer: None,
             undo_keys: None,
             undo_script: None,
+            test_checked: None,
             model_views: HashMap::new(),
             palette_categories: None,
             area_names: Default::default(),
@@ -4235,6 +4240,30 @@ impl Moonglow {
         true
     }
 
+    /// Before Test Module's save, which writes the module where the game
+    /// reads it: whether a test may go on, as to the games running (one
+    /// Moonglow started for a test, one started otherwise on this module).
+    /// A nasher project's packed module is looked at once packed, before
+    /// it is copied there.
+    pub(crate) fn test_may_start(&mut self) -> bool {
+        if test_module::game_running() {
+            self.log.warn(
+                "The game started for the last test is still running: close it, then test \
+                 again (a second test would write the module under it)",
+            );
+            return false;
+        }
+        if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
+            return true;
+        }
+        let user = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
+        let name = user.zip(self.module_path()).and_then(|(u, p)| test_module::module_name(&u, &p));
+        let Some(name) = name else { return true };
+        let allowed = self.other_game_allows(&name);
+        self.test_checked = allowed.then_some(name);
+        allowed
+    }
+
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
         if test_module::game_running() {
@@ -4312,9 +4341,10 @@ impl Moonglow {
             ));
             return;
         };
-        // (Saved already, by Test Module's save: the game is not started
-        // on it under another that has it.)
-        if !self.other_game_allows(&name) {
+        // (Looked at before Test Module's save; else now.)
+        if self.test_checked.take().as_deref() != Some(name.as_str())
+            && !self.other_game_allows(&name)
+        {
             return;
         }
         self.launch_test(&client, user, &name, choose);

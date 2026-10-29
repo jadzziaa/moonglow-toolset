@@ -1346,8 +1346,7 @@ fn compile_and_the_live_check_read_an_include_as_saved() {
     // left out.
     assert_eq!(checked(&mut h), None);
     assert!(compiled(&mut h), "{:?}", h.state().script_tools.messages);
-    let left_out =
-        "uses_n.nss: compiled with inc_n as saved; the changes in its editor are not saved";
+    let left_out = "uses_n.nss: inc_n read as saved, not with the changes in its editor (save to compile with them)";
     assert!(h.state().script_tools.messages.iter().any(|m| m.text == left_out));
     // P, not saved: both fail.
     h.state_mut()
