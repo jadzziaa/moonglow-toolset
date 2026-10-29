@@ -618,6 +618,11 @@ enum Cmd {
         /// The conversation, `name.dlg`.
         dialog: String,
         output: PathBuf,
+        /// A CSV's column for a language to translate into (`fr`, `de`,
+        /// `it`, `es`, `pl`), though no line has text in it yet; more than
+        /// once for several. The languages lines have text in have theirs.
+        #[arg(long = "language", value_name = "CODE")]
+        languages: Vec<String>,
     },
     /// Read a Twine (.twee) or Ink (.ink) story into a module as a
     /// conversation (replacing one of the same name) and save; or, from a
@@ -2702,15 +2707,24 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::DialogExport { module, dialog, output } => {
+        Cmd::DialogExport { module, dialog, output, languages } => {
             use mg_module::dialog_io::Format;
             let m = crate::open_module(module)?;
             let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
+            let languages = (languages.iter())
+                .map(|c| {
+                    mg_core::Language::from_short_code(c)
+                        .with_context(|| format!("{c:?} isn't a language (fr, de, it, es, pl)"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if !languages.is_empty() && f != Format::Csv {
+                bail!("--language is for a CSV: Twine and Ink carry the English text");
+            }
             // (Its lines as the module's own table reads them, if any.)
-            let text = f.write(&g, &key.resref.to_string());
-            let text = Codepage::WINDOWS_1252.spelled_in(&text, module_codepage(cli, &m));
+            let title = key.resref.to_string();
+            let text = f.write_in(&g, &title, module_codepage(cli, &m), &languages);
             std::fs::write(output, text.as_bytes())?;
             Output::new(
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
@@ -2765,9 +2779,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let name = name.clone().or(stem).context("name the conversation with --name")?;
             let key = ResKey::parse(&name, mg_core::ResType::DLG)
                 .with_context(|| format!("{name:?} isn't a resource name"))?;
-            let source = std::fs::read_to_string(file)?;
-            let source =
-                (module_codepage(cli, &m).spelled_in(&source, Codepage::WINDOWS_1252)).into_owned();
+            let raw = std::fs::read_to_string(file)?;
+            let game = module_codepage(cli, &m);
+            let source = (game.spelled_in(&raw, Codepage::WINDOWS_1252)).into_owned();
             let mut out = Output::default();
             let mut changed = None;
             // A story is a conversation of its own; a text export goes
@@ -2781,7 +2795,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 let mut g =
                     m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
                 let n = format
-                    .update(&mut g, &source)
+                    .update_in(&mut g, &raw, game)
                     .expect("it reads text")
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
                 out.note(format!("{n} lines changed"));

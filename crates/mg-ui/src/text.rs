@@ -23,6 +23,12 @@ pub(crate) fn game_codepage() -> Codepage {
     GAME_CODEPAGE.with(Cell::get).unwrap_or_default().for_language(Language::ENGLISH)
 }
 
+/// The open module's game's codepage as it stands (a module's own table,
+/// which [`Codepage::for_language`] takes for each language it is for).
+pub(crate) fn game_table() -> Codepage {
+    GAME_CODEPAGE.with(Cell::get).unwrap_or_default()
+}
+
 /// The codepage of a language's text in the open module's game.
 pub(crate) fn codepage_of(language: Language) -> Codepage {
     GAME_CODEPAGE.with(Cell::get).unwrap_or_default().for_language(language)
@@ -178,12 +184,6 @@ pub(crate) fn codepage_name(codepage: Codepage) -> String {
 /// a table.
 pub(crate) fn for_windows_1252(text: &str) -> String {
     game_codepage().spelled_in(text, Codepage::WINDOWS_1252).into_owned()
-}
-
-/// Text that code read as Windows-1252 (a conversation's export), as the
-/// module's own table reads the same bytes.
-pub(crate) fn from_windows_1252(text: &str) -> String {
-    Codepage::WINDOWS_1252.spelled_in(text, game_codepage()).into_owned()
 }
 
 /// Names in a line: all of them where there are `room` or fewer, else the
@@ -753,11 +753,21 @@ mod tests {
         );
         let text = line.locstring("Text").unwrap();
         assert_eq!(text.get(Language::ENGLISH, Gender::Male).unwrap(), b"Da\xf0 \xe9 ?");
-        assert_eq!(from_windows_1252("Dað"), "Dağ");
+        // A conversation's export reads its lines by the table, every
+        // format's (the CSV's other languages too).
+        let mut g = mg_module::dialog::new_dialog();
+        mg_module::dialog::add_node(
+            &mut g,
+            mg_module::dialog::Parent::Root,
+            &for_windows_1252("Dağ"),
+        );
+        for f in mg_module::dialog_io::Format::ALL {
+            let out = f.write_in(&g, "t", game_table(), &[Language::GERMAN]);
+            assert!(out.contains("Dağ"), "{}: {out}", f.name());
+        }
         // Without it, all is as it was: Polish in its own codepage.
         set_game_codepage(None);
         assert_eq!(for_windows_1252("Dağ é ð"), "Dağ é ð");
-        assert_eq!(from_windows_1252("Dað"), "Dað");
         assert_eq!(decode(b"da\xf0"), "dað");
         set_edit_language(Language::POLISH);
         let s = with_english(LocString::default(), "Kryształowa czaszka");

@@ -545,8 +545,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Conversation authoring
 
-- **Other languages in exports:** Twine, Ink and CSV carry the English
-  text only. A CSV could carry a column per language for translators. (S)
 - **Animations, comments and delays** don't go to Twine or Ink (script
   parameters do, since dansen9191's report). Parameters on a link with
   no condition script, or a line with no action script, are dropped (the

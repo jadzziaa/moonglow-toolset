@@ -1142,8 +1142,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if let Some(path) =
                 app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
             {
-                // (The lines as the module's own table reads them, if any.)
-                let text = crate::text::from_windows_1252(&f.write(&g, &key.resref.to_string()));
+                // (The lines as the module's own table reads them, if any;
+                // a CSV with a column for the language edited, to
+                // translate into.)
+                let edited = crate::text::edit_language();
+                let to = if edited == mg_core::Language::ENGLISH { vec![] } else { vec![edited] };
+                let game = crate::text::game_table();
+                let text = f.write_in(&g, &key.resref.to_string(), game, &to);
                 match std::fs::write(&path, text) {
                     Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
                     Err(e) => app.log.error(format!("{}: {e}", path.display())),
@@ -1164,9 +1169,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             )
         {
             let mut ng = g.clone();
-            let read = (std::fs::read_to_string(&path).map_err(|e| e.to_string()))
-                .map(|csv| crate::text::for_windows_1252(&csv));
-            match read.and_then(|csv| mg_module::dialog_io::update_from_csv(&mut ng, &csv)) {
+            let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            let game = crate::text::game_table();
+            match read.and_then(|csv| mg_module::dialog_io::update_from_csv_in(&mut ng, &csv, game))
+            {
                 Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
                 Ok(n) => {
                     app.log.info(format!("{}: {n} line(s) changed", path.display()));
