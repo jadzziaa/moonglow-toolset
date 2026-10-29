@@ -296,6 +296,8 @@ pub struct AdvancedSearch {
     pub object: Option<ResType>,
     /// Only placed objects, only blueprints.
     pub placed: Option<bool>,
+    /// Names and texts are regular expressions (not `*` patterns).
+    pub regex: bool,
     /// What was found, for the query in `searched`.
     pub hits: Vec<Hit>,
     pub searched: Option<Query>,
@@ -311,12 +313,15 @@ impl AdvancedSearch {
     /// The query the window asks, or what it still needs.
     pub fn query(&self) -> Result<Query, String> {
         let and = self.and.iter().map(Condition::search).collect::<Result<_, _>>()?;
-        Ok(Query {
+        let q = Query {
             search: self.first.search()?,
             and,
             types: self.object.into_iter().collect(),
             placed: self.placed,
-        })
+            regex: self.regex,
+        };
+        q.check().map_err(|e| format!("Not a regular expression: {e}"))?;
+        Ok(q)
     }
 
     /// The hits ticked.
@@ -391,7 +396,7 @@ impl Moonglow {
 
 /// A row of a table, chosen by name (a long list has a filter); `any`
 /// names the choice of none. With no names (no game data), a number.
-fn row_picker(
+pub(crate) fn row_picker(
     ui: &mut Ui,
     id: &str,
     choices: &[Choice],
@@ -426,7 +431,7 @@ fn row_picker(
 }
 
 /// The choices of a table, as the game names them.
-fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
+pub(crate) fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
     let Some(game) = game else { return Vec::new() };
     let columns = ChoiceColumns { name: table.name, label: table.label };
     game.choice_list(table.table, columns).map(|c| c.to_vec()).unwrap_or_default()
@@ -630,6 +635,13 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
                 },
             );
         });
+        ui.end_row();
+        ui.label("");
+        ui.checkbox(&mut d.regex, "Regular expressions").on_hover_text(
+            "Names and texts (a variable's name and value, a script's name, a field's label \
+             and text) are regular expressions, not * patterns: found anywhere unless \
+             anchored (^kz_(rent|own)$), letters A to Z in either case",
+        );
         ui.end_row();
     });
     if let Some(i) = remove {

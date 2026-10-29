@@ -64,6 +64,9 @@ pub struct References {
     /// Of a script, the cells of the game's tables (as the module sees
     /// them) that run it: a spell's impact script...
     pub run: Vec<mg_module::refs::Reference>,
+    /// Of a talk-table line, the cells of the module's haks' 2DAs that
+    /// name it.
+    pub hak_cells: Vec<rename::HakCell>,
     /// Of a resource, the project file's `[used]` glob that counts it as
     /// used.
     pub marked: Option<String>,
@@ -930,6 +933,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             _ => Vec::new(),
         };
+        app.references.hak_cells = match (&query, app.game.as_deref()) {
+            (Query::StrRef(n), Some(game)) => rename::hak_strrefs(&game.resman, *n),
+            _ => Vec::new(),
+        };
         app.references.marked = match &query {
             Query::Resource(k) => {
                 ws.module.project_file.used.marking(k.resref, k.restype).map(String::from)
@@ -958,8 +965,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Query::Tag(t) => _ = ui.heading(format!("Tag “{t}”")),
         Query::StrRef(n) => {
             ui.heading(format!("Talk-table line {n}")).on_hover_text(
-                "Where the module's blueprints, areas, conversations and 2DAs name this \
-                 line (a hak's 2DAs are not looked in)",
+                "Where the module's blueprints, areas, conversations, palettes, soundsets, \
+                 2DAs and scripts name this line, and its haks' 2DAs",
             );
         }
     });
@@ -1028,6 +1035,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 } else {
                     ui.label(text);
                 }
+            }
+        }
+        if !refs.hak_cells.is_empty() {
+            ui.add_space(8.0);
+            ui.label(format!("In the haks' 2DAs ({}):", refs.hak_cells.len())).on_hover_text(
+                "Cells of the module's haks' tables, in the columns known to hold a talk-table \
+                 line (a class's name, a feat's, a spell's…): each hak's own copy, the one the \
+                 game reads and those under it",
+            );
+            for c in &refs.hak_cells {
+                if out_of_sight(ui) {
+                    continue;
+                }
+                ui.label(c.place());
             }
         }
         if let Some(glob) = &refs.marked {

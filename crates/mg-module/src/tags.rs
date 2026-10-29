@@ -304,6 +304,24 @@ pub fn is_custom_tag(object: &Struct, blueprint: Option<&Struct>) -> bool {
     })
 }
 
+/// What a made object's tag is to [`clashes`]: its tag, whether a builder
+/// set it (against `blueprint`, the one it names as the module, its haks
+/// or the game have it: [`is_custom_tag`]), and whether it is a static
+/// placeable. `kind`: the kind of object placed (none: an area, whose own
+/// tag is always set by a builder); `area`: the area it is (or is in).
+pub fn weigh<'a>(
+    object: &'a Struct,
+    kind: Option<ObjectKind>,
+    blueprint: Option<&Struct>,
+    area: ResRef,
+) -> Option<MadeTag<'a>> {
+    let tag = object.string("Tag")?;
+    let is_static =
+        kind == Some(ObjectKind::Placeable) && object.integer("Static").unwrap_or(0) != 0;
+    let custom = is_custom_tag(object, blueprint);
+    Some(MadeTag { tag, area, custom, is_static })
+}
+
 /// The tags of `made` (those just pasted or copied) that are now on more
 /// than one object of `index` (which has them), as `warning` says to warn
 /// of them (the project's rule or the builder's option,
@@ -365,16 +383,18 @@ pub fn clashes(
 /// `_N` counts on from N), the first `taken` says no object has, within
 /// [`MAX_TAG`] characters.
 pub fn retag(tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let (stem, from) = match tag.rsplit_once('_') {
+    // (A number's width kept: `Patrol_01`, as Create Set numbers, goes on
+    // to `Patrol_02`.)
+    let (stem, from, width) = match tag.rsplit_once('_') {
         Some((stem, n))
             if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) =>
         {
-            (stem, n.parse::<u32>().map_or(2, |n| n.saturating_add(1)))
+            (stem, n.parse::<u32>().map_or(2, |n| n.saturating_add(1)), n.len())
         }
-        _ => (tag, 2),
+        _ => (tag, 2, 1),
     };
     for n in from.. {
-        let end = format!("_{n}");
+        let end = format!("_{n:0width$}");
         let room = MAX_TAG.saturating_sub(end.len());
         let mut cut = stem.len().min(room);
         while !stem.is_char_boundary(cut) {
@@ -661,6 +681,9 @@ mod tests {
         assert_eq!(retag("STORE_7", &taken), "STORE_8");
         assert_eq!(retag("CHEST", &taken), "CHEST_2");
         assert_eq!(retag("_9", &taken), "_9_2", "no stem: the whole tag is it");
+        let set = |t: &str| ["Patrol_01", "Patrol_02"].contains(&t);
+        assert_eq!(retag("Patrol_01", &set), "Patrol_03", "Create Set's width kept");
+        assert_eq!(retag("WP_099", &set), "WP_100");
         let long = "A".repeat(40);
         let got = retag(&long, &|_| false);
         assert_eq!(got.len(), MAX_TAG);

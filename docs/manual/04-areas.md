@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
 ---
 
 # Areas
@@ -569,10 +569,17 @@ comes later in the module's list of areas. A copied start waypoint, rental door 
 its original's place, or the original its copy's, with no error.
 
 With **Options › General › Show duplicate tags warning after a paste
-or a copy** on, a paste (Ctrl+V, a prefab placed) that puts a tag on
-more than one object of the module (its areas and the objects placed in
-them) is said in the log and the **Duplicate Tags** window:
-"KREZK_RENTAL_DOOR is now on two objects". They say it of the tags a
+or a copy** on, a change that puts a tag on more than one object of the
+module (its areas and the objects placed in them) is said in the log and
+the **Duplicate Tags** window: "KREZK_RENTAL_DOOR is now on two
+objects". It is weighed so whatever gives the tag: a paste (Ctrl+V, a
+prefab placed), an object placed from the palette, a tag typed in
+Properties (once you leave the field), **Create Set…** (which numbers
+its waypoints apart from the other waypoints, not from the area's other
+objects), Find and Replace's Tags, Advanced Search's **Set a field**,
+Edit Together, a plugin's change. The window names the change
+("“Paste” put tags on more than one object of the module"). An Undo or
+a Redo asks nothing, nor a tag set to what it was. They say it of the tags a
 builder set: a tag that isn't the object's blueprint's own (as the
 module, its haks or the game have the blueprint; one whose blueprint
 isn't found counts as set), and those the project wants unique. Every
@@ -593,21 +600,49 @@ doesn't set `paste_warning`, the option on warns as above, and off warns
 only of the tags the project wants unique (`unique`, `unique_in_area`),
 the team's own rule; without those, nothing.
 
-- **Retag** gives each pasted object with such a tag one of its own, the
+- **Retag** gives each new object with such a tag one of its own, the
   tag with a number that no object has (`LAMP_2`; `STORE_7` becomes
-  `STORE_8`), as one step to undo.
+  `STORE_8`; `Patrol_01` becomes `Patrol_02`, its number as wide as it
+  was), as one step to undo. A door or trigger made with them whose
+  **Linked To** names one of those tags (a door pasted with its
+  waypoint, an area copied with its transitions) names the new tag, so
+  the copy's transitions lead within the copy and the original's within
+  the original (where only one object made in that area had the tag).
+- **Retag All**, for an area copied where the project warns of any tag
+  (below), retags the tags only counted too.
 - **Keep Tags** leaves them (objects that no script looks up).
+
+Scripts that spell one of the tags (a string `"KZ_INN_EXIT"`, as Find
+References finds it) are named in the window ("Spelled in scripts (1:
+kz_exit.nss line 1)"), and in the log after a Retag: a script is the
+original's and the copy's alike, so Retag leaves it as it is, and it
+finds whichever object the game finds first.
 
 An area copied with **Copy…** in the module tree has every tag of its
 original's objects: with the option on, the window lists the area's own
 tag (an area has no blueprint), the tags a builder set and those the
 project wants unique.
 
+A blueprint copied (the palette's **Edit Copy…**, **Copy…** in the
+module tree) with a tag another of the module's blueprints has is said
+in the Copy window and in the log, not stopping the copy: "KZ_GATE is
+kz_gate.utw's tag too: what is placed from either has it". With the
+option on, a tag typed there is weighed; the original's kept asks
+nothing, as Aurora's Edit Copy keeps it. Where the project wants the
+tag unique, or warns of any tag, the original's kept is said too.
+
+`mg set`, `mg apply` and `mg areas --set Tag=…` say the same in their
+warnings ("warning: WP_DOOR is now on two objects: a script finds one of
+them by it (GetObjectByTag)"), by the project's `paste_warning`, else of
+each tag the command sets and those the project wants unique. An object
+`mg apply` places whose blueprint isn't the module's is taken to have
+its blueprint's tag.
+
 The [project file](03-modules.md#the-project-file-moonglowtoml) says
 which to warn of (`[tags] paste_warning`: `"custom"`, as above;
 `"any"` for every tag but a static placeable's, an area copy's
 then listing only its own tag and the unique ones and counting the
-rest; `"unique"` for only the tags it names in `unique` and
+rest, which **Retag All** retags; `"unique"` for only the tags it names in `unique` and
 `unique_in_area`; or `"off"`), and Verify Module warns of a tag it wants
 unique that is on two objects.
 
@@ -1173,9 +1208,26 @@ The game's tufts gather in patches, Moonglow's are spread evenly.
 
 **Edit › Edit Areas Together…** (or an area's right-click menu in the
 module tree) lists the module's areas to tick. Narrow the list by a name
-or ResRef, by tileset, and by kind (interior or exterior, above or under
-ground, natural or artificial); **Tick Shown** ticks what the filters
-leave. **Edit N Together** opens one Area Properties for the areas
+or ResRef, by tileset, by kind (interior or exterior, above or under
+ground, natural or artificial), and by what they hold (**Holding**):
+- **Music**: the areas that play it by day, by night or in battle (an
+  `ambientmusic.2da` row, named as the game names it).
+- **A variable**: by name, of a value if one is typed (`tdod_rental`,
+  `kz_* = 1`; `*` as in tags, case ignored).
+- **A field's value**: a field of the area or of its sounds and music, by
+  label and value (`MusicDay = 57`, `Fog* = 0`, `OnEnter = kz_*`).
+
+What they hold is read as it is now, unsaved changes too. **Tick Shown**
+ticks what the filters leave; Advanced Search's **Choose N Area(s)…**
+opens the window with the areas of what it found ticked (an area with a
+creature of a class, an item property…).
+
+The areas ticked are kept under a name with **Save Set** (the name
+typed beside it), for this module, in Moonglow's data folder's
+`area-sets` (a small JSON file to share or write by hand: `{ "module":
+"krezk", "areas": ["kz_square", "kz_inn"] }`); **Tick a Set…** ticks
+a set's areas again, and **Delete Set** deletes the set whose name is
+typed. **Edit N Together** opens one Area Properties for the areas
 ticked, shown as the first of them:
 
 - A change is set on each area, as one undoable step: the lighting scheme

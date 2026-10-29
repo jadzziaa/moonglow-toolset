@@ -418,11 +418,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the
   same item or feat to each would need its own design. (M)
-- **Choosing areas by more:** the chooser filters by name, ResRef,
-  tileset and the three kinds; not by a property's value (areas with a
-  given music or variable), and its choice isn't kept as a named set.
-  Advanced Search finds such areas (a variable, any field's value), but
-  the chooser can't take what it found. (S–M)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting
@@ -431,10 +426,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   no saved lighting either). Saved lighting is listed, not renamed or
   deleted in the toolset (its files are). (S–M) (dansen9191's ask,
   October 2026)
-- **Find and Replace beyond strings players read:** tags, resrefs,
-  variables and other plain fields are found (Advanced Search, `mg
-  search`) but not replaced, and neither has regular expressions (`*`
-  only). (S–M)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
@@ -698,13 +689,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
-- **Where a StrRef is used:** Find References takes a talk-table line
-  (a number typed in its field, or Find References in the talk table's
-  editor) and lists the module's localized strings that name it
-  (blueprints, areas, conversations, the journal) and its 2DAs' cells
-  in the columns known to hold StrRefs. Not done: the haks' 2DAs are
-  not looked in (they are not the module's), nor fields that hold a
-  StrRef as a plain number, nor scripts (`GetStringByStrRef`). (S each)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -2285,14 +2269,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **Duplicate tags are said after a paste and an area's Copy… only:**
-  not when a tag is typed in Properties, an object is placed from the
-  palette (its blueprint's tag), Create Set names waypoints, Find and
-  Replace or `mg` edits change tags, nor for a blueprint copied with its
-  tag. (M)
-- **Retag changes the copies' tags only:** what names the old tag (a
-  copied area's doors' `LinkedTo`, scripts) still names the original's;
-  an area's copy's other duplicated tags are counted, not retagged. (M)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

@@ -18,8 +18,8 @@ fn a_name_is_replaced_throughout_a_campaign() {
     }
     let original = Module::open(&path).unwrap();
     let mut m = Module::open(&path).unwrap();
-    let o = Options { match_case: true, whole_word: true, game: None };
-    let kinds = TextKind::ALL;
+    let o = Options { match_case: true, whole_word: true, ..Default::default() };
+    let kinds = TextKind::PLAYERS;
     let hits = find(&m, "Daggerford", o, &kinds);
     let before: usize = hits.iter().map(|h| h.count).sum();
     assert!(hits.len() > 50, "{} strings", hits.len());

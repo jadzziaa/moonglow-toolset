@@ -146,17 +146,24 @@ impl Read {
         };
         if key.restype == ResType::NSS {
             read.refs = crate::refs::script_includes(key, data);
-            read.strings = tokenize(data)
-                .into_iter()
+            let tokens = tokenize(data);
+            read.strings = (tokens.iter())
                 .filter(|t| matches!(t.kind, TokenKind::String { terminated: true }))
                 .map(|t| (t.span.start + 1, t.span.end - 1))
                 .collect();
+            read.strrefs = script_strrefs(data, &tokens);
         } else if key.restype.is_gff()
             && let Ok(gff) = Gff::read(data)
         {
             read.refs = crate::refs::gff_references(key, &gff);
             tag_fields(&gff.root, &mut String::new(), &mut read.tags);
-            strref_fields(&gff.root, &mut String::new(), &mut read.strrefs);
+            strref_fields(&gff.root, key.restype, &mut String::new(), &mut read.strrefs);
+        } else if key.restype == ResType::SSF
+            && let Ok(ssf) = mg_ssf::Ssf::read(data)
+        {
+            for (i, e) in ssf.entries.iter().enumerate().filter(|(_, e)| !e.strref.is_none()) {
+                read.strrefs.push((format!("entry {i}"), e.strref.0));
+            }
         } else if key.restype == ResType::TWODA
             && let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default())
         {
@@ -215,14 +222,155 @@ fn fields_with_paths<T>(
     }
 }
 
-/// The localized strings of `s` that name a talk-table line, with their
-/// paths.
-fn strref_fields(s: &Struct, path: &mut String, out: &mut Vec<(String, u32)>) {
+/// Fields that hold a talk-table line as a plain number, by the file type
+/// they are in: a palette's category's (`STRREF`, which names it; a
+/// custom palette's may be the module's own table's). `CatName`, a
+/// dword of a few shipped palettes' `Cat` lists, is not known to be one.
+pub const STRREF_FIELDS: [(ResType, &str); 1] = [(ResType::ITP, "STRREF")];
+
+/// The functions of `nwscript.nss` that take a talk-table line, and which
+/// of their arguments it is (from 0).
+pub const STRREF_FUNCTIONS: [(&str, usize); 9] = [
+    ("GetStringByStrRef", 0),
+    ("ActionSpeakStringByStrRef", 0),
+    ("SpeakStringByStrRef", 0),
+    ("FloatingTextStrRefOnCreature", 0),
+    ("SendMessageToPCByStrRef", 1),
+    ("GetStrRefSoundDuration", 0),
+    ("GetDialogSoundLength", 0),
+    ("PlaySoundByStrRef", 0),
+    ("SetTlkOverride", 0),
+];
+
+/// The localized strings of `s` that name a talk-table line, and its
+/// fields that hold one as a number ([`STRREF_FIELDS`], of a file of
+/// type `t`), with their paths.
+fn strref_fields(s: &Struct, t: ResType, path: &mut String, out: &mut Vec<(String, u32)>) {
+    let plain: Vec<&str> = STRREF_FIELDS.iter().filter(|(ft, _)| *ft == t).map(|f| f.1).collect();
     let found = |f: &mg_gff::Field| match &f.value {
         Value::LocString(v) if !v.strref.is_none() => Some(v.strref.0),
+        v if plain.iter().any(|l| l.as_bytes() == f.label.as_bytes()) => {
+            let n = u32::try_from(v.as_integer()?).ok()?;
+            (n != u32::MAX).then_some(n)
+        }
         _ => None,
     };
     fields_with_paths(s, path, &found, out);
+}
+
+/// The talk-table lines a script names by number: an integer written as
+/// the argument of one of [`STRREF_FUNCTIONS`] that takes one
+/// (`GetStringByStrRef(16777300)`), at `line N`. A number held in a
+/// variable or a constant isn't followed.
+fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(String, u32)> {
+    let text = |t: &mg_script::lex::Token| &src[t.span.clone()];
+    let tokens: Vec<&mg_script::lex::Token> =
+        tokens.iter().filter(|t| t.kind.is_significant()).collect();
+    let mut lines = None;
+    let mut out = Vec::new();
+    for (i, t) in tokens.iter().enumerate() {
+        if t.kind != TokenKind::Ident {
+            continue;
+        }
+        let Some(&(_, arg)) = STRREF_FUNCTIONS.iter().find(|(f, _)| f.as_bytes() == text(t)) else {
+            continue;
+        };
+        if tokens.get(i + 1).is_none_or(|t| text(t) != b"(") {
+            continue;
+        }
+        // The argument's tokens: from after the `(` (or its comma) to the
+        // next comma or `)` at the call's own depth.
+        let (mut depth, mut at, mut start) = (0usize, 0usize, i + 2);
+        let mut found = None;
+        for (j, t) in tokens.iter().enumerate().skip(i + 2) {
+            match text(t) {
+                b"(" | b"[" | b"{" => depth += 1,
+                b")" | b"]" | b"}" if depth > 0 => depth -= 1,
+                b"," | b")" if depth == 0 => {
+                    if at == arg {
+                        found = Some(&tokens[start..j]);
+                        break;
+                    }
+                    if text(t) == b")" {
+                        break;
+                    }
+                    at += 1;
+                    start = j + 1;
+                }
+                _ => {}
+            }
+        }
+        let Some([number]) = found else { continue };
+        if number.kind != TokenKind::Int {
+            continue;
+        }
+        let Some(n) = std::str::from_utf8(text(number)).ok().and_then(parse_int) else { continue };
+        let lines = lines.get_or_insert_with(|| line_starts(src));
+        let line = lines.partition_point(|&s| s <= number.span.start);
+        out.push((format!("line {line}"), n));
+    }
+    out
+}
+
+/// A cell of a hak's 2DA that names a talk-table line ([`hak_strrefs`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HakCell {
+    /// The hak (its name, without `.hak`).
+    pub hak: String,
+    pub table: ResKey,
+    /// `row 3, Name`.
+    pub cell: String,
+}
+
+impl HakCell {
+    /// For people: `tdod_2da › classes.2da › row 3, Name`.
+    pub fn place(&self) -> String {
+        format!("{} › {} › {}", self.hak, self.table, self.cell)
+    }
+}
+
+/// Where the module's haks' 2DAs name the talk-table line `strref`, in the
+/// columns known to hold one (`doctor::STRREF_COLUMNS`): each hak's own
+/// copy of a table, the one the game reads and those under it, in the
+/// haks' order. `resman` is the module's game data (its haks among its
+/// layers, `hak:NAME`).
+pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
+    let haks = resman.layers().iter().enumerate().filter(|(_, l)| {
+        matches!(l.priority, mg_resman::priority::HAK | mg_resman::priority::HAK_USER)
+    });
+    let mut tables: Vec<&str> = crate::doctor::STRREF_COLUMNS.iter().map(|(t, _)| *t).collect();
+    tables.dedup();
+    let mut out = Vec::new();
+    for (i, layer) in haks {
+        let hak = layer.label.strip_prefix("hak:").unwrap_or(&layer.label).to_string();
+        for name in &tables {
+            let Some(key) = ResKey::parse(name, ResType::TWODA) else { continue };
+            let Ok(data) = resman.get_in(i, &key) else { continue };
+            let Ok(table) = mg_2da::TwoDa::parse(&data, Codepage::default()) else { continue };
+            let columns = crate::doctor::STRREF_COLUMNS.iter().filter(|(t, _)| t == name);
+            for (_, column) in columns {
+                for row in 0..table.len() {
+                    let cell = table.get(row, column).and_then(mg_2da::parse_int);
+                    if cell.and_then(|n| u32::try_from(n).ok()) == Some(strref) {
+                        let cell = format!("row {row}, {column}");
+                        out.push(HakCell { hak: hak.clone(), table: key, cell });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A script's integer literal: decimal, `0x`, `0b` or `0o`.
+fn parse_int(s: &str) -> Option<u32> {
+    let (digits, radix) = match s.get(..2).map(str::to_ascii_lowercase).as_deref() {
+        Some("0x") => (&s[2..], 16),
+        Some("0b") => (&s[2..], 2),
+        Some("0o") => (&s[2..], 8),
+        _ => (s, 10),
+    };
+    u32::from_str_radix(digits, radix).ok()
 }
 
 /// The fields of `s` that name a tag, with their paths.
@@ -341,6 +489,22 @@ impl UsageIndex {
                 out.push(Usage { from: *key, path: r.path.clone(), place });
             }
         }
+        out
+    }
+
+    /// The module's blueprints whose own tag (their root's `Tag`) is
+    /// `tag`, in order: what is placed from any of them has it. From what
+    /// [`refresh`](Self::refresh) read.
+    pub fn blueprints_tagged(&self, tag: &[u8]) -> Vec<ResKey> {
+        if tag.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<ResKey> = (self.seen.iter())
+            .filter(|(k, _)| ObjectKind::from_restype(k.restype).is_some())
+            .filter(|(_, r)| r.tags.iter().any(|(path, t)| path == "/Tag" && t == tag))
+            .map(|(k, _)| *k)
+            .collect();
+        out.sort();
         out
     }
 
@@ -912,7 +1076,7 @@ mod tests {
         root.set("Tag", Value::String(b"R".to_vec()));
         let (mut tags, mut strrefs) = (Vec::new(), Vec::new());
         tag_fields(&root, &mut String::new(), &mut tags);
-        strref_fields(&root, &mut String::new(), &mut strrefs);
+        strref_fields(&root, ResType::UTC, &mut String::new(), &mut strrefs);
         assert_eq!(
             tags,
             [("/List[1]/Tag".to_string(), b"T".to_vec()), ("/Tag".into(), b"R".to_vec())]
@@ -1050,12 +1214,94 @@ mod tests {
         assert!(places[1].starts_with("sword"), "{places:?}");
         assert_eq!(index.strref_usages(5).len(), 1);
         assert!(index.strref_usages(u32::MAX).is_empty());
+        // A palette's category by its STRREF (none: u32::MAX), a
+        // soundset's entry, a script's call with the number written.
+        let mut palette = Gff::new(*b"ITP ");
+        let category = |strref: u32| {
+            let mut s = Struct::new(0);
+            s.set("STRREF", Value::Dword(strref));
+            s.set("ID", Value::Byte(1));
+            s
+        };
+        palette.root.set("MAIN", Value::List(vec![category(16_777_220), category(u32::MAX)]));
+        m.set_gff(key("creaturepalcus", ResType::ITP), &palette).unwrap();
+        let mut ssf = mg_ssf::Ssf { entries: Vec::new() };
+        for strref in [mg_core::StrRef::NONE, mg_core::StrRef(16_777_220)] {
+            ssf.entries.push(mg_ssf::SsfEntry { sound: b"vs_x".to_vec(), strref });
+        }
+        m.set(key("kz_guard", ResType::SSF), ssf.to_bytes().unwrap());
+        let script = "void main()\n{\n    string s = GetStringByStrRef(16777220);\n    \
+                      SendMessageToPCByStrRef(GetFirstPC(), 0x1000004);\n    \
+                      SpeakStringByStrRef(nLine);\n    GetStringByStrRef(5 + 16777215);\n}\n";
+        m.set(key("kz_talk", ResType::NSS), script.as_bytes().to_vec());
+        index.refresh(&m);
+        let places: Vec<String> =
+            index.strref_usages(16_777_220).into_iter().map(|u| u.place).collect();
+        assert_eq!(
+            places,
+            [
+                "creaturepalcus.itp › STRREF",
+                "kz_guard.ssf › entry 1",
+                "kz_talk.nss › line 3",
+                "kz_talk.nss › line 4",
+                "placeables.2da › row 0, StrRef",
+                "sword.uti › LocalizedName",
+            ],
+        );
+        let talk = index.strref_usages(16_777_220).into_iter().find(|u| u.path == "line 3");
+        assert_eq!(talk.and_then(|u| u.line()), Some(3), "opened at its line");
+        assert!(index.strref_usages(u32::MAX).is_empty(), "a category without one");
         // Set again with the bytes it had: not read again.
         let again = m.get(&key("inc_guard", ResType::NSS)).unwrap().to_vec();
         m.set(key("inc_guard", ResType::NSS), again);
         index.refresh(&m);
         assert_eq!(index.read, 0);
         same(&index, &m);
+    }
+
+    /// A script names a line where the number is written as the call's
+    /// own argument (the second of SendMessageToPCByStrRef): not a
+    /// variable's, a sum, another argument, a comment or a string.
+    #[test]
+    fn a_script_s_talk_table_lines_are_its_calls_numbers() {
+        let src = "// GetStringByStrRef(7)\nvoid main() {\n\
+                   GetStringByStrRef(7, GENDER_FEMALE); GetStringByStrRef( 8 );\n\
+                   SendMessageToPCByStrRef(9, 10); FloatingTextStrRefOnCreature(11, o, F(12));\n\
+                   string s = \"GetStringByStrRef(13)\"; GetStringByStrRef(x + 14);\n\
+                   GetStringByStrRef(GetLocalInt(o, \"n\")); SetTlkOverride(0b101, \"x\");\n}\n";
+        let found = script_strrefs(src.as_bytes(), &tokenize(src.as_bytes()));
+        let lines: Vec<(&str, u32)> = found.iter().map(|(l, n)| (l.as_str(), *n)).collect();
+        assert_eq!(
+            lines,
+            [("line 3", 7), ("line 3", 8), ("line 4", 10), ("line 4", 11), ("line 6", 5)]
+        );
+    }
+
+    /// The haks' 2DAs: each hak's copy of a table, in the columns that
+    /// hold a line; not the game's own, nor another column.
+    #[test]
+    fn the_haks_2das_name_their_lines() {
+        use mg_resman::{LayerClass, MemContainer, priority};
+        let table = |cell: &str| {
+            format!("2DA V2.0\n\n   Label Name Description\n0  Kz {cell} 16777300\n").into_bytes()
+        };
+        let classes = key("classes", ResType::TWODA);
+        let (mut game, mut upper, mut lower) =
+            (MemContainer::new(), MemContainer::new(), MemContainer::new());
+        game.insert(classes, table("16777300"));
+        upper.insert(classes, table("16777300"));
+        lower.insert(classes, table("16777301"));
+        lower.insert(key("feat", ResType::TWODA), b"2DA V2.0\n\n   FEAT\n0  16777300\n".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::HAK, "hak:kz_top", LayerClass::Erf, upper);
+        rm.add(priority::HAK_USER, "hak:kz_low", LayerClass::Erf, lower);
+        let found: Vec<String> = hak_strrefs(&rm, 16_777_300).iter().map(HakCell::place).collect();
+        assert_eq!(
+            found,
+            ["kz_low › feat.2da › row 0, FEAT", "kz_top › classes.2da › row 0, Name"]
+        );
+        assert!(hak_strrefs(&rm, 5).is_empty());
     }
 
     /// What leads into an area by tag, from outside it: another area's

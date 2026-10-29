@@ -5812,6 +5812,131 @@ fn advanced_search() {
     shoot(&mut h, &dir, "advanced-search-and");
 }
 
+/// Edit › Find and Replace Text… over Chapter 1: "Aribeth" found, the
+/// tags ticked too (where the window has them).
+#[test]
+#[ignore]
+fn find_and_replace_text() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-find-replace");
+    let path = scratch.join("chapter1.mod");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run_steps(2);
+    {
+        let d = h.state_mut().text_replace.as_mut().unwrap();
+        d.find = "Aribeth".into();
+        d.with = "Aribeth de Tylmarande".into();
+    }
+    h.run();
+    if let Some(tags) = h.query_by_label("Tags") {
+        tags.click_accesskit();
+    }
+    h.run();
+    h.get_by_label("Find").click_accesskit();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "find-and-replace");
+}
+
+/// Find References for a talk-table line a blueprint, a script and a
+/// hak's 2DA name (the last two where the tab finds them).
+#[test]
+#[ignore]
+fn references_of_a_talk_table_line() {
+    use mg_schema::{StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-strref");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let classes = b"2DA V2.0\n\n   Label Name\n0  Kz 16777300\n".to_vec();
+    hak.add(mg_core::ResRef::from_str("classes").unwrap(), ResType::TWODA, classes).unwrap();
+    std::fs::write(user.join("hak/kz_classes.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, mg_schema::ExoString::from("kz_classes"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    let mut sword = mg_gff::Gff::new(*b"UTI ");
+    let named = mg_core::LocString { strref: mg_core::StrRef(16_777_300), strings: Vec::new() };
+    sword.root.set("LocalizedName", mg_gff::Value::LocString(named));
+    m.set_gff(ResKey::parse("kz_sword", ResType::UTI).unwrap(), &sword).unwrap();
+    let script = b"void main()\n{\n    SpeakStringByStrRef(16777300);\n}\n".to_vec();
+    m.set(ResKey::parse("kz_speak", ResType::NSS).unwrap(), script);
+    let path = scratch.join("strref.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_300));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "references-strref");
+}
+
+/// Edit › Edit Areas Together… over Chapter 1: the areas, then (where the
+/// window has it) those holding a value of MusicDay.
+#[test]
+#[ignore]
+fn edit_areas_together() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-areas-together");
+    let path = scratch.join("chapter1.mod");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "edit-areas-together");
+    if h.query_by_label("Holding").is_some() {
+        h.get_by_value("Anything").click();
+        h.run();
+        h.get_all_by_label("A field's value").last().unwrap().click();
+        h.run();
+        for (hint, text) in [("MusicDay, Fog*, OnEnter", "MusicDay"), ("any", "3*")] {
+            let by = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+            h.get(egui_kittest::kittest::by().predicate(by)).click();
+            h.run();
+            h.get(egui_kittest::kittest::by().predicate(by)).type_text(text);
+            h.run();
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, "edit-areas-together-holding");
+    }
+}
+
 /// Right-click menus, Properties last in each (Aurora's order): a
 /// placed waypoint's in the area view, and the area's row in the module
 /// tree.
@@ -5960,8 +6085,10 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                 unique: unique.map(str::to_string),
                 area: None,
             };
+            // (An area's copy: the tags only counted, Retag All for them;
+            // a script that spells one.)
             h.state_mut().tag_clash = Some(mg_ui::tag_clash::TagClash {
-                what: "The paste".into(),
+                what: "The copy of market".into(),
                 clashes: vec![
                     clash("TDOD_START_KREZK", 2, Some("TDOD_START_*")),
                     clash("KREZK_RENTAL_DOOR", 3, None),
@@ -5970,7 +6097,10 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                     (made(1), "TDOD_START_KREZK".into()),
                     (made(2), "KREZK_RENTAL_DOOR".into()),
                 ],
-                others: 0,
+                others: 2,
+                more: vec![(made(3), "WP_MARKET".into()), (made(4), "WP_WELL".into())],
+                made: (1..5).map(made).collect(),
+                scripts: vec!["kz_rental.nss line 14".into()],
                 from_option: true,
             });
             shoot(&mut h, &dir, "duplicate-tags");

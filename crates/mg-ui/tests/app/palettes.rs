@@ -208,6 +208,68 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
     assert_eq!(saved, before, "every other entry as it was");
 }
 
+/// A blueprint copied with a tag another blueprint has is said in the
+/// Copy window (not stopping it) and in the log, as a paste's tags are
+/// weighed: with Options › General › Show duplicate tags warning on, a
+/// tag typed there; the original's kept asks nothing (as Aurora's Edit
+/// Copy); where the project wants it unique, or warns of any tag, either.
+#[test]
+fn a_blueprint_copied_with_another_s_tag_is_said() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-copy-tag");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.settings.warn_duplicate_tags = true;
+    // Two waypoint blueprints of the module's: one tagged KZ_GATE.
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let mut edits = Vec::new();
+    for (name, tag) in [("kz_gate", "KZ_GATE"), ("kz_well", "KZ_WELL")] {
+        let mut g = Gff::read(&data).unwrap();
+        g.root.set("TemplateResRef", mg_gff::Value::resref(ResRef::from_str(name).unwrap()));
+        g.root.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        let key = ResKey::parse(name, ResType::UTW).unwrap();
+        edits.push(mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) });
+    }
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    let mut h = harness(app, 900.0, 700.0);
+    h.run();
+    let well = ResKey::parse("kz_well", ResType::UTW).unwrap();
+    let said = |h: &mut Harness<'_, Moonglow>, tag: &str| {
+        use egui_kittest::kittest::NodeT;
+        h.state_mut().copy_as.as_mut().unwrap().tag = Some(tag.into());
+        h.run();
+        h.query_by_label_contains("what is placed from either has it").map(|n| {
+            n.accesskit_node().label().or_else(|| n.accesskit_node().value()).unwrap_or_default()
+        })
+    };
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(well));
+    h.run();
+    assert_eq!(said(&mut h, "KZ_WELL"), None, "the original's kept");
+    assert_eq!(
+        said(&mut h, "KZ_GATE").as_deref(),
+        Some("KZ_GATE is kz_gate.utw's tag too: what is placed from either has it")
+    );
+    assert_eq!(said(&mut h, "KZ_NEW"), None, "a tag of its own");
+    // Where the project wants it unique, the original's kept too.
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.unique =
+        mg_module::project_file::Patterns::new(&["KZ_*"]).unwrap();
+    assert_eq!(
+        said(&mut h, "KZ_WELL").as_deref(),
+        Some(
+            "KZ_WELL is kz_well.utw's tag too: what is placed from either has it (the project \
+             wants KZ_* unique)"
+        )
+    );
+    // Not stopping the copy (Enter makes it); said in the log once made.
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let copy = h.state().log.entries.iter().any(|e| e.1.contains("kz_well.utw's tag too"));
+    assert!(copy, "in the log");
+    assert!(h.state().copy_as.is_none(), "copied");
+}
+
 #[test]
 fn palette_edit_copy_and_delete() {
     let root = mg_testkit::corpus!();

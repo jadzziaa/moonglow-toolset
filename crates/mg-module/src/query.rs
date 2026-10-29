@@ -50,6 +50,40 @@ pub struct Query {
     pub typed_fields: Vec<(String, Vec<(ResType, String)>)>,
 }
 
+/// Whether `text` matches `pattern`: as [`glob`], or with `regex` as a
+/// regular expression (`regex-lite`'s: anywhere in the text unless
+/// anchored with `^…$`, letters A to Z in either case). An expression
+/// that isn't one matches nothing ([`check_regex`] says why).
+pub fn like(pattern: &str, text: &str, regex: bool) -> bool {
+    if !regex {
+        return glob(pattern, text);
+    }
+    // (Made once a thread for each expression: a search asks it of every
+    // field.)
+    thread_local! {
+        static MADE: std::cell::RefCell<std::collections::HashMap<String, Option<regex_lite::Regex>>> =
+            Default::default();
+    }
+    MADE.with(|made| {
+        let mut made = made.borrow_mut();
+        if made.len() > 64 {
+            made.clear();
+        }
+        let re = made.entry(pattern.to_string()).or_insert_with(|| made_regex(pattern).ok());
+        re.as_ref().is_some_and(|re| re.is_match(text))
+    })
+}
+
+/// A pattern as a regular expression [`like`] matches by: why it isn't
+/// one, if it isn't.
+pub fn check_regex(pattern: &str) -> Result<(), String> {
+    made_regex(pattern).map(|_| ())
+}
+
+fn made_regex(pattern: &str) -> Result<regex_lite::Regex, String> {
+    regex_lite::Regex::new(&format!("(?i){pattern}")).map_err(|e| format!("{pattern}: {e}"))
+}
+
 /// Whether `text` matches `pattern`, ignoring case and accents, `*`
 /// matching any run.
 pub fn glob(pattern: &str, text: &str) -> bool {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:09:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
 ---
 
 # Modules
@@ -162,10 +162,27 @@ back:
 
 **Edit › Find and Replace Text…** (Ctrl+H) finds text players read: the
 module's names, descriptions, conversation lines, the journal and the rest
-(map notes and such), in every language each string has.
+(map notes and such), in every language each string has. Ticked on the
+second row, it looks in the fields builders and scripts read too:
+**Tags** (objects' and areas'), **ResRefs** (the fields that name a
+script, a blueprint, a conversation: not a resource's own name, which
+**Rename…** changes with all that names it), **Variables** (their names
+and string values) and **Other fields** (the other text fields: a
+door's Linked To, a key's tag, comments).
 - **What's searched:** choose the kinds, whether case matters and whether
   only whole words count. Without Match case, accents are set aside as
   case is: `arbol` finds `Árbol`.
+- **Regular expression:** Find what is a regular expression
+  (`kz_\d+`, `^wp_(gate|well)_1$`, `(inn|tavern)`), and Replace with
+  may name what its groups found (`WP_${1}_EXIT`, `$2`). Without Match
+  case, the letters A to Z match in either case (accents aren't set
+  aside). One that isn't a regular expression is said, and not looked
+  for.
+- **What a field holds:** a ResRef is left as it is where the new text
+  isn't a resource's name (more than 16 letters, digits and `_`), a tag
+  where it would be longer than 32, and said in the log; a tag made
+  another object's is said as a paste's is ([Duplicate
+  tags](04-areas.md#duplicate-tags)).
 - **What's found** is listed by place, as in Find References. Click one to
   go there; untick any to leave alone.
 - **Replace** changes the ticked strings as one step that **Undo** takes
@@ -173,8 +190,10 @@ module's names, descriptions, conversation lines, the journal and the rest
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
-have their own **Find in Files**; tags, variables and the rest are found
-by **Advanced Search** (below).
+have their own **Find in Files**; objects by what they hold (a number,
+an item property, a class) are found by **Advanced Search** (below).
+`mg replace` does the same from the command line (`--only tags,resrefs`,
+`--regex`).
 
 ## Advanced Search
 
@@ -214,7 +233,11 @@ after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
 
 **Look at** keeps the search to one kind of object (Items include
 those in inventories, equipment and stores) and to blueprints or placed
-objects. The lists come from the game's 2DAs and the module's haks; with
+objects. **Regular expressions** makes the names and texts asked for (a
+variable's name and value, a script's name, a field's label and text)
+regular expressions in place of `*` patterns: found anywhere in the
+name unless anchored (`^tdod_(rent|own)`, `^Tag$`), the letters A to Z
+in either case. The lists come from the game's 2DAs and the module's haks; with
 no game data loaded, choose rows by number.
 
 What's found is listed by place, as in Find References: `keep ›
@@ -597,7 +620,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
 | `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.2.0 | none |
-| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area (or, with `"any"`, in other areas too). Set, it wins over the builder's Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
+| `[tags] paste_warning` | which tags a change (a paste, a copy, a tag typed, an object placed, `mg set`) says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area (or, with `"any"`, in other areas too). Set, it wins over the builder's Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
 | `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has (no object of the area, for a tag of `unique_in_area`) | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
@@ -1173,8 +1196,17 @@ module's talk table:
   feminine table. **Find** finds lines by words or by StrRef. **Go to**
   takes a StrRef or a line's number: press Enter and the list goes to
   that line, among all the others, and it is chosen. **Find References**
-  lists where the module names the chosen line (a hak's 2DAs are not
-  looked in).
+  lists where the module names the chosen line (as does a number typed
+  in the References tab's field): its blueprints', areas',
+  conversations' and journal's strings, a palette's category, a
+  soundset's entries, its 2DAs' cells in the columns known to hold a
+  line, and a script's call with the number written in it
+  (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
+  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
+  argument, `SetTlkOverride`…; a number kept in a variable or a constant
+  isn't followed), which opens at its line. Under them, **In the haks'
+  2DAs** lists the cells of the module's haks' tables that name it, each
+  hak's own copy.
 - **Choosing a line:** click anywhere on its row. The keys are the
   list's from then: Up and Down (Page Up and Page Down, Home and End)
   choose a line, and Enter, or a double click, goes to its text.

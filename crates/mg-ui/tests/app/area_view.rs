@@ -1523,6 +1523,105 @@ fn a_paste_that_doubles_a_tag_offers_retag() {
     assert_eq!(tags(&mut h).len(), 5);
 }
 
+/// A tag given otherwise than by a paste is weighed as a paste's is
+/// (`tag_clash::made_by`, as each command is applied): typed in
+/// Properties (the `SetField` its Tag field makes once the keyboard leaves
+/// it), an object placed from the palette (its blueprint's tag: only
+/// where the project warns of any tag), Create Set's waypoints (named
+/// apart from the other waypoints, not from the area's other objects).
+/// An Undo asks nothing, nor a tag set to what it was.
+#[test]
+fn tags_typed_placed_or_named_by_create_set_are_weighed_as_a_paste_s() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tags-given") else { return };
+    h.state_mut().settings.warn_duplicate_tags = true;
+    let git = ResKey::new(area, ResType::GIT);
+    let set_tag = |h: &mut Harness<'_, Moonglow>, list: &str, index: usize, tag: &str| {
+        h.state_mut().tag_clash = None;
+        let edit = mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item(list, index),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+        };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+        h.run_steps(2);
+        h.state().tag_clash.clone()
+    };
+    // Typed: the second waypoint given the first's tag, once the first has
+    // one of its own.
+    assert_eq!(set_tag(&mut h, "WaypointList", 0, "KZ_GATE"), None, "the only one");
+    let clash = set_tag(&mut h, "WaypointList", 1, "KZ_GATE").expect("typed twice");
+    assert_eq!(clash.clashes[0].sentence(), "KZ_GATE is now on two objects");
+    assert_eq!(clash.what, "“Tag”");
+    assert!(h.query_by_label("“Tag” put tags on more than one object of the module:").is_some());
+    h.get_by_label("Keep Tags").click();
+    h.run_steps(2);
+    assert_eq!(set_tag(&mut h, "WaypointList", 1, "KZ_GATE"), None, "the tag it had");
+    // An Undo asks nothing.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(h.state().tag_clash.is_none());
+    // Placed from the palette: its blueprint's tag asks nothing by the
+    // builder's option; where the project warns of any tag, the second.
+    let place = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+        h.state_mut().tag_clash = None;
+        h.state_mut().palette.selected = ResKey::parse("plc_barrel", ResType::UTP);
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        h.run_steps(2);
+        press(h, over, true, egui::Modifiers::NONE);
+        press(h, over, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        h.state_mut().palette.selected = None;
+        h.run_steps(1);
+        h.state().tag_clash.clone()
+    };
+    assert_eq!(place(&mut h, Vec3::new(10.0, 30.0, 0.0)), None);
+    assert_eq!(place(&mut h, Vec3::new(14.0, 30.0, 0.0)), None, "the blueprint's tag");
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
+        Some(mg_module::project_file::PasteWarning::Any);
+    let clash = place(&mut h, Vec3::new(18.0, 30.0, 0.0)).expect("any tag twice");
+    assert!(clash.clashes[0].sentence().ends_with("is now on three objects"), "{clash:?}");
+    assert!(clash.what.starts_with("“Place"), "{}", clash.what);
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning = None;
+    // Create Set names its waypoints apart from the other waypoints: a
+    // barrel tagged Patrol_01 is another object with the first's tag.
+    assert_eq!(set_tag(&mut h, "Placeable List", 0, "Patrol_01"), None);
+    h.state_mut().tag_clash = None;
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let over = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(over);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: over,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Create Set…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "set name", "Patrol");
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let clash = h.state().tag_clash.clone().expect("Create Set's first waypoint");
+    let said: Vec<String> = clash.clashes.iter().map(|c| c.sentence()).collect();
+    assert_eq!(said, ["Patrol_01 is now on two objects"]);
+    // Retag gives the waypoint, not the barrel, a tag of its own.
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let g = ws.doc(&git).unwrap();
+    let tag = |list: &str, i: usize| g.root.list(list).unwrap()[i].string("Tag").unwrap().to_vec();
+    assert_eq!(tag("Placeable List", 0), b"Patrol_01");
+    assert_eq!(tag("WaypointList", 0), b"Patrol_03", "Patrol_02 is the second's");
+}
+
 #[test]
 fn the_area_view_plays_the_area_s_sounds() {
     use mg_ui::audio::{Channel, Silence};

@@ -706,18 +706,29 @@ enum Cmd {
     },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
-    /// each string changed.
+    /// each string changed. With `--only`, in its tags, resrefs,
+    /// variables and other text fields too.
     Replace {
         module: PathBuf,
         find: String,
+        /// What it becomes: with `--regex`, `$1` (or `${name}`) is what a
+        /// group found.
         with: String,
         #[arg(long)]
         match_case: bool,
         /// Only where it isn't part of a longer word.
         #[arg(long)]
         whole_word: bool,
-        /// Only these kinds: names, descriptions, conversations, journal,
-        /// other (comma-separated).
+        /// FIND is a regular expression (`^kz_(\w+)$`; without
+        /// `--match-case`, A to Z in either case).
+        #[arg(long)]
+        regex: bool,
+        /// Only these kinds (comma-separated): names, descriptions,
+        /// conversations, journal, other (the text players read, which is
+        /// all of them where none is given); tags, resrefs (fields that
+        /// name a resource: a resource isn't renamed, `mg rename` does
+        /// that), variables (names and string values), fields (the other
+        /// text fields); all.
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
         /// List what would change; change nothing.
@@ -751,6 +762,21 @@ enum Cmd {
         natural: bool,
         #[arg(long)]
         artificial: bool,
+        /// `FIELD` or `FIELD=VALUE`: areas with a field of their ARE or of
+        /// their GIT's ambient sounds and music of this value (`*` as in
+        /// tags, case ignored: `--where 'Fog*=0'`, `--where
+        /// OnEnter=kz_*`); a field that holds a row takes the row's label
+        /// or name too (`--where MusicDay=mus_cave`).
+        #[arg(long = "where", value_name = "FIELD=VALUE")]
+        wheres: Vec<String>,
+        /// `NAME` or `NAME=VALUE`: areas with this variable (`*` as in
+        /// tags), of this value if given.
+        #[arg(long, value_name = "NAME=VALUE")]
+        where_var: Vec<String>,
+        /// Areas whose music by day, by night or in battle is this
+        /// ambientmusic.2da row (its number, label or name).
+        #[arg(long, value_name = "ROW")]
+        music: Option<String>,
         /// `FIELD=VALUE`: a field of the area (`SunFogAmount=5`,
         /// `MoonAmbientColor=0x402010`, `OnEnter=my_script`), of its
         /// ambient sounds and music (`MusicDay=57`), or a flag
@@ -2933,27 +2959,38 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("{key}: {lines} lines"));
             out
         }
-        Cmd::Replace { module, find, with, match_case, whole_word, only, dry_run } => {
-            use mg_module::text::{Options, TextKind};
-            let kinds: Vec<TextKind> = if only.is_empty() {
-                TextKind::ALL.to_vec()
-            } else {
-                only.iter()
-                    .map(|o| {
-                        TextKind::ALL
-                            .into_iter()
-                            .find(|k| k.label().to_lowercase().starts_with(&o.to_lowercase()))
-                            .with_context(|| {
-                                format!(
-                                    "{o}: not names, descriptions, conversations, journal or other"
-                                )
-                            })
-                    })
-                    .collect::<Result<_>>()?
-            };
+        Cmd::Replace { module, find, with, match_case, whole_word, regex, only, dry_run } => {
+            use mg_module::text::{Finder, Options, TextKind};
+            let mut kinds: Vec<TextKind> = Vec::new();
+            for o in only {
+                let o = o.trim().to_lowercase();
+                if o == "all" {
+                    kinds.extend(TextKind::ALL);
+                    continue;
+                }
+                // (By its name, or the start of one name only: `desc`.)
+                let exact = (TextKind::ALL.into_iter()).find(|k| k.name() == o);
+                let mut starting = TextKind::ALL.into_iter().filter(|k| k.name().starts_with(&o));
+                let prefix = match (starting.next(), starting.next()) {
+                    (Some(k), None) if !o.is_empty() && !"all".starts_with(&o) => Some(k),
+                    _ => None,
+                };
+                let k = exact.or(prefix).with_context(|| {
+                    format!(
+                        "{o}: not names, descriptions, conversations, journal, other, tags, \
+                         resrefs, variables, fields or all"
+                    )
+                })?;
+                kinds.push(k);
+            }
+            if kinds.is_empty() {
+                kinds = TextKind::PLAYERS.to_vec();
+            }
             let mut m = crate::open_module(module)?;
             let game = Some(module_codepage(cli, &m));
-            let o = Options { match_case: *match_case, whole_word: *whole_word, game };
+            let o =
+                Options { match_case: *match_case, whole_word: *whole_word, regex: *regex, game };
+            Finder::new(find, o).map_err(|e| anyhow::anyhow!("{find}: {e}"))?;
             let hits = mg_module::text::find(&m, find, o, &kinds);
             let mut out = Output::default();
             for h in &hits {
@@ -2961,12 +2998,31 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let times: usize = hits.iter().map(|h| h.count).sum();
             let mut replaced = 0;
+            // (A tag given another object's: said, as `mg set` says it; of
+            // a dry run, as the replace would leave the module.)
+            let tags: Vec<(ResKey, Vec<mg_module::text::Step>)> = (hits.iter())
+                .filter(|h| h.kind == TextKind::Tag)
+                .map(|h| (h.key, h.path.clone()))
+                .collect();
             if *dry_run || hits.is_empty() {
                 out.note(format!("{} strings, {times} times", hits.len()));
+                if !hits.is_empty() {
+                    let mut after = m.clone();
+                    let (_, errors) = mg_module::text::replace(&mut after, &hits, find, with, o);
+                    for e in &errors {
+                        out.note(format!("warning: {e}"));
+                    }
+                    for w in edits::objects_made_twice(&after, &tags) {
+                        out.note(w);
+                    }
+                }
             } else {
                 let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
                 for e in &errors {
                     out.note(format!("warning: {e}"));
+                }
+                for w in edits::objects_made_twice(&m, &tags) {
+                    out.note(w);
                 }
                 m.save()?;
                 replaced = n;
@@ -2991,6 +3047,9 @@ fn run(cli: &Cli) -> Result<Output> {
             above_ground,
             natural,
             artificial,
+            wheres,
+            where_var,
+            music,
             sets,
             vars,
             remove_var,
@@ -3010,13 +3069,21 @@ fn run(cli: &Cli) -> Result<Output> {
                 |s: &String| mg_core::ResRef::from_str(s).map_err(|e| anyhow::anyhow!("{s}: {e}"));
             // `--interior` or `--exterior`: so, not so, or either.
             let kind = |yes: bool, no: bool| if yes { Some(true) } else { no.then_some(false) };
-            let filter = Filter {
+            let mut has: Vec<areas::Has> = Vec::new();
+            for w in wheres {
+                has.push(areas::Has::parse_field(w).map_err(anyhow::Error::msg)?);
+            }
+            for v in where_var {
+                has.push(areas::Has::parse_var(v).map_err(anyhow::Error::msg)?);
+            }
+            let mut filter = Filter {
                 only: areas.iter().map(resref).collect::<Result<_>>()?,
                 text: text.clone(),
                 tileset: tileset.as_ref().map(resref).transpose()?,
                 interior: kind(*interior, *exterior),
                 underground: kind(*underground, *above_ground),
                 natural: kind(*natural, *artificial),
+                has,
             };
             let mut changes: Vec<Change> = Vec::new();
             for s in sets {
@@ -3114,8 +3181,50 @@ fn run(cli: &Cli) -> Result<Output> {
                     bail!("{a} is not an area of the module");
                 }
             }
-            let chosen: Vec<&areas::AreaInfo> =
-                listed.iter().filter(|a| filter.matches(a)).collect();
+            // What they must hold: a row given by its label or name (a
+            // field's, `--music`'s) is its number, from the game's table
+            // (the module's haks' over it), read only when one is so given.
+            let by_name = |field: &str, v: &str| {
+                areas::row_table(field).is_some() && mg_2da::parse_int(v.trim()).is_none()
+            };
+            let named = filter.has.iter().any(|h| match h {
+                areas::Has::Field { label, value: Some(v) } => by_name(label, v),
+                _ => false,
+            });
+            let music_row = music.as_deref().filter(|m| mg_2da::parse_int(m.trim()).is_none());
+            if named || music_row.is_some() {
+                install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
+                let game = search::game_data(cli, &m, &mut out)
+                    .context("the game's data can't be read for a row's name")?;
+                for h in &mut filter.has {
+                    let areas::Has::Field { label, value: Some(v) } = h else { continue };
+                    let Some(table) = areas::row_table(label).filter(|_| by_name(label, v)) else {
+                        continue;
+                    };
+                    let row =
+                        game.row_of(&table, v).map_err(|e| anyhow::anyhow!("{label}={v}: {e}"))?;
+                    *v = row.to_string();
+                }
+                if let Some(text) = music_row {
+                    let table = areas::row_table("MusicDay").expect("music is a row");
+                    let row =
+                        game.row_of(&table, text).map_err(|e| anyhow::anyhow!("--music {e}"))?;
+                    filter.has.push(areas::Has::Music(row));
+                }
+            }
+            if let Some(n) = music.as_deref().and_then(|m| mg_2da::parse_int(m.trim())) {
+                filter.has.push(areas::Has::Music(n.into()));
+            }
+            let mut held = areas::HoldsCache::default();
+            let cp = module_codepage(cli, &m);
+            let chosen: Vec<&areas::AreaInfo> = listed
+                .iter()
+                .filter(|a| filter.matches(a))
+                .filter(|a| {
+                    filter.has.is_empty()
+                        || held.of(&m, a.resref, cp).is_some_and(|h| filter.holds(h))
+                })
+                .collect();
             if !changes.is_empty() && filter.is_empty() && !*all {
                 bail!("name areas or give a filter, or pass --all to change every area");
             }
@@ -3184,6 +3293,12 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let done = areas::apply(&mut m, &resrefs, &changes, codepage, seed)
                 .map_err(anyhow::Error::msg)?;
+            // (An area given a tag another object has: said, as `mg set`.)
+            let retagged: Vec<mg_core::ResRef> =
+                done.iter().filter(|c| c.what == "Tag").map(|c| c.area).collect();
+            for w in edits::areas_made_twice(&m, &retagged) {
+                out.note(w);
+            }
             if scheme && !done.is_empty() {
                 out.note(format!(
                     "the tiles' lights were picked with --seed {seed} (the same with it again)"

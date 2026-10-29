@@ -294,6 +294,90 @@ fn an_area_copied_with_its_tags_offers_retag() {
     assert_eq!(w, [format!("{waypoint_tag}_2"), format!("{waypoint_tag}_3")]);
 }
 
+/// An area copied where the project warns of any tag: Retag gives the
+/// tags listed (the area's own) their own, Retag All the counted ones
+/// too; the copy's door that leads to its waypoint leads to the copy's
+/// once that is retagged (the original's still to the original's), and a
+/// script that spells the waypoint's tag is said, not changed.
+#[test]
+fn retag_all_follows_the_copy_s_transitions_and_names_the_scripts() {
+    let Some((mut h, area)) = area_harness("copy-area-retag-all") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        app.ws.as_mut().unwrap().module.project_file.tags.paste_warning =
+            Some(mg_module::project_file::PasteWarning::Any);
+        let game = app.game.as_deref().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let none = |_: ResRef| None;
+        let placing = mg_module::instances::Placing { game, item: &none };
+        let at = mg_module::instances::Placement { position: [10.0, 10.0, 0.0], rotation: 0.0 };
+        let bp = read("nw_door_normal", ResType::UTD);
+        let mut door =
+            mg_module::instances::instance(&placing, ResType::UTD, &bp, at, &[]).unwrap();
+        door.set("Tag", mg_gff::Value::String(b"KZ_INN_DOOR".to_vec()));
+        door.set("LinkedTo", mg_gff::Value::String(b"KZ_INN_EXIT".to_vec()));
+        let script = b"void main() { object o = GetObjectByTag(\"KZ_INN_EXIT\"); }\n".to_vec();
+        let edits = vec![
+            mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), "Door List", 0, door),
+            mg_edit::Edit::SetField {
+                key: git,
+                path: mg_edit::GffPath::root().item("WaypointList", 1),
+                label: "Tag".into(),
+                value: Some(mg_gff::Value::String(b"KZ_INN_EXIT".to_vec())),
+            },
+            mg_edit::Edit::SetResource {
+                key: ResKey::parse("kz_exit", ResType::NSS).unwrap(),
+                data: Some(script),
+            },
+        ];
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let copy = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.state_mut().tag_clash = None;
+        h.state_mut().actions.push(mg_ui::Action::CopyDialog(ResKey::new(area, ResType::ARE)));
+        h.run_steps(3);
+        h.state_mut().copy_as.as_mut().unwrap().resref = name.into();
+        h.run_steps(2);
+        h.get_by_label("Create Copy").click();
+        h.run_steps(3);
+        h.state().tag_clash.clone().expect("the Duplicate Tags window")
+    };
+    let field = |h: &mut Harness<'_, Moonglow>, area: &str, list: &str, i: usize, l: &str| {
+        let key = ResKey::parse(area, ResType::GIT).unwrap();
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(&key).unwrap();
+        let s = &doc.root.list(list).unwrap()[i];
+        String::from_utf8_lossy(s.string(l).unwrap()).into_owned()
+    };
+    // Retag: the area's own tag; the copy's door and waypoints keep theirs.
+    let clash = copy(&mut h, "inn_two");
+    assert_eq!(clash.others, 3, "the two waypoints' tags and the door's, counted");
+    assert_eq!(clash.scripts, ["kz_exit.nss line 1"]);
+    assert!(h.query_by_label_contains("Spelled in scripts (1: kz_exit.nss line 1)").is_some());
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    assert_eq!(field(&mut h, "inn_two", "WaypointList", 1, "Tag"), "KZ_INN_EXIT");
+    assert_eq!(field(&mut h, "inn_two", "Door List", 0, "LinkedTo"), "KZ_INN_EXIT");
+    // Retag All: every tag of the copy's its own, its door leading to its
+    // own waypoint; the original's as they were.
+    copy(&mut h, "inn_three");
+    h.get_by_label("Retag All").click();
+    h.run_steps(2);
+    assert_eq!(field(&mut h, "inn_three", "WaypointList", 1, "Tag"), "KZ_INN_EXIT_2");
+    assert_eq!(field(&mut h, "inn_three", "Door List", 0, "Tag"), "KZ_INN_DOOR_2");
+    assert_eq!(field(&mut h, "inn_three", "Door List", 0, "LinkedTo"), "KZ_INN_EXIT_2");
+    let original = area.to_string();
+    assert_eq!(field(&mut h, &original, "Door List", 0, "LinkedTo"), "KZ_INN_EXIT");
+    let said = |s: &str| h.state().log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said("Retagged 4 objects, and 1 transition of what was made to them"));
+    assert!(said("Retag: scripts spell the tags it changed, and still find the original's"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Retag"));
+}
+
 /// An area copied whose tags the project wants unique in each area
 /// (`unique_in_area`): the copy's own tag is in another area, as meant,
 /// and not listed; its two waypoints of one tag are, in the copy.
@@ -408,6 +492,88 @@ fn an_area_is_renamed_from_its_tab() {
     assert_eq!(areas, [meadow]);
     assert!(h.state().dock.find_tab(&Tab::Area(meadow)).is_some());
     assert!(h.state().area_views.contains_key(&meadow));
+}
+
+/// Edit Areas Together's Holding narrows the areas to those holding a
+/// variable (or music, or a field's value), as they are now (an unsaved
+/// change too); the ticked are kept as a set for the module, and ticked
+/// again from Sets.
+#[test]
+fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
+    let dir = mg_testkit::scratch_dir("ui-areas-holding");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let int_var = |name: &str, value: i32| {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("Name", mg_gff::Value::String(name.as_bytes().to_vec()));
+        s.set("Type", mg_gff::Value::Dword(1));
+        s.set("Value", mg_gff::Value::Int(value));
+        s
+    };
+    for (name, title, vars) in [
+        ("cave1", "Wolf Cave", vec![int_var("nDepth", 1)]),
+        ("cave2", "Bear Cave", vec![int_var("nBears", 4)]),
+        ("inn", "Apple Inn", Vec::new()),
+    ] {
+        let mut are = Gff::new(*b"ARE ");
+        let title = LocString::from_text(Language::ENGLISH, Gender::Male, title);
+        are.root.set("Name", mg_gff::Value::LocString(title));
+        m.set(key(name, ResType::ARE), are.to_bytes().unwrap());
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("AreaProperties", mg_gff::Value::Struct(mg_gff::Struct::new(100)));
+        git.root.set("VarTable", mg_gff::Value::List(vars));
+        m.set(key(name, ResType::GIT), git.to_bytes().unwrap());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.area_set_dir = Some(dir.join("area-sets"));
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run();
+    h.get_by_value("Anything").click();
+    h.run();
+    h.get_all_by_label("A variable").last().unwrap().click();
+    h.run();
+    type_into_hint(&mut h, "tdod_rental, kz_*", "n*");
+    h.run();
+    assert!(h.query_by_label_contains("Apple Inn").is_none(), "the inn has none");
+    h.get_by_label_contains("Wolf Cave");
+    type_into_hint(&mut h, "any", "4");
+    assert!(h.query_by_label_contains("Wolf Cave").is_none(), "of value 4");
+    h.get_by_label_contains("Bear Cave");
+    // An unsaved change is what it holds.
+    let edit = mg_edit::Edit::SetField {
+        key: key("cave1", ResType::GIT),
+        path: mg_edit::GffPath::root().item("VarTable", 0),
+        label: "Value".into(),
+        value: Some(mg_gff::Value::Int(4)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Var", vec![edit])));
+    h.run();
+    h.get_by_label_contains("Wolf Cave");
+    h.get_by_label("Tick Shown").click();
+    h.run();
+    // Kept as a set, and ticked again.
+    type_into_hint(&mut h, "set name", "Caves");
+    h.get_by_label("Save Set").click();
+    h.run();
+    let file = dir.join("area-sets/Caves.areas.json");
+    let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["areas"], serde_json::json!(["cave1", "cave2"]));
+    assert_eq!(kept["module"], "sample");
+    h.get_by_label("Untick All").click();
+    h.run();
+    assert!(h.query_by_label("Edit 0 Together").is_some());
+    h.get_by_value("Tick a Set…").click();
+    h.run();
+    h.get_all_by_label("Caves").last().unwrap().click();
+    h.run();
+    h.get_by_label("Edit 2 Together");
 }
 
 /// Edit › Edit Areas Together…: areas ticked in the chooser (narrowed by

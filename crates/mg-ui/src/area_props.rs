@@ -12,6 +12,7 @@ use mg_resman::ResKey;
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
+use mg_module::areas::Has;
 
 pub(crate) const PAGES: [&str; 7] =
     ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Comments"];
@@ -882,7 +883,46 @@ pub(crate) struct AreaChooser {
     pub tileset: Option<ResRef>,
     /// Interior, underground, natural: must be so, must not, or either.
     pub flags: [Option<bool>; 3],
+    /// What the areas must hold: music, a variable, a field's value.
+    pub hold: Hold,
+    /// A variable's name, a field's label (`*` as in tags).
+    pub hold_name: String,
+    /// Its value (`*` as in tags; empty: any).
+    pub hold_value: String,
+    /// The music: an ambientmusic.2da row.
+    pub music: Option<usize>,
+    /// The areas that hold what is asked for, and what it was asked for
+    /// (the condition, the workspace's revision).
+    pub(crate) held: Option<(Option<Has>, u64, std::collections::BTreeSet<ResRef>)>,
+    /// The name Save Set… keeps the ticked areas under.
+    pub set_name: String,
+    /// The sets kept for this module, read once the window opens and
+    /// again after Save Set and Delete Set (not each frame).
+    pub(crate) sets: Option<Vec<String>>,
     pub chosen: std::collections::BTreeSet<ResRef>,
+}
+
+/// What Edit Areas Together's Holding asks of an area.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Hold {
+    #[default]
+    Anything,
+    Music,
+    Variable,
+    Field,
+}
+
+impl Hold {
+    const ALL: [Hold; 4] = [Hold::Anything, Hold::Music, Hold::Variable, Hold::Field];
+
+    fn label(self) -> &'static str {
+        match self {
+            Hold::Anything => "Anything",
+            Hold::Music => "Music",
+            Hold::Variable => "A variable",
+            Hold::Field => "A field's value",
+        }
+    }
 }
 
 /// The flags the chooser filters by, as its list reads.
@@ -898,7 +938,8 @@ impl AreaChooser {
         AreaChooser { chosen: [area].into(), ..Default::default() }
     }
 
-    /// Whether an area passes the filters.
+    /// Whether an area passes the filters (but for what it holds:
+    /// [`AreaChooser::has`]).
     pub(crate) fn shows(&self, area: ResRef, info: &crate::tree::AreaInfo) -> bool {
         let text = mg_core::text::Needle::new(&self.filter);
         text.finds_in(&[&area.to_string().to_ascii_lowercase(), &mg_core::text::fold(&info.name)])
@@ -908,12 +949,59 @@ impl AreaChooser {
                 .zip(self.flags)
                 .all(|((bit, ..), want)| want.is_none_or(|w| (info.flags & bit != 0) == w))
     }
+
+    /// What the areas must hold, as Holding asks it (none: anything, or
+    /// what it asks isn't typed yet).
+    pub(crate) fn has(&self) -> Option<Has> {
+        let name = self.hold_name.trim().to_string();
+        let value = Some(self.hold_value.trim().to_string()).filter(|v| !v.is_empty());
+        match self.hold {
+            Hold::Anything => None,
+            Hold::Music => self.music.map(|r| Has::Music(r as i64)),
+            Hold::Variable => (!name.is_empty()).then_some(Has::Var { name, value }),
+            Hold::Field => (!name.is_empty()).then_some(Has::Field { label: name, value }),
+        }
+    }
+
+    /// The areas that hold what Holding asks (all where it asks nothing),
+    /// read again once it asks something else or the module changes.
+    fn holding(&mut self, app: &mut Moonglow) -> Option<&std::collections::BTreeSet<ResRef>> {
+        let has = self.has()?;
+        let ws = app.ws.as_mut()?;
+        let revision = ws.revision();
+        let asked = |h: &(Option<Has>, u64, _)| h.0.as_ref() == Some(&has) && h.1 == revision;
+        if !self.held.as_ref().is_some_and(asked) {
+            // (The documents open, flushed: what they show is what is
+            // read.)
+            if let Err(e) = ws.flush() {
+                app.log.error(e.to_string());
+                return None;
+            }
+            let cp = app.game.as_deref().map_or(mg_core::Codepage::WINDOWS_1252, |g| g.codepage());
+            let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+            let found = (areas.into_iter())
+                .filter(|&a| app.area_holds.of(&ws.module, a, cp).is_some_and(|h| has.matches(h)))
+                .collect();
+            self.held = Some((Some(has), revision, found));
+        }
+        self.held.as_ref().map(|h| &h.2)
+    }
 }
 
 /// Edit › Edit Areas Together…: a checklist of the module's areas, narrowed
-/// by name, tileset and kind; the areas ticked open in one Area Properties.
+/// by name, tileset, kind and what they hold (music, a variable, a field's
+/// value); the areas ticked open in one Area Properties, and are kept as a
+/// set under a name to tick again.
 pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut c) = app.area_chooser.take() else { return };
+    let holding = c.holding(app).cloned();
+    let module =
+        crate::area_sets::module_name(app.ws.as_ref().and_then(|w| w.module.location.as_ref()));
+    let sets = (c
+        .sets
+        .get_or_insert_with(|| crate::area_sets::list_for(app.area_set_dir.as_deref(), &module)))
+    .clone();
+    let music = areas_music_choices(app);
     let Some(ws) = &app.ws else { return };
     let mut areas: Vec<(ResRef, crate::tree::AreaInfo)> = ws
         .module
@@ -991,10 +1079,117 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                             .show(ui, &mut c.flags[k], &options, |v| text(*v));
                         ui.end_row();
                     }
+                    crate::widgets::field_label(ui, "Holding").on_hover_text(
+                        "Areas with this music (by day, by night or in battle), a variable (of \
+                         this value, if one is typed), or a field of this value (the area's \
+                         own, its sounds' and music's): * as in tags",
+                    );
+                    crate::widgets::dropdown("area-chooser-hold")
+                        .width(260.0)
+                        .selected_text(c.hold.label())
+                        .show(ui, &mut c.hold, &Hold::ALL, |h| h.label());
+                    ui.end_row();
+                    match c.hold {
+                        Hold::Anything => {}
+                        Hold::Music => {
+                            ui.label("");
+                            crate::search::row_picker(
+                                ui,
+                                "area-chooser-music",
+                                &music,
+                                &mut c.music,
+                                None,
+                            );
+                            ui.end_row();
+                        }
+                        Hold::Variable | Hold::Field => {
+                            let (name, hint) = match c.hold {
+                                Hold::Variable => ("Name", "tdod_rental, kz_*"),
+                                _ => ("Label", "MusicDay, Fog*, OnEnter"),
+                            };
+                            // (Name and value on one row: the window keeps
+                            // its height.)
+                            crate::widgets::field_label(ui, name);
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut c.hold_name)
+                                        .hint_text(hint)
+                                        .desired_width(150.0),
+                                );
+                                ui.label("=");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut c.hold_value)
+                                        .hint_text("any")
+                                        .desired_width(90.0),
+                                )
+                                .on_hover_text("Its value (* as in tags); empty: any");
+                            });
+                            ui.end_row();
+                        }
+                    }
                 },
             );
+            // The sets kept for this module, and the ticked kept as one.
+            ui.horizontal(|ui| {
+                let mut picked: Option<String> = None;
+                let options: Vec<Option<String>> = sets.iter().cloned().map(Some).collect();
+                crate::widgets::dropdown("area-chooser-sets")
+                    .selected_text(if sets.is_empty() { "No sets kept" } else { "Tick a Set…" })
+                    .width(160.0)
+                    .show(ui, &mut picked, &options, |s| s.clone().unwrap_or_default())
+                    .on_hover_text("Ticks the areas of a set kept for this module, as they are");
+                if let Some(name) = picked {
+                    match crate::area_sets::read(app.area_set_dir.as_deref(), &name) {
+                        Ok(set) => {
+                            c.chosen = set
+                                .into_iter()
+                                .filter(|a| areas.iter().any(|(b, _)| a == b))
+                                .collect();
+                        }
+                        Err(e) => app.log.error(format!("The set {name}: {e}")),
+                    }
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.set_name)
+                        .hint_text("set name")
+                        .desired_width(140.0),
+                );
+                let can = !c.chosen.is_empty() && crate::saved::valid_name(&c.set_name);
+                if ui
+                    .add_enabled(can, egui::Button::new("Save Set"))
+                    .on_hover_text(
+                        "Keeps the ticked areas under this name, for this module (in Moonglow's \
+                         data folder's area-sets)",
+                    )
+                    .clicked()
+                {
+                    let name = c.set_name.trim().to_string();
+                    let dir = app.area_set_dir.as_deref();
+                    match crate::area_sets::save(dir, &name, &module, c.chosen.iter().copied()) {
+                        Ok(_) => {
+                            app.log.info(format!("Kept {} areas as the set {name}", c.chosen.len()))
+                        }
+                        Err(e) => app.log.error(format!("Save Set: {e}")),
+                    }
+                    c.sets = None;
+                }
+                if sets.iter().any(|s| s.eq_ignore_ascii_case(c.set_name.trim()))
+                    && ui
+                        .button("Delete Set")
+                        .on_hover_text("Deletes the set of this name")
+                        .clicked()
+                {
+                    let name = c.set_name.trim().to_string();
+                    match crate::area_sets::delete(app.area_set_dir.as_deref(), &name) {
+                        Ok(()) => app.log.info(format!("Deleted the set {name}")),
+                        Err(e) => app.log.error(format!("Delete Set: {e}")),
+                    }
+                    c.sets = None;
+                }
+            });
+            let holds = |a: &ResRef| holding.as_ref().is_none_or(|h| h.contains(a));
             let shown: Vec<&(ResRef, crate::tree::AreaInfo)> =
-                areas.iter().filter(|(a, i)| c.shows(*a, i)).collect();
+                areas.iter().filter(|(a, i)| c.shows(*a, i) && holds(a)).collect();
             ui.horizontal(|ui| {
                 if ui.button("Tick Shown").clicked() {
                     c.chosen.extend(shown.iter().map(|(a, _)| *a));
@@ -1010,7 +1205,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.weak(format!("{} of {} areas shown", shown.len(), areas.len()));
             });
             ui.separator();
-            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, false]).show(
+            egui::ScrollArea::vertical().max_height(250.0).auto_shrink([false, false]).show(
                 ui,
                 |ui| {
                     for (a, info) in shown {
@@ -1042,6 +1237,13 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
     } else if open && !cancel {
         app.area_chooser = Some(c);
     }
+}
+
+/// The music Holding chooses from: ambientmusic.2da's rows, as the game
+/// names them (none without game data: a number).
+fn areas_music_choices(app: &Moonglow) -> Vec<mg_rules::Choice> {
+    let table = mg_module::areas::row_table("MusicDay").expect("music is a row");
+    crate::search::choices(app.game.as_deref(), &table)
 }
 
 #[cfg(test)]

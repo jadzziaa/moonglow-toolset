@@ -20,6 +20,8 @@ pub struct CopyDraft {
     pub resref: String,
     /// The copy's tag, where the resource has one.
     pub tag: Option<String>,
+    /// The tag of what is copied, as it was.
+    pub original_tag: Option<String>,
     /// From the palette: the copy is shown there and opened.
     pub palette: bool,
 }
@@ -90,6 +92,7 @@ impl Moonglow {
         self.copy_as = Some(CopyDraft {
             from: key,
             resref: resref.map(|r| r.to_string()).unwrap_or_default(),
+            original_tag: tag.clone(),
             tag,
             palette,
         });
@@ -177,6 +180,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = format!("Copy {}", draft.from);
     let mut open = true;
     let (mut done, mut cancel) = (false, false);
+    let mut warned = None;
     crate::widgets::dialog(ctx, &title, &mut open).collapsible(false).resizable(false).show(
         ctx,
         |ui| {
@@ -210,6 +214,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if let Some((p, _)) = &problem {
                 ui.colored_label(ui.visuals().warn_fg_color, p);
             }
+            // (A blueprint's tag another has: said, and in the log once
+            // copied, not stopping it.)
+            let blueprint = BlueprintKind::from_restype(draft.from.restype).is_some();
+            warned = draft.tag.as_deref().filter(|_| blueprint && !stops).and_then(|tag| {
+                let original = draft.original_tag.as_deref();
+                crate::tag_clash::blueprint_copy_warning(app, draft.from, original, tag)
+            });
+            if let Some(w) = &warned {
+                ui.colored_label(ui.visuals().warn_fg_color, w);
+            }
             if draft.from.restype == ResType::ARE {
                 ui.weak("The area is copied with everything placed in it.");
             }
@@ -226,6 +240,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     );
     if done {
         if let Some(new) = app.copy_resource(&draft) {
+            if let Some(w) = warned {
+                app.log.warn(format!("{new}: {w}"));
+            }
             if draft.palette {
                 app.palette.custom = true;
                 app.palette.selected = Some(new);

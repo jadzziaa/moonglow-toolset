@@ -165,6 +165,113 @@ fn pc_faction(
     ))
 }
 
+/// What the tags a command gave (`made`; `set`: the places of the `Tag`
+/// fields it sets) put on more than one object of the module, as the
+/// window weighs a paste's: by the project's `[tags]`, else each tag the
+/// command sets (as a builder's) and each that must be unique. An object
+/// it places has its blueprint's tag where the module's blueprint has it
+/// (a game's or a hak's blueprint isn't read here: its tag is taken as
+/// its own).
+fn made_twice(
+    ws: &mut Workspace,
+    made: &[mg_edit::tags::Made],
+    set: &[(ResKey, mg_edit::GffPath)],
+) -> Vec<String> {
+    let rules = ws.module.project_file.tags.clone();
+    let warning = rules.paste_warning_or(true);
+    if made.is_empty() || warning == mg_module::project_file::PasteWarning::Off {
+        return Vec::new();
+    }
+    let blueprint =
+        |ws: &Workspace, key: ResKey| ws.module.gff(&key).and_then(Result::ok).map(|g| g.root);
+    let weighed: Vec<mg_edit::tags::Weighed> = made
+        .iter()
+        .filter_map(|m| {
+            let mut w = mg_edit::tags::weigh(ws, m, &blueprint)?;
+            let typed = set.iter().any(|(k, p)| *k == m.key && *p == m.path);
+            let found = m.path.0.is_empty() || {
+                let doc = ws.doc(&m.key).ok()?;
+                let s = m.path.get(&doc.root)?;
+                let kind = match m.path.0.last() {
+                    Some(mg_edit::Step::Item(list, _)) => mg_rules::ObjectKind::from_list(list),
+                    _ => None,
+                };
+                let template =
+                    kind.and_then(|k| Some(ResKey::new(s.resref(k.resref_field())?, k.restype())));
+                template.is_some_and(|k| ws.module.contains(&k))
+            };
+            w.custom = typed || (found && w.custom);
+            Some(w)
+        })
+        .collect();
+    let index =
+        mg_module::tags::TagCache::default().index(&ws.module, |k| ws.loaded(k).map(|g| &g.root));
+    let tags: Vec<mg_module::tags::MadeTag> = weighed
+        .iter()
+        .map(|w| mg_module::tags::MadeTag {
+            tag: &w.tag,
+            area: w.area,
+            custom: w.custom,
+            is_static: w.is_static,
+        })
+        .collect();
+    said_twice(&mg_module::tags::clashes(&index, &tags, &rules, warning))
+}
+
+/// What `mg areas --set Tag=…` put on more than one object: each of
+/// `areas`' own tag (a builder's), weighed as [`made_twice`] weighs a
+/// command's, in the module as it is after.
+pub(crate) fn areas_made_twice(m: &Module, areas: &[mg_core::ResRef]) -> Vec<String> {
+    let areas: Vec<(ResKey, Vec<mg_module::text::Step>)> =
+        areas.iter().map(|&a| (ResKey::new(a, mg_core::ResType::ARE), Vec::new())).collect();
+    objects_made_twice(m, &areas)
+}
+
+/// What the tags a command set put on more than one object (`objects`:
+/// an area's ARE and its root, or its GIT and the path of an object
+/// placed in it), each a builder's, weighed as [`made_twice`] weighs a
+/// command's, in the module as it is after (`mg areas`, `mg replace`).
+pub(crate) fn objects_made_twice(
+    m: &Module,
+    objects: &[(ResKey, Vec<mg_module::text::Step>)],
+) -> Vec<String> {
+    use mg_module::text::Step;
+    let rules = &m.project_file.tags;
+    let warning = rules.paste_warning_or(true);
+    if objects.is_empty() || warning == mg_module::project_file::PasteWarning::Off {
+        return Vec::new();
+    }
+    let tags: Vec<(mg_core::ResRef, Vec<u8>, bool)> = objects
+        .iter()
+        .filter_map(|(key, path)| {
+            let mut g = m.gff(key)?.ok()?;
+            let s = mg_module::text::struct_at(&mut g.root, path)?;
+            let placeable = matches!(path.as_slice(), [Step::Item(l, _)] if l == "Placeable List");
+            let is_static = placeable && s.integer("Static").unwrap_or(0) != 0;
+            Some((key.resref, s.string("Tag")?.to_vec(), is_static))
+        })
+        .collect();
+    let made: Vec<mg_module::tags::MadeTag> = (tags.iter())
+        .map(|(a, t, is_static)| mg_module::tags::MadeTag {
+            tag: t,
+            area: *a,
+            custom: true,
+            is_static: *is_static,
+        })
+        .collect();
+    let index = mg_module::tags::TagIndex::of_module(m);
+    said_twice(&mg_module::tags::clashes(&index, &made, rules, warning))
+}
+
+/// The warnings of tags made twice.
+fn said_twice(clashes: &[mg_module::tags::Clash]) -> Vec<String> {
+    (clashes.iter())
+        .map(|c| {
+            format!("warning: {}: a script finds one of them by it (GetObjectByTag)", c.sentence())
+        })
+        .collect()
+}
+
 /// Applies a command (all of it or none) and saves, or with `dry_run`
 /// only checks that it applies. `lines`: what to print for people in
 /// place of the resources changed; `show`: the command is in the JSON, as
@@ -188,8 +295,18 @@ pub(crate) fn run(
     let written = command_to_json(&cmd, codepage).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
     let was = guard.map(|_| ws.module.clone());
+    let tagged = mg_edit::tags::made_by(&mut ws, &cmd.edits);
+    let set: Vec<(ResKey, mg_edit::GffPath)> = (cmd.edits.iter())
+        .filter_map(|e| match e {
+            Edit::SetField { key, path, label, .. } if label == "Tag" => Some((*key, path.clone())),
+            _ => None,
+        })
+        .collect();
     ws.apply(cmd)?;
     let mut notes = Output::default();
+    for w in made_twice(&mut ws, &tagged, &set) {
+        notes.note(w);
+    }
     let mut said = Vec::new();
     if let (Some(g), Some(was)) = (guard, &was)
         && count > 0
