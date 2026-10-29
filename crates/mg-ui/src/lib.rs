@@ -2771,6 +2771,8 @@ impl Moonglow {
         let mut m = m;
         self.restore_locks(&mut m);
         self.ws = Some(Workspace::new(m));
+        // (The last module's tags, and the bytes they were read from, let go.)
+        self.tag_cache = Default::default();
         // (The project's plugins first: those allowed act on its opening.)
         self.load_project_plugins();
         self.plugins_module_opened();
@@ -2938,6 +2940,7 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        self.tag_cache = Default::default();
         // (The project's plugins were its own.)
         self.plugins.settings_form = None;
         self.load_project_plugins();
