@@ -199,6 +199,9 @@ struct Shared {
 struct Shown {
     composed: Composed,
     bounds: (Vec3, Vec3),
+    /// How it stands in the area (its pause, at its start): what its box
+    /// is around, and what a click is tried against.
+    stance: mg_preview::compose::Stance,
 }
 
 /// What an area's loaded models use.
@@ -609,7 +612,7 @@ impl AreaScene {
     }
 
     /// How far along `ray` it meets object `i`'s model itself (its
-    /// triangles, at rest), for a click that passes a wide box to reach
+    /// triangles, as it stands: in its pause, where its box is), for a click that passes a wide box to reach
     /// what is behind. `None`: the object has no model to meet (a marker,
     /// an arrow, an emitter alone) and is picked by its box;
     /// `Some(None)`: the ray passes its model.
@@ -627,7 +630,7 @@ impl AreaScene {
         let inverse = o.model_transform().inverse();
         let (origin, dir) =
             (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
-        Some(shown.composed.ray_hit(origin, dir))
+        Some(shown.composed.ray_hit_in(&shown.stance, origin, dir))
     }
 
     /// The particles of the placed objects with emitters (a campfire's
@@ -1202,7 +1205,8 @@ fn shown(
             c.map(|composed| {
                 // As it stands in the area: in its pause (a dragon at
                 // rest lies stretched out, wings spread).
-                let bounds = composed.bounds_in(composed.idle.as_deref(), 0.0);
+                let stance = composed.stance(composed.idle.as_deref(), 0.0);
+                let bounds = composed.bounds_of(&stance);
                 // (A model of nothing drawn is the size of what it holds
                 // undrawn, where that is something: the invisible
                 // object's box, as Aurora outlines it.)
@@ -1210,7 +1214,7 @@ fn shown(
                     composed.hidden_bounds().filter(|_| !composed.has_meshes() || bare(bounds));
                 let bounds =
                     hidden.filter(|h| h.0.is_finite() && h.1.is_finite()).unwrap_or(bounds);
-                Arc::new(Shown { composed, bounds })
+                Arc::new(Shown { composed, bounds, stance })
             })
         })
         .clone()

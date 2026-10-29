@@ -477,7 +477,7 @@ impl Composed {
 
     /// Bounds of everything in the rest pose (for framing a camera).
     pub fn bounds(&self) -> (Vec3, Vec3) {
-        self.bounds_with(&self.base.gpu.rest, None)
+        self.bounds_of(&self.stance(None, 0.0))
     }
 
     /// The box around the base model's meshes that are not drawn (`render
@@ -508,13 +508,51 @@ impl Composed {
     /// taller or shorter than at rest, and a picture framed by its rest
     /// cut its head off.
     pub fn bounds_in(&self, animation: Option<&str>, t: f32) -> (Vec3, Vec3) {
+        self.bounds_of(&self.stance(animation, t))
+    }
+
+    /// How it stands in `animation` at `t` (`None`, or one it lacks: at
+    /// rest): its models' nodes, as [`Composed::bounds_in`] boxes it and
+    /// [`Composed::ray_hit_in`] meets it. Made once and kept, a click on
+    /// it is tried against what the box is around.
+    pub fn stance(&self, animation: Option<&str>, t: f32) -> Stance {
         let playing = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
-        match (playing, animation) {
-            (Some(a), Some(asked)) => {
-                self.bounds_with(&anim::pose(&self.base.gpu.model, a, t), Some((asked, a, t)))
-            }
-            _ => self.bounds(),
-        }
+        let (base, playing) = match (playing, animation) {
+            (Some(a), Some(asked)) => (anim::pose(&self.base.gpu.model, a, t), Some((asked, a, t))),
+            _ => (self.base.gpu.rest.clone(), None),
+        };
+        // The parts: those that play it (wings, tails, robes) as they
+        // stand in it too, as [`Composed::instances`] draws them; the
+        // others on the base's nodes.
+        let parts = (self.parts.iter())
+            .map(|p| {
+                let at = p.attach.and_then(|i| base.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+                let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
+                    let find = |name: &str| p.animation(name);
+                    let own = find(asked)
+                        .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
+                    let worn = self.base.gpu.model.animation_scale;
+                    Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
+                });
+                let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+                (posed.or_else(|| p.skeleton_pose(&base, hung)), hung)
+            })
+            .collect();
+        Stance { base, parts }
+    }
+
+    /// Its models with the nodes `stance` has: the base's, and each
+    /// part's with where it hangs.
+    fn models_in<'a>(
+        &'a self,
+        stance: &'a Stance,
+    ) -> impl Iterator<Item = (&'a GpuModel, &'a [Mat4], Mat4)> {
+        let base = std::iter::once((&*self.base.gpu, stance.base.as_slice(), Mat4::IDENTITY));
+        let parts =
+            self.parts.iter().zip(&stance.parts).map(|(p, (posed, hung))| {
+                (&*p.gpu, posed.as_deref().unwrap_or(&p.gpu.rest), *hung)
+            });
+        base.chain(parts)
     }
 
     /// How far along a ray (from `origin` along `dir`, in the preview's own
@@ -524,6 +562,13 @@ impl Composed {
     /// preview with no mesh to meet, an emitter alone: see
     /// [`Composed::has_meshes`]).
     pub fn ray_hit(&self, origin: Vec3, dir: Vec3) -> Option<f32> {
+        self.ray_hit_in(&self.stance(None, 0.0), origin, dir)
+    }
+
+    /// [`Composed::ray_hit`] with its nodes as `stance` has them
+    /// ([`Composed::stance`]): a creature as it stands in its pause, where
+    /// its box is.
+    pub fn ray_hit_in(&self, stance: &Stance, origin: Vec3, dir: Vec3) -> Option<f32> {
         let mut best: Option<f32> = None;
         let mut meet = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
             for m in &gm.meshes {
@@ -564,13 +609,8 @@ impl Composed {
                 }
             }
         };
-        let rest = &self.base.gpu.rest;
-        meet(&self.base.gpu, rest, Mat4::IDENTITY);
-        for p in &self.parts {
-            let at = p.attach.and_then(|i| rest.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
-            let posed = p.skeleton_pose(rest, hung);
-            meet(&p.gpu, posed.as_deref().unwrap_or(&p.gpu.rest), hung);
+        for (gm, nodes, to) in self.models_in(stance) {
+            meet(gm, nodes, to);
         }
         best
     }
@@ -580,11 +620,9 @@ impl Composed {
         self.models().any(|m| !m.meshes.is_empty())
     }
 
-    /// The box around it with the base's nodes at `pose` (model space); in
-    /// an animation (`playing`: the one asked for, the base's and the
-    /// time), the parts that play it (wings, tails, robes) as they stand in
-    /// it too, as [`Composed::instances`] draws them.
-    fn bounds_with(&self, pose: &[Mat4], playing: Option<(&str, &Animation, f32)>) -> (Vec3, Vec3) {
+    /// The box around it with its nodes as `stance` has them (model
+    /// space).
+    pub fn bounds_of(&self, stance: &Stance) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
             for m in &gm.meshes {
@@ -613,22 +651,21 @@ impl Composed {
                 }
             }
         };
-        add(&self.base.gpu, pose, Mat4::IDENTITY);
-        for p in &self.parts {
-            let at = p.attach.and_then(|i| pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
-                let find = |name: &str| p.animation(name);
-                let own = find(asked)
-                    .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
-                let worn = self.base.gpu.model.animation_scale;
-                Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
-            });
-            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
-            let posed = posed.or_else(|| p.skeleton_pose(pose, hung));
-            add(&p.gpu, posed.as_deref().unwrap_or(&p.gpu.rest), hung);
+        for (gm, nodes, to) in self.models_in(stance) {
+            add(gm, nodes, to);
         }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
     }
+}
+
+/// How a preview stands: its models' nodes in an animation at a time, or
+/// at rest ([`Composed::stance`]).
+#[derive(Debug, Clone, Default)]
+pub struct Stance {
+    /// The base model's nodes.
+    base: Vec<Mat4>,
+    /// Each part's nodes (`None`: at rest), and where it hangs.
+    parts: Vec<(Option<Vec<Mat4>>, Mat4)>,
 }
 
 /// A drawn mesh's skin, if it is skinned: its bones, and each vertex's

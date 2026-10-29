@@ -1175,17 +1175,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   taken for it too and had a marker's metre-wide box: a builder's
   report after 1.32.1.)
   (from builders' reports after 1.16.2)
-- **A creature's box in an area** is around it as it stands (the start
-  of its pause), not around its model at rest: a builder's dragon had a
-  box several times its size (at rest it lies stretched out, wings
-  spread: 3.1 by 14.0 by 10.2 m against 5.6 by 7.3 by 6.3 standing).
-  Skinned meshes (its wings) are counted where their bones put each
-  vertex, as the renderer draws them; the joints are no longer counted;
-  wings, tails and robes that are parts of their own are counted in
-  their pose too.
-  The box does not follow the animation as it plays, and a click is
-  still tried against the model's triangles at rest (then against the
-  box). (S) (from builders' reports after 1.19.1)
 - **Ctrl + wheel scales the selection** (a builder: Aurora's way to
   resize a placeable, which did nothing here but zoom): the models of
   the objects selected that take a scale, shown as the wheel turns and
