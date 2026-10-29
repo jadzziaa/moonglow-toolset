@@ -27,8 +27,10 @@ a directory), nasher projects (see below) and the game's campaign files
   the main pane, the windows, each where it was, with the same tabs,
   and split into the same panes), each pane's tab in front in front,
   and the one that had the keys has them again. Each shows what it
-  showed: an area's view its camera where it was, a script its scroll
-  and cursor, a conversation its selected line, bookmarks and folded
+  showed: an area's view its camera where it was, a script its scroll,
+  cursor and bookmarks (numbered or not; those past its end, if it
+  changed since, are let go), the talk table its line, a conversation
+  its selected line, bookmarks and folded
   branches (if the conversation is as it was: changed since, outside
   Moonglow, they would be on other lines, and are let go), a Properties
   window (and the Options) its page. A placed object's Properties are

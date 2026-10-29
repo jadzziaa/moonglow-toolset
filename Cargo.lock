@@ -2848,6 +2848,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
+ "siphasher",
  "skrifa",
  "toml",
  "wgpu",

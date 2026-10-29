@@ -1146,8 +1146,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     // Scrolled and its cursor where they were, a module's kept tabs
     // opening it again (the cursor's not given the keys).
-    let (kept_scroll, kept_cursor) =
-        open_tabs.take_view(&crate::Tab::Script(key)).map(|v| v.script()).unwrap_or_default();
+    let kept = open_tabs.take_view(&crate::Tab::Script(key));
+    let (kept_scroll, kept_cursor) = kept.as_ref().map(|v| v.script()).unwrap_or_default();
+    // Its bookmarks as they were (those its text still has lines for).
+    if let Some(v) = &kept {
+        (buf.bookmarks, buf.numbered) = v.script_marks(buf.text.lines().count().max(1));
+    }
     if let Some((a, b)) = kept_cursor {
         let id = editor_id(key);
         let end = buf.text.chars().count();

@@ -120,6 +120,15 @@ pub(crate) struct View {
     scroll: Option<[f32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<[usize; 2]>,
+    /// A script's bookmarked lines (from 0), and its numbered bookmarks
+    /// (Ctrl and a digit): each digit and its line.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    lines: Vec<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    numbered: Vec<[usize; 2]>,
+    /// The talk table's line chosen (its StrRef in the table).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
     /// A Properties window's page (or the Options'), by its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     page: Option<String>,
@@ -257,6 +266,28 @@ impl View {
     /// A script's scroll and cursor kept.
     pub(crate) fn script(&self) -> (Option<egui::Vec2>, Option<(usize, usize)>) {
         (self.scroll.map(|[x, y]| egui::vec2(x, y)), self.cursor.map(|[a, b]| (a, b)))
+    }
+
+    /// The talk table's line kept.
+    pub(crate) fn talk_line(&self) -> Option<usize> {
+        self.line
+    }
+
+    /// A script's bookmarks kept: its bookmarked lines and its numbered
+    /// ones, those within its `lines` lines (its text may have changed
+    /// since).
+    pub(crate) fn script_marks(
+        &self,
+        lines: usize,
+    ) -> (std::collections::BTreeSet<usize>, [Option<usize>; 10]) {
+        let marked = self.lines.iter().copied().filter(|l| *l < lines).collect();
+        let mut numbered = [None; 10];
+        for &[n, line] in &self.numbered {
+            if let Some(slot) = numbered.get_mut(n).filter(|_| line < lines) {
+                *slot = Some(line);
+            }
+        }
+        (marked, numbered)
     }
 }
 
@@ -850,9 +881,14 @@ impl Moonglow {
                 Some(View { camera, night: Some(view.night), ..Default::default() })
             }
             Tab::Script(k) => {
-                let (scroll, cursor) = self.scripts.get(k)?.seen?;
+                let buf = self.scripts.get(k)?;
+                let (scroll, cursor) = buf.seen?;
                 let (scroll, cursor) = (Some([scroll.x, scroll.y]), cursor.map(|(a, b)| [a, b]));
-                Some(View { scroll, cursor, ..Default::default() })
+                let lines = buf.bookmarks.iter().copied().collect();
+                let numbered = (buf.numbered.iter().enumerate())
+                    .filter_map(|(n, l)| Some([n, (*l)?]))
+                    .collect();
+                Some(View { scroll, cursor, lines, numbered, ..Default::default() })
             }
             Tab::Dialog(k) => {
                 let view = self.dialog_views.get(k)?;
@@ -872,6 +908,9 @@ impl Moonglow {
             Tab::Instances { area, paths } => page(git(area), paths.first()?.clone()),
             Tab::AreaProperties(r) => page(are(r), GffPath::root()),
             Tab::AreasProperties(rs) => page(are(rs.first()?), GffPath::root().field("several")),
+            Tab::TalkTable => {
+                Some(View { line: Some(self.talk_view.selected?), ..Default::default() })
+            }
             Tab::ModuleProperties => {
                 let page = crate::module_props::PAGES.iter().find(|p| p.0 == self.module_page);
                 Some(View { page: Some(page?.1.to_string()), ..Default::default() })
@@ -962,6 +1001,23 @@ impl Moonglow {
                 self.split_of(path.node).unwrap_or(Place::Middle)
             };
             panes.push(Pane { place: place_text(place), tabs, active, ..Default::default() });
+        }
+        // Tile Properties still waiting for its area's view (its tab not
+        // shown since the module opened): kept as it was read, beside the
+        // tabs it was kept with, else where it was.
+        if let Some(w) = &self.open_tabs.tiles {
+            let text = format!("tile-properties:{}:{}", w.area, list(&w.tiles, |t| t.to_string()));
+            let beside =
+                |p: &&mut Pane| p.split.is_none() && w.beside.iter().any(|b| p.tabs.contains(b));
+            match panes.iter_mut().find(beside) {
+                Some(p) => p.tabs.push(text),
+                None => panes.push(Pane {
+                    place: place_text(w.place.unwrap_or(Place::Window)),
+                    tabs: vec![text],
+                    rect: w.rect.map(|r| [r.left(), r.top(), r.width(), r.height()]),
+                    ..Default::default()
+                }),
+            }
         }
         let pane = focused.or_else(|| self.tab_pane());
         let leaf = pane.and_then(|p| self.dock.leaf(p).ok());

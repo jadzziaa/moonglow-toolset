@@ -1690,23 +1690,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **What a module's tabs open again without:** a module opens again with
   its tabs, side editors and tools, split windows and views as they were
-  (Options › General, `crates/mg-ui/src/open_tabs.rs`). Not kept: a hak
-  never saved (no file to open) and a 2DA in one; a 2DA's Edit a Copy
-  not saved yet (its file isn't there); what a side editor's view
-  showed (a hak's selection, a 2DA's cell, a tileset's page), a
-  script's bookmarks, the talk table's line, a model view's camera,
-  Advanced Search's question (the next session's tab is empty); Tile
-  Properties that is waiting for its area's view (its area's tab not
-  shown since the module opened) when the module is closed again. What
-  a view showed is written with the tabs (when they change, a window is
-  moved, the module closes, Moonglow quits), not as the camera moves or
-  the cursor does: a crash loses a camera moved since. A conversation's marks are checked by a hash of its contents
-  (Rust's `DefaultHasher`): a toolchain that changes it lets them go
-  once. A placed object moved outside Moonglow and another of its tag
-  and blueprint added: neither is taken for it. A kept Options tab
-  makes its draft as Tools › Options does, which looks for the game's
-  install (Steam's library files) as the module opens. (S each) (a
-  builder's report, October 2026)
+  (Options › General, `crates/mg-ui/src/open_tabs.rs`), a script's
+  bookmarks, the talk table's line and a Tile Properties still waiting
+  for its area's view among them. Not kept, each an optional field of
+  `open_tabs::View` written by `view_of` and taken at the view's first
+  draw (S each): what a side editor's view showed (a hak's selection, a
+  2DA's cell, a tileset's page) and a model view's camera. Advanced
+  Search's question (the next session's tab is empty) wants its
+  conditions kept as text, nine kinds with their rows, parts and ranges
+  (`search::Condition` has no serde form) (S–M). Proposed to the owner
+  as kept as they are (settle or drop), by design: a hak never saved
+  and a 2DA in one, and a 2DA's Edit a Copy not saved yet (no file to
+  open again); a crash losing a camera moved since the tabs were last
+  written (they are written when they change, a window is moved, the
+  module closes or Moonglow quits, not as the camera moves); a placed
+  object moved outside Moonglow with another of its tag and blueprint
+  added (neither is taken for it); a kept Options tab making its draft
+  as Tools › Options does, which looks for the game's install (Steam's
+  library files) as the module opens. (a builder's report, October 2026)
 - **Deleting from the module tree:** Delete… removes the resource (an
   area with its GIT and GIC and its area-list entry, a script with its
   NCS) and nothing else: transitions, scripts and conversations that name

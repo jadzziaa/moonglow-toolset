@@ -1242,6 +1242,79 @@ fn a_module_opens_again_with_the_tabs_it_had() {
     );
 }
 
+/// The talk table opens again on the line chosen when the module was
+/// closed.
+#[test]
+fn the_talk_table_opens_again_on_its_line() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-open-tabs-talk-line");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let mut tlk = mg_tlk::Tlk::new(Language::ENGLISH);
+    for text in ["Zero", "One", "Two", "Three"] {
+        tlk.entries.push(mg_tlk::TlkEntry::text(text));
+    }
+    std::fs::write(user.join("tlk/mg_lines.tlk"), tlk.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_lines".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let kept = dir.join("open-tabs");
+    let session = || {
+        let mut app = game_app(&root, Some(user.clone()));
+        app.settings.no_last_area = true;
+        app.open_palette = false;
+        app.open_tabs_dir = Some(kept.clone());
+        app.open_module(&path);
+        harness(app, 1100.0, 800.0)
+    };
+    let mut h = session();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(3);
+    assert_eq!(h.state().talk.as_ref().map(|t| t.len()), Some(4), "the module's table");
+    h.state_mut().talk_view.selected = Some(2);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let mut h = session();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "open again");
+    assert_eq!(h.state().talk_view.selected, Some(2), "on its line");
+}
+
+/// Tile Properties kept with a module, still waiting for its area's view
+/// when the module is closed again (the area never drawn: here, with no
+/// game data), is kept again, not lost.
+#[test]
+fn tile_properties_waiting_for_its_area_is_kept_again() {
+    let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+    open_some_tabs(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let mut record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let pane = serde_json::json!({ "place": "window", "tabs": ["tile-properties:start:5"] });
+    record["panes"].as_array_mut().unwrap().push(pane);
+    std::fs::write(&file, record.to_string()).unwrap();
+    for session in 0..2 {
+        h.state_mut().open_module(&path);
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "waiting");
+        assert!(h.state().dock.find_tab(&Tab::Factions).is_some(), "the others open");
+        h.state_mut().actions.push(mg_ui::Action::Close);
+        h.run();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("tile-properties:start:5"), "kept again ({session}): {text}");
+    }
+}
+
 /// With Options › General's Open a module with the tabs it had off, a
 /// module's tabs are neither kept nor opened again.
 #[test]
@@ -1481,6 +1554,21 @@ fn views_open_again_as_they_were() {
     let scrolled = editor(&h).top();
     assert_eq!(cursor(&h), (at, at));
     assert!(scrolled < -1000.0, "scrolled to line 150: {scrolled}");
+    // Line 150 bookmarked (F5), and numbered 3 (Ctrl+Shift+3).
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::new(("script", script))));
+    h.run();
+    h.key_press(egui::Key::F5);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Num3);
+    h.run_steps(2);
+    let marks = |h: &Harness<'_, Moonglow>| {
+        let app = h.state();
+        (app.script_bookmarks(script), app.script_numbered_bookmarks(script))
+    };
+    let marked = marks(&h);
+    assert_eq!(marked.0, [150], "bookmarked: {marked:?}");
+    assert_eq!(marked.1.len(), 1, "numbered: {marked:?}");
+    assert_eq!(cursor(&h), (at, at), "the keys left the cursor where it was");
     h.state_mut().actions.push(mg_ui::Action::Close);
     h.run();
     drop(h);
@@ -1488,6 +1576,7 @@ fn views_open_again_as_they_were() {
     h.run_steps(2);
     assert!((editor(&h).top() - scrolled).abs() < 1.0, "{} {scrolled}", editor(&h).top());
     assert_eq!(cursor(&h), (at, at));
+    assert_eq!(marks(&h), marked, "its bookmarks as they were");
     let app = h.state();
     assert_eq!(app.module_page, mg_ui::module_props::Page::Events);
     let view = &app.dialog_views[&talk];

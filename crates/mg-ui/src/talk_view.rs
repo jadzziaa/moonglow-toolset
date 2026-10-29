@@ -297,6 +297,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| files(&mut app.actions, ui));
         return;
     }
+    // The line chosen when the module's tabs were kept, chosen again and
+    // brought into view (once the table is open).
+    let len = app.talk.as_ref().map_or(0, |t| t.len());
+    let kept = app.open_tabs.take_view(&crate::Tab::TalkTable).and_then(|v| v.talk_line());
+    if let Some(line) = kept.filter(|l| *l < len) {
+        app.talk_view.selected = Some(line);
+        app.talk_view.reveal = true;
+    }
     // (The pointer over the editor: Undo and Redo are the table's there.)
     crate::side_doc::note_pointer(app, ui, &crate::Tab::TalkTable);
     table(app, ui);

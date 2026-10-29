@@ -419,9 +419,10 @@ window to its bar.
 conversations, side editors and tools open when it was closed, in the
 same panes and windows (split as they were, where they were moved to),
 each pane's tab in front in front, and each view as it was left: an
-area's camera, a script's scroll and cursor, a conversation's selected
-line, bookmarks and folded branches, a Properties window's page
-(Options › General; see [Modules](03-modules.md)).
+area's camera, a script's scroll, cursor and bookmarks, a
+conversation's selected line, bookmarks and folded branches, the talk
+table's line, a Properties window's page (Options › General; see
+[Modules](03-modules.md)).
 
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.

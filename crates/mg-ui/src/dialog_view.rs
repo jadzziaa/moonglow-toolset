@@ -120,10 +120,13 @@ struct Change {
 /// lines by.
 const CHANGES: usize = 256;
 
-/// A conversation's fingerprint: a hash of its bytes.
+/// A conversation's fingerprint: a hash of its bytes. Kept with a
+/// module's tabs, so it is the same whatever the toolchain: SipHash-1-3
+/// with zero keys (`siphasher`), which is what Rust's `DefaultHasher`
+/// gave the records written before, and may not give later.
 pub(crate) fn fingerprint(g: &Gff) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut h = siphasher::sip::SipHasher13::new();
     g.to_bytes().unwrap_or_default().hash(&mut h);
     h.finish()
 }
@@ -2523,6 +2526,23 @@ mod tests {
     use super::*;
     use egui::Key;
     use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// A conversation's fingerprint, kept with a module's tabs, is fixed:
+    /// the same as the records written with Rust's `DefaultHasher` have
+    /// (none is lost by the change), and the same whatever the toolchain.
+    #[test]
+    fn a_conversation_s_fingerprint_is_fixed() {
+        use std::hash::{Hash, Hasher};
+        let g = sample();
+        let bytes = g.to_bytes().unwrap();
+        let mut before = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut before);
+        assert_eq!(fingerprint(&g), before.finish(), "as the records written before have it");
+        let mut fixed = siphasher::sip::SipHasher13::new_with_keys(0, 0);
+        bytes.hash(&mut fixed);
+        assert_eq!(fingerprint(&g), fixed.finish());
+        assert_eq!(fingerprint(&new_dialog()), 15_852_168_482_793_792_934, "pinned");
+    }
 
     /// Root, a greeting with a reply that has a line under it, and a link.
     fn sample() -> Gff {
