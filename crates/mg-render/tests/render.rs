@@ -563,6 +563,100 @@ fn a_model_is_drawn_once_its_textures_are_read_apart() {
     assert_eq!(read.data, here.data, "as read in the frame");
 }
 
+/// A model of several meshes, each with a texture of its own, read
+/// apart: the first frame asks for every mesh's texture, and the frame
+/// after they are read draws the model whole, every mesh in its colour.
+/// (Asked for a mesh at a time, as they once were, the second frame
+/// asked for the second mesh's and left the model out again: a tile of
+/// the rural tileset with a rock on it stayed black for six rounds of
+/// reads, and was in the lit check's picture.)
+#[test]
+fn a_model_s_meshes_ask_for_their_textures_together() {
+    let Some(gpu) = gpu() else { return };
+    let colors =
+        [("red", [230, 20, 20, 255]), ("green", [20, 230, 20, 255]), ("blue", [20, 20, 230, 255])];
+    let assets = || {
+        let mut a = TestAssets::default();
+        for (name, rgba) in colors {
+            a.solid(name, rgba);
+        }
+        a
+    };
+    // Three quads side by side, each a mesh with its own texture.
+    let one = quad();
+    let mut m = one.clone();
+    m.nodes.truncate(1);
+    m.nodes[0].children.clear();
+    for (i, (name, _)) in colors.iter().enumerate() {
+        let mut node = one.nodes[1].clone();
+        node.name = format!("plane{i}");
+        let NodeKind::Mesh(mesh) = &mut node.kind else { unreachable!() };
+        let x = (i as f32 - 1.0) * 2.2;
+        for v in &mut mesh.vertices {
+            v[0] += x;
+        }
+        mesh.textures[0] = Some((*name).into());
+        let index = m.nodes.len();
+        m.nodes[0].children.push(index);
+        m.nodes.push(node);
+    }
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+    let scene = Scene {
+        instances: vec![Instance::new(model, Mat4::IDENTITY)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 9.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (96, 48);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let here = r.render_image(&gpu, &assets(), &scene, &camera, w, h);
+    // Each mesh drawn in its colour, at its quad's middle.
+    let at = |img: &mg_image::Rgba, x: u32| {
+        let i = ((h / 2 * w + x) * 4) as usize;
+        [img.data[i], img.data[i + 1], img.data[i + 2]]
+    };
+    let middles = [w / 2 - 14, w / 2, w / 2 + 14];
+    for (x, (name, rgba)) in middles.iter().zip(colors) {
+        let p = at(&here, *x);
+        let strongest = (0..3).max_by_key(|&c| p[c]).unwrap();
+        let wanted = (0..3).max_by_key(|&c| rgba[c]).unwrap();
+        assert!(strongest == wanted && p[wanted] > 60, "the {name} mesh is {p:?}");
+    }
+
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let wk = woken.clone();
+    r.set_game_waker(move || {
+        wk.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    let apart: Arc<dyn mg_render::Assets + Send + Sync> = Arc::new(assets());
+    r.read_textures_apart(&gpu, Some(apart));
+    r.textures_apart = true;
+    r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    assert_eq!(r.drawn.textures_pending, 1, "left out while its textures are read");
+    // The three textures and the environment map, all asked for in the
+    // first frame.
+    let started = std::time::Instant::now();
+    while woken.load(std::sync::atomic::Ordering::Relaxed) < colors.len() + 1 {
+        let read = woken.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{read} read: the first frame asked for one mesh's texture alone"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let read = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    assert_eq!(r.drawn.textures_pending, 0, "drawn in the frame after they are read");
+    assert_eq!(r.textures_read(), colors.len() as u64 + 1);
+    assert_eq!(read.data, here.data, "every mesh as read in the frame");
+}
+
 /// Material maps, as the game's normal-mapped shaders read them: a flat
 /// normal map changes nothing, a tilted one turns the surface towards or
 /// away from the light along the texture's u axis; a specular map makes

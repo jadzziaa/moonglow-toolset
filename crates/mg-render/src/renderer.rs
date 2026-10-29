@@ -1469,14 +1469,18 @@ impl Renderer {
         if let Some(surfaces) = self.surfaces.get(&key) {
             return Some(surfaces.clone());
         }
-        // (A texture still being read: none of the model's, for now.)
-        let surfaces: Option<Arc<[Surface]>> = inst
+        // (A texture still being read: none of the model's, for now. Every
+        // mesh's asked for all the same, in the one frame: stopping at the
+        // first mesh that waits asked for the next mesh's only once that
+        // one's were read, a round of reads a textured mesh: the rural
+        // tileset's tile with a rock was left out for six.)
+        let made: Vec<Option<Surface>> = inst
             .model
             .meshes
             .iter()
             .map(|mesh| self.surface(gpu, assets, &mesh.material, inst, scene_env))
             .collect();
-        let surfaces = surfaces?;
+        let surfaces: Arc<[Surface]> = made.into_iter().collect::<Option<_>>()?;
         if self.surfaces.len() >= SURFACES_KEPT {
             self.surfaces.clear();
         }

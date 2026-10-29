@@ -336,13 +336,15 @@ fn frames_that_never_get_ready_are_judged_after_a_while() {
 /// and finds both Moonglow's own shader and the game's drawing here. Told
 /// of a check where the game's programs draw the mesh in the wrong colors
 /// (as Heed's Vulkan found them, 2.13.1): Moonglow draws with its own for
-/// the rest of the run, the notice says what was found (not that nothing
-/// is drawn: the area was) and offers the other backend, and the Shaders
+/// the rest of the run, every mesh drawn before drawn still and every tile
+/// in the picture, the notice says what was found (not that nothing is
+/// drawn: the area was) and offers the other backend, and the Shaders
 /// button turns the game's on again. Where they draw nothing of it, the
-/// notice says that.
+/// notice says that. (The picture was once taken while the tile with a
+/// rock still waited for its textures, read apart a mesh at a time: black.)
 #[test]
 fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
-    let Some((mut app, rs, _area)) = area_app("lit-check", "ttr01", None, 4, None, &|_, _, _| {})
+    let Some((mut app, rs, area)) = area_app("lit-check", "ttr01", None, 4, None, &|_, _, _| {})
     else {
         return;
     };
@@ -359,6 +361,18 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     }
     let lit = h.state().lit_check.found.clone().unwrap();
     eprintln!("lit check: {lit}");
+    // (The area's textures read apart and the game's programs made on
+    // their threads, as in the desktop app: the frames until they are.
+    // The lit check can end first, and a tile still waiting for its
+    // textures is left out of the picture.)
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    let started = std::time::Instant::now();
+    while drawn(&h).textures_pending > 0 || drawn(&h).game_pending > 0 {
+        assert!(started.elapsed().as_secs() < 30, "never ready: {:?}", drawn(&h));
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.step();
+    }
+    let meshes = drawn(&h).meshes;
     assert_eq!((&lit.own, &lit.game), (&Ok(()), &Some(Ok(()))), "{lit}");
     assert!(h.state().game_shaders());
     assert_eq!(h.state().renderer_check.trouble, None);
@@ -387,7 +401,25 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     assert!(trouble.said.contains("Moonglow draws with its own shaders"), "{trouble:?}");
     assert!(!trouble.said.contains("nothing"), "{trouble:?}");
     assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
-    picture(&mut h, "lit_check_game_off");
+    // Every mesh drawn with the game's programs drawn with Moonglow's own,
+    // and every tile in the picture (at its middle, a little square).
+    let path = picture(&mut h, "lit_check_game_off");
+    let now = drawn(&h);
+    assert_eq!((now.meshes, now.textures_pending, now.game), (meshes, 0, 0), "{now:?}");
+    let shot = image::open(&path).unwrap().to_rgba8();
+    let ppp = h.ctx.pixels_per_point();
+    for (x, y) in (0..4).flat_map(|y| (0..4).map(move |x| (x, y))) {
+        let middle = glam::Vec3::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0);
+        let at = screen(&h, area, middle);
+        let (cx, cy) = ((at.x * ppp) as u32, (at.y * ppp) as u32);
+        let mut sum = 0.0;
+        for (px, py) in (0..9).flat_map(|j| (0..9).map(move |i| (cx + i - 4, cy + j - 4))) {
+            let p = shot.get_pixel(px, py);
+            sum += 0.299 * f32::from(p[0]) + 0.587 * f32::from(p[1]) + 0.114 * f32::from(p[2]);
+        }
+        let luma = sum / 81.0;
+        assert!(luma > 30.0, "tile ({x}, {y}) is black ({luma:.0}) in {}", path.display());
+    }
     // Drawing nothing of it: said as such.
     let wrong = mg_render::probe::Lit {
         game: Some(Err("the lit mesh is [0, 0, 0] at (24, 24), not red".into())),
