@@ -354,6 +354,55 @@ fn an_area_read_apart_looks_as_one_read_in_the_frame() {
     assert!(h.state().area_views[&area].error.is_none());
 }
 
+/// A tile's texture the GPU won't take (a builder's, 16384 pixels wide,
+/// which Moonglow reads and the test's device, as many GPUs, doesn't
+/// hold: it takes 8192) is left out, the tiles drawn without it, and the
+/// log says so once: the area stays open. (It ended Moonglow.)
+#[test]
+fn a_texture_the_gpu_refuses_is_left_out_and_told() {
+    let dir = mg_testkit::scratch_dir("ui-gpu-refused");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    // A TGA 16384 pixels wide and one high, gray (uncompressed, 24 bits).
+    let width: u16 = 16384;
+    let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    tga.extend(width.to_le_bytes());
+    tga.extend(1u16.to_le_bytes());
+    tga.extend([24, 0]);
+    tga.extend([128u8; 3].repeat(usize::from(width)));
+    // (The rural tiles' ground, whichever a tile draws.)
+    for texture in ["ttr01_grass02", "ttr01_dirt01", "ttr01_splotch01", "ttr01_grassrim01"] {
+        std::fs::write(user.join("override").join(format!("{texture}.tga")), &tga).unwrap();
+    }
+    // (What the GPU refused is the process's list, which other windows
+    // take from, and each is said once in it.)
+    mg_testkit::gpu::alone();
+    let Some((mut h, area)) =
+        area_harness_with("gpu-refused", "ttr01", None, 4, Some(user), &|_, _, _| {})
+    else {
+        return;
+    };
+    h.run_steps(6);
+    let told: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .map(|(_, m)| m)
+        .filter(|m| m.starts_with("The GPU refused part of what is drawn"))
+        .collect();
+    assert!(!told.is_empty(), "{:?}", h.state().log.entries);
+    assert!(told.iter().any(|m| m.contains("(the texture ttr01_")), "{told:?}");
+    let said = told.len();
+    h.run_steps(6);
+    let again = h.state().log.entries.iter().filter(|(_, m)| m.starts_with("The GPU refused"));
+    assert_eq!(again.count(), said, "said once");
+    let picture = view_picture(&mut h, area);
+    picture.save(dir.join("refused.png")).unwrap();
+    assert!(picture.pixels().any(|p| p[0] > 40), "the area is drawn");
+    assert!(h.state().area_views[&area].error.is_none());
+}
+
 /// Reload Resources reads an open area's models and textures again on a
 /// thread of its own, as its first reading is (where the window is kept
 /// going): frames go on meanwhile, the view saying it is reading, and

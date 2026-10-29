@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:03:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:26:56Z }
 ---
 
 # Troubleshooting
@@ -170,6 +170,14 @@ log says "A model could not be shown and is left out", with its name.
 The module is unharmed and stays open. A report (`model-failure-<time>.txt`)
 is written in Moonglow's data folder, beside the crash reports: please
 send it, with the model if you can, when you report the problem.
+
+What the graphics card refuses is left out the same way: a texture
+larger than it holds (Moonglow reads textures up to 16384 pixels a
+side; many cards take 8192) is drawn as a missing one, and an error in
+drawing a view leaves out what it refused, and Moonglow goes on. The log
+says "The GPU refused part of what is drawn and it is left out", with
+the texture or the error, once each. The debug log's `graphics:` line
+gives the largest texture the card takes (`limits: texture … px`).
 
 ## After a crash
 

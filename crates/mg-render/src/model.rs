@@ -74,6 +74,15 @@ pub struct GpuSkin {
     /// The bones and weights of the mesh's chunk: the mesh's at its
     /// vertices' places ([`GpuMesh::base_vertex`]).
     pub vertices: wgpu::Buffer,
+    /// The least and the most a vertex's weights add up to, of the
+    /// vertices weighed to a bone (1 and 1 for a skin as the game's are):
+    /// where its bones can carry the mesh, as the game's programs weigh
+    /// them (Moonglow's own shader makes them add up to one).
+    pub weighed: [f32; 2],
+    /// A vertex is weighed to no bone: it stays where it is bound
+    /// (Moonglow's own shader), or goes to the skin node's origin (the
+    /// game's).
+    pub unweighed: bool,
 }
 
 /// A mesh's material, from the model.
@@ -233,10 +242,20 @@ impl GpuModel {
                 _ => None,
             };
             let slot = gpu.pool.put(gpu, &vertices, &indices, skin.as_ref().map(|(_, d)| &d[..]));
-            let skin = skin.map(|(s, _)| GpuSkin {
-                bones: s.bones.clone(),
-                inverse_bind: inverse_binds(s, &rest, i),
-                vertices: slot.chunk.skin.clone().expect("a skinned chunk"),
+            let skin = skin.map(|(s, data)| {
+                let totals = data.iter().map(|v| v.weights.iter().filter(|w| **w > 0.0).sum());
+                let (least, most, unweighed) =
+                    totals.fold((f32::MAX, 0.0f32, false), |(l, m, u), t: f32| match t > 0.0 {
+                        true => (l.min(t), m.max(t), u),
+                        false => (l, m, true),
+                    });
+                GpuSkin {
+                    bones: s.bones.clone(),
+                    inverse_bind: inverse_binds(s, &rest, i),
+                    vertices: slot.chunk.skin.clone().expect("a skinned chunk"),
+                    weighed: if most > 0.0 { [least, most] } else { [1.0, 1.0] },
+                    unweighed,
+                }
             });
             let mesh = GpuMesh {
                 node: i,

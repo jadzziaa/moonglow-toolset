@@ -1318,6 +1318,16 @@ impl Moonglow {
                  Troubleshooting)"
             ));
         }
+        // And what the GPU refused (a texture too large for it, a frame's
+        // drawing): left out, each said once.
+        let refused =
+            if self.viewport.is_some() { mg_render::guard::take_gpu_errors() } else { Vec::new() };
+        for refused in refused {
+            self.log.error(format!(
+                "The GPU refused part of what is drawn and it is left out ({refused}). The \
+                 module is unharmed (Help › User Manual, Troubleshooting)"
+            ));
+        }
         // The Shaders switch, for every 3D view (they share one renderer),
         // and the game's programs that couldn't be drawn, said once each.
         renderer_check::lit_check(self);

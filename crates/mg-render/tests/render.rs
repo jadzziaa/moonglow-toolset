@@ -1309,6 +1309,107 @@ fn meshes_out_of_the_camera_s_sight_are_left_out() {
     assert!(lit(62), "the quad across the edge: {:?}", image.pixel(62, 32));
 }
 
+/// A 2×2 quad on the ground at `x`, skinned to its one bone (node 1).
+fn skinned_quad(x: f32) -> Model {
+    let mut model = quad();
+    let mut bone = Node::new("bone", NodeKind::Dummy);
+    bone.parent = Some(0);
+    model.nodes[0].children = vec![1, 2];
+    let mut skin = model.nodes.remove(1);
+    if let NodeKind::Mesh(m) = &mut skin.kind {
+        for v in &mut m.vertices {
+            v[0] += x;
+        }
+        m.extra = mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+            bones: vec![1],
+            weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
+            inverse_bind: Vec::new(),
+        });
+    }
+    model.nodes.insert(1, bone);
+    model.nodes.push(skin);
+    model
+}
+
+/// A skinned mesh, and one whose vertices an animation replaces, are left
+/// out where the camera can't see them as they are now, not as they were
+/// bound: one bound in sight, carried out of it by its bone (or its
+/// vertices), is left out; one bound out of sight, carried into it, is
+/// drawn where it is carried to. (They were never left out: an off-screen
+/// creature was posed and drawn.)
+#[test]
+fn skinned_and_animated_meshes_out_of_sight_are_left_out() {
+    let Some(gpu) = gpu() else { return };
+    // From above: the ground from -3.4 to 3.4 each way is in the picture.
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |instance: Instance| {
+        let scene = Scene {
+            instances: vec![instance],
+            area: AreaLight { ambient: Vec3::splat(0.5), ..Default::default() },
+            ..Default::default()
+        };
+        let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+        (r.drawn, image.pixel(32, 32)[0] > 40)
+    };
+    // Skinned: bound at x, its bone carried by `by` along x.
+    let posed = |x: f32, by: f32| {
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(skinned_quad(x))));
+        assert!(model.meshes[0].skin.is_some());
+        let pose = vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::X * by), Mat4::IDENTITY];
+        Instance { pose: Some(Arc::new(pose)), ..Instance::new(model, Mat4::IDENTITY) }
+    };
+    let (drawn, lit) = shot(posed(0.0, 0.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "bound and posed in sight");
+    let (drawn, lit) = shot(posed(0.0, 20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (0, 1, false), "carried out of sight");
+    let (drawn, lit) = shot(posed(20.0, -20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "carried into sight");
+    // Animated: the quad's vertices moved by `by` along x.
+    let plain = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let moved = |model: &Arc<GpuModel>, by: f32| {
+        let mut state = mg_render::MeshState::new(model);
+        let corners = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+        let vertices = corners
+            .iter()
+            .map(|[x, y]| mg_render::model::Vertex {
+                pos: [x + by, *y, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0; 2],
+                tangent: [0.0; 4],
+                color: [255; 4],
+                uv1: [0.0; 2],
+                uv2: [0.0; 2],
+                uv3: [0.0; 2],
+            })
+            .collect();
+        state.meshes[0].vertices = Some(vertices);
+        Instance { state: Some(Arc::new(state)), ..Instance::new(model.clone(), Mat4::IDENTITY) }
+    };
+    let (drawn, lit) = shot(moved(&plain, 20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (0, 1, false), "moved out of sight");
+    let far = Arc::new(GpuModel::new(&gpu, Arc::new(skinless_at(20.0))));
+    let (drawn, lit) = shot(moved(&far, 0.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "moved into sight");
+}
+
+/// A [`quad`] at `x`.
+fn skinless_at(x: f32) -> Model {
+    let mut model = quad();
+    if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+        for v in &mut m.vertices {
+            v[0] += x;
+        }
+    }
+    model
+}
+
 /// Each draw takes its own values (they lie in one list, a draw's found by
 /// its number): quads of three colours show each in its own, one of them
 /// see-through (three draws, each with values of its own: its depth, and
@@ -3218,6 +3319,100 @@ fn a_glow_on_a_mesh_drawn_by_the_other_shader_covers_it() {
         missed.len(),
         &missed[..missed.len().min(8)]
     );
+}
+
+/// A texture the GPU won't take (wider than it holds, or of no pixels) is
+/// drawn as one that is missing, and said once, read in the frame or
+/// apart: wgpu's error ended the program (a test's device keeps wgpu's
+/// panic, so one that came through would end this test).
+#[test]
+fn a_texture_the_gpu_refuses_is_left_out_and_said() {
+    let Some(gpu) = gpu() else { return };
+    // (Alone: what the GPU refused is the process's list, which the next
+    // test takes from too.)
+    mg_testkit::gpu::alone();
+    let wide = gpu.device.limits().max_texture_dimension_2d + 1;
+    let assets = || {
+        let mut assets = TestAssets::default();
+        let data = [255, 0, 0, 255].repeat(wide as usize);
+        let t = mg_image::Rgba { width: wide, height: 1, data }.into_texture(false);
+        assets.textures.insert("c_too_wide".into(), t);
+        let empty = mg_image::Rgba { width: 0, height: 0, data: Vec::new() }.into_texture(false);
+        assets.textures.insert("c_no_pixels".into(), empty);
+        assets.opaque("missing_not", [0, 0, 255]);
+        assets
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![
+            standing_quad(&gpu, "c_too_wide", Vec3::new(-2.0, 0.0, 1.0), 0.8),
+            standing_quad(&gpu, "c_no_pixels", Vec3::new(0.0, 0.0, 1.0), 0.8),
+            standing_quad(&gpu, "missing_not", Vec3::new(2.0, 0.0, 1.0), 0.8),
+        ],
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let refused = |said: &[String]| {
+        ["c_too_wide", "c_no_pixels"]
+            .map(|t| said.iter().filter(|e| e.starts_with(&format!("the texture {t}: "))).count())
+    };
+    // In the frame.
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let image = r.render_image(&gpu, &assets(), &scene, &camera, 96, 64);
+    save(&image, &mg_testkit::output_dir("render").join("texture_refused.png"));
+    let said = mg_render::guard::take_gpu_errors();
+    assert_eq!(refused(&said), [1, 1], "{said:?}");
+    assert!(said.iter().any(|e| e.contains(&format!("{wide} by 1 pixels"))), "{said:?}");
+    // (Drawn untextured, white; the texture it takes, blue.)
+    let at = |x: f32| image.pixel((48.0 + x * 48.0 / 6.0) as u32, 32);
+    assert!(at(-2.0)[..3].iter().all(|c| *c > 200), "untextured: {:?}", at(-2.0));
+    assert!(at(0.0)[..3].iter().all(|c| *c > 200), "untextured: {:?}", at(0.0));
+    assert!(at(2.0)[2] > 200 && at(2.0)[0] < 100, "its texture: {:?}", at(2.0));
+    // Apart: the same, said again by a renderer of its own.
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let apart: Arc<dyn mg_render::Assets + Send + Sync> = Arc::new(assets());
+    r.read_textures_apart(&gpu, Some(apart));
+    r.textures_apart = true;
+    let started = std::time::Instant::now();
+    let mut read = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 64);
+    while r.drawn.textures_pending > 0 {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        read = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 64);
+    }
+    assert_eq!(read.data, image.data, "as read in the frame");
+    assert_eq!(refused(&mg_render::guard::take_gpu_errors()), [0, 0], "said once");
+}
+
+/// On a device whose errors are noted (the application's), what the GPU
+/// refuses outside the renderer's own checks is said, and the program goes
+/// on: wgpu's default ends it.
+#[test]
+fn the_application_s_device_notes_what_the_gpu_refuses() {
+    let Some(gpu) = gpu() else { return };
+    mg_testkit::gpu::alone();
+    mg_render::guard::note_gpu_errors(&gpu.device);
+    let _refused = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("c_refused_texture"),
+        size: wgpu::Extent3d { width: 0, height: 4, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let said = mg_render::guard::take_gpu_errors();
+    let ours: Vec<&String> = said.iter().filter(|e| e.contains("c_refused_texture")).collect();
+    assert_eq!(ours.len(), 1, "{said:?}");
+    assert!(ours[0].starts_with("drawing: ") && !ours[0].contains('\n'), "{ours:?}");
 }
 
 /// `vsgrass`/`fsgrass` standing in for the game's: cyan.

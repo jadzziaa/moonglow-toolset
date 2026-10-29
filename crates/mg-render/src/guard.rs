@@ -11,6 +11,12 @@
 //! the user; while a guarded step runs, [`guarding`] is true, so that a
 //! panic hook can tell a failure Moonglow carries on from a crash.
 //!
+//! What the GPU refuses is the same: a texture it won't take is left out
+//! ([`note_gpu_error`]), and an error of a frame's drawing, which wgpu
+//! would end the program for, is noted instead on a device given to
+//! [`note_gpu_errors`] (the application's: the frame draws what the GPU
+//! takes). Each is said once ([`take_gpu_errors`]).
+//!
 //! [`blank_draws`] makes every scene draw nothing (tests): what a driver
 //! that draws nothing does, for the startup check ([`crate::probe`]) and
 //! the area view's watch ([`crate::watch`]) to be proved on a GPU that
@@ -29,6 +35,13 @@ thread_local! {
 
 /// What failed, since last taken.
 static FAILURES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// What the GPU refused, since last taken; and every error said, each
+/// once (a frame's error comes again every frame).
+static GPU_ERRORS: Mutex<(Vec<String>, Vec<String>)> = Mutex::new((Vec::new(), Vec::new()));
+
+/// How many of the GPU's errors are said: past them, it says no more.
+const GPU_ERRORS_SAID: usize = 64;
 
 /// The model that fails on purpose (tests).
 static FAILING: Mutex<Option<String>> = Mutex::new(None);
@@ -70,6 +83,45 @@ pub fn guarded<T>(what: &str, step: impl FnOnce() -> T) -> Option<T> {
 /// The failures noted since the last call (each once), for the log.
 pub fn take_failures() -> Vec<String> {
     FAILURES.lock().map(|mut f| std::mem::take(&mut *f)).unwrap_or_default()
+}
+
+/// Notes that the GPU refused what was asked of it for `what` (a
+/// texture, a frame's drawing), with its error: once, for
+/// [`take_gpu_errors`].
+pub fn note_gpu_error(what: &str, error: &str) {
+    let said = format!("{what}: {}", one_line(error));
+    let Ok(mut errors) = GPU_ERRORS.lock() else { return };
+    let (new, all) = &mut *errors;
+    if all.len() < GPU_ERRORS_SAID && !all.contains(&said) {
+        all.push(said.clone());
+        new.push(said);
+    }
+}
+
+/// Makes `device`'s errors that no error scope takes noted
+/// ([`note_gpu_error`]) where wgpu would panic: a frame the GPU refuses
+/// is drawn as far as it takes it, and Moonglow goes on. For the
+/// application's device; tests keep wgpu's panic, which shows a mistake
+/// where it is made.
+pub fn note_gpu_errors(device: &wgpu::Device) {
+    device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| {
+        let what = match &e {
+            wgpu::Error::OutOfMemory { .. } => "the GPU's memory",
+            _ => "drawing",
+        };
+        note_gpu_error(what, &e.to_string());
+    }));
+}
+
+/// What the GPU refused since the last call (each said once), for the log.
+pub fn take_gpu_errors() -> Vec<String> {
+    GPU_ERRORS.lock().map(|mut e| std::mem::take(&mut e.0)).unwrap_or_default()
+}
+
+/// wgpu's error on one line: its lines, each trimmed, but "Caused by:".
+fn one_line(error: &str) -> String {
+    let lines = error.lines().map(str::trim).filter(|l| !l.is_empty() && *l != "Caused by:");
+    lines.collect::<Vec<_>>().join(": ")
 }
 
 /// Makes building the model named `name` fail (`None`: none), to test what
@@ -179,5 +231,20 @@ mod tests {
         assert_eq!(ours.len(), 1, "{failures:?}");
         assert!(ours[0].contains("index out of bounds"), "{ours:?}");
         assert!(!take_failures().iter().any(|f| f.starts_with("c_broken")), "taken once");
+    }
+
+    #[test]
+    fn what_the_gpu_refuses_is_said_once_on_a_line() {
+        let error = "Validation Error\n\nCaused by:\n  In Device::create_texture\n    too big\n";
+        note_gpu_error("the texture c_refused", error);
+        note_gpu_error("the texture c_refused", error);
+        let said = take_gpu_errors();
+        let ours: Vec<&String> = said.iter().filter(|e| e.contains("c_refused")).collect();
+        assert_eq!(
+            ours,
+            ["the texture c_refused: Validation Error: In Device::create_texture: too big"]
+        );
+        note_gpu_error("the texture c_refused", error);
+        assert!(!take_gpu_errors().iter().any(|e| e.contains("c_refused")), "said once");
     }
 }
