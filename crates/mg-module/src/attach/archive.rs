@@ -114,7 +114,11 @@ fn extract_zip(
     let mut zip = open_zip(path)?;
     for name in wanted {
         let at = |e: &dyn std::fmt::Display| format!("{} ({name}): {e}", path.display());
-        let Ok(mut f) = zip.by_name(name) else { continue };
+        let mut f = match zip.by_name(name) {
+            Ok(f) => f,
+            Err(zip::result::ZipError::FileNotFound) => continue,
+            Err(e) => return Err(at(&e)),
+        };
         let mut to = open(name)?;
         std::io::copy(&mut f, &mut to).map_err(|e| at(&e))?;
         to.flush().map_err(|e| at(&e))?;

@@ -265,8 +265,13 @@ pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
         }
         return Err(e);
     }
-    for p in &go {
-        std::fs::rename(part(p), &p.to).map_err(|e| format!("{}: {e}", p.to.display()))?;
+    for (i, p) in go.iter().enumerate() {
+        if let Err(e) = std::fs::rename(part(p), &p.to) {
+            for q in &go[i..] {
+                let _ = std::fs::remove_file(part(q));
+            }
+            return Err(format!("{}: {e}", p.to.display()));
+        }
     }
     Ok(go.len())
 }
@@ -343,6 +348,24 @@ mod tests {
         std::fs::write(dir.join("z_one.hak"), "one beside").unwrap();
         let twice = placements(&user, &[zipped.clone(), dir.join("z_one.hak")]).unwrap_err();
         assert!(twice.contains("two files are named z_one.hak"), "{twice}");
+        // Packed in a way this build doesn't read (BZip2, method 12): said
+        // so, not taken for missing.
+        let odd = dir.join("odd.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&odd).unwrap());
+        let stored = options.compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("z_odd.hak", stored).unwrap();
+        zip.write_all(b"odd").unwrap();
+        zip.finish().unwrap();
+        let mut bytes = std::fs::read(&odd).unwrap();
+        let central = bytes.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        for at in [8, central + 10] {
+            bytes[at] = 12;
+        }
+        std::fs::write(&odd, bytes).unwrap();
+        let p = placements(&user, &[odd]).unwrap();
+        let e = copy(&p, false).unwrap_err();
+        assert!(e.contains("z_odd.hak") && !e.contains("has no"), "{e}");
+        assert!(!user.join("hak/z_odd.hak").exists() && !user.join("hak/z_odd.part").exists());
     }
 
     /// The archive fixtures (`tests/fixtures/archives`), our own text in
