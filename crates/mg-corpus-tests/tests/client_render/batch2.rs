@@ -172,3 +172,103 @@ fn reading_shadows_of_doors_items_and_heights() {
         print_log(&dir);
     }
 }
+
+/// Where the engine places its grass: white opaque tufts (an area
+/// override of ttr01's grass, its texture white) on the flat field at two
+/// densities (`MG_DENSITIES`, default 0.3 and 1.5 a square meter), from
+/// the reference camera, each beside Moonglow's area view; the tufts'
+/// pixels counted by band of the picture.
+#[test]
+#[ignore]
+fn reading_grass_placement() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let densities: Vec<f32> = std::env::var("MG_DENSITIES")
+        .ok()
+        .map(|v| v.split(',').filter_map(|d| d.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![0.3, 1.5]);
+    for density in densities {
+        let overrides = [("mgwhite.tga", white_tga())];
+        let mut r = Reading::new(&format!("grass_placement_{density}"), "ttr01", light, &overrides);
+        let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else { panic!() };
+        let mut ovr = mg_gff::Struct::new(101);
+        let white = grass_override(3, "mgwhite", density, 1.2, [1.0, 1.0, 1.0]);
+        ovr.set("GrassOvrList", Value::List(vec![white]));
+        props.set("GrassOverrides", Value::Struct(ovr));
+        let (dir, client) = r.shoot_beside(INVISIBLE, &super::readings::with_grass(), &|_| {});
+        let ours = common::read_png(&dir.join("moonglow_on.png"));
+        // The white tufts' share of each band of a tenth of the picture,
+        // away from the interface (rows 0.1 to 0.8).
+        let white = |img: &Rgba, y0: f32, y1: f32| {
+            let (w, h) = (img.width as usize, img.height as usize);
+            let mut n = 0usize;
+            for y in (y0 * h as f32) as usize..(y1 * h as f32) as usize {
+                for x in 0..w {
+                    let p = &img.data[(y * w + x) * 4..(y * w + x) * 4 + 3];
+                    n += usize::from(p.iter().all(|c| *c > 150));
+                }
+            }
+            n as f32 / ((y1 - y0) * h as f32 * w as f32)
+        };
+        for band in 1..8 {
+            let (y0, y1) = (band as f32 / 10.0, (band + 1) as f32 / 10.0);
+            eprintln!(
+                "density {density}: rows {y0:.1}-{y1:.1}: white client {:.4}, Moonglow {:.4}",
+                white(&client, y0, y1),
+                white(&ours, y0, y1)
+            );
+        }
+    }
+}
+
+/// A `VisTransformList` entry of `scope`, scaled by `scale` and turned
+/// by `turn` (`RotateX`, degrees), as Aurora's Adjust Location writes
+/// one (each axis a struct of `ValueTo`).
+fn transform_entry(scope: i32, scale: f32, turn: f32) -> mg_gff::Struct {
+    let axis = |v: f32| {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("TimerType", Value::Int(0));
+        s.set("ValueTo", Value::Float(v));
+        s.set("LerpType", Value::Int(0));
+        Value::Struct(s)
+    };
+    let mut e = mg_gff::Struct::new(6);
+    e.set("Scope", Value::Int(scope));
+    e.set("AnimationSpeed", axis(1.0));
+    for (prefix, v) in
+        [("Scale", [scale; 3]), ("Rotate", [turn, 0.0, 0.0]), ("Translate", [0.0; 3])]
+    {
+        for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+            e.set(&format!("{prefix}{a}"), axis(v[i]));
+        }
+    }
+    e
+}
+
+/// Which visual transform the client draws a placeable with when its
+/// `VisTransformList` has no entry of scope 0 (Moonglow: the list's
+/// first, `mg_module::placement::visual_transform`): five armoires north
+/// of the player, west to east: a scope 0 entry (scale 1.6, turned 45),
+/// the control; one of scope 1 alone (the same); one of scope 4 alone;
+/// scope 1 (scale 1.6) then scope 0 (scale 0.6); no list. In the client
+/// beside Moonglow's area view.
+#[test]
+#[ignore]
+fn reading_visual_transform_without_scope_0() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("vt_scopes", "tic01", light, &[]);
+    let lists: [Vec<mg_gff::Struct>; 5] = [
+        vec![transform_entry(0, 1.6, 45.0)],
+        vec![transform_entry(1, 1.6, 45.0)],
+        vec![transform_entry(4, 1.6, 45.0)],
+        vec![transform_entry(1, 1.6, 45.0), transform_entry(0, 0.6, 0.0)],
+        vec![],
+    ];
+    for (i, list) in lists.into_iter().enumerate() {
+        let x = 14.5 + 2.75 * i as f32;
+        let fields: Vec<(&str, Value)> =
+            if list.is_empty() { vec![] } else { vec![("VisTransformList", Value::List(list))] };
+        put(&mut r, ResType::UTP, "plc_armoire", "Placeable List", [x, 24.5, 0.0], 180.0, &fields);
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    print_log(&dir);
+}

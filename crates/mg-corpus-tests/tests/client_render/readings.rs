@@ -512,7 +512,7 @@ fn reading_tile_heights() {
 }
 
 /// The client's settings with its grass on (Grass Detail: High).
-fn with_grass() -> String {
+pub(super) fn with_grass() -> String {
     let s = SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
     assert!(s.contains("mode = 2"));
     s
