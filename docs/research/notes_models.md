@@ -10,7 +10,7 @@ sources:
   - id: corpus
     resource: crates/mg-corpus-tests/tests/mdl_compile.rs
     title: every_binary_model_writes_back_the_same and decompiled_models_compile_back over the whole install (MOONGLOW_FULL_CORPUS=1, 89.8193.37), 2026-10-29
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:43:28Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -2122,14 +2122,14 @@ From `lang/en/docs/CHANGELOG.md` and `Neverwinter Nights Enhanced Edition (v74..
 
 ### I.2 Binary MDL (from B)
 
-- materialname/renderhint storage in EE binaries (texture3 slot?)
-- Semantics of the EE skin 0x3B0 variant
-- Name of light controller 144
-- Bezier key data layout
-- Engine animation-binding rule (name vs part number)
-- Binary values for `gui`/`item`/`other` classification (probably 0)
-- Emitter controller IDs for lightningsubdiv/opacity etc.
-- Whether current EE compiles store tangents
+- ~~materialname/renderhint storage in EE binaries (texture3 slot?)~~: answered in B.20 item 5 (`materialname` in the texture3 slot, `renderhint` at +0xE4, measured with the game's compiler).
+- ~~Semantics of the EE skin 0x3B0 variant~~: answered in B.11 (bone node numbers as `i16[64]`, drawn so by the client).
+- Name of light controller 144 (B.8: every one is 1.0, in EE-compiled files).
+- ~~Bezier key data layout~~: answered in B.8 (the value, then its two handles, from the game's compiler).
+- ~~Engine animation-binding rule (name vs part number)~~: answered in B.19 (by part number, measured in the client).
+- ~~Binary values for `gui`/`item`/`other` classification (probably 0)~~: answered in B.5 (0, not set: 3,379 BioWare files).
+- Emitter controller IDs for lightningsubdiv/opacity etc. (B.8: keyed in ASCII game animations, no ID known).
+- ~~Whether current EE compiles store tangents~~: answered in B.20 items 2 and 5 (only for a mesh with a render hint, in the "bumpmap anim" slots 4 and 6; else made at load).
 
 ### I.3 Animations / nodes (from C)
 #### Wiki errors found against game data

@@ -3,7 +3,7 @@ type: Research Note
 title: NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
 description: Field reference for the GFF resource types the toolset authors (NWN:EE 89.8193.37), toolset-only data in a module, the EE-added fields, and the EE toolset's changes in order and by topic, with citations and open questions.
 tags: [gff, fields, ee, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:43:16Z }
 ---
 
 # NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
@@ -1027,10 +1027,10 @@ nwn.wiki (local mirror `~/.local/opt/neverwinter/wiki/pages/NWN1/`):
 ## G. Open questions
 
 1. **Values > 255 in x-part fields**: what the toolset writes into the legacy BYTE twin (0? value & 0xFF? 255?) when an x-part is ≥ 256 — no stock example. Test by saving a creature/armor with part 300 in the 89 toolset.
-2. **DLG params**: confirm `{Key, Value}` CExoString structs (and their struct ID) by saving one parameter in the toolset. Also what `DisplayInactive` (engine-read DLG field) does and where it sits (node or link).
+2. ~~**DLG params**: confirm `{Key, Value}` CExoString structs (and their struct ID) by saving one parameter in the toolset~~: answered by a conversation Aurora saved (the oracle capture `dialog/capdlg.dlg`, `aurora_dialog.rs` `conversation_matches_aurora`): `ConditionParams` and `ActionParams` are lists of structs of two CExoStrings, `Key` and `Value`, a single parameter's struct ID 0 (with several, Moonglow numbers them by place, `mg_module::dialog::params_value`, not compared with Aurora). Still open: what `DisplayInactive` (engine-read DLG field) does and where it sits (node or link).
 3. **VisTransformList**: exact version that replaced `VisualTransform`; whether the toolset UI can set non-base scopes; when `ValueFrom`/`LerpDuration`/`LerpProgress` get written; default `TimerType`/`LerpType` values (stock data only shows the three basic members).
-4. **Mod_UUID**: who generates it (launcher/NWSync/ContentIndex?) and whether the toolset ever fills it; only the "preserve existing value" rule is documented (88.8193.36).
-5. **Mod_MinGameVer rule**: does the 89 toolset always stamp "1.89", or max(existing, own)? DoD/ToM (2021 builds) still say 1.78. Binary contains "1.89" and "1.22" constants next to the IFO writer.
+4. **Mod_UUID**: who generates it (launcher/NWSync/ContentIndex?) and whether the toolset ever fills it (partly answered: NWSync's writer gives the module's `module.ifo` one when it publishes the module with its haks, as `nwn_nwsync_write` does and Moonglow's Publish to NWSync does after it: [findings](../findings.md#nwsync-repositories)); whether Aurora ever fills it is open; only the "preserve existing value" rule is documented (88.8193.36).
+5. **Mod_MinGameVer rule** (partly answered: a module Aurora's Module Wizard makes says "1.89", `aurora_new.rs` `new_modules_and_areas_match_aurora`; what its save writes over an older module's value is open): does the 89 toolset always stamp "1.89", or max(existing, own)? DoD/ToM (2021 builds) still say 1.78. Binary contains "1.89" and "1.22" constants next to the IFO writer.
 6. **TileBrdrDisabled / Mod_DefaultBic / Mod_PartyControl UI**: changelogs say "no GUI option yet" (87). The 89 toolset both reads and writes them (labels in its IFO/ARE reader and writer runs [T]), so values set with a GFF editor survive a save, but its form resources contain no control names for them (searched: party/bic/border/uuid) — while the 4 new module events do have controls (`bBrowseOnPlayerTarget`, `bEditOnNuiEvent`, …) and the DLG editor has `bAddActionParameter`/`bAddConditionParameter` [T]. So: most likely no UI; confirm visually.
 7. **Object UUIDs** (v79 "persisted to GFF"): label/serialisation unknown; no UUID label in nwserver except `Mod_UUID`.
 8. **ITP `TYPE` values** (0/1/2 on skeleton palette nodes) exact semantics — Bioware PaletteITP PDF not available locally.
