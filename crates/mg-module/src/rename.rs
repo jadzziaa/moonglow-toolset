@@ -4,7 +4,7 @@
 //! fields, `#include` lines and, if asked, the strings in scripts that spell
 //! its name.
 
-use mg_core::{Gender, Language, ResRef, ResType};
+use mg_core::{Codepage, Gender, Language, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::{ResKey, ResMan};
 use mg_rules::ObjectKind;
@@ -340,7 +340,7 @@ impl UsageIndex {
     }
 
     /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.
-    pub fn mentions(&self, name: &str, ignore_case: bool) -> Vec<Mention> {
+    pub fn mentions(&self, name: &str, ignore_case: bool, codepage: Codepage) -> Vec<Mention> {
         let mut keys: Vec<&ResKey> =
             self.seen.iter().filter(|(_, r)| !r.strings.is_empty()).map(|(k, _)| k).collect();
         keys.sort();
@@ -357,7 +357,7 @@ impl UsageIndex {
                 };
                 if same {
                     let lines = lines.get_or_insert_with(|| line_starts(src));
-                    out.push(mention_at(*key, src, lines, a));
+                    out.push(mention_at(*key, src, lines, a, codepage));
                 }
             }
         }
@@ -374,12 +374,20 @@ fn line_starts(src: &[u8]) -> Vec<usize> {
 
 /// The mention of a string that begins at `start` of a script's source
 /// (`lines`: [`line_starts`] of it, found once for all its mentions):
-/// only its own line is read.
-fn mention_at(script: ResKey, src: &[u8], lines: &[usize], start: usize) -> Mention {
+/// only its own line is read, in `codepage` (scripts have none of their
+/// own: the game reads their strings in its language's, Windows-1250 for
+/// Polish).
+fn mention_at(
+    script: ResKey,
+    src: &[u8],
+    lines: &[usize],
+    start: usize,
+    codepage: Codepage,
+) -> Mention {
     let line = lines.partition_point(|&s| s <= start);
     let from = lines[line - 1];
     let to = lines.get(line).map_or(src.len(), |&next| next - 1);
-    let text = String::from_utf8_lossy(&src[from..to]).trim().to_string();
+    let text = codepage.decode(&src[from..to]).trim().to_string();
     Mention { script, line, text }
 }
 
@@ -420,8 +428,14 @@ pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
 }
 
 /// The strings in the module's scripts that spell `name`: ignoring case for
-/// a resource name (the game looks resources up so), exactly for a tag.
-pub fn mentions(module: &Module, name: &str, ignore_case: bool) -> Vec<Mention> {
+/// a resource name (the game looks resources up so), exactly for a tag;
+/// each with its line read in the scripts' `codepage`.
+pub fn mentions(
+    module: &Module,
+    name: &str,
+    ignore_case: bool,
+    codepage: Codepage,
+) -> Vec<Mention> {
     let mut keys: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
     keys.sort();
     let mut out = Vec::new();
@@ -430,7 +444,7 @@ pub fn mentions(module: &Module, name: &str, ignore_case: bool) -> Vec<Mention> 
         let mut lines = None;
         for (start, _) in string_literals(src, name, ignore_case) {
             let lines = lines.get_or_insert_with(|| line_starts(src));
-            out.push(mention_at(key, src, lines, start));
+            out.push(mention_at(key, src, lines, start, codepage));
         }
     }
     out
@@ -829,7 +843,7 @@ mod tests {
         let lines = line_starts(src);
         let k = key("s", ResType::NSS);
         let at = |n: usize| src.windows(5).enumerate().filter(|(_, w)| w == b"\"one\"").nth(n);
-        let m = |n: usize| mention_at(k, src, &lines, at(n).unwrap().0 + 1);
+        let m = |n: usize| mention_at(k, src, &lines, at(n).unwrap().0 + 1, Codepage::WINDOWS_1252);
         assert_eq!((m(0).line, m(0).text.as_str()), (2, "x(\"one\"); y(\"one\");"));
         assert_eq!((m(1).line, m(2).line, m(2).text.as_str()), (2, 3, "last \"one\""));
         let mut item = Struct::new(0);
@@ -872,10 +886,27 @@ mod tests {
 
         let tags: Vec<String> = tag_usages(&m, "GUARD").into_iter().map(|u| u.place).collect();
         assert_eq!(tags, ["keep › creature GUARD › Tag", "keep › door GATE › LinkedTo"]);
-        assert_eq!(mentions(&m, "GUARD", false).len(), 1);
-        let m2 = mentions(&m, "guard_spawn", true);
+        assert_eq!(mentions(&m, "GUARD", false, Codepage::WINDOWS_1252).len(), 1);
+        let m2 = mentions(&m, "guard_spawn", true, Codepage::WINDOWS_1252);
         assert_eq!(m2.len(), 1, "comments don't count");
         assert_eq!(m2[0].line, 3);
+    }
+
+    /// A script's line is read in the scripts' codepage: a Polish script's
+    /// "ą" (0xB9 in Windows-1250) is not "�", as UTF-8 read it.
+    #[test]
+    fn a_mention_s_line_is_read_in_the_scripts_codepage() {
+        let mut m = Module::new();
+        let src = b"void main() { SpeakString(\"Id\xb9\"); ExecuteScript(\"next_one\"); }\n";
+        m.set(key("polish", ResType::NSS), src.to_vec());
+        let polish = mentions(&m, "next_one", true, Codepage::WINDOWS_1250);
+        assert_eq!(
+            polish[0].text,
+            "void main() { SpeakString(\"Idą\"); ExecuteScript(\"next_one\"); }"
+        );
+        let mut index = UsageIndex::default();
+        index.refresh(&m);
+        assert_eq!(index.mentions("next_one", true, Codepage::WINDOWS_1250), polish);
     }
 
     #[test]
@@ -917,18 +948,20 @@ mod tests {
             for t in targets {
                 assert_eq!(index.usages(t), usages(m, t), "{t}");
                 let name = t.resref.to_string();
-                assert_eq!(index.mentions(&name, true), mentions(m, &name, true), "{name}");
+                let cp = Codepage::WINDOWS_1252;
+                assert_eq!(index.mentions(&name, true, cp), mentions(m, &name, true, cp), "{name}");
             }
             for tag in ["GUARD", "guard", "KEEP", ""] {
                 assert_eq!(index.tag_usages(tag), tag_usages(m, tag), "{tag}");
-                assert_eq!(index.mentions(tag, false), mentions(m, tag, false), "{tag}");
+                let cp = Codepage::WINDOWS_1252;
+                assert_eq!(index.mentions(tag, false, cp), mentions(m, tag, false, cp), "{tag}");
             }
         };
         index.refresh(&m);
         assert_eq!(index.read, m.len());
         assert!(!index.usages(targets[0]).is_empty());
         assert!(!index.tag_usages("GUARD").is_empty());
-        assert!(!index.mentions("guard_spawn", true).is_empty());
+        assert!(!index.mentions("guard_spawn", true, Codepage::WINDOWS_1252).is_empty());
         same(&index, &m);
         index.refresh(&m);
         assert_eq!(index.read, 0, "nothing changed");

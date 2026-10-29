@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:50:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:59:35Z }
 ---
 
 # Scripts
@@ -119,7 +119,8 @@ compiler's messages, say).
 **Used By** (on the toolbar) lists where the module runs or includes the
 script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines, and strings in scripts that spell its name
-(`ExecuteScript("name", …)`).
+(`ExecuteScript("name", …)`), each with its line in the scripts'
+codepage (below).
 
 A script is read and saved in the codepage of the language chosen in
 **Options › Language**: Windows-1250 with Polish, Windows-1252 with

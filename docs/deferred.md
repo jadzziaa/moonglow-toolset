@@ -68,15 +68,18 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Script intelligence (`mg lsp`, the script editor)
 
 - **A script's codepage** (GitHub issue 27) is the language's of
-  Options › Language, for every script alike; there is no choosing
-  another for one script (reading one again in another, saving one in
-  another), and a script kept in UTF-8 is read as that codepage's
-  letters. `mg` other than `mg lsp` has no language: scripts' bytes pass
-  through it untouched, but the lines it shows of them (`mg refs`'
-  strings that spell a name, the toolset's Used By) read them as UTF-8,
-  a Polish letter as "�". The game reading the compiled strings in
-  Windows-1250 was not seen in a Polish client: the bytes were checked
-  in the compiled script. (S each)
+  Options › Language, for every script alike; in `mg`, the game
+  client's (`mg lsp`, and the lines `mg refs` and `mg rename` show of
+  scripts). Left: choosing another for one script (reading one again in
+  another, saving one in another; a script kept in UTF-8 is read as that
+  codepage's letters), which nobody asked for (issue 27 asked for Polish
+  scripts read right, which the language does) and Aurora has none of:
+  over-implementing until a builder asks (the triage proposed dropping
+  it; the owner's word). And the game reading the compiled strings in
+  Windows-1250 was not seen in a Polish client (the bytes were checked
+  in the compiled script): waits on the client (a scratch module's
+  `SpeakString` with a Polish letter, the sandboxed client's language
+  set to Polish, a screenshot). (S each)
 - **The Save key in a script editor** (El Grillo's request, October
   2026) is the script's own Save while its text has the keyboard, as its
   Undo and Redo are; with the pointer over the editor but the keyboard

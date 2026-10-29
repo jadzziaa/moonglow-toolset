@@ -94,3 +94,34 @@ fn a_module_s_encoding_table_is_the_text_of_its_commands() {
     assert!(ok);
     assert_eq!(guard(&path).string("Tag").unwrap(), b"\xf0");
 }
+
+/// The lines `mg refs` shows of a module's scripts are read in the
+/// codepage the game client reads them in (GitHub issue 27): a Polish
+/// game's (its settings.tml's language) Windows-1250, where 0xB9 is "ą";
+/// Windows-1252 without one. The scripts' bytes are never changed.
+#[test]
+fn mg_refs_reads_a_script_s_line_in_the_game_s_codepage() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-refs-codepage");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let settings = "[game]\n\t[game.language]\n\t\tcodepage = \"\"\n\t\toverride = \"pl\"\n";
+    std::fs::write(user.join("settings.tml"), settings).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let source = b"void main() { SpeakString(\"Id\xb9\"); ExecuteScript(\"next_one\"); }\n";
+    m.set(key("polish.nss"), source.to_vec());
+    let path = dir.join("polish.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let module = path.to_str().unwrap();
+    let line = |user: Option<&Path>| {
+        let (ok, refs) = mg(&root, user, &["refs", module, "next_one.nss"]);
+        assert!(ok, "{refs}");
+        refs["script_strings"][0]["text"].as_str().unwrap_or_default().to_string()
+    };
+    let polish = "void main() { SpeakString(\"Idą\"); ExecuteScript(\"next_one\"); }";
+    assert_eq!(line(Some(&user)), polish);
+    let western = "void main() { SpeakString(\"Id¹\"); ExecuteScript(\"next_one\"); }";
+    assert_eq!(line(None), western);
+    assert_eq!(Module::open(&path).unwrap().get(&key("polish.nss")), Some(&source[..]));
+}

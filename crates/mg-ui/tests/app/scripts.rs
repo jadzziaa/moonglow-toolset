@@ -1056,6 +1056,34 @@ fn the_external_script_editor_s_saves_come_back() {
     assert_eq!(h.state().script_text(key).unwrap(), "void main() { int n; }\n");
 }
 
+/// Find References' script strings show their lines in the scripts'
+/// codepage (Options › Language: Windows-1250 for Polish, where 0xB9 is
+/// "ą"; GitHub issue 27), read again when the language changes.
+#[test]
+fn references_show_a_script_s_line_in_the_scripts_codepage() {
+    use mg_core::Language;
+    use mg_ui::references::Query;
+    let dir = mg_testkit::scratch_dir("ui-references-codepage");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let source = b"void main() { SpeakString(\"Id\xb9\"); ExecuteScript(\"next_one\"); }\n";
+    m.set(ResKey::parse("polish", ResType::NSS).unwrap(), source.to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.find_references(Query::Resource(ResKey::parse("next_one", ResType::NSS).unwrap()));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let line = |h: &mut Harness<'_, Moonglow>, language: Language| {
+        mg_ui::set_edit_language(language);
+        h.run_steps(2);
+        h.state().references.mentions.first().map(|x| x.text.clone()).unwrap_or_default()
+    };
+    let polish = line(&mut h, Language::POLISH);
+    let western = line(&mut h, Language::ENGLISH);
+    assert_eq!(polish, "void main() { SpeakString(\"Idą\"); ExecuteScript(\"next_one\"); }");
+    assert_eq!(western, "void main() { SpeakString(\"Id¹\"); ExecuteScript(\"next_one\"); }");
+}
+
 #[test]
 fn a_script_named_as_the_game_s_own_is_warned_about() {
     let Some(root) = mg_testkit::nwn_root() else {
