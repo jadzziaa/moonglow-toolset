@@ -144,9 +144,10 @@ pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Op
             let (lo, hi) = (boxes[i].0 - CLUMP_REACH, boxes[i].1 + CLUMP_REACH);
             let reached = |(a, b): &(Vec2, Vec2)| a.cmple(hi).all() && b.cmpge(lo).all();
             let nearby: Vec<&WalkFace> = std::iter::once(*f)
-                .chain((on.iter().zip(&boxes).enumerate()).filter_map(|(j, (g, b))| {
-                    (j != i && reached(b)).then_some(*g)
-                }))
+                .chain(
+                    (on.iter().zip(&boxes).enumerate())
+                        .filter_map(|(j, (g, b))| (j != i && reached(b)).then_some(*g)),
+                )
                 .collect();
             for _ in 0..clumps {
                 let middle = point_on(f, &mut rng);

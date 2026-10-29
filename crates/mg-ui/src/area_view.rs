@@ -974,6 +974,12 @@ impl AreaView {
         Some(scene.ghost(&vp.gpu, game, o, self.time, 1.0).1)
     }
 
+    /// The box of the area's object `i` (of its model's objects) in its
+    /// own space, as the view draws it (`None` before its scene is made).
+    pub(crate) fn object_bounds(&self, i: usize) -> Option<(Vec3, Vec3)> {
+        Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
+    }
+
     /// How far Q and E have turned what is about to be placed (radians).
     pub(crate) fn ghost_turn(&self) -> f32 {
         self.ghost_turn
@@ -5222,7 +5228,19 @@ fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index:
 }
 
 fn delete(app: &mut Moonglow, view: &mut AreaView) {
-    let edits = mg_area::edit::delete_edits(view.git(), &view.selection);
+    let selected = std::mem::take(&mut view.selection);
+    delete_objects(app, view, &selected, "Delete");
+}
+
+/// Deletes `objects` (kind and place in its list) from `view`'s area, as
+/// one command named `label` (the selection let go: its places move).
+pub(crate) fn delete_objects(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    objects: &[(ObjectKind, usize)],
+    label: &str,
+) {
+    let edits = mg_area::edit::delete_edits(view.git(), objects);
     view.selection.clear();
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
@@ -5232,7 +5250,7 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
         |t| !matches!(t, crate::Tab::Instance { area: a, .. } | crate::Tab::Instances { area: a, .. } if *a == area),
     );
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Delete", edits)));
+        app.actions.push(Action::Apply(Command::new(label, edits)));
     }
 }
 

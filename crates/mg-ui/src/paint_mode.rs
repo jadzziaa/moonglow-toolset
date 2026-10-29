@@ -6,21 +6,30 @@
 //!   a dab, and so does a drag every so far, or the button held still every
 //!   so often: each dab adds a share (Flow) of what the circle lacks of its
 //!   Density, at random places on the walkmesh no nearer than Spacing to
-//!   another placeable, a random pick of the chosen blueprints, each turned
-//!   as Q and E turned the brush give or take Turn, scaled at random
-//!   between Scale's two. The placeables of the chosen blueprints already
-//!   in the circle count, so going over a painted place again fills it up
-//!   and no more. Before a press the next dab shows, see-through.
+//!   another placeable (between their middles, or with By Size between
+//!   their sides, each by its model's box), a random pick of the chosen
+//!   blueprints, each turned as Q and E turned the brush give or take
+//!   Turn, scaled at random between Scale's two. The placeables of the
+//!   chosen blueprints already in the circle count (every placeable there,
+//!   with Count All), so going over a painted place again fills it up and
+//!   no more. Before a press the next dab shows, see-through.
 //! - Row: a drag lays pieces end to end from where it began to the pointer,
 //!   each facing along the row (Q and E turn them on it), one after the
-//!   other by its model's length along the row, and Gap.
+//!   other by its model's length along the row, and Gap. A drag begun at
+//!   the last row's end (its ring) goes on from it: a row of several legs,
+//!   round corners.
 //! - Fill: a drag fills the rectangle from where it began to the pointer
 //!   with rows of pieces (a floor), on a grid Q and E turn, each piece
 //!   facing along it: in a row end to end by each one's length and Gap,
-//!   the next row past the deepest of the one before.
+//!   their middles in a line, the next row past the deepest of the one
+//!   before.
+//! - Erase: the circle takes the chosen blueprints' placeables out of the
+//!   area as it is dragged over them (not locked ones).
 //!
 //! What a stroke puts down shows see-through until the button is let go,
-//! and goes into the area then as one command: one Undo takes it away.
+//! and goes into the area then as one command (locked, with Lock): one
+//! Undo takes it away. What an eraser's stroke takes out is marked until
+//! then.
 
 use std::collections::HashMap;
 
@@ -52,6 +61,9 @@ pub struct PaintState {
     /// What the stroke going on has put down: into the area when the
     /// button is let go.
     pub(crate) pending: Vec<Painted>,
+    /// What an eraser's stroke takes out: places in `Placeable List`, out
+    /// of the area when the button is let go.
+    pub erasing: Vec<usize>,
     /// The button is down on the view, painting.
     pub(crate) painting: bool,
     /// Where and when (egui's time) the stroke's last dab was laid.
@@ -60,6 +72,8 @@ pub struct PaintState {
     seed: u64,
     /// Where the row being laid begins.
     row_from: Option<Vec3>,
+    /// Where the last row laid ends: a drag begun there goes on from it.
+    pub row_end: Option<Vec3>,
     /// Each blueprint as an unplaced object (`None`: it can't be read).
     templates: HashMap<ResKey, Option<AreaObject>>,
     /// Each blueprint's model's box (its own space, unturned): how long a
@@ -72,6 +86,13 @@ pub struct PaintState {
 
 /// The circle's color, a dab's green.
 const CIRCLE: Color32 = Color32::from_rgb(110, 230, 110);
+
+/// The eraser's circle, and the marks on what it takes out.
+const ERASER: Color32 = Color32::from_rgb(240, 90, 80);
+
+/// How near the last row's end a drag must begin to go on from it,
+/// meters.
+const GO_ON: f32 = 1.0;
 
 /// How far the pointer goes on the ground, as a share of the radius,
 /// between a drag's dabs.
@@ -122,22 +143,49 @@ pub(crate) fn active(app: &Moonglow) -> Option<Vec<ResKey>> {
     (app.paint && !keys.is_empty()).then_some(keys)
 }
 
+/// A placeable near a dab, which it keeps its distance from: where it
+/// stands, whether it is of the brush's blueprints (counted towards
+/// Density), and how far its sides reach from its middle (its size, for
+/// Spacing by size).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Near {
+    pub at: Vec2,
+    pub ours: bool,
+    pub reach: f32,
+}
+
+/// How far the sides of a model of box `(min, max)` (its own space)
+/// reach from its middle seen from above, at `scale`: the farthest of
+/// its sides, so that two kept that far apart don't overlap whichever
+/// way they face.
+pub(crate) fn reach_of((min, max): (Vec3, Vec3), scale: f32) -> f32 {
+    [min.x, max.x, min.y, max.y].into_iter().map(f32::abs).fold(0.0, f32::max) * scale
+}
+
+/// The ground's height at a point (`None`: none there).
+pub(crate) type Ground<'a> = &'a dyn Fn(Vec2) -> Option<f32>;
+
+/// How far a blueprint's sides reach from its middle, at scale 1.
+pub(crate) type Size<'a> = &'a dyn Fn(ResKey) -> f32;
+
 /// What one dab at `center` lays, by `seed`: Flow's share of what the
 /// circle lacks of its Density (counting `around`'s placeables of the
-/// brush's blueprints, those marked so), each no nearer than Spacing to
-/// any of `around` or to another of the dab's. `ground` is the walkmesh's
-/// height at a point (`None` off it: nothing is laid there); `turn` the
-/// brush's facing, `snap` the angle facings snap to (degrees).
+/// brush's blueprints, or all of them with Count All), each no nearer
+/// than Spacing to any of `around` or to another of the dab's (between
+/// their sides, by `size`, with Spacing by size: how far a blueprint's
+/// sides reach at scale 1). `ground` is the walkmesh's height at a point
+/// (`None` off it: nothing is laid there); `turn` the brush's facing,
+/// `snap` the angle facings snap to (degrees).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dab(
     s: &PaintSettings,
     center: Vec3,
     keys: &[ResKey],
-    around: &[(Vec2, bool)],
+    around: &[Near],
     turn: f32,
     snap: Option<f32>,
     seed: u64,
-    ground: &dyn Fn(Vec2) -> Option<f32>,
+    (ground, size): (Ground<'_>, Size<'_>),
 ) -> Vec<Painted> {
     if keys.is_empty() {
         return Vec::new();
@@ -147,7 +195,7 @@ pub(crate) fn dab(
     let middle = center.truncate();
     let inside = |p: Vec2| p.distance(middle) <= radius;
     let wanted = f32::from(s.density) * std::f32::consts::PI * radius * radius / 100.0;
-    let have = around.iter().filter(|(p, counted)| *counted && inside(*p)).count();
+    let have = around.iter().filter(|n| (n.ours || s.count_all) && inside(n.at)).count();
     let lacking = (wanted.round() as usize).saturating_sub(have);
     if lacking == 0 {
         return Vec::new();
@@ -155,8 +203,13 @@ pub(crate) fn dab(
     let flow = f32::from(s.flow.clamp(1, 100)) / 100.0;
     let count = ((lacking as f32 * flow).ceil() as usize).clamp(1, lacking);
     let mut rng = fastrand::Rng::with_seed(seed);
-    let mut taken: Vec<Vec2> =
-        around.iter().map(|(p, _)| *p).filter(|p| p.distance(middle) <= radius + spacing).collect();
+    // (Each one's middle, and how far its sides reach: none, unless by size.)
+    let sized = |reach: f32| if s.by_size { reach } else { 0.0 };
+    let mut taken: Vec<(Vec2, f32)> = around
+        .iter()
+        .filter(|n| n.at.distance(middle) <= radius + spacing + sized(n.reach))
+        .map(|n| (n.at, sized(n.reach)))
+        .collect();
     let spread = f32::from(s.turn_spread.min(360)).to_radians();
     let (low, high) = (s.scale_min.min(s.scale_max), s.scale_max.max(s.scale_min));
     let lift = f32::from(s.lift_cm) / 100.0;
@@ -168,14 +221,15 @@ pub(crate) fn dab(
         // Evenly over the circle.
         let (r, a) = (radius * rng.f32().sqrt(), rng.f32() * std::f32::consts::TAU);
         let p = middle + Vec2::new(a.cos(), a.sin()) * r;
-        if taken.iter().any(|q| q.distance(p) < spacing) {
+        let key = keys[rng.usize(..keys.len())];
+        let scale = f32::from(low + rng.u16(..=high - low)) / 100.0;
+        let reach = sized(size(key) * scale);
+        if taken.iter().any(|(q, rq)| q.distance(p) < spacing + rq + reach) {
             continue;
         }
         let Some(z) = ground(p) else { continue };
-        let key = keys[rng.usize(..keys.len())];
         let turn = mg_area::arrange::snap_rotation(turn + (rng.f32() - 0.5) * spread, snap);
-        let scale = f32::from(low + rng.u16(..=high - low)) / 100.0;
-        taken.push(p);
+        taken.push((p, reach));
         out.push(Painted { key, position: p.extend(z + lift), turn, scale });
     }
     out
@@ -189,8 +243,10 @@ pub(crate) type Piece = (ResKey, f32, (Vec3, Vec3));
 /// `pieces`, each facing along the row (snapped to `snap` degrees) and
 /// turned on it by `turn`, end to end by their boxes' length along it with
 /// `gap` between (an overlap, less than 0), the first one's back at `from`,
-/// until the row reaches `to` (one piece, a row with no length). `ground`
-/// is the height at a point, `None` where there is none (`from`'s, then).
+/// until the row reaches `to` (one piece, a row with no length); and where
+/// it ends (past its last piece and `gap`: where a row going on from it
+/// begins). `ground` is the height at a point, `None` where there is none
+/// (`from`'s, then).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn row(
     from: Vec3,
@@ -201,9 +257,9 @@ pub(crate) fn row(
     (gap, lift): (f32, f32),
     seed: u64,
     ground: &dyn Fn(Vec2) -> Option<f32>,
-) -> Vec<Painted> {
+) -> (Vec<Painted>, Vec3) {
     if pieces.is_empty() {
-        return Vec::new();
+        return (Vec::new(), from);
     }
     let along = (to - from).truncate();
     let length = along.length();
@@ -229,7 +285,8 @@ pub(crate) fn row(
         out.push(Painted { key, position: p.extend(z), turn: angle + turn - rotation, scale: 1.0 });
         at += (hi - lo + gap).max(ROW_STEP);
         if at >= length || out.len() >= ROW_MAX {
-            return out;
+            let end = from.truncate() + d * at;
+            return (out, end.extend(ground(end).unwrap_or(from.z)));
         }
     }
 }
@@ -238,11 +295,13 @@ pub(crate) fn row(
 /// grid turned by `turn` (snapped to `snap` degrees), the rectangle's
 /// sides along it, and in it rows of pieces picked from `pieces`, each
 /// facing along the grid. A row lays its pieces end to end, each by its
-/// own length and `gap` (an overlap, less than 0); the next row begins
-/// past the deepest piece of the one before and `gap`. The first piece's
-/// corner is at `from`, and rows go on until the rectangle is covered
-/// (one piece, a press without a drag). `ground` is the height at a
-/// point, `None` where there is none (`from`'s, then).
+/// own length and `gap` (an overlap, less than 0), their middles across
+/// it in a line (pieces of different depths lined up by their middles,
+/// not by their near sides); the next row begins past the deepest piece
+/// of the one before and `gap`. The first piece's corner is at `from`
+/// (the deepest's, in the first row), and rows go on until the rectangle
+/// is covered (one piece, a press without a drag). `ground` is the height
+/// at a point, `None` where there is none (`from`'s, then).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fill(
     from: Vec3,
@@ -273,27 +332,34 @@ pub(crate) fn fill(
     let mut out = Vec::new();
     let mut row_at = 0.0;
     'rows: loop {
+        // (A row's pieces first, then where they go across it: by the
+        // deepest of them.)
+        let mut row = Vec::new();
         let mut at = 0.0;
-        let mut deepest: f32 = 0.0;
         loop {
-            if out.len() >= FILL_MAX {
-                break 'rows;
+            if out.len() + row.len() >= FILL_MAX {
+                break;
             }
-            let (key, rotation, (min, max)) = pieces[rng.usize(..pieces.len())];
-            let u = place(at, way_along, min.x, max.x);
-            let v = place(row_at, way_across, min.y, max.y);
-            let p = from.truncate() + along * u + across * v;
-            let z = ground(p).unwrap_or(from.z) + lift;
-            out.push(Painted { key, position: p.extend(z), turn: facing - rotation, scale: 1.0 });
-            deepest = deepest.max(max.y - min.y);
+            let piece @ (_, _, (min, max)) = pieces[rng.usize(..pieces.len())];
+            row.push((piece, place(at, way_along, min.x, max.x)));
             at += (max.x - min.x + gap).max(ROW_STEP);
             if at >= length.abs() - EDGE {
                 break;
             }
         }
+        let deepest = row.iter().map(|((_, _, (min, max)), _)| max.y - min.y).fold(0.0, f32::max);
+        // The row's middle line, from the start across: each piece's box's
+        // middle on it.
+        let middle = way_across * (row_at + deepest / 2.0);
+        for ((key, rotation, (min, max)), u) in row {
+            let v = middle - (min.y + max.y) / 2.0;
+            let p = from.truncate() + along * u + across * v;
+            let z = ground(p).unwrap_or(from.z) + lift;
+            out.push(Painted { key, position: p.extend(z), turn: facing - rotation, scale: 1.0 });
+        }
         row_at += (deepest + gap).max(ROW_STEP);
-        if row_at >= depth.abs() - EDGE {
-            break;
+        if row_at >= depth.abs() - EDGE || out.len() >= FILL_MAX {
+            break 'rows;
         }
     }
     out
@@ -306,26 +372,31 @@ fn grid_axes(facing: f32) -> (Vec2, Vec2) {
     (along, along.perp())
 }
 
-/// The placeables near `center` (within `reach`) a dab must keep its
-/// distance from, the stroke's among them: where each stands, and whether
-/// it is of the brush's blueprints (counted towards Density).
-fn around(view: &AreaView, keys: &[ResKey], center: Vec3, reach: f32) -> Vec<(Vec2, bool)> {
+/// The placeables near `center` (within `reach` of it, and of their
+/// sides) a dab must keep its distance from, the stroke's among them.
+fn around(view: &AreaView, keys: &[ResKey], center: Vec3, reach: f32) -> Vec<Near> {
     let middle = center.truncate();
-    let near = |p: Vec3| p.truncate().distance(middle) <= reach;
-    let placed = view.model.iter().flat_map(|m| &m.objects).filter(|o| {
-        o.kind == ObjectKind::Placeable && view.show[o.kind.index()] && near(o.position)
-    });
     let ours = |o: &AreaObject| o.template.is_some_and(|t| keys.iter().any(|k| k.resref == t));
-    placed
-        .map(|o| (o.position.truncate(), ours(o)))
-        .chain(
-            view.paint
-                .pending
-                .iter()
-                .filter(|p| near(p.position))
-                .map(|p| (p.position.truncate(), true)),
-        )
-        .collect()
+    let objects = view.model.iter().flat_map(|m| m.objects.iter().enumerate());
+    let placed = objects
+        .filter(|(_, o)| o.kind == ObjectKind::Placeable && view.show[o.kind.index()])
+        .map(|(i, o)| {
+            let scale = o.visual.map_or(1.0, |v| v.scale.x);
+            let size = view.object_bounds(i).map_or(0.0, |b| reach_of(b, scale));
+            Near { at: o.position.truncate(), ours: ours(o), reach: size }
+        });
+    let unknown = (Vec3::ZERO, Vec3::ZERO);
+    let pending = view.paint.pending.iter().map(|p| {
+        let size = reach_of(view.paint.bounds.get(&p.key).copied().unwrap_or(unknown), p.scale);
+        Near { at: p.position.truncate(), ours: true, reach: size }
+    });
+    placed.chain(pending).filter(|n| n.at.distance(middle) <= reach + n.reach).collect()
+}
+
+/// How far the sides of `key`'s model reach from its middle, at scale 1
+/// (as read for the brush; none, before it is).
+fn size_of(view: &AreaView, key: ResKey) -> f32 {
+    view.paint.bounds.get(&key).map_or(0.0, |b| reach_of(*b, 1.0))
 }
 
 /// The ground's height at `p` near `center`'s: on the walkmesh's walkable
@@ -341,11 +412,17 @@ fn ground(view: &AreaView, center: Vec3) -> impl Fn(Vec2) -> Option<f32> + '_ {
 /// The dab `view`'s brush would lay at `center` now, by its seed.
 fn next_dab(app: &Moonglow, view: &AreaView, keys: &[ResKey], center: Vec3) -> Vec<Painted> {
     let s = &app.settings.paint;
-    let reach = f32::from(s.radius_cm) / 100.0 + f32::from(s.spacing_cm) / 100.0;
+    let mut reach = f32::from(s.radius_cm) / 100.0 + f32::from(s.spacing_cm) / 100.0;
+    if s.by_size {
+        // (As far again as the largest of the brush's own reaches.)
+        let scale = f32::from(s.scale_min.max(s.scale_max)) / 100.0;
+        reach += keys.iter().map(|k| size_of(view, *k) * scale).fold(0.0, f32::max);
+    }
     let around = around(view, keys, center, reach);
     let ground = ground(view, center);
+    let size = |k: ResKey| size_of(view, k);
     let (turn, snap) = (view.ghost_turn(), view.snap_angle());
-    dab(s, center, keys, &around, turn, snap, view.paint.seed, &ground)
+    dab(s, center, keys, &around, turn, snap, view.paint.seed, (&ground, &size))
 }
 
 /// The pieces of a row the brush lays with `keys` (those it has read).
@@ -361,17 +438,31 @@ fn pieces(view: &AreaView, keys: &[ResKey]) -> Vec<Piece> {
 }
 
 /// The row or fill `view`'s brush lays from where it began (or `to`,
-/// before a press) to `to`.
-fn row_to(app: &Moonglow, view: &AreaView, keys: &[ResKey], to: Vec3) -> Vec<Painted> {
+/// before a press) to `to`; and where a row ends.
+fn row_to(app: &Moonglow, view: &AreaView, keys: &[ResKey], to: Vec3) -> (Vec<Painted>, Vec3) {
     let s = &app.settings.paint;
-    let from = view.paint.row_from.unwrap_or_else(|| view.snapped(to));
+    let from = view.paint.row_from.unwrap_or_else(|| start_at(view, to, !s.fill));
     // On the ground, walkable or not (a floor over water), else level.
     let ground = |p: Vec2| view.ground().and_then(|g| g.height(p, from.z));
     let space = (f32::from(s.gap_cm) / 100.0, f32::from(s.lift_cm) / 100.0);
     let pieces = pieces(view, keys);
     let (turn, snap) = (view.ghost_turn(), view.snap_angle());
-    let lay = if s.fill { fill } else { row };
-    lay(from, to, &pieces, turn, snap, space, view.paint.seed, &ground)
+    let seed = view.paint.seed;
+    if s.fill {
+        (fill(from, to, &pieces, turn, snap, space, seed, &ground), to)
+    } else {
+        row(from, to, &pieces, turn, snap, space, seed, &ground)
+    }
+}
+
+/// Where a row or a fill pressed at `at` begins: at the last row's end,
+/// a Row pressed near it (it goes on from there), else where the press
+/// snaps to.
+fn start_at(view: &AreaView, at: Vec3, row: bool) -> Vec3 {
+    match view.paint.row_end {
+        Some(end) if row && end.truncate().distance(at.truncate()) <= GO_ON => end,
+        _ => view.snapped(at),
+    }
 }
 
 /// The ground under the pointer, if it is over the view (not over a
@@ -415,17 +506,23 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
             view.paint.templates.insert(*key, template);
         }
     }
+    if app.settings.paint.erase {
+        // (The eraser shows nothing see-through: what it takes out is
+        // marked, `overlay`.)
+        view.paint.shown = 0;
+        return Vec::new();
+    }
     let at = pointer(ui, view);
     let row = app.settings.paint.by_drag();
     if row && view.paint.painting {
         // The row as far as the pointer now.
         if let Some(at) = at {
-            view.paint.pending = row_to(app, view, &keys, at);
+            view.paint.pending = row_to(app, view, &keys, at).0;
         }
     }
     let mut shown = view.paint.pending.clone();
     match at.filter(|_| !view.paint.painting) {
-        Some(at) if row => shown.extend(row_to(app, view, &keys, at)),
+        Some(at) if row => shown.extend(row_to(app, view, &keys, at).0),
         Some(at) => shown.extend(next_dab(app, view, &keys, at)),
         None => {}
     }
@@ -464,6 +561,22 @@ pub(crate) fn wheel(app: &mut Moonglow, ui: &egui::Ui, response: &egui::Response
     true
 }
 
+/// The placeables the eraser at `center` takes out: those of the chosen
+/// blueprints in its circle (shown, not locked), by their places in
+/// `Placeable List`.
+fn under_eraser(app: &Moonglow, view: &AreaView, keys: &[ResKey], center: Vec3) -> Vec<usize> {
+    let radius = f32::from(app.settings.paint.radius_cm) / 100.0;
+    let middle = center.truncate();
+    let ours = |o: &AreaObject| o.template.is_some_and(|t| keys.iter().any(|k| k.resref == t));
+    view.model
+        .iter()
+        .flat_map(|m| &m.objects)
+        .filter(|o| o.kind == ObjectKind::Placeable && view.show[o.kind.index()] && !o.locked)
+        .filter(|o| ours(o) && o.position.truncate().distance(middle) <= radius)
+        .map(|o| o.index)
+        .collect()
+}
+
 /// The brush's clicks and drags on the view: whether they were its (Paint
 /// is on with placeables chosen), and nothing else is to take them.
 pub(crate) fn input(
@@ -474,8 +587,10 @@ pub(crate) fn input(
 ) -> bool {
     let Some(keys) = active(app) else {
         view.paint.pending.clear();
+        view.paint.erasing.clear();
         view.paint.painting = false;
         view.paint.row_from = None;
+        view.paint.row_end = None;
         // Paint on with nothing chosen to place: Escape or a right click
         // puts it away, as the status line says.
         let stop = crate::area_view::cancelled(ui, response);
@@ -493,6 +608,7 @@ pub(crate) fn input(
     if stop {
         if view.paint.painting {
             view.paint.pending.clear();
+            view.paint.erasing.clear();
             view.paint.painting = false;
             view.paint.row_from = None;
         } else {
@@ -506,31 +622,57 @@ pub(crate) fn input(
         let p = &i.pointer;
         (p.primary_pressed(), p.primary_down(), i.modifiers.command || i.modifiers.alt, i.time)
     });
+    let s = app.settings.paint;
     if pressed && hovered && !camera {
         view.paint.painting = true;
         view.paint.last = None;
-        let row = app.settings.paint.by_drag();
-        view.paint.row_from = pointer(ui, view).filter(|_| row).map(|p| view.snapped(p));
+        view.paint.row_from =
+            pointer(ui, view).filter(|_| s.by_drag()).map(|p| start_at(view, p, !s.fill));
     }
     if !view.paint.painting {
         return true;
     }
-    if app.settings.paint.by_drag() {
-        // A row or a fill: from where the press was to the pointer, laid
-        // when let go.
-        if let Some(to) = pointer(ui, view) {
-            view.paint.pending = row_to(app, view, &keys, to);
+    if s.erase {
+        // What the circle passes over goes, when let go.
+        if let Some(at) = pointer(ui, view) {
+            for i in under_eraser(app, view, &keys, at) {
+                if !view.paint.erasing.contains(&i) {
+                    view.paint.erasing.push(i);
+                }
+            }
         }
         if !down {
             view.paint.painting = false;
+            let gone: Vec<(ObjectKind, usize)> =
+                view.paint.erasing.drain(..).map(|i| (ObjectKind::Placeable, i)).collect();
+            if !gone.is_empty() {
+                crate::area_view::delete_objects(app, view, &gone, "Erase Placeables");
+            }
+        }
+        return true;
+    }
+    if s.by_drag() {
+        // A row or a fill: from where the press was to the pointer, laid
+        // when let go.
+        let mut end = None;
+        if let Some(to) = pointer(ui, view) {
+            let (laid, at) = row_to(app, view, &keys, to);
+            view.paint.pending = laid;
+            end = Some(at);
+        }
+        if !down {
+            view.paint.painting = false;
+            let laid = !view.paint.pending.is_empty();
             commit(app, view);
+            // (A row's end, where the next leg may go on from.)
+            view.paint.row_end = end.filter(|_| s.row && !s.fill && laid);
             view.paint.row_from = None;
             view.paint.seed = fastrand::u64(..);
         }
         return true;
     }
     if let Some(at) = pointer(ui, view) {
-        let step = (f32::from(app.settings.paint.radius_cm) / 100.0 * DAB_STEP).max(0.25);
+        let step = (f32::from(s.radius_cm) / 100.0 * DAB_STEP).max(0.25);
         let due = view.paint.last.is_none_or(|(p, t)| {
             p.truncate().distance(at.truncate()) >= step || now - t >= DAB_EVERY
         });
@@ -551,7 +693,8 @@ pub(crate) fn input(
     true
 }
 
-/// Puts the stroke's placeables into the area, as one command.
+/// Puts the stroke's placeables into the area, as one command: each
+/// locked, with Lock.
 fn commit(app: &mut Moonglow, view: &mut AreaView) {
     use mg_module::instances::{Placement, Placing, instance};
     let pending = std::mem::take(&mut view.paint.pending);
@@ -560,6 +703,7 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
     }
     let git = view.git();
     let list = ObjectKind::Placeable.list();
+    let lock = app.settings.paint.lock;
     let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
     let _ = ws.flush();
     let Some(mut index) = ws.doc(&git).ok().map(|g| g.root.list(list).map_or(0, <[_]>::len)) else {
@@ -584,6 +728,9 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
                 mg_area::VisualTransform { scale: Vec3::splat(p.scale), ..Default::default() };
             item.set("VisTransformList", mg_area::edit::visual_transform_list(visual));
         }
+        if lock {
+            item.set(mg_area::LOCKED, mg_gff::Value::Byte(1));
+        }
         edits.push(mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), list, index, item));
         index += 1;
     }
@@ -592,17 +739,27 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
     }
 }
 
-/// The brush's circle, on the ground around the pointer.
+/// The brush's circle, on the ground around the pointer (the eraser's in
+/// red, and what it takes out marked); a row's line, a fill's rectangle,
+/// and the last row's end, which a drag may go on from.
 pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
-    if active(app).is_none() {
-        return;
+    let Some(keys) = active(app) else { return };
+    let painter = ui.painter_at(view.rect);
+    let s = &app.settings.paint;
+    if s.row
+        && !s.fill
+        && !s.erase
+        && !view.paint.painting
+        && let Some(end) = view.paint.row_end.and_then(|e| view.screen_pos(e))
+    {
+        painter.circle_stroke(end, 6.0, Stroke::new(2.0, CIRCLE));
     }
     let Some(at) = pointer(ui, view) else { return };
-    if app.settings.paint.by_drag() {
+    if s.by_drag() {
         // The row's line, or the fill's rectangle, from where it began to
         // the pointer.
         if let Some(from) = view.paint.row_from.filter(|_| view.paint.painting) {
-            let outline = if app.settings.paint.fill {
+            let outline = if s.fill {
                 // The rectangle's sides along the grid, as the brush
                 // turns it.
                 let facing = mg_area::arrange::snap_rotation(view.ghost_turn(), view.snap_angle());
@@ -621,7 +778,6 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
                 p.truncate().extend(ground.unwrap_or(from.z) + 0.05)
             };
             let ends: Vec<Vec3> = outline.iter().map(level).collect();
-            let painter = ui.painter_at(view.rect);
             for pair in ends.windows(2) {
                 if let Some(line) = view.screen_segment(pair[0], pair[1]) {
                     painter.line_segment(line, Stroke::new(2.0, CIRCLE));
@@ -630,7 +786,8 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
         }
         return;
     }
-    let radius = f32::from(app.settings.paint.radius_cm) / 100.0;
+    let color = if s.erase { ERASER } else { CIRCLE };
+    let radius = f32::from(s.radius_cm) / 100.0;
     const POINTS: usize = 64;
     let circle: Vec<Vec3> = (0..POINTS)
         .map(|k| {
@@ -645,14 +802,31 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
         .into_iter()
         .map(|p| p.truncate().extend(ground(p.truncate()).unwrap_or(at.z) + 0.05))
         .collect();
-    let painter = ui.painter_at(view.rect);
     for k in 0..POINTS {
         if let Some(line) = view.screen_segment(circle[k], circle[(k + 1) % POINTS]) {
-            painter.line_segment(line, Stroke::new(2.0, CIRCLE));
+            painter.line_segment(line, Stroke::new(2.0, color));
         }
     }
     if let Some(middle) = view.screen_pos(at) {
-        painter.circle_filled(middle, 2.5, CIRCLE);
+        painter.circle_filled(middle, 2.5, color);
+    }
+    if s.erase {
+        // What goes: what the stroke passed over, and what the circle is
+        // over now.
+        let mut gone = view.paint.erasing.clone();
+        gone.extend(under_eraser(app, view, &keys, at));
+        let model = view.model.as_ref();
+        for i in gone {
+            let o = model.and_then(|m| m.object(ObjectKind::Placeable, i));
+            if let Some(p) = o.and_then(|o| view.screen_pos(o.position)) {
+                let d = egui::vec2(5.0, 5.0);
+                painter.line_segment([p - d, p + d], Stroke::new(2.5, ERASER));
+                painter.line_segment(
+                    [p + egui::vec2(-5.0, 5.0), p + egui::vec2(5.0, -5.0)],
+                    Stroke::new(2.5, ERASER),
+                );
+            }
+        }
     }
 }
 
@@ -662,30 +836,38 @@ pub(crate) fn status(app: &Moonglow) -> Option<String> {
         return None;
     }
     let keys = keys(app);
-    Some(match keys.len() {
-        0 => "Paint: choose placeables in the palette (Ctrl + click for several); Escape: stop"
-            .to_string(),
-        n if app.settings.paint.fill => {
-            let what = if n == 1 { keys[0].resref.to_string() } else { format!("{n} placeables") };
-            format!(
-                "Filling with {what}: drag a rectangle from one corner to the other, Q and E: \
-                 turn the grid; right click or Escape: stop"
-            )
+    let s = &app.settings.paint;
+    let what = match keys.len() {
+        0 => {
+            return Some(
+                "Paint: choose placeables in the palette (Ctrl + click for several); Escape: stop"
+                    .to_string(),
+            );
         }
-        n if app.settings.paint.row => {
-            let what = if n == 1 { keys[0].resref.to_string() } else { format!("{n} placeables") };
-            format!(
-                "Laying a row of {what}: drag from one end to the other, Q and E: turn the pieces \
-                 on the row; right click or Escape: stop"
-            )
-        }
-        n => {
-            let what = if n == 1 { keys[0].resref.to_string() } else { format!("{n} placeables") };
-            format!(
-                "Painting {what}: drag to paint, Shift + wheel: the brush's size, Q and E: turn; \
-                 right click or Escape: stop"
-            )
-        }
+        1 => keys[0].resref.to_string(),
+        n => format!("{n} placeables"),
+    };
+    Some(if s.erase {
+        format!(
+            "Erasing {what}: drag over them to take them out (not locked ones), Shift + wheel: \
+             the brush's size; right click or Escape: stop"
+        )
+    } else if s.fill {
+        format!(
+            "Filling with {what}: drag a rectangle from one corner to the other, Q and E: turn \
+             the grid; right click or Escape: stop"
+        )
+    } else if s.row {
+        format!(
+            "Laying a row of {what}: drag from one end to the other (from the last row's end, \
+             its ring, to go on from it), Q and E: turn the pieces on the row; right click or \
+             Escape: stop"
+        )
+    } else {
+        format!(
+            "Painting {what}: drag to paint, Shift + wheel: the brush's size, Q and E: turn; \
+             right click or Escape: stop"
+        )
     })
 }
 
@@ -711,23 +893,31 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
     let chosen = keys(app).len();
     let s = &mut app.settings.paint;
     ui.horizontal_wrapped(|ui| {
-        let mode = |s: &PaintSettings| (s.row, s.fill);
-        for ((row, fill), label, tip) in [
-            ((false, false), "Scatter", "Paint at random in a circle"),
+        let mode = |s: &PaintSettings| (s.row && !s.erase, s.fill && !s.erase, s.erase);
+        for ((row, fill, erase), label, tip) in [
+            ((false, false, false), "Scatter", "Paint at random in a circle"),
             (
-                (true, false),
+                (true, false, false),
                 "Row",
-                "Lay pieces end to end along a drag (fences, walls), each facing along the row",
+                "Lay pieces end to end along a drag (fences, walls), each facing along the row; \
+                 a drag from the last row's end goes on from it",
             ),
             (
-                (false, true),
+                (false, true, false),
                 "Fill",
                 "Fill the rectangle dragged with rows of pieces (floors), on a grid Q and E \
                  turn, each piece by its own size",
             ),
+            (
+                (false, false, true),
+                "Erase",
+                "Take the chosen blueprints' placeables out of the circle as it is dragged \
+                 over them (not locked ones)",
+            ),
         ] {
-            if ui.selectable_label(mode(s) == (row, fill), label).on_hover_text(tip).clicked() {
-                (s.row, s.fill) = (row, fill);
+            let on = mode(s) == (row, fill, erase);
+            if ui.selectable_label(on, label).on_hover_text(tip).clicked() {
+                (s.row, s.fill, s.erase) = (row, fill, erase);
             }
         }
         ui.separator();
@@ -737,18 +927,29 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             let (low, high) = (f32::from(RADIUS.0) / 100.0, f32::from(RADIUS.1) / 100.0);
             meters(ui, &mut cm, (low, high)).on_hover_text("The circle's size (Shift + wheel)");
             s.radius_cm = cm.clamp(i32::from(RADIUS.0), i32::from(RADIUS.1)) as u16;
+        }
+        if !s.by_drag() && !s.erase {
             field_label(ui, "Density");
             ui.add(egui::DragValue::new(&mut s.density).range(1..=400).suffix(" a tile"))
                 .on_hover_text(
                     "How many placeables a tile's ground (10 by 10 m) holds once painted: the \
                      brush adds until the circle has its share, counting those of these \
-                     blueprints already there",
+                     blueprints already there (every placeable there, with Count All)",
                 );
+            ui.checkbox(&mut s.count_all, "Count All").on_hover_text(
+                "Density counts every placeable in the circle, not only these blueprints'",
+            );
             field_label(ui, "Spacing");
             let mut cm = i32::from(s.spacing_cm);
-            meters(ui, &mut cm, (0.0, 20.0))
-                .on_hover_text("The least distance from one placeable to the next");
+            meters(ui, &mut cm, (0.0, 20.0)).on_hover_text(
+                "The least distance from one placeable to the next: between their middles, or \
+                 between their sides with By Size",
+            );
             s.spacing_cm = cm.clamp(0, 2000) as u16;
+            ui.checkbox(&mut s.by_size, "By Size").on_hover_text(
+                "Spacing is kept between the placeables' sides, each by its model's box (as \
+                 scaled), rather than between their middles: large ones stand further apart",
+            );
             field_label(ui, "Flow");
             ui.add(egui::DragValue::new(&mut s.flow).range(1..=100).suffix("%")).on_hover_text(
                 "How much of what the circle lacks each dab adds: 100% fills it at once; less \
@@ -778,11 +979,17 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             );
             s.gap_cm = cm.clamp(-1000, 1000) as i16;
         }
-        field_label(ui, "Height");
-        let mut cm = i32::from(s.lift_cm);
-        meters(ui, &mut cm, (-10.0, 10.0))
-            .on_hover_text("How far above the ground they stand (below it, less than 0)");
-        s.lift_cm = cm.clamp(-1000, 1000) as i16;
+        if !s.erase {
+            field_label(ui, "Height");
+            let mut cm = i32::from(s.lift_cm);
+            meters(ui, &mut cm, (-10.0, 10.0))
+                .on_hover_text("How far above the ground they stand (below it, less than 0)");
+            s.lift_cm = cm.clamp(-1000, 1000) as i16;
+            ui.checkbox(&mut s.lock, "Lock").on_hover_text(
+                "Lock what is painted (as the selection's Lock does): later clicks and boxes \
+                 pass through it to what is beneath",
+            );
+        }
         ui.separator();
         if chosen == 0 {
             ui.weak("Choose placeables in the palette (Ctrl + click for several)");
@@ -815,12 +1022,20 @@ mod tests {
         Some(2.0)
     }
 
+    fn no_size(_: ResKey) -> f32 {
+        0.0
+    }
+
+    fn near(x: f32, y: f32, ours: bool) -> Near {
+        Near { at: Vec2::new(x, y), ours, reach: 0.0 }
+    }
+
     #[test]
     fn a_full_dab_fills_the_circle_to_its_density() {
         let s = settings();
         let keys = [key("plc_tree"), key("plc_shrub")];
         let at = Vec3::new(20.0, 20.0, 0.0);
-        let laid = dab(&s, at, &keys, &[], 0.0, None, 1, &flat);
+        let laid = dab(&s, at, &keys, &[], 0.0, None, 1, (&flat, &no_size));
         // 10 a tile on 78.5 m²: 8.
         assert_eq!(laid.len(), 8);
         for (i, p) in laid.iter().enumerate() {
@@ -832,7 +1047,7 @@ mod tests {
             }
         }
         // The same seed, the same dab: what was shown is what is laid.
-        assert_eq!(dab(&s, at, &keys, &[], 0.0, None, 1, &flat), laid);
+        assert_eq!(dab(&s, at, &keys, &[], 0.0, None, 1, (&flat, &no_size)), laid);
     }
 
     #[test]
@@ -841,20 +1056,19 @@ mod tests {
         let keys = [key("plc_tree")];
         let at = Vec3::new(20.0, 20.0, 0.0);
         // Five of the brush's already there, and a chest it isn't painting.
-        let mut around: Vec<(Vec2, bool)> =
-            (0..5).map(|k| (Vec2::new(18.0 + k as f32, 20.0), true)).collect();
-        around.push((Vec2::new(20.0, 22.0), false));
-        let laid = dab(&s, at, &keys, &around, 0.0, None, 3, &flat);
+        let mut around: Vec<Near> = (0..5).map(|k| near(18.0 + k as f32, 20.0, true)).collect();
+        around.push(near(20.0, 22.0, false));
+        let laid = dab(&s, at, &keys, &around, 0.0, None, 3, (&flat, &no_size));
         assert_eq!(laid.len(), 3, "8 wanted, 5 there");
         for p in &laid {
-            for (q, _) in &around {
-                assert!(p.position.truncate().distance(*q) >= 1.0);
+            for q in &around {
+                assert!(p.position.truncate().distance(q.at) >= 1.0);
             }
         }
         // Full: nothing more.
         let mut full = around.clone();
-        full.extend(laid.iter().map(|p| (p.position.truncate(), true)));
-        assert!(dab(&s, at, &keys, &full, 0.0, None, 4, &flat).is_empty());
+        full.extend(laid.iter().map(|p| near(p.position.x, p.position.y, true)));
+        assert!(dab(&s, at, &keys, &full, 0.0, None, 4, (&flat, &no_size)).is_empty());
     }
 
     #[test]
@@ -862,11 +1076,15 @@ mod tests {
         let s = PaintSettings { flow: 25, ..settings() };
         let keys = [key("plc_tree")];
         let at = Vec3::new(20.0, 20.0, 0.0);
-        assert_eq!(dab(&s, at, &keys, &[], 0.0, None, 1, &flat).len(), 2, "a quarter of 8");
+        assert_eq!(
+            dab(&s, at, &keys, &[], 0.0, None, 1, (&flat, &no_size)).len(),
+            2,
+            "a quarter of 8"
+        );
         // Walkmesh only east of x = 20.
         let half = |p: Vec2| (p.x >= 20.0).then_some(0.0);
         let s = settings();
-        let laid = dab(&s, at, &keys, &[], 0.0, None, 5, &half);
+        let laid = dab(&s, at, &keys, &[], 0.0, None, 5, (&half, &no_size));
         assert!(!laid.is_empty() && laid.iter().all(|p| p.position.x >= 20.0));
     }
 
@@ -878,7 +1096,7 @@ mod tests {
         let from = Vec3::new(10.0, 10.0, 0.0);
         let east = |to: f32, turn: f32, gap: f32| {
             let to = Vec3::new(to, 10.0, 0.0);
-            row(from, to, &pieces, turn, None, (gap, 0.0), 1, &flat)
+            row(from, to, &pieces, turn, None, (gap, 0.0), 1, &flat).0
         };
         let laid = east(20.0, 0.0, 0.0);
         let xs: Vec<f32> = laid.iter().map(|p| p.position.x).collect();
@@ -896,12 +1114,12 @@ mod tests {
         let north =
             [(key("plc_floor"), 0.0, (Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)))];
         let to = Vec3::new(13.0, 10.0, 0.0);
-        let laid = row(from, to, &north, std::f32::consts::FRAC_PI_2, None, (0.0, 0.0), 1, &flat);
+        let laid = row(from, to, &north, std::f32::consts::FRAC_PI_2, None, (0.0, 0.0), 1, &flat).0;
         let xs: Vec<f32> = laid.iter().map(|p| p.position.x).collect();
         assert_eq!(xs, [11.0, 12.0, 13.0]);
         // Northeast, snapped to 45°: each faces along it.
         let to = Vec3::new(17.0, 16.5, 0.0);
-        let laid = row(from, to, &pieces, 0.0, Some(45.0), (0.0, 0.0), 1, &flat);
+        let laid = row(from, to, &pieces, 0.0, Some(45.0), (0.0, 0.0), 1, &flat).0;
         let way = std::f32::consts::FRAC_PI_4;
         assert!(laid.iter().all(|p| (p.turn - way).abs() < 1e-4));
         let step = laid[1].position - laid[0].position;
@@ -978,44 +1196,121 @@ mod tests {
     }
 
     /// Pieces of different sizes in a fill: each by its own length along
-    /// its row, the next row past the deepest of the one before.
+    /// its row, their middles in a line across it (not their near sides:
+    /// a row of deep and shallow pieces is centered on one line), the next
+    /// row past the deepest of the one before.
     #[test]
     fn a_fill_packs_each_piece_by_its_own_size() {
-        // A 2 m by 1 m piece and a 1 m by 2 m one.
+        // A 2 m by 1 m piece and a 1 m by 2 m one; a third whose box isn't
+        // about its middle (0 to 2 m north).
         let long = (key("plc_long"), 0.0, (Vec3::new(-1.0, -0.5, 0.0), Vec3::new(1.0, 0.5, 1.0)));
         let deep = (key("plc_deep"), 0.0, (Vec3::new(-0.5, -1.0, 0.0), Vec3::new(0.5, 1.0, 1.0)));
-        let pieces = [long, deep];
+        let north = (key("plc_north"), 0.0, (Vec3::new(-0.5, 0.0, 0.0), Vec3::new(0.5, 2.0, 1.0)));
+        let pieces = [long, deep, north];
         let from = Vec3::new(0.0, 0.0, 0.0);
         let to = Vec3::new(9.0, 6.0, 0.0);
         let laid = fill(from, to, &pieces, 0.0, None, (0.0, 0.0), 7, &flat);
-        assert!(laid.iter().any(|p| p.key == long.0) && laid.iter().any(|p| p.key == deep.0));
-        let size = |k: ResKey| if k == long.0 { (2.0, 1.0) } else { (1.0, 2.0) };
-        // Rows by where their pieces' near sides are.
+        assert!(pieces.iter().all(|piece| laid.iter().any(|p| p.key == piece.0)));
+        let boxed = |k: ResKey| pieces.iter().find(|p| p.0 == k).unwrap().2;
+        // The middle of a piece's box, where it stands.
+        let middle = |p: &Painted| {
+            let (min, max) = boxed(p.key);
+            p.position.truncate() + (min + max).truncate() / 2.0
+        };
+        // Rows by their middle line.
         let mut rows: Vec<(f32, Vec<&Painted>)> = Vec::new();
         for p in &laid {
-            let near = p.position.y - size(p.key).1 / 2.0;
-            match rows.iter_mut().find(|(y, _)| (y - near).abs() < 1e-4) {
+            let y = middle(p).y;
+            match rows.iter_mut().find(|(at, _)| (at - y).abs() < 1e-4) {
                 Some((_, row)) => row.push(p),
-                None => rows.push((near, vec![p])),
+                None => rows.push((y, vec![p])),
             }
         }
+        let size = |p: &Painted| {
+            let (min, max) = boxed(p.key);
+            (max - min).truncate()
+        };
         let mut row_at = 0.0;
-        for (near, row) in &rows {
-            assert!((near - row_at).abs() < 1e-4, "a row begins past the last: {near}, {row_at}");
+        for (line, row) in &rows {
+            let deepest = row.iter().map(|p| size(p).y).fold(0.0, f32::max);
+            assert!(
+                (line - (row_at + deepest / 2.0)).abs() < 1e-4,
+                "a row's middles past the last row, by its deepest: {line}, {row_at}"
+            );
             // End to end, each by its own length, from the left side.
             let mut at = 0.0;
             for p in row {
-                let (w, _) = size(p.key);
-                assert!((p.position.x - (at + w / 2.0)).abs() < 1e-4, "{} at {at}", p.position.x);
+                let w = size(p).x;
+                assert!((middle(p).x - (at + w / 2.0)).abs() < 1e-4, "{} at {at}", middle(p).x);
                 at += w;
             }
             assert!(at >= 9.0 && at - 9.0 < 2.0, "the row covers the rectangle: {at}");
-            row_at += row.iter().map(|p| size(p.key).1).fold(0.0, f32::max);
+            row_at += deepest;
         }
+        assert!(rows.len() >= 3, "{} rows", rows.len());
         assert!(row_at >= 6.0 && row_at - 6.0 < 2.0, "the rows cover it: {row_at}");
     }
 
+    /// Spacing by size keeps the placeables' sides apart, each by its
+    /// model's box as scaled; Count All counts every placeable in the
+    /// circle towards Density, not only the brush's.
     #[test]
+    fn spacing_by_size_and_density_counting_every_placeable() {
+        let keys = [key("plc_tree")];
+        let at = Vec3::new(20.0, 20.0, 0.0);
+        // A tree's box reaches 1.5 m from its middle.
+        let tree = |_: ResKey| 1.5;
+        assert_eq!(reach_of((Vec3::new(-1.0, -1.5, 0.0), Vec3::new(1.0, 0.5, 4.0)), 1.0), 1.5);
+        assert_eq!(reach_of((Vec3::new(-1.0, -1.5, 0.0), Vec3::new(1.0, 0.5, 4.0)), 2.0), 3.0);
+        let s = PaintSettings { density: 40, by_size: true, ..settings() };
+        let laid = dab(&s, at, &keys, &[], 0.0, None, 1, (&flat, &tree));
+        assert!(laid.len() >= 3, "{}", laid.len());
+        for (i, p) in laid.iter().enumerate() {
+            for q in &laid[i + 1..] {
+                let d = p.position.distance(q.position);
+                assert!(d >= 1.0 + 1.5 + 1.5 - 1e-4, "sides 1 m apart: {d}");
+            }
+        }
+        // Without By Size, as near as Spacing (1 m): more of them.
+        let s = PaintSettings { density: 40, ..settings() };
+        let even = dab(&s, at, &keys, &[], 0.0, None, 1, (&flat, &tree));
+        assert!(even.len() > laid.len());
+        // A big rock of another blueprint beside the circle's middle, 3 m
+        // across: by size, nothing within its reach and Spacing.
+        let rock = [Near { at: Vec2::new(20.0, 20.0), ours: false, reach: 3.0 }];
+        let s = PaintSettings { density: 40, by_size: true, ..settings() };
+        for p in dab(&s, at, &keys, &rock, 0.0, None, 2, (&flat, &tree)) {
+            assert!(p.position.truncate().distance(rock[0].at) >= 3.0 + 1.0 + 1.5 - 1e-4);
+        }
+        // Count All: eight wanted (10 a tile on 78.5 m²), five there, of
+        // another blueprint: three; counting only the brush's, eight.
+        let others: Vec<Near> = (0..5).map(|k| near(16.0 + 2.0 * k as f32, 22.0, false)).collect();
+        let s = PaintSettings { count_all: true, ..settings() };
+        assert_eq!(dab(&s, at, &keys, &others, 0.0, None, 3, (&flat, &no_size)).len(), 3);
+        let s = settings();
+        assert_eq!(dab(&s, at, &keys, &others, 0.0, None, 3, (&flat, &no_size)).len(), 8);
+    }
+
+    /// A row says where it ends (past its last piece and the gap), which
+    /// the next leg of a path begins at: two legs round a corner, end to
+    /// end.
+    #[test]
+    fn a_row_ends_where_the_next_leg_begins() {
+        let pieces =
+            [(key("plc_wall"), 0.0, (Vec3::new(-1.0, -0.25, 0.0), Vec3::new(1.0, 0.25, 1.0)))];
+        let from = Vec3::new(10.0, 10.0, 0.0);
+        let (east, end) =
+            row(from, Vec3::new(15.0, 10.0, 0.0), &pieces, 0.0, None, (0.5, 0.0), 1, &flat);
+        assert_eq!(east.len(), 2, "2 m pieces and a gap of 0.5 m on 5 m");
+        assert!((end - Vec3::new(15.0, 10.0, 2.0)).length() < 1e-4, "past the last: {end}");
+        // Northwards from there: its first piece's back at the end.
+        let (north, _) = row(end, end + Vec3::Y * 4.0, &pieces, 0.0, None, (0.5, 0.0), 1, &flat);
+        assert!((north[0].position - Vec3::new(15.0, 11.0, 2.0)).length() < 1e-4);
+        assert!((north[0].turn - std::f32::consts::FRAC_PI_2).abs() < 1e-4, "facing along it");
+    }
+
+    #[test]
+
     fn facings_stray_by_turn_and_scales_stay_between_scale() {
         let s = PaintSettings {
             turn_spread: 90,
@@ -1025,7 +1320,7 @@ mod tests {
             ..settings()
         };
         let keys = [key("plc_tree")];
-        let laid = dab(&s, Vec3::new(20.0, 20.0, 0.0), &keys, &[], 1.0, None, 9, &flat);
+        let laid = dab(&s, Vec3::new(20.0, 20.0, 0.0), &keys, &[], 1.0, None, 9, (&flat, &no_size));
         assert!(!laid.is_empty());
         for p in &laid {
             assert!((p.turn - 1.0).abs() <= 45f32.to_radians() + 1e-4, "{}", p.turn);
@@ -1034,7 +1329,9 @@ mod tests {
         }
         // Snapped to 45°: each facing a multiple of it.
         let s = PaintSettings { turn_spread: 360, ..settings() };
-        for p in dab(&s, Vec3::new(20.0, 20.0, 0.0), &keys, &[], 0.0, Some(45.0), 2, &flat) {
+        for p in
+            dab(&s, Vec3::new(20.0, 20.0, 0.0), &keys, &[], 0.0, Some(45.0), 2, (&flat, &no_size))
+        {
             let steps = p.turn / 45f32.to_radians();
             assert!((steps - steps.round()).abs() < 1e-3, "{}", p.turn);
         }

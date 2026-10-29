@@ -243,13 +243,25 @@ pub struct PaintSettings {
     /// The room between pieces of a row or a fill (overlap, if less than
     /// zero), in centimeters.
     pub gap_cm: i16,
+    /// The circle takes the chosen blueprints' placeables out of the area
+    /// (Erase), rather than painting them.
+    pub erase: bool,
+    /// What it puts down is locked (the area editor's Lock): later clicks
+    /// and boxes pass through it.
+    pub lock: bool,
+    /// Density counts every placeable in the circle, not only the chosen
+    /// blueprints'.
+    pub count_all: bool,
+    /// Spacing is kept between the placeables' sides (each one's size
+    /// by its model's box), rather than between their middles.
+    pub by_size: bool,
 }
 
 impl PaintSettings {
     /// Whether a drag lays the pieces (Row, Fill), rather than a brush
-    /// dabbing them (Scatter).
+    /// dabbing them (Scatter) or taking them out (Erase).
     pub fn by_drag(&self) -> bool {
-        self.row || self.fill
+        !self.erase && (self.row || self.fill)
     }
 }
 
@@ -267,6 +279,10 @@ impl Default for PaintSettings {
             scale_max: 100,
             lift_cm: 0,
             gap_cm: 0,
+            erase: false,
+            lock: false,
+            count_all: false,
+            by_size: false,
         }
     }
 }

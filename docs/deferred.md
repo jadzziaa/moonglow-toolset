@@ -828,20 +828,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   turns the selection with Shift + right drag; and some desktops take
   Alt + drag to move the window. Not in Options › Keyboard. (S)
   (from builders' reports after 1.10.1)
-- **Painting placeables** (the area view's Paint, from builders'
-  reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
-  on a grid Q and E turn, each piece by its own size, a builder's ask
-  after 1.32.2). Not done: a fill's rows of pieces of different depths
-  lined up by their middles rather than their near sides; an eraser
-  (taking the chosen blueprints' placeables out of the circle); the
-  brush's own Lock (painted placeables locked, so later clicks pass
-  through them); counting placeables that aren't the chosen blueprints
-  towards Density (Spacing keeps away from them; Density counts only the
-  brush's own); Spacing from each placeable's size rather than one
-  distance; a row along a path of several legs (a drag is one straight
-  line); random scale on static placeables (the game gives them none, so
-  Scale passes them by). The see-through dab is held by the tests'
-  counts; the pictures show strokes laid. (S each)
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
   draws as the client draws it. His armourer (`hss_armourer`, the area
