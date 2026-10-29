@@ -435,15 +435,24 @@ desc = "A follow-up attack after a kill."
 
 [voice]
 greeting = { text = "Well met.", sound = "vs_greet", sound_length = 1.2 }
+farewell = { text = "Farewell, sir.", feminine = "Farewell, my lady." }
 ```
 
 - A key is its groups and its name with dots (`feat.cleave.name`). The
-  names file is `.toml` or `.json`.
+  names file is `.toml` or `.json`. New keys take their lines in the
+  order the file has them.
+- **Feminine text:** the game shows a female character the feminine
+  table's line (`TABLEf.tlk`). Where there is one, a key's line there is
+  its text, or its `feminine` where it has one; a key with a
+  `feminine` makes the feminine table beside the table if there is
+  none yet.
 - **The map** (`NAMES.strrefs.json`, or `--map FILE`) says which line of
   the table each key has. Keep it with the project. A new key gets the
   next line that was never anyone's (from `--start`, passing over lines
   of the table that have someone else's text); a key you take away keeps
-  its line reserved, and gets it back if you name it again.
+  its line reserved, and gets it back if you name it again. Its line
+  keeps its last text in the table: a number saved in a character or an
+  item still shows what it said, not an empty line.
 - `--constants FILE.nss` writes the keys as constants with the game's
   numbers (`const int STRREF_FEAT_CLEAVE_NAME = 16777217;`; `--prefix`
   changes `STRREF_`), `--constants FILE.json` as JSON.

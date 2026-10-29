@@ -32,10 +32,11 @@ fn names_get_lines_that_stay() {
     let t = lines(&table);
     let texts: Vec<&str> =
         t["entries"].as_array().unwrap().iter().map(|e| e["text"].as_str().unwrap()).collect();
-    assert_eq!(texts, ["Cuts on.", "Great Cleave", "Hide"]);
+    // In the order of the file, not of the names (desc before name).
+    assert_eq!(texts, ["Great Cleave", "Cuts on.", "Hide"]);
     assert_eq!(t["entries"][2]["sound"], "vs_hide");
     let constants = std::fs::read_to_string(&nss).unwrap();
-    assert!(constants.contains("const int STRREF_FEAT_CLEAVE_NAME = 16777217;"), "{constants}");
+    assert!(constants.contains("const int STRREF_FEAT_CLEAVE_NAME = 16777216;"), "{constants}");
     let map_file = at("names.strrefs.json");
     let map: Value = serde_json::from_str(&std::fs::read_to_string(&map_file).unwrap()).unwrap();
     assert_eq!(map["lines"]["skill.hide"], 2);
@@ -58,7 +59,10 @@ fn names_get_lines_that_stay() {
         let e = t["entries"].as_array().unwrap().iter().find(|e| e["id"] == id).unwrap();
         e["text"].as_str().unwrap().to_string()
     };
-    assert_eq!((line(1), line(2), line(3)), ("Cleave".into(), "Hide".into(), "First".into()));
+    assert_eq!((line(0), line(2), line(3)), ("Cleave".into(), "Hide".into(), "First".into()));
+    // The retired key's line keeps its text: a number saved in a character
+    // or an item still shows what it said.
+    assert_eq!(line(1), "Cuts on.");
     assert!(run(&["--check", "--against", &at("main.json")]).0);
 
     // A map in which a key has another line than it had: refused.
@@ -78,4 +82,39 @@ fn names_get_lines_that_stay() {
         &at("main.json"),
     ]);
     assert!(!ok && r["moved"][0]["key"] == "skill.hide", "{r}");
+
+    // A key's own feminine text makes the feminine table beside the table
+    // (tdodf.tlk), where every other line is the text: female characters
+    // read it.
+    let with_feminine = r#"[aaa]
+first = "First"
+
+[feat.cleave]
+name = "Cleave"
+
+[skill]
+hide = { text = "Hidden", feminine = "Hidden (she)" }
+"#;
+    std::fs::write(&names, with_feminine).unwrap();
+    assert!(run(&[]).0);
+    assert!(dir.join("tdodf.tlk").is_file());
+    let csv = || {
+        assert!(mg(&["tlk-export", &table, &at("out.csv")]).0);
+        std::fs::read_to_string(at("out.csv")).unwrap()
+    };
+    let t = csv();
+    assert!(t.starts_with("StrRef,Text,Feminine,"), "{t}");
+    assert!(t.contains("16777216,Cleave,Cleave,"), "{t}");
+    assert!(t.contains("16777218,Hidden,Hidden (she),"), "{t}");
+    assert!(run(&["--check"]).0, "as written");
+    // Its feminine taken out of the names file, the line is the text in
+    // both tables again.
+    std::fs::write(&names, with_feminine.replace(", feminine = \"Hidden (she)\"", "")).unwrap();
+    assert!(!run(&["--check"]).0, "the feminine table's line is not as named");
+    assert!(run(&[]).0);
+    let t = csv();
+    assert!(t.contains("16777218,Hidden,Hidden,"), "{t}");
+    std::fs::write(&names, "[skill]\nhide = { text = \"Hide\", feminine = 3 }\n").unwrap();
+    let (ok, r) = run(&[]);
+    assert!(!ok && r.to_string().contains("feminine is not a text"), "{r}");
 }

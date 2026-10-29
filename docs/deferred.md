@@ -675,11 +675,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **`mg tlk-alloc`** (a custom talk table from strings kept by name):
-  new keys take lines in the order of their names, not of the file; a
-  key's feminine text is not set (the feminine table's lines stay as
-  they are); a retired key's line keeps its last text in the table. (S
-  each)
 - **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
   after 1.21.3: a table's cells in the module, a hak or a file, checked
   as typed, with rows taken from another copy). Not done:
@@ -3112,3 +3107,8 @@ is not taken for a new gap.
   Aurora's). Pasted tiles over a group are refused, as Aurora refuses
   them (captured 2026-10-29: "Pasting tiles to current area failed.
   There was a feature or a group within the region…").
+- **A retired key's line keeps its text** in the table `mg tlk-alloc`
+  writes (a key taken out of the names file): a number saved in a
+  character or an item still shows what it said, not an empty line, and
+  the line stays the key's for when it is named again. Said in the
+  manual's Strings by name.
