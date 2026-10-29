@@ -269,7 +269,9 @@ fn window_bar_maximize_and_an_older_hak() {
 /// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
 /// the window after publishing (`nwsync-published`), and, where the
 /// window has it, after Remove Unused Data took a file no manifest names
-/// (`nwsync-pruned`). (Run on the code before the install-and-publish fix
+/// (`nwsync-pruned`), and Upload by a stand-in command under way
+/// (`nwsync-uploading`) and done (`nwsync-uploaded`). (Run on the code
+/// before the install-and-publish fix
 /// package, the window has no Remove Unused Data and the first picture is
 /// all there is.)
 #[test]
