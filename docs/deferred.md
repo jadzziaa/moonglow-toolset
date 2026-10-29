@@ -43,7 +43,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `mg` is 140 crates, 87 s and 22.7 MB, and has neither command (clap
   says "unrecognized subcommand"). The canvas in a crate of its own,
   with egui and no wgpu, would leave `render` alone behind the feature;
-  the packages keep the default. (M)
+  the packages keep the default, so only builds of `mg` from source
+  gain. Looked into on 2026-10-29 (the deferred sprint's package m11), it
+  is several days, not one: the crate would take `nui_view/preview/`
+  (the canvas, about 3,400 lines), `skin.rs` (1,400), the painting half
+  of `draw.rs`, `layouts.rs`'s variant in its window and `interaction.rs`'s
+  session, and the 25 or so fields of `nui_view::State` the canvas reads
+  (a state of the canvas's own, carved out of the editor's); and what the
+  canvas reaches into the editor for would become hooks: `design::node_name`
+  and `Insert`, `structure::select`, `drag_target` and `Drag` (selecting,
+  dragging and dropping on the canvas), and `widgets::field_label`,
+  `widgets::dropdown` and `fields::hinted` (the draw layers' fields in
+  `draw.rs`). (settle?: proposed by the sprint on 2026-10-29, the owner's
+  to say: kept as it is while no one builds `mg` alone.) (L)
 - **Moonglow Viewer's shader cache across toolset tags:** the libraries
   are 0.0.0 and read the release from the program (`mg_core::release`),
   which the viewer doesn't set, so its compiled-shader cache is named by
@@ -1420,60 +1432,76 @@ contribution itself states as not done or not checked.
 
 - **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   `skin::Assets` keeps its textures beside `images::Loader`
-  (`crates/mg-ui/src/images.rs`). The two look pictures up differently:
-  a window's are JPG, TGA, PNG, BMP, then DDS, with a live module below
-  its haks, read again when their bytes change and reported with where
-  they came from; the loader's are DDS or TGA, the module first, kept by
-  name. JPEG and BMP are still read with the `image` crate (nothing else
-  here reads them). 15- and 16-bit TGAs, which were read with the
-  `image` crate before, come out of `mg-image` a level off in places
-  and with their attribute bit as alpha. (M)
+  (`crates/mg-ui/src/images.rs`). Looked into on 2026-10-29 (the deferred
+  sprint's package m11): the two orders of types differ on purpose (a
+  window's pictures JPG, TGA, PNG, BMP, then DDS, as the client looks for a
+  NUI picture; the loader's DDS, then TGA, as for a texture), but not where
+  the module being edited sits: a window's pictures are looked for with it
+  below its haks, as the game loads them, the loader's with it above
+  everything, so a portrait, an item's icon or a loading screen that both
+  the module and a hak (or the override folder) have shows the module's,
+  where the game shows the hak's; and the loader keeps a picture by name,
+  not read again when the module's bytes of it change, where a window's
+  are. One lookup with the module in its place for both (by layer class,
+  as `ResMan::texture` has it, for the loader's) is the fix; it changes
+  what portraits and inventory icons show, the views the sprint's medium
+  package m04 (blueprints and inventories) works in on 2026-10-29: after
+  that merges. JPEG and BMP are still read with the `image` crate (nothing
+  else here reads them). (M)
+  - *15- and 16-bit TGAs*, read with the `image` crate before, come out of
+    `mg-image` a level off in places and with their attribute bit as
+    alpha: `mg-image` makes a 5-bit channel 8 bits as `(c << 3) | (c >> 2)`
+    and takes the top bit as alpha when the descriptor declares an alpha
+    bit; the `image` crate's table is c × 255 / 31 rounded (3 is 25, not
+    24) and it never took the bit as alpha. For the second client batch: a
+    NUI image of a 16-bit TGA whose descriptor declares an alpha bit, with
+    a patch of each of the 32 levels of a channel and pixels with the bit
+    clear, at 100%: read the levels drawn and whether those pixels are
+    transparent. `mg-image` follows the game. (S, waits on the client)
 - **Where the preview is known to differ from the game** (stated in
   [the manual](manual/18-nui-creator.md);
-  `crates/mg-ui/src/nui_view/preview.rs`): after a control with a width
-  of its own, rows of buttons without widths make the game pick a
-  narrower width than the preview's (308 against 462 in the case
-  measured); at a UI scale that isn't whole, the preview's rows drift
-  from the game's by up to a pixel each (the game rounds each scaled
-  size down); an encouraged control shows its hover look and does not
-  pulse; numbers in text are shown to 16 digits. (S each)
+  `crates/mg-ui/src/nui_view/preview.rs`; `mg nui render` and `layout`
+  show the canvas, with these differences; at a UI scale that isn't whole
+  a control's size is whole pixels rounded down, as in the game, since
+  2026-10-29):
+  - *Rows of buttons without widths after a control with a width of its
+    own* make the game pick a narrower width than the preview's (308
+    against 462 in the case measured, an image 200 wide above a row of two
+    buttons): one case is not the rule. For the second client batch, a
+    column of an image (then a button) 100, 200 and 400 wide over a row of
+    one, two and three buttons without widths, and the same with the row
+    first: read each control's width. (S once measured)
+  - *Gaps and margins at a UI scale that isn't whole* are scaled as they
+    are: whether the game rounds them down too is not measured. For the
+    second client batch: a column of ten buttons 30 high, with margins 2
+    and 5, at 111% (`ui.unconstrain-scale` set): read each one's top edge.
+    (S)
+  - *An encouraged control* shows its hover look and does not pulse; the
+    pulse's period is not measured either. (settle?: proposed by the
+    sprint on 2026-10-29, the owner's to say: a still preview shows the
+    pulse's peak.)
+  - *Numbers in text* are shown to at most 16 decimal places. For the
+    second client batch: a label bound to 1/3 with `number_precision` 16,
+    17, 20 and 30, and to 0.5 and 2.5 at 0: read the text drawn. (S)
+  - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
+    places neighbors apart: it finds none but where the game would lay the
+    window out otherwise, which it can't know. (settle?: proposed by the
+    sprint on 2026-10-29, the owner's to say: said in the manual, as it
+    is.)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
-  (`mg nui render`, `layout`, `schema`, `import`, the `nui-sources`
-  check, AccessKit, the event function; the asks are the module
-  project's probe, `tdod-modulework/docs/systems/nui-creator-probe.md`):
-  - *What `render`'s `--state`, `--binds` and `--variant` leave:*
-    - *A state by ID is every row's*: a control of a list's row template
-      is hovered (pressed, disabled) in every row; there is no
-      `ID@ROW`. (S)
-    - *One variant at a time*: `--variant` shows one; a window with two
-      swap layouts is drawn with the other's initial contents. (S)
-    - *A bind's value is checked only for its kind*: a value of another
-      kind than the bind's first is said, not what the game would make
-      of it (a number where a string is drawn, a color missing `a`). (S)
-  - *What `layout` cannot see*: rows of a list out of its view are not
-    reported (the canvas draws only those in view); the title's text,
-    cut or not, isn't checked; `overlaps` comes of the canvas's own
-    layout, which places neighbors apart, so it is empty but for
-    windows the game would lay out differently, which it can't know. (S)
-  - *The preview is not the game* (as stated above): `render` and
-    `layout` show what the canvas shows, with its known differences.
-  - *The JUI has no schema of its properties*: `mg nui schema --layout`
-    gives the Creator's templates, the checks' rules of which property
-    takes what are in `validate.rs`'s code, not a table a schema could
-    be made from. (M)
-  - *The Creator has no Import*: windows come in from files with `mg nui
-    import` or Import's ERF import (which also brings `.jui` and `.txt`),
-    not from the NUI Creator itself. (S)
-  - *`mg` links `mg-ui`* for `render` and `layout`: its build takes
-    longer and its binary is larger; the preview could become a crate of
-    its own if that matters. (M)
+  (AccessKit and the event function; the asks are the module project's
+  probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; the rest was
+  done on 2026-10-29: a state for one row, variants of several groups,
+  binds held to their properties' rules, a list's rows out of view and the
+  title in `layout`, the layout's schema, the Creator's Import…):
   - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
     `accesskit_unix` (0.21) offers the tree only when the session bus's
     `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core
     2.62 (the development machine's) has only `IsEnabled`, so there it
     never starts; `accesskit_unix` 0.24 watches `IsEnabled`, and comes
-    with an egui/eframe whose `accesskit_winit` uses it. Until then the
-    desktop agents here can't read the window. (S, with that upgrade)
+    with an egui/eframe whose `accesskit_winit` uses it (0.34; eframe
+    0.36.2, the newest on 2026-10-29, has 0.32). Until then the desktop
+    agents here can't read the window. (S, with that upgrade)
   - *AccessKit was checked on Linux only*: the GUI checks for Windows
     (`x86_64-pc-windows-gnu`) and eframe's AccessKit for macOS
     (`aarch64-apple-darwin`); CI builds them, and no one has read the
@@ -1483,13 +1511,18 @@ contribution itself states as not done or not checked.
     `frame_perf` on the campaign's 117 views: 0.86 ms a frame on
     average without the tree, 0.97 with it, the most 0.55 ms more (a
     long script, 0.73 to 1.28); none over the budget. Without one,
-    nothing. (S)
+    nothing. (S, waits on a screen reader's user)
   - *The event function in the game*: compiled against the game's
     `nwscript.nss`, not yet run in the client (`client_nui.rs` builds
-    windows with their own event scripts). (S)
-  - *`a_module_s_windows_are_laid_out_as_json`* (`crates/mg-ui/tests/nui.rs`,
-    run by hand) measured windows through the editor's accessibility
-    tree; `mg nui layout` does it from the command line now. (S)
+    windows with their own event scripts). For the second client batch:
+    in `client_nui.rs`, a window with `event_function` on, built by
+    `mg_nui::generate` (its `NAME_e.nss` the include of `NAME_OnEvent()`),
+    created without an event script, and the module's OnNuiEvent a script
+    of the test's that includes it and logs what `NAME_OnEvent()`
+    returns; a click on a button whose handler sets a bind: read that the
+    handler ran (the bind's new value), that the function returned TRUE
+    for the window's event and FALSE for another window's. (S, waits on
+    the client)
 
 ## Automation
 
