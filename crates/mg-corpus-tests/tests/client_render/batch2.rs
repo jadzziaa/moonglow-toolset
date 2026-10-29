@@ -272,3 +272,28 @@ fn reading_visual_transform_without_scope_0() {
     let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
     print_log(&dir);
 }
+
+/// Emitters from above (the deferred list's "Emitters start as they look
+/// once going"): a wide fog (`new:Mist`, placeables.2da 791,
+/// `tnp_gmist`) west and Magic Sparks (White and Blue, 158 and 159)
+/// east, north of the player on ttr01, from the reference camera beside
+/// Moonglow's area view (Animations on, its emitters run ahead), then
+/// (`MG_TOP=1`) the client's alone from straight above (pitch 1,
+/// distance 20).
+#[test]
+#[ignore]
+fn reading_emitters_from_above() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let top = std::env::var_os("MG_TOP").is_some();
+    let mut r = Reading::new(if top { "emitters_top" } else { "emitters" }, "ttr01", light, &[]);
+    r.place(791, [16.5, 25.0, 0.0], 0.0, &[]);
+    r.place(158, [22.5, 24.0, 0.0], 0.0, &[]);
+    r.place(159, [24.5, 25.5, 0.0], 0.0, &[]);
+    if top {
+        let (dir, _) = r.shoot(&enter(INVISIBLE, (90.0, 20.0, 1.0)), SETTINGS);
+        print_log(&dir);
+    } else {
+        let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.animate = true);
+        print_log(&dir);
+    }
+}

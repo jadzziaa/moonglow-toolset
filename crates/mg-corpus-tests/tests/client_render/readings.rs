@@ -196,6 +196,12 @@ fn moonglow_beside(
     let mut v = mg_area::View { fog: false, grass: Some(sight), ..mg_area::View::of(&model) };
     view(&mut v);
     let mut scene = area_scene.scene(&model, &v);
+    // (Animations on: the emitters' particles, run ahead as the area view
+    // runs those new to it.)
+    if v.animate {
+        let mut sims = HashMap::new();
+        scene.particles = area_scene.particles(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+    }
     // (Where nothing is drawn: magenta, told apart from black meshes.)
     if std::env::var_os("MG_MAGENTA").is_some() {
         scene.background = [1.0, 0.0, 1.0];

@@ -801,19 +801,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file) (from builders' reports after 1.10.1)
-- **Emitters start as they look once going:** left, the client's
-  comparisons. An emitter new to the view, an object's or a tile's, is
-  run twenty seconds ahead so that it shows as it does once going
-  (`scene.rs`, `PARTICLES_AHEAD`), and the nearest 256 objects and 128
-  tiles with emitters are simulated while Animations is on (`nearest`).
-  Not compared with the client: that a wide fog (eight slow particles a
-  second) is as dense from above as the game's, and Magic Sparks, which
-  show faintly from above. A tile's emitters take their keys from the
-  animations playing on it as one animation as long as the longest (the
-  game's tiles' keys are constant; one that changed over a shorter loop
-  would run slow). (S) (waits on a client reading: the fog placeable and
-  Magic Sparks seen from above in the client and in the area view, side
-  by side) (from builders' reports after 1.14.1)
+- **Emitters start as they look once going:** an emitter new to the
+  view, an object's or a tile's, is run twenty seconds ahead so that it
+  shows as it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the
+  nearest 256 objects and 128 tiles with emitters are simulated while
+  Animations is on (`nearest`). Compared with the client on 2026-10-29
+  (`reading_emitters_from_above` in `client_render.rs`'s `batch2.rs`,
+  ttr01, the reference camera, Moonglow's view run ahead beside it): a
+  wide fog (`new:Mist`) is as dense as the game's (the ground under it
+  brightened by 18 of 255, the client's by 17). Left: Magic Sparks
+  (`plc_u03`, `render Motion_Blur`, velocity 3) are long bright streaks
+  in the client, from the side and from straight above, where Moonglow
+  draws each spark as a dot of its size laid along its path (the ground
+  under them brightened by 6 against the client's 13): the client
+  stretches a motion-blurred particle by its speed, by how much not yet
+  measured (a probe emitter at a few velocities, from the side). A tile's
+  emitters take their keys from the animations playing on it as one
+  animation as long as the longest (the game's tiles' keys are
+  constant; one that changed over a shorter loop would run slow).
+  (S, the streaks S–M) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
