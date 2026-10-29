@@ -171,6 +171,53 @@ pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
     p
 }
 
+/// Where [`of_object`] shows an object, which tells how an item looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shown {
+    /// On its own (a blueprint's view, a picture of it): an item as
+    /// [`item_on`] makes it, armor and cloaks on a woman where `female`.
+    Alone { female: bool },
+    /// Placed in an area: an item as it lies there ([`item_placed`]).
+    Placed,
+}
+
+impl Default for Shown {
+    fn default() -> Shown {
+        Shown::Alone { female: false }
+    }
+}
+
+/// What to draw for an object of `kind` (a blueprint's fields, or a
+/// placed object's entry in its area's GIT), with its texture and
+/// animation replacements ([`replaced`]): a creature (the items it wears
+/// read through `items`), door, item (as `shown`), placeable, waypoint,
+/// or a store's or sound's marker. `None` for a kind of no model (an
+/// encounter, a trigger). The one way the area view, a blueprint's view
+/// and `mg model-files` make an object's preview.
+pub fn of_object(
+    game: &GameData,
+    kind: mg_rules::ObjectKind,
+    object: &Struct,
+    items: &dyn Fn(ResRef) -> Option<mg_gff::Gff>,
+    shown: Shown,
+) -> Option<Result<Preview, PreviewError>> {
+    use mg_rules::ObjectKind as K;
+    let preview = match kind {
+        K::Creature => creature(game, object, items),
+        K::Door => door(game, object),
+        K::Item => match shown {
+            Shown::Alone { female } => item_on(game, object, female),
+            Shown::Placed => item_placed(game, object),
+        },
+        K::Placeable => placeable(game, object),
+        K::Waypoint => waypoint(game, object),
+        K::Store => store(game),
+        K::Sound => sound(game, object),
+        K::Encounter | K::Trigger => return None,
+    };
+    Some(preview.map(|p| replaced(p, object)))
+}
+
 /// PLT layers.
 const SKIN: usize = 0;
 const HAIR: usize = 1;

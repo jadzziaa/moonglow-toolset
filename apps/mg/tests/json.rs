@@ -79,6 +79,23 @@ fn every_command_answers_in_json() {
     let row = std::fs::read_to_string(std::path::Path::new(&at("chest")).join(names[1])).unwrap();
     assert!(row.starts_with("2DA V2.0") && row.contains("ModelName"), "{row}");
     assert!(names.iter().any(|n| n.ends_with(".mdl")), "{names:?}");
+    // A waypoint's: its flag, waypoint.2da's model of its appearance (the
+    // module's own blueprint: the game's have no appearance, no flag).
+    let utw = serde_json::json!({
+        "__data_type": "UTW ",
+        "Tag": { "type": "cexostring", "value": "MG_FLAG" },
+        "TemplateResRef": { "type": "resref", "value": "mg_flag" },
+        "Appearance": { "type": "byte", "value": 3 },
+    });
+    std::fs::write(at("mg_flag.utw.json"), utw.to_string()).unwrap();
+    ok(&["gff", &at("mg_flag.utw.json"), "-o", &at("unpacked/mg_flag.utw")]);
+    let module = at("unpacked");
+    let flag = ok(&["model-files", "mg_flag.utw", &at("flag"), "--all", "--module", &module]);
+    let names: Vec<&str> =
+        flag["files"].as_array().unwrap().iter().map(|f| f["file"].as_str().unwrap()).collect();
+    assert_eq!(names[0], "mg_flag.utw", "{names:?}");
+    assert!(names.contains(&"gi_waypoint03.mdl"), "{names:?}");
+    assert!(names[1].starts_with("waypoint.2da-row-"), "{names:?}");
     // An area's: its own .are and .git, its tileset, its tiles' models and
     // walkmeshes, and the models of what is placed in it (the chess
     // pieces, creatures).

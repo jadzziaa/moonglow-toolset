@@ -301,17 +301,15 @@ fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, 
     };
     let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
-    let preview = match restype {
-        ResType::UTC => mg_preview::creature(game, &object, &items),
-        ResType::UTI => mg_preview::item_on(game, &object, female),
-        ResType::UTP => mg_preview::placeable(game, &object),
-        ResType::UTD => mg_preview::door(game, &object),
-        // The flag the area view draws. (A store's and a sound's markers
-        // are the same for every one: no picture to tell them by.)
-        ResType::UTW => mg_preview::waypoint(game, &object),
-        t => return Err(format!("{source}: no preview for {t:?}")),
-    };
-    preview.map(|p| mg_preview::replaced(p, &object)).map_err(|e| format!("{source}: {e}"))
+    // (A store's and a sound's markers are the same for every one: no
+    // picture to tell them by; a waypoint is the flag the area view draws.)
+    let kind = mg_rules::ObjectKind::from_restype(restype)
+        .filter(|k| !matches!(k, mg_rules::ObjectKind::Store | mg_rules::ObjectKind::Sound));
+    let shown = mg_preview::Shown::Alone { female };
+    match kind.and_then(|k| mg_preview::of_object(game, k, &object, &items, shown)) {
+        Some(preview) => preview.map_err(|e| format!("{source}: {e}")),
+        None => Err(format!("{source}: no preview for {restype:?}")),
+    }
 }
 
 /// An Export Files waiting for an answer: the folder has files of some of

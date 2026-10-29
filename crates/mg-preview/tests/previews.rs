@@ -125,6 +125,56 @@ fn blueprints_assemble() {
     assert_eq!(d.base.model, door_types.get(1, "Model").unwrap().to_ascii_lowercase());
 }
 
+/// `of_object`, the one preview of an object the area view, a blueprint's
+/// view and `mg model-files` make, is each kind's own with its
+/// replacements, an item as it is shown alone or as it lies placed.
+#[test]
+fn an_object_s_preview_is_its_kind_s() {
+    use mg_preview::{Shown, of_object, replaced};
+    use mg_rules::ObjectKind as K;
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let items = items(&game);
+    let of = |kind, s: &mg_gff::Struct, shown| of_object(&game, kind, s, &items, shown).unwrap();
+    let alone = Shown::Alone { female: false };
+    let utc = blueprint(&game, "nw_hen_bod_05", ResType::UTC).root;
+    assert_eq!(of(K::Creature, &utc, alone).unwrap(), creature(&game, &utc, &items).unwrap());
+    let utp = blueprint(&game, "plc_armoire", ResType::UTP).root;
+    assert_eq!(of(K::Placeable, &utp, alone).unwrap(), placeable(&game, &utp).unwrap());
+    let utd = blueprint(&game, "nw_door_ttr_01", ResType::UTD).root;
+    assert_eq!(of(K::Door, &utd, Shown::Placed).unwrap(), door(&game, &utd).unwrap());
+    // (The game's waypoint blueprints have no appearance, and no flag.)
+    let mut utw = blueprint(&game, "nw_waypoint001", ResType::UTW).root;
+    assert!(of(K::Waypoint, &utw, alone).is_err());
+    utw.set("Appearance", mg_gff::Value::Byte(2));
+    assert_eq!(of(K::Waypoint, &utw, alone).unwrap().base.model, "gi_waypoint02");
+    // Armor: a body wearing it alone, a woman's where asked; the game's
+    // armor lying on the ground placed.
+    let uti = blueprint(&game, "nw_aarcl001", ResType::UTI).root;
+    assert_eq!(of(K::Item, &uti, alone).unwrap().base.model, "pmh0");
+    let on_her = of(K::Item, &uti, Shown::Alone { female: true }).unwrap();
+    assert_eq!(on_her.base.model, "pfh0");
+    let lying = of(K::Item, &uti, Shown::Placed).unwrap();
+    assert!(lying.base.model.starts_with("gi_armor0"), "{lying:?}");
+    // The replacements are applied.
+    let mut replacing = utp.clone();
+    let mut entry = mg_gff::Struct::new(0);
+    let old = placeable(&game, &utp).unwrap();
+    let texture = mg_preview::replaceable::textures(&game, &old).into_iter().next().unwrap();
+    entry.set("OldTexture", mg_gff::Value::resref(ResRef::from_str(&texture.name).unwrap()));
+    entry.set("NewTexture", mg_gff::Value::resref(ResRef::from_str("mg_new").unwrap()));
+    let mut outer = mg_gff::Struct::new(0);
+    outer.set("TextureReplaceLi", mg_gff::Value::List(vec![entry]));
+    replacing.set("TextureReplace", mg_gff::Value::Struct(outer));
+    let replaced_one = of(K::Placeable, &replacing, alone).unwrap();
+    assert_eq!(replaced_one, replaced(old, &replacing));
+    assert_ne!(replaced_one, placeable(&game, &utp).unwrap(), "a texture replaced");
+    // Encounters and triggers have no model.
+    assert!(of_object(&game, K::Trigger, &utp, &items, alone).is_none());
+}
+
 /// A part whose model names a texture that doesn't exist takes the texture
 /// of its own name, as the game does: `pfh0_belt063` names `beltmerged`.
 #[test]
