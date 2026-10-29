@@ -965,6 +965,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   were 1 (`tile-ok.mod`: OK alone does that too). What Aurora's Defaults
   is for is not known; whether Moonglow's goes is the owner's to say.
   (S) (from the research notes)
+- **Exact tile's reach** (issue #29): the Gallery offers a terrain's
+  and a crosser's tiles, not a group's pieces (one goes in alone through
+  Tile Properties' All tiles; the Features and Groups pictures are
+  placed whole, as their tip and the manual say); an exact tile takes
+  the replaced tile's height; a corner it disagrees on with a neighbor
+  is read as the tile to the north or east has it
+  (`Lattice::from_tiles`). The client draws such a seam as the area view
+  does: each tile's model as it is, a gap open to the sky
+  (`reading_exact_tile_seams`, 2026-10-29). What is left is Moonglow's
+  own design (the Gallery's reach, the corner rule), not the engine's:
+  proposed as settled. (S) (settle?: the owner's to say)
+- **Tile Height and what stands on a tile** (issue #29): an object goes
+  up or down with a tile whose square its position is over (doors on
+  its hooks, placeables, creatures, waypoints, a trigger's or
+  encounter's position with its outline), whatever its height above the
+  tile; Raise/Lower's corner strokes move none; the control's ±1024 is
+  Moonglow's reading bound, not the engine's. Heights below 0 and far
+  above stand in the server where Moonglow puts them
+  (`a_tile_s_own_height_stands_where_the_engine_puts_it`) and the client
+  draws them so: tiles at −2 and 20 (−10 m, 100 m) with an armoire on
+  each, the player entering on either, alike in the client and the area
+  view (`reading_tile_heights`, 2026-10-29). Measured as the engine
+  and the client do; what is left (the corner strokes, the ±1024 bound)
+  is Moonglow's own: proposed as settled. (S) (settle?: the owner's to
+  say)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
@@ -2975,23 +3000,3 @@ is not taken for a new gap.
   Aurora's). Pasted tiles over a group are refused, as Aurora refuses
   them (captured 2026-10-29: "Pasting tiles to current area failed.
   There was a feature or a group within the region…").
-- **Exact tile's reach** (issue #29): the Gallery offers a terrain's
-  and a crosser's tiles, not a group's pieces (one goes in alone through
-  Tile Properties' All tiles; the Features and Groups pictures are
-  placed whole, as their tip and the manual say); an exact tile takes
-  the replaced tile's height; a corner it disagrees on with a neighbor
-  is read as the tile to the north or east has it
-  (`Lattice::from_tiles`). The client draws such a seam as the area view
-  does: each tile's model as it is, a gap open to the sky
-  (`reading_exact_tile_seams`, 2026-10-29).
-- **Tile Height and what stands on a tile** (issue #29): an object goes
-  up or down with a tile whose square its position is over (doors on
-  its hooks, placeables, creatures, waypoints, a trigger's or
-  encounter's position with its outline), whatever its height above the
-  tile; Raise/Lower's corner strokes move none; the control's ±1024 is
-  Moonglow's reading bound, not the engine's. Heights below 0 and far
-  above stand in the server where Moonglow puts them
-  (`a_tile_s_own_height_stands_where_the_engine_puts_it`) and the client
-  draws them so: tiles at −2 and 20 (−10 m, 100 m) with an armoire on
-  each, the player entering on either, alike in the client and the area
-  view (`reading_tile_heights`, 2026-10-29).
