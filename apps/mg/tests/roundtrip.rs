@@ -7,7 +7,7 @@ use mg_resman::ResKey;
 use serde_json::Value as Json;
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
+    let out = crate::mg_alone().arg("--json").args(args).output().unwrap();
     let json = serde_json::from_slice(&out.stdout)
         .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stderr)));
     (out.status.success(), json)

@@ -8,9 +8,7 @@ node dummy base\n  parent NULL\nendnode\n\
 node dummy arm\n  parent base\nendnode\n\
 endmodelgeom base\ndonemodel base\n";
 
-fn mg(args: &[&str]) -> std::process::Output {
-    crate::mg().args(args).output().unwrap()
-}
+use crate::mg_output as mg;
 
 #[test]
 fn pack_compiles_the_models_kept_as_text_when_asked() {
@@ -58,11 +56,7 @@ fn pack_compiles_the_models_kept_as_text_when_asked() {
 fn cat_prints_a_compiled_model_as_text() {
     let root = mg_testkit::corpus!();
     let run = |args: &[&str]| {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
-            .args(args)
-            .output()
-            .unwrap();
+        let out = crate::mg_on(&root, None).args(args).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         out.stdout
     };

@@ -13,7 +13,7 @@ use mg_core::{ResRef, ResType};
 use mg_gff::Gff;
 use mg_module::Module;
 use mg_render::{Camera, Gpu, Renderer};
-use mg_resman::{GameInstall, LayerClass, ResKey, priority};
+use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 
 fn vec_var(name: &str) -> Option<glam::Vec3> {
@@ -32,9 +32,8 @@ fn main() {
     let install = GameInstall::new(&root, None, "en");
     let m = Module::open(std::path::Path::new(module)).unwrap();
     let mut game = GameData::open(&install).unwrap();
-    let haks = m.haks().unwrap();
-    game.resman.add_haks(&install, &haks).unwrap();
-    game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    let (missing, wrong) = m.stack_onto(&mut game.resman, &install);
+    assert!(missing.is_empty() && wrong.is_none(), "{missing:?} {wrong:?}");
     let area = ResRef::from_str(area).unwrap();
     let gff = |t| Gff::read(&game.resman.get(&ResKey::new(area, t)).unwrap()).unwrap();
     let (are, git) = (gff(ResType::ARE), gff(ResType::GIT));

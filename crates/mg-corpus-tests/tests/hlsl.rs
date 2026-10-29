@@ -29,11 +29,7 @@ use crate::area_common::each_module;
 #[test]
 fn the_game_s_programs_are_written_in_hlsl_as_direct3d_12_writes_them() {
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
     // (The area view's: four samples a pixel; the programs waited for.)
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     r.game_shaders = true;
@@ -193,11 +189,7 @@ const KNOWN_FXC_FAILURES: &[(&str, &str)] = &[("fslit_nm", "X3511"), ("fslit_sm_
 fn the_lit_check_draws_with_the_game_s_programs() {
     use std::io::Write;
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let rm = mg_resman::ResMan::for_game(&install).unwrap();
     let cache = mg_testkit::scratch_dir("lit-check-cache");
@@ -271,11 +263,7 @@ impl mg_render::Assets for Overridden<'_> {
 fn a_builder_s_include_leaves_the_lit_check_to_the_game_s_own() {
     use std::io::Write;
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let rm = mg_resman::ResMan::for_game(&install).unwrap();
     let out = mg_testkit::output_dir("lit-check");

@@ -76,6 +76,40 @@ fn mg() -> std::process::Command {
     mg
 }
 
+/// [`mg`] on the game installed at `root`, with `user` as the game's
+/// user folder or none (`--no-user-dir`): what a test of the game's data
+/// adds.
+fn mg_on(
+    root: impl AsRef<std::path::Path>,
+    user: Option<&std::path::Path>,
+) -> std::process::Command {
+    let mut mg = mg();
+    mg.arg("--root").arg(root.as_ref());
+    match user {
+        Some(user) => mg.arg("--user-dir").arg(user),
+        None => mg.arg("--no-user-dir"),
+    };
+    mg
+}
+
+/// [`mg`] with no user folder of the game's (`--no-user-dir`), on the
+/// game wherever it finds one: for what reads no game, or only its own.
+fn mg_alone() -> std::process::Command {
+    let mut mg = mg();
+    mg.arg("--no-user-dir");
+    mg
+}
+
+/// `mg --json ARGS`: whether it succeeded, and the JSON it printed.
+fn mg_json(args: &[&str]) -> (bool, serde_json::Value) {
+    json_out(mg().arg("--json").args(args))
+}
+
+/// `mg ARGS`, run to its end.
+fn mg_output(args: &[&str]) -> std::process::Output {
+    mg().args(args).output().unwrap()
+}
+
 /// What `mg` printed as JSON (`--json` among its arguments): whether it
 /// succeeded, and the JSON.
 fn json_out(mg: &mut std::process::Command) -> (bool, serde_json::Value) {

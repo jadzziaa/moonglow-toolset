@@ -4,9 +4,7 @@
 
 use std::process::Command;
 
-fn mg(args: &[&str]) -> std::process::Output {
-    crate::mg().args(args).output().unwrap()
-}
+use crate::mg_output as mg;
 
 fn ok(args: &[&str]) -> String {
     let out = mg(args);

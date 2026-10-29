@@ -37,6 +37,8 @@ pub(crate) struct Swept {
     unordered: Vec<String>,
     /// Decompiled models the linter has warnings or errors for.
     pub(crate) noisy: Vec<String>,
+    /// Each decompiled model compiled back (`mdl_compile.rs`).
+    pub(crate) compiled_back: crate::mdl_compile::CompiledBack,
 }
 
 /// Whether the text's nodes, in its order, are numbered 0, 1, 2… as the
@@ -73,7 +75,7 @@ fn order(data: &[u8], model: &Model, text: &str) -> Option<(bool, bool)> {
     Some((reordered, kept))
 }
 
-fn one(name: &ResRef, data: &[u8]) -> One {
+fn one(rm: &ResMan, back: &crate::mdl_compile::CompiledBack, name: &ResRef, data: &[u8]) -> One {
     let mut found = One::default();
     // The toolset's reader is tested on these; a model it cannot read is
     // only linted.
@@ -94,6 +96,7 @@ fn one(name: &ResRef, data: &[u8]) -> One {
     found.noise =
         (!bad.is_empty()).then(|| format!("{name}: {}", bad[..bad.len().min(3)].join("; ")));
     let Some(model) = model else { return found };
+    back.add(rm, name, data, &model, &text);
     found.order = order(data, &model, &text);
     let d = match Model::read(text.as_bytes()) {
         Ok(asc) => common::differences(&model, &asc),
@@ -117,11 +120,12 @@ pub(crate) fn swept(root: &std::path::Path) -> &'static Swept {
     SWEPT.get_or_init(|| {
         let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
         let names = mg_testkit::sweep(rm.list(ResType::MDL), 10);
+        let back = crate::mdl_compile::CompiledBack::default();
         let all: Vec<(String, One)> = names
             .par_iter()
             .filter_map(|name| {
                 let data = rm.get(&ResKey::new(*name, ResType::MDL)).ok()?;
-                mg_mdl::is_binary(&data).then(|| (name.to_string(), one(name, &data)))
+                mg_mdl::is_binary(&data).then(|| (name.to_string(), one(&rm, &back, name, &data)))
             })
             .collect();
         let mut s = Swept {
@@ -132,6 +136,7 @@ pub(crate) fn swept(root: &std::path::Path) -> &'static Swept {
             reordered: 0,
             unordered: Vec::new(),
             noisy: Vec::new(),
+            compiled_back: back,
         };
         for (name, found) in all {
             if let Some(d) = found.differs {

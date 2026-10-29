@@ -3,7 +3,7 @@
 use mg_core::ResType;
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_testkit::{bundled_modules, corpus, scratch_dir};
 use rayon::prelude::*;
 
@@ -31,12 +31,11 @@ fn shipped_modules_round_trip_through_the_workspace() {
             // keep areas in their haks).
             let install = GameInstall::new(&root, None, "en");
             let mut rm = ResMan::new();
-            let haks = original.haks().unwrap();
-            let hak_names: Vec<&str> = haks.iter().map(String::as_str).collect();
-            for missing in rm.add_haks(&install, &hak_names).unwrap() {
+            let (missing, wrong) = original.stack_onto(&mut rm, &install);
+            for missing in missing {
                 fails.push(format!("{name}: hak {missing} not shipped"));
             }
-            rm.add(priority::MODULE, "module", LayerClass::Erf, original.container());
+            assert!(wrong.is_none(), "{name}: {wrong:?}");
             for area in original.areas().unwrap() {
                 if !rm.contains(&ResKey::new(area, ResType::ARE)) {
                     fails.push(format!("{name}: area {area} listed but found nowhere"));

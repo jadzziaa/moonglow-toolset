@@ -6727,3 +6727,53 @@ fn script_selection_menu() {
     shoot(&mut h, &out, "script-selection-menu");
     eprintln!("{}", out.display());
 }
+
+/// The journal editor's lower half (the selection's fields): a category
+/// chosen, the pane dragged taller, then Root chosen, which has one line
+/// to show. The pane stays as tall as it was dragged to; it went back to
+/// that one line (as the conversation editor's did, fixed before).
+#[test]
+#[ignore]
+fn journal_lower_half_kept() {
+    mg_testkit::gpu::hold();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-journal-lower-half");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let path = dir.join("j.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Journal));
+    h.run_steps(4);
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    shoot(&mut h, &out, "journal-category");
+    let panel = egui::Id::new("journal-fields");
+    let r = egui::containers::panel::PanelState::load(&h.ctx, panel).unwrap().outer_rect;
+    let from = egui::pos2(r.center().x, r.top() + 2.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(button(from, true));
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.hover_at(from - egui::vec2(0.0, 25.0 * k as f32));
+        h.run_steps(1);
+    }
+    h.event(button(from - egui::vec2(0.0, 150.0), false));
+    shoot(&mut h, &out, "journal-dragged-taller");
+    h.get_by_label("Root").click();
+    shoot(&mut h, &out, "journal-root-chosen");
+}

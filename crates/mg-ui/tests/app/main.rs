@@ -29,3 +29,12 @@ mod tables;
 mod tiles;
 mod tree;
 mod windows;
+
+/// A file of this folder not named above as a module is not compiled: its
+/// tests would pass by not running.
+#[test]
+fn every_test_file_is_a_module() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/app");
+    let left_out = mg_testkit::unlisted_modules(&dir);
+    assert!(left_out.is_empty(), "not in tests/app/main.rs: {left_out:?}");
+}

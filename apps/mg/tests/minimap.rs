@@ -15,8 +15,8 @@ fn an_area_s_minimap_as_a_png() {
     let chess = root.join("data/mod/Neverwinter Chess.mod");
     let out = dir.join("chess.png");
     let mg = |extra: &[&str]| {
-        let o = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "minimap"])
+        let o = crate::mg_on(&root, None)
+            .arg("minimap")
             .arg(&chess)
             .args(["chess", out.to_str().unwrap()])
             .args(extra)

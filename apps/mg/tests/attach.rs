@@ -24,13 +24,7 @@ fn haks_and_a_talk_table_attach_in_one_step() {
     let path = dir.join("chess.mod");
     std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
 
-    let mg = |args: &[&str]| {
-        crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
-            .args(args)
-            .output()
-            .unwrap()
-    };
+    let mg = |args: &[&str]| crate::mg_on(&root, Some(user.as_ref())).args(args).output().unwrap();
     let file = |n: &str| download.join(n).to_str().unwrap().to_string();
     let (top, low, text) = (file("mg_top.hak"), file("mg_low.hak"), file("mg_text.tlk"));
     let out = mg(&["attach", path.to_str().unwrap(), &top, &low, &text]);

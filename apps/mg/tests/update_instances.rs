@@ -30,8 +30,8 @@ fn update_instances_remakes_a_blueprints_objects_and_saves() {
     let before = objects(&m, "Creature List");
     let placeables = objects(&m, "Placeable List");
 
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "update-instances"])
+    let out = crate::mg_on(&root, None)
+        .arg("update-instances")
         .arg(&path)
         .arg("gamemaster.utc")
         .output()

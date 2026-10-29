@@ -8,7 +8,7 @@
 
 use mg_module::Module;
 use mg_module::doctor::{Severity, TalkTables, examine};
-use mg_resman::{ErfContainer, GameInstall, LayerClass, ResMan, priority};
+use mg_resman::{GameInstall, ResMan};
 use mg_testkit::{bundled_modules, corpus};
 
 /// Findings in shipped content, checked by hand and real, counted by
@@ -62,14 +62,11 @@ fn shipped_modules_have_only_known_findings() {
     for path in bundled_modules(&root) {
         let m = Module::open(&path).unwrap();
         let mut rm = ResMan::for_game(&gi).unwrap();
-        for hak in m.haks().unwrap() {
-            let p = root.join("data/hk").join(format!("{hak}.hak"));
-            match ErfContainer::open(&p) {
-                Ok(c) => rm.add(priority::HAK_USER, format!("hak:{hak}"), LayerClass::Erf, c),
-                Err(_) => eprintln!("{}: hak {hak} not found", path.display()),
-            }
+        let (missing, wrong) = m.stack_onto(&mut rm, &gi);
+        for hak in missing {
+            eprintln!("{}: hak {hak} not found", path.display());
         }
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        assert!(wrong.is_none(), "{}: {wrong:?}", path.display());
         let custom = m.custom_tlk().ok().flatten().and_then(|name| {
             gi.tlk_dirs().iter().find_map(|d| {
                 let data = std::fs::read(d.join(format!("{name}.tlk"))).ok()?;

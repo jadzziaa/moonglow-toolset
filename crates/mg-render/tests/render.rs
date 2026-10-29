@@ -11,12 +11,7 @@ use mg_render::{
 };
 
 fn gpu() -> Option<Gpu> {
-    mg_testkit::gpu::hold();
-    let g = Gpu::headless();
-    if g.is_none() {
-        eprintln!("skipped: no GPU adapter");
-    }
-    g
+    mg_testkit::gpu::open(Gpu::headless)
 }
 
 /// A 2×2 quad on the ground, facing up, untextured.

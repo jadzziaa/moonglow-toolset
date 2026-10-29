@@ -37,7 +37,7 @@ fn guard(module: &Path) -> Struct {
 }
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
+    let out = crate::mg_alone().arg("--json").args(args).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
     let json = serde_json::from_slice(&out.stdout)

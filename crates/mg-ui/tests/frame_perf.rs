@@ -5,8 +5,9 @@
 //! clock moving on by a 144th of a second a frame), at the development
 //! machine's screen (3440×1440): with the pointer moving over it, with the
 //! wheel turning, and left alone (where it says how soon it asks to be
-//! drawn again). Timing only; the views over the budget are named at the
-//! end. (An area's picture is kept between its animations' steps, so its
+//! drawn again). The views over the budget are named at the end, and a
+//! test fails where one is over it by more than [`MARGIN`] and not among
+//! those the deferred list holds ([`KNOWN_OVER`]). (An area's picture is kept between its animations' steps, so its
 //! view's usual frame is short and the frame that draws it is the worst:
 //! "spikes" says that one is over the budget.) Needs the game (Tyrants of the Moonsea) and a GPU; run in release:
 //! `cargo test --release -p mg-ui --test frame_perf -- --ignored --nocapture`.
@@ -37,6 +38,18 @@ const SCREEN: egui::Vec2 = egui::vec2(3440.0, 1400.0);
 const FPS: f64 = 144.0;
 const BUDGET: Duration = Duration::from_micros(6_944);
 const FRAMES: usize = 72;
+/// How far past the budget a view's median goes before the test fails:
+/// the same build's times move from run to run (a tenth, and more with
+/// other programs busy).
+const MARGIN: f64 = 1.25;
+/// Views known to be over the budget, by a part of their names, and the
+/// entry of `docs/deferred.md` that holds each: named, but not failed.
+const KNOWN_OVER: &[(&str, &str)] = &[
+    // 8.0 ms, 2026-10-29.
+    ("store inventory, picker searched", "The blueprint picker over a large palette"),
+    // 13 to 16 ms seen whole, 21 to 28 turning, 2026-10-27.
+    ("area woods (", "A dense area seen whole is still slower with the switch on"),
+];
 
 const CAMPAIGN: &str = "Neverwinter Nights - Tyrants of the Moonsea.nwm";
 
@@ -55,6 +68,8 @@ enum Pointer {
 
 struct Report {
     over: Vec<String>,
+    /// Those over by more than [`MARGIN`] and not [`KNOWN_OVER`].
+    failed: Vec<String>,
     shots: bool,
     /// `FRAME_VIEW`: only the views with this in their name are timed.
     only: Option<String>,
@@ -70,11 +85,42 @@ impl Report {
         let var = |name: &str| std::env::var(name).ok();
         Report {
             over: Vec::new(),
+            failed: Vec::new(),
             shots: var("FRAME_SHOTS").is_some(),
             only: var("FRAME_VIEW"),
             count: var("FRAME_COUNT").and_then(|n| n.parse().ok()).unwrap_or(FRAMES),
             detail: var("FRAME_DETAIL").is_some(),
         }
+    }
+
+    /// `what` took `took` a frame: named if it is over the budget, failed
+    /// if by more than [`MARGIN`] and not [`KNOWN_OVER`].
+    fn took(&mut self, what: String, took: Duration) {
+        if took <= BUDGET {
+            return;
+        }
+        let known = KNOWN_OVER.iter().find(|(name, _)| what.contains(name));
+        let line = format!("{what}: {:.2} ms", ms(took));
+        match known {
+            Some((_, entry)) => self.over.push(format!("{line} (known: \"{entry}\")")),
+            None if took > BUDGET.mul_f64(MARGIN) => {
+                self.over.push(line.clone());
+                self.failed.push(line);
+            }
+            None => self.over.push(line),
+        }
+    }
+
+    /// Names the views over the budget, and fails for those over it by
+    /// more than [`MARGIN`] that aren't known.
+    fn end(&self) {
+        println!("over the budget:\n  {}", self.over.join("\n  "));
+        assert!(
+            self.failed.is_empty(),
+            "over the budget ({:.2} ms) by more than {MARGIN}:\n  {}",
+            ms(BUDGET),
+            self.failed.join("\n  ")
+        );
     }
 }
 
@@ -272,9 +318,7 @@ fn view_with(
             ms(pick(f.gpu.clone(), 0.5)),
             again(f.again),
         );
-        if median > BUDGET {
-            r.over.push(format!("{what} ({how}): {:.2} ms", ms(median)));
-        }
+        r.took(format!("{what} ({how})"), median);
         if r.detail {
             let each: Vec<String> = f.ui.iter().map(|d| format!("{:.1}", ms(*d))).collect();
             println!("      frames: {}", each.join(" "));
@@ -868,7 +912,7 @@ fn frames_at_144() {
             area_parts(&mut h, *area, r.count, &[false], false);
         }
     }
-    println!("over the budget:\n  {}", r.over.join("\n  "));
+    r.end();
 }
 
 /// The persistent world's views (`world/mod.rs`): the lists at the sizes
@@ -990,7 +1034,7 @@ fn frames_at_144_in_a_persistent_world() {
     h.run_steps(2);
     view(&mut h, &mut r, "log of 10,000 lines, 2,000 fixes", None);
     h.state_mut().log.clear();
-    println!("over the budget:\n  {}", r.over.join("\n  "));
+    r.end();
 }
 
 /// The persistent world (`world/mod.rs`) kept as a nasher project, built
@@ -1229,10 +1273,8 @@ fn reload_frames_at_144() {
     let ws = h.state_mut().ws.as_mut().unwrap();
     assert_eq!(ws.doc(&mine).unwrap().root.string("Tag"), Some(&b"MINE"[..]), "kept");
     assert_eq!(h.state().outside_conflicts(), [mine_path]);
-    if longest > BUDGET {
-        r.over.push(format!("reload after a pull: longest frame {:.1} ms", ms(longest)));
-    }
-    println!("over the budget:\n  {}", r.over.join("\n  "));
+    r.took("reload after a pull, its longest frame".into(), longest);
+    r.end();
 }
 
 /// Grass's cost: a 32 by 32 rural field (ttr01, grass on nearly every
@@ -1365,9 +1407,7 @@ fn grass_frames_at_144() {
         times.push(t.elapsed());
     }
     println!("  grown again (a drag's frame): {:.2} ms", ms(pick(times, 0.5)));
-    for over in &r.over {
-        println!("OVER: {over}");
-    }
+    r.end();
 }
 
 /// The Shaders switch's cost (`docs/shaders-proposal.md`, M3): a large
@@ -1432,7 +1472,7 @@ fn game_shaders_frames_at_144() {
             None => println!("skipped The Domains of Dread: no tdod_t_tap.hak in MOONGLOW_HAKS"),
         }
     }
-    println!("over the budget:\n  {}", r.over.join("\n  "));
+    r.end();
 }
 
 /// A stock area of water, grass and fires (M5's special surfaces): 16 by

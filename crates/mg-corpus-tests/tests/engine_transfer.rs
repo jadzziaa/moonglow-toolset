@@ -7,7 +7,7 @@ use std::time::Duration;
 use mg_core::{ResRef, ResType};
 use mg_module::transfer::{export_erf, import_erf, plan_export, plan_import};
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_schema::{StructExt, ifo};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
@@ -37,7 +37,8 @@ fn exported_area_imports_into_another_module_intact() {
     let source = Module::open(&root.join("data/nwm/Prelude.nwm")).unwrap();
     let area = source.areas().unwrap()[0];
     let mut rm = ResMan::for_game(&install).unwrap();
-    rm.add(priority::MODULE, "module", LayerClass::Erf, source.container());
+    let (missing, wrong) = source.stack_onto(&mut rm, &install);
+    assert!(missing.is_empty() && wrong.is_none(), "{missing:?} {wrong:?}");
     let plan = plan_export(&source, &[ResKey::new(area, ResType::ARE)], &rm);
     assert!(plan.resources.len() > 3, "an area and its dependencies: {:?}", plan.resources);
     let erf = export_erf(&source, &plan.resources, "exported by Moonglow", true).unwrap();

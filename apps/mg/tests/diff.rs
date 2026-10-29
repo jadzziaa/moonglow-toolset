@@ -5,9 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-fn mg(args: &[&str]) -> (bool, Value) {
-    crate::json_out(crate::mg().arg("--json").args(args))
-}
+use crate::mg_json as mg;
 
 fn write(dir: &Path, name: &str, rows: &str) -> String {
     let path = dir.join(name);

@@ -36,7 +36,7 @@ fn described_folder(name: &str) -> std::path::PathBuf {
 #[test]
 fn vars_lists_the_project_s_described_variables() {
     let dir = described_folder("mg-vars-list");
-    let out = crate::mg().args(["--json", "--no-user-dir", "vars"]).arg(&dir).output().unwrap();
+    let out = crate::mg_alone().args(["--json", "vars"]).arg(&dir).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["undescribed"], serde_json::json!(["tdod_*"]));
@@ -56,20 +56,16 @@ fn vars_lists_the_project_s_described_variables() {
         "the module's script's constants"
     );
     // For people, and only what goes on an area.
-    let out =
-        crate::mg().args(["--no-user-dir", "vars", "--on", "area"]).arg(&dir).output().unwrap();
+    let out = crate::mg_alone().args(["vars", "--on", "area"]).arg(&dir).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(text.trim(), "tdod_settlement\ta String, on an area");
-    let out =
-        crate::mg().args(["--no-user-dir", "vars", "--on", "house"]).arg(&dir).output().unwrap();
+    let out = crate::mg_alone().args(["vars", "--on", "house"]).arg(&dir).output().unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("one of module, area, creature"));
-    let out =
-        crate::mg().args(["--no-user-dir", "vars"]).arg(&dir).arg("tdod_lit").output().unwrap();
+    let out = crate::mg_alone().arg("vars").arg(&dir).arg("tdod_lit").output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(text.trim(), "tdod_lit\tan Int, on a placeable\t1 (lit)");
-    let out =
-        crate::mg().args(["--no-user-dir", "vars"]).arg(&dir).arg("tdod_trodden").output().unwrap();
+    let out = crate::mg_alone().arg("vars").arg(&dir).arg("tdod_trodden").output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
         text.trim(),
@@ -101,8 +97,7 @@ fn vars_lists_the_module_s_undescribed_variables() {
     utc.root.set("VarTable", Value::List(vec![var("nw_spawned"), var("tdod_trodden")]));
     m.set_gff(ResKey::new(ResRef::from_str("guard").unwrap(), ResType::UTC), &utc).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
-    let out =
-        crate::mg().args(["--no-user-dir", "vars", "--undescribed"]).arg(&dir).output().unwrap();
+    let out = crate::mg_alone().args(["vars", "--undescribed"]).arg(&dir).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
@@ -118,8 +113,8 @@ fn vars_lists_the_module_s_undescribed_variables() {
     );
     assert!(String::from_utf8_lossy(&out.stderr).contains("3 variables of the module no"));
     // Of one kind of object, of the names a glob takes; as JSON.
-    let out = crate::mg()
-        .args(["--json", "--no-user-dir", "vars", "--undescribed", "--on", "module"])
+    let out = crate::mg_alone()
+        .args(["--json", "vars", "--undescribed", "--on", "module"])
         .arg(&dir)
         .arg("tdod_*")
         .output()
@@ -161,12 +156,8 @@ fn vars_reads_a_table_of_the_module_s_haks() {
     )
     .unwrap();
     let vars = |user: Option<&std::path::Path>| {
-        let mut c = crate::mg();
-        c.args(["--json", "--root", root.to_str().unwrap()]);
-        match user {
-            Some(u) => c.args(["--user-dir", u.to_str().unwrap()]),
-            None => c.arg("--no-user-dir"),
-        };
+        let mut c = crate::mg_on(&root, user);
+        c.arg("--json");
         let out = c.arg("vars").arg(&dir).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -269,11 +260,7 @@ fn verify_holds_variables_to_their_descriptions() {
     m.set_gff(git, &g).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(dir.join("variables.toml"), DESCRIBED).unwrap();
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .arg(&dir)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--json"]).arg(&dir).output().unwrap();
     assert!(!out.status.success(), "a variable of another type fails Verify");
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let ours: Vec<(&str, &str, &str)> = json["findings"]
@@ -314,8 +301,8 @@ fn verify_holds_variables_to_their_descriptions() {
         ]
     );
     // The scripts' own taken out when asked; the rest kept.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify"])
+    let out = crate::mg_on(&root, None)
+        .arg("verify")
         .args(["--fix", "var-runtime"])
         .arg(&dir)
         .output()
@@ -355,11 +342,7 @@ fn a_mod_s_own_files_beside_it_are_its_project_s() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     std::fs::write(dir.join("chess.variables.toml"), "[kz_lit]\ntype = \"int\"\n").unwrap();
     std::fs::write(dir.join("chess.moonglow.toml"), "[commands]\nupdate = \"x\"\n").unwrap();
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--json"]).arg(&path).output().unwrap();
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let found = json["findings"].as_array().unwrap();
     let typed = found.iter().find(|f| f["check"] == "var-type").expect("var-type");
@@ -367,7 +350,7 @@ fn a_mod_s_own_files_beside_it_are_its_project_s() {
         typed["message"],
         "kz_lit is a String here, and chess.variables.toml:1 says it is an Int: the scripts read 0"
     );
-    let out = crate::mg().args(["--json", "--no-user-dir", "vars"]).arg(&path).output().unwrap();
+    let out = crate::mg_alone().args(["--json", "vars"]).arg(&path).output().unwrap();
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["variables"][0]["name"], "kz_lit");
     assert!(
@@ -389,8 +372,8 @@ fn areas_var_takes_a_described_variable_s_type() {
     let mut m = Module::open(&chess).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(dir.join("variables.toml"), DESCRIBED).unwrap();
-    let out = crate::mg()
-        .args(["--no-user-dir", "areas"])
+    let out = crate::mg_alone()
+        .arg("areas")
         .arg(&dir)
         .args(["--all", "--var", "tdod_settlement=1", "--var", "tdod_lit:int=1"])
         .output()

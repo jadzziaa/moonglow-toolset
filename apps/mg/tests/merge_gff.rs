@@ -7,11 +7,8 @@ use std::process::Command;
 use mg_core::ResType;
 use mg_gff::{Gff, Struct, Value};
 use mg_module::nasher::Conversion;
-use serde_json::Value as Json;
 
-fn mg(args: &[&str]) -> (bool, Json) {
-    crate::json_out(crate::mg().arg("--json").args(args))
-}
+use crate::mg_json as mg;
 
 fn placeable(template: &str, tag: &str, x: f32) -> Struct {
     let mut s = Struct::new(9);

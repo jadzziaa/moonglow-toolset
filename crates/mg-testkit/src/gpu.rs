@@ -43,6 +43,18 @@ pub fn hold() {
     take(1);
 }
 
+/// [`hold`], then the device `open` makes (`mg_render::Gpu::headless`,
+/// say); `None`, and the test said to be skipped, where there is no
+/// GPU adapter to make one on.
+pub fn open<T>(open: impl FnOnce() -> Option<T>) -> Option<T> {
+    hold();
+    let device = open();
+    if device.is_none() {
+        eprintln!("skipped: no GPU adapter");
+    }
+    device
+}
+
 /// Takes the GPU alone for the rest of the calling test, waiting for every
 /// other GPU test to end: for a test that changes what every render does
 /// (`mg_render::guard::fail_on`). Called after [`hold`], it waits for the

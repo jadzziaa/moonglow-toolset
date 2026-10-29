@@ -331,8 +331,8 @@ fn a_lighting_scheme_is_given_to_the_areas() {
     m.set_gff(are_key, &are).unwrap();
     m.save().unwrap();
     let run = |args: &[&str]| {
-        let mut cmd = crate::mg();
-        cmd.args(["--root", root.to_str().unwrap(), "--no-user-dir", "areas"]);
+        let mut cmd = crate::mg_on(&root, None);
+        cmd.arg("areas");
         let out = cmd.arg(&path).args(args).output().unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         (out.status.success(), text(&out.stdout), text(&out.stderr))
@@ -384,8 +384,8 @@ fn a_lighting_scheme_is_given_to_the_areas() {
     std::fs::copy(&path, &a).unwrap();
     std::fs::copy(&path, &b).unwrap();
     let run_on = |module: &std::path::Path, args: &[&str]| {
-        let mut cmd = crate::mg();
-        cmd.args(["--root", root.to_str().unwrap(), "--no-user-dir", "areas"]);
+        let mut cmd = crate::mg_on(&root, None);
+        cmd.arg("areas");
         let out = cmd.arg(module).args(args).output().unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         assert!(out.status.success(), "{}", text(&out.stderr));

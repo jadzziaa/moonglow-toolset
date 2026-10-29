@@ -24,21 +24,26 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
-- **Sweeps still walked more than once:** the areas of every module by
-  four tests (they share the module's set-up, not the walk: the renders
-  hold the GPU, and the others read each area differently), and
-  `decompiled_models_compile_back` decompiles each model a second time
-  (10 s of the full run's 28 s for models). nasher still unpacks each
-  edited module once more, as the test is about that. (M)
+- **Sweeps still walked more than once:** the areas of every module, by
+  five tests (`areas`, `hlsl`, `minimaps`, `object_walkmeshes`,
+  `tiles`, through `area_common::each_module`): they share the
+  module's set-up, not the walk, as the renders hold the GPU and the
+  others read each area differently. No walk of the five together is
+  proposed: the owner's word on keeping them so (Settled) is what
+  closes it. (The models are decompiled once since 2026-10-29; nasher
+  still unpacks each edited module once more, as the test is about
+  that.) (M)
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
   split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
-  81 harnesses at kittest's default size (`Harness::new_ui_state`), 26
+  86 harnesses at kittest's default size (`Harness::new_ui_state`), 27
   installs made apart from the application (read before it, in another
   language, or by a test's own helper), 14 scratch user folders, each
-  with its own subfolders, and 6 harnesses with a step of their own;
-  and nothing fails when a file in `tests/app/` is not named in
-  `main.rs` (its tests would not run), as the corpus groups' check does.
-  (S)
+  with its own subfolders, and 6 harnesses with a step of their own.
+  They are in 17 of the folder's 21 files, the scripts', the area
+  view's and the lists' among them, which the deferred sprint's other
+  packages of 2026-10-29 change: folded after those merge, not beside
+  them. (A file not named in `main.rs` fails
+  `every_test_file_is_a_module` since 2026-10-29.) (M)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:
@@ -53,14 +58,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
   which the viewer doesn't set, so its compiled-shader cache is named by
   the passes' `FORMAT` alone and no longer starts anew when it moves to a
   newer toolset tag. One line at the viewer's start
-  (`mg_core::release::set`, its own version) names it as before. (S)
-- **Shared test fixtures written many times, what is left:** `fn lines`
-  of the Aurora tests is one (`aurora_common`, 2026-10-27) and reading
-  `mg --json`'s answer is `json_out` and `quiet_json_out` in the command
-  line's group, but each file of `apps/mg/tests` still has its own
-  wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
-  and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
-  mg-render's tests'. (S)
+  (`mg_core::release::set`, its own version) names it as before. Not
+  yet a fault: the viewer is on v2.8.0, whose `mg-shader` names the
+  cache by its own version (`CARGO_PKG_VERSION`, 2.8.0), and
+  `mg_core::release` is in v2.9.0 and after, so the line can only go in
+  with the viewer's move to a newer tag (in its repository, not this
+  one). (S, waits on the viewer's next toolset tag)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -296,8 +299,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   campaigns' areas differ by a few pixels to a few hundred between two
   runs of the same program. Something is ordered by chance (a hash map's
   order, likely among lights or an object's parts). Not looked for. (S)
-- **The frame test only times:** `frame_perf.rs` names the views over
-  the budget and fails nothing. With budgets it would keep them. (S)
 
 ## EE fields Aurora hides
 
@@ -1479,7 +1480,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `MG_CLOSE` and `grass_overrides_look`'s `MG_DISTANCE` and `MG_PITCH`
   set it at once, so their pictures were likely taken from the client's
   own camera. Not changed: the numbers measured from them (in
-  `docs/research/notes_models.md`) would be taken again with it. (S)
+  `docs/research/notes_models.md`) would be taken again with it, in a
+  session that runs the client (the sprint's fix waves of 2026-10-29
+  ran none, other sessions having the off-screen display). (S, waits on
+  a client session)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
@@ -1714,16 +1718,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
   start area; Aurora removes it (after asking twice) and then refuses
   to save: "A module must have a starting location to be valid." (S)
-- **Panes' sizes at start:** the module tree is held to two fifths of
-  the window and the log to half its height, whatever egui remembered
-  (a builder's module opened with the tree over the whole window: a
-  long name widened it, and it could not be dragged back); a name too
-  long for the tree scrolls sideways into view since 2.8.0. Docked
-  panes' splits are held between 12% and 88% (the palettes'), and the
-  lower halves of the script, conversation and journal editors to a
-  share of their editor, and the talk table editor's to seven tenths.
-  The limits on the script, conversation and journal editors' lower
-  halves aren't under test (the talk table's are). (S)
 - **Windows' sizes and Maximize:** a window's size is remembered by the
   kind of editor, not its place on screen; Maximize is a double click on
   the tab or its menu, with no button in the window's bar (egui_dock
@@ -2431,9 +2425,6 @@ unless it says so.
   results (copied twice), the thumbnails' lists for the Appearance
   Gallery and the Creature Wizard, the module tree's rows for the
   keyboard (each group's resources copied). (S each)
-- **Written more than once, in the tests:** some corpus tests still
-  stack the game, a module's haks and the module by hand, where
-  `Module::stack_onto` does it for mg and the window. (S)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same

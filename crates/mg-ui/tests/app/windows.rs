@@ -2025,3 +2025,71 @@ fn scripts_open_as_tabs_of_one_window() {
     let third = open(&mut h, keys[2]);
     assert_ne!(third.0, first.0, "a window of its own");
 }
+
+/// The lower halves of the script, conversation and journal editors
+/// (the compiler's pane, the selection's fields) are dragged up only so
+/// far: three fifths of the script editor, seven tenths of the others,
+/// the text or the lines above keeping their room.
+#[test]
+fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
+    let dir = mg_testkit::scratch_dir("ui-lower-halves");
+    let path = sample_module(&dir);
+    let script = ResKey::parse("held", ResType::NSS).unwrap();
+    let talk = ResKey::parse("held", ResType::DLG).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(script, b"void main()\n{\n}\n".to_vec());
+    let mut g = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there.");
+    m.set_gff(talk, &g).unwrap();
+    m.save().unwrap();
+    for (tab, panel, share) in [
+        (Tab::Script(script), egui::Id::new(("script-info", script)), 0.6),
+        (Tab::Dialog(talk), egui::Id::new(("dlg-data", talk)), 0.7),
+        (Tab::Journal, egui::Id::new("journal-fields"), 0.7),
+    ] {
+        let mut app = app_with(Vec::new());
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        let mut h = harness(app, 1200.0, 900.0);
+        h.run_steps(4);
+        let rect = |h: &Harness<'_, Moonglow>| {
+            egui::containers::panel::PanelState::load(&h.ctx, panel)
+                .unwrap_or_else(|| panic!("{tab:?}: no lower half"))
+                .outer_rect
+        };
+        // (Dragged by its top edge.)
+        let drag = |h: &mut Harness<'_, Moonglow>, by: f32| {
+            let r = rect(h);
+            let from = egui::pos2(r.center().x, r.top() + 2.0);
+            h.hover_at(from);
+            h.run_steps(1);
+            press(h, from, true, egui::Modifiers::NONE);
+            h.run_steps(1);
+            for k in 1..=6 {
+                h.hover_at(from + egui::vec2(0.0, by * k as f32 / 6.0));
+                h.run_steps(1);
+            }
+            press(h, from + egui::vec2(0.0, by), false, egui::Modifiers::NONE);
+            h.run_steps(3);
+        };
+        let before = rect(&h).height();
+        drag(&mut h, -60.0);
+        let dragged = rect(&h).height();
+        assert!((dragged - before - 60.0).abs() < 3.0, "{tab:?}: dragged {before} to {dragged}");
+        drag(&mut h, -2000.0);
+        let highest = rect(&h).height();
+        let editor = h
+            .state()
+            .dock
+            .iter_leaves()
+            .map(|(_, l)| l)
+            .find(|l| l.tabs.contains(&tab))
+            .map(|l| l.rect.height())
+            .unwrap_or_else(|| panic!("{tab:?}: not open"));
+        assert!(highest > dragged + 50.0, "{tab:?}: taller still, {dragged} to {highest}");
+        assert!(highest <= editor * share + 1.0, "{tab:?}: {highest} of {editor}, held to {share}");
+        drag(&mut h, -300.0);
+        assert!((rect(&h).height() - highest).abs() < 1.0, "{tab:?}: no higher");
+    }
+}

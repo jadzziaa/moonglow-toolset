@@ -21,11 +21,7 @@ fn a_conversation_goes_out_as_ink_and_back() {
         .max_by_key(|k| m.get(k).map_or(0, <[u8]>::len))
         .unwrap();
     let mg = |args: &[&str]| {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
-            .args(args)
-            .output()
-            .unwrap();
+        let out = crate::mg_on(&root, None).args(args).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     };
     let ink = dir.join("story.ink");

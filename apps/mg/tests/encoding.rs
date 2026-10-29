@@ -20,13 +20,7 @@ fn guard(module: &Path) -> Struct {
 }
 
 fn mg(root: &Path, user: Option<&Path>, args: &[&str]) -> (bool, Json) {
-    let mut c = crate::mg();
-    c.args(["--json", "--root", root.to_str().unwrap()]);
-    match user {
-        Some(u) => c.args(["--user-dir", u.to_str().unwrap()]),
-        None => c.arg("--no-user-dir"),
-    };
-    let out = c.args(args).output().unwrap();
+    let out = crate::mg_on(root, user).arg("--json").args(args).output().unwrap();
     let json = serde_json::from_slice(&out.stdout).unwrap_or(Json::Null);
     (out.status.success(), json)
 }

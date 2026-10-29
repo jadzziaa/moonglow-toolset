@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use mg_module::Module;
 use mg_module::verify::{missing, module_references, unused};
-use mg_resman::{GameInstall, LayerClass, ResMan, priority};
+use mg_resman::{GameInstall, ResMan};
 
 fn main() {
     let root = mg_testkit::nwn_root().expect("no game install");
@@ -14,9 +14,8 @@ fn main() {
     for path in mg_testkit::bundled_modules(&root) {
         let m = Module::open(&path).unwrap();
         let mut rm = ResMan::for_game(&install).unwrap();
-        let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        let (missing_haks, wrong) = m.stack_onto(&mut rm, &install);
+        assert!(missing_haks.is_empty() && wrong.is_none(), "{missing_haks:?} {wrong:?}");
         let refs = module_references(&m);
         let miss = missing(&m, &rm);
         let mut by_kind: BTreeMap<String, usize> = BTreeMap::new();

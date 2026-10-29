@@ -80,8 +80,8 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     m.set_gff(ResKey::parse("a1", ResType::GIT).unwrap(), &git).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.join("module"))).unwrap();
 
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+    let out = crate::mg_on(&root, Some(user.as_ref()))
+        .arg("--json")
         .args(["haks", "--usage", dir.join("module").to_str().unwrap()])
         .output()
         .unwrap();
@@ -123,8 +123,7 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     assert_eq!(names(hak("mg_usage_top"), "used_resources"), ["mg_usage_wood.tga"]);
 
     // As text: a line a hak, and the whole.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+    let out = crate::mg_on(&root, Some(user.as_ref()))
         .args(["haks", "--usage", dir.join("module").to_str().unwrap()])
         .output()
         .unwrap();
@@ -157,8 +156,7 @@ fn which_names_every_copy_of_a_resource() {
     m.set_info(&info).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.join("module"))).unwrap();
     let which = |json: bool| {
-        let mut c = crate::mg();
-        c.args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()]);
+        let mut c = crate::mg_on(&root, Some(user.as_ref()));
         if json {
             c.arg("--json");
         }
@@ -184,8 +182,7 @@ fn which_names_every_copy_of_a_resource() {
         ["hak:mg_which_top", "hak:mg_which_low (overridden by hak:mg_which_top)"]
     );
     // Without the module: the game's alone.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+    let out = crate::mg_on(&root, Some(user.as_ref()))
         .args(["--json", "which", "portraits.2da"])
         .output()
         .unwrap();

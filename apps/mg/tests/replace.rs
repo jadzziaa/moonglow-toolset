@@ -18,8 +18,8 @@ fn replace_lists_then_changes_the_modules_text() {
     assert!(!hits.is_empty(), "the module names {word}");
     let bytes = std::fs::read(&path).unwrap();
     let run = |extra: &[&str]| {
-        crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "replace", "--whole-word"])
+        crate::mg_on(&root, None)
+            .args(["replace", "--whole-word"])
             .args(extra)
             .arg(&path)
             .args([word, "victor"])
