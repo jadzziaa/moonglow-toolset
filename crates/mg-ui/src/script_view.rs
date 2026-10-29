@@ -407,10 +407,22 @@ pub(crate) fn with_keys(app: &Moonglow, ctx: &egui::Context) -> Option<ResKey> {
 /// Drawn before the editor, the toolbar sees the keys where they were
 /// before its own click.
 pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
+    // (An editor not drawn the frame its keys were to come back: none.)
+    app.script_tools.keys_back = None;
     if app.menu_open.is_none() {
         app.undo_script = with_keys(app, ctx);
     }
     app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
+}
+
+/// The keys back in the editor of the script that had them as a menu
+/// was opened (`Moonglow::undo_script`), where nothing else took them
+/// meanwhile: a menu closed with nothing chosen. (Once the editor is
+/// drawn: a click on the menu's name would take them again as it is.)
+pub(crate) fn give_keys_back(app: &mut Moonglow, ctx: &egui::Context) {
+    if ctx.memory(|m| m.focused().is_none()) {
+        app.script_tools.keys_back = app.undo_script.filter(|k| app.scripts.contains_key(k));
+    }
 }
 
 /// Edit › Undo (or, `redo`, Redo) in the script's editor: a step of its
@@ -1422,7 +1434,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (a.min(b), a.max(b))
     });
     buf.seen = Some((shown.state.offset, cursor_now));
-    if stepped.is_some() {
+    if stepped.is_some() || script_tools.keys_back.take_if(|k| *k == key).is_some() {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }
     if let Some(tabs) = convert {

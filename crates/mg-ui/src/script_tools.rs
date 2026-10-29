@@ -190,6 +190,9 @@ pub struct ScriptTools {
     /// toolbar's, while the script is the one worked in
     /// (`script_view::undo_target`).
     pub(crate) undo: Option<(ResKey, bool)>,
+    /// A script's editor to give the keys back to once it is drawn (a
+    /// menu opened from it closed with nothing chosen).
+    pub(crate) keys_back: Option<ResKey>,
     /// The script whose editor had the keyboard last.
     pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.

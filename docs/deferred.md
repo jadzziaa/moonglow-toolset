@@ -97,20 +97,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
   and give the keys back to the editor; the module's history was not
-  given the script's typing. Left: they are not grayed with nothing in
-  the script's history (reading egui's history copies all of it, each
-  frame); a menu opened from a script and closed with nothing chosen
-  leaves the keyboard nowhere, so Ctrl+Z is the module's then, as
-  after any click outside the editor; a key given to Undo or Redo in
-  Options, other than Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, does nothing in
-  a script (read from the code, not tried); the Command Palette's Undo
-  is the module's (its field has the keys). Seen meanwhile: the
-  toolbar's Undo clicked after the pointer was over a hak's editor
-  took back the module's step, not the hak's (the pointer has left the
-  editor by then), so Edit › Undo and the toolbar's are the module's
-  for a side editor; its own Undo is Ctrl+Z with the pointer over it,
-  or with the keys in a 2DA's grid. (S each) (a builder's report on
-  1.25.1)
+  given the script's typing; a menu closed with nothing chosen gives
+  the keys back to the editor, and Undo's and Redo's keys of Options ›
+  Keyboard are the script's there (2026-10-29). Left: they are not
+  grayed with nothing in the script's history (egui's `TextEditState`
+  hands its history out only as a copy of all of it, each frame) (drop?:
+  proposed by the sprint on 2026-10-29, the owner's to say); the Command
+  Palette's Undo is the module's (its field has the keys) (settle?:
+  proposed by the sprint on 2026-10-29, the owner's to say). (S each) (a
+  builder's report on 1.25.1)
 
 ## nasher projects
 

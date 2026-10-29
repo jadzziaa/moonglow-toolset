@@ -461,8 +461,8 @@ typed in it; clicked into and not typed in, it has nothing of its own,
 and Undo is the editor's, as a field elsewhere leaves Undo to the
 module's. A script's editor
 keeps its own steps of its text: while it has the keyboard, Ctrl+Z and
-Ctrl+Y, Edit › Undo and Redo and the toolbar's are all the script's
-(see [Scripts](07-scripts.md)).
+Ctrl+Y, the keys set in Options › Keyboard, Edit › Undo and Redo and
+the toolbar's are all the script's (see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
 the Options' colors) opens a picker. Its 📋 copies the color's values
