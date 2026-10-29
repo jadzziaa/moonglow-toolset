@@ -850,7 +850,7 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
             ui.end_row();
         }
         for edge in EDGES {
-            crate::widgets::field_label(ui, &format!("{edge} edge"));
+            crate::widgets::field_label(ui, format!("{edge} edge"));
             name_key(ui, d, &section, edge, &crossers, true);
             ui.end_row();
         }
