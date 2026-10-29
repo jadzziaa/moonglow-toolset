@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:06:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:12:30Z }
 ---
 
 # Scripts
@@ -104,11 +104,17 @@ them with the game's (Aurora's Resources to Show). A click selects a
 script; Ctrl+click adds one or takes it away, Shift+click selects the
 ones between it and the one clicked before, and Down and Up (Page
 Down, Page Up) move the selection, with Shift widening it, while the
-name is typed too. **Open** (or Enter) opens every script selected,
-each in its tab; with none selected, Enter opens the first listed
-(typing in the name clears the selection). A double click opens that
-script alone. The game's and a hak's open to
-be read. In **Find Text**, Enter finds the next match, again and again;
+name is typed too. Home and End go to the first and the last script
+listed (Shift widens to it), and Ctrl+A selects every one listed; while
+a name is typed in its field, those three are the field's own (to the
+start or end of the name, all of it). **Open** (or Enter) opens every
+script selected, each in its tab; with none selected, Enter opens the
+first listed (typing in the name clears the selection). A double click
+opens that script alone. A right click on a script selects it (unless
+it is selected already) and has **Open** (**Open N Selected**),
+**Select All Listed** and **Copy Name**. Only scripts listed stay
+selected: choosing other resources to show takes away those it hides.
+The game's and a hak's open to be read. In **Find Text**, Enter finds the next match, again and again;
 without Match case, accents are set aside as case is (`arbol` finds
 `Árbol` in a comment or a string).
 **Find In Currently Open Scripts** lists every match in the scripts open

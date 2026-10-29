@@ -1938,6 +1938,64 @@ fn open_script_opens_the_scripts_selected_together() {
     h.run_steps(4);
     assert_eq!(open_now(&h), ["s1", "s2", "s3", "s6"]);
     assert!(h.state().script_tools.open_script.is_none());
+
+    // Home and End: to the first and the last listed (Shift widens);
+    // Ctrl+A selects every one listed.
+    let all = ["hello", "s1", "s2", "s3", "s4", "s5", "s6"];
+    window(&mut h);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s6"]);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Home);
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    h.get_by_label("s2").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    // While a name is typed in its field, they are the field's: Ctrl+A
+    // selects its text, not the scripts.
+    (h.get_all_by_role(egui::accesskit::Role::TextInput))
+        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
+        .expect("the name field")
+        .click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("s".into()));
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "a name typed starts over");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "the field's keys: {:?}", selected(&h));
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter.clear();
+    h.run_steps(2);
+    // Scripts selected and then hidden by what is shown are selected no
+    // more (Open would not open them).
+    h.get_by_label("s1").click();
+    h.run_steps(2);
+    h.get_by_label("Hak Pak Resources Only").click();
+    h.run_steps(2);
+    h.get_by_label("Module Resources Only").click();
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "{:?}", selected(&h));
+    // A right click on a script: it alone selected, and a menu.
+    h.get_by_label("s4").click_secondary();
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s4"]);
+    h.get_by_label("Select All Listed").click();
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    h.get_by_label("s5").click();
+    h.run_steps(2);
+    h.get_by_label("s6").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(30);
+    h.get_by_label("s6").click_secondary();
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s5", "s6"], "a script selected keeps the selection");
+    h.get_by_label("Open 2 Selected").click();
+    h.run_steps(4);
+    assert_eq!(open_now(&h), ["s1", "s2", "s3", "s5", "s6"]);
 }
 
 /// Enter in the script editor begins the new line as far in as the line

@@ -6506,3 +6506,43 @@ fn table_game_s_own_wrong_cells() {
     go(&mut h, 0);
     shoot(&mut h, &out, "table-appearance-typed-footstep");
 }
+
+/// Open Script with scripts selected by Ctrl+A, and a script's right-click
+/// menu (`open-script-selected`, `open-script-menu`).
+#[test]
+#[ignore]
+fn open_script_menu() {
+    mg_testkit::gpu::hold();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-open-script");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    for name in ["hello", "gate_open", "gate_close", "guard_spawn", "inc_guard"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("scripts.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.tree_stays = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(hello)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    shoot(&mut h, &out, "open-script-selected");
+    h.get_by_label("gate_open").click();
+    h.run_steps(30);
+    h.get_by_label("guard_spawn").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(30);
+    h.get_by_label("guard_spawn").click_secondary();
+    shoot(&mut h, &out, "open-script-menu");
+    eprintln!("{}", out.display());
+}

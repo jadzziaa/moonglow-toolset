@@ -2226,10 +2226,13 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
 /// The Open Script window: a name to find, which scripts to show (as
 /// Aurora's Resources to Show), and the list. A click selects a script,
 /// Ctrl+click adds one or takes it away, Shift+click selects those
-/// between, the arrows move the selection (with Shift, widen it); Enter or
-/// Open opens every one selected, each in its tab (with none selected,
-/// Enter opens the first listed), and a double click opens that one (El
-/// Grillo's request). The game's and a hak's open to be read only.
+/// between, the arrows, Page Down and Up, Home and End move the selection
+/// (with Shift, widen it), Ctrl+A selects every one listed; Enter or Open
+/// opens every one selected, each in its tab (with none selected, Enter
+/// opens the first listed), and a double click opens that one (El
+/// Grillo's request); a right click has a menu. Home, End and Ctrl+A are
+/// the name's own while a name is typed in it. Only scripts listed stay
+/// selected. The game's and a hak's open to be read only.
 fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::script_tools::{ScriptFrom, ScriptsShown};
     let Some(mut w) = app.script_tools.open_script.take() else { return };
@@ -2241,24 +2244,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
         .show(ctx, |ui| {
             // Down and Up (Page Down and Up) move the selection among the
             // scripts listed, while the name is typed too; with Shift,
-            // they widen it.
+            // they widen it. Home and End too, and Ctrl+A selects all,
+            // unless the name has the keyboard with a name in it (they
+            // are its own then: to its start and end, all its text).
+            let name_id = ui.make_persistent_id("open_script_name");
+            let typing = !w.filter.is_empty() && ui.memory(|m| m.has_focus(name_id));
             let (mut moved, mut widen): (isize, bool) = (0, false);
-            for (key, by) in [
+            let far = isize::MAX / 4;
+            let mut keys = vec![
                 (egui::Key::ArrowDown, 1),
                 (egui::Key::ArrowUp, -1),
                 (egui::Key::PageDown, 10),
-                (egui::Key::PageUp, -10),
-            ] {
+            ];
+            keys.push((egui::Key::PageUp, -10));
+            if !typing {
+                keys.extend([(egui::Key::End, far), (egui::Key::Home, -far)]);
+            }
+            for (key, by) in keys {
                 // (Shift first: a key without it matches one with it.)
                 if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, key)) {
-                    moved += by;
+                    moved = moved.saturating_add(by);
                     widen = true;
                 } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
-                    moved += by;
+                    moved = moved.saturating_add(by);
                 }
             }
+            let mut select_all =
+                !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A));
             let field = ui.add(
                 egui::TextEdit::singleline(&mut w.filter)
+                    .id(name_id)
                     .hint_text("Find by name")
                     .desired_width(f32::INFINITY),
             );
@@ -2296,6 +2311,12 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .copied()
                 .collect();
             let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();
+            // (Scripts hidden by what is shown, or by the name, are no
+            // longer selected: Open would not open them.)
+            w.selected.retain(|k| names.contains(k));
+            if w.anchor.is_some_and(|a| !names.contains(&a)) {
+                w.anchor = None;
+            }
             let last = listed.len().saturating_sub(1) as isize;
             let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
             w.cursor = cursor;
@@ -2366,9 +2387,48 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                         if r.double_clicked() {
                             chosen = vec![(key, from)];
                         }
+                        // A right click: on a script not selected, that
+                        // one alone first, as a click.
+                        if r.secondary_clicked() && !w.selected.contains(&key) {
+                            crate::widgets::select_in_list(
+                                &mut w.selected,
+                                &mut w.anchor,
+                                &names,
+                                key,
+                                false,
+                                false,
+                            );
+                            w.cursor = at;
+                        }
+                        r.context_menu(|ui| {
+                            let several = w.selected.len() > 1;
+                            let label = match several {
+                                true => format!("Open {} Selected", w.selected.len()),
+                                false => "Open".to_string(),
+                            };
+                            if ui.button(label).clicked() {
+                                chosen = (listed.iter())
+                                    .filter(|(k, _)| w.selected.contains(k) || *k == key)
+                                    .copied()
+                                    .collect();
+                                ui.close();
+                            }
+                            if ui.button("Select All Listed").clicked() {
+                                select_all = true;
+                                ui.close();
+                            }
+                            if ui.button("Copy Name").clicked() {
+                                ui.ctx().copy_text(key.resref.to_string());
+                                ui.close();
+                            }
+                        });
                     });
                 }
             });
+            if select_all {
+                w.selected = names.iter().copied().collect();
+                w.anchor = names.first().copied();
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 let button = egui::Button::new(match picked.len() {

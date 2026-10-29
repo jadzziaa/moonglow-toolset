@@ -89,12 +89,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   nothing unsaved in the script does nothing, as its grayed button.
   Aurora's script editor (a window of its own there) has its own Save on
   Ctrl+S; it was not driven to see what it writes. (S)
-- **Open Script's list** takes a click, Ctrl+click, Shift+click, the
-  arrows (Shift to widen), Page Down and Up, Enter and a double click;
-  not Home and End, Ctrl+A, or a right-click menu. Typing in the name
-  clears the selection (Enter then opens the first listed, as before);
-  scripts selected and then hidden by choosing other resources to show
-  stay selected but aren't opened. (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S)
