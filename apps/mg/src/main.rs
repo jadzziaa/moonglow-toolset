@@ -1059,6 +1059,14 @@ enum Cmd {
         /// Work it out; write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Then send the repository to the web server: run this command
+        /// (default: the project's [nwsync] upload) in the repository's
+        /// folder once for each part, the data, then the manifests, then
+        /// latest, each after the one before succeeded ({part} the part's
+        /// name, {folder} the folder): `--upload "rsync -a {part}
+        /// you@host:/srv/nwsync/"`.
+        #[arg(long, value_name = "COMMAND", num_args = 0..=1)]
+        upload: Option<Option<String>>,
     },
     /// Tidy an NWSync repository, as nwn_nwsync_prune does: remove the
     /// data files no manifest names (once older than --min-age), the
@@ -1076,6 +1084,12 @@ enum Cmd {
         /// Say what would go; remove nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Then send the repository to the web server, as `mg nwsync
+        /// --upload` does, the manifests before the data (a command that
+        /// takes away what the folder no longer has, rsync's --delete,
+        /// takes a manifest away before the data it names).
+        #[arg(long, value_name = "COMMAND")]
+        upload: Option<String>,
     },
     /// Import an ERF into a module and save it. What the ERF was made
     /// from (stamped by Moonglow's export) is said, with a warning when
@@ -1592,6 +1606,72 @@ static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new())
 /// folder beside it (Aurora's module directory, which the window asks
 /// about) is the `.mod`, as the game's server reads it: the output says
 /// so, once, and that the folder is left as it is.
+/// Sends an NWSync repository to the web server: the builder's command
+/// `template` run in the repository's folder for each of `parts` it has,
+/// in turn, each only after the one before succeeded
+/// (`mg_module::nwsync::upload_command`), by the system's shell. Its
+/// output goes to standard error (standard output is mg's own: the JSON),
+/// and it reads the terminal, so a password it asks for is answered there.
+/// Which part it sends, and how, is said as it starts (with `--json`, in
+/// the notes). Returns the parts sent.
+fn nwsync_upload(
+    repository: &Path,
+    template: &str,
+    parts: &[mg_module::nwsync::Part],
+    project: Option<&Path>,
+    json: bool,
+    out: &mut Output,
+) -> Result<Vec<&'static str>> {
+    use mg_module::nwsync::{upload_command, upload_parts};
+    let parts = upload_parts(repository, parts).map_err(anyhow::Error::msg)?;
+    let mut sent = Vec::new();
+    for part in parts {
+        let text = upload_command(template, repository, part);
+        let said = format!("sending {}: {text}", part.name());
+        if json {
+            out.note(said);
+        } else {
+            eprintln!("mg: {said}");
+        }
+        #[cfg(windows)]
+        let mut c = {
+            use std::os::windows::process::CommandExt;
+            let mut c = std::process::Command::new("cmd");
+            // (As typed: cmd reads its own quotes.)
+            c.arg("/C").raw_arg(&text);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut c = {
+            let mut c = std::process::Command::new("sh");
+            c.arg("-c").arg(&text);
+            c
+        };
+        c.current_dir(repository)
+            .stdout(std::process::Stdio::from(io::stderr()))
+            .env("MOONGLOW_NWSYNC_FOLDER", repository)
+            .env("MOONGLOW_NWSYNC_PART", part.name());
+        if let Some(root) = project {
+            c.env("MOONGLOW_PROJECT", root);
+        }
+        let status = c.status().with_context(|| format!("running {text}"))?;
+        if !status.success() {
+            let before = if sent.is_empty() {
+                "nothing was sent".to_string()
+            } else {
+                format!("{} sent before it, nothing after", sent.join(", "))
+            };
+            bail!(
+                "the upload command failed sending {} ({status}): {before}; the web server \
+                 serves what it did before",
+                part.name()
+            );
+        }
+        sent.push(part.name());
+    }
+    Ok(sent)
+}
+
 pub(crate) fn open_module(path: &Path) -> std::result::Result<Module, mg_module::ModuleError> {
     let m = Module::open(path)?;
     if let Some(folder) = mg_module::folder::beside_mod(path) {
@@ -3830,8 +3910,31 @@ fn run(cli: &Cli) -> Result<Output> {
             limit_file_size,
             force,
             dry_run,
+            upload,
         } => {
             let m = crate::open_module(module)?;
+            // (The command found before anything is written.)
+            let project = m
+                .location
+                .as_ref()
+                .and_then(mg_module::project_file::ProjectFile::root_of)
+                .map(Path::to_path_buf);
+            let upload = match upload {
+                None => None,
+                Some(Some(c)) => Some(c.clone()),
+                Some(None) => match m.project_file.nwsync_upload.as_ref().map(|c| c.run.clone()) {
+                    Some(Some(c)) => Some(c),
+                    Some(None) => bail!(
+                        "the project's [nwsync] upload names no command for this system: give \
+                         one, --upload \"COMMAND\""
+                    ),
+                    None => bail!(
+                        "no upload command: the module's project names none ([nwsync] upload in \
+                         moonglow.toml): give one, --upload \"rsync -a {{part}} \
+                         you@host:/srv/nwsync/\""
+                    ),
+                },
+            };
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -3869,6 +3972,17 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let w = mg_module::nwsync::write(repository, &contents, &o, &mut |_, _| {})
                 .map_err(anyhow::Error::msg)?;
+            let parts = &mg_module::nwsync::AFTER_PUBLISHING[..if *no_latest { 2 } else { 3 }];
+            let uploaded = match &upload {
+                Some(_) if *dry_run => {
+                    out.note("nothing uploaded: a dry run");
+                    Vec::new()
+                }
+                Some(c) => {
+                    nwsync_upload(repository, c, parts, project.as_deref(), cli.json, &mut out)?
+                }
+                None => Vec::new(),
+            };
             out.json = json!({
                 "repository": path_text(repository),
                 "sha1": w.sha1,
@@ -3877,6 +3991,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "on_disk_bytes": w.on_disk,
                 "new_files": w.new_files,
                 "dry_run": *dry_run,
+                "uploaded": uploaded,
             });
             out.line(w.sha1.clone());
             out.note(format!(
@@ -3888,16 +4003,38 @@ fn run(cli: &Cli) -> Result<Output> {
                 w.new_files,
                 if *dry_run { "; nothing written" } else { "" }
             ));
-            out.note(format!(
-                "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",
-                repository.display()
-            ));
+            if uploaded.is_empty() {
+                out.note(format!(
+                    "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",
+                    repository.display()
+                ));
+            } else {
+                out.note(format!("uploaded: {} sent", uploaded.join(", ")));
+            }
             out
         }
-        Cmd::NwsyncPrune { repository, min_age, dry_run } => {
+        Cmd::NwsyncPrune { repository, min_age, dry_run, upload } => {
             let p = mg_module::nwsync::prune(repository, *min_age, *dry_run)
                 .map_err(anyhow::Error::msg)?;
             let mut out = Output::default();
+            let uploaded = match upload {
+                Some(_) if *dry_run => {
+                    out.note("nothing uploaded: a dry run");
+                    Vec::new()
+                }
+                Some(c) => nwsync_upload(
+                    repository,
+                    c,
+                    &mg_module::nwsync::AFTER_PRUNING,
+                    None,
+                    cli.json,
+                    &mut out,
+                )?,
+                None => Vec::new(),
+            };
+            if !uploaded.is_empty() {
+                out.note(format!("uploaded: {} sent", uploaded.join(", ")));
+            }
             let shown = |v: &[PathBuf]| v.iter().map(|p| path_text(p)).collect::<Vec<_>>();
             out.json = json!({
                 "repository": path_text(repository),
@@ -3910,6 +4047,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "missing": p.missing.iter().map(|(sha, m)| json!({"sha1": sha, "manifest": m})).collect::<Vec<_>>(),
                 "problems": p.problems,
                 "dry_run": *dry_run,
+                "uploaded": uploaded,
             });
             for f in p.removed.iter().chain(&p.dangling) {
                 out.line(path_text(f));

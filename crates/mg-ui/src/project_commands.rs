@@ -59,7 +59,7 @@ use crate::Moonglow;
 /// has begun and not ended yet (a question, "Password: ").
 #[derive(Debug, Default)]
 struct Incoming {
-    lines: Vec<(bool, String)>,
+    lines: Vec<(Said, String)>,
     partial: [Vec<u8>; 2],
 }
 
@@ -72,9 +72,9 @@ impl Incoming {
     /// The lines begun ended (an answer to them typed, as a terminal
     /// ends the line when Enter is pressed).
     fn end_lines(&mut self) {
-        for (err, p) in [false, true].into_iter().zip(&mut self.partial) {
+        for (said, p) in [Said::Out, Said::Error].into_iter().zip(&mut self.partial) {
             if !p.is_empty() {
-                self.lines.push((err, line_text(&std::mem::take(p))));
+                self.lines.push((said, line_text(&std::mem::take(p))));
             }
         }
     }
@@ -98,14 +98,16 @@ pub(crate) struct CommandsState {
     /// The running command's input, where it reads what is typed.
     input: Option<Input>,
     /// Whether a command is running (the job's window shows its output),
-    /// and whether the module's haks were let go for it.
+    /// whether the project's files were let go for it (a project's
+    /// command; not an upload), and the module's haks.
     running: bool,
+    let_go: bool,
     released: bool,
     /// The Command Output window is open.
     pub(crate) show: bool,
     /// Lines in the command's window not yet in the log (taken as an
     /// answer was typed).
-    unlogged: Vec<(bool, String)>,
+    unlogged: Vec<(Said, String)>,
 }
 
 /// What a line of a command's output is.
@@ -115,6 +117,8 @@ enum Said {
     Error,
     /// What the builder typed for it (a hidden line is not kept).
     Typed,
+    /// Moonglow's own: which program runs now, of several.
+    Note,
 }
 
 /// The last command run, as its window shows it.
@@ -158,7 +162,25 @@ pub(crate) struct Ask {
     pub root: PathBuf,
     pub writes: bool,
     pub input: bool,
+    /// The project's NWSync upload (`[nwsync] upload`), not one of its
+    /// `[commands]`.
+    pub upload: Option<UploadAsk>,
 }
+
+/// The project's NWSync upload, waiting to be allowed.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UploadAsk {
+    /// The repository it sends, and its parts, in turn.
+    pub folder: PathBuf,
+    pub parts: Vec<mg_module::nwsync::Part>,
+    /// From the builder's own file (`.moonglow/user.toml`).
+    pub own: bool,
+}
+
+/// The name a project's NWSync upload is allowed by, among its commands':
+/// none of theirs is so named ([`ProjectFile`]'s names are letters,
+/// digits, `_` and `-`).
+pub(crate) const UPLOAD_NAME: &str = "[nwsync] upload";
 
 /// The id a project's command's keys are kept under (Options ›
 /// Keyboard): by its name, so that a team's `update` keeps its key from
@@ -214,11 +236,17 @@ pub(crate) fn run(app: &mut Moonglow, name: &str) {
     };
     if !allowed(app, &root, &c.name, &text) {
         let (writes, input) = (c.writes, c.input);
-        let ask = Ask { name: c.name, label: c.label, run: text, root, writes, input };
+        let ask =
+            Ask { name: c.name, label: c.label, run: text, root, writes, input, upload: None };
         app.project_commands.ask = Some(ask);
         return;
     }
     start(app, &c.label, &text, &root, (c.writes, c.input));
+}
+
+/// Whether the project's NWSync upload, as it reads now, was allowed.
+pub(crate) fn upload_allowed(app: &Moonglow, root: &Path, run: &str) -> bool {
+    allowed(app, root, UPLOAD_NAME, run)
 }
 
 /// Allows a command as it reads (in Moonglow's settings, for this
@@ -228,12 +256,15 @@ fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     // (One text a command: the one allowed before is forgotten.)
     app.settings.allowed_commands.retain(|(p, n, _)| !(*p == project && *n == ask.name));
     app.settings.allowed_commands.push((project, ask.name.clone(), ask.run.clone()));
-    start(app, &ask.label, &ask.run, &ask.root, (ask.writes, ask.input));
+    match &ask.upload {
+        Some(u) => crate::nwsync_view::upload(app, &u.folder, &u.parts),
+        None => start(app, &ask.label, &ask.run, &ask.root, (ask.writes, ask.input)),
+    }
 }
 
 /// The shell command that runs `text`, in `root`, its output read and
 /// its input closed (`input`: read from Moonglow).
-fn shell(text: &str, root: &Path, input: bool) -> Command {
+pub(crate) fn shell(text: &str, root: &Path, input: bool) -> Command {
     #[cfg(windows)]
     let mut c = {
         use std::os::windows::process::CommandExt;
@@ -277,6 +308,7 @@ fn read_pipe(pipe: Option<impl std::io::Read>, err: bool, output: &Output) {
     let Some(mut pipe) = pipe else { return };
     let mut buf = [0u8; 4096];
     let at = usize::from(err);
+    let said = if err { Said::Error } else { Said::Out };
     loop {
         let n = match pipe.read(&mut buf) {
             Ok(0) | Err(_) => break,
@@ -286,13 +318,13 @@ fn read_pipe(pipe: Option<impl std::io::Read>, err: bool, output: &Output) {
         o.partial[at].extend_from_slice(&buf[..n]);
         while let Some(end) = o.partial[at].iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = o.partial[at].drain(..=end).collect();
-            o.lines.push((err, line_text(&line)));
+            o.lines.push((said, line_text(&line)));
         }
     }
     let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
     let rest = std::mem::take(&mut o.partial[at]);
     if !rest.is_empty() {
-        o.lines.push((err, line_text(&rest)));
+        o.lines.push((said, line_text(&rest)));
     }
 }
 
@@ -337,34 +369,46 @@ fn stop(child: &mut Child) {
 
 /// How a command ended.
 #[derive(Debug)]
-enum Ended {
+pub(crate) enum Ended {
     Exited(Option<i32>),
     Failed(String),
     Canceled,
 }
 
-/// Runs a command as a job (the window takes nothing else meanwhile),
-/// the module's files let go (its haks only where it `writes`), and reads
-/// them again after.
-fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, (writes, input): (bool, bool)) {
-    // (Another job under way: nothing is let go for one that can't start.)
-    if let Some(job) = &app.job {
-        app.log.warn(format!("{label}: waiting for {} to finish", job.title));
-        return;
+impl Ended {
+    pub(crate) fn succeeded(&self) -> bool {
+        matches!(self, Ended::Exited(Some(0)))
     }
-    app.log.info(format!("{label}: {text} (in {})", root.display()));
-    app.pause_outside();
-    // (A command that writes none of the module's files has its haks
-    // left open: nothing to draw again after.)
-    let released = writes && app.release_haks();
-    let output = app.project_commands.output.clone();
-    *output.lock().unwrap_or_else(|e| e.into_inner()) = Incoming::default();
-    let state = &mut app.project_commands;
-    state.last = Some(Last { label: label.to_string(), ..Last::default() });
-    state.running = true;
-    state.released = released;
-    let (send, typed) = std::sync::mpsc::channel::<Option<String>>();
-    state.input = input.then(|| Input { text: String::new(), hidden: false, send, focused: false });
+}
+
+/// One program of a run: the line Moonglow says before it (which of
+/// several runs now), and the command.
+pub(crate) struct Step {
+    pub note: Option<String>,
+    pub command: Command,
+}
+
+/// Programs run in turn as a job, their output in the job's window, the
+/// log and Command Output: a project's command, or an NWSync upload.
+pub(crate) struct Run {
+    /// The job's name, and its output's.
+    pub label: String,
+    pub steps: Vec<Step>,
+    /// They read what is typed (`input = true`).
+    pub input: bool,
+    /// Where all it said is shown afterwards, for the log's line of a
+    /// failure.
+    pub output_at: &'static str,
+    /// The project's files let go while it runs and read again after (a
+    /// project's command), and the haks too (one that `writes`); none for
+    /// an upload, which touches none of them.
+    pub let_go: Option<bool>,
+}
+
+/// Runs a project's command as a job (the window takes nothing else
+/// meanwhile), the module's files let go (its haks only where it
+/// `writes`), and reads them again after.
+fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, (writes, input): (bool, bool)) {
     let mut command = shell(text, root, input);
     command.env("MOONGLOW_PROJECT", root);
     if let Some(code) =
@@ -372,67 +416,82 @@ fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, (writes, inpu
     {
         command.env("MOONGLOW_BUILDER", code);
     }
-    let label = label.to_string();
+    // (Another job under way: said, and nothing let go.)
+    if app.job.is_none() {
+        app.log.info(format!("{label}: {text} (in {})", root.display()));
+    }
+    let run = Run {
+        label: label.to_string(),
+        steps: vec![Step { note: None, command }],
+        input,
+        output_at: "File › Project › Command Output",
+        let_go: Some(writes),
+    };
+    run_steps(app, run, |_, _, _| {});
+}
+
+/// Runs `run`'s programs in turn as a job, each after the one before
+/// succeeded; then `then` hears how the last one run ended, and which it
+/// was (of the steps).
+pub(crate) fn run_steps(
+    app: &mut Moonglow,
+    run: Run,
+    then: impl FnOnce(&mut Moonglow, &Ended, usize) + 'static,
+) {
+    let Run { label, steps, input, output_at, let_go } = run;
+    // (Another job under way: nothing is let go for one that can't start.)
+    if let Some(job) = &app.job {
+        app.log.warn(format!("{label}: waiting for {} to finish", job.title));
+        return;
+    }
+    if let_go.is_some() {
+        app.pause_outside();
+    }
+    // (A command that writes none of the module's files has its haks
+    // left open: nothing to draw again after.)
+    let released = let_go == Some(true) && app.release_haks();
+    let output = app.project_commands.output.clone();
+    *output.lock().unwrap_or_else(|e| e.into_inner()) = Incoming::default();
+    let state = &mut app.project_commands;
+    state.last = Some(Last { label: label.clone(), ..Last::default() });
+    state.running = true;
+    state.let_go = let_go.is_some();
+    state.released = released;
+    let (send, typed) = std::sync::mpsc::channel::<Option<String>>();
+    state.input = input.then(|| Input { text: String::new(), hidden: false, send, focused: false });
     let title = label.clone();
     let finished = std::rc::Rc::new(std::cell::Cell::new(false));
     let done = finished.clone();
-    app.start_job(
+    let let_go = let_go.is_some();
+    app.start_job_anywhere(
         title,
         move |cx| {
-            let mut child = match command.spawn() {
-                Ok(c) => c,
-                Err(e) => return Ended::Failed(e.to_string()),
-            };
-            // Each line into the log as it comes, and the job's window.
-            let read = |pipe: Option<Box<dyn std::io::Read + Send>>, err: bool| {
-                let output = output.clone();
-                std::thread::spawn(move || read_pipe(pipe, err, &output))
-            };
-            let out = read(child.stdout.take().map(|p| Box::new(p) as _), false);
-            let errs = read(child.stderr.take().map(|p| Box::new(p) as _), true);
-            // What is typed, to its input as it comes (closed with End
-            // Input, or as the command ends).
-            if let Some(mut stdin) = child.stdin.take() {
-                std::thread::spawn(move || {
-                    use std::io::Write;
-                    while let Ok(Some(line)) = typed.recv() {
-                        let sent = stdin.write_all(format!("{line}\n").as_bytes());
-                        if sent.and_then(|()| stdin.flush()).is_err() {
-                            break;
-                        }
-                    }
-                });
-            }
-            let ended = loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => break Ended::Exited(status.code()),
-                    Ok(None) if cx.progress.cancelled() => {
-                        stop(&mut child);
-                        break Ended::Canceled;
-                    }
-                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
-                    Err(e) => break Ended::Failed(e.to_string()),
+            let n = steps.len();
+            // (End Input closes the input of what runs after too.)
+            let mut closed = false;
+            for (i, step) in steps.into_iter().enumerate() {
+                if let Some(note) = step.note {
+                    let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
+                    o.lines.push((Said::Note, note));
                 }
-            };
-            // (A program it started may hold the pipes past its end.)
-            if !matches!(ended, Ended::Canceled) {
-                let _ = out.join();
-                let _ = errs.join();
+                let ended = run_child(step.command, &output, &typed, &mut closed, &cx.progress);
+                if !ended.succeeded() || i + 1 == n {
+                    return (ended, i);
+                }
             }
-            ended
+            (Ended::Exited(Some(0)), 0)
         },
-        move |app, ended| {
+        move |app, (ended, step): (Ended, usize)| {
             done.set(true);
             take_output(app);
-            let said = match ended {
+            let said = match &ended {
                 Ended::Exited(Some(0)) => {
                     app.log.info(format!("{label}: done"));
                     "Done.".to_string()
                 }
                 Ended::Exited(Some(code)) => {
                     app.log.error(format!(
-                        "{label} failed: it ended with exit code {code} (all it said: File › \
-                         Project › Command Output)"
+                        "{label} failed: it ended with exit code {code} (all it said: {output_at})"
                     ));
                     format!("Failed: it ended with exit code {code}.")
                 }
@@ -450,15 +509,82 @@ fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, (writes, inpu
                 }
             };
             ended_with(app, said);
-            reopened(app, released);
+            if let_go {
+                reopened(app, released);
+            }
+            then(app, &ended, step);
         },
     );
     // (A job that could not start, or called off: the files are taken
     // back at once.)
     if !app.busy() && !finished.get() {
         ended_with(app, "Canceled (stopped).".to_string());
-        reopened(app, released);
+        if let_go {
+            reopened(app, released);
+        }
     }
+}
+
+/// Runs one program to its end (or until the job is called off): its
+/// output into `output` as it comes, and what is typed to its input.
+fn run_child(
+    mut command: Command,
+    output: &Output,
+    typed: &std::sync::mpsc::Receiver<Option<String>>,
+    closed: &mut bool,
+    progress: &crate::jobs::Progress,
+) -> Ended {
+    use std::io::Write;
+    if *closed {
+        command.stdin(Stdio::null());
+    }
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => return Ended::Failed(e.to_string()),
+    };
+    // Each line into the log as it comes, and the job's window.
+    let read = |pipe: Option<Box<dyn std::io::Read + Send>>, err: bool| {
+        let output = output.clone();
+        std::thread::spawn(move || read_pipe(pipe, err, &output))
+    };
+    let out = read(child.stdout.take().map(|p| Box::new(p) as _), false);
+    let errs = read(child.stderr.take().map(|p| Box::new(p) as _), true);
+    let mut stdin = child.stdin.take();
+    let ended = loop {
+        // What is typed, to its input as it comes (closed with End
+        // Input, or as the program ends).
+        while let Ok(line) = typed.try_recv() {
+            match (line, &mut stdin) {
+                (Some(line), Some(pipe)) => {
+                    let sent = pipe.write_all(format!("{line}\n").as_bytes());
+                    if sent.and_then(|()| pipe.flush()).is_err() {
+                        stdin = None;
+                    }
+                }
+                (Some(_), None) => {}
+                (None, _) => {
+                    stdin = None;
+                    *closed = true;
+                }
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ended::Exited(status.code()),
+            Ok(None) if progress.cancelled() => {
+                stop(&mut child);
+                break Ended::Canceled;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(e) => break Ended::Failed(e.to_string()),
+        }
+    };
+    drop(stdin);
+    // (A program it started may hold the pipes past its end.)
+    if !matches!(ended, Ended::Canceled) {
+        let _ = out.join();
+        let _ = errs.join();
+    }
+    ended
 }
 
 /// The command over: how it ended, in its window; its input closed.
@@ -488,22 +614,22 @@ fn reopened(app: &mut Moonglow, released: bool) {
 /// The output come since last time, into the log and the command's
 /// window.
 fn take_output(app: &mut Moonglow) {
-    for (err, line) in take_output_into(&mut app.project_commands) {
-        if err {
-            app.log.warn(format!("  {line}"));
-        } else {
-            app.log.info(format!("  {line}"));
+    for (said, line) in take_output_into(&mut app.project_commands) {
+        match said {
+            Said::Error => app.log.warn(format!("  {line}")),
+            Said::Note => app.log.info(line),
+            Said::Out | Said::Typed => app.log.info(format!("  {line}")),
         }
     }
 }
 
 /// [`take_output`] into the command's window; returns the lines for the
 /// log.
-fn take_output_into(state: &mut CommandsState) -> Vec<(bool, String)> {
+fn take_output_into(state: &mut CommandsState) -> Vec<(Said, String)> {
     let lines = std::mem::take(&mut state.output.lock().unwrap_or_else(|e| e.into_inner()).lines);
     if let Some(last) = &mut state.last {
-        for (err, line) in &lines {
-            last.push(if *err { Said::Error } else { Said::Out }, line.clone());
+        for (said, line) in &lines {
+            last.push(*said, line.clone());
         }
     }
     let mut kept = std::mem::take(&mut state.unlogged);
@@ -547,6 +673,7 @@ fn output_lines(ui: &mut Ui, last: &Last, partial: &[String; 2], height: f32, id
                     Said::Out => text,
                     Said::Error => text.color(warn),
                     Said::Typed => text.weak(),
+                    Said::Note => text.weak().italics(),
                 };
                 ui.add(egui::Label::new(text).extend());
             }
@@ -654,6 +781,13 @@ fn output_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// How the last run ended, where it was the one named `label`: `None`
+/// inside while it runs; none where the last run was another.
+pub(crate) fn last_of(app: &Moonglow, label: &str) -> Option<Option<String>> {
+    let last = app.project_commands.last.as_ref().filter(|l| l.label == label)?;
+    Some(last.ended.clone())
+}
+
 /// Whether there is a command's output to show (Command Output).
 pub(crate) fn has_output(app: &Moonglow) -> bool {
     app.project_commands.last.is_some()
@@ -683,7 +817,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if app.project_commands.running && !app.busy() {
         ended_with(app, "Canceled (stopped).".to_string());
         let released = app.project_commands.released;
-        reopened(app, released);
+        if app.project_commands.let_go {
+            reopened(app, released);
+        }
     }
     output_window(app, ctx);
     let Some(ask) = app.project_commands.ask.clone() else { return };
@@ -694,10 +830,15 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.set_max_width(480.0);
+            let at = ask.upload.as_ref().map_or(&ask.root, |u| &u.folder);
+            let file = match &ask.upload {
+                Some(u) if u.own => ".moonglow/user.toml",
+                _ => "moonglow.toml",
+            };
             ui.label(format!(
-                "The project's moonglow.toml asks to run {}, in {}:",
+                "The project's {file} asks to run {}, in {}:",
                 ask.label,
-                ask.root.display()
+                at.display()
             ));
             ui.add_space(4.0);
             egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -709,11 +850,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                  program. Allow it only if you trust where this project came from, and the \
                  command reads as you expect.",
             );
-            ui.weak(
+            ui.weak(if ask.upload.is_some() {
+                "Allowed, it runs without asking until its text changes (kept in Moonglow's own \
+                 settings for this folder, not in the project). It runs once for each part of \
+                 the repository in turn, so that the web server never serves a manifest whose \
+                 data isn't there yet."
+            } else {
                 "Allowed, it runs without asking until its text changes (kept in Moonglow's own \
                  settings for this folder, not in the project). Moonglow saves the module first, \
-                 and reads its files again after.",
-            );
+                 and reads its files again after."
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 run = ui.button("Allow and Run").clicked();

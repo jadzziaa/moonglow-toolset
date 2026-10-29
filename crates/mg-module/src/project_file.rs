@@ -360,6 +360,22 @@ pub struct ProjectCommand {
     pub input: bool,
 }
 
+/// `[nwsync] upload`: the command Build › Publish to NWSync runs to send
+/// the repository to the web server that serves it, once for each of its
+/// parts in turn (`{folder}` the repository, `{part}` the part:
+/// [`crate::nwsync::upload_command`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UploadCommand {
+    /// What runs, on this system (none: the file gives none for it).
+    pub run: Option<String>,
+    /// Whether it reads what the builder types (`input = true`), as a
+    /// project's command does.
+    pub input: bool,
+    /// From the builder's own file (`.moonglow/user.toml`), which wins
+    /// over the team's.
+    pub own: bool,
+}
+
 /// A command's name in the menu, from its name in the file:
 /// `run_tests` is Run Tests.
 fn label_of(name: &str) -> String {
@@ -582,6 +598,8 @@ pub struct ProjectFile {
     pub claim_table: Option<crate::claims::Claims>,
     /// `[commands]`, in the file's order.
     pub commands: Vec<ProjectCommand>,
+    /// `[nwsync] upload`, the builder's own file's over the team's.
+    pub nwsync_upload: Option<UploadCommand>,
     /// The team's described variables (`variables.toml` beside the
     /// team's file): none without it.
     pub variables: crate::var_desc::Variables,
@@ -750,6 +768,39 @@ impl<'a> Reader<'a> {
                     "{} is to be its command, in quotes, or a table: {{ run = \"…\", label = \"…\" }}",
                     c.name
                 );
+                self.warn(value.span().start, message);
+                return None;
+            }
+        }
+        c.run = c.run.filter(|r| !r.trim().is_empty());
+        Some(c)
+    }
+
+    /// `[nwsync] upload`: its text, or a table of `run` (or `windows` and
+    /// `unix`, each for its systems) and `input`.
+    fn upload(&mut self, (_, value): Entry, own: bool) -> Option<UploadCommand> {
+        let mut c = UploadCommand { run: None, input: false, own };
+        match value.get_ref() {
+            DeValue::String(s) => c.run = Some(s.to_string()),
+            DeValue::Table(t) => {
+                let (mut run, mut windows, mut unix) = (None, None, None);
+                for e in in_order(t) {
+                    match e.0.get_ref().as_ref() {
+                        "run" => run = self.text(e),
+                        "windows" => windows = self.text(e),
+                        "unix" => unix = self.text(e),
+                        "input" => match e.1.get_ref() {
+                            DeValue::Boolean(b) => c.input = *b,
+                            _ => self.warn(e.1.span().start, "input is true or false"),
+                        },
+                        _ => self.unknown("nwsync.upload", e),
+                    }
+                }
+                c.run = if cfg!(windows) { windows.or(run) } else { unix.or(run) };
+            }
+            _ => {
+                let message = "upload is to be its command, in quotes, or a table: { run = \"…\", \
+                               windows = \"…\" }";
                 self.warn(value.span().start, message);
                 return None;
             }
@@ -948,7 +999,8 @@ impl ProjectFile {
             let section = key.get_ref().as_ref();
             // (A .mod's folder holds other modules: what is a checkout's,
             // and the builder's own file, are a project folder's.)
-            if beside && matches!(section, "claims" | "commands" | "plugins" | "builder") {
+            if beside && matches!(section, "claims" | "commands" | "nwsync" | "plugins" | "builder")
+            {
                 r.warn(
                     key.span().start,
                     format!(
@@ -1102,6 +1154,19 @@ impl ProjectFile {
                         if let Some(c) = r.command(e) {
                             self.commands.retain(|o| o.name != c.name);
                             self.commands.push(c);
+                        }
+                    }
+                }
+                // (Either file's: the team's server, or a builder's own.)
+                ("nwsync", _) => {
+                    for e in r.section(entry) {
+                        match e.0.get_ref().as_ref() {
+                            "upload" => {
+                                if let Some(c) = r.upload(e, own) {
+                                    self.nwsync_upload = Some(c);
+                                }
+                            }
+                            _ => r.unknown(section, e),
                         }
                     }
                 }
@@ -2101,6 +2166,52 @@ keeper_variable = "tdod_store"
                 p.warnings
             );
         }
+    }
+
+    /// `[nwsync] upload`: text, or a table for each system and `input`;
+    /// the builder's own file's wins over the team's; a module kept in
+    /// one file doesn't read it (a checkout's program).
+    #[test]
+    fn the_nwsync_upload_command_is_read_from_either_file() {
+        let p = read("[nwsync]\nupload = \"rsync -a {part} host:/srv/nwsync/\"\n");
+        let c = p.nwsync_upload.clone().unwrap();
+        assert_eq!(c.run.as_deref(), Some("rsync -a {part} host:/srv/nwsync/"));
+        assert!(!c.input && !c.own && p.warnings.is_empty());
+        let p = read(
+            "[nwsync]\nupload = { unix = \"u {part}\", windows = \"w {part}\", input = true, \
+             x = 1 }\nfolder = \"y\"\n",
+        );
+        let c = p.nwsync_upload.clone().unwrap();
+        let run = if cfg!(windows) { "w {part}" } else { "u {part}" };
+        assert_eq!((c.run.as_deref(), c.input), (Some(run), true));
+        assert_eq!(
+            p.warnings,
+            [
+                "moonglow.toml:2: \"x\" is not a key of [nwsync.upload]",
+                "moonglow.toml:3: \"folder\" is not a key of [nwsync]",
+            ]
+        );
+        let p = read("[nwsync]\nupload = 3\n");
+        assert!(p.nwsync_upload.is_none());
+        assert!(p.warnings[0].starts_with("moonglow.toml:2: upload is to be its command"));
+        let p = read("[nwsync]\nupload = { input = 1, run = \"\" }\n");
+        assert_eq!(p.warnings, ["moonglow.toml:2: input is true or false"]);
+        assert_eq!(p.nwsync_upload.unwrap().run, None, "empty: none");
+        // The builder's own over the team's.
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nupload = \"team {part}\"\n", false);
+        p.apply("user.toml", "[nwsync]\nupload = \"mine {part}\"\n", true);
+        let c = p.nwsync_upload.unwrap();
+        assert_eq!((c.run.as_deref(), c.own), (Some("mine {part}"), true));
+        // Beside a .mod: not read.
+        let dir = std::env::temp_dir().join(format!("mg-pf-nwsync-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let module = dir.join("krezk.mod");
+        std::fs::write(dir.join("krezk.moonglow.toml"), "[nwsync]\nupload = \"x\"\n").unwrap();
+        let p = ProjectFile::read_at(&Place::beside(&module).unwrap());
+        assert!(p.nwsync_upload.is_none());
+        assert!(p.warnings[0].contains("[nwsync] is not read beside a module"), "{:?}", p.warnings);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// `[used]` reads scripts, conversations and blueprints by name or
