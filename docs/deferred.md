@@ -348,9 +348,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   scripts for its tag (a project names such tags in `[make_static]`
   `keep_tags`). (M)
 - **Lists across several blueprints:** Edit Together leaves out the
-  pages that edit lists (inventories, classes, skills, feats, spells,
-  item properties); those are edited one blueprint at a time. Adding the
-  same item or feat to each would need its own design. (M)
+  pages that edit lists (`blueprint::LIST_PAGES`: inventories, classes,
+  skills, feats, spells, special abilities, item properties, an
+  encounter's creatures, a store's restrictions); those are edited one
+  blueprint at a time. Each page builds its commands for the first
+  object alone, and `blueprint::partial` drops a command that reaches
+  some of the objects but not all, as "add this feat to each" would
+  where some have it already. What each page needs, looked at in the
+  deferred sprint (2026-10-29): skills, a rank set at the skill's index
+  on each (`creature.rs` `skills`, the simplest); feats, special
+  abilities, an encounter's creatures and a store's restrictions, an
+  entry added to those that lack it and taken from those that have it,
+  marked (≠) where only some have it; classes, a level per class on
+  each and a class added where there is room; spells, per class; item
+  properties, matched by type, subtype and value; inventories
+  (`inventory.rs`), items added to each. Several days' work with a
+  design of its own for the marks and the guard. (L)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting
