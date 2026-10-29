@@ -1773,16 +1773,25 @@ fn a_gallery_s_pictures_are_read_apart_and_look_the_same() {
         assert_eq!((t.waiting(), t.reading()), (0, 0), "every picture in sight made");
         assert_eq!(t.drawn, t.kept() as u64, "each drawn once");
         assert_eq!(read_apart > 0, apart, "read apart only where the window keeps going");
-        // The palette's pictures, as drawn (the area view and the log
-        // left out).
-        let rect = h.get_all_by_label("Placeables").next().expect("the palette").rect();
+        // The palette's pictures, as drawn: the area view left out, and
+        // the log and the status bar under it, which name the module's
+        // path (another for each harness, and cut where the checkout's
+        // path makes it reach).
+        let ppp = h.ctx.pixels_per_point();
+        let palette = h.get_all_by_label("Placeables").next().expect("the palette").rect();
+        let log = h.get_all_by_label("Copy Log").next().expect("the log's Copy").rect();
         let image = h.render().expect("render");
-        let x = ((rect.min.x * h.ctx.pixels_per_point()) as u32).min(image.width());
-        Some(image::imageops::crop_imm(&image, x, 0, image.width() - x, image.height()).to_image())
+        let x = ((palette.min.x * ppp) as u32).min(image.width());
+        let bottom = ((log.min.y * ppp) as u32).min(image.height());
+        Some(image::imageops::crop_imm(&image, x, 0, image.width() - x, bottom).to_image())
     };
     let Some(apart) = gallery(true) else { return };
     let here = gallery(false).unwrap();
     let differ = apart.pixels().zip(here.pixels()).filter(|(a, b)| a != b).count();
+    // (Both kept, to look at: target/test-output/gallery-apart.)
+    let dir = mg_testkit::output_dir("gallery-apart");
+    apart.save(dir.join("apart.png")).unwrap();
+    here.save(dir.join("here.png")).unwrap();
     assert!(differ < 50, "{differ} pixels differ");
 }
 
