@@ -275,6 +275,26 @@ impl VarHelp {
         }
     }
 
+    /// What the rows lack that one of them needs beside it (the
+    /// description's `requires`, its `[[rules]]`), a note each; not of
+    /// the row whose name is being typed.
+    fn needed(&self, rows: &[VarRow], typing: Option<usize>) -> Vec<String> {
+        let file = self.variables.file();
+        let here: Vec<(&str, &str)> = (rows.iter().enumerate())
+            .filter(|(i, r)| Some(*i) != typing && !r.name.trim().is_empty())
+            .map(|(_, r)| (r.name.trim(), r.value.as_str()))
+            .collect();
+        (self.variables.missing(&here).into_iter())
+            .map(|n| match n.is {
+                Some(is) => format!(
+                    "{} is {is}: {} is needed beside it ({file}:{})",
+                    n.by, n.require, n.line
+                ),
+                None => format!("{} needs {} beside it ({file}:{})", n.by, n.require, n.line),
+            })
+            .collect()
+    }
+
     /// What is wrong with a row by the descriptions, for the note under
     /// the list (none where nothing is, or nothing is described).
     fn note(&self, r: &VarRow) -> Option<String> {
@@ -488,11 +508,24 @@ fn description_tip(d: &Described) -> String {
 
 /// A row named (anew) as a described variable takes the type it is
 /// described with, where the window sets that type; a value that type
-/// can't hold is emptied.
+/// can't hold is emptied. One with no value of its own yet (empty, or a
+/// new row's 0) takes the description's default.
 fn take_described_type(variables: &Variables, r: &mut VarRow) {
     // (Not one the scripts alone set: it is said, not taken.)
     let described = variables.describe(r.name.trim()).filter(|d| !d.runtime);
-    let Some(t) = described.and_then(|d| d.var_type) else { return };
+    if let Some(default) = described.and_then(|d| d.default.clone()) {
+        take_type(described.and_then(|d| d.var_type), r);
+        if matches!(r.value.trim(), "" | "0" | "0.0") {
+            r.value = default;
+        }
+        return;
+    }
+    take_type(described.and_then(|d| d.var_type), r);
+}
+
+/// [`take_described_type`]'s type.
+fn take_type(t: Option<VarType>, r: &mut VarRow) {
+    let Some(t) = t else { return };
     let editable = |k: u32| VarType::of(k.into()).is_some_and(|t| t.field_type().is_some());
     if t.code() == r.kind || t.field_type().is_none() || !editable(r.kind) {
         return;
@@ -1010,10 +1043,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 // name being typed), a line each under the list.
                 let notes: Vec<String> = if described {
                     let typing = help.completing;
-                    (edit.rows.iter().enumerate())
-                        .filter(|(i, _)| Some(*i) != typing)
-                        .filter_map(|(_, r)| help.note(r))
-                        .collect()
+                    let rows = (edit.rows.iter().enumerate()).filter(|(i, _)| Some(*i) != typing);
+                    let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.note(r)).collect();
+                    notes.extend(help.needed(&edit.rows, typing));
+                    notes
                 } else {
                     Vec::new()
                 };

@@ -131,12 +131,16 @@ enum Cmd {
         /// of plugins.
         #[arg(long)]
         plugins: Vec<PathBuf>,
-        /// Leave a group out: its checks aren't run (repeatable, or
-        /// several separated by commas): references, tilesets, models,
-        /// 2das, objects, module or plugins (`mg checks` names each
-        /// check's group).
-        #[arg(long, value_name = "GROUP", value_parser = verify_group, value_delimiter = ',')]
-        skip: Vec<mg_module::doctor::Group>,
+        /// Leave something out: it isn't checked (repeatable, or several
+        /// separated by commas). A group (references, tilesets, models,
+        /// 2das, objects, module or plugins), one check by its id (`mg
+        /// checks` lists them; a plugin's as its findings name it), a
+        /// category of missing references (references:creatures, as Build
+        /// Module's Missing Resources has them), a hak (hak:NAME or
+        /// NAME.hak), override, development, or one resource (a tileset,
+        /// ttr01.set, with its tiles' models; a 2DA; a model).
+        #[arg(long, value_name = "WHAT", value_parser = verify_skip, value_delimiter = ',')]
+        skip: Vec<String>,
         /// Make the fixes of this check's findings and save (repeatable):
         /// a check's id, as a finding's "check" with --json says it
         /// (`tag-unique`, `area-variables`, `var-runtime`,
@@ -2035,7 +2039,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let plugins = plugins::Chosen { dirs: plugins, project: *allow_project_plugins };
             let mut times = mg_module::doctor::Timings::default();
             let started = std::time::Instant::now();
-            let out = verify(&install(cli)?, module, *unused, &plugins, skip, &fixes, &mut times);
+            let skip = mg_module::doctor::Skip::parse(skip).map_err(|e| anyhow::anyhow!(e))?;
+            let out = verify(&install(cli)?, module, *unused, &plugins, &skip, &fixes, &mut times);
             if *timings {
                 times.add("in all", started.elapsed());
                 for (part, took) in &times.parts {
@@ -4030,13 +4035,10 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
-/// A group of `mg verify --skip`, by its id.
-fn verify_group(id: &str) -> std::result::Result<mg_module::doctor::Group, String> {
-    use mg_module::doctor::Group;
-    Group::from_id(id).ok_or_else(|| {
-        let ids: Vec<&str> = Group::ALL.iter().map(|g| g.id()).collect();
-        format!("not a group: {id} (one of {})", ids.join(", "))
-    })
+/// A word of `mg verify --skip`: something Verify can leave out.
+fn verify_skip(word: &str) -> std::result::Result<String, String> {
+    mg_module::doctor::Skip::parse(&[word])?;
+    Ok(word.to_string())
 }
 
 /// `mg verify --fix`: the checks whose findings' fixes to make, and
@@ -4119,7 +4121,7 @@ fn verify(
     path: &Path,
     show_unused: bool,
     plugins: &plugins::Chosen<'_>,
-    skip: &[mg_module::doctor::Group],
+    skip: &mg_module::doctor::Skip,
     asked: &Fixes<'_>,
     times: &mut mg_module::doctor::Timings,
 ) -> Result<Output> {
@@ -4129,7 +4131,7 @@ fn verify(
     project_file_notes(&m, &mut out);
     let rm = times.time("the game and the haks", || module_resman(gi, &m, &mut out))?;
     // (Every GFF of the module read once for both.)
-    let references = if show_unused || !skip.contains(&Group::References) {
+    let references = if show_unused || !skip.group(Group::References) {
         times.time("the module's references", || mg_module::verify::module_references(&m))
     } else {
         Vec::new()
@@ -4142,7 +4144,7 @@ fn verify(
     } else {
         Vec::new()
     };
-    let mut missing = if skip.contains(&Group::References) {
+    let mut missing = if skip.group(Group::References) {
         Vec::new()
     } else {
         times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
@@ -4159,20 +4161,19 @@ fn verify(
         (base, custom)
     });
     let tlk = mg_module::doctor::TalkTables { base, custom };
-    // (The shader programs that compiled kept for the next run, where the
-    // window keeps its own.)
-    let shaders = mg_module::doctor::shader_cache_dir().map(mg_module::doctor::ProgramCache::new);
-    let mut findings =
-        mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, shaders.as_ref());
+    // (The shader programs that compiled, and what was found of the haks'
+    // models, kept for the next run, where the window keeps its own.)
+    let cache = mg_module::doctor::Cache::user();
+    let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
-    let theirs = if skip.contains(&Group::Plugins) {
+    let theirs = if skip.group(Group::Plugins) {
         Vec::new()
     } else {
-        times.time("plugins", || plugins::findings(gi, &m, plugins, &mut out))?
+        times.time("plugins", || plugins::findings(gi, &m, plugins, skip, &mut out))?
     };
     findings.extend(theirs.iter().map(|f| f.finding.clone()));
-    let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
+    skip.leave_out(&mut missing, &mut findings);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
     let codepage = mg_rules::text_codepage(&rm, game_language(gi));
@@ -4227,8 +4228,8 @@ fn verify(
             "files": u.script.map(|s| s.id()),
             "names": u.files().iter().map(ToString::to_string).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
-        // (A group left out isn't checked: null, nothing is counted of it.)
-        "skipped": left.iter().map(|g| (g.id().to_string(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
+        // (What is left out isn't checked: null, nothing is counted of it.)
+        "skipped": skip.words().iter().map(|w| (w.clone(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
     });
     if !made.is_null()
         && let serde_json::Value::Object(o) = &mut out.json
@@ -4265,8 +4266,8 @@ fn verify(
     }
     out.line(format!("{} content problems", findings.len()));
     fix_lines.into_iter().for_each(|l| out.line(l));
-    for g in &left {
-        out.line(format!("left out\t{}: not checked", g.id()));
+    for w in skip.words() {
+        out.line(format!("left out\t{w}: not checked"));
     }
     if show_unused {
         for u in &unused {

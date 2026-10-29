@@ -7,6 +7,7 @@
 //! file is written next to the old one and renamed over it, after the old
 //! one is kept as a single backup.
 
+pub mod archive_file;
 pub mod areas;
 pub mod attach;
 pub mod blueprints;
@@ -57,6 +58,7 @@ pub mod transfer;
 pub mod var_desc;
 pub mod vars;
 pub mod verify;
+mod verify_cache;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -123,6 +125,9 @@ pub struct Module {
     pub project: Option<Box<nasher::Project>>,
     /// A module folder's files as last read or written, when it is one.
     pub folder: Option<Box<folder::FolderFiles>>,
+    /// A module archive's resources as last read or written, when it is
+    /// one: to find what changed in it outside Moonglow.
+    pub archive: Option<Box<archive_file::ArchiveFile>>,
     /// The project's rules (`moonglow.toml`): none for a module kept in
     /// one file, or a folder or project without the file.
     pub project_file: project_file::ProjectFile,
@@ -145,6 +150,7 @@ impl Module {
             dirty: false,
             project: None,
             folder: None,
+            archive: None,
             project_file: project_file::ProjectFile::default(),
         }
     }
@@ -200,6 +206,7 @@ impl Module {
             m.resources.insert(key, Arc::from(bytes.as_ref()));
         }
         m.location = Some(ModuleLocation::Archive(path.into()));
+        m.archive = Some(Box::new(archive_file::ArchiveFile::new(path, m.resources.iter())));
         // (Its own project file beside it, `NAME.moonglow.toml`, if any.)
         m.reread_project_file();
         Ok(m)
@@ -437,8 +444,21 @@ impl Module {
     /// one there (or adds the module to a project without one).
     pub fn save_as(&mut self, location: &ModuleLocation) -> Result<(), ModuleError> {
         let mut folder = None;
+        let mut archive = None;
         match location {
-            ModuleLocation::Archive(path) => self.write_archive(path)?,
+            ModuleLocation::Archive(path) => {
+                // The file it was read from, changed outside since in a way
+                // not yet taken (or kept as Moonglow has it): not written
+                // over, as a folder's file isn't.
+                if let Some(a) = self.archive.as_ref().filter(|a| a.path() == path.as_path())
+                    && a.changed_outside()
+                {
+                    return Err(ModuleError::ChangedOnDisk(vec![path.clone()]));
+                }
+                self.write_archive(path)?;
+                archive =
+                    Some(Box::new(archive_file::ArchiveFile::new(path, self.resources.iter())));
+            }
             ModuleLocation::Folder(path) => folder = Some(Box::new(self.write_folder(path)?)),
             ModuleLocation::Project { root, target } => {
                 let same = self
@@ -487,6 +507,7 @@ impl Module {
                 let location =
                     ModuleLocation::Project { root: root.clone(), target: project.target.clone() };
                 self.location = Some(location);
+                self.archive = None;
                 self.dirty = false;
                 self.reread_project_file();
                 return Ok(());
@@ -494,6 +515,7 @@ impl Module {
         }
         self.project = None;
         self.folder = folder;
+        self.archive = archive;
         self.location = Some(location.clone());
         self.dirty = false;
         self.reread_project_file();
@@ -762,9 +784,9 @@ impl Module {
     }
 
     /// The files of the module's folder or nasher project changed, added
-    /// or deleted outside Moonglow since they were read or written, and
-    /// what could not be read of them. `None`: the module is an archive
-    /// (or was never saved), which nothing else edits in place.
+    /// or deleted outside Moonglow since they were read or written (or the
+    /// resources of its archive, since it was), and what could not be read
+    /// of them. `None`: the module was never saved.
     pub fn outside(&mut self) -> Option<(Vec<nasher::Outside>, Vec<String>)> {
         let found = self.outside_scan()?.run();
         Some(self.outside_found(found))
@@ -772,12 +794,29 @@ impl Module {
 
     /// What is known of the module's files, for [`Module::outside`]'s
     /// looking to be done on another thread ([`outside::OutsideScan::run`],
-    /// then [`Module::outside_found`]). `None`: an archive.
+    /// then [`Module::outside_found`]). `None`: never saved.
     pub fn outside_scan(&self) -> Option<outside::OutsideScan> {
         match (&self.project, &self.folder) {
             (Some(project), _) => Some(project.outside_scan()),
             (None, Some(folder)) => Some(folder.outside_scan()),
-            (None, None) => None,
+            (None, None) => self.archive.as_ref().map(|a| a.outside_scan()),
+        }
+    }
+
+    /// [`Module::outside_scan`] of these files alone (those the system said
+    /// changed, added or removed: what a watch of the folder heard), so
+    /// that only they are looked at and no folder is walked for new ones.
+    /// Files only: a folder named is not looked into (where one was made,
+    /// moved or removed whole, [`Module::outside_scan`] looks at all; a
+    /// watch tells it so, as the window's does). (Nothing is looked at on
+    /// disk here: a pull's thousands of files named were 3 ms of the
+    /// window's frame when each was asked whether it was a folder.)
+    pub fn outside_scan_of(&self, paths: &[PathBuf]) -> Option<outside::OutsideScan> {
+        match (&self.project, &self.folder) {
+            (Some(project), _) => Some(project.outside_scan_of(paths)),
+            (None, Some(folder)) => Some(folder.outside_scan_of(paths)),
+            // (An archive is one file, read whole.)
+            (None, None) => self.outside_scan(),
         }
     }
 
@@ -790,10 +829,11 @@ impl Module {
         &mut self,
         found: outside::OutsideFound,
     ) -> (Vec<nasher::Outside>, Vec<String>) {
-        match (&mut self.project, &mut self.folder) {
-            (Some(project), _) => project.outside_found(found),
-            (None, Some(folder)) => folder.outside_found(found),
-            (None, None) => (Vec::new(), Vec::new()),
+        match (&mut self.project, &mut self.folder, &mut self.archive) {
+            (Some(project), ..) => project.outside_found(found),
+            (None, Some(folder), _) => folder.outside_found(found),
+            (None, None, Some(archive)) => archive.outside_found(found),
+            (None, None, None) => (Vec::new(), Vec::new()),
         }
     }
 
@@ -833,16 +873,17 @@ impl Module {
         match (&self.project, &self.folder) {
             (Some(project), _) => project.as_read(key),
             (None, Some(folder)) => folder.as_read(key),
-            (None, None) => None,
+            (None, None) => self.archive.as_ref().and_then(|a| a.as_read(key)),
         }
     }
 
     /// Counts a file changed outside as read (see [`nasher::Project::took`]).
     pub fn took(&mut self, change: &nasher::Outside) {
-        match (&mut self.project, &mut self.folder) {
-            (Some(project), _) => project.took(change),
-            (None, Some(folder)) => folder.took(change),
-            (None, None) => {}
+        match (&mut self.project, &mut self.folder, &mut self.archive) {
+            (Some(project), ..) => project.took(change),
+            (None, Some(folder), _) => folder.took(change),
+            (None, None, Some(archive)) => archive.took(change),
+            (None, None, None) => {}
         }
     }
 
@@ -1148,6 +1189,87 @@ mod tests {
         let e = m.save().unwrap_err();
         assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == &[dir.join("script.nss")]));
         assert_eq!(std::fs::read(dir.join("script.nss")).unwrap(), b"the editor's again");
+    }
+
+    /// A module kept in one file changed outside (Aurora saved it): what
+    /// changed in it, was added and removed is found, by resource, until
+    /// it is taken; a file written again as it was, and Moonglow's own
+    /// save, are nothing.
+    #[test]
+    fn a_mod_changed_outside_is_found_by_resource() {
+        let dir = mg_testkit::scratch_dir("mg-module-archive-outside");
+        let path = dir.join("castle.mod");
+        sample().save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let mut m = Module::open(&path).unwrap();
+        assert_eq!(m.outside(), Some((vec![], vec![])));
+        // Another program's save: one changed, one added, one removed.
+        let mut theirs = Module::open(&path).unwrap();
+        let changed = m.keys().find(|k| k.restype == ResType::NSS).copied().unwrap();
+        let removed = m.keys().find(|k| k.restype != ResType::NSS && k.restype != ResType::IFO);
+        let removed = *removed.unwrap();
+        theirs.set(changed, b"void main() { int theirs; }".to_vec());
+        theirs.set(key("fresh", ResType::NSS), b"void main() {}".to_vec());
+        theirs.remove(&removed);
+        // (Another size: told from the first however soon it is written.)
+        theirs.save().unwrap();
+        let (changes, problems) = m.outside().unwrap();
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut found: Vec<(ResKey, bool)> =
+            changes.iter().map(|c| (c.key, c.resource.is_some())).collect();
+        found.sort();
+        let mut wanted =
+            vec![(changed, true), (key("fresh", ResType::NSS), true), (removed, false)];
+        wanted.sort();
+        assert_eq!(found, wanted);
+        assert!(changes.iter().all(|c| c.path.starts_with(&path)));
+        // Found and not yet answered: a save doesn't write over them.
+        let e = m.save().unwrap_err();
+        assert!(
+            matches!(&e, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&path)),
+            "{e}"
+        );
+        // Found again until taken; then nothing.
+        assert_eq!(m.outside().unwrap().0.len(), 3);
+        let (changes, _) = m.outside().unwrap();
+        let first = changes[0].clone();
+        m.took(&first);
+        assert_eq!(m.outside().unwrap().0.len(), 2, "the others still to be taken");
+        for c in &changes[1..] {
+            m.took(c);
+        }
+        assert_eq!(m.outside(), Some((vec![], vec![])));
+        assert_eq!(m.as_read(&changed), Some(&b"void main() { int theirs; }"[..]));
+        // Moonglow's own save: nothing.
+        m.set(changed, b"void main() { int ours, more; }".to_vec());
+        m.save().unwrap();
+        assert_eq!(m.outside(), Some((vec![], vec![])));
+    }
+
+    /// A module folder's look at the files a watch named: they alone are
+    /// looked at, one added and one deleted among them; one in a folder
+    /// below isn't the module's.
+    #[test]
+    fn a_folder_s_look_at_the_files_named_looks_at_them_alone() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-named");
+        sample().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        let other = m.keys().find(|k| k.restype != ResType::NSS).copied().unwrap();
+        std::fs::write(dir.join(other.to_string()), b"another editor's").unwrap();
+        std::fs::write(dir.join("script.nss"), b"void main() { int x; }").unwrap();
+        std::fs::write(dir.join("fresh.nss"), b"void main() {}").unwrap();
+        std::fs::create_dir_all(dir.join("below")).unwrap();
+        std::fs::write(dir.join("below/deep.nss"), b"void main() {}").unwrap();
+        let named = [dir.join("script.nss"), dir.join("fresh.nss"), dir.join("below/deep.nss")];
+        let found = m.outside_scan_of(&named).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        let mut names: Vec<String> = changes.iter().map(|c| c.key.to_string()).collect();
+        names.sort();
+        assert_eq!(names, ["fresh.nss", "script.nss"]);
+        std::fs::remove_file(dir.join("script.nss")).unwrap();
+        let found = m.outside_scan_of(&[dir.join("script.nss")]).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].resource.is_none());
     }
 
     /// Save As into a folder of other resources (another module's, a

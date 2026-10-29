@@ -1161,6 +1161,8 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
         t.set("min", d.min)?;
         t.set("max", d.max)?;
         t.set("runtime", d.runtime)?;
+        t.set("requires", lua.create_sequence_from(d.requires.iter().map(String::as_str))?)?;
+        t.set("default", d.default.as_deref())?;
         Ok(t)
     }
     let api = lua.create_table()?;

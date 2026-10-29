@@ -212,10 +212,11 @@ the module is opened again from its file.
   load the module). Music and ambient sounds in these haks are read as
   any of their resources, as the game reads them.
 - **Reload haks, override and development when they change**: on by
-  default. Moonglow checks every few seconds and rereads what changed
+  default. Moonglow is told by the system when they change (it checks
+  every few seconds where it can't be) and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)). The same switch
-  has a nasher project's own files read again when another program
-  changes them (see [Modules](03-modules.md)).
+  has a nasher project's own files, a module folder's and a `.mod` read
+  again when another program changes them (see [Modules](03-modules.md)).
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
 - Warnings: **Show reserved Blueprint ResRef namespace warning** (a
@@ -323,11 +324,20 @@ tileset errors you are not going to fix, say, that hide the rest):
 **Missing references**, **Tilesets**, **Models and materials**,
 **2DAs**, **Objects' and areas' 2DA rows and variables**, **Talk table
 and archives** and **Plugins' checks**. Hover over one for the checks it
-holds. A group left out isn't checked at all, so leaving out the
-tilesets and models of a module with many haks makes Verify much
-quicker. The log's summary line after a Verify names what it left out,
-not checked, so a module isn't taken to be clean for what wasn't
-looked at. `mg verify --skip` does the same from a terminal.
+holds; the arrow beside it lists them, each to leave out alone (by the
+id `mg checks` gives it: hover over one for what it holds to be true).
+Under **Missing references** are the categories of Build Module's
+Missing Resources (the references the module's creatures make, its
+doors'…), and under **Plugins' checks** each enabled plugin's checks.
+**Also leave out** takes haks (`tdod_tiles01.hak`), the `override` or
+`development` folder, and resources: a tileset (`ttr01.set`, with its
+tiles' models), a 2DA or a model, separated by commas; a word that is
+none of these is said under the field and not kept. What is left out
+isn't checked at all, so leaving out the tilesets and models of a
+module with many haks makes Verify much quicker. The log's summary line
+after a Verify names what it left out, not checked, so a module isn't
+taken to be clean for what wasn't looked at. `mg verify --skip` does
+the same from a terminal.
 
 ## Language
 

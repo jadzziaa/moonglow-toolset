@@ -1026,7 +1026,7 @@ fn uncounted(b: &Builtins, fixture: &Fixture, from: &GameFrom) -> Option<(String
 /// the fixes Verify offers. A talk table the test's game data has not is
 /// not counted (none of its strings is said to be missing).
 fn run_builtin(b: &Builtins, module: &Module, fixture: &Fixture) -> Vec<Found> {
-    use mg_module::doctor::{Group, TalkTables, Timings, examine_groups};
+    use mg_module::doctor::{Check, Group, Skip, TalkTables, Timings, examine_groups};
     let g = &fixture.data;
     let custom = match g.custom_tlk() {
         Some(t) => Some(t.entries.len()),
@@ -1036,10 +1036,10 @@ fn run_builtin(b: &Builtins, module: &Module, fixture: &Fixture) -> Vec<Found> {
         None => None,
     };
     let tlk = TalkTables { base: if fixture.talk { g.tlk().entries.len() } else { 0 }, custom };
-    // (Only their groups' checks run: the others are most of a Verify's
-    // time.)
-    let skip: Vec<Group> =
-        (Group::ALL.into_iter()).filter(|g| !b.checks.iter().any(|c| c.group() == *g)).collect();
+    // (Only these checks run: the others are most of a Verify's time.)
+    let others = (Check::ALL.into_iter()).filter(|c| !b.checks.contains(c)).map(Check::id);
+    let skip = Skip::parse(&others.chain([Group::Plugins.id()]).collect::<Vec<_>>())
+        .expect("the checks' ids");
     let findings: Vec<mg_module::doctor::Finding> =
         examine_groups(module, &g.resman, tlk, &skip, &mut Timings::default(), None)
             .into_iter()

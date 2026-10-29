@@ -1589,6 +1589,64 @@ fn a_script_saved_outside_is_compiled_when_asked() {
     );
 }
 
+/// A checkout's many scripts changed outside are compiled a few each
+/// frame, not as a job that holds the window (more than 24 went to one):
+/// the window takes input meanwhile, and once they are done each has its
+/// compiled script, written beside it, the module with no unsaved
+/// changes.
+#[test]
+fn many_scripts_saved_outside_are_compiled_a_few_a_frame() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Checkout", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let names: Vec<String> = (0..40).map(|i| format!("pulled_{i:02}")).collect();
+    for n in &names {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main()\n{\n}\n".to_vec());
+    }
+    let dir = mg_testkit::scratch_dir("ui-folder-compile-many").join("module");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.auto_compile = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1100.0, 800.0);
+    h.run_steps(3);
+    for (i, n) in names.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("{n}.nss")),
+            format!("void main()\n{{\n    int n = {i};\n}}\n"),
+        )
+        .unwrap();
+    }
+    h.state_mut().reload_project_files();
+    assert!(!h.state().busy(), "no job holds the window");
+    let mut frames = 0;
+    while h.state().compiling_outside() {
+        h.run_steps(1);
+        assert!(!h.state().busy());
+        frames += 1;
+        assert!(frames < 400, "never done");
+    }
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(!ws.is_modified(), "no unsaved changes");
+    for n in &names {
+        let ncs = ResKey::parse(n, ResType::NCS).unwrap();
+        let made = ws.module.get(&ncs).map(<[u8]>::to_vec);
+        assert!(made.is_some(), "{n} compiled");
+        assert_eq!(std::fs::read(dir.join(format!("{n}.ncs"))).ok(), made, "{n} written");
+    }
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(_, m)| m.starts_with("Compiled (changed outside Moonglow)")),
+        "{log:#?}"
+    );
+    assert!(!log.iter().any(|(_, m)| m.contains("in the background")), "{log:#?}");
+}
+
 /// Compile All Scripts passes over the scripts that are as they were when
 /// it last compiled them: after an include changes, only the scripts that
 /// include it are compiled again.

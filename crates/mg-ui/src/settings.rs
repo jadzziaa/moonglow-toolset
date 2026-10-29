@@ -317,8 +317,9 @@ pub struct Settings {
     /// starts: captured 2026-10-29), so an area never opens looking empty.
     #[serde(skip)]
     pub hidden_in_areas: Vec<String>,
-    /// Options › Verify: the groups Verify Module leaves out of its report
-    /// (by [`mg_module::doctor::Group::id`]).
+    /// Options › Verify: what Verify Module leaves out of its report, by
+    /// the words [`mg_module::doctor::Skip`] reads (groups, checks,
+    /// categories of missing references, haks, folders, resources).
     pub verify_skip: Vec<String>,
     /// The folder each hak was built from (the hak's path, the folder's),
     /// most recent first: Update from Folder reads it again.
