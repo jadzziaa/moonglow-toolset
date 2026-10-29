@@ -41,6 +41,15 @@ impl GameInstall {
         }
     }
 
+    /// The game as a player who downloads the module has it: this
+    /// install's own files, without the user directory's folders
+    /// (`override/`, `development/`, portraits, `userpatch.ini`) or the
+    /// Workshop's. A module's haks are still found where this install
+    /// finds them ([`ResMan::add_haks`] with the install itself).
+    pub fn as_player(&self) -> GameInstall {
+        GameInstall { user_dir: None, workshop: false, ..self.clone() }
+    }
+
     /// The haks `userpatch.ini` (in the user directory) names, highest
     /// first, each with its file in the `PATCH` folder if it is there:
     /// `PatchFile000=name` and on, the highest number winning, as the game

@@ -174,6 +174,19 @@ pub struct StaticRules {
     pub keep_tags: Patterns,
     /// A placeable whose blueprint's ResRef (`TemplateResRef`) these match.
     pub keep_resrefs: Patterns,
+    /// Not of the file: the module's scripts' string literals, so that a
+    /// placeable whose tag a script names stays dynamic
+    /// ([`StaticRules::with_scripts`]; none until it is called).
+    pub scripts: crate::areas::ScriptStrings,
+}
+
+impl StaticRules {
+    /// These rules, with the string literals of `module`'s scripts read
+    /// ([`crate::areas::ScriptStrings::of`]).
+    pub fn with_scripts(mut self, module: &crate::Module) -> StaticRules {
+        self.scripts = crate::areas::ScriptStrings::of(module);
+        self
+    }
 }
 
 impl Default for StaticRules {
@@ -182,6 +195,7 @@ impl Default for StaticRules {
             keep_variables: Patterns::new(&["*"]).expect("a glob"),
             keep_tags: Patterns::default(),
             keep_resrefs: Patterns::default(),
+            scripts: Default::default(),
         }
     }
 }
@@ -339,6 +353,11 @@ pub struct ProjectCommand {
     /// The keys it asks for (`key = "Ctrl+Shift+U"`), as a plugin's
     /// command does: the builder's own in Options › Keyboard win.
     pub key: Option<String>,
+    /// Whether it reads what the builder types (`input = true`: its
+    /// standard input is the line under its output while it runs, a
+    /// question it asks answered there). Else its input is closed, so a
+    /// question it asks has its answer empty at once rather than waiting.
+    pub input: bool,
 }
 
 /// A command's name in the menu, from its name in the file:
@@ -695,8 +714,9 @@ impl<'a> Reader<'a> {
             self.warn(key.span().start, message);
             return None;
         }
+        let label = label_of(&name);
         let mut c =
-            ProjectCommand { label: label_of(&name), name, run: None, writes: true, key: None };
+            ProjectCommand { label, name, run: None, writes: true, key: None, input: false };
         match value.get_ref() {
             DeValue::String(s) => c.run = Some(s.to_string()),
             DeValue::Table(t) => {
@@ -716,6 +736,10 @@ impl<'a> Reader<'a> {
                             _ => self.warn(e.1.span().start, "writes is true or false"),
                         },
                         "key" => c.key = self.text(e).filter(|k| !k.trim().is_empty()),
+                        "input" => match e.1.get_ref() {
+                            DeValue::Boolean(b) => c.input = *b,
+                            _ => self.warn(e.1.span().start, "input is true or false"),
+                        },
                         _ => self.unknown(&format!("commands.{}", c.name), e),
                     }
                 }
@@ -2023,7 +2047,8 @@ keeper_variable = "tdod_store"
              for Review\" }\nrun_tests = { unix = \"bin/test\", windows = \"bin\\\\test.cmd\" }\n\
              only_windows = { windows = \"x.cmd\" }\n\"two words\" = \"x\"\nbad = 3\nempty = \"\"\n\
              review = { run = \"bin/review\", writes = false, key = \"Ctrl+Shift+R\" }\n\
-             odd = { run = \"x\", writes = \"no\" }\n",
+             odd = { run = \"x\", writes = \"no\" }\n\
+             ask = { run = \"bin/ask\", input = true }\nodder = { run = \"x\", input = 1 }\n",
         );
         assert_eq!(
             p.warnings,
@@ -2032,8 +2057,12 @@ keeper_variable = "tdod_store"
                 "moonglow.toml:7: bad is to be its command, in quotes, or a table: { run = \"…\", \
                  label = \"…\" }",
                 "moonglow.toml:10: writes is true or false",
+                "moonglow.toml:12: input is true or false",
             ]
         );
+        let ask = p.commands.iter().find(|c| c.name == "ask").unwrap();
+        assert!(ask.input);
+        assert!(p.commands.iter().filter(|c| c.name != "ask").all(|c| !c.input), "closed");
         let review = p.commands.iter().find(|c| c.name == "review").unwrap();
         assert!(!review.writes);
         assert_eq!(review.key.as_deref(), Some("Ctrl+Shift+R"));
@@ -2054,6 +2083,8 @@ keeper_variable = "tdod_store"
                 ("empty", "Empty", None),
                 ("review", "Review", Some("bin/review")),
                 ("odd", "Odd", Some("x")),
+                ("ask", "Ask", Some("bin/ask")),
+                ("odder", "Odder", Some("x")),
             ]
         );
         // What was allowed is never read from the project's files, the

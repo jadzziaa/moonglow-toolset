@@ -200,30 +200,15 @@ impl Default for VisualTransform {
 }
 
 impl VisualTransform {
-    /// A placed object's (`None` without one).
+    /// A placed object's, as its model is drawn with it (`None` without
+    /// one): [`mg_module::placement::visual_transform`].
     pub fn read(s: &Struct) -> Option<VisualTransform> {
-        let axes = |get: &dyn Fn(&str) -> Option<f32>, default: f32, prefix: &str| {
-            Vec3::new(
-                get(&format!("{prefix}X")).unwrap_or(default),
-                get(&format!("{prefix}Y")).unwrap_or(default),
-                get(&format!("{prefix}Z")).unwrap_or(default),
-            )
-        };
-        let from = |get: &dyn Fn(&str) -> Option<f32>| VisualTransform {
-            scale: axes(get, 1.0, "Scale"),
-            rotate: axes(get, 0.0, "Rotate"),
-            translate: axes(get, 0.0, "Translate"),
-        };
-        if let Some(list) = s.list("VisTransformList") {
-            let entry = list
-                .iter()
-                .find(|e| e.integer("Scope").unwrap_or(0) == 0)
-                .or_else(|| list.first())?;
-            let get = |label: &str| entry.child(label).and_then(|c| c.float("ValueTo"));
-            return Some(from(&get));
-        }
-        let legacy = s.child("VisualTransform")?;
-        Some(from(&|label: &str| legacy.float(label)))
+        let t = mg_module::placement::visual_transform(s)?;
+        Some(VisualTransform {
+            scale: Vec3::from(t.scale),
+            rotate: Vec3::from(t.rotate),
+            translate: Vec3::from(t.translate),
+        })
     }
 
     pub fn is_identity(&self) -> bool {
@@ -328,25 +313,10 @@ impl AreaObject {
     /// it stands, how it turns, its outline and fields), without the game:
     /// no preview, and an item not turned as it lies.
     pub fn placed(kind: ObjectKind, index: usize, s: &Struct) -> AreaObject {
-        let float = |label: &str| s.float(label).unwrap_or(0.0);
-        let (position, rotation) = if kind.has_bearing() {
-            (Vec3::new(float("X"), float("Y"), float("Z")), float("Bearing"))
-        } else {
-            let position = Vec3::new(float("XPosition"), float("YPosition"), float("ZPosition"));
-            let (x, y) = (float("XOrientation"), float("YOrientation"));
-            let rotation =
-                if kind.has_outline() || kind == ObjectKind::Sound || (x == 0.0 && y == 0.0) {
-                    0.0
-                } else {
-                    y.atan2(x) - FRAC_PI_2
-                };
-            (position, rotation)
-        };
-        let outline = match kind {
-            ObjectKind::Trigger => outline(s, ["PointX", "PointY", "PointZ"], position),
-            ObjectKind::Encounter => outline(s, ["X", "Y", "Z"], position),
-            _ => Vec::new(),
-        };
+        let at = mg_module::placement::Placement::read(kind, s);
+        let (position, rotation) = (Vec3::from(at.position), at.rotation);
+        let points = mg_module::placement::outline(kind, s);
+        let outline = points.into_iter().map(|p| position + Vec3::from(p)).collect();
         let template_field = kind.resref_field();
         AreaObject {
             laid: 0,
@@ -431,19 +401,6 @@ impl AreaObject {
     pub fn facing(&self) -> f32 {
         self.rotation + FRAC_PI_2
     }
-}
-
-/// An outline's points (`Geometry`, relative to the position) in world
-/// space.
-fn outline(s: &Struct, labels: [&str; 3], at: Vec3) -> Vec<Vec3> {
-    s.list("Geometry")
-        .unwrap_or(&[])
-        .iter()
-        .map(|p| {
-            let c = |i: usize| p.float(labels[i]).unwrap_or(0.0);
-            at + Vec3::new(c(0), c(1), c(2))
-        })
-        .collect()
 }
 
 /// The door hooks of `tiles` (with the tileset they are from).

@@ -19,6 +19,7 @@ pub mod doctor;
 pub mod external_compiler;
 pub mod factions;
 pub mod folder;
+pub mod game_data;
 pub mod grass;
 pub mod hak_edit;
 pub mod haks;
@@ -33,6 +34,7 @@ pub mod nwsync;
 pub mod outside;
 pub mod palette;
 pub mod palette_add;
+pub mod placement;
 mod process;
 pub mod project_file;
 pub mod project_plugins;
@@ -374,13 +376,7 @@ impl Module {
 
     /// The module's areas, in `Mod_Area_list` order.
     pub fn areas(&self) -> Result<Vec<ResRef>, ModuleError> {
-        let info = self.info()?;
-        Ok(info
-            .root
-            .items(&ifo::MOD_AREA_LIST)
-            .iter()
-            .filter_map(|a| a.try_read(&ifo::mod_area_list::AREA_NAME))
-            .collect())
+        Ok(areas_of(&self.info()?.root))
     }
 
     /// The module's haks, highest priority first: `Mod_HakList`, or the
@@ -970,6 +966,15 @@ pub(crate) fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
             Err(e)
         }
     }
+}
+
+/// The areas a `module.ifo`'s root lists (`Mod_Area_list`), in its order:
+/// those the game loads. [`Module::areas`] reads the module's saved IFO by
+/// it, and the window its IFO with unsaved edits.
+pub fn areas_of(info: &mg_gff::Struct) -> Vec<ResRef> {
+    (info.items(&ifo::MOD_AREA_LIST).iter())
+        .filter_map(|a| a.try_read(&ifo::mod_area_list::AREA_NAME))
+        .collect()
 }
 
 /// The haks a `module.ifo`'s root names, highest priority first: its

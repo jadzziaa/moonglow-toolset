@@ -995,7 +995,17 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     if let Some(after) = app.command_after_text.take() {
         run_after(app, ui, after);
     }
+    // (Undo and Redo's keys of Options › Keyboard in a script's editor:
+    // its own history's, as the menu's are. Taken before the editor is
+    // drawn, so that its own Ctrl+Z doesn't take a second step.)
+    let script = crate::script_view::with_keys(app, ui.ctx());
     for id in Id::all() {
+        if let (Some(key), Id::Undo | Id::Redo) = (script, id) {
+            if ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing)) {
+                crate::script_view::undo(app, ui.ctx(), key, id == Id::Redo);
+            }
+            continue;
+        }
         if in_text && matches!(id, Id::Undo | Id::Redo) {
             continue;
         }
@@ -1317,6 +1327,16 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     app.menu_keys.choose = false;
     app.menu_keys.close_sub = false;
     app.menu_open = tops.iter().position(|(id, _)| Popup::is_id_open(&ctx, *id));
+    // A menu opened from a script's editor and closed with nothing chosen
+    // (Escape, Alt or F10, a click on its name) gives the keys back to the
+    // editor, so that Ctrl+Z after it is the script's still. (A click
+    // elsewhere is a click outside the editor: the keys stay nowhere.)
+    let unused = ctx.input(|i| i.key_pressed(Key::Escape))
+        || toggle
+        || tops.iter().any(|(_, r)| r.clicked());
+    if was_open.is_some() && app.menu_open.is_none() && unused {
+        crate::script_view::give_keys_back(app, &ctx);
+    }
 }
 
 /// The letter a menu's or a row's name begins with (past a tick or
@@ -1471,6 +1491,17 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                             app.actions.push(Action::ProjectCommand(c.name));
                             egui::Popup::close_all(ui.ctx());
                         }
+                    }
+                    ui.separator();
+                    let name = "Command Output";
+                    let can = crate::project_commands::has_output(app);
+                    let (entry, chosen) = row(app, level + 1, name, egui::Button::new(name), can);
+                    let r = ui
+                        .add_enabled(can, entry)
+                        .on_hover_text("The last command's output, all of it, and how it ended");
+                    if r.clicked() || chosen {
+                        app.project_commands.show = true;
+                        egui::Popup::close_all(ui.ctx());
                     }
                 })
                 .on_disabled_hover_text(

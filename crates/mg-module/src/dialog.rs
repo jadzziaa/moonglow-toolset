@@ -65,27 +65,7 @@ impl Parent {
 }
 
 /// Animations of the Other Actions tab, in Aurora's order: (label, value).
-pub const ANIMATIONS: [(&str, u32); 19] = [
-    ("Default", 0),
-    ("No Animation", 88),
-    ("Taunt", 28),
-    ("Greeting", 29),
-    ("Listen", 30),
-    ("Worship", 33),
-    ("Salute", 34),
-    ("Bow", 35),
-    ("Steal", 37),
-    ("Talk Normal", 38),
-    ("Talk Pleading", 39),
-    ("Talk Forceful", 40),
-    ("Talk Laughing", 41),
-    ("Victory 1", 44),
-    ("Victory 2", 45),
-    ("Victory 3", 46),
-    ("Look Far", 48),
-    ("Drink", 70),
-    ("Read", 71),
-];
+pub use mg_rules::rows::DIALOG_ANIMATIONS as ANIMATIONS;
 
 fn resref(s: &str) -> Value {
     Value::resref(ResRef::from_str(s).expect("valid resref"))
@@ -767,10 +747,11 @@ pub fn paste_branch(g: &mut Gff, parent: Parent, branch: &Branch, same_dialog: b
     true
 }
 
-/// A line's text in English (for display and tests).
+/// A line's text as shown without the game (for display and tests): its
+/// English, else another language's ([`LocString::shown_in`]).
 pub fn text(n: &Struct) -> String {
     n.locstring("Text")
-        .and_then(|t| t.text(Language::ENGLISH, Gender::Male).map(|s| s.into_owned()))
+        .map(|t| t.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252))
         .unwrap_or_default()
 }
 

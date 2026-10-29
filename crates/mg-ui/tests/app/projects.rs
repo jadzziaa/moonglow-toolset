@@ -2477,6 +2477,162 @@ fn a_project_s_command_that_writes_nothing_keeps_the_haks_open() {
     assert_eq!(ws.module.haks().unwrap(), ["mg_cmd_writes"]);
 }
 
+/// Frames until the job running is over (or a test has hung).
+#[cfg(unix)]
+fn until_idle(h: &mut Harness<'_, Moonglow>) {
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        assert!(started.elapsed().as_secs() < 30, "the command never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(2);
+}
+
+/// A project's command's output is in a window of its own, as it comes
+/// and after (File › Project › Command Output), not the log only; one that
+/// reads what is typed (`input = true`) is given it from the line under
+/// its output, its question shown before its line ends, a hidden line
+/// kept out of the output. A command that doesn't has its input closed:
+/// its question is answered with nothing at once, as before. (By `sh`:
+/// `cmd /C` expands `%name%` as it reads the line, before `set /p` has
+/// set it, so the same on Windows needs a script of its own.)
+#[cfg(unix)]
+#[test]
+fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
+    let ask = "printf 'Name: '; read name; printf 'Secret: '; read secret; echo \"got:$name\"; \
+               echo \"kept:$secret\"";
+    let closed = "read x; echo \"empty:$x\"; echo \"warned\" 1>&2; exit 2";
+    let rules =
+        format!("[commands]\nask = {{ run = {ask:?}, input = true }}\nclosed = {closed:?}\n");
+    let dir = project_folder("ui-project-commands-input", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    for (name, text) in [("ask", ask), ("closed", closed)] {
+        app.settings.allowed_commands.push((project.clone(), name.into(), text.into()));
+    }
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("ask".into()));
+    h.run_steps(2);
+    assert!(h.state().busy(), "running, waiting for its answer");
+    // Its question shows before its line ends.
+    let started = std::time::Instant::now();
+    while h.query_by_label("Name: ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.get_by_label("Send");
+    h.get_by_label("End Input");
+    // The line has the keys: typed, and Enter sends it.
+    h.event(egui::Event::Text("Hipólito".into()));
+    h.step();
+    h.key_press(egui::Key::Enter);
+    h.step();
+    h.step();
+    h.get_by_label("> Hipólito");
+    // A hidden line, by Send.
+    while h.query_by_label("Secret: ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the second question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.get_by_label("Hide").click();
+    h.step();
+    h.event(egui::Event::Text("swordfish".into()));
+    h.step();
+    h.get_by_label("Send").click();
+    h.step();
+    h.step();
+    h.get_by_label("> (hidden)");
+    until_idle(&mut h);
+    assert!(logged(&h, "  got:Hipólito"), "{:?}", h.state().log.entries);
+    assert!(logged(&h, "  kept:swordfish"), "the command had it");
+    assert!(
+        !logged(&h, "> Hipólito") && !logged(&h, "(hidden)"),
+        "what was typed is not in the log: {:?}",
+        h.state().log.entries
+    );
+    // Its output, after: File › Project › Command Output.
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Command Output").click();
+    h.run_steps(2);
+    h.get_by_label("Done.");
+    h.get_by_label("got:Hipólito");
+    assert!(h.query_by_label("swordfish").is_none(), "a hidden line is not shown");
+    // Its input closed: the question has its answer, empty, at once; its
+    // errors and how it ended in the window.
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("closed".into()));
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(logged(&h, "  empty:"), "{:?}", h.state().log.entries);
+    assert!(logged(&h, "Closed failed: it ended with exit code 2 (all it said: File › Project"));
+    h.get_by_label("Failed: it ended with exit code 2.");
+    h.get_by_label("empty:");
+    h.get_by_label("warned");
+    assert!(h.query_by_label("got:Hipólito").is_none(), "the last command's alone");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Command Output").is_none(), "closed");
+}
+
+/// A project's command canceled gives back what it let go: the project's
+/// files are looked at again (what it wrote before it was stopped comes
+/// into the module) and its haks opened again, as after one that ends.
+/// (A canceled job hands nothing over: they stayed let go.)
+#[cfg(unix)]
+#[test]
+fn a_project_s_command_canceled_reads_the_project_s_files_again() {
+    let slow = "printf 'void main() {}\\n' > made.nss; sleep 30";
+    let rules = format!("[commands]\nslow = {slow:?}\n");
+    let dir = project_folder("ui-project-commands-cancel", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    app.settings.allowed_commands.push((project, "slow".into(), slow.into()));
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    // (The area read first, a job of its own.)
+    until_idle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("slow".into()));
+    h.step();
+    let started = std::time::Instant::now();
+    while !dir.join("made.nss").exists() {
+        assert!(started.elapsed().as_secs() < 20, "the command never wrote");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    assert!(h.state().busy());
+    // (The job's window shown, its fade in over.)
+    h.run_steps(20);
+    h.get_by_label("Slow");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(started.elapsed().as_secs() < 20, "stopped, not waited for");
+    let made = ResKey::parse("made", ResType::NSS).unwrap();
+    while !h.state().ws.as_ref().unwrap().module.contains(&made) {
+        assert!(started.elapsed().as_secs() < 25, "the project's files never read again");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Command Output").click();
+    h.run_steps(2);
+    h.get_by_label("Canceled (stopped).");
+}
+
 /// File › Project is there and off for a project that names no commands.
 #[test]
 fn file_project_is_off_without_the_project_s_commands() {

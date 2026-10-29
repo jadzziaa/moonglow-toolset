@@ -246,7 +246,9 @@ mod tests {
             .args(["-c", "sleep 30; true", "sh", "+TestNewModule", "moonglow-test"])
             .spawn()
             .unwrap();
-        let found = running(&["SH"]);
+        // (macOS's `sh` runs as bash or another shell, by that name in
+        // `ps`'s accounting.)
+        let found = running(&["SH", "BASH", "DASH", "ZSH"]);
         let me = found.iter().find(|r| r.pid == child.id()).cloned();
         child.kill().unwrap();
         child.wait().unwrap();

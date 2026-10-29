@@ -532,6 +532,37 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     assert_eq!((name.strref.0, name.strings.len()), (16_777_217, 0));
     let t = h.state().talk.as_ref().unwrap();
     assert_eq!((t.line(1).text.as_str(), t.is_dirty()), ("The Keep", true));
+
+    // Palette › Categories… moves a category's name into it too: the
+    // category named by the new line, to be translated there.
+    {
+        let app = h.state_mut();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.tiles = false;
+        app.palette.custom = true;
+    }
+    h.run();
+    h.get_by_label("More").click();
+    h.run();
+    h.get_by_label("Categories…").click();
+    h.run();
+    type_into_hint(&mut h, "a category's or group's name", "Ruins");
+    h.get_by_label("Add Category").click();
+    h.run();
+    h.get_by_label("Move Name to Talk Table").click();
+    h.run();
+    let w = h.state().palette_categories.as_ref().unwrap();
+    assert_eq!(w.strref, "16777218");
+    let path = w.selected.clone().unwrap();
+    let mut node = &w.skeleton.root.list("MAIN").unwrap()[path[0]];
+    for i in &path[1..] {
+        node = &node.list("LIST").unwrap()[*i];
+    }
+    let named = mg_module::palette::node_name(node);
+    assert_eq!(named, mg_module::palette::PaletteName::StrRef(16_777_218));
+    assert!(node.get("NAME").is_none() && node.get("DELETE_ME").is_none(), "no name written out");
+    assert_eq!(h.state().talk.as_ref().unwrap().line(2).text, "Ruins");
 }
 
 #[test]

@@ -130,3 +130,87 @@ fn rows_are_named_and_taken_by_name() {
     let e = fails(&["areas", module, "--all", "--set", "MusicDay=Nothing Like It"]);
     assert!(e.contains("ambientmusic.2da has no row named"), "{e}");
 }
+
+/// `mg gff --names` names what the window's fields view names beyond a
+/// fixed table's row: an item property's subtype, cost table and value
+/// (of the tables its other fields name), a creature's faction (with
+/// --module, the module's own), a conversation line's animation, a
+/// store's pages.
+#[test]
+fn item_properties_factions_animations_and_store_pages_are_named() {
+    let root = mg_testkit::corpus!();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let dir = mg_testkit::scratch_dir("mg-row-names-more");
+    let names = |file: &std::path::Path, module: Option<&std::path::Path>| {
+        let mut c = crate::mg_on(&root, None);
+        c.args(["--json", "gff", file.to_str().unwrap(), "--names"]);
+        if let Some(m) = module {
+            c.arg("--module").arg(m);
+        }
+        let out = c.output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice::<Json>(&out.stdout).unwrap()
+    };
+    let string = |table: &str, row: usize| {
+        let t = game.table(table).unwrap();
+        let strref = t.get_int(row, "Name").unwrap();
+        game.string(mg_core::StrRef(strref as u32)).unwrap()
+    };
+    // An Ability Bonus of +2 to Strength (itempropdef.2da row 0; its
+    // subtypes iprp_abilities.2da, its values iprp_costtable.2da row 1's
+    // table, iprp_bonuscost.2da).
+    let mut uti = Gff::new(*b"UTI ");
+    let mut p = Struct::new(0);
+    for (l, v) in [("PropertyName", 0u16), ("Subtype", 0), ("CostValue", 2)] {
+        p.set(l, Value::Word(v));
+    }
+    p.set("CostTable", Value::Byte(1));
+    p.set("Param1", Value::Byte(255));
+    p.set("Param1Value", Value::Byte(0));
+    uti.root.set("PropertiesList", Value::List(vec![p]));
+    let file = dir.join("ring.uti");
+    std::fs::write(&file, uti.to_bytes().unwrap()).unwrap();
+    let named = names(&file, None);
+    let p = &named["PropertiesList"]["value"][0];
+    let cost = game.table("iprp_costtable").unwrap().get(1, "Name").unwrap().to_lowercase();
+    assert_eq!(p["Subtype"]["row"].as_str(), Some(&*string("iprp_abilities", 0)), "{p}");
+    assert_eq!(p["CostValue"]["row"].as_str(), Some(&*string(&cost, 2)), "{p}");
+    assert!(p["CostTable"]["row"].is_string(), "{p}");
+    assert!(p["Param1"].get("row").is_none(), "255: no parameter");
+    // A creature's faction: the module's (its own named "Smugglers").
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut fac = mg_module::factions::Factions::of_module(&m);
+    let smugglers = fac.add("Smugglers", false, 1);
+    m.set_gff(key("repute", ResType::FAC), &fac.to_gff()).unwrap();
+    let module = dir.join("factions.mod");
+    m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+    let mut utc = Gff::new(*b"UTC ");
+    utc.root.set("FactionID", Value::Word(smugglers as u16));
+    let file = dir.join("smuggler.utc");
+    std::fs::write(&file, utc.to_bytes().unwrap()).unwrap();
+    assert_eq!(names(&file, Some(&module))["FactionID"]["row"].as_str(), Some("Smugglers"));
+    assert!(names(&file, None)["FactionID"].get("row").is_none(), "no module: the number");
+    // A conversation line's animation.
+    let mut dlg = Gff::new(*b"DLG ");
+    let mut line = Struct::new(0);
+    line.set("Animation", Value::Dword(29));
+    dlg.root.set("EntryList", Value::List(vec![line]));
+    let file = dir.join("hello.dlg");
+    std::fs::write(&file, dlg.to_bytes().unwrap()).unwrap();
+    let named = names(&file, None);
+    assert_eq!(named["EntryList"]["value"][0]["Animation"]["row"].as_str(), Some("Greeting"));
+    // A store's pages, by their structs' ids.
+    let mut utm = Gff::new(*b"UTM ");
+    utm.root.set("StoreList", Value::List(vec![Struct::new(0), Struct::new(4)]));
+    let file = dir.join("shop.utm");
+    std::fs::write(&file, utm.to_bytes().unwrap()).unwrap();
+    let named = names(&file, None);
+    let pages: Vec<&str> = named["StoreList"]["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["__row"].as_str())
+        .collect();
+    assert_eq!(pages, ["Armor", "Weapons"]);
+}

@@ -707,26 +707,126 @@ fn a_module_gets_palette_categories_of_its_own() {
     h.run();
     assert!(h.query_by_label("Ruins (1)").is_some(), "the custom palette has the category");
 
-    // With a blueprint in it, it isn't removed.
+    // With a blueprint in it, Remove asks where the blueprint goes;
+    // Keep It keeps it, Cancel moves nothing.
+    let reopen = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("More").click();
+        h.run();
+        h.get_by_label("Categories…").click();
+        h.run();
+        h.get_by_label("This module's own categories, kept in the module.");
+        h.state_mut().palette_categories.as_mut().unwrap().selected = Some(ruins.clone());
+        h.run();
+        h.get_by_label("Remove").click();
+        h.run();
+        h.get_by_label("1 of the module's blueprint is in it. Move them to:");
+    };
+    let category_of = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&key).unwrap().root.integer("PaletteID")
+    };
+    reopen(&mut h);
+    assert!(h.get_by_label("Move and Remove").accesskit_node().is_disabled(), "none chosen");
+    h.get_by_label("Keep It").click();
+    h.run();
+    assert!(h.query_by_label("Move and Remove").is_none());
+    h.get_by_label("Remove").click();
+    h.run();
+    h.get_by_label("Move and Remove");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(own(&mut h).unwrap().ids().contains(&id));
+    assert_eq!(category_of(&mut h), Some(i64::from(id)), "nothing moved");
+    // Moved to the category chosen, and removed: one step with the list,
+    // which Undo takes back whole.
+    reopen(&mut h);
+    let target = categories[0].clone();
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let unchosen = |n: &egui_kittest::Node<'_>| {
+        n.accesskit_node().value().is_some_and(|v| v == "choose a category")
+    };
+    h.query_all(combo).find(unchosen).expect("the categories' dropdown").click();
+    h.run();
+    h.get_all_by_label(&target.1).last().unwrap().click();
+    h.run();
+    h.get_by_label("Move and Remove").click();
+    h.run();
+    assert!(h.query_by_label("Ruins  (category 0)").is_none());
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(!own(&mut h).unwrap().ids().contains(&id), "removed");
+    assert_eq!(category_of(&mut h), Some(i64::from(target.0)), "the chest moved");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Palette categories"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(own(&mut h).unwrap().ids().contains(&id), "back");
+    assert_eq!(category_of(&mut h), Some(i64::from(id)), "and the chest in it");
+}
+
+/// Palette › Categories…: a category named by a talk-table string, shown
+/// in each player's language as the game's own are: by a StrRef typed,
+/// or by the name typed, moved into the module's own talk table.
+#[test]
+fn a_palette_category_is_named_by_a_talk_table_string() {
+    use mg_module::palette::{BlueprintKind, PaletteName, node_name};
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_strref", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    {
+        let app = h.state_mut();
+        close_tab(app, &Tab::Blueprint(key));
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = BlueprintKind::Placeable;
+        app.palette.tiles = false;
+        app.palette.custom = true;
+    }
+    h.run();
     h.get_by_label("More").click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
-    h.get_by_label("This module's own categories, kept in the module.");
-    {
-        let w = h.state_mut().palette_categories.as_mut().unwrap();
-        w.selected = Some(ruins);
-    }
+    type_into_hint(&mut h, "a category's or group's name", "Ruins");
+    h.get_by_label("Add Category").click();
     h.run();
-    h.get_by_label("Remove").click();
+    let path = h.state().palette_categories.as_ref().unwrap().selected.clone().unwrap();
+    let name_of = |h: &Harness<'_, Moonglow>| {
+        let w = h.state().palette_categories.as_ref().unwrap();
+        let mut node = &w.skeleton.root.list("MAIN").unwrap()[path[0]];
+        for i in &path[1..] {
+            node = &node.list("LIST").unwrap()[*i];
+        }
+        node_name(node)
+    };
+    assert!(matches!(name_of(&h), PaletteName::Text(_)));
+    // A StrRef typed: the game's talk table's line 5, its text shown
+    // beside it.
+    type_into_hint(&mut h, "a talk-table line", "5");
+    let game = h.state().game.clone().unwrap();
+    let five = game.string(mg_core::StrRef(5)).unwrap();
+    h.get_by_label(&five);
+    h.get_by_label("Name by StrRef").click();
     h.run();
-    let w = h.state().palette_categories.as_ref().unwrap();
-    assert!(
-        w.error.as_deref().is_some_and(|e| e.starts_with("1 of the module's blueprint is in it"))
-    );
-    h.get_by_label("Cancel").click();
+    assert_eq!(name_of(&h), PaletteName::StrRef(5));
+    h.get_by_label(&format!("{five}  (category {})", {
+        let w = h.state().palette_categories.as_ref().unwrap();
+        let mut node = &w.skeleton.root.list("MAIN").unwrap()[path[0]];
+        for i in &path[1..] {
+            node = &node.list("LIST").unwrap()[*i];
+        }
+        node.integer("ID").unwrap()
+    }));
+    // Without the module's own talk table, Move Name to Talk Table is off.
+    assert!(h.get_by_label("Move Name to Talk Table").accesskit_node().is_disabled());
+    // Kept: the skeleton's node has the StrRef and no name written out.
+    h.get_by_label("OK").click();
     h.run();
-    assert!(own(&mut h).unwrap().ids().contains(&id));
+    let skeleton = BlueprintKind::Placeable.skeleton_key();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let doc = ws.doc(&skeleton).unwrap();
+    let palette = mg_module::palette::Palette::read(doc);
+    let names: Vec<PaletteName> = palette.nodes.iter().map(|n| n.name.clone()).collect();
+    assert!(names.contains(&PaletteName::StrRef(5)), "{names:?}");
 }
 
 #[test]

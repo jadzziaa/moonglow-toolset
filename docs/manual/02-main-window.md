@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:35:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:07:10Z }
 ---
 
 # The main window
@@ -177,6 +177,16 @@ polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
+A name is shown in the language you edit (**Options › Language**), else
+as the game shows it (its talk-table string), else in another language,
+English first; `mg areas` and `mg find` name them the same way.
+
+**An area the module's area list leaves out** (an ARE the module holds
+that its `Mod_Area_list` doesn't name, as a copy made outside the toolset
+can be) is marked *(not in the area list)*: the game loads only the
+areas the list names, so nothing in the game reaches it. Its right-click
+menu's **Add to the Module's Area List** lists it (one Undo takes it
+away again); `mg areas` and `mg info` say the same of it.
 
 **What is placed in an area:** the arrow before an area opens it out to
 its objects, kind by kind as Aurora lists them (Creatures, Doors,
@@ -268,12 +278,18 @@ The raw fields view lists every field of a resource, each editable. A
 number that is a row of one of the game's tables is shown with the row's
 name beside it, in a list to choose another by name: an area's music and
 ambient sounds, a creature's race, classes, feats and spells, an item's
-base item and properties, an object's appearance, a trap's type, a loading
-screen. A creature's skills are named in their list, and a talk-table
-string's text is shown beside its number. An object's faction of 0 (a
+base item and properties, an item property's subtype, cost table, value,
+parameter and its value (each of the table the property's other fields
+name: Ability Bonus, Strength, +2), an object's appearance, a trap's type,
+a loading screen, the base items a store buys or won't. So is an object's
+faction (by the module's own factions), and a conversation line's
+animation (as the Other Actions page lists them). A creature's skills
+and a store's pages are named in their lists, and a talk-table string's
+text is shown beside its number, a palette's `STRREF` too. An object's faction of 0 (a
 blueprint's, or one an area places) is marked as the PC faction, the
 players' alone, which Verify warns of (a trigger's, no). From a
-terminal, `mg gff --names` names the rows the same way, and `mg find
+terminal, `mg gff --names` names them the same way (a faction with
+`--module`), and `mg find
 --where` and `mg areas --set` take a row's label or name in place of its
 number.
 
@@ -461,8 +477,8 @@ typed in it; clicked into and not typed in, it has nothing of its own,
 and Undo is the editor's, as a field elsewhere leaves Undo to the
 module's. A script's editor
 keeps its own steps of its text: while it has the keyboard, Ctrl+Z and
-Ctrl+Y, Edit › Undo and Redo and the toolbar's are all the script's
-(see [Scripts](07-scripts.md)).
+Ctrl+Y, the keys set in Options › Keyboard, Edit › Undo and Redo and
+the toolbar's are all the script's (see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
 the Options' colors) opens a picker. Its 📋 copies the color's values

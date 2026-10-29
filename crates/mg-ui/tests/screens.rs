@@ -1122,6 +1122,64 @@ fn project_commands_and_team_prefix() {
     shoot(&mut h, &dir, "team-prefix-builder-code");
 }
 
+/// A project's command running, its output in the job's window and the
+/// line it reads what is typed from (`input = true`); and after, File ›
+/// Project › Command Output (`project-command-running`,
+/// `project-command-output`).
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn project_command_output() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-command-output");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    let update = "echo 'Fetching origin'; echo 'warning: no upstream for builder/krezk' 1>&2; \
+                  for i in 1 2 3 4 5 6 7 8; do echo \"Updating area_$i.are\"; done; \
+                  printf 'Merge the others into your areas? [y/N] '; read answer; \
+                  echo \"answered $answer\"; echo 'Up to date.'";
+    std::fs::write(
+        project.join("moonglow.toml"),
+        format!("[commands]\nupdate = {{ run = {update:?}, input = true }}\n"),
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let key = std::fs::canonicalize(&project).unwrap().display().to_string();
+    app.settings.allowed_commands.push((key, "update".into(), update.into()));
+    app.open_module(&project);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    let started = std::time::Instant::now();
+    while h.query_by_label("Merge the others into your areas? [y/N] ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.event(egui::Event::Text("y".into()));
+    shoot(&mut h, &dir, "project-command-running");
+    h.key_press(egui::Key::Enter);
+    while h.state().busy() {
+        assert!(started.elapsed().as_secs() < 20, "the command never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("Project").click();
+    h.run_steps(2);
+    h.get_by_label("Command Output").click();
+    shoot(&mut h, &dir, "project-command-output");
+}
+
 #[test]
 #[ignore]
 fn model_viewer() {
@@ -2827,6 +2885,9 @@ fn user_manual() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-areas");
+    // A table wider than the page, its cells wrapped.
+    h.get_by_label("The camera").scroll_to_me();
+    shoot(&mut h, &dir, "manual-areas-camera");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
     // (The menu bar has a Plugins too: the chapter is the later one.)
@@ -4167,6 +4228,121 @@ fn raw_fields_of_the_pc_faction() {
     shoot(&mut h, &dir, "raw-fields-pc-faction");
 }
 
+/// Palette › Categories… with a category the module's blueprints are in
+/// chosen, before and after Remove (`palette-categories`,
+/// `palette-categories-remove`).
+#[test]
+#[ignore]
+fn palette_categories_window() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-palette-categories");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let chest = game.resman.get_named("plc_chest1", ResType::UTP).unwrap().into_owned();
+    let mut chest = mg_gff::Gff::read(&chest).unwrap();
+    let id = chest.root.integer("PaletteID").unwrap();
+    for name in ["mg_chest_a", "mg_chest_b"] {
+        chest
+            .root
+            .set("TemplateResRef", mg_gff::Value::resref(mg_core::ResRef::from_str(name).unwrap()));
+        m.set_gff(ResKey::parse(name, ResType::UTP).unwrap(), &chest).unwrap();
+    }
+    let path = scratch.join("palette.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("More").click();
+    h.run();
+    h.get_by_label("Categories…").click();
+    h.run();
+    // The chests' category chosen.
+    {
+        fn find(list: &[mg_gff::Struct], id: i64, at: &mut Vec<usize>) -> bool {
+            for (i, n) in list.iter().enumerate() {
+                at.push(i);
+                if n.integer("ID") == Some(id) || n.list("LIST").is_some_and(|l| find(l, id, at)) {
+                    return true;
+                }
+                at.pop();
+            }
+            false
+        }
+        let w = h.state_mut().palette_categories.as_mut().unwrap();
+        let mut at = Vec::new();
+        assert!(find(w.skeleton.root.list("MAIN").unwrap(), id, &mut at), "the chests' category");
+        w.selected = Some(at);
+    }
+    shoot(&mut h, &dir, "palette-categories");
+    h.get_by_label("Remove").click();
+    shoot(&mut h, &dir, "palette-categories-remove");
+}
+
+#[test]
+#[ignore]
+fn raw_fields_of_item_properties() {
+    // An item's properties in the raw fields view: each part named by
+    // the table its other fields name (`raw-fields-item-properties`).
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-raw-item-properties");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut ring = mg_gff::Gff::new(*b"UTI ");
+    ring.root.set("BaseItem", mg_gff::Value::Int(52));
+    let property = |name: u16, subtype: u16, cost: (u8, u16), param: (u8, u8)| {
+        let mut p = mg_gff::Struct::new(0);
+        p.set("PropertyName", mg_gff::Value::Word(name));
+        p.set("Subtype", mg_gff::Value::Word(subtype));
+        p.set("CostTable", mg_gff::Value::Byte(cost.0));
+        p.set("CostValue", mg_gff::Value::Word(cost.1));
+        p.set("Param1", mg_gff::Value::Byte(param.0));
+        p.set("Param1Value", mg_gff::Value::Byte(param.1));
+        p
+    };
+    let properties = vec![property(0, 0, (1, 2), (255, 0)), property(44, 0, (18, 2), (9, 3))];
+    ring.root.set("PropertiesList", mg_gff::Value::List(properties));
+    let key = ResKey::parse("ring", ResType::UTI).unwrap();
+    m.set_gff(key, &ring).unwrap();
+    let path = scratch.join("ring.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Gff(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 560.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    h.get_all_by_label_contains(" items").next().unwrap().click();
+    h.run_steps(3);
+    for i in 0..2 {
+        h.get_all_by_label_contains(&format!("[{i}] struct")).next().unwrap().click();
+        h.run_steps(3);
+    }
+    shoot(&mut h, &dir, "raw-fields-item-properties");
+}
+
 #[test]
 #[ignore]
 fn waypoint_with_no_flag() {
@@ -4630,15 +4806,13 @@ fn area_properties_grass() {
     let stone = GrassOverride { material: 4, look: look("ttz_grass", [0.4, 0.7, 0.3]) };
     let mut overrides = mg_gff::Struct::new(mg_area::grass::OVERRIDES_ID);
     overrides.set(mg_area::grass::LIST, mg_gff::Value::List(vec![red.item(), stone.item()]));
-    let edits = vec![
-        mg_area::grass::set_disabled(git, true),
-        mg_edit::Edit::SetField {
-            key: git,
-            path: mg_area::grass::properties_path(),
-            label: mg_area::grass::OVERRIDES.into(),
-            value: Some(mg_gff::Value::Struct(overrides)),
-        },
-    ];
+    let mut edits = mg_area::grass::edits(git, mg_area::grass::disabled_plan(None, true));
+    edits.push(mg_edit::Edit::SetField {
+        key: git,
+        path: mg_area::grass::properties_path(),
+        label: mg_area::grass::OVERRIDES.into(),
+        value: Some(mg_gff::Value::Struct(overrides)),
+    });
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
@@ -7569,4 +7743,86 @@ fn setup_store_project_blueprint_far_down() {
     // (The list's scroll is animated: run until it is done.)
     h.run();
     shoot(&mut h, &dir, "setup-store-project-blueprint");
+}
+
+/// Hak Pak Conflict Analysis on The Domains of Dread's module and haks
+/// (`~/Projects/tdod-module/build`, where it is on this machine), then
+/// What the Module Uses: each hak's resources by what the module reaches.
+#[test]
+#[ignore]
+fn hak_conflicts_and_what_the_module_uses() {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let build = std::path::Path::new(&home).join("Projects/tdod-module/build");
+    if !build.join("tdod.mod").is_file() {
+        eprintln!("skipped: no TDoD build on this machine");
+        return;
+    }
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(build.clone()), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&build.join("tdod.mod"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::HakReport);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "hak-conflicts");
+    h.get_by_label("What the Module Uses").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "hak-conflicts-usage");
+}
+
+/// The module tree with an area its module's area list leaves out (a copy
+/// of Neverwinter Chess's board, `chess2`, never listed): marked "(not in
+/// the area list)", and its right-click menu's Add to the Module's Area
+/// List; then added, unmarked.
+#[test]
+#[ignore]
+fn module_tree_unlisted_area() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    for t in [ResType::ARE, ResType::GIT] {
+        let data = m.get(&ResKey::parse("chess", t).unwrap()).unwrap().to_vec();
+        m.set(ResKey::parse("chess2", t).unwrap(), data);
+    }
+    let path = dir.join("tree-unlisted.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-unlisted-area");
+    let row = h.get_all_by_label("chess2").last().unwrap().rect().center();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "tree-unlisted-area-menu");
+    h.get_by_label("Add to the Module's Area List").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-unlisted-area-added");
+    let ws = h.state().ws.as_ref().unwrap();
+    let info = ws.loaded(&mg_module::Module::info_key()).expect("Module Properties has it open");
+    let listed = mg_module::areas_of(&info.root);
+    assert!(listed.iter().any(|a| a.to_string() == "chess2"), "{listed:?}");
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
 ---
 
 # Areas
@@ -688,10 +688,14 @@ the next time.
   **Radius**).
 - **Density** is how many placeables a tile's ground (10 by 10 m) holds
   once painted. The brush adds placeables until the circle has its share,
-  counting those of the chosen blueprints already there. So going over a
-  painted place again fills its gaps and adds no more.
+  counting those of the chosen blueprints already there (with **Count
+  All**, every placeable there: trees painted among rocks, the rocks
+  counted). So going over a painted place again fills its gaps and adds
+  no more.
 - **Spacing** is the least distance between two placeables: those the
-  brush puts down, and any placeable already in the area.
+  brush puts down, and any placeable already in the area. Between their
+  middles; with **By Size**, between their sides, each by its model's box
+  (as scaled): a large tree keeps further from the next than a shrub.
 - **Flow** is how much of what the circle lacks each dab adds: at 100% a
   click fills the circle at once; lower, it fills as you go over it.
 - **Turn**: each placeable faces the way **Q** and **E** turned the brush,
@@ -714,17 +718,28 @@ the next time.
   The row begins on the snapping grid, and its direction snaps to the
   snapping angle. It follows the ground (walkable or not, so a walkway
   can cross water), raised by **Height**. Of several placeables chosen,
-  each piece is a random pick.
+  each piece is a random pick. A row's end is ringed in green: a drag
+  begun at it (within a meter) goes on from there, the next leg's first
+  piece against the last one's, so a fence goes round corners in legs.
 - **Fill** covers a rectangle instead, in rows (a floor): drag from one
   corner to the opposite one, whichever way. **Q** and **E** turn the
   grid, and the rectangle's sides with it (by the snapping angle, if on;
   Shift + Q by 90°), each piece facing along it. A row lays its pieces end
-  to end, each by its own length and **Gap**; the next row begins past the
-  deepest piece of the one before, and Gap. So pieces of different sizes
-  pack as they are. The first piece's corner is where you pressed (on the
+  to end, each by its own length and **Gap**, their middles in a line
+  across it (a shallow piece centered on a deep one's row, not against
+  its near side); the next row begins past the deepest piece of the one
+  before, and Gap. So pieces of different sizes pack as they are. The first piece's corner is where you pressed (on the
   snapping grid), and pieces go on until the rectangle is covered, so the
   last row and piece may reach a little past it. It follows the ground as
   Row does, raised by **Height**.
+- **Erase** takes placeables out instead: its circle (red, sized as
+  Scatter's) takes out the chosen blueprints' placeables it is dragged
+  over, each marked with a red cross until you let go; then they go as
+  one step, **Erase Placeables**. Locked placeables stay, and so do other
+  blueprints'.
+- **Lock** locks what the brush puts down, as the selection's **Lock**
+  does: later clicks and boxes pass through it to what is beneath, and
+  the eraser leaves it (**Unlock All** frees it).
 
 Before a press, the dab a click would lay (with Row or Fill, the first piece)
 shows see-through under the pointer, and a click lays exactly that. What
@@ -1226,7 +1241,10 @@ the diffuse colors, which may be left out), `--remove-grass Dirt` and
 
 Moonglow draws the grass closely enough to judge an override by: a
 tuft's size, the density and the colors match the game near its camera.
-The game's tufts gather in patches, Moonglow's are spread evenly.
+Its tufts gather in clumps with bare ground between them, as the game's
+do, as dense on average as the Density says (a clump to every 5 square
+meters or so, its tufts within 1.4 m of its middle; sparse grass has a
+tuft or two a clump).
 
 ### Several areas together
 
@@ -1312,11 +1330,17 @@ it left, and why. Left dynamic are placeables that:
   loaded. The log names each kept for its variables;
 - or the [project file](03-modules.md#the-project-file-moonglowtoml)
   says so (`[make_static]`): its tags or blueprints by name, and which
-  variables count (all, unless it names them).
+  variables count (all, unless it names them);
+- have a tag one of the module's scripts names: the tag written in a
+  script as text (`GetObjectByTag("GATE_LEVER")`, a constant
+  `"LAMP_01"`), which it may destroy, animate or make usable. The log
+  names the script and the line. Tags compare exactly, as the game's
+  lookups do.
 
-One a script destroys or animates by its tag, with no variables, can't
-be told from the rest: make it dynamic again from its menu in the area
-view. **Make
+A tag a script makes up as it runs (`"LAMP_" + IntToString(n)`), or one
+named only in a compiled script with no source (a hak's), can't be seen:
+name such tags in the project file's `keep_tags`, or make the placeable
+dynamic again from its menu in the area view. **Make
 Placeables Dynamic**, on the same menus, clears Static on every
 placeable of the area or the module. From the command line, `mg areas
 --static-placeables` and `--dynamic-placeables` do the same.

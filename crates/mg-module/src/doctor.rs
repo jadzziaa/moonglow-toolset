@@ -398,6 +398,9 @@ pub struct Skip {
     groups: BTreeSet<Group>,
     checks: BTreeSet<String>,
     categories: BTreeSet<crate::verify::Category>,
+    /// Missing references found only in the player's own content of these
+    /// kinds (`references:override`; `references:local`, all three).
+    locals: BTreeSet<crate::verify::Local>,
     /// Layers' labels, in lower case: `hak:tdod_tiles01`, `override`.
     sources: BTreeSet<String>,
     resources: BTreeSet<ResKey>,
@@ -411,6 +414,7 @@ impl Skip {
         groups: BTreeSet::new(),
         checks: BTreeSet::new(),
         categories: BTreeSet::new(),
+        locals: BTreeSet::new(),
         sources: BTreeSet::new(),
         resources: BTreeSet::new(),
         words: Vec::new(),
@@ -421,7 +425,8 @@ impl Skip {
     pub const WORDS: &'static str = "a group (references, tilesets, models, 2das, objects, \
          module, plugins), a check's id (`mg checks`), references:CATEGORY (creatures, doors, \
          placeables, items, sounds, triggers, waypoints, stores, conversations, encounters, \
-         areas, module, scripts, other), a hak (hak:NAME or NAME.hak), override, development, \
+         areas, module, scripts, other), references:override, references:userpatch, \
+         references:workshop or references:local (what only the player's own content has), a hak (hak:NAME or NAME.hak), override, development, \
          or a resource (ttr01.set, appearance.2da, a model's name.mdl)";
 
     /// Whole groups left out.
@@ -463,6 +468,19 @@ impl Skip {
         } else if Check::from_id(&word).is_some() || word.contains('/') {
             self.checks.insert(word.clone());
         } else if let Some(c) = word.strip_prefix("references:") {
+            use crate::verify::Local;
+            let locals: &[Local] = match c {
+                "local" => &[Local::Override, Local::Userpatch, Local::Workshop],
+                "override" => &[Local::Override],
+                "userpatch" => &[Local::Userpatch],
+                "workshop" => &[Local::Workshop],
+                _ => &[],
+            };
+            if !locals.is_empty() {
+                self.locals.extend(locals);
+                self.words.push(word);
+                return Ok(());
+            }
             let c = crate::verify::Category::from_id(c)
                 .ok_or_else(|| format!("not a category of missing references: {c}"))?;
             self.categories.insert(c);
@@ -534,11 +552,13 @@ impl Skip {
             || self.resource(&f.resource)
     }
 
-    /// Whether a missing reference is: the group, its category, or the
-    /// resource that makes it.
+    /// Whether a missing reference is: the group, its category, the
+    /// player's own content that alone has it, or the resource that makes
+    /// it.
     pub fn missing(&self, m: &crate::verify::Missing) -> bool {
         self.group(Group::References)
             || self.categories.contains(&m.category)
+            || m.only_local.is_some_and(|l| self.locals.contains(&l))
             || self.resource(&m.reference.from)
     }
 
@@ -2442,7 +2462,7 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let list = gff.root.list("Placeable List").unwrap_or(&[]);
         for (i, s) in list.iter().enumerate() {
-            if s.integer("Static").unwrap_or(0) == 0 || !crate::areas::transforms(s) {
+            if s.integer("Static").unwrap_or(0) == 0 || !crate::placement::is_transformed(s) {
                 continue;
             }
             let place =
@@ -3392,6 +3412,27 @@ endmodelgeom fx\ndonemodel fx\n";
             }
         };
         let mut gone = vec![missing(ResType::UTC), missing(ResType::UTD)];
+        // Found only in the player's own override folder or Workshop item,
+        // a warning each, left out by its kind (`references:local`, all).
+        let only = |t: ResType, l: crate::verify::Local| crate::verify::Missing {
+            only_local: Some(l),
+            ..missing(t)
+        };
+        let mut locals = vec![
+            only(ResType::UTD, crate::verify::Local::Override),
+            only(ResType::UTD, crate::verify::Local::Workshop),
+            missing(ResType::UTD),
+        ];
+        let by = Skip::parse(&["references:override"]).unwrap();
+        locals.retain(|m| !by.missing(m));
+        assert_eq!(
+            locals.iter().map(|m| m.only_local).collect::<Vec<_>>(),
+            [Some(crate::verify::Local::Workshop), None]
+        );
+        let all = Skip::parse(&["References:Local"]).unwrap();
+        assert_eq!(all.words(), ["references:local"]);
+        locals.retain(|m| !all.missing(m));
+        assert_eq!(locals.len(), 1);
         skip.leave_out(&mut gone, &mut findings);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].resource, key("b", ResType::TWODA));

@@ -92,30 +92,20 @@ pub fn copy_resref_named(
         .and_then(|name| ResRef::from_str(&name).ok())
 }
 
-/// The fields a placed object has and its blueprint does not.
-fn placement_fields(t: ResType) -> &'static [&'static str] {
-    match t {
-        ResType::UTP | ResType::UTD => &["X", "Y", "Z", "Bearing", "VisTransformList"],
-        ResType::UTS => &["XPosition", "YPosition", "ZPosition", "GeneratedType"],
-        ResType::UTT => &[
-            "XPosition",
-            "YPosition",
-            "ZPosition",
-            "XOrientation",
-            "YOrientation",
-            "ZOrientation",
-            "Geometry",
-        ],
-        ResType::UTE => &["XPosition", "YPosition", "ZPosition", "Geometry", "SpawnPointList"],
-        _ => &[
-            "XPosition",
-            "YPosition",
-            "ZPosition",
-            "XOrientation",
-            "YOrientation",
-            "VisTransformList",
-        ],
-    }
+/// The fields a placed object has and its blueprint does not: where it
+/// stands ([`crate::placement::fields_of`]), and a sound's
+/// `GeneratedType`, an encounter's spawn points and the others' visual
+/// transform.
+fn placement_fields(t: ResType) -> Vec<&'static str> {
+    let Some(kind) = ObjectKind::from_restype(t) else { return Vec::new() };
+    let mut out = crate::placement::fields_of(kind);
+    out.push(match kind {
+        ObjectKind::Sound => "GeneratedType",
+        ObjectKind::Encounter => "SpawnPointList",
+        ObjectKind::Trigger => return out,
+        _ => "VisTransformList",
+    });
+    out
 }
 
 /// Where a held item sits (kept in the holder's list entry).

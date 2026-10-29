@@ -52,3 +52,31 @@ fn update_instances_remakes_a_blueprints_objects_and_saves() {
     }
     assert_eq!(objects(&saved, "Placeable List"), placeables);
 }
+
+/// The game's data for a module is put together one way in every command
+/// (`Module::game_data`): `mg update-instances` reads the module's custom
+/// talk table too, and says one it can't find as `mg search` and the
+/// plugins' game data say it.
+#[test]
+fn a_custom_talk_table_not_found_is_said_alike() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-update-instances-tlk");
+    let mut m = Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", Value::String(b"mg_nowhere".to_vec()));
+    m.set_info(&info).unwrap();
+    let path = dir.join("chess.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let said = |args: &[&str]| {
+        let mut mg = crate::mg_on(&root, None);
+        let out = mg.arg(args[0]).arg(&path).args(&args[1..]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let warning = "warning: custom talk table mg_nowhere not found";
+    let updated = said(&["update-instances", "gamemaster.utc"]);
+    assert!(updated.contains(warning), "{updated}");
+    let found = said(&["search", "--var", "*"]);
+    assert!(found.contains(warning), "{found}");
+}

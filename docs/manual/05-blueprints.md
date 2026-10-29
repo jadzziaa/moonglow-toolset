@@ -89,11 +89,20 @@ follow it.
   name, as in Aurora). With **Options › General › List a blueprint's
   categories alphabetically** on, the Category lists are in alphabetical
   order instead; the palette keeps yours.
-- A renamed category keeps its blueprints; one with blueprints of the
-  module in it isn't removed until they are given another.
+- A renamed category keeps its blueprints. **Remove** on one the
+  module's blueprints are in asks where they go: choose a category and
+  **Move and Remove** (or **Keep It**); with OK they are moved there
+  and the category is removed, one step to undo, and Cancel moves
+  nothing.
 - A name is written as the game reads text in its language (Options ›
   Language), so that the DM's Creator in the game shows it as typed; a
-  name with letters that text cannot hold is refused, and says so.
+  name with letters that text cannot hold is refused, and says so. For
+  a name in each player's language, as the game's own categories have
+  theirs, name it by a talk-table line: **StrRef** and **Name by
+  StrRef** take a line's number (its text shows beside it), and **Move
+  Name to Talk Table** puts the name typed into the module's own talk
+  table as a new line and names the category by it (translate the line
+  in the table's other languages' files).
 - **Use the Game's Categories** drops the module's list.
 - Aurora reads custom categories from palette files kept in a module too
   (a builder who keeps them so reports it; Moonglow's own check against

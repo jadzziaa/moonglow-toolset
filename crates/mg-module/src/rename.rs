@@ -4,7 +4,7 @@
 //! fields, `#include` lines and, if asked, the strings in scripts that spell
 //! its name.
 
-use mg_core::{Codepage, Gender, Language, ResRef, ResType};
+use mg_core::{Codepage, Language, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::{ResKey, ResMan};
 use mg_rules::ObjectKind;
@@ -765,7 +765,8 @@ pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
                     _ => None,
                 })
                 .and_then(|s| s.locstring("Text"))
-                .and_then(|t| t.text(Language::ENGLISH, Gender::Male).map(|c| c.into_owned()))
+                .map(|t| t.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252))
+                .filter(|t| !t.is_empty())
                 .map(|t| {
                     let t: String = t.chars().take(40).collect();
                     format!(" “{t}”")
@@ -991,7 +992,7 @@ fn include_spans(src: &[u8], name: &str) -> Vec<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use mg_core::LocString;
+    use mg_core::{Gender, LocString};
     use mg_schema::{StructExt, git, ifo};
 
     use super::*;

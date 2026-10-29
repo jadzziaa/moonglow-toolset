@@ -77,11 +77,7 @@ pub(crate) fn edited_text(ls: &LocString) -> String {
 /// A localized string's text for a list or a title: in the editing
 /// language, else, where it has none in it, in another (English first).
 pub(crate) fn shown_text(ls: &LocString) -> String {
-    let text = edited_text(ls);
-    if !text.is_empty() {
-        return text;
-    }
-    elsewhere(ls).map(|(_, text)| text).unwrap_or_default()
+    ls.shown_in(edit_language(), game_table())
 }
 
 /// A localized string's text in another language than the editing one

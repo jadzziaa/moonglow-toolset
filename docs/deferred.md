@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:48:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -24,15 +24,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
-- **Sweeps still walked more than once:** the areas of every module, by
-  five tests (`areas`, `hlsl`, `minimaps`, `object_walkmeshes`,
-  `tiles`, through `area_common::each_module`): they share the
-  module's set-up, not the walk, as the renders hold the GPU and the
-  others read each area differently. No walk of the five together is
-  proposed: the owner's word on keeping them so (Settled) is what
-  closes it. (The models are decompiled once since 2026-10-29; nasher
-  still unpacks each edited module once more, as the test is about
-  that.) (M)
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
   split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
   86 harnesses at kittest's default size (`Harness::new_ui_state`), 27
@@ -70,16 +61,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **A script's codepage** (GitHub issue 27) is the language's of
   Options › Language, for every script alike; in `mg`, the game
   client's (`mg lsp`, and the lines `mg refs` and `mg rename` show of
-  scripts). Left: choosing another for one script (reading one again in
-  another, saving one in another; a script kept in UTF-8 is read as that
-  codepage's letters), which nobody asked for (issue 27 asked for Polish
-  scripts read right, which the language does) and Aurora has none of:
-  over-implementing until a builder asks (the triage proposed dropping
-  it; the owner's word). And the game reading the compiled strings in
+  scripts). Left: the game reading the compiled strings in
   Windows-1250 was not seen in a Polish client (the bytes were checked
   in the compiled script): waits on the client (a scratch module's
   `SpeakString` with a Polish letter, the sandboxed client's language
-  set to Polish, a screenshot). (S each)
+  set to Polish, a screenshot). (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
@@ -93,24 +79,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (its bytecode is the built-in compiler's, byte for byte). (S) (waits
   on a copy of nwnsc: none is on the development machine) (from
   builders' reports after 1.14.1)
-- **Edit › Undo and the toolbar's Undo in a script** are the script's
-  own while its editor has the keyboard, as Ctrl+Z is (the click on
-  the menu or button counts as in it), say plain "Undo" and "Redo",
-  and give the keys back to the editor; the module's history was not
-  given the script's typing. Left: they are not grayed with nothing in
-  the script's history (reading egui's history copies all of it, each
-  frame); a menu opened from a script and closed with nothing chosen
-  leaves the keyboard nowhere, so Ctrl+Z is the module's then, as
-  after any click outside the editor; a key given to Undo or Redo in
-  Options, other than Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, does nothing in
-  a script (read from the code, not tried); the Command Palette's Undo
-  is the module's (its field has the keys). Seen meanwhile: the
-  toolbar's Undo clicked after the pointer was over a hak's editor
-  took back the module's step, not the hak's (the pointer has left the
-  editor by then), so Edit › Undo and the toolbar's are the module's
-  for a side editor; its own Undo is Ctrl+Z with the pointer over it,
-  or with the keys in a 2DA's grid. (S each) (a builder's report on
-  1.25.1)
 
 ## nasher projects
 
@@ -149,12 +117,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Modules kept as folders
 
 - **A module's files changed outside, read on a thread of their own**
-  (`mg_module::outside`), leave the files' memory in that thread's
-  allocator arena: the process keeps about 200 MB more after a 970-file
-  pull on Linux (25 MB with `MALLOC_ARENA_MAX=1`; it is reused, not
-  leaked). (settle?: proposed by the sprint on 2026-10-29, the owner's
-  to say.) The rest of what the entry said, as it is and not among the
-  triage's items: a reload that touches resources the undo history has
+  (`mg_module::outside`; their reads' allocator arena is Settled): what
+  the entry said besides, as it is and not among the triage's items: a
+  reload that touches resources the undo history has
   changes to clears the whole history; a script open in the editor with
   typing not yet applied counts as changed here; the area list isn't
   settled again for areas added outside; the haks and the `override`,
@@ -369,11 +334,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Bulk editing
 
-- **Make Placeables Static, what it can't see:** a placeable that a
-  script destroys, animates or makes usable by its tag, and has no
-  variables, looks like scenery and is made static; nothing scans the
-  scripts for its tag (a project names such tags in `[make_static]`
-  `keep_tags`). (M)
 - **Lists across several blueprints:** Edit Together leaves out the
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the
@@ -406,44 +366,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     things on no object drop out of a search with more than one
     condition (there is no object for the others to be found on);
     `mg search` takes one condition at a time, without class levels or
-    ranges, and its JSON names what is found through an encounter only
-    in its place (`spawned` is `mg_module::search::Hit`'s, not printed:
-    the command line is `apps/mg/src/search.rs`, another package's this
-    wave). (S each)
+    ranges. (S each)
   - The module only: blueprints in haks and the game's own palettes
     aren't searched (`Kept::search` walks `Module::keys`; the haks' and
     palettes' blueprints read as the module's are would be a layer of
     hits of their own, read-only, and a change offered on none of
     them). (S–M)
-  - A question asked again (Find again, or found again after a change
-    made to what it found) reads only the resources changed since
-    (`search::Kept`); another question reads the module again, once
-    for all its conditions, on every core but on the window's thread
-    (Chapter One, 5,271 resources: 7 to 40 ms, where it took 70 to
-    250; the persistent world's 25,000: 0.2 s, where it took 0.7 to
-    2.1). What is found isn't drawn from Find References' index, which
-    would keep every GFF read (0.6 GB more in the persistent world).
-    The events Set an event's script offers still read the objects
-    found anew: 0.1 s of the 0.11 s a question asked again takes with
-    8,785 found in the persistent world. (S; the triage proposed
-    dropping it: a record of numbers in budget, no verdict yet)
-  - Appearance covers the 2DA rows a field names (creatures,
-    placeables, doors, waypoints, items' base types); items' model
-    parts and colors, portraits and sound sets are found through Any
-    field. (S; the triage proposed settling it as designed)
-- **Variable sets** hold int, float and string variables only, as the
-  Variables window edits; object and location variables aren't kept
-  (they mean nothing outside their module: the triage proposed settling
-  it, no verdict yet). (S) Renamed, deleted, saved to and added from
-  files of one's choosing (builders' requests, October 2026); a file
-  that isn't a set said so in the menu and the Variable Sets window,
-  what a set holds in its tip, and several files added at once since
-  2026-10-29; these gaps are left, each a decision for the owner, not
-  work (the triage proposed dropping both):
-  - Undo Delete lasts while the Variable Sets window is open, and a
-    rename has no undo (rename it back); neither is in Edit › Undo,
-    which is the module's. (S)
-  - No folders inside `variable-sets` (a set in one isn't listed). (S)
 
 ## Conversation authoring
 
@@ -455,18 +383,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories, what the editor lacks:** no translated names
-  (one text for every language), and Remove refuses a category in use
-  rather than offer to move its blueprints. (S–M)
-- **A module's categories in its own order:** the palette and the
-  `palcus.itp` built on save keep the order a module's own skeleton has.
-  Aurora's don't (captured 2026-10-29,
-  `captures/wave1/pal2-saveas.mod`): its custom palette, Select Category
-  and Refresh Palette show every level by name whatever the files'
-  order, and its Save As writes the `palcus.itp` back in that order, so
-  a module saved in Aurora comes back in name order. Whether Moonglow's
-  own order stays (a builder's arrangement, kept until Aurora saves the
-  module) or follows Aurora is the owner's to say. (S)
+- **Palette categories by a talk-table line, in the game:** since
+  2026-10-29 Palette › Categories… names a category by a StrRef (Name
+  by StrRef, or Move Name to Talk Table into the module's own table),
+  as the game's own categories are named, and the `palcus.itp` built
+  on save keeps it. Not seen: the DM Creator showing a module's own
+  talk table's line (16777216 and up) as a category's name, in each
+  language. (S) (waits on the client batch: a module with a custom
+  `.tlk` and a category named by its line, the Creator's palette
+  looked at)
 - **A custom palette's names in the game** (a builder: after a save in
   Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
   colors wrong; Aurora's Custom palette showed the same, reading the
@@ -654,33 +579,38 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   already has the same text, asked first: proposed by builders, not
   begun. Move to Talk Table does one string at a time. (L)
   (from builders' reports after 1.19.1)
-- **A retired key's line keeps its text** in the table `mg tlk-alloc`
-  writes (a key taken out of the names file): a number saved in a
-  character or an item still shows what it said, not an empty line, and
-  the line stays the key's for when it is named again. Said in the
-  manual's Strings by name.
-  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
-- **A talk table's JSON is one table's** (`mg tlk-export`, the talk
-  table editor's Export JSON), as `nwn_tlk`'s is and a nasher repository
-  keeps it: the feminine table is a file of its own there, exported on
-  its own (`mg tlk-export TABLEf.tlk`); the CSV carries both.
-  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
 
 ## Haks in the GUI
 
-- **What the module uses of its haks** is `mg haks --usage` alone: the
-  window has no report of it (Module Properties' Check for Conflicts
-  could show it). The walk is in the command line (`apps/mg/src/usage.rs`)
-  until the window wants it. (S–M)
-- **Not followed by `--usage`:** what scripts reach by a number
-  (visual effects, spells, item properties, `SetCreatureAppearanceType`),
-  a creature's footstep, weapon and combat sounds, an item property's
-  visual effect, armor's inventory icon, what players choose at
-  character creation (heads, portraits, sound sets, parts), and 2DAs the
-  game reads by itself (judged only where the walk reads one). A
-  script's string counts as a use of whatever it spells. A per-hak list
-  for the release cut (a folder of used assets to pack smaller haks) is
-  not written: `--json` has the lists. (M)
+- **Not followed by `--usage`** (and What the Module Uses), what is left
+  of it after the sprint followed sounds, icons, visual effect
+  properties, 2DAs and the heads, portraits and voice sets players
+  choose (`mg_preview::usage`):
+  - **What scripts reach by a number** (visual effects, spells, item
+    properties, `SetCreatureAppearanceType`): a reader of a script's
+    calls' arguments (an `int` literal, a stock constant from
+    `nwscript.nss`, the module's own `const`s through its includes) by
+    the function and parameter that take a row of a table
+    (`EffectVisualEffect` visualeffects.2da, `ActionCastSpell*`
+    spells.2da, `ItemProperty*` their iprp tables), then each row's
+    files (a visual effect's models, progfx.2da's, its sounds; a
+    spell's icons, models and sounds; an appearance's look through
+    `mg_preview::creature`). In mg-script and `usage.rs`: a day or two
+    (L), larger than the rest of the entry was.
+  - **The body parts players choose** at character creation (tattoos):
+    which part numbers the creation screen offers for a race and
+    phenotype isn't known here (parts_*.2da has no column for it, and
+    every part number would count every armor part as used). Waits on
+    the client batch: read the creation screen's part lists against
+    parts_chest.2da and the others.
+
+  A script's string still counts as a use of whatever it spells,
+  whatever the string is for (a release cut keeps too much rather than
+  too little; said in the manual), and a per-hak list for the release
+  cut (a folder of the used assets to pack smaller haks) is not written:
+  `--json` has the lists, and writing haks from them goes beyond what
+  was asked. (settle?: both proposed by the sprint on 2026-10-29, the
+  owner's to say) (L; the body parts wait on the client batch)
 
 - **No 7z or rar:** content downloaded as one is unpacked first; Add
   Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk
@@ -695,14 +625,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
   2DAs and a model the game reads from the hak are shown (2026-10-29).
   (M)
-
-## Raw fields
-
-- **Rows the fields view doesn't name yet:** an item property's subtype,
-  cost and parameter (their table depends on the property), a creature's
-  or object's faction (the module's `repute.fac`, not a 2DA), a
-  conversation's animations, a store's categories, and fields that hold
-  a talk-table number as a plain int. (S–M)
 
 ## Getting files out
 
@@ -722,11 +644,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 
-- **Grass in patches:** the client's tufts gather in patches across a
-  field (dark clumps, seen in `client_render.rs` grass_overrides_look);
-  Moonglow scatters them evenly by face area and density. The mean color
-  near the camera matches; how the engine places them (per face, by a
-  noise) isn't known. (S–M) (Bee AI's ask, October 2026)
 - **A grass tuft's sway:** a tuft is one upright quad turned at random,
   a texture quarter, as tall as wide, as the client's are (seen with
   white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
@@ -747,13 +664,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the engine ignores this mesh, or a module's copy of it, or making a
   creature doesn't see it: telling which needs a creature's path across
   each place, or the client. (M)
-- **Marker models against Aurora:** stores, sounds and waypoints use the
-  game's marker models in their materials' colors, unlit, so that their
-  colors tell apart in a dark area. Aurora lights them as any model
-  (captured 2026-10-29 in the probe made always dark: a waypoint's and a
-  store's yellow arrow from 243, 216, 0 by day to 76, 100, 0, the blue
-  stem staying bright, the sound's speaker near its full white). Whether
-  Moonglow follows Aurora or keeps them unlit is the owner's to say. (S)
 - **Sound ranges:** level circles at the sound's height. Aurora draws
   each distance as a dotted sphere about the sound, with one level
   circle at its maximum (captured 2026-10-29, the probe's sound of
@@ -793,26 +703,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   shown, and the area view draws scope 0 only. (M) (xtul's report,
   October 2026)
 
-- **Alt for the camera and the selection:** Alt + right drag turns the
-  selection and Alt + middle drag moves the camera (they were Shift's,
-  which now leaves the camera alone while the handles show). Aurora
-  turns the selection with Shift + right drag; and some desktops take
-  Alt + drag to move the window. Not in Options › Keyboard. (S)
-  (from builders' reports after 1.10.1)
-- **Painting placeables** (the area view's Paint, from builders'
-  reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
-  on a grid Q and E turn, each piece by its own size, a builder's ask
-  after 1.32.2). Not done: a fill's rows of pieces of different depths
-  lined up by their middles rather than their near sides; an eraser
-  (taking the chosen blueprints' placeables out of the circle); the
-  brush's own Lock (painted placeables locked, so later clicks pass
-  through them); counting placeables that aren't the chosen blueprints
-  towards Density (Spacing keeps away from them; Density counts only the
-  brush's own); Spacing from each placeable's size rather than one
-  distance; a row along a path of several legs (a drag is one straight
-  line); random scale on static placeables (the game gives them none, so
-  Scale passes them by). The see-through dab is held by the tests'
-  counts; the pictures show strokes laid. (S each)
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
   draws as the client draws it. His armourer (`hss_armourer`, the area
@@ -887,55 +777,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   taken for it too and had a marker's metre-wide box: a builder's
   report after 1.32.1.)
   (from builders' reports after 1.16.2)
-- **Tile Properties' Defaults:** Moonglow's sets the lighting scheme's
-  first colors and every loop. Aurora's, compared on Interior Evil
-  (2026-10-29, `captures/wave1/tile-defaults.mod`), changed nothing
-  shown: a main light of 27 stayed 27, one of 0 stayed 0, the others 0
-  (the scheme's first colors are 27, 27 and 12); its OK then writes the
-  loops as the boxes show them, 0 for a tile without loops where they
-  were 1 (`tile-ok.mod`: OK alone does that too). What Aurora's Defaults
-  is for is not known; whether Moonglow's goes is the owner's to say.
-  (S) (from the research notes)
-- **Exact tile's reach** (issue #29): the Gallery offers a terrain's
-  and a crosser's tiles, not a group's pieces (one goes in alone through
-  Tile Properties' All tiles; the Features and Groups pictures are
-  placed whole, as their tip and the manual say); an exact tile takes
-  the replaced tile's height; a corner it disagrees on with a neighbor
-  is read as the tile to the north or east has it
-  (`Lattice::from_tiles`). The client draws such a seam as the area view
-  does: each tile's model as it is, a gap open to the sky
-  (`reading_exact_tile_seams`, 2026-10-29). What is left is Moonglow's
-  own design (the Gallery's reach, the corner rule), not the engine's:
-  proposed as settled. (S) (settle?: the owner's to say)
-- **Tile Height and what stands on a tile** (issue #29): an object goes
-  up or down with a tile whose square its position is over (doors on
-  its hooks, placeables, creatures, waypoints, a trigger's or
-  encounter's position with its outline), whatever its height above the
-  tile; Raise/Lower's corner strokes move none; the control's ±1024 is
-  Moonglow's reading bound, not the engine's. Heights below 0 and far
-  above stand in the server where Moonglow puts them
-  (`a_tile_s_own_height_stands_where_the_engine_puts_it`) and the client
-  draws them so: tiles at −2 and 20 (−10 m, 100 m) with an armoire on
-  each, the player entering on either, alike in the client and the area
-  view (`reading_tile_heights`, 2026-10-29). Measured as the engine
-  and the client do; what is left (the corner strokes, the ±1024 bound)
-  is Moonglow's own: proposed as settled. (S) (settle?: the owner's to
-  say)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
   several tiles was not looked at on the oracle: it waits on a session
   driving Aurora. (S) (the owner's report on Tile Properties)
-
-## The turning ring
-
-- **Escape during a drag** drops it (it used to put the object down
-  where it was). Aurora's doesn't: Escape pressed before the button is
-  let go changes nothing there, and the object is put down where it was
-  dragged (captured 2026-10-29, `captures/wave1/esc-drag.mod`). Matching
-  it is a line in `area_view.rs`'s `Held`; whether Moonglow keeps its
-  Escape (the drag's other tools, brushes and pastes, drop on Escape
-  too) is the owner's to say. (S)
 
 ## Rendering: creatures, particles, water and shaders
 
@@ -1422,16 +1268,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2DA's cell, a tileset's page) and a model view's camera. Advanced
   Search's question (the next session's tab is empty) wants its
   conditions kept as text, nine kinds with their rows, parts and ranges
-  (`search::Condition` has no serde form) (S–M). Proposed to the owner
-  as kept as they are (settle or drop), by design: a hak never saved
-  and a 2DA in one, and a 2DA's Edit a Copy not saved yet (no file to
-  open again); a crash losing a camera moved since the tabs were last
-  written (they are written when they change, a window is moved, the
-  module closes or Moonglow quits, not as the camera moves); a placed
-  object moved outside Moonglow with another of its tag and blueprint
-  added (neither is taken for it); a kept Options tab making its draft
-  as Tools › Options does, which looks for the game's install (Steam's
-  library files) as the module opens. (a builder's report, October 2026)
+  (`search::Condition` has no serde form) (S–M). What is kept as it is
+  by design is Settled. (a builder's report, October 2026)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
@@ -1474,11 +1312,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Escape closes the submenu the keys are in before the menus; all of it
   under test (`menus_by_the_keyboard`, Alt alone by its modifier
   events). Waits: Alt alone on Windows, where the system may take Alt
-  for its own menu (a Windows build). Proposed to the owner as dropped
-  (nobody asked, or nothing to do today): a letter of its own for each
-  row (they go by first letters, and a letter only marks the row: Enter
-  chooses); keys for a submenu inside a submenu (there is none); the bar
-  itself "focused" without a menu open. (S each) (from builders' reports
+  for its own menu (a Windows build). (S) (from builders' reports
   after 1.19.1)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
@@ -1530,15 +1364,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Keys for four lists (a cursor, its outline, Enter's action, the
     rows' order for Up and Down in each), about a day: more than the
     wave's S. (M)
-- **The look of the two side panes, the module tree's rows** (the
-  owner's notes after 1.21.0; the rest done on 2026-10-29): the module
-  tree's rows are as they were, with no pictures and no "more" menu as
-  the palettes' list has. Not started: the triage proposed dropping it
-  (the owner's note, which no builder asked for), and a picture on each
-  row is the palette's Gallery brought into the tree (its thumbnails for
-  blueprint rows, a size, the rows' heights), more than an hour or two.
-  Waits on the owner's verdict: drop it, or which of the two to do. (S
-  for the menu, M for the pictures)
 - **A long dropdown that grew to the window's edge, not seen growing
   here:** the open list of a dropdown with a Filter field (Area
   Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds
@@ -1863,13 +1688,6 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-- **The round trip** (`mg roundtrip`, Build › Round-Trip Check) compares
-  a GFF written anew by its fields, not its bytes: Moonglow lays a GFF
-  out its own way, as every edit does. It doesn't ask the game or Aurora
-  (the engine and Aurora tests do, on the game's own modules), and the
-  formats it doesn't write anew (scripts, models) are held to their
-  bytes by the saved copy.
-  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
 
 ## NWSync publishing
 
@@ -2046,11 +1864,6 @@ What the [audit](docs-audit.md) of 2026-10-12 could not put right with a
 few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
-- **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so a table wider than the page is shown there as a
-  list (`manual::fitted`; it was cut off at the page's edge before, and
-  the text after it too). Tables with wrapped cells would read better.
-  (S–M) (from the research notes)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
@@ -2119,25 +1932,6 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **A localized string's text, without the toolset's language or the
-  talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
-  `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
-  `GameData::locstring`): `mg find --name` doesn't match a name in
-  French alone or in the talk table, and `mg areas` names an area
-  otherwise than the module tree. A `LocString::shown_in(language,
-  codepage)` for where there is no game. (M)
-- **The module's areas, two ways:** the IFO's list (`Module::areas`:
-  `query.rs:168`, `bulk.rs:74`, `mg update-instances`) and the AREs
-  (areas, the doctor, search, the module tree); an ARE missing from the
-  IFO is seen by half the tools. And areas listed and filtered three
-  times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
-  without the tag). (M)
-- **Where an object stands:** visual transforms read two ways
-  (`areas.rs:191`: any entry; `mg-area lib.rs:233`: scope 0, else the
-  first), and placement fields (X/Y/Z and Bearing, or XPosition and
-  orientation; PointX or X) read and written in six places
-  (`instances.rs:1149`, `mg-area lib.rs:323`, `reshape.rs:92`,
-  `edit.rs:50`, `query.rs:114`, `palette_add.rs:58`). (M)
 - **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
   `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
   `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
@@ -2150,11 +1944,6 @@ of truth, and does each caller's difference matter.
   empty undo step when a drag ends where it began, neither keeps typing
   as `hold_text` does; the "…" button for every language seven times.
   (M)
-- **The game data for a module, three times in `mg`**
-  (`search.rs:98`, `plugins.rs:34`, `main.rs:2671`, with the custom
-  talk table found three more ways: `main.rs:2713`, `nwsync.rs:122`,
-  `mg-ui lib.rs:2184`), each warning differently. A
-  `Module::game_data`. (M)
 
 ### Settled in the engine or Aurora first
 
@@ -2208,23 +1997,6 @@ of truth, and does each caller's difference matter.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
-- The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
-  now but are still two (the edits wanted by the area view against the
-  module's mutations). (Making placeables static is one since
-  2026-10-22: `areas::static_plan` and `static_fields`.)
-
-## A project's rules (the builders' proposal, C1 to C5)
-
-The Domains of Dread's builder proposal (its section 3): the project file
-(`moonglow.toml`), Make Placeables Static and Setup Store following it,
-and duplicate tags on paste. What is left:
-
-- **Described variables (C2): an object's or a location's value is not
-  described**: what a file holds of one is an object's id or a place in
-  an area, which no list, range or default describes; `values`, `min`, `max` and `default`
-  are refused for them, said by line. Whether anything should describe
-  them (the tag of the object meant, the area of a place) is open.
-  (settle?: proposed by the sprint on 2026-10-29, the owner's to say.) (S)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -2234,9 +2006,6 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **A project's command's output is in the log only:** no window of its
-  own to read a long output in, and no input (a command that asks for
-  a password waits until canceled; its stdin is closed). (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,
@@ -2853,3 +2622,115 @@ is not taken for a new gap.
   Aurora's). Pasted tiles over a group are refused, as Aurora refuses
   them (captured 2026-10-29: "Pasting tiles to current area failed.
   There was a feature or a group within the region…").
+- **The areas' sweeps walked five times:** the corpus tests `areas`,
+  `hlsl`, `minimaps`, `object_walkmeshes` and `tiles` each walk every
+  module's areas (`area_common::each_module`), sharing the module's
+  set-up, not the walk, as the renders hold the GPU and the others read
+  each area differently; no walk of the five together. (Settled by the
+  owner, 2026-10-29.)
+- **The Command Palette's Undo in a script** is the module's (its field
+  has the keys), where Edit › Undo, the toolbar's Undo and Ctrl+Z are the
+  script's while its editor has the keyboard. (a builder's report on
+  1.25.1) (Settled by the owner, 2026-10-29.)
+- **A module's files changed outside, read on a thread of their own**
+  (`mg_module::outside`), leave the files' memory in that thread's
+  allocator arena: the process keeps about 200 MB more after a 970-file
+  pull on Linux (25 MB with `MALLOC_ARENA_MAX=1`; it is reused, not
+  leaked). (Settled by the owner, 2026-10-29.)
+- **Advanced Search's Appearance** covers the 2DA rows a field names
+  (creatures, placeables, doors, waypoints, items' base types); items'
+  model parts and colors, portraits and sound sets are found through
+  Any field. (Settled by the owner, 2026-10-29.)
+- **A module's categories in its own order:** the palette and the
+  `palcus.itp` built on save keep the order a module's own skeleton has
+  (a builder's arrangement, kept until Aurora saves the module). Aurora
+  shows every level by name whatever the files' order and writes the
+  `palcus.itp` back in name order on Save As (captured 2026-10-29,
+  `captures/wave1/pal2-saveas.mod`); Moonglow keeps its own by the
+  owner's decision. (Settled by the owner, 2026-10-29.)
+- **A retired key's line keeps its text** in the table `mg tlk-alloc`
+  writes (a key taken out of the names file): a number saved in a
+  character or an item still shows what it said, not an empty line, and
+  the line stays the key's for when it is named again. Said in the
+  manual's Strings by name. (Settled by the owner, 2026-10-29.)
+- **A talk table's JSON is one table's** (`mg tlk-export`, the talk
+  table editor's Export JSON), as `nwn_tlk`'s is and a nasher repository
+  keeps it: the feminine table is a file of its own there, exported on
+  its own (`mg tlk-export TABLEf.tlk`); the CSV carries both. (Settled
+  by the owner, 2026-10-29.)
+- **Marker models unlit:** stores, sounds and waypoints use the game's
+  marker models in their materials' colors, unlit, so that their colors
+  tell apart in a dark area. Aurora lights them as any model (captured
+  2026-10-29 in the probe made always dark: a waypoint's and a store's
+  yellow arrow from 243, 216, 0 by day to 76, 100, 0); Moonglow keeps
+  its own by the owner's decision. (Settled by the owner, 2026-10-29.)
+- **Alt for the camera and the selection:** Alt + right drag turns the
+  selection and Alt + middle drag moves the camera; on a desktop that
+  takes Alt + drag, the camera moves by Ctrl + drag and the selection is
+  raised by Shift + drag of its blue arrow and turned by its ring or Q
+  and E. Aurora turns the selection with Shift + right drag, which turns
+  the camera in Moonglow (the handles shown), and there is no key for
+  the camera's focus (Alt + middle click): Moonglow keeps its own design
+  by the owner's decision. (from builders' reports after 1.10.1)
+  (Settled by the owner, 2026-10-29.)
+- **Tile Properties' Defaults** sets the lighting scheme's first colors
+  and every loop. Aurora's, compared on Interior Evil (2026-10-29,
+  `captures/wave1/tile-defaults.mod`), changed nothing shown; Moonglow
+  keeps its own by the owner's decision. (from the research notes)
+  (Settled by the owner, 2026-10-29.)
+- **Exact tile's reach** (issue #29): the Gallery offers a terrain's and
+  a crosser's tiles, not a group's pieces (one goes in alone through
+  Tile Properties' All tiles); an exact tile takes the replaced tile's
+  height; a corner it disagrees on with a neighbor is read as the tile
+  to the north or east has it (`Lattice::from_tiles`). The client draws
+  such a seam as the area view does (`reading_exact_tile_seams`,
+  2026-10-29); the Gallery's reach and the corner rule are Moonglow's
+  own design. (Settled by the owner, 2026-10-29.)
+- **Tile Height and what stands on a tile** (issue #29): Raise/Lower's
+  corner strokes move no object, and the control's ±1024 is Moonglow's
+  reading bound, not the engine's; an object over a tile's square goes
+  up or down with it, as the server and the client put it
+  (`a_tile_s_own_height_stands_where_the_engine_puts_it`,
+  `reading_tile_heights`, 2026-10-29). (Settled by the owner,
+  2026-10-29.)
+- **Escape during a drag** drops it (the drag's other tools, brushes and
+  pastes, drop on Escape too). Aurora's ignores it: Escape pressed before
+  the button is let go changes nothing, and the object is put down where
+  it was dragged (captured 2026-10-29, `captures/wave1/esc-drag.mod`);
+  Moonglow keeps its own by the owner's decision. (Settled by the owner,
+  2026-10-29.)
+- **What a module's tabs don't open again, by design:** a hak never
+  saved and a 2DA in one, and a 2DA's Edit a Copy not saved yet (no
+  file to open again); a camera moved since the tabs were last written,
+  after a crash (they are written when they change, a window is moved,
+  the module closes or Moonglow quits, not as the camera moves); a
+  placed object moved outside Moonglow with another of its tag and
+  blueprint added (neither is taken for it); a kept Options tab making
+  its draft as Tools › Options does, which looks for the game's install
+  (Steam's library files) as the module opens. (a builder's report,
+  October 2026) (Settled by the owner, 2026-10-29.)
+- **The round trip** (`mg roundtrip`, Build › Round-Trip Check) compares
+  a GFF written anew by its fields, not its bytes: Moonglow lays a GFF
+  out its own way, as every edit does. It doesn't ask the game or Aurora
+  (the engine and Aurora tests do, on the game's own modules), and the
+  formats it doesn't write anew (scripts, models) are held to their
+  bytes by the saved copy. (Settled by the owner, 2026-10-29.)
+- **Described variables (C2): an object's or a location's value is not
+  described** (The Domains of Dread's builder proposal): what a file
+  holds of one is an object's id or a place in an area, which no list,
+  range or default describes; `values`, `min`, `max` and `default` are
+  refused for them, said by line. (Settled by the owner, 2026-10-29.)
+- **Reset Factions to Parent Factions in Export** starts unticked.
+  Aurora's starts ticked (`xbFactionReset`, the parity inventory and the
+  capture of Aurora's Export, 2026-10-29); Moonglow keeps its own by the
+  owner's decision. (Settled by the owner, 2026-10-29.)
+- **The start location has no Shift axis arrows:** they stay the
+  objects'; the marker lies on the ground, where the game puts a player,
+  and its drag and Adjust Location place it exactly: left out by the
+  owner's decision. (Settled by the owner, 2026-10-29.)
+- **Variable sets** hold int, float and string variables only, as the
+  Variables window edits: object and location variables mean nothing
+  outside their module. A set's Undo Delete lasts while the Variable
+  Sets window is open and a rename is put back by renaming it (neither
+  is in Edit › Undo, the module's), and `variable-sets` has no folders
+  inside it. (Settled by the owner, 2026-10-29: the triage's proposals.)

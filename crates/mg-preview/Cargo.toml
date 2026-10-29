@@ -14,10 +14,12 @@ mg-core.workspace = true
 mg-gff.workspace = true
 mg-image.workspace = true
 mg-mdl.workspace = true
+mg-module = { workspace = true, optional = true }
 mg-render = { workspace = true, optional = true }
 mg-resman.workspace = true
 mg-rules.workspace = true
 mg-set.workspace = true
+mg-ssf = { workspace = true, optional = true }
 thiserror.workspace = true
 
 # The renderer's half, `compose`: the models turned into mg-render's
@@ -26,6 +28,10 @@ thiserror.workspace = true
 [features]
 default = ["render"]
 render = ["dep:mg-render"]
+# What a module uses of its haks (`usage`): the walk from its resources,
+# which reads modules (mg-module). `mg` and the window turn it on; the
+# viewer, which draws previews only, leaves it off.
+usage = ["dep:mg-module", "dep:mg-ssf"]
 
 # (Previews drawn on the GPU.)
 [[test]]

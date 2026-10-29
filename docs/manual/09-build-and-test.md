@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:40:14Z }
 ---
 
 # Build, verify and test
@@ -244,7 +244,9 @@ checks and the group each is in, and `mg verify --skip WHAT` leaves
 something out (several separated by commas): a group (`references`,
 `tilesets`, `models`, `2das`, `objects`, `module`, `plugins`), one
 check (`set-hole`, or a plugin's, `example.tag-conventions/tag-case`),
-the missing references of one category (`references:creatures`), a hak
+the missing references of one category (`references:creatures`), those
+only your own content has (`references:override`, `references:local`
+for your override folder, userpatch.ini's haks and Workshop items), a hak
 (`tdod_tiles01.hak` or `hak:tdod_tiles01`), the `override` or
 `development` folder, or one resource (a tileset, `ttr01.set`, with its
 tiles' models; a 2DA; a model). What is left out isn't checked, which

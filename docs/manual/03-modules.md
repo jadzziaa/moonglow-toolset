@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
 ---
 
 # Modules
@@ -635,7 +635,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | Key | What it does | Without it |
 | --- | --- | --- |
 | `[make_static] keep_variables` | a placeable with a variable these name stays dynamic; `[]`: variables don't keep one | any variable keeps it |
-| `[make_static] keep_tags` | a placeable whose tag these name stays dynamic | none |
+| `[make_static] keep_tags` | a placeable whose tag these name stays dynamic (one whose tag a script of the module names as text stays dynamic anyway: these are for the tags a script makes up, or names only in a compiled script) | none |
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
 | `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.2.0 | none |
@@ -1024,8 +1024,9 @@ submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for 
 A command is its text, or a table of `run` (or `windows` and `unix`,
 each for its systems), `label` (its name in the menu; else its name in
 the file, `run_tests` as Run tests), `key` (the keys it asks for, as
-Options › Keyboard writes them) and `writes = false` (it writes none of
-the module's files, as a submit: the haks stay open while it runs). The
+Options › Keyboard writes them), `writes = false` (it writes none of
+the module's files, as a submit: the haks stay open while it runs) and
+`input = true` (it reads what you type: see step 4 below). The
 commands are in the **Command Palette** too, under Project, and in
 **Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
@@ -1057,11 +1058,31 @@ Choosing one:
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
    folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
    Its output comes into the log as it is written (its errors in the
-   warning color), its last line in the window that shows while it
-   runs; **Cancel** stops it, and what it started (a `git` it runs, the
+   warning color), and into the window that shows while it runs, which
+   keeps to its last line as more comes; a line it has begun and not
+   ended (a question, `Continue? [y/N] `) shows there at once.
+   **Cancel** stops it, and what it started (a `git` it runs, the
    shell's process group on Linux and macOS, asked to end and then made
    to after two seconds; the shell's tree of processes on Windows). The
-   log says how it ended: done, or its exit code.
+   log says how it ended: done, or its exit code. **File › Project ›
+   Command Output** shows the last command's output afterwards, all of
+   it (its last 20,000 lines; the log keeps the rest), how it ended,
+   and **Copy**.
+
+   **What is typed.** A command whose table says `input = true`
+   reads what you type: a line under its output takes it, and Enter or
+   **Send** gives it to the command, as a terminal does (the question's
+   line ends there, and what you sent shows after it, grayed, `> y`;
+   it isn't put in the log). **Hide** shows dots for a password and
+   keeps it out of the output. **End Input** closes the command's input,
+   for one that reads to the end of it. Any other command has its input
+   closed: a question it asks of its input gets an empty answer at once
+   rather than waiting. A program that asks on the terminal itself
+   (`ssh`'s passphrase, `sudo`) can't be answered from Moonglow, and
+   git is told not to ask there (`GIT_TERMINAL_PROMPT=0`, unless you set
+   it yourself), so that it says it can't rather than wait until
+   canceled; a password program it is given (`GIT_ASKPASS`, a
+   credential helper) is asked as before.
 5. **Reads the project's files again**: the haks are opened again (where
    they were closed), and
    what the command changed is read as any [change made
@@ -1178,7 +1199,11 @@ names, it won't load the module; Verify reports it. Name it without
 
 `mg haks MODULE --usage` says, hak by hak, which of its resources the
 module reaches and which nothing does: for cutting a release (or a
-player's download) to what is used. A line a hak, and one for them all:
+player's download) to what is used. In the window, **Check for
+Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
+Conflict Analysis, and its **What the Module Uses** says the same above
+the conflicts (worked out as a job, on the module as it is, unsaved
+changes too). A line a hak, and one for them all:
 
 ```
 tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged
@@ -1206,9 +1231,13 @@ the game's script), and what that names in turn:
 - **An object, as the area view draws it**: a placeable's or door's
   model and sounds (placeableobjsnds.2da); a creature's body (head, body
   parts, wings, tail, what it wears), its portrait and sound set (the
-  `.ssf` and its sounds); an item's models and their inventory icons;
-  armor's parts and cloaks for every gender, part-based race and
-  phenotype that has a model of them, as anyone may wear them.
+  `.ssf` and its sounds), its footsteps and combat sounds
+  (footstepsounds.2da, appearancesndset.2da and the weaponsounds.2da
+  sounds of its claws and of each weapon striking it); an item's models
+  and their inventory icons (an armor's, its parts' layers, a man's and
+  a woman's), a weapon's hits and the model of its **Visual Effect**
+  property; armor's parts and cloaks for every gender, part-based race
+  and phenotype that has a model of them, as anyone may wear them.
 - **A model's own files**: walkmeshes, textures (the DDS or TGA the game
   picks, and a PLT), materials and TXIs and what they name, its
   emitters' models and its supermodels.
@@ -1217,18 +1246,29 @@ the game's script), and what that names in turn:
   area of effect's three (`vfx_persistent.2da`), the scripts of states
   (`statescripts.2da`), traps', diseases' and poisons' (the columns
   [Unused](09-build-and-test.md#what-counts-as-used) reads), reached from the table.
+- **The 2DAs the game reads by itself**: a hak's copy of a table the
+  game has (classes.2da, spells.2da…) is used, and so is a table a used
+  2DA names in a cell (a class's feat and skill tables, an item
+  property's subtypes).
+- **What players choose at character creation**: every head of the
+  player races (racialtypes.2da's `PlayerRace`) for each gender and
+  phenotype, those races' portraits and the players' voice sets
+  (soundset.2da's type 0).
 
 Each hak resource is then **used** (reached, and this hak's copy is the
 one the game loads), **shadowed** (a hak higher in the list, or the
 module, has it: this copy is never loaded), **not judged** or
-**unused**. Not judged are what the game reads by itself (2DAs other
-than those the walk reads, GUI, fonts, shaders a material doesn't name,
-palettes, NUI windows) and a hak's replacements of the game's own
-resources, which the game's own content may use. Not followed at all:
-what scripts reach by a number (visual effects, spells, item
-properties, appearances set by a script) and what players choose
-(heads, portraits, sound sets and parts at character creation): a hak of player heads can
-show as unused and still be needed. The game is taken as a player has
+**unused**. Not judged are what the game reads by itself other than its
+2DAs (a 2DA of a hak's own that nothing names, which a script or a
+server extension may read; GUI, fonts, shaders a material doesn't
+name, palettes, NUI windows) and a hak's replacements of the game's own
+resources other than 2DAs, which the game's own content may use. Not
+followed at all: what scripts reach by a number (visual effects,
+spells, item properties, appearances set by a script) and the body
+parts players choose: a hak of tattoo parts can show as unused and
+still be needed. A script's string that spells a name counts as a use
+of it, whatever the string is for: a release cut keeps too much rather
+than too little. The game is taken as a player has
 it: the user's `override` and `development` folders are left out, the
 haks are found where the game finds them. On The Domains of Dread's
 module and 143 haks (29.5 GB) it takes about 5 seconds.

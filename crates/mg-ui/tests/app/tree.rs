@@ -1422,3 +1422,32 @@ fn a_placed_object_is_exported_as_a_blueprint() {
     assert!(said.starts_with(&format!("Exported {key}")), "{said}");
     let _ = area;
 }
+
+/// An ARE the module's area list leaves out (the game doesn't load it) is
+/// marked in the tree, and its menu's Add to the Module's Area List lists
+/// it, one undoable step, after which the mark is gone.
+#[test]
+fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
+    let dir = mg_testkit::scratch_dir("ui-tree-unlisted-area");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::parse("lost", ResType::ARE).unwrap(), Gff::new(*b"ARE ").to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
+    h.get_by_label("lost").click_secondary();
+    h.run();
+    h.get_by_label("Add to the Module's Area List").click();
+    h.run();
+    assert!(h.query_by_label("(not in the area list)").is_none());
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let listed: Vec<String> = ws.module.areas().unwrap().iter().map(|a| a.to_string()).collect();
+    assert_eq!(listed, ["start", "lost"]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
+}

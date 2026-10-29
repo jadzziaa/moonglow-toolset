@@ -40,7 +40,7 @@ switches have the window read them (both off unless given: see
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
-| `mg gff INPUT [-o OUTPUT] [--module PATH] [--names]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF; its text in Windows-1252, or by the `encoding.2da` table of the module given (in its haks). `--names` names the row a field's number stands for, as the window's fields view does (read from the game's 2DAs): `"row": "Human"` beside a race's `"value"`, and `"__row"` on each of a creature's skills; JSON with them reads back as without |
+| `mg gff INPUT [-o OUTPUT] [--module PATH] [--names]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF; its text in Windows-1252, or by the `encoding.2da` table of the module given (in its haks). `--names` names what a field's number stands for, as the window's fields view does (read from the game's 2DAs): `"row": "Human"` beside a race's `"value"`, an item property's subtype and value by the tables its other fields name, a conversation line's animation, a talk-table string, a faction by the module's own (with `--module`), and `"__row"` on each of a creature's skills and a store's pages; JSON with them reads back as without |
 
 ## The game's resources
 
@@ -62,8 +62,8 @@ switches have the window read them (both off unless given: see
 
 | Command | Does |
 | --- | --- |
-| `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
-| `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed. A field that holds a row of one of the game's tables takes the row's label or name too, for each type it is a row of (`--where Race=Human`; `Appearance=Chest` is a placeables.2da row for a placeable, a doortypes.2da row for a door); two rows of a name are said, to be given by number or label |
+| `mg info MODULE` | the module's name, tag, entry area, areas (those its area list names, which the game loads; an ARE it leaves out is warned of, `unlisted_areas` in the JSON), haks, talk table, game version and resources by type |
+| `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains, in the name as the module tree shows it: the talk table's string where it has none of its own, another language's where it has no English), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed. A field that holds a row of one of the game's tables takes the row's label or name too, for each type it is a row of (`--where Race=Human`; `Appearance=Chest` is a placeables.2da row for a placeable, a doortypes.2da row for a door); two rows of a name are said, to be given by number or label |
 | `mg search MODULE` | blueprints, placed objects (and the items they hold), areas and conversations by what they hold, one kind at a time: `--var NAME` (`*` matches any run; with `--var-type int` and `--value`), `--property TYPE` (with `--subtype`, `--value`, `--param`), `--class`, `--feat`, `--spell`, `--skill` (with `--min-rank N`), `--appearance ROW` (with `--of creature`, `placeable`, `door`, `generic-door`, `waypoint` or `item`), `--script NAME`, or any field by `--field LABEL`, `--int N` or `--text TEXT` (with `--regex`, the names and texts are regular expressions: `--var '^tdod_(rent|own)' --regex`). A row is its number or its name in the game's 2DAs and talk table (the module's haks' too): `--property "skill bonus" --subtype hide`. `--type uti,utc` and `--placed` or `--blueprints` narrow it as in `mg find`; an item blueprint found is also found in the inventories of the blueprints that carry it |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources: a script once, `unused\tx.nss\tsource and compiled`, `compiled only (no source)` or `source only (not compiled)`; what counts as used is Build Module's [Unused](09-build-and-test.md#what-counts-as-used)); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does. **Build › Round-Trip Check** does the same in the window |
@@ -73,7 +73,7 @@ switches have the window read them (both off unless given: see
 | `mg used MODULE [--add NAME] [--remove NAME] [--kind KIND]` | what Unused counts as used though nothing in the module names it (the project file's `[used]`; beside a `.mod`, `NAME.moonglow.toml`, made where there is none): listed, and names or globs added or taken out (repeatable), of `scripts` (the default), `conversations` or `blueprints`: a script `ExecuteScript` runs by a name made as it runs ([What counts as used](09-build-and-test.md#what-counts-as-used)) |
 | `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it, and what the team's `[resrefs] pattern` makes of a name (its own prefix, without a code, where it has no `{code}`); a code set that holds claims in the project's claims table is said ([Modules](03-modules.md#your-builder-code)) |
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
-| `mg verify MODULE --skip WHAT` | leave something out (repeatable, or several separated by commas: `--skip tilesets,models,2das`): a group (`references`, missing resources; `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`), one check by its id (`set-hole`, as `mg checks` lists them, or a plugin's as its findings name it), a category of missing references (`references:creatures`, Build Module's Missing Resources' categories), a hak (`hak:NAME` or `NAME.hak`), `override`, `development`, or one resource (`ttr01.set`, a tileset with its tiles' models; `appearance.2da`; a model). It isn't checked (the tilesets and models of a hundred haks are most of the time a Verify takes); the JSON's `skipped` names each word, as `null` (not checked), and only the rest count toward failing |
+| `mg verify MODULE --skip WHAT` | leave something out (repeatable, or several separated by commas: `--skip tilesets,models,2das`): a group (`references`, missing resources; `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`), one check by its id (`set-hole`, as `mg checks` lists them, or a plugin's as its findings name it), a category of missing references (`references:creatures`, Build Module's Missing Resources' categories), the references only the player's own content has (`references:override`, `references:userpatch`, `references:workshop`, or all three: `references:local`), a hak (`hak:NAME` or `NAME.hak`), `override`, `development`, or one resource (`ttr01.set`, a tileset with its tiles' models; `appearance.2da`; a model). It isn't checked (the tilesets and models of a hundred haks are most of the time a Verify takes); the JSON's `skipped` names each word, as `null` (not checked), and only the rest count toward failing |
 | `mg verify MODULE --timings` | also print how long each part of the check took, to stderr (the report is unchanged): opening the module, the haks, each group's checks, the tilesets', 2DAs', materials' and models' time added up with the longest of each |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest. A project's own plugins (its `plugins/`) run as you allowed them in Moonglow, and each that did not is said in a note |
 | `mg verify MODULE --allow-project-plugins` | run the checks of every plugin the project comes with, allowed or not: for a build pipeline, where nobody is asked ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) |
@@ -203,7 +203,12 @@ applies it as the editors would.
 
 `mg areas` does from the command line what **Edit › Edit Areas Together…**
 does in the window (see [Areas](04-areas.md)). Without a change, it lists
-the areas chosen: ResRef, name, tileset and kind.
+the areas chosen: ResRef, name, tileset and kind. Every ARE the module
+holds is listed, and one its area list (`Mod_Area_list`) leaves out is
+warned of: the game doesn't load it (`listed` in the JSON). Names are
+shown as the module tree shows them: the talk table's string where an
+area has no name of its own, another language's where it has no
+English.
 
 ```text
 mg areas mymodule.mod --underground
@@ -246,8 +251,9 @@ mg areas mymodule.mod --where 'Fog*=0' --where OnEnter=kz_enter
 - **`--static-placeables`**: sets Static on each area's placeables that
   lose nothing by it (not the Useable ones, those a visual transform
   changes, those with a script, conversation, trap, inventory or
-  animation switched on, those with variables, nor those the project
-  file keeps dynamic); see [Areas](04-areas.md). Each placeable left
+  animation switched on, those with variables, those the project
+  file keeps dynamic, nor those whose tags the module's scripts name as
+  text); see [Areas](04-areas.md#static-placeables-many-at-once). Each placeable left
   dynamic is named with why (a note, and `left_dynamic` in the JSON).
   **`--dynamic-placeables`** clears Static on every placeable.
 

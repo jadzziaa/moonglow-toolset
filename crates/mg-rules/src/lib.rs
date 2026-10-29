@@ -176,6 +176,23 @@ pub fn text_codepage(resman: &ResMan, language: Language) -> Codepage {
     encoding_of(resman, language.codepage()).for_language(Language::ENGLISH)
 }
 
+/// A localized string's text as lists show it, with the game's data where
+/// there is a game ([`GameData::shown_in`]: its talk table) and without
+/// it where there is none ([`LocString::shown_in`], in `codepage`, the
+/// game's or the module's own table). Every list of names reads them so:
+/// `mg`, the module tree, the area lists.
+pub fn shown(
+    game: Option<&GameData>,
+    s: &LocString,
+    language: Language,
+    codepage: Codepage,
+) -> String {
+    match game {
+        Some(g) => g.shown_in(s, language),
+        None => s.shown_in(language, codepage),
+    }
+}
+
 /// The column of a name written out in a table, used where a row's
 /// talk-table string is blank: ambientmusic.2da has it for music a hak
 /// adds.
@@ -316,13 +333,26 @@ impl GameData {
     /// Aurora shows a name written in English alone.
     pub fn locstring(&self, s: &LocString) -> Option<String> {
         let game = self.codepage();
-        s.text_in(self.language, Gender::Male, game)
-            .map(|t| t.into_owned())
+        let own = s.text_in(self.language, Gender::Male, game);
+        let has_own = own.is_some();
+        own.map(|t| t.into_owned())
             .filter(|t| !t.is_empty())
             .or_else(|| self.string(s.strref).filter(|t| !t.is_empty()))
-            .or_else(|| s.elsewhere_in(self.language, game).map(|(_, text)| text))
-            // (A variant that is there and empty is still its text.)
-            .or_else(|| s.text_in(self.language, Gender::Male, game).map(|t| t.into_owned()))
+            // (Then as without the game: another language's, or a variant
+            // that is there and empty, which is still its text.)
+            .or_else(|| Some(s.shown_in(self.language, game)).filter(|t| !t.is_empty() || has_own))
+    }
+
+    /// A localized string's text in `language` (the toolset's: the one
+    /// edited) where it has its own there, else as the game shows it
+    /// ([`locstring`](Self::locstring)), else in another language: what a
+    /// list, a tree or a title shows (empty where it has none).
+    pub fn shown_in(&self, s: &LocString, language: Language) -> String {
+        let game = self.codepage();
+        let own = s.text_in(language, Gender::Male, game).filter(|t| !t.is_empty());
+        own.map(|t| t.into_owned())
+            .or_else(|| self.locstring(s).filter(|t| !t.is_empty()))
+            .unwrap_or_else(|| s.shown_in(language, game))
     }
 
     /// [`locstring`](Self::locstring)'s text as the bytes it has in the

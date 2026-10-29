@@ -2,8 +2,11 @@
 //! editable. The fallback before (and beside) the dedicated editors.
 //!
 //! A number that is a row of a 2DA (an area's music, a creature's feats,
-//! an item's base item…) is shown with the row's name beside it, and a
-//! list to choose the row by name (`mg_rules::rows`).
+//! an item's base item, an item property's subtype and value…), a
+//! faction or a conversation line's animation is shown with its name
+//! beside it, and a list to choose another by name; a talk-table string
+//! held as a plain number with its text (`mg_rules::rows::meaning`, which
+//! `mg gff --names` reads too).
 
 use std::collections::HashMap;
 
@@ -12,8 +15,8 @@ use mg_core::{Gender, Language};
 use mg_edit::{Command, Edit, GffPath, Step};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
-use mg_rules::rows::{RowTable, list_table, row_table};
-use mg_rules::{ChoiceColumns, GameData};
+use mg_rules::GameData;
+use mg_rules::rows::{Meaning, list_item_name, meaning};
 
 use crate::text::{decode, encode, to_editor, with_english};
 use crate::{Action, Moonglow};
@@ -23,6 +26,8 @@ struct Ctx<'a> {
     /// The file's type (`GIT `, `UTC `…): what its fields mean.
     file_type: String,
     game: Option<&'a GameData>,
+    /// The module's factions' names, by their places (`repute.fac`).
+    factions: Vec<String>,
     actions: &'a mut Vec<Action>,
     buffers: &'a mut HashMap<egui::Id, String>,
 }
@@ -62,10 +67,37 @@ fn shortened(text: &str, max: usize) -> String {
     }
 }
 
-/// What a row of a table is called, as the field view shows it beside the
-/// number: the row's name, or that the table has no such row.
-pub(crate) fn row_text(game: &GameData, table: &RowTable, row: i64) -> String {
-    game.row_name(table, row).unwrap_or_else(|| format!("(no row {row} in {}.2da)", table.table))
+/// What a field's number is called, as the field view shows it beside
+/// the number: its name, or that it names nothing there (a row the table
+/// lacks).
+pub(crate) fn meaning_text(
+    game: Option<&GameData>,
+    factions: &[String],
+    meaning: &Meaning,
+    value: i64,
+) -> String {
+    let name = match game {
+        Some(g) => g.meaning_name(meaning, factions, value),
+        None => mg_rules::rows::plain_name(meaning, factions, value),
+    };
+    name.unwrap_or_else(|| match meaning {
+        Meaning::Faction => format!("(no faction {value} in repute.fac)"),
+        Meaning::Animation => format!("(animation {value})"),
+        Meaning::StrRef => format!("(no string {value})"),
+        m => format!("(no row {value} in {}.2da)", m.table().map_or("?", |t| t.0)),
+    })
+}
+
+/// The module's factions' names, by their places in `repute.fac`; without
+/// one, the standard factions every module starts with (as the blueprint
+/// editors' lists have them).
+fn faction_names(ws: &mut mg_edit::Workspace) -> Vec<String> {
+    let key = ResKey::parse("repute", mg_core::ResType::FAC).expect("valid");
+    let Ok(fac) = ws.doc(&key) else {
+        return mg_module::factions::STANDARD.iter().map(|n| n.to_string()).collect();
+    };
+    let list = fac.root.list("FactionList").unwrap_or(&[]);
+    list.iter().map(|f| decode(f.string("FactionName").unwrap_or_default())).collect()
 }
 
 impl Ctx<'_> {
@@ -100,6 +132,7 @@ impl Ctx<'_> {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Moonglow { ws, actions, buffers, game, .. } = app;
     let Some(ws) = ws else { return };
+    let factions = faction_names(ws);
     let doc = match ws.doc(&key) {
         Ok(d) => d,
         Err(e) => {
@@ -113,7 +146,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     });
     ui.separator();
     let file_type = doc.file_type_str();
-    let mut ctx = Ctx { key, file_type, game: game.as_deref(), actions, buffers };
+    let mut ctx = Ctx { key, file_type, game: game.as_deref(), factions, actions, buffers };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         struct_ui(&mut ctx, ui, &doc.root, &GffPath::root());
     });
@@ -156,16 +189,22 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                         egui::CollapsingHeader::new(format!("{} items", items.len()))
                             .id_salt(id)
                             .show(ui, |ui| {
-                                // A list with an item per row of a table (a
-                                // creature's skills): each named.
-                                let rows = list_table(&ctx.file_type, &labels(path), &label);
+                                // An item that stands for a row of a table
+                                // (a creature's skills), or a store's page:
+                                // each named.
+                                let labels = labels(path);
                                 for (i, item) in items.iter().enumerate() {
                                     let item_path = path.item(&label, i);
-                                    let name = rows
-                                        .zip(ctx.game)
-                                        .and_then(|(t, g)| g.row_name(&t, i as i64))
-                                        .map(|n| format!("  {n}"))
-                                        .unwrap_or_default();
+                                    let at = (i, item.id);
+                                    let name = list_item_name(
+                                        ctx.game,
+                                        &ctx.file_type,
+                                        &labels,
+                                        &label,
+                                        at,
+                                    )
+                                    .map(|n| format!("  {n}"))
+                                    .unwrap_or_default();
                                     egui::CollapsingHeader::new(format!(
                                         "[{i}] struct {}{name}",
                                         item.id
@@ -178,27 +217,33 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                     v => {
                         ui.label(&label);
                         ui.weak(v.field_type().json_name());
-                        let table = v.as_integer().and_then(|n| {
-                            Some((row_table(&ctx.file_type, &labels(path), &label)?, n))
+                        // What the number stands for: a row of a table
+                        // (with the game's data), a faction, an animation,
+                        // a talk-table string.
+                        let sibling = |l: &str| s.integer(l);
+                        let means = v.as_integer().and_then(|n| {
+                            let m =
+                                meaning(ctx.game, &ctx.file_type, &labels(path), &label, &sibling)?;
+                            let needs_game = !matches!(m, Meaning::Faction | Meaning::Animation);
+                            (ctx.game.is_some() || !needs_game).then_some((m, n))
                         });
-                        match (table, ctx.game) {
-                            (Some((table, row)), Some(game)) => {
-                                ui.horizontal(|ui| {
-                                    value_ui(ctx, ui, id, path, &label, v);
-                                    row_ui(ctx, ui, id, path, &label, v, game, &table, row);
-                                });
-                            }
-                            _ if pc_faction == Some(label.as_str()) => {
-                                ui.horizontal(|ui| {
-                                    value_ui(ctx, ui, id, path, &label, v);
+                        let warned = pc_faction == Some(label.as_str());
+                        if means.is_none() && !warned {
+                            value_ui(ctx, ui, id, path, &label, v);
+                        } else {
+                            ui.horizontal(|ui| {
+                                value_ui(ctx, ui, id, path, &label, v);
+                                if let Some((m, n)) = &means {
+                                    meaning_ui(ctx, ui, id, (path, &label), v, m, *n);
+                                }
+                                if warned {
                                     ui.colored_label(
                                         ui.visuals().warn_fg_color,
                                         PC_FACTION_WARNING,
                                     )
                                     .on_hover_text(PC_FACTION_HOVER);
-                                });
-                            }
-                            _ => value_ui(ctx, ui, id, path, &label, v),
+                                }
+                            });
                         }
                     }
                 }
@@ -215,27 +260,37 @@ const PC_FACTION_HOVER: &str = "Faction 0 is the player characters'. The game pu
     of it in Hostile; creatures regard a placeable or door of it as they regard players. Give \
     it another faction (Verify warns of it: pc-faction).";
 
-/// Beside a number that is a row of `table`: the row's name, in a list of
-/// the table's rows to choose another by name.
-#[allow(clippy::too_many_arguments)]
-fn row_ui(
+/// Beside a number that stands for something: its name, in a list to
+/// choose another by name (a row of the table, a faction, an animation);
+/// a talk-table string's text.
+fn meaning_ui(
     ctx: &mut Ctx<'_>,
     ui: &mut Ui,
     id: egui::Id,
-    path: &GffPath,
-    label: &str,
+    (path, label): (&GffPath, &str),
     v: &Value,
-    game: &GameData,
-    table: &RowTable,
-    row: i64,
+    meaning: &Meaning,
+    value: i64,
 ) {
-    let columns = ChoiceColumns { name: table.name, label: table.label };
-    let choices = game.choice_list(table.table, columns).unwrap_or_default();
-    let picked = crate::widgets::row_choice(id.with("row"), &choices, row)
+    let shown = meaning_text(ctx.game, &ctx.factions, meaning, value);
+    if *meaning == Meaning::StrRef {
+        ui.weak(shortened(&shown, 48)).on_hover_text(&shown);
+        return;
+    }
+    let choices = match ctx.game {
+        Some(g) => g.meaning_choices(meaning, &ctx.factions),
+        None => std::sync::Arc::new(mg_rules::rows::plain_choices(meaning, &ctx.factions)),
+    };
+    let hover = match meaning {
+        Meaning::Faction => format!("Faction {value} of the module's (repute.fac)"),
+        Meaning::Animation => format!("Animation {value}, as Aurora lists them"),
+        m => format!("Row {value} of {}.2da", m.table().map_or("?", |t| t.0)),
+    };
+    let picked = crate::widgets::row_choice(id.with("row"), &choices, value)
         .width(220.0)
         .numbered()
-        .shown(row_text(game, table, row))
-        .hover_text(format!("Row {row} of {}.2da", table.table))
+        .shown(shown)
+        .hover_text(hover)
         .show(ui);
     if let Some(value) = picked.and_then(|p| of_type(v, p)) {
         ctx.set(path, label, value);

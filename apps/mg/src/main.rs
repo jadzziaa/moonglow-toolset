@@ -88,11 +88,14 @@ enum Cmd {
         /// a table, Windows-1252.
         #[arg(long)]
         module: Option<PathBuf>,
-        /// Name the row a field's number stands for, as the window's
-        /// fields view does: "row" beside its "value" ("Human" of
-        /// racialtypes.2da), and "__row" on each item of a list whose
-        /// items are rows (a creature's skills). Read from the game's 2DAs;
-        /// `mg gff` reads such a file back, the names set aside.
+        /// Name what a field's number stands for, as the window's fields
+        /// view does: "row" beside its "value" ("Human" of
+        /// racialtypes.2da; an item property's subtype and value by the
+        /// tables its other fields name, an animation, a talk-table
+        /// string, a faction of --module's), and "__row" on each item of
+        /// a list whose items stand for something (a creature's skills, a
+        /// store's pages). Read from the game's 2DAs; `mg gff` reads such
+        /// a file back, the names set aside.
         #[arg(long)]
         names: bool,
     },
@@ -1915,20 +1918,35 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output, module, names } => {
-            let codepage = match module {
-                Some(module) => module_codepage(cli, &crate::open_module(module)?),
-                None => Codepage::WINDOWS_1252,
-            };
-            let game = match *names {
-                true => Some(
+            let m = module.as_deref().map(crate::open_module).transpose()?;
+            let codepage = m.as_ref().map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, m));
+            // (A faction's name is the module's: without one, the number.)
+            let factions: Vec<String> = m
+                .as_ref()
+                .map(|m| {
+                    let f = mg_module::factions::Factions::of_module(m);
+                    f.factions.into_iter().map(|f| f.name).collect()
+                })
+                .unwrap_or_default();
+            let mut notes = Output::default();
+            let found = "--names reads the game's 2DAs: no game install found";
+            let game = match (*names, &m) {
+                (false, _) => None,
+                // (With a module, its haks' tables and its talk table.)
+                (true, Some(m)) => {
+                    Some(game_data_in(&install(cli).context(found)?, m, &mut notes)?)
+                }
+                (true, None) => Some(
                     install(cli)
                         .ok()
                         .and_then(|gi| mg_rules::GameData::open(&gi).ok())
-                        .context("--names reads the game's 2DAs: no game install found")?,
+                        .context(found)?,
                 ),
-                false => None,
             };
-            gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?
+            let named = game.as_ref().map(|g| (g, &factions[..]));
+            let mut out = gff(input, output.as_deref(), cli.json, codepage, named)?;
+            out.notes.splice(0..0, notes.notes);
+            out
         }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
@@ -2201,32 +2219,18 @@ fn run(cli: &Cli) -> Result<Output> {
             }));
             if *usage {
                 let started = std::time::Instant::now();
-                let (haks, reached) = usage::hak_usage(&gi, &m, &report)?;
+                let (haks, reached) =
+                    usage::hak_usage(&gi, &m, &report).map_err(anyhow::Error::msg)?;
                 for u in &haks {
                     out.line(usage::line(u));
                 }
-                let (used, all): (usize, usize) =
-                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used.len(), b + u.total()));
-                let (used_bytes, bytes) =
-                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used_bytes(), b + u.bytes()));
-                let none: Vec<&usage::HakUsage> =
-                    haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).collect();
-                let kept = none.iter().filter(|u| !u.not_judged.is_empty()).count();
-                out.line(format!(
-                    "All\t{used} of {all} used ({} of {}); nothing reaches {} of {} haks ({kept} \
-                     of them hold what isn't judged, which the game may read itself)",
-                    usage::size(used_bytes),
-                    usage::size(bytes),
-                    none.len(),
-                    haks.len()
-                ));
+                out.line(usage::total_line(&haks));
                 out.json["usage"] = usage::json(&haks);
                 out.json["reached"] = json!(reached);
                 out.note(format!(
-                    "the walk reached {reached} resources in {:.1} s; not followed: what scripts \
-                     reach by number (effects, spells, appearances), what players choose, and \
-                     what the game reads itself (\"not judged\")",
-                    started.elapsed().as_secs_f64()
+                    "the walk reached {reached} resources in {:.1} s; {}",
+                    started.elapsed().as_secs_f64(),
+                    usage::NOT_FOLLOWED
                 ));
             } else {
                 out.line(report.to_text().trim_end());
@@ -3104,17 +3108,15 @@ fn run(cli: &Cli) -> Result<Output> {
             if *dynamic_placeables {
                 changes.push(Change::DynamicPlaceables);
             }
-            // A surface material by surfacemat.2da's label (read only when a
-            // material is named rather than numbered).
-            let named = std::cell::OnceCell::new();
+            let mut m = crate::open_module(module)?;
+            let mut out = Output::default();
+            // The game's data where there is a game: the areas' names as
+            // the module tree shows them, and the rows named.
+            let game = game_data_if_any(cli, &m, &mut out);
+            // A surface material by surfacemat.2da's label (the module's
+            // haks' over the game's).
             let material = |name: &str| -> Option<u32> {
-                let table = named.get_or_init(|| {
-                    install(cli)
-                        .ok()
-                        .and_then(|gi| mg_rules::GameData::open(&gi).ok())
-                        .and_then(|g| g.table("surfacemat").ok())
-                });
-                let t = table.as_ref()?;
+                let t = game.as_ref()?.table("surfacemat").ok()?;
                 (0..t.len())
                     .find(|&r| t.get(r, "Label").is_some_and(|l| l.eq_ignore_ascii_case(name)))
                     .map(|r| r as u32)
@@ -3134,17 +3136,15 @@ fn run(cli: &Cli) -> Result<Output> {
                     .ok_or_else(|| anyhow::anyhow!("--tileset-grass {on:?}: yes or no"))?;
                 changes.push(Change::TilesetGrass(on));
             }
-            let mut m = crate::open_module(module)?;
-            let mut out = Output::default();
             // A lighting scheme, from the game's environment.2da (the
             // module's haks' over it): before the fields `--set` sets.
             if let Some(text) = lighting_scheme {
                 install(cli).context("--lighting-scheme reads the game's environment.2da")?;
-                let game = search::game_data(cli, &m, &mut out)
-                    .context("--lighting-scheme: the game's data can't be read")?;
-                let row = mg_module::new::Scheme::find(&game, text)
+                let game =
+                    game.as_ref().context("--lighting-scheme: the game's data can't be read")?;
+                let row = mg_module::new::Scheme::find(game, text)
                     .map_err(|e| anyhow::anyhow!("--lighting-scheme {e}"))?;
-                let scheme = mg_module::new::Scheme::read(&game, row)?;
+                let scheme = mg_module::new::Scheme::read(game, row)?;
                 changes.insert(0, Change::LightingScheme(scheme));
             }
             // A variable's type, where none is given: its description's
@@ -3180,7 +3180,13 @@ fn run(cli: &Cli) -> Result<Output> {
                     Some(_) => {}
                 }
             }
-            let listed = areas::list_in(&m, module_codepage(cli, &m));
+            let cp = module_codepage(cli, &m);
+            let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
+            let shown = |n: &mg_core::LocString| mg_rules::shown(game.as_ref(), n, language, cp);
+            let listed = areas::list_named(&m, &shown);
+            for a in listed.iter().filter(|a| !a.listed) {
+                out.note(format!("warning: {}", areas::unlisted_warning(a.resref)));
+            }
             for a in &filter.only {
                 if !listed.iter().any(|l| l.resref == *a) {
                     bail!("{a} is not an area of the module");
@@ -3199,8 +3205,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let music_row = music.as_deref().filter(|m| mg_2da::parse_int(m.trim()).is_none());
             if named || music_row.is_some() {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let game = search::game_data(cli, &m, &mut out)
-                    .context("the game's data can't be read for a row's name")?;
+                let game =
+                    game.as_ref().context("the game's data can't be read for a row's name")?;
                 for h in &mut filter.has {
                     let areas::Has::Field { label, value: Some(v) } = h else { continue };
                     let Some(table) = areas::row_table(label).filter(|_| by_name(label, v)) else {
@@ -3221,7 +3227,6 @@ fn run(cli: &Cli) -> Result<Output> {
                 filter.has.push(areas::Has::Music(n.into()));
             }
             let mut held = areas::HoldsCache::default();
-            let cp = module_codepage(cli, &m);
             let chosen: Vec<&areas::AreaInfo> = listed
                 .iter()
                 .filter(|a| filter.matches(a))
@@ -3239,7 +3244,7 @@ fn run(cli: &Cli) -> Result<Output> {
             // before the change, by the project's rules).
             let mut left_dynamic = Vec::new();
             if *static_placeables {
-                let rules = m.project_file.make_static.clone();
+                let rules = m.project_file.make_static.clone().with_scripts(&m);
                 for &area in &resrefs {
                     let key = ResKey::new(area, ResType::GIT);
                     let Some(Ok(git)) = m.gff(&key) else { continue };
@@ -3270,16 +3275,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 _ => false,
             };
-            let game = if changes.iter().any(named_row) {
+            if changes.iter().any(named_row) {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let g = search::game_data(cli, &m, &mut out)
-                    .context("the game's data can't be read for a row's name")?;
-                Some(g)
-            } else if *names && !changes.is_empty() {
-                install(cli).ok().and_then(|_| search::game_data(cli, &m, &mut out))
-            } else {
-                None
-            };
+                game.as_ref().context("the game's data can't be read for a row's name")?;
+            }
             for c in changes.iter_mut().filter(|c| named_row(c)) {
                 let Change::Set { field, value } = c else { continue };
                 let (Some(table), Some(game)) = (areas::row_table(field), &game) else { continue };
@@ -3369,6 +3368,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     "name": a.name,
                     "tag": a.tag,
                     "tileset": a.tileset.to_string(),
+                    "listed": a.listed,
                     "interior": a.flags & areas::INTERIOR != 0,
                     "underground": a.flags & areas::UNDERGROUND != 0,
                     "natural": a.flags & areas::NATURAL != 0,
@@ -3412,8 +3412,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             let mut out = Output::default();
-            let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table())?)?;
-            let game = mg_rules::GameData::new(module_resman(&gi, &m, &mut out)?, tlk);
+            let game = game_data_in(&gi, &m, &mut out)?;
             let only = area
                 .as_deref()
                 .map(mg_core::ResRef::from_str)
@@ -3421,7 +3420,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             let mut total = 0;
             let mut by_area = serde_json::Map::new();
-            for a in m.areas()? {
+            m.info()?;
+            for a in mg_module::areas::every(&m) {
                 if only.is_some_and(|o| o != a) {
                     continue;
                 }
@@ -3665,13 +3665,16 @@ fn run(cli: &Cli) -> Result<Output> {
                 |t| mg_rules::ObjectKind::from_restype(t).is_some(),
                 "a blueprint type (utc, utp, …)",
             )?;
-            // (Names are matched and shown in the module's own letters.)
+            // (Names are matched and shown in the module's own letters, as
+            // the module tree shows them: the talk table's where a name has
+            // none of its own, another language's where it has no English.)
             let cp = module_codepage(cli, &m);
+            let mut notes = Output::default();
+            let game = game_data_if_any(cli, &m, &mut notes);
             let q = mg_module::query::Query {
                 types,
                 tag: tag.clone(),
-                name: (name.as_deref())
-                    .map(|n| cp.spelled_in(n, Codepage::WINDOWS_1252).into_owned()),
+                name: name.clone(),
                 resref: resref.clone(),
                 area: area
                     .as_deref()
@@ -3714,11 +3717,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 })
             };
             if q.fields.iter().any(named) {
-                let mut notes = Output::default();
-                let game = install(cli)
-                    .ok()
-                    .and_then(|_| search::game_data(cli, &m, &mut notes))
-                    .context("a row named, not numbered, reads the game's 2DAs")?;
+                let game =
+                    (game.as_ref()).context("a row named, not numbered, reads the game's 2DAs")?;
                 let (rows, plain): (Vec<_>, Vec<_>) = q.fields.drain(..).partition(named);
                 q.fields = plain;
                 for (label, value) in rows {
@@ -3738,10 +3738,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     q.typed_fields.push((label, values));
                 }
             }
-            let mut found = mg_module::query::find(&m, &q);
-            for f in &mut found {
-                f.name = Codepage::WINDOWS_1252.spelled_in(&f.name, cp).into_owned();
-            }
+            let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
+            let shown = |ls: &mg_core::LocString| mg_rules::shown(game.as_ref(), ls, language, cp);
+            let found = mg_module::query::find_named(&m, &q, &shown);
             let mut out = Output::new(json!({
                 "found": found.iter().map(|f| json!({
                     "kind": if f.placed.is_some() { "placed" } else { "blueprint" },
@@ -3770,6 +3769,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     _ => out.line(format!("blueprint\t{what}")),
                 }
             }
+            out.notes.extend(notes.notes);
             out.note(format!("{} found", found.len()));
             out
         }
@@ -3935,6 +3935,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "description": i.description,
                 "entry_area": i.entry_area.map(|a| a.to_string()),
                 "areas": i.areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "unlisted_areas": i.unlisted_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
                 "haks": i.haks,
                 "custom_tlk": i.custom_tlk,
                 "min_game_version": i.min_game_version,
@@ -3950,6 +3951,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 "Areas\t{}",
                 i.areas.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
             ));
+            for a in &i.unlisted_areas {
+                out.note(format!("warning: {}", mg_module::areas::unlisted_warning(*a)));
+            }
             out.line(format!("Haks\t{}", i.haks.join(", ")));
             out.line(format!("Talk table\t{}", i.custom_tlk.clone().unwrap_or_default()));
             out.line(format!("Game version\t{}", i.min_game_version));
@@ -4020,6 +4024,46 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
         "module": s.module,
         "tag": s.tag,
     })
+}
+
+/// The game's data for a module ([`Module::game_data`]: the game, the
+/// module's haks and the module, its custom talk table), what it lacks
+/// said as warnings. Stops where the game, the module's hak list or one of
+/// its haks can't be read.
+pub(crate) fn game_data_in(
+    gi: &GameInstall,
+    m: &Module,
+    out: &mut Output,
+) -> Result<mg_rules::GameData> {
+    said(m.game_data(gi)?, out)
+}
+
+/// [`game_data_in`] for a command that does without: none without a game
+/// install, and what else stops it said as a warning.
+pub(crate) fn game_data_if_any(
+    cli: &Cli,
+    m: &Module,
+    out: &mut Output,
+) -> Option<mg_rules::GameData> {
+    let gi = install(cli).ok()?;
+    game_data_in(&gi, m, out)
+        .map_err(|e| out.note(format!("warning: the game's data can't be read: {e:#}")))
+        .ok()
+}
+
+/// The game's data put together for a module, with what it lacks said as
+/// every command says it; a hak that can't be opened stops the command.
+pub(crate) fn said(
+    found: mg_module::game_data::ForModule,
+    out: &mut Output,
+) -> Result<mg_rules::GameData> {
+    if let Some(e) = found.wrong_haks {
+        return Err(e.into());
+    }
+    for w in found.warnings() {
+        out.note(format!("warning: {w}"));
+    }
+    Ok(found.game)
 }
 
 /// The resman for a module: the game, the module's haks and the module.
@@ -4155,12 +4199,11 @@ fn verify(
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let (base, custom) = times.time("the talk tables", || {
         let base = std::fs::read(gi.talk_table()).ok().and_then(count).unwrap_or(0);
-        let custom = m.custom_tlk().ok().flatten().and_then(|name| {
-            let language = mg_core::Language::from_short_code(&gi.language);
-            mg_module::talk::find_any(&m, &rm, &gi.tlk_dirs(), &name, language)
-                .and_then(|f| f.tlk_bytes().ok())
-                .and_then(count)
-        });
+        let language = mg_core::Language::from_short_code(&gi.language);
+        let custom = match mg_module::talk::of_module(&m, &rm, &gi.tlk_dirs(), language) {
+            mg_module::talk::Custom::Found { found, .. } => found.tlk_bytes().ok().and_then(count),
+            _ => None,
+        };
         (base, custom)
     });
     let tlk = mg_module::doctor::TalkTables { base, custom };
@@ -4476,22 +4519,32 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
 /// a GFF's JSON (`mg gff --names`): `"row"` in a field's object, which
 /// `from_json` sets aside, and `"__row"` on a list's item whose place is
 /// a row; `path` the labels of the fields and lists it is under.
+/// `mg gff --names`: beside each field's number, what it stands for
+/// (`mg_rules::rows::meaning`, as the window's fields view names it): a
+/// row of a table, a faction of `factions` (the module's), an animation,
+/// a talk-table string; and on each item of a list whose items stand for
+/// something by themselves (a creature's skills, a store's pages).
 fn name_rows(
     s: &mut serde_json::Map<String, serde_json::Value>,
     game: &mg_rules::GameData,
+    factions: &[String],
     file_type: &str,
     path: &mut Vec<String>,
 ) {
-    use mg_rules::rows::{list_table, row_table};
+    use mg_rules::rows::{list_item_name, meaning};
     use serde_json::Value as J;
+    // (The struct's numbers, before any is named: an item property's
+    // subtype is of the table its type names.)
+    let numbers: std::collections::HashMap<String, i64> =
+        s.iter().filter_map(|(l, f)| Some((l.clone(), f.get("value")?.as_i64()?))).collect();
+    let sibling = |l: &str| numbers.get(l).copied();
     for (label, field) in s.iter_mut().filter(|(l, _)| !l.starts_with("__")) {
         let J::Object(field) = field else { continue };
-        let labels: Vec<&str> = path.iter().map(String::as_str).collect();
+        let outer = path.clone();
+        let labels: Vec<&str> = outer.iter().map(String::as_str).collect();
         let kind = field.get("type").and_then(J::as_str).unwrap_or_default().to_string();
         match kind.as_str() {
             "struct" | "list" => {
-                let by_place =
-                    (kind == "list").then(|| list_table(file_type, &labels, label)).flatten();
                 path.push(label.clone());
                 let items: Vec<&mut J> = match field.get_mut("value") {
                     Some(J::Array(items)) => items.iter_mut().collect(),
@@ -4500,17 +4553,23 @@ fn name_rows(
                 };
                 for (i, item) in items.into_iter().enumerate() {
                     let J::Object(item) = item else { continue };
-                    if let Some(name) = by_place.and_then(|t| game.row_name(&t, i as i64)) {
+                    let id = item.get("__struct_id").and_then(J::as_u64).unwrap_or(0) as u32;
+                    let name = (kind == "list")
+                        .then(|| list_item_name(Some(game), file_type, &labels, label, (i, id)))
+                        .flatten();
+                    if let Some(name) = name {
                         item.insert("__row".into(), J::String(name));
                     }
-                    name_rows(item, game, file_type, path);
+                    name_rows(item, game, factions, file_type, path);
                 }
                 path.pop();
             }
             _ => {
-                let Some(table) = row_table(file_type, &labels, label) else { continue };
-                let row = field.get("value").and_then(J::as_i64);
-                if let Some(name) = row.and_then(|r| game.row_name(&table, r)) {
+                let Some(m) = meaning(Some(game), file_type, &labels, label, &sibling) else {
+                    continue;
+                };
+                let value = field.get("value").and_then(J::as_i64);
+                if let Some(name) = value.and_then(|v| game.meaning_name(&m, factions, v)) {
                     field.insert("row".into(), J::String(name));
                 }
             }
@@ -4523,7 +4582,7 @@ fn gff(
     output: Option<&Path>,
     json: bool,
     cp: Codepage,
-    names: Option<&mg_rules::GameData>,
+    names: Option<(&mg_rules::GameData, &[String])>,
 ) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
@@ -4543,9 +4602,9 @@ fn gff(
     }
     let gff = Gff::read(&data)?;
     let mut value = mg_gff::to_json(&gff, cp)?;
-    if let (Some(game), serde_json::Value::Object(root)) = (names, &mut value) {
+    if let (Some((game, factions)), serde_json::Value::Object(root)) = (names, &mut value) {
         let file_type = String::from_utf8_lossy(&gff.file_type).into_owned();
-        name_rows(root, game, &file_type, &mut Vec::new());
+        name_rows(root, game, factions, &file_type, &mut Vec::new());
     }
     match output {
         Some(o) => {
