@@ -3133,14 +3133,12 @@ impl Moonglow {
             Action::TakeInLeftOut => self.take_in_left_out(),
             Action::ExportDialog(keys) => {
                 if self.ws.is_some() {
-                    // Adding to an archive that is there and resetting
-                    // factions to begin with, as Aurora's Export does (it
-                    // asks whether to append, Yes first; its Reset
-                    // Factions to Parent Factions starts ticked).
+                    // Adding to an archive that is there to begin with, as
+                    // Aurora's Export does (it asks whether to append, Yes
+                    // first).
                     self.export = Some(ExportDraft {
                         selected: keys.into_iter().collect(),
                         dependencies: true,
-                        reset_factions: true,
                         add: true,
                         ..Default::default()
                     });

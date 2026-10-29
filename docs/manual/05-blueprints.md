@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:45Z }
 ---
 
 # Blueprints
@@ -222,9 +222,8 @@ The palette's buttons:
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered, after your builder code where you have one, named as
-  Aurora's Edit Copy and Add to Palette name it: without `nw_`, numbered
-  past the blueprint's own number, `nw_wswls001` to `wswls003`) and Tag
-  first.
+  Aurora's Edit Copy names it: without `nw_`, the first free number after
+  the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
 - **Delete**: remove a custom blueprint from the module.
 - **The model in the page:** a placeable's and a door's Basic page and
   an item's Appearance page show the model beside their fields, in a

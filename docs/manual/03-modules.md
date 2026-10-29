@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:46Z }
 ---
 
 # Modules
@@ -1472,9 +1472,7 @@ plugin reads a description with `mg.twoda.describe`
 - **File › Export…** writes chosen resources to an `.erf` archive.
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
-  creatures out of the module's own factions into the standard ones
-  (ticked to begin with, as Aurora's Reset Factions to Parent Factions
-  is).
+  creatures out of the module's own factions into the standard ones.
   Right-click a resource in the tree to export it (several, chosen with
   Ctrl and Shift, together); a placed object's **Export as Blueprint…**
   writes it as a blueprint of its own ([Areas](04-areas.md)). An area's

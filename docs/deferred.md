@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:44Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -996,8 +996,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
   were compared with Aurora (2026-10-29): its Object Mode Only fades in
   Select Objects and not in Select Terrain, as Moonglow's; the rural
-  tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay.
-  A mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
+  tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay
+  (a City Interior's walls of `tilefade` 1 looked the same in every mode
+  at the three cameras tried, so that 1 goes rests on the trees). A
+  mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
   is still taken from the game's tiles and their names. (S) (from
   builders' reports after 1.10.1)
 - **A cloak lying in an area** is the game's model of a cloak dropped
@@ -2659,9 +2661,15 @@ of truth, and does each caller's difference matter.
   `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
   `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
   Which the game takes, by an engine test. (S)
-- **A copy's resref, the generators left:** a blueprint's Copy is named
-  as Aurora's Edit Copy and Add to Palette name one now (`new_resref`,
-  captured 2026-10-29: `nw_w1copy007` to `w1copy008`); `copy_resref`
+- **A copy's resref, what is left:** a blueprint's Copy is named as
+  Aurora's Edit Copy names one now (`palette_add::copy_resref_named`,
+  captured 2026-10-29: `nw_w1copy007` to `w1copy008`, the one case).
+  Aurora's Add to Palette, captured the same day, named copies of
+  templates without a number `002` (`w1_held002`, `w1_arrow002`,
+  `mgp_utc002`; `captures/wave1/add-palette.mod`, `pal2-addpal.mod`),
+  where `new_resref` gives `001`, as the earlier capture's `mgp_utp001`
+  (`aurora_palette_add.rs`) has it: what makes the difference is not
+  known (S, an Aurora capture or two). `copy_resref`
   (`palette_view.rs`) stays for other resources, with three more
   generators (`store_setup.rs:27`, `blueprints.rs:35`,
   `dialog_view.rs:1612`) and two from a file's stem
