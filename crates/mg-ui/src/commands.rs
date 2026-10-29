@@ -1105,9 +1105,11 @@ impl MenuKeys {
 pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     use egui::{Key, Modifiers, Popup};
     let ctx = ui.ctx().clone();
-    // A letter pressed: with Alt alone held, a menu's; with a menu open
-    // and nothing held, a row's. Taken from the frame's keys, with the
-    // text it typed.
+    // A letter pressed: with Alt alone held, a menu's (unless a command
+    // was given Alt and that letter in Options › Keyboard: the command's
+    // then); with a menu open and nothing held, a row's. Taken from the
+    // frame's keys, with the text it typed.
+    let keymap = &app.keymap;
     let letter = |alt: bool| {
         ctx.input_mut(|i| {
             let m = i.modifiers;
@@ -1115,7 +1117,9 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
                 return None;
             }
             let found = i.events.iter().find_map(|e| match e {
-                egui::Event::Key { key, pressed: true, repeat: false, .. } => {
+                egui::Event::Key { key, pressed: true, repeat: false, .. }
+                    if !(alt && keymap.bound(e)) =>
+                {
                     let name = key.name();
                     let c = name.chars().next().filter(|c| name.len() == 1 && c.is_alphabetic())?;
                     Some((*key, c.to_ascii_lowercase()))

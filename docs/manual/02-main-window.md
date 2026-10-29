@@ -48,7 +48,9 @@ Escape closes the submenu the keys are in, else the menus. With a menu
 open, the pointer over another menu's name opens that one. Alt and a
 menu's first letter (underlined: Alt+F for File, Alt+V for View) opens
 that menu, and with a menu open a letter goes to the next row that
-begins with it.
+begins with it. A command given Alt and a menu's letter in Options ›
+Keyboard has that key instead of the menu; AltGr and a letter (another
+layout's character) opens none.
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and

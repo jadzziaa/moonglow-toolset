@@ -1760,18 +1760,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   separators and rows that can't be chosen), Enter and Space choose,
   Right and Left open and close a submenu, and the pointer over another
   menu's name opens it while one is open. The marked row is drawn as
-  selected. Since 1.20.5: Alt and a menu's first letter (underlined)
-  opens it, a letter with a menu open goes to the next row that begins
-  with it, and Escape closes the submenu the keys are in before the
-  menus. Not done: a letter of its own for each row (they go by first
-  letters, and a letter only marks the row: Enter chooses); Alt and a
-  letter opens a menu while text is typed in too, as menus do, and
-  takes the key from a command given Alt and that letter in Options ›
-  Keyboard; Alt alone was not tried in a test (the harness sends no
-  modifier on its own: F10 was), nor on Windows, where the system may
-  take Alt for its own menu; a submenu inside a submenu has no keys
-  (there is none today); the bar itself is never "focused" without a
-  menu open. (S each) (from builders' reports after 1.19.1)
+  selected. Alt and a menu's first letter (underlined) opens it (unless
+  a command was given that key in Options › Keyboard; not AltGr), a
+  letter with a menu open goes to the next row that begins with it, and
+  Escape closes the submenu the keys are in before the menus; all of it
+  under test (`menus_by_the_keyboard`, Alt alone by its modifier
+  events). Waits: Alt alone on Windows, where the system may take Alt
+  for its own menu (a Windows build). Proposed to the owner as dropped
+  (nobody asked, or nothing to do today): a letter of its own for each
+  row (they go by first letters, and a letter only marks the row: Enter
+  chooses); keys for a submenu inside a submenu (there is none); the bar
+  itself "focused" without a menu open. (S each) (from builders' reports
+  after 1.19.1)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. The

@@ -702,6 +702,12 @@ impl Keymap {
         hit
     }
 
+    /// Whether `e` presses a key some command was given (a plugin's or a
+    /// project's too): Alt and a letter is a menu's only where none was.
+    pub fn bound(&self, e: &Event) -> bool {
+        self.keys.values().chain(self.defaults.values()).flatten().any(|s| is(e, s))
+    }
+
     /// Whether `e` presses a key of a command of `group`: a list's own key
     /// that a command there was given is the command's.
     pub fn bound_in(&self, group: Group, e: &Event) -> bool {
