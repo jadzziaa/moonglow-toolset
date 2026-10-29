@@ -62,8 +62,8 @@ switches have the window read them (both off unless given: see
 
 | Command | Does |
 | --- | --- |
-| `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
-| `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed. A field that holds a row of one of the game's tables takes the row's label or name too, for each type it is a row of (`--where Race=Human`; `Appearance=Chest` is a placeables.2da row for a placeable, a doortypes.2da row for a door); two rows of a name are said, to be given by number or label |
+| `mg info MODULE` | the module's name, tag, entry area, areas (those its area list names, which the game loads; an ARE it leaves out is warned of, `unlisted_areas` in the JSON), haks, talk table, game version and resources by type |
+| `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains, in the name as the module tree shows it: the talk table's string where it has none of its own, another language's where it has no English), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed. A field that holds a row of one of the game's tables takes the row's label or name too, for each type it is a row of (`--where Race=Human`; `Appearance=Chest` is a placeables.2da row for a placeable, a doortypes.2da row for a door); two rows of a name are said, to be given by number or label |
 | `mg search MODULE` | blueprints, placed objects (and the items they hold), areas and conversations by what they hold, one kind at a time: `--var NAME` (`*` matches any run; with `--var-type int` and `--value`), `--property TYPE` (with `--subtype`, `--value`, `--param`), `--class`, `--feat`, `--spell`, `--skill` (with `--min-rank N`), `--appearance ROW` (with `--of creature`, `placeable`, `door`, `generic-door`, `waypoint` or `item`), `--script NAME`, or any field by `--field LABEL`, `--int N` or `--text TEXT` (with `--regex`, the names and texts are regular expressions: `--var '^tdod_(rent|own)' --regex`). A row is its number or its name in the game's 2DAs and talk table (the module's haks' too): `--property "skill bonus" --subtype hide`. `--type uti,utc` and `--placed` or `--blueprints` narrow it as in `mg find`; an item blueprint found is also found in the inventories of the blueprints that carry it |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources: a script once, `unused\tx.nss\tsource and compiled`, `compiled only (no source)` or `source only (not compiled)`; what counts as used is Build Module's [Unused](09-build-and-test.md#what-counts-as-used)); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does. **Build › Round-Trip Check** does the same in the window |
@@ -203,7 +203,12 @@ applies it as the editors would.
 
 `mg areas` does from the command line what **Edit › Edit Areas Together…**
 does in the window (see [Areas](04-areas.md)). Without a change, it lists
-the areas chosen: ResRef, name, tileset and kind.
+the areas chosen: ResRef, name, tileset and kind. Every ARE the module
+holds is listed, and one its area list (`Mod_Area_list`) leaves out is
+warned of: the game doesn't load it (`listed` in the JSON). Names are
+shown as the module tree shows them: the talk table's string where an
+area has no name of its own, another language's where it has no
+English.
 
 ```text
 mg areas mymodule.mod --underground

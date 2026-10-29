@@ -513,14 +513,14 @@ impl Fixture {
                 DirContainer::open(folder),
             );
         }
-        if let Some(name) = module.custom_tlk().ok().flatten()
-            && let Some(found) =
-                mg_module::talk::find_any(&module, &g.resman, &[], &name, Some(g.language))
-        {
-            match found.tlk() {
-                Ok(tlk) => g.set_custom_tlk(Some(tlk)),
-                Err(e) => notes.push(format!("the module's talk table {e}")),
+        // (No user's tlk folder: a fixture's table is its own.)
+        let found = mg_module::talk::of_module(&module, &g.resman, &[], Some(g.language));
+        match found.read() {
+            (_, Some(tlk)) => g.set_custom_tlk(Some(tlk)),
+            (mg_module::talk::Custom::Unreadable { error, .. }, None) => {
+                notes.push(format!("the module's talk table {error}"))
             }
+            _ => {}
         }
         // (With a game, `mg` says which it did not find.)
         let lacked: Vec<&str> = (haks.iter())

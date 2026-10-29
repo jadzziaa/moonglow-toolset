@@ -786,6 +786,9 @@ pub struct Moonglow {
     pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
+    /// What the module uses of its haks, shown with the conflict report
+    /// once asked for (`mg_preview::usage`, as `mg haks --usage`).
+    pub hak_usage: Option<String>,
     /// The custom talk table loaded into the game data, by name.
     custom_tlk: Option<String>,
     pub var_edit: Option<widgets::VarTableEdit>,
@@ -1126,6 +1129,7 @@ impl Moonglow {
             rotate_area: None,
             palette: Default::default(),
             hak_report: None,
+            hak_usage: None,
             custom_tlk: None,
             var_edit: None,
             picker: None,
@@ -1562,6 +1566,7 @@ impl Moonglow {
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
+        let (busy, mut usage) = (self.busy(), false);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -1574,11 +1579,35 @@ impl Moonglow {
                 ))
                 .default_size([600.0, 400.0])
                 .show(ui.ctx(), |ui| {
-                    egui::ScrollArea::both().show(ui, |ui| ui.monospace(report));
+                    let tip = "Which of the haks' resources the module reaches (its areas, \
+                               objects, scripts and what they name), hak by hak, in the game a \
+                               player has: for cutting a release to what is used";
+                    let asked = ui
+                        .add_enabled(!busy, egui::Button::new("What the Module Uses"))
+                        .on_hover_text(tip)
+                        .clicked();
+                    if asked {
+                        usage = true;
+                    }
+                    // (A line as long as it is, scrolled to sideways.)
+                    let text = |ui: &mut egui::Ui, t: &str| {
+                        ui.add(egui::Label::new(egui::RichText::new(t).monospace()).extend())
+                    };
+                    egui::ScrollArea::both().show(ui, |ui| {
+                        if let Some(used) = &self.hak_usage {
+                            text(ui, used);
+                            ui.separator();
+                        }
+                        text(ui, report)
+                    });
                 });
             if !open {
                 self.hak_report = None;
+                self.hak_usage = None;
             }
+        }
+        if usage {
+            self.hak_usage_job();
         }
         plugins::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
@@ -2957,31 +2986,64 @@ impl Moonglow {
             return;
         };
         let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
-        // (A nasher project's own, kept as JSON, before the tlk folder's.)
+        // (A nasher project's own, kept as JSON, before the tlk folder's:
+        // found as `mg` finds it.)
+        use mg_module::talk::Custom;
         let found =
-            mg_module::talk::find_for(&ws.module, &game.resman, &dirs, &name, Some(game.language));
-        let file = found.as_ref().ok().and_then(Option::as_ref).and_then(|f| f.source.file());
+            mg_module::talk::of_module(&ws.module, &game.resman, &dirs, Some(game.language));
+        let file = match &found {
+            Custom::Found { found, .. } => found.source.file(),
+            _ => None,
+        };
         let stamp = file.and_then(|path| {
             let t = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
             Some((path.to_path_buf(), t))
         });
         self.tlk_stamp = stamp;
-        match found.map(|f| f.map(|f| f.tlk())).unwrap_or_else(|e| Some(Err(e))) {
-            Some(Ok(tlk)) => {
-                game.set_custom_tlk(Some(tlk));
-                self.log.info(format!("Custom talk table {name} loaded"));
-            }
-            Some(Err(e)) => {
-                game.set_custom_tlk(None);
-                self.log.error(format!("Custom talk table {name}: {e}"));
-            }
-            None => {
-                game.set_custom_tlk(None);
-                self.log.warn(format!("Custom talk table {name} not found"));
-            }
+        let (found, tlk) = found.read();
+        let loaded = tlk.is_some();
+        game.set_custom_tlk(tlk);
+        // (Said as `mg` says it, with a capital.)
+        let problem = found.problem().map(|p| format!("C{}", p.strip_prefix('c').unwrap_or(&p)));
+        match (&found, problem) {
+            _ if loaded => self.log.info(format!("Custom talk table {name} loaded")),
+            (Custom::NotFound { .. }, Some(p)) => self.log.warn(p),
+            (_, Some(p)) => self.log.error(p),
+            (_, None) => {}
         }
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));
+    }
+
+    /// What the module uses of its haks, worked out as a job and shown
+    /// above the conflict report: each hak's line and every hak's, as
+    /// `mg haks --usage` says them.
+    fn hak_usage_job(&mut self) {
+        let Some(install) = self.install.clone() else { return };
+        let work = move |c: &jobs::Context| -> Result<String, String> {
+            let started = std::time::Instant::now();
+            let haks = c.module.haks().map_err(|e| e.to_string())?;
+            let report = mg_module::haks::hak_report(&install, &haks).map_err(|e| e.to_string())?;
+            let (used, reached) = mg_preview::usage::hak_usage(&install, &c.module, &report)?;
+            let mut text = String::from("What the module uses (in the game a player has):\n");
+            for u in &used {
+                text.push_str(&format!("  {}\n", mg_preview::usage::line(u)));
+            }
+            text.push_str(&format!("  {}\n", mg_preview::usage::total_line(&used)));
+            text.push_str(&format!(
+                "The walk reached {reached} resources in {:.1} s; {}.",
+                started.elapsed().as_secs_f64(),
+                mg_preview::usage::NOT_FOLLOWED
+            ));
+            Ok(text)
+        };
+        self.start_job("What the Module Uses", work, |app, made| match made {
+            Ok(text) => {
+                app.log.info("What the module uses of its haks: in Hak Pak Conflict Analysis");
+                app.hak_usage = Some(text);
+            }
+            Err(e) => app.log.error(format!("What the module uses: {e}")),
+        });
     }
 
     fn hak_report(&mut self) {
@@ -2991,6 +3053,7 @@ impl Moonglow {
             Ok(r) => {
                 self.log.info(format!("{} conflicting hak resources", r.conflicts().count()));
                 self.hak_report = Some(r.to_text());
+                self.hak_usage = None;
             }
             Err(e) => self.log.error(format!("Hak report failed: {e}")),
         }

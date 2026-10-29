@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:35:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:07:10Z }
 ---
 
 # The main window
@@ -177,6 +177,16 @@ polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
+A name is shown in the language you edit (**Options › Language**), else
+as the game shows it (its talk-table string), else in another language,
+English first; `mg areas` and `mg find` name them the same way.
+
+**An area the module's area list leaves out** (an ARE the module holds
+that its `Mod_Area_list` doesn't name, as a copy made outside the toolset
+can be) is marked *(not in the area list)*: the game loads only the
+areas the list names, so nothing in the game reaches it. Its right-click
+menu's **Add to the Module's Area List** lists it (one Undo takes it
+away again); `mg areas` and `mg info` say the same of it.
 
 **What is placed in an area:** the arrow before an area opens it out to
 its objects, kind by kind as Aurora lists them (Creatures, Doors,

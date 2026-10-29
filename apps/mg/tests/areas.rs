@@ -469,3 +469,56 @@ fn a_mod_s_folder_beside_it_is_said() {
     let json: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert!(ok && json["notes"].to_string().contains("has its module folder beside it"), "{json}");
 }
+
+/// The areas as the module tree has them: every ARE, the one the module's
+/// area list (`Mod_Area_list`) leaves out said (the game doesn't load it:
+/// `engine_area_list.rs`), and names as lists show them: one in French
+/// alone by its French, one of a talk-table string by the string.
+#[test]
+fn areas_its_list_leaves_out_are_said_and_names_shown_as_the_tree_shows_them() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-areas-unlisted");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    let listed = ["cave1", "inn"].map(|a| {
+        let mut s = Struct::new(6);
+        s.set("Area_Name", Value::resref(ResRef::from_str(a).unwrap()));
+        s
+    });
+    info.root.set("Mod_Area_list", Value::List(listed.to_vec()));
+    m.set_info(&info).unwrap();
+    let mut french = LocString::default();
+    french.set(Language::FRENCH, Gender::Male, b"Auberge de la Pomme".to_vec());
+    let strref = mg_core::StrRef(5);
+    for (area, name) in [("inn", french), ("cave2", LocString::from_strref(strref))] {
+        let mut are = m.gff(&key(area, ResType::ARE)).unwrap().unwrap();
+        are.root.set("Name", Value::LocString(name));
+        m.set_gff(key(area, ResType::ARE), &are).unwrap();
+    }
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let tlk = mg_tlk::Tlk::read(&std::fs::read(root.join("lang/en/data/dialog.tlk")).unwrap());
+    let said = tlk.unwrap().text(strref).unwrap();
+    assert!(!said.is_empty());
+
+    let out = crate::mg_on(&root, None).args(["--json", "areas"]).arg(&path).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let areas = json["areas"].as_array().unwrap();
+    let of = |r: &str| areas.iter().find(|a| a["resref"] == r).unwrap().clone();
+    assert_eq!(
+        (of("cave1")["listed"].clone(), of("cave2")["listed"].clone()),
+        (true.into(), false.into())
+    );
+    assert_eq!(of("inn")["name"], "Auberge de la Pomme");
+    assert_eq!(of("cave2")["name"], said.as_str());
+    let notes = json["notes"].to_string();
+    assert!(notes.contains("area cave2 is not in the module's area list"), "{notes}");
+    assert!(!notes.contains("area cave1 is not"), "{notes}");
+
+    let out = crate::mg_on(&root, None).args(["--json", "info"]).arg(&path).output().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["unlisted_areas"], serde_json::json!(["cave2"]), "{json}");
+    assert_eq!(json["areas"], serde_json::json!(["cave1", "inn"]), "{json}");
+}

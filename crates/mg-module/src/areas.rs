@@ -47,50 +47,109 @@ pub fn row_table(field: &str) -> Option<mg_rules::rows::RowTable> {
     }
 }
 
-/// What lists of areas show and filter by.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What lists of areas show and filter by: the module tree, Edit Areas
+/// Together, `mg areas`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AreaInfo {
     pub resref: ResRef,
-    /// Its name's English text, else its first text; empty when it has only
-    /// a talk-table string.
+    /// Its name as lists show it (`mg_rules::shown`: in the language asked
+    /// for, the talk table's string where there is a game, else another
+    /// language's); empty when it has none.
     pub name: String,
     pub tag: String,
     pub tileset: ResRef,
     /// `Flags`: [`INTERIOR`], [`UNDERGROUND`], [`NATURAL`], and shader flags.
     pub flags: u32,
+    /// Whether the module's area list (`Mod_Area_list`) names it: the game
+    /// loads only the areas it names (`engine_area_list.rs`), and an ARE
+    /// it leaves out is in the module and no area in the game.
+    pub listed: bool,
 }
 
-/// Every area the module has (each ARE), by ResRef.
+/// An area's [`AreaInfo`] from its ARE's root, its name read by `named`.
+pub fn info_of(
+    resref: ResRef,
+    are: &Struct,
+    named: crate::query::Namer<'_>,
+    listed: bool,
+) -> AreaInfo {
+    AreaInfo {
+        resref,
+        name: are.locstring("Name").map_or(String::new(), named),
+        tag: String::from_utf8_lossy(are.string("Tag").unwrap_or_default()).into(),
+        tileset: are.resref("Tileset").unwrap_or(ResRef::EMPTY),
+        flags: are.integer("Flags").unwrap_or(0) as u32,
+        listed,
+    }
+}
+
+/// Every area the module has (each ARE), by ResRef, those its area list
+/// leaves out too ([`AreaInfo::listed`]); names read without the game.
 pub fn list(m: &Module) -> Vec<AreaInfo> {
     list_in(m, mg_core::Codepage::WINDOWS_1252)
 }
 
 /// [`list`] with the game's codepage, where a module has its own table
-/// (`encoding.2da`).
+/// (`encoding.2da`): names in English, else another language's.
 pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
+    list_named(m, &|n| n.shown_in(Language::ENGLISH, game))
+}
+
+/// [`list`] with names read by `named` (`mg_rules::shown`, with the game's
+/// data: as the module tree shows them).
+pub fn list_named(m: &Module, named: crate::query::Namer<'_>) -> Vec<AreaInfo> {
+    let listed = listed_in(m);
+    let listed = |r: &ResRef| listed.as_ref().is_none_or(|l| l.contains(r));
     let mut out: Vec<AreaInfo> = m
         .keys_of(ResType::ARE)
         .filter_map(|k| {
             let are = m.gff(k)?.ok()?;
-            let name = are.root.locstring("Name").map_or(String::new(), |n| {
-                let english = n.text_in(Language::ENGLISH, mg_core::Gender::Male, game);
-                let any = || {
-                    (n.strings.first())
-                        .map(|(k, t)| game.for_language(k.language()).decode(t).into_owned())
-                };
-                english.map(|t| t.into_owned()).or_else(any).unwrap_or_default()
-            });
-            Some(AreaInfo {
-                resref: k.resref,
-                name,
-                tag: String::from_utf8_lossy(are.root.string("Tag").unwrap_or_default()).into(),
-                tileset: are.root.resref("Tileset").unwrap_or(ResRef::EMPTY),
-                flags: are.root.integer("Flags").unwrap_or(0) as u32,
-            })
+            Some(info_of(k.resref, &are.root, named, listed(&k.resref)))
         })
         .collect();
     out.sort_by_key(|a| a.resref);
     out
+}
+
+/// What a module's area list leaves out: the AREs it has that
+/// `Mod_Area_list` doesn't name (the game doesn't load them), by ResRef.
+pub fn unlisted(m: &Module) -> Vec<ResRef> {
+    let Some(listed) = listed_in(m) else { return Vec::new() };
+    let mut out: Vec<ResRef> =
+        m.keys_of(ResType::ARE).map(|k| k.resref).filter(|r| !listed.contains(r)).collect();
+    out.sort();
+    out
+}
+
+/// Every area the module has, as the tools that go through its areas
+/// take them (`mg search --placed`, `mg update-instances`, Edit Areas
+/// Together's every area): those its area list names, in its order, then
+/// the AREs it leaves out ([`unlisted`]). (A name the list has with no
+/// ARE stays, as the list has it: Verify says it is missing, and a tool
+/// reads what of it there is.)
+pub fn every(m: &Module) -> Vec<ResRef> {
+    let listed = m.areas().unwrap_or_default();
+    let mut out: Vec<ResRef> = Vec::new();
+    for a in listed {
+        if !out.contains(&a) {
+            out.push(a);
+        }
+    }
+    out.extend(unlisted(m));
+    out
+}
+
+/// The areas the module's list names; `None` for a module with no
+/// `module.ifo` (nothing to leave out).
+fn listed_in(m: &Module) -> Option<std::collections::HashSet<ResRef>> {
+    m.contains(&Module::info_key()).then(|| m.areas().unwrap_or_default().into_iter().collect())
+}
+
+/// The said line for an area its list leaves out, as every tool says it.
+pub fn unlisted_warning(area: ResRef) -> String {
+    format!(
+        "area {area} is not in the module's area list (Mod_Area_list): the game doesn't load it"
+    )
 }
 
 /// What an area holds that it may be chosen by (Edit Areas Together's
@@ -895,6 +954,44 @@ mod tests {
     use super::*;
     use mg_core::{Gender, LocString};
     use mg_gff::Gff;
+
+    /// Every ARE is an area to the tools, the module's area list first in
+    /// its order (a name it has with no ARE too); one it leaves out is said
+    /// ([`unlisted`]).
+    #[test]
+    fn areas_the_list_names_and_leaves_out() {
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        let mut m = Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let item = |a: &str| {
+            let mut s = Struct::new(6);
+            s.set("Area_Name", Value::resref(r(a)));
+            s
+        };
+        info.root
+            .set("Mod_Area_list", Value::List(vec![item("zeta"), item("gone"), item("alpha")]));
+        m.set_info(&info).unwrap();
+        for (a, name) in [("alpha", None), ("zeta", Some(Language::GERMAN)), ("lost", None)] {
+            let mut are = Gff::new(*b"ARE ");
+            if let Some(l) = name {
+                let mut n = LocString::default();
+                n.set(l, Gender::Male, b"Zwielicht".to_vec());
+                are.root.set("Name", Value::LocString(n));
+            }
+            m.set_gff(ResKey::new(r(a), ResType::ARE), &are).unwrap();
+        }
+        assert_eq!(every(&m), [r("zeta"), r("gone"), r("alpha"), r("lost")]);
+        assert_eq!(unlisted(&m), [r("lost")]);
+        let listed: Vec<(ResRef, bool)> = list(&m).iter().map(|a| (a.resref, a.listed)).collect();
+        assert_eq!(listed, [(r("alpha"), true), (r("lost"), false), (r("zeta"), true)]);
+        // A name in German alone shows by it.
+        assert_eq!(list(&m)[2].name, "Zwielicht");
+        assert!(unlisted_warning(r("lost")).contains("lost is not in the module's area list"));
+        // A module with no module.ifo leaves nothing out.
+        let mut bare = Module::new();
+        bare.set_gff(ResKey::new(r("alpha"), ResType::ARE), &Gff::new(*b"ARE ")).unwrap();
+        assert!(unlisted(&bare).is_empty() && list(&bare)[0].listed);
+    }
 
     const CP: Codepage = Codepage::WINDOWS_1252;
 

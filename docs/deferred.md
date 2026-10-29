@@ -568,19 +568,35 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Haks in the GUI
 
-- **What the module uses of its haks** is `mg haks --usage` alone: the
-  window has no report of it (Module Properties' Check for Conflicts
-  could show it). The walk is in the command line (`apps/mg/src/usage.rs`)
-  until the window wants it. (S–M)
-- **Not followed by `--usage`:** what scripts reach by a number
-  (visual effects, spells, item properties, `SetCreatureAppearanceType`),
-  a creature's footstep, weapon and combat sounds, an item property's
-  visual effect, armor's inventory icon, what players choose at
-  character creation (heads, portraits, sound sets, parts), and 2DAs the
-  game reads by itself (judged only where the walk reads one). A
-  script's string counts as a use of whatever it spells. A per-hak list
-  for the release cut (a folder of used assets to pack smaller haks) is
-  not written: `--json` has the lists. (M)
+- **Not followed by `--usage`** (and What the Module Uses), what is left
+  of it after the sprint followed sounds, icons, visual effect
+  properties, 2DAs and the heads, portraits and voice sets players
+  choose (`mg_preview::usage`):
+  - **What scripts reach by a number** (visual effects, spells, item
+    properties, `SetCreatureAppearanceType`): a reader of a script's
+    calls' arguments (an `int` literal, a stock constant from
+    `nwscript.nss`, the module's own `const`s through its includes) by
+    the function and parameter that take a row of a table
+    (`EffectVisualEffect` visualeffects.2da, `ActionCastSpell*`
+    spells.2da, `ItemProperty*` their iprp tables), then each row's
+    files (a visual effect's models, progfx.2da's, its sounds; a
+    spell's icons, models and sounds; an appearance's look through
+    `mg_preview::creature`). In mg-script and `usage.rs`: a day or two
+    (L), larger than the rest of the entry was.
+  - **The body parts players choose** at character creation (tattoos):
+    which part numbers the creation screen offers for a race and
+    phenotype isn't known here (parts_*.2da has no column for it, and
+    every part number would count every armor part as used). Waits on
+    the client batch: read the creation screen's part lists against
+    parts_chest.2da and the others.
+
+  A script's string still counts as a use of whatever it spells,
+  whatever the string is for (a release cut keeps too much rather than
+  too little; said in the manual), and a per-hak list for the release
+  cut (a folder of the used assets to pack smaller haks) is not written:
+  `--json` has the lists, and writing haks from them goes beyond what
+  was asked. (settle?: both proposed by the sprint on 2026-10-29, the
+  owner's to say) (L; the body parts wait on the client batch)
 
 - **No 7z or rar:** content downloaded as one is unpacked first; Add
   Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk
@@ -1902,19 +1918,6 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **A localized string's text, without the toolset's language or the
-  talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
-  `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
-  `GameData::locstring`): `mg find --name` doesn't match a name in
-  French alone or in the talk table, and `mg areas` names an area
-  otherwise than the module tree. A `LocString::shown_in(language,
-  codepage)` for where there is no game. (M)
-- **The module's areas, two ways:** the IFO's list (`Module::areas`:
-  `query.rs:168`, `bulk.rs:74`, `mg update-instances`) and the AREs
-  (areas, the doctor, search, the module tree); an ARE missing from the
-  IFO is seen by half the tools. And areas listed and filtered three
-  times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
-  without the tag). (M)
 - **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
   `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
   `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
@@ -1927,11 +1930,6 @@ of truth, and does each caller's difference matter.
   empty undo step when a drag ends where it began, neither keeps typing
   as `hold_text` does; the "…" button for every language seven times.
   (M)
-- **The game data for a module, three times in `mg`**
-  (`search.rs:98`, `plugins.rs:34`, `main.rs:2671`, with the custom
-  talk table found three more ways: `main.rs:2713`, `nwsync.rs:122`,
-  `mg-ui lib.rs:2184`), each warning differently. A
-  `Module::game_data`. (M)
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)

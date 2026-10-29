@@ -91,6 +91,24 @@ impl LocString {
         self.elsewhere_bytes(language).map(|(k, b)| text(k.language(), b))
     }
 
+    /// The text a list or a title shows for the string in `language` where
+    /// there is no talk table to read (no game): its own text in
+    /// `language`, else another language's ([`elsewhere`](Self::elsewhere):
+    /// English first), else its variant in `language` even empty; empty
+    /// where it has none. `game` is the game's codepage. With the game's
+    /// data, the talk table's string comes between the first two
+    /// (`GameData::locstring`).
+    pub fn shown_in(&self, language: Language, game: Codepage) -> String {
+        let own = self.text_in(language, Gender::Male, game);
+        if let Some(text) = own.as_deref().filter(|t| !t.is_empty()) {
+            return text.to_string();
+        }
+        self.elsewhere_in(language, game)
+            .map(|(_, text)| text)
+            .or(own.map(|t| t.into_owned()))
+            .unwrap_or_default()
+    }
+
     /// [`elsewhere`](Self::elsewhere)'s variant, as the bytes the file has.
     pub fn elsewhere_bytes(&self, language: Language) -> Option<(LocStringKey, &[u8])> {
         // (English is language 0: the lowest key is English's if any.)
@@ -166,6 +184,29 @@ mod tests {
             s.elsewhere(Language::FRENCH),
             Some((Language::GERMAN, "Deutscher Name".into()))
         );
+    }
+
+    /// A string shown without the game: its own language's text, else
+    /// another's, English first; never the talk table's (there is none).
+    #[test]
+    fn shown_without_the_game() {
+        let w = Codepage::WINDOWS_1252;
+        let mut s = LocString::from_strref(StrRef(12));
+        assert_eq!(s.shown_in(Language::ENGLISH, w), "");
+        s.set(Language::FRENCH, Gender::Male, b"Nom fran\xe7ais".to_vec());
+        // A name in French alone shows in English's place.
+        assert_eq!(s.shown_in(Language::ENGLISH, w), "Nom français");
+        s.set(Language::ENGLISH, Gender::Male, b"English name".to_vec());
+        assert_eq!(s.shown_in(Language::ENGLISH, w), "English name");
+        assert_eq!(s.shown_in(Language::FRENCH, w), "Nom français");
+        assert_eq!(s.shown_in(Language::GERMAN, w), "English name");
+        // A variant that is there and empty: another's text before it.
+        s.set(Language::ENGLISH, Gender::Male, Vec::new());
+        assert_eq!(s.shown_in(Language::ENGLISH, w), "Nom français");
+        // Polish text by its own codepage.
+        let mut p = LocString::default();
+        p.set_text(Language::POLISH, Gender::Male, "Łódź").unwrap();
+        assert_eq!(p.shown_in(Language::ENGLISH, w), "Łódź");
     }
 
     #[test]

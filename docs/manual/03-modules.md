@@ -1199,7 +1199,11 @@ names, it won't load the module; Verify reports it. Name it without
 
 `mg haks MODULE --usage` says, hak by hak, which of its resources the
 module reaches and which nothing does: for cutting a release (or a
-player's download) to what is used. A line a hak, and one for them all:
+player's download) to what is used. In the window, **Check for
+Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
+Conflict Analysis, and its **What the Module Uses** says the same above
+the conflicts (worked out as a job, on the module as it is, unsaved
+changes too). A line a hak, and one for them all:
 
 ```
 tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged
@@ -1227,9 +1231,13 @@ the game's script), and what that names in turn:
 - **An object, as the area view draws it**: a placeable's or door's
   model and sounds (placeableobjsnds.2da); a creature's body (head, body
   parts, wings, tail, what it wears), its portrait and sound set (the
-  `.ssf` and its sounds); an item's models and their inventory icons;
-  armor's parts and cloaks for every gender, part-based race and
-  phenotype that has a model of them, as anyone may wear them.
+  `.ssf` and its sounds), its footsteps and combat sounds
+  (footstepsounds.2da, appearancesndset.2da and the weaponsounds.2da
+  sounds of its claws and of each weapon striking it); an item's models
+  and their inventory icons (an armor's, its parts' layers, a man's and
+  a woman's), a weapon's hits and the model of its **Visual Effect**
+  property; armor's parts and cloaks for every gender, part-based race
+  and phenotype that has a model of them, as anyone may wear them.
 - **A model's own files**: walkmeshes, textures (the DDS or TGA the game
   picks, and a PLT), materials and TXIs and what they name, its
   emitters' models and its supermodels.
@@ -1238,18 +1246,29 @@ the game's script), and what that names in turn:
   area of effect's three (`vfx_persistent.2da`), the scripts of states
   (`statescripts.2da`), traps', diseases' and poisons' (the columns
   [Unused](09-build-and-test.md#what-counts-as-used) reads), reached from the table.
+- **The 2DAs the game reads by itself**: a hak's copy of a table the
+  game has (classes.2da, spells.2da…) is used, and so is a table a used
+  2DA names in a cell (a class's feat and skill tables, an item
+  property's subtypes).
+- **What players choose at character creation**: every head of the
+  player races (racialtypes.2da's `PlayerRace`) for each gender and
+  phenotype, those races' portraits and the players' voice sets
+  (soundset.2da's type 0).
 
 Each hak resource is then **used** (reached, and this hak's copy is the
 one the game loads), **shadowed** (a hak higher in the list, or the
 module, has it: this copy is never loaded), **not judged** or
-**unused**. Not judged are what the game reads by itself (2DAs other
-than those the walk reads, GUI, fonts, shaders a material doesn't name,
-palettes, NUI windows) and a hak's replacements of the game's own
-resources, which the game's own content may use. Not followed at all:
-what scripts reach by a number (visual effects, spells, item
-properties, appearances set by a script) and what players choose
-(heads, portraits, sound sets and parts at character creation): a hak of player heads can
-show as unused and still be needed. The game is taken as a player has
+**unused**. Not judged are what the game reads by itself other than its
+2DAs (a 2DA of a hak's own that nothing names, which a script or a
+server extension may read; GUI, fonts, shaders a material doesn't
+name, palettes, NUI windows) and a hak's replacements of the game's own
+resources other than 2DAs, which the game's own content may use. Not
+followed at all: what scripts reach by a number (visual effects,
+spells, item properties, appearances set by a script) and the body
+parts players choose: a hak of tattoo parts can show as unused and
+still be needed. A script's string that spells a name counts as a use
+of it, whatever the string is for: a release cut keeps too much rather
+than too little. The game is taken as a player has
 it: the user's `override` and `development` folders are left out, the
 haks are found where the game finds them. On The Domains of Dread's
 module and 143 haks (29.5 GB) it takes about 5 seconds.

@@ -40,32 +40,13 @@ pub(crate) fn game_for(
         out.note("no game install found: a plugin's game data is empty (--root, or NWN_ROOT)");
         return None;
     };
-    match GameData::open(gi) {
-        Ok(game) => Some(Arc::new(layered(game, gi, m, out))),
+    match crate::game_data_in(gi, m, out) {
+        Ok(game) => Some(Arc::new(game)),
         Err(e) => {
-            out.note(format!("the game data could not be read: {e}"));
+            out.note(format!("warning: the game data could not be read: {e:#}"));
             None
         }
     }
-}
-
-/// The game's data with the module's haks and the module layered in, and
-/// its custom talk table.
-fn layered(mut game: GameData, gi: &GameInstall, m: &Module, out: &mut Output) -> GameData {
-    let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
-    missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found")));
-    if let Some(e) = wrong {
-        out.note(format!("warning: the module's haks: {e}"));
-    }
-    let language = Some(game.language);
-    if let Some(name) = m.custom_tlk().ok().flatten()
-        && let Some(found) =
-            mg_module::talk::find_any(m, &game.resman, &gi.tlk_dirs(), &name, language)
-        && let Ok(tlk) = found.tlk()
-    {
-        game.set_custom_tlk(Some(tlk));
-    }
-    game
 }
 
 /// The command line as a plugin's host: the log kept for the output, a
@@ -485,8 +466,7 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
                     .into());
             }
             let gi = GameInstall::new(root, gi.and_then(|g| g.user_dir.clone()), "en");
-            let game = GameData::open(&gi).map_err(|e| e.to_string())?;
-            return Ok(Some(layered(game, &gi, m, &mut said)));
+            return crate::game_data_in(&gi, m, &mut said).map(Some).map_err(|e| format!("{e:#}"));
         }
         let Some(gi) = gi else {
             // (Said once: without a game, a plugin's ctx.game is empty, but
@@ -502,10 +482,10 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
             }
             return Ok(None);
         };
-        match GameData::open(gi) {
-            Ok(game) => Ok(Some(layered(game, gi, m, &mut said))),
+        match crate::game_data_in(gi, m, &mut said) {
+            Ok(game) => Ok(Some(game)),
             Err(e) => {
-                said.note(format!("the game data could not be read: {e}"));
+                said.note(format!("warning: the game data could not be read: {e:#}"));
                 Ok(None)
             }
         }

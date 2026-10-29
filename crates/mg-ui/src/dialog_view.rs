@@ -1723,7 +1723,7 @@ fn creature_tags(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<Vec<
     {
         return tags;
     }
-    let areas = ws.module.areas().unwrap_or_default();
+    let areas = mg_module::areas::every(&ws.module);
     let mut tags = std::collections::BTreeSet::new();
     for a in areas {
         let Ok(g) = ws.doc(&ResKey::new(a, mg_core::ResType::GIT)) else { continue };

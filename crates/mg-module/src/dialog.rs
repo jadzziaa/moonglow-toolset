@@ -747,10 +747,11 @@ pub fn paste_branch(g: &mut Gff, parent: Parent, branch: &Branch, same_dialog: b
     true
 }
 
-/// A line's text in English (for display and tests).
+/// A line's text as shown without the game (for display and tests): its
+/// English, else another language's ([`LocString::shown_in`]).
 pub fn text(n: &Struct) -> String {
     n.locstring("Text")
-        .and_then(|t| t.text(Language::ENGLISH, Gender::Male).map(|s| s.into_owned()))
+        .map(|t| t.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252))
         .unwrap_or_default()
 }
 

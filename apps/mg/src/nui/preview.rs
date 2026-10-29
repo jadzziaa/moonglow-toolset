@@ -146,30 +146,15 @@ impl Shown {
         let (resman, game) = match install(cli) {
             Ok(gi) => {
                 // (A window's file, or a folder of windows, has no haks.)
-                let rm = if module.contains(&Module::info_key()) {
-                    module_resman(&gi, &module, out)?
-                } else {
-                    mg_resman::ResMan::for_game(&gi)?
-                };
-                let tlk =
-                    std::fs::read(gi.talk_table()).ok().and_then(|b| mg_tlk::Tlk::read(&b).ok());
-                match tlk {
-                    Some(tlk) => {
-                        let mut game = mg_rules::GameData::new(rm, tlk);
-                        if let Some(custom) = module.custom_tlk().ok().flatten()
-                            && let Some(f) = mg_module::talk::find_any(
-                                &module,
-                                &game.resman,
-                                &gi.tlk_dirs(),
-                                &custom,
-                                Some(game.language),
-                            )
-                        {
-                            game.set_custom_tlk(f.tlk().ok());
-                        }
-                        (None, Some(game))
+                let modular = module.contains(&Module::info_key());
+                match mg_rules::GameData::open(&gi) {
+                    Ok(game) if modular => {
+                        (None, Some(crate::said(module.game_data_over(game, &gi)?, out)?))
                     }
-                    None => (Some(rm), None),
+                    Ok(game) => (None, Some(game)),
+                    // (Without its talk table, the pictures still.)
+                    Err(_) if modular => (Some(module_resman(&gi, &module, out)?), None),
+                    Err(_) => (Some(mg_resman::ResMan::for_game(&gi)?), None),
                 }
             }
             Err(e) => {

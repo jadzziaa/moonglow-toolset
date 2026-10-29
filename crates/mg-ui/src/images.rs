@@ -10,6 +10,7 @@ use mg_edit::Workspace;
 use mg_gff::Struct;
 use mg_resman::ResKey;
 use mg_rules::GameData;
+use mg_rules::items::{ARMOR_ICON, icon_names as item_icon_names};
 
 use crate::Moonglow;
 use egui::Ui;
@@ -43,16 +44,6 @@ pub(crate) struct Loader<'a> {
     pub ws: Option<&'a Workspace>,
     pub game: &'a GameData,
 }
-
-/// Armor icon parts, bottom first: (field, icon part).
-const ARMOR_ICON: [(&str, &str); 6] = [
-    ("ArmorPart_Pelvis", "pelvis"),
-    ("ArmorPart_Torso", "chest"),
-    ("ArmorPart_Belt", "belt"),
-    ("ArmorPart_LShoul", "shol"),
-    ("ArmorPart_RShoul", "shor"),
-    ("ArmorPart_Robe", "robe"),
-];
 
 /// The PLT layers' colours an item gives (metal, cloth and leather; skin,
 /// hair and tattoos the first colour).
@@ -92,41 +83,6 @@ fn armor_icon_parts(item: &Struct) -> Vec<usize> {
 /// A model or part number: the EE twin (`xModelPart1`) where there is one.
 fn part(item: &Struct, label: &str) -> i64 {
     mg_rules::items::part_number(item, label).unwrap_or(0)
-}
-
-/// The names of an item's inventory icon layers, bottom first (nwn.wiki,
-/// baseitems.2da): `i<ItemClass>_<model>` for simple and layered items
-/// (`_m_` between for gender-specific ones), a composite weapon's bottom,
-/// middle and top (`_b_`, `_m_`, `_t_`), an armor's pelvis, chest, belt,
-/// shoulders and robe (`ipm_<part><number>`). Where `female`, the icons a
-/// woman's inventory shows (`ipf_`, `_f_`), for the items that have both.
-pub(crate) fn item_icon_names(game: &GameData, item: &Struct, female: bool) -> Vec<String> {
-    let g = if female { 'f' } else { 'm' };
-    let Ok(t) = game.table("baseitems") else { return Vec::new() };
-    let Ok(row) = usize::try_from(item.integer("BaseItem").unwrap_or(-1)) else {
-        return Vec::new();
-    };
-    let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
-    match t.get_int(row, "ModelType").unwrap_or(0) {
-        2 => [("ModelPart1", "b"), ("ModelPart2", "m"), ("ModelPart3", "t")]
-            .iter()
-            .map(|(l, p)| format!("i{class}_{p}_{:03}", part(item, l)))
-            .collect(),
-        3 => ARMOR_ICON
-            .iter()
-            .map(|(l, p)| (part(item, l), p))
-            .filter(|(n, _)| *n > 0)
-            .map(|(n, p)| format!("ip{g}_{p}{n:03}"))
-            .collect(),
-        _ => {
-            let gender = if t.get_int(row, "GenderSpecific") == Some(1) {
-                format!("{g}_")
-            } else {
-                String::new()
-            };
-            vec![format!("i{class}_{gender}{:03}", part(item, "ModelPart1"))]
-        }
-    }
 }
 
 /// Whether an item's icon is an armor's, of parts (baseitems.2da

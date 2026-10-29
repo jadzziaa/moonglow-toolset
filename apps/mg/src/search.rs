@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail};
 use mg_core::ResType;
-use mg_module::Module;
 use mg_module::search::{self, AppearanceOf, FieldValue, Query, Search, VarType};
 use mg_rules::GameData;
 use serde_json::json;
@@ -96,21 +95,6 @@ pub(crate) struct Args {
     /// anchored (`^…$`), letters A to Z in either case; not `*` patterns.
     #[arg(long)]
     regex: bool,
-}
-
-/// The game's data for the module (its haks' 2DAs and its talk table), if
-/// the game is installed.
-pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Option<GameData> {
-    let gi = crate::install(cli).ok()?;
-    let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).ok()?).ok()?;
-    let mut game = GameData::new(crate::module_resman(&gi, m, out).ok()?, tlk);
-    if let Some(name) = m.custom_tlk().ok().flatten()
-        && let Some(f) =
-            mg_module::talk::find_any(m, &game.resman, &gi.tlk_dirs(), &name, Some(game.language))
-    {
-        game.set_custom_tlk(f.tlk().ok());
-    }
-    Some(game)
 }
 
 /// A row of a table given by number or name.
@@ -214,7 +198,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
     let types =
         crate::parse_types(&a.types, ResType::is_gff, "a kind of object (utc, uti, are, …)")?;
     let mut out = Output::default();
-    let game = game_data(cli, &m, &mut out);
+    let game = crate::game_data_if_any(cli, &m, &mut out);
     let q = Query {
         search: what(a, game.as_ref())?,
         and: Vec::new(),
