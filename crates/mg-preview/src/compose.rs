@@ -475,6 +475,39 @@ impl Composed {
         sum
     }
 
+    /// How much of it a viewer in direction `towards` (from the model, in
+    /// its space) sees at rest, square meters: the drawn triangles of its
+    /// models (the base's and the parts') that face that way, each by its
+    /// area as seen from there. Unlike [`Composed::facing`] it goes by
+    /// area and takes every part: a sword's blade (a part of its own) has
+    /// as many vertices along its edges as on its flats, and from the side
+    /// of its flat shows many times what it shows edge on.
+    pub fn seen_area(&self, towards: Vec3) -> f32 {
+        let towards = towards.normalize_or_zero();
+        let stance = self.stance(None, 0.0);
+        let mut sum = 0.0;
+        for (gm, nodes, to) in self.models_in(&stance) {
+            for m in &gm.meshes {
+                let Some(mesh) = gm.model.nodes.get(m.node).and_then(|n| n.mesh()) else {
+                    continue;
+                };
+                let faces = mesh.faces.iter().map(|f| f.vertices);
+                let triangles = faces.chain(mesh.drawn.iter().copied());
+                let places = skinned_places(gm, m, nodes, to).unwrap_or_else(|| {
+                    let at = to * nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                    mesh.vertices.iter().map(|v| at.transform_point3(Vec3::from(*v))).collect()
+                });
+                let corner = |i: u32| places.get(i as usize).copied();
+                for [a, b, c] in triangles {
+                    if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) {
+                        sum += ((b - a).cross(c - a).dot(towards) * 0.5).max(0.0);
+                    }
+                }
+            }
+        }
+        sum
+    }
+
     /// Bounds of everything in the rest pose (for framing a camera).
     pub fn bounds(&self) -> (Vec3, Vec3) {
         self.bounds_of(&self.stance(None, 0.0))

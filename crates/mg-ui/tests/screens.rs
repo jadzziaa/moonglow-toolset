@@ -293,6 +293,7 @@ fn widgets_keys_searches_and_arrows() {
         fixed: 0,
         fixed_shaped: 0,
         uneven: 0,
+        start: false,
     });
     h.run_steps(3);
     shoot(&mut h, &dir, "adjust-location-arrows");
@@ -1198,7 +1199,17 @@ fn item_previews() {
         .with_size(egui::vec2(900.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    for name in ["nw_aarcl004", "nw_cloth027", "nw_arhe001", "nw_ashsw001", "x2_adrowshl001"] {
+    for name in [
+        "nw_aarcl004",
+        "nw_cloth027",
+        "nw_arhe001",
+        "nw_ashsw001",
+        "x2_adrowshl001",
+        "nw_wswls001",
+        "nw_waxbt001",
+        "nw_wbwln001",
+        "nw_wswdg001",
+    ] {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
         h.run_steps(4);

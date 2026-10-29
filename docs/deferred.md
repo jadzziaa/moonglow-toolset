@@ -454,12 +454,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tells the rows apart). The pictures are made on the UI thread after
   the frame, 2 ms of a frame at most, as every gallery's are. (S)
   (GitHub issue 7)
-- **An item stood up in its viewer** is turned a quarter about its
-  length's axis from how it lies; which side then faces the viewer isn't
-  chosen (a sword shows its edge more than its flat). Items in the
-  palette's Gallery lie as modelled; on the ground in an area they are
-  turned as baseitems.2da's `RotateOnGround` says. (S)
-  (GitHub issue 7)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that
@@ -2480,9 +2474,6 @@ of truth, and does each caller's difference matter.
   Aurora's order (a creature's classes and a door's generic appearance
   are by name in Aurora too; its portraits are in the table's order, as
   Select Portrait's grid: captured 2026-10-29).
-- The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
-  sideways, which the area view's has (`model_view.rs:745`,
-  `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
 - A tileset read by hand where it is open: `tile_view.rs:19`,
   `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
   `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.

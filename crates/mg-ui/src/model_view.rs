@@ -1,7 +1,8 @@
 //! The model viewer: any model from the resources, or what a creature, item,
 //! placeable or door blueprint looks like (`mg_preview`), drawn with the
 //! game's lighting, turned by dragging (left: orbit, right or middle: pan,
-//! wheel: zoom), with its animations (and its supermodels') to play.
+//! wheel: zoom, as the area view's wheel), with its animations (and its
+//! supermodels') to play.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, MeshState, Renderer,
 use mg_resman::ResKey;
 
 use crate::Moonglow;
+use crate::area_view::{Orbit, Wheel};
 
 /// Multisampling for 3D views.
 pub(crate) const SAMPLES: u32 = 4;
@@ -164,10 +166,8 @@ pub struct ModelView {
     /// Light the model with its own light nodes.
     pub model_lights: bool,
     pub time: f32,
-    pub yaw: f32,
-    pub pitch: f32,
-    pub distance: f32,
-    pub target: Vec3,
+    /// The camera, turned about what it looks at, as the area view's.
+    pub orbit: Orbit,
     /// How what is shown is stood for the viewer: an item is modelled
     /// lying down (its length along the ground) and is shown stood on its
     /// end, as its icon shows it; all else as it is.
@@ -479,8 +479,8 @@ impl ModelView {
         // thumbnail shows it.)
         let shield = preview.as_ref().is_ok_and(|p| is_shield(app, source, p));
         let yaw = if shield { 240f32 } else { 60f32 }.to_radians();
-        let stand =
-            if lying { Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
+        let pitch = 20f32.to_radians();
+        let stand = if lying { stood_up(composed.as_ref(), yaw, pitch) } else { Mat4::IDENTITY };
         let mut view = ModelView {
             model,
             stand,
@@ -490,10 +490,7 @@ impl ModelView {
             model_lights: true,
             time: 0.0,
             // Models face +Y: from the front, a little to the side.
-            yaw,
-            pitch: 20f32.to_radians(),
-            distance: 5.0,
-            target: Vec3::ZERO,
+            orbit: Orbit { target: Vec3::ZERO, yaw, pitch, distance: 5.0 },
             targets: None,
             last_frame: None,
             particles: None,
@@ -512,6 +509,13 @@ impl ModelView {
     /// lying), not shown as it is.
     pub fn stood(&self) -> bool {
         self.stand != Mat4::IDENTITY
+    }
+
+    /// How what it shows is stood for the viewer ([`ModelView::stood`]):
+    /// an item modeled lying, its length up and its broad side to the
+    /// viewer.
+    pub fn stand(&self) -> Mat4 {
+        self.stand
     }
 
     /// What it shows of a blueprint (none for a model).
@@ -534,9 +538,9 @@ impl ModelView {
                 let w = self.stand.transform_point3(p);
                 (min, max) = (min.min(w), max.max(w));
             }
-            self.target = (min + max) * 0.5;
+            self.orbit.target = (min + max) * 0.5;
             let radius = ((max - min).length() * 0.5).max(0.1);
-            self.distance = radius / 20f32.to_radians().sin() * 1.1;
+            self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
             return;
         }
         let Ok(m) = &self.model else { return };
@@ -557,14 +561,37 @@ impl ModelView {
         if min.x > max.x {
             (min, max) = (Vec3::splat(-1.0), Vec3::splat(1.0));
         }
-        self.target = (min + max) * 0.5;
+        self.orbit.target = (min + max) * 0.5;
         let radius = ((max - min).length() * 0.5).max(0.1);
-        self.distance = radius / 20f32.to_radians().sin() * 1.1;
+        self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
     }
 
     fn camera(&self) -> Camera {
-        Camera::orbit(self.target, self.distance, self.yaw, self.pitch)
+        self.orbit.camera()
     }
+}
+
+/// How an item modeled lying (its length along the ground, +Y) is stood
+/// on its end for a viewer at `yaw` and `pitch`, as its icon shows it: its
+/// length up, and turned about it so that its broad side faces the viewer
+/// (a sword its flat, not its edge). Of the quarter turns, the first unless
+/// another shows half as much again of the base model's surface
+/// ([`Composed::seen_area`]), as a picture's side is chosen.
+fn stood_up(composed: Option<&Composed>, yaw: f32, pitch: f32) -> Mat4 {
+    let up = Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    let Some(c) = composed else { return up };
+    let towards = Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
+    let stood = |turn: f32| Mat4::from_rotation_z(turn) * up;
+    let shows = |turn: f32| c.seen_area(stood(turn).inverse().transform_vector3(towards));
+    let quarter = std::f32::consts::FRAC_PI_2;
+    let turn = [quarter, -quarter, 2.0 * quarter]
+        .into_iter()
+        .fold((0.0, shows(0.0)), |best, turn| {
+            let s = shows(turn);
+            if s > best.1 * 1.1 + 1e-6 { (turn, s) } else { best }
+        })
+        .0;
+    stood(turn)
 }
 
 fn load_super(
@@ -844,26 +871,34 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     );
 
     // Orbit, pan, zoom.
+    let o = &mut view.orbit;
     if response.dragged_by(egui::PointerButton::Primary) {
         let d = response.drag_delta();
-        view.yaw -= d.x * 0.01;
-        view.pitch = (view.pitch + d.y * 0.01).clamp(-1.45, 1.45);
+        o.yaw -= d.x * 0.01;
+        o.pitch = (o.pitch + d.y * 0.01).clamp(-1.45, 1.45);
     }
-    if response.dragged_by(egui::PointerButton::Secondary)
-        || response.dragged_by(egui::PointerButton::Middle)
-    {
-        let d = response.drag_delta();
-        let cam = view.camera();
+    // (Across the screen and up it, by the pointer's points.)
+    let pan = |o: &mut Orbit, d: egui::Vec2| {
+        let cam = o.camera();
         let fwd = (cam.target - cam.eye).normalize();
         let right = fwd.cross(Vec3::Z).normalize_or_zero();
         let up = right.cross(fwd);
-        let scale = view.distance * 0.0015;
-        view.target += (-right * d.x + up * d.y) * scale;
+        o.target += (-right * d.x + up * d.y) * o.distance * 0.0015;
+    };
+    if response.dragged_by(egui::PointerButton::Secondary)
+        || response.dragged_by(egui::PointerButton::Middle)
+    {
+        pan(o, response.drag_delta());
     }
+    // The wheel as the area view's: Shift or Ctrl zooms finer, a pinch
+    // zooms, a sideways scroll pans.
     if response.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            view.distance = (view.distance * (-scroll * 0.002).exp()).clamp(0.05, 5000.0);
+        let wheel = Wheel::read(ui);
+        if wheel.zoom != 0.0 {
+            o.distance = wheel.zoomed(o.distance, (0.05, 5000.0));
+        }
+        if wheel.sideways != 0.0 {
+            pan(o, egui::vec2(wheel.sideways, 0.0));
         }
     }
     app.model_views.insert(key, view);
