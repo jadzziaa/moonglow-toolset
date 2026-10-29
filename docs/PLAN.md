@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:07:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:08:54Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -421,6 +421,18 @@ files run side by side; at most eight servers run at once
 `MG_TEST_GPUS`).
 How this came about, with the timings before and after, is in the
 [test review](test-review.md).
+
+**CI.** `.github/workflows/ci.yml` runs on Linux, Windows and macOS, two
+jobs on each side by side: Lint (`cargo fmt --check` and the three clippy
+commands of `CLAUDE.md`) and Test (`cargo test --workspace --lib --bins
+--tests`, the corpus tests skipping without a game, then the doc tests).
+The tests are built without debug information
+(`CARGO_PROFILE_TEST_DEBUG=0`) and, on Windows, linked with the
+toolchain's `rust-lld`; the build's `--timings` report is each Test
+job's artifact, to read where the time went. The dependencies' builds are
+cached (rust-cache), saved by `develop` alone: a branch or pull request
+starts from develop's cache and saves none, so a branch that changes
+the dependencies builds the changed ones on each of its runs.
 
 When an oracle tool disagrees with Moonglow, an engine test decides and the
 divergence is recorded (see `CLAUDE.md`). So far: `nwn_twoda` drops `""` 2DA
