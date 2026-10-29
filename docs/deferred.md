@@ -2022,12 +2022,17 @@ contribution itself states as not done or not checked.
   runs here with Steam hidden. An item's other folders (portraits,
   modules, music) aren't read. (S) (from builders' reports after 1.14.1)
 - **Finding the game:** Steam's libraries are read from its
-  `libraryfolders.vdf` (a game on a second drive), and GOG's usual
-  folders tried. Steam itself installed outside its usual folder is
-  found on Windows only as `X:\Steam` or `X:\SteamLibrary` (the registry
-  isn't read); Beamdog's client isn't looked for. The reporter's case (a
-  second drive on Linux) is covered by the list, not tried on their
-  machine. (S) (from builders' reports after 1.14.1)
+  `libraryfolders.vdf` (a game on a second drive), GOG's usual folders
+  tried, Steam's own folder read from Windows' registry (`reg query`
+  of `SteamPath` and `InstallPath`: held by Wine's `reg` in
+  `steam_folder_from_this_machine_s_registry`), and Beamdog's client's
+  libraries from its `settings.json` (as neverwinter.nim's
+  `findNwnRoot` reads them; else `~/Beamdog Library`), 2026-10-29. Not
+  tried where they live: a real Windows with Steam elsewhere (a folder
+  of other than ASCII letters, which `reg` prints in the console's
+  codepage), Beamdog's client on any system, and the reporter's case (a
+  second drive on Linux), covered by the list. (S) (waits on a Windows
+  machine and a Beamdog install) (from builders' reports after 1.14.1)
 - **Installing updates from the app** (the rest of GitHub issue 28):
   Help › Check for Updates… and the daily check only say that a newer
   release is out and link its page. Not done, for the owner to decide:

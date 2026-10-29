@@ -12,6 +12,7 @@ memmap2.workspace = true
 mg-core.workspace = true
 mg-erf.workspace = true
 mg-key.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [lints]
