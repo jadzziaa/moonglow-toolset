@@ -92,11 +92,6 @@ jobs:
       # test still says its file and line; only a backtrace, which CI
       # doesn't print, would lose its lines.
       CARGO_PROFILE_TEST_DEBUG: "0"
-      # Windows links the 49 test binaries and programs with LLVM's
-      # linker, which the toolchain ships (rust-lld), not Microsoft's
-      # link.exe: the job's build took twice Linux's, with the same
-      # crates. The packages (packaging/) still link with link.exe.
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: ${{ matrix.os == 'windows-latest' && 'rust-lld' || '' }}
     steps:
       - name: Free disk space
         if: runner.os == 'Linux'

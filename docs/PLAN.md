@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:08:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:58:00Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -427,9 +427,10 @@ jobs on each side by side: Lint (`cargo fmt --check` and the three clippy
 commands of `CLAUDE.md`) and Test (`cargo test --workspace --lib --bins
 --tests`, the corpus tests skipping without a game, then the doc tests).
 The tests are built without debug information
-(`CARGO_PROFILE_TEST_DEBUG=0`) and, on Windows, linked with the
-toolchain's `rust-lld`; the build's `--timings` report is each Test
-job's artifact, to read where the time went. The dependencies' builds are
+(`CARGO_PROFILE_TEST_DEBUG=0`); the build's `--timings` report is each
+Test job's artifact, to read where the time went (Windows builds every
+unit about 1.8 times as long as Linux, compile and link alike, so its
+Test job is the long pole; `rust-lld` there didn't shorten it). The dependencies' builds are
 cached (rust-cache), saved by `develop` alone: a branch or pull request
 starts from develop's cache and saves none, so a branch that changes
 the dependencies builds the changed ones on each of its runs.

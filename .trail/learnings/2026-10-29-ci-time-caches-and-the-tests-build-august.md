@@ -12,6 +12,7 @@ touches:
 ## Decided
 - rust-cache saves on develop alone (`save-if`), in ci.yml and release.yml. GitHub keeps 10 GB of caches per repository; every push that changes a manifest is a new key (about 3.8 GB for the three systems), so a busy branch (renderer-ci) evicted all of develop's. Read them with `gh cache list --json key,ref,sizeInBytes`.
 - The tests are built in CI with `CARGO_PROFILE_TEST_DEBUG=0`. Natively (no `--target`) cargo shares host and target units when their profiles agree; with Cargo.toml's line tables, `cargo test --doc` and `cargo test --lib --bins --tests` resolved different host units (proc-macro2, quote, syn, serde, toml), so on Linux the doc tests rebuilt all 26 workspace libraries (two minutes). With `--target` given the graphs agree, so test natively.
+- Ruled out: `rust-lld` for the Windows tests (run 40971587639). Windows builds every unit about 1.8 times as long as Linux, compile-heavy and link-heavy alike, so the gap is the runner, not link.exe; the build's last stretch (mg's links) took no less.
 - fmt and clippy are a Lint job per system, beside the Test job; each job has its own cache key (the job id is in it).
 
 ## How to look
