@@ -499,9 +499,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories, what the editor lacks:** no translated names
-  (one text for every language), and Remove refuses a category in use
-  rather than offer to move its blueprints. (S–M)
+- **Palette categories by a talk-table line, in the game:** since
+  2026-10-29 Palette › Categories… names a category by a StrRef (Name
+  by StrRef, or Move Name to Talk Table into the module's own table),
+  as the game's own categories are named, and the `palcus.itp` built
+  on save keeps it. Not seen: the DM Creator showing a module's own
+  talk table's line (16777216 and up) as a category's name, in each
+  language. (S) (waits on the client batch: a module with a custom
+  `.tlk` and a category named by its line, the Creator's palette
+  looked at)
 - **A module's categories in its own order:** the palette and the
   `palcus.itp` built on save keep the order a module's own skeleton has.
   Aurora's don't (captured 2026-10-29,
