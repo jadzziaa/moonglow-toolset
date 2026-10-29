@@ -58,7 +58,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
   which the viewer doesn't set, so its compiled-shader cache is named by
   the passes' `FORMAT` alone and no longer starts anew when it moves to a
   newer toolset tag. One line at the viewer's start
-  (`mg_core::release::set`, its own version) names it as before. (S)
+  (`mg_core::release::set`, its own version) names it as before. Not
+  yet a fault: the viewer is on v2.8.0, whose `mg-shader` names the
+  cache by its own version (`CARGO_PKG_VERSION`, 2.8.0), and
+  `mg_core::release` is in v2.9.0 and after, so the line can only go in
+  with the viewer's move to a newer tag (in its repository, not this
+  one). (S, waits on the viewer's next toolset tag)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -325,8 +330,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   campaigns' areas differ by a few pixels to a few hundred between two
   runs of the same program. Something is ordered by chance (a hash map's
   order, likely among lights or an object's parts). Not looked for. (S)
-- **The frame test only times:** `frame_perf.rs` names the views over
-  the budget and fails nothing. With budgets it would keep them. (S)
 
 ## EE fields Aurora hides
 
@@ -1538,7 +1541,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `MG_CLOSE` and `grass_overrides_look`'s `MG_DISTANCE` and `MG_PITCH`
   set it at once, so their pictures were likely taken from the client's
   own camera. Not changed: the numbers measured from them (in
-  `docs/research/notes_models.md`) would be taken again with it. (S)
+  `docs/research/notes_models.md`) would be taken again with it, in a
+  session that runs the client (the sprint's fix waves of 2026-10-29
+  ran none, other sessions having the off-screen display). (S, waits on
+  a client session)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
