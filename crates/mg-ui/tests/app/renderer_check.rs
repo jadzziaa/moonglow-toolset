@@ -379,7 +379,7 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     let trouble = app.renderer_check.trouble.clone().expect("the notice");
     assert!(
         trouble.said.contains(
-            "the game's shaders draw its lit, textured test mesh in the wrong colors through \
+            "the game's shaders draw the lit, textured test mesh in the wrong colors through \
              Direct3D 12 on Radeon RX 580 Series (the lit mesh is [212, 133, 133]"
         ),
         "{trouble:?}"
@@ -397,7 +397,7 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     mg_ui::renderer_check::lit_found(h.state_mut(), wrong);
     let trouble = h.state().renderer_check.trouble.clone().expect("the notice");
     assert!(
-        trouble.said.contains("the game's shaders draw nothing of its lit, textured test mesh"),
+        trouble.said.contains("the game's shaders draw nothing of the lit, textured test mesh"),
         "{trouble:?}"
     );
     // The Shaders button, off and on: the game's again.

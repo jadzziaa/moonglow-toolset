@@ -95,9 +95,9 @@ pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
     // colors. An area may well be drawn where the colors are wrong.)
     let drew = |color, verb: &str| {
         if mg_render::probe::Lit::drew_nothing(color) {
-            format!("{verb} nothing of its lit, textured test mesh")
+            format!("{verb} nothing of the lit, textured test mesh")
         } else {
-            format!("{verb} its lit, textured test mesh in the wrong colors")
+            format!("{verb} the lit, textured test mesh in the wrong colors")
         }
     };
     if let Err(why) = &lit.own {
