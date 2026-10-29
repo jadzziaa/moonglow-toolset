@@ -940,14 +940,19 @@ impl AreaChooser {
 
     /// Whether an area passes the filters (but for what it holds:
     /// [`AreaChooser::has`]).
+    /// Whether the filters show an area: its name, tag or ResRef, its
+    /// tileset and kind, as `mg areas` chooses (`areas::Filter`).
     pub(crate) fn shows(&self, area: ResRef, info: &crate::tree::AreaInfo) -> bool {
-        let text = mg_core::text::Needle::new(&self.filter);
-        text.finds_in(&[&area.to_string().to_ascii_lowercase(), &mg_core::text::fold(&info.name)])
-            && self.tileset.is_none_or(|t| t == info.tileset)
-            && FLAG_FILTERS
-                .iter()
-                .zip(self.flags)
-                .all(|((bit, ..), want)| want.is_none_or(|w| (info.flags & bit != 0) == w))
+        let [interior, underground, natural] = self.flags;
+        let filter = mg_module::areas::Filter {
+            text: Some(self.filter.clone()).filter(|t| !t.trim().is_empty()),
+            tileset: self.tileset,
+            interior,
+            underground,
+            natural,
+            ..Default::default()
+        };
+        filter.matches(&crate::tree::AreaInfo { resref: area, ..info.clone() })
     }
 
     /// What the areas must hold, as Holding asks it (none: anything, or
@@ -1256,16 +1261,25 @@ mod tests {
         let r = |s: &str| ResRef::from_str(s).unwrap();
         let cave = AreaInfo {
             name: "Wolf Cave".into(),
+            tag: "WOLF_DEN".into(),
             tileset: r("tdc01"),
             flags: INTERIOR | UNDERGROUND | NATURAL,
+            ..Default::default()
         };
-        let inn = AreaInfo { name: "Apple Inn".into(), tileset: r("tin01"), flags: INTERIOR };
+        let inn = AreaInfo {
+            name: "Apple Inn".into(),
+            tileset: r("tin01"),
+            flags: INTERIOR,
+            ..Default::default()
+        };
         let all = AreaChooser::default();
         assert!(all.shows(r("area467"), &cave) && all.shows(r("area002"), &inn));
         // A name or a ResRef, whatever its case.
         let text = |t: &str| AreaChooser { filter: t.into(), ..Default::default() };
         assert!(text("wolf").shows(r("area467"), &cave) && !text("wolf").shows(r("area002"), &inn));
         assert!(text(" A467 ").shows(r("area467"), &cave));
+        // Or its tag, as `mg areas` finds it.
+        assert!(text("den").shows(r("area467"), &cave) && !text("den").shows(r("area002"), &inn));
         // Underground areas; areas above ground.
         let under = |v| AreaChooser { flags: [None, Some(v), None], ..Default::default() };
         assert!(under(true).shows(r("a"), &cave) && !under(true).shows(r("b"), &inn));

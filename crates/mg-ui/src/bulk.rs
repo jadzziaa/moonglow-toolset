@@ -57,7 +57,7 @@ impl Moonglow {
         let Some(ws) = self.ws.as_mut() else { return };
         let wanted: HashSet<ResKey> = blueprints.iter().copied().collect();
         let mut objects = Vec::new();
-        for area in ws.module.areas().unwrap_or_default() {
+        for area in mg_module::areas::every(&ws.module) {
             let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
             for restype in wanted.iter().map(|k| k.restype).collect::<HashSet<_>>() {
                 let Some(kind) = ObjectKind::from_restype(restype) else { continue };

@@ -2,7 +2,7 @@
 //! `mg info`): its blueprints and the objects placed in its areas, by type,
 //! tag, name, resref, area and field values; and what the module is.
 
-use mg_core::{Gender, Language, ResRef, ResType};
+use mg_core::{Language, LocString, ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::ObjectKind;
@@ -18,7 +18,8 @@ pub struct Found {
     /// (`TemplateResRef`, a store's `ResRef`), if it names one.
     pub resref: Option<ResRef>,
     pub tag: String,
-    /// The name in English (a creature's first and last names).
+    /// The name as lists show it (a creature's first and last names): see
+    /// [`find_named`].
     pub name: String,
     /// The area and the index in its GIT list, for a placed object.
     pub placed: Option<(ResRef, usize)>,
@@ -111,18 +112,26 @@ pub fn glob(pattern: &str, text: &str) -> bool {
     true
 }
 
+/// A localized string's text where there is no game: its English, else
+/// another language's ([`LocString::shown_in`]).
 fn english(v: Option<&Value>) -> String {
+    shown_by(v, &|ls| ls.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252))
+}
+
+fn shown_by(v: Option<&Value>, name: Namer<'_>) -> String {
     match v {
-        Some(Value::LocString(ls)) => {
-            ls.text(Language::ENGLISH, Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
-        }
+        Some(Value::LocString(ls)) => name(ls),
         Some(Value::String(b)) => String::from_utf8_lossy(b).into_owned(),
         _ => String::new(),
     }
 }
 
+/// How a name's localized string is read as text.
+pub type Namer<'a> = &'a dyn Fn(&LocString) -> String;
+
 /// A field's value as text, for comparing: numbers as written, strings and
-/// resrefs as they are, a localized string's English.
+/// resrefs as they are, a localized string's English (else another
+/// language's).
 pub fn field_text(v: &Value) -> Option<String> {
     if let Some(number) = v.number_text() {
         return Some(number);
@@ -134,13 +143,19 @@ pub fn field_text(v: &Value) -> Option<String> {
     })
 }
 
-fn describe(s: &Struct, restype: ResType, placed: Option<(ResRef, usize)>) -> Found {
+fn describe(
+    s: &Struct,
+    restype: ResType,
+    placed: Option<(ResRef, usize)>,
+    named: Namer<'_>,
+) -> Found {
+    let text = |label: &str| shown_by(s.get(label), named);
     let name = if restype == ResType::UTC {
-        let parts = [english(s.get("FirstName")), english(s.get("LastName"))];
+        let parts = [text("FirstName"), text("LastName")];
         parts.iter().filter(|p| !p.is_empty()).cloned().collect::<Vec<_>>().join(" ")
     } else {
-        let n = english(s.get("LocalizedName"));
-        if n.is_empty() { english(s.get("LocName")) } else { n }
+        let n = text("LocalizedName");
+        if n.is_empty() { text("LocName") } else { n }
     };
     let template = ObjectKind::resref_field_of(restype);
     let resref = s.resref(template).filter(|r| !r.is_empty());
@@ -184,8 +199,16 @@ fn matches(q: &Query, s: &Struct, f: &Found) -> bool {
 }
 
 /// Blueprints, then placed objects (area by area, list by list), that the
-/// query matches.
+/// query matches; names read without the game (English, else another
+/// language's, in Windows-1252).
 pub fn find(m: &Module, q: &Query) -> Vec<Found> {
+    find_named(m, q, &|ls| ls.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252))
+}
+
+/// [`find`] with names read by `named`: with the game's data, as lists
+/// show them (`mg_rules::shown`: the talk table's string where a name has
+/// none of its own).
+pub fn find_named(m: &Module, q: &Query, named: Namer<'_>) -> Vec<Found> {
     let wanted = |t: ResType| q.types.is_empty() || q.types.contains(&t);
     let mut out = Vec::new();
     if q.placed != Some(true) && q.area.is_none() {
@@ -197,7 +220,7 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
         keys.sort();
         for k in keys {
             let Some(Ok(g)) = m.gff(&k) else { continue };
-            let mut f = describe(&g.root, k.restype, None);
+            let mut f = describe(&g.root, k.restype, None, named);
             f.resref = Some(k.resref);
             if matches(q, &g.root, &f) {
                 out.push(f);
@@ -205,7 +228,7 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
         }
     }
     if q.placed != Some(false) {
-        for area in m.areas().unwrap_or_default() {
+        for area in crate::areas::every(m) {
             if q.area.is_some_and(|a| a != area) {
                 continue;
             }
@@ -216,7 +239,7 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
                 }
                 let Some(Value::List(items)) = git.root.get(list) else { continue };
                 for (i, s) in items.iter().enumerate() {
-                    let f = describe(s, restype, Some((area, i)));
+                    let f = describe(s, restype, Some((area, i)), named);
                     if matches(q, s, &f) {
                         out.push(f);
                     }
@@ -235,7 +258,11 @@ pub struct Info {
     pub tag: String,
     pub description: String,
     pub entry_area: Option<ResRef>,
+    /// The areas its area list names (`Mod_Area_list`), in its order:
+    /// those the game loads.
     pub areas: Vec<ResRef>,
+    /// The AREs the module has that its area list leaves out.
+    pub unlisted_areas: Vec<ResRef>,
     pub haks: Vec<String>,
     pub custom_tlk: Option<String>,
     pub min_game_version: String,
@@ -256,10 +283,7 @@ pub fn info_in(m: &Module, codepage: mg_core::Codepage) -> Result<Info, crate::M
     let r = &ifo.root;
     let text = |l: &str| r.string(l).map(|b| codepage.decode(b).into_owned()).unwrap_or_default();
     let localized = |l: &str| match r.get(l) {
-        Some(Value::LocString(ls)) => ls
-            .text_in(Language::ENGLISH, Gender::Male, codepage)
-            .map(|t| t.into_owned())
-            .unwrap_or_default(),
+        Some(Value::LocString(ls)) => ls.shown_in(Language::ENGLISH, codepage),
         _ => String::new(),
     };
     let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
@@ -272,6 +296,7 @@ pub fn info_in(m: &Module, codepage: mg_core::Codepage) -> Result<Info, crate::M
         description: localized("Mod_Description"),
         entry_area: r.resref("Mod_Entry_Area").filter(|a| !a.is_empty()),
         areas: m.areas()?,
+        unlisted_areas: crate::areas::unlisted(m),
         haks: m.haks()?,
         custom_tlk: m.custom_tlk()?,
         min_game_version: text("Mod_MinGameVer"),
@@ -282,6 +307,7 @@ pub fn info_in(m: &Module, codepage: mg_core::Codepage) -> Result<Info, crate::M
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mg_core::Gender;
     use mg_gff::Gff;
 
     #[test]
@@ -357,5 +383,36 @@ mod tests {
         let i = info(&m).unwrap();
         assert_eq!((i.tag.as_str(), i.areas.len()), ("MOD", 1));
         assert!(i.resources.contains(&("utc".to_string(), 1)));
+    }
+
+    /// A name in French alone is found and shown by it, without the game;
+    /// with a namer that reads the talk table, a name of a talk-table
+    /// string is found by the string's text.
+    #[test]
+    fn names_as_lists_show_them() {
+        let mut m = Module::new();
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root = creature("GARDE", "");
+        let mut french = mg_core::LocString::default();
+        french.set(Language::FRENCH, Gender::Male, b"Garde du ch\xe2teau".to_vec());
+        utc.root.set("FirstName", Value::LocString(french));
+        m.set_gff(ResKey::parse("garde", ResType::UTC).unwrap(), &utc).unwrap();
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root = creature("TALKER", "");
+        let strref = mg_core::LocString::from_strref(mg_core::StrRef(7));
+        utc.root.set("FirstName", Value::LocString(strref));
+        m.set_gff(ResKey::parse("talker", ResType::UTC).unwrap(), &utc).unwrap();
+
+        let q = Query { name: Some("château".into()), ..Default::default() };
+        let found = find(&m, &q);
+        assert_eq!(found.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["Garde du château"]);
+        let q = Query { name: Some("innkeeper".into()), ..Default::default() };
+        assert!(find(&m, &q).is_empty());
+        let table = |ls: &LocString| match ls.strref.0 {
+            7 => "Old Innkeeper".to_string(),
+            _ => ls.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252),
+        };
+        let found = find_named(&m, &q, &table);
+        assert_eq!(found.iter().map(|f| f.tag.as_str()).collect::<Vec<_>>(), ["TALKER"]);
     }
 }

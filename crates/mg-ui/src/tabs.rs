@@ -689,7 +689,7 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
 /// The middle of the window while no area is open: how to open one, and
 /// the module's areas to open with a click.
 fn no_area(app: &mut Moonglow, ui: &mut Ui) {
-    let areas = app.ws.as_ref().and_then(|ws| ws.module.areas().ok()).unwrap_or_default();
+    let areas = app.ws.as_ref().map(|ws| mg_module::areas::every(&ws.module)).unwrap_or_default();
     ui.vertical_centered(|ui| {
         ui.add_space(40.0);
         ui.heading("No area open");

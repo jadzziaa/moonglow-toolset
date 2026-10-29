@@ -215,6 +215,12 @@ fn a_tag_set_twice_is_warned_of() {
     area.root.set("Tag", Value::String(b"INN".to_vec()));
     area.root.set("ResRef", Value::resref(mg_core::ResRef::from_str("inn").unwrap()));
     module.set_gff(key("inn.are"), &area).unwrap();
+    // (In the module's area list: one it leaves out is warned of too.)
+    let mut info = module.info().unwrap();
+    let mut listed = Struct::new(6);
+    listed.set("Area_Name", Value::resref(mg_core::ResRef::from_str("inn").unwrap()));
+    info.root.set("Mod_Area_list", Value::List(vec![listed]));
+    module.set_info(&info).unwrap();
     let mut placed = Gff::new(*b"GIT ");
     let waypoint = |tag: &[u8]| {
         let mut w = Struct::new(5);

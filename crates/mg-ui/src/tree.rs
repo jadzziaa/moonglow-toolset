@@ -39,16 +39,11 @@ pub(crate) const GROUPS: &[(&str, &[ResType])] = &{
     groups
 };
 
-/// What lists of areas show and filter by, from an area's ARE.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct AreaInfo {
-    /// Its name in the editing language, else as the game shows it (its
-    /// talk-table string); empty when it has none.
-    pub name: String,
-    pub tileset: ResRef,
-    /// `Flags`: 1 interior, 2 underground, 4 natural.
-    pub flags: u32,
-}
+/// What lists of areas show and filter by, from an area's ARE: its name
+/// (in the editing language, else as the game shows it), tag, tileset,
+/// flags and whether the module's area list names it; as `mg areas` has
+/// it.
+pub(crate) use mg_module::areas::AreaInfo;
 
 /// The areas' names (and tilesets and flags), each read from its ARE once:
 /// again when the ARE is replaced, and from the open document while it is
@@ -58,6 +53,10 @@ pub(crate) struct AreaNames {
     /// By area: the stored ARE read (where its data is and its length:
     /// replaced data is elsewhere) and what it says.
     read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
+    /// The areas the module's area list names, and the stored
+    /// `module.ifo` it was read from (as an ARE's stamp; `None` while it is
+    /// open, read from the document).
+    listed: Option<(Option<Stamp>, std::collections::HashSet<ResRef>)>,
     /// Blueprints' names, likewise.
     names: HashMap<ResKey, ((usize, usize), String)>,
     /// What each of the tree's groups lists, as made for a revision of the
@@ -65,6 +64,10 @@ pub(crate) struct AreaNames {
     /// beside names): not made again every frame.
     groups: Option<Groups>,
 }
+
+/// Where a stored resource's data is and its length (replaced data is
+/// elsewhere).
+type Stamp = (usize, usize);
 
 /// A group's resources in the order the tree shows them, and the names of
 /// those shown by name.
@@ -78,24 +81,16 @@ type GroupList = (Vec<ResKey>, HashMap<ResKey, String>);
 struct Groups {
     shape: (u64, usize, bool, bool),
     lists: Arc<Vec<GroupList>>,
+    /// The areas the module's area list leaves out (the game doesn't load
+    /// them): marked in the tree.
+    unlisted: Arc<std::collections::HashSet<ResRef>>,
 }
 
 /// A blueprint's name in the editing language, else as the game shows it:
 /// a creature's first and last names, another's `LocalizedName` or
 /// `LocName`.
 pub(crate) fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> String {
-    let text = |label: &str| {
-        root.locstring(label).map_or(String::new(), |name| {
-            let edited = crate::text::edited_text(name);
-            // (Its text in another language is a last resort: below.)
-            if !edited.is_empty() {
-                return edited;
-            }
-            game.and_then(|g| g.locstring(name))
-                .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| crate::text::shown_text(name))
-        })
-    };
+    let text = |label: &str| root.locstring(label).map_or(String::new(), |n| shown(game, n));
     let full = [text("FirstName"), text("LastName")];
     let full: Vec<&str> = full.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
     if !full.is_empty() {
@@ -103,6 +98,36 @@ pub(crate) fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> 
     }
     let name = text("LocalizedName");
     if name.trim().is_empty() { text("LocName") } else { name }
+}
+
+/// The command that adds `area` at the end of the module's area list
+/// (`Mod_Area_list`), as the Area Wizard lists a new one.
+fn list_area(ws: &Workspace, area: ResRef) -> Option<mg_edit::Command> {
+    use mg_schema::{StructExt, ifo};
+    let key = mg_module::Module::info_key();
+    let count = |info: &Gff| info.root.items(&ifo::MOD_AREA_LIST).len();
+    let at = match ws.loaded(&key) {
+        Some(info) => count(info),
+        None => count(&ws.module.info().ok()?),
+    };
+    let mut item = ifo::MOD_AREA_LIST.new_item();
+    item.write(&ifo::mod_area_list::AREA_NAME, area);
+    let label = ifo::MOD_AREA_LIST.label.to_string();
+    let edit = mg_edit::Edit::insert_item(key, mg_edit::GffPath::root(), label, at, item);
+    Some(mg_edit::Command::new("Add to the area list", vec![edit]))
+}
+
+/// What the mark of an area its module's list leaves out says.
+pub(crate) const UNLISTED_TIP: &str = "The module's area list (Mod_Area_list) doesn't name this \
+    area: the game doesn't load it, and nothing in the game can reach it. Add it back with the \
+    module's area list, or delete the area if it is left over.";
+
+/// A localized string's text as the tree and the area lists show it: in
+/// the editing language, else as the game shows it (its talk-table
+/// string), else in another language (`mg_rules::shown`, as `mg` shows
+/// names).
+pub(crate) fn shown(game: Option<&GameData>, s: &mg_core::LocString) -> String {
+    mg_rules::shown(game, s, crate::text::edit_language(), crate::text::game_table())
 }
 
 impl AreaNames {
@@ -113,36 +138,46 @@ impl AreaNames {
         area: ResRef,
     ) -> AreaInfo {
         let key = ResKey::new(area, ResType::ARE);
-        let read = |are: &Gff| {
-            let name = are.root.locstring("Name").map_or(String::new(), |name| {
-                let edited = crate::text::edited_text(name);
-                // (Its text in another language is a last resort: below.)
-                if !edited.is_empty() {
-                    return edited;
-                }
-                game.and_then(|g| g.locstring(name))
-                    .filter(|t| !t.is_empty())
-                    .unwrap_or_else(|| crate::text::shown_text(name))
-            });
-            AreaInfo {
-                name,
-                tileset: are.root.resref("Tileset").unwrap_or(ResRef::EMPTY),
-                flags: are.root.integer("Flags").unwrap_or(0) as u32,
-            }
-        };
+        let listed = self.listed(ws, area);
+        let read =
+            |are: &Gff| mg_module::areas::info_of(area, &are.root, &|n| shown(game, n), listed);
         if let Some(are) = ws.loaded(&key) {
             return read(are);
         }
-        let Some(data) = ws.module.get(&key) else { return AreaInfo::default() };
+        let Some(data) = ws.module.get(&key) else {
+            return AreaInfo { resref: area, listed, ..Default::default() };
+        };
         let stamp = (data.as_ptr() as usize, data.len());
         if let Some((s, info)) = self.read.get(&area)
             && *s == stamp
+            && info.listed == listed
         {
             return info.clone();
         }
         let info = Gff::read(data).map(|g| read(&g)).unwrap_or_default();
+        let info = AreaInfo { resref: area, listed, ..info };
         self.read.insert(area, (stamp, info.clone()));
         info
+    }
+
+    /// Whether the module's area list names `area` (read again once the
+    /// `module.ifo` is another; true for a module without one).
+    fn listed(&mut self, ws: &Workspace, area: ResRef) -> bool {
+        let key = mg_module::Module::info_key();
+        let stamp = match ws.loaded(&key) {
+            Some(_) => None,
+            None => ws.module.get(&key).map(|d| (d.as_ptr() as usize, d.len())),
+        };
+        let fresh = self.listed.as_ref().is_some_and(|(s, _)| s.is_some() && *s == stamp);
+        if !fresh {
+            let names = match ws.loaded(&key) {
+                Some(info) => mg_module::areas_of(&info.root),
+                None if stamp.is_none() => return true,
+                None => ws.module.areas().unwrap_or_default(),
+            };
+            self.listed = Some((stamp, names.into_iter().collect()));
+        }
+        self.listed.as_ref().is_some_and(|(_, l)| l.contains(&area))
     }
 
     /// A blueprint's name (empty when it has none), read once as the
@@ -1040,9 +1075,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             }
             lists.push((keys, names));
         }
-        app.area_names.groups = Some(Groups { shape, lists: Arc::new(lists) });
+        let unlisted = (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
+            .filter(|a| !app.area_names.listed(ws, *a))
+            .collect();
+        let unlisted = Arc::new(unlisted);
+        app.area_names.groups = Some(Groups { shape, lists: Arc::new(lists), unlisted });
     }
-    let lists = app.area_names.groups.as_ref().map(|g| g.lists.clone()).expect("made above");
+    let groups = app.area_names.groups.as_ref().expect("made above");
+    let (lists, unlisted) = (groups.lists.clone(), groups.unlisted.clone());
     let mut shown: Shown<'_> = Vec::new();
     // The resource to bring into view is in a group still opening: gone
     // to when it is open (its rows are where they will be then).
@@ -1193,6 +1233,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         if is_area {
                             crate::claims::tree_mark(crate::claims::of(&app.ws), ui, k.resref);
                         }
+                        // (An ARE the module's area list leaves out: the
+                        // game doesn't load it.)
+                        if is_area && unlisted.contains(&k.resref) {
+                            ui.weak("(not in the area list)").on_hover_text(UNLISTED_TIP);
+                        }
                         r
                     });
                     // (A row out of sight is given this height.)
@@ -1319,6 +1364,19 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     .clicked()
                             {
                                 app.actions.push(Action::OpenTab(Tab::Model(k)));
+                            }
+                            ui.separator();
+                        }
+                        if k.restype == ResType::ARE && unlisted.contains(&k.resref) {
+                            if ui
+                                .button("Add to the Module's Area List")
+                                .on_hover_text(
+                                    "The game loads only the areas the module's list names",
+                                )
+                                .clicked()
+                                && let Some(add) = app.ws.as_ref().and_then(|w| list_area(w, k.resref))
+                            {
+                                app.actions.push(Action::Apply(add));
                             }
                             ui.separator();
                         }

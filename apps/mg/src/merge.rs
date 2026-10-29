@@ -73,10 +73,11 @@ fn shown(v: &Option<Value>, cp: Codepage) -> String {
     };
     match v {
         Value::String(b) | Value::ResRef(b) => format!("\"{}\"", short(cp.decode(b).into_owned())),
-        Value::LocString(s) => match s.strings.first() {
-            Some((_, text)) => format!("\"{}\"", short(cp.decode(text).into_owned())),
-            None if !s.strref.is_none() => format!("strref {}", s.strref.0),
-            None => "\"\"".into(),
+        // (Its English, else another language's, as lists show it.)
+        Value::LocString(s) => match s.strings.is_empty() {
+            false => format!("\"{}\"", short(s.shown_in(mg_core::Language::ENGLISH, cp))),
+            true if !s.strref.is_none() => format!("strref {}", s.strref.0),
+            true => "\"\"".into(),
         },
         Value::Void(b) => format!("{} bytes", b.len()),
         Value::Struct(s) => format!("a struct of {} fields", s.fields.len()),

@@ -2157,19 +2157,6 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **A localized string's text, without the toolset's language or the
-  talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
-  `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
-  `GameData::locstring`): `mg find --name` doesn't match a name in
-  French alone or in the talk table, and `mg areas` names an area
-  otherwise than the module tree. A `LocString::shown_in(language,
-  codepage)` for where there is no game. (M)
-- **The module's areas, two ways:** the IFO's list (`Module::areas`:
-  `query.rs:168`, `bulk.rs:74`, `mg update-instances`) and the AREs
-  (areas, the doctor, search, the module tree); an ARE missing from the
-  IFO is seen by half the tools. And areas listed and filtered three
-  times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
-  without the tag). (M)
 - **Where an object stands:** visual transforms read two ways
   (`areas.rs:191`: any entry; `mg-area lib.rs:233`: scope 0, else the
   first), and placement fields (X/Y/Z and Bearing, or XPosition and

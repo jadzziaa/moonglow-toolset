@@ -3131,15 +3131,18 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let mut m = crate::open_module(module)?;
             let mut out = Output::default();
+            // The game's data where there is a game: the areas' names as
+            // the module tree shows them, and the rows named.
+            let game = game_data_if_any(cli, &m, &mut out);
             // A lighting scheme, from the game's environment.2da (the
             // module's haks' over it): before the fields `--set` sets.
             if let Some(text) = lighting_scheme {
                 install(cli).context("--lighting-scheme reads the game's environment.2da")?;
-                let game = game_data(cli, &m, &mut out)
-                    .context("--lighting-scheme: the game's data can't be read")?;
-                let row = mg_module::new::Scheme::find(&game, text)
+                let game =
+                    game.as_ref().context("--lighting-scheme: the game's data can't be read")?;
+                let row = mg_module::new::Scheme::find(game, text)
                     .map_err(|e| anyhow::anyhow!("--lighting-scheme {e}"))?;
-                let scheme = mg_module::new::Scheme::read(&game, row)?;
+                let scheme = mg_module::new::Scheme::read(game, row)?;
                 changes.insert(0, Change::LightingScheme(scheme));
             }
             // A variable's type, where none is given: its description's
@@ -3175,7 +3178,13 @@ fn run(cli: &Cli) -> Result<Output> {
                     Some(_) => {}
                 }
             }
-            let listed = areas::list_in(&m, module_codepage(cli, &m));
+            let cp = module_codepage(cli, &m);
+            let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
+            let shown = |n: &mg_core::LocString| mg_rules::shown(game.as_ref(), n, language, cp);
+            let listed = areas::list_named(&m, &shown);
+            for a in listed.iter().filter(|a| !a.listed) {
+                out.note(format!("warning: {}", areas::unlisted_warning(a.resref)));
+            }
             for a in &filter.only {
                 if !listed.iter().any(|l| l.resref == *a) {
                     bail!("{a} is not an area of the module");
@@ -3194,8 +3203,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let music_row = music.as_deref().filter(|m| mg_2da::parse_int(m.trim()).is_none());
             if named || music_row.is_some() {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let game = game_data(cli, &m, &mut out)
-                    .context("the game's data can't be read for a row's name")?;
+                let game =
+                    game.as_ref().context("the game's data can't be read for a row's name")?;
                 for h in &mut filter.has {
                     let areas::Has::Field { label, value: Some(v) } = h else { continue };
                     let Some(table) = areas::row_table(label).filter(|_| by_name(label, v)) else {
@@ -3216,7 +3225,6 @@ fn run(cli: &Cli) -> Result<Output> {
                 filter.has.push(areas::Has::Music(n.into()));
             }
             let mut held = areas::HoldsCache::default();
-            let cp = module_codepage(cli, &m);
             let chosen: Vec<&areas::AreaInfo> = listed
                 .iter()
                 .filter(|a| filter.matches(a))
@@ -3265,16 +3273,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 _ => false,
             };
-            let game = if changes.iter().any(named_row) {
+            if changes.iter().any(named_row) {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let g = game_data(cli, &m, &mut out)
-                    .context("the game's data can't be read for a row's name")?;
-                Some(g)
-            } else if *names && !changes.is_empty() {
-                game_data_if_any(cli, &m, &mut out)
-            } else {
-                None
-            };
+                game.as_ref().context("the game's data can't be read for a row's name")?;
+            }
             for c in changes.iter_mut().filter(|c| named_row(c)) {
                 let Change::Set { field, value } = c else { continue };
                 let (Some(table), Some(game)) = (areas::row_table(field), &game) else { continue };
@@ -3364,6 +3366,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     "name": a.name,
                     "tag": a.tag,
                     "tileset": a.tileset.to_string(),
+                    "listed": a.listed,
                     "interior": a.flags & areas::INTERIOR != 0,
                     "underground": a.flags & areas::UNDERGROUND != 0,
                     "natural": a.flags & areas::NATURAL != 0,
@@ -3415,7 +3418,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             let mut total = 0;
             let mut by_area = serde_json::Map::new();
-            for a in m.areas()? {
+            m.info()?;
+            for a in mg_module::areas::every(&m) {
                 if only.is_some_and(|o| o != a) {
                     continue;
                 }
@@ -3656,13 +3660,16 @@ fn run(cli: &Cli) -> Result<Output> {
                 |t| mg_rules::ObjectKind::from_restype(t).is_some(),
                 "a blueprint type (utc, utp, …)",
             )?;
-            // (Names are matched and shown in the module's own letters.)
+            // (Names are matched and shown in the module's own letters, as
+            // the module tree shows them: the talk table's where a name has
+            // none of its own, another language's where it has no English.)
             let cp = module_codepage(cli, &m);
+            let mut notes = Output::default();
+            let game = game_data_if_any(cli, &m, &mut notes);
             let q = mg_module::query::Query {
                 types,
                 tag: tag.clone(),
-                name: (name.as_deref())
-                    .map(|n| cp.spelled_in(n, Codepage::WINDOWS_1252).into_owned()),
+                name: name.clone(),
                 resref: resref.clone(),
                 area: area
                     .as_deref()
@@ -3705,9 +3712,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 })
             };
             if q.fields.iter().any(named) {
-                let mut notes = Output::default();
-                let game = game_data(cli, &m, &mut notes)
-                    .context("a row named, not numbered, reads the game's 2DAs")?;
+                let game =
+                    (game.as_ref()).context("a row named, not numbered, reads the game's 2DAs")?;
                 let (rows, plain): (Vec<_>, Vec<_>) = q.fields.drain(..).partition(named);
                 q.fields = plain;
                 for (label, value) in rows {
@@ -3727,10 +3733,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     q.typed_fields.push((label, values));
                 }
             }
-            let mut found = mg_module::query::find(&m, &q);
-            for f in &mut found {
-                f.name = Codepage::WINDOWS_1252.spelled_in(&f.name, cp).into_owned();
-            }
+            let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
+            let shown = |ls: &mg_core::LocString| mg_rules::shown(game.as_ref(), ls, language, cp);
+            let found = mg_module::query::find_named(&m, &q, &shown);
             let mut out = Output::new(json!({
                 "found": found.iter().map(|f| json!({
                     "kind": if f.placed.is_some() { "placed" } else { "blueprint" },
@@ -3759,6 +3764,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     _ => out.line(format!("blueprint\t{what}")),
                 }
             }
+            out.notes.extend(notes.notes);
             out.note(format!("{} found", found.len()));
             out
         }
@@ -3924,6 +3930,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "description": i.description,
                 "entry_area": i.entry_area.map(|a| a.to_string()),
                 "areas": i.areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "unlisted_areas": i.unlisted_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
                 "haks": i.haks,
                 "custom_tlk": i.custom_tlk,
                 "min_game_version": i.min_game_version,
@@ -3939,6 +3946,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 "Areas\t{}",
                 i.areas.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
             ));
+            for a in &i.unlisted_areas {
+                out.note(format!("warning: {}", mg_module::areas::unlisted_warning(*a)));
+            }
             out.line(format!("Haks\t{}", i.haks.join(", ")));
             out.line(format!("Talk table\t{}", i.custom_tlk.clone().unwrap_or_default()));
             out.line(format!("Game version\t{}", i.min_game_version));
@@ -4015,11 +4025,6 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
 /// module's haks and the module, its custom talk table), what it lacks
 /// said as warnings. Stops where the game, the module's hak list or one of
 /// its haks can't be read.
-pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Result<mg_rules::GameData> {
-    game_data_in(&install(cli)?, m, out)
-}
-
-/// [`game_data`] with the install found.
 pub(crate) fn game_data_in(
     gi: &GameInstall,
     m: &Module,
@@ -4028,7 +4033,7 @@ pub(crate) fn game_data_in(
     said(m.game_data(gi)?, out)
 }
 
-/// [`game_data`] for a command that does without: none without a game
+/// [`game_data_in`] for a command that does without: none without a game
 /// install, and what else stops it said as a warning.
 pub(crate) fn game_data_if_any(
     cli: &Cli,

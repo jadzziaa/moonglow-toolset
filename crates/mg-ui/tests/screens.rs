@@ -7432,3 +7432,51 @@ fn setup_store_project_blueprint_far_down() {
     h.run();
     shoot(&mut h, &dir, "setup-store-project-blueprint");
 }
+
+/// The module tree with an area its module's area list leaves out (a copy
+/// of Neverwinter Chess's board, `chess2`, never listed): marked "(not in
+/// the area list)", and its right-click menu's Add to the Module's Area
+/// List; then added, unmarked.
+#[test]
+#[ignore]
+fn module_tree_unlisted_area() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    for t in [ResType::ARE, ResType::GIT] {
+        let data = m.get(&ResKey::parse("chess", t).unwrap()).unwrap().to_vec();
+        m.set(ResKey::parse("chess2", t).unwrap(), data);
+    }
+    let path = dir.join("tree-unlisted.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-unlisted-area");
+    let row = h.get_all_by_label("chess2").last().unwrap().rect().center();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "tree-unlisted-area-menu");
+    h.get_by_label("Add to the Module's Area List").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-unlisted-area-added");
+    let ws = h.state().ws.as_ref().unwrap();
+    let info = ws.loaded(&mg_module::Module::info_key()).expect("Module Properties has it open");
+    let listed = mg_module::areas_of(&info.root);
+    assert!(listed.iter().any(|a| a.to_string() == "chess2"), "{listed:?}");
+}
