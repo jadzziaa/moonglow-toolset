@@ -3977,11 +3977,10 @@ fn verify(
         (base, custom)
     });
     let tlk = mg_module::doctor::TalkTables { base, custom };
-    // (The shader programs that compiled kept for the next run, where the
-    // window keeps its own.)
-    let shaders = mg_module::doctor::shader_cache_dir().map(mg_module::doctor::ProgramCache::new);
-    let mut findings =
-        mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, shaders.as_ref());
+    // (The shader programs that compiled, and what was found of the haks'
+    // models, kept for the next run, where the window keeps its own.)
+    let cache = mg_module::doctor::Cache::user();
+    let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
     let theirs = if skip.group(Group::Plugins) {

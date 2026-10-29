@@ -23,6 +23,7 @@ use mg_shader::{Assembled, Preamble, Stage, assemble, program_stage};
 use rayon::prelude::*;
 
 use crate::Module;
+use crate::verify_cache::{Facts, Learned, Memo, Noted};
 
 /// How bad a finding is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -604,6 +605,34 @@ pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
     crate::build::cache_dir().map(|d| d.join("shaders"))
 }
 
+/// What Verify keeps between runs, in a cache folder (the user's,
+/// [`crate::build::cache_dir`]): the shader programs that compiled
+/// (`shaders`, the views' too) and what it found of each model of an
+/// archive that is as it was (`verify`: a model's text's findings, a
+/// tile model's faces), so that neither is done again.
+#[derive(Debug, Clone)]
+pub struct Cache {
+    shaders: ProgramCache,
+    models: std::path::PathBuf,
+}
+
+impl Cache {
+    /// The cache in `root`: its `shaders` and `verify` folders.
+    pub fn new(root: impl Into<std::path::PathBuf>) -> Cache {
+        let root = root.into();
+        Cache { shaders: ProgramCache::new(root.join("shaders")), models: root.join("verify") }
+    }
+
+    /// The user's ([`crate::build::cache_dir`]).
+    pub fn user() -> Option<Cache> {
+        crate::build::cache_dir().map(Cache::new)
+    }
+
+    pub fn shaders(&self) -> &ProgramCache {
+        &self.shaders
+    }
+}
+
 /// Whether a layer holds custom content (the user's or the module's).
 fn is_custom(layer: &Layer) -> bool {
     matches!(
@@ -622,6 +651,10 @@ struct Doctor<'a> {
     tlk: TalkTables,
     /// Where shader programs that compiled are kept between runs.
     shaders: Option<&'a ProgramCache>,
+    /// What earlier runs found of the archives' models...
+    memo: Option<&'a Memo>,
+    /// ...and what this one learned of them, for the next: by layer.
+    learned: Learned,
     /// What Verify leaves out: never pushed.
     skip: &'a Skip,
     out: Vec<Finding>,
@@ -638,9 +671,24 @@ impl<'a> Doctor<'a> {
             rm: self.rm,
             tlk: self.tlk,
             shaders: self.shaders,
+            memo: self.memo,
+            learned: Vec::new(),
             skip: self.skip,
             out: Vec::new(),
             tables: HashMap::new(),
+        }
+    }
+
+    /// What earlier runs found of a layer's model.
+    fn known(&self, layer: usize, key: &ResKey) -> Option<&'a Facts> {
+        self.memo?.get(layer, key)
+    }
+
+    /// Notes what was found of a layer's model, for the next run, where
+    /// its layer is kept.
+    fn learn(&mut self, layer: usize, key: ResKey, facts: Facts) {
+        if self.memo.is_some_and(|m| m.keeps(layer)) {
+            self.learned.push((layer, key, facts));
         }
     }
 
@@ -699,23 +747,39 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
 ///
 /// The checks of each custom tileset, 2DA, material and model run in
 /// parallel; the findings are in the order one after another would make.
-/// With `shaders` (a folder in the user's cache: `mg verify`'s and the
-/// window's, [`shader_cache_dir`]) the shader programs that compiled are
-/// kept, and not compiled again by the next run.
+/// With a `cache` (the user's: `mg verify`'s and the window's,
+/// [`Cache::user`]) the shader programs that compiled are kept, and not
+/// compiled again by the next run, and so is what was found of each model
+/// of an archive that is as it was (its text's findings, a tile model's
+/// faces): its models are not read again.
 pub fn examine_groups(
     module: &Module,
     resman: &ResMan,
     tlk: TalkTables,
     skip: &Skip,
     timings: &mut Timings,
-    shaders: Option<&ProgramCache>,
+    cache: Option<&Cache>,
 ) -> Vec<Finding> {
     use Check::*;
     // (A part whose checks are all left out isn't run.)
     let runs = |checks: &[Check]| !skip.all(checks);
-    let mut d = Doctor { rm: resman, tlk, shaders, skip, out: Vec::new(), tables: HashMap::new() };
+    let shaders = cache.map(Cache::shaders);
     // The winning copy of every custom resource, by type.
     let layers = resman.layers();
+    let memo = cache.map(|c| {
+        let custom = |i: usize| is_custom(&layers[i]) && !skip.source(&layers[i].label);
+        timings.time("what earlier runs found", || Memo::load(&c.models, resman, custom))
+    });
+    let mut d = Doctor {
+        rm: resman,
+        tlk,
+        shaders,
+        memo: memo.as_ref(),
+        learned: Vec::new(),
+        skip,
+        out: Vec::new(),
+        tables: HashMap::new(),
+    };
     // (Looked up in parallel: a module with a hundred haks has hundreds of
     // thousands, each looked for in the layers above its own. A hak left
     // out, or a resource, isn't examined.)
@@ -764,7 +828,7 @@ pub fn examine_groups(
         (custom.iter()).filter(|(k, _)| checked(k.restype)).map(|(k, l)| (k, *l)).collect();
     let started = Instant::now();
     // (A worker's 2DAs are read once for the resources it takes.)
-    let found: Vec<(ResKey, Vec<Finding>, Duration)> = each
+    let found: Vec<(ResKey, Vec<Finding>, Learned, Duration)> = each
         .par_iter()
         .map_init(HashMap::new, |tables, &(key, layer)| {
             let started = Instant::now();
@@ -772,6 +836,8 @@ pub fn examine_groups(
                 rm: resman,
                 tlk,
                 shaders,
+                memo: memo.as_ref(),
+                learned: Vec::new(),
                 skip,
                 out: Vec::new(),
                 tables: std::mem::take(tables),
@@ -781,18 +847,19 @@ pub fn examine_groups(
                 ResType::SET => tileset(&mut d, source, *key),
                 ResType::TWODA => two_da(&mut d, source, *key, layer),
                 ResType::MTR => material(&mut d, source, *key),
-                ResType::MDL => model_text(&mut d, source, *key),
+                ResType::MDL => model_text(&mut d, source, *key, layer),
                 _ => {}
             }
             *tables = d.tables;
-            (*key, d.out, started.elapsed())
+            (*key, d.out, d.learned, started.elapsed())
         })
         .collect();
     timings.add("each tileset, 2DA, material and model (in parallel)", started.elapsed());
     // Of each type: how many, their time added up, the longest.
     let mut work: BTreeMap<&str, (usize, Duration, Duration, ResKey)> = BTreeMap::new();
-    for (key, out, took) in found {
+    for (key, out, learned, took) in found {
         d.out.extend(out);
+        d.learned.extend(learned);
         if let Some((name, _)) = kind(key.restype) {
             let w = work.entry(name).or_insert((0, Duration::ZERO, Duration::ZERO, key));
             w.0 += 1;
@@ -842,7 +909,11 @@ pub fn examine_groups(
     d.out.sort_by(|a, b| {
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
     });
-    d.out
+    let Doctor { out, learned, .. } = d;
+    if let Some(memo) = memo {
+        timings.time("what this run found, kept", || memo.save(learned, resman));
+    }
+    out
 }
 
 /// A custom talk table the module names and the game can't find: the game
@@ -954,6 +1025,8 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         rm: resman,
         tlk: TalkTables::default(),
         shaders: None,
+        memo: None,
+        learned: Vec::new(),
         skip: &NOTHING,
         out: Vec::new(),
         tables: HashMap::new(),
@@ -1070,17 +1143,18 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     // (Not read when their checks are left out.)
     let models = !d.skip.all(&[Check::TileFaces, Check::MdlRead]);
     let beside = d.beside();
-    let examined: Vec<Vec<Finding>> = firsts
+    let examined: Vec<(Vec<Finding>, Learned)> = firsts
         .par_iter()
         .map(|&(i, exists)| {
             let mut m = beside.beside();
             if exists && models {
                 tile_model(&mut m, &set.tiles[i].model);
             }
-            m.out
+            (m.out, m.learned)
         })
         .collect();
-    for (&(i, exists), found) in firsts.iter().zip(examined) {
+    for (&(i, exists), (found, learned)) in firsts.iter().zip(examined) {
+        d.learned.extend(learned);
         if exists {
             d.out.extend(found);
         } else {
@@ -1238,11 +1312,20 @@ fn tile_model(d: &mut Doctor, name: &str) {
     if d.skip.source(&source) || d.skip.resource(&key) {
         return;
     }
-    let Ok(data) = d.rm.get(&key) else { return };
     // (Walkmeshes reaching past the tile were tried and left out: the
     // game's own tiles have them, out to 10 m. A model kept as text with
-    // fewer face rows than that is not read: `faces_over`.)
-    let faces = match mg_mdl::faces_over(&data, 10_000) {
+    // fewer face rows than that is not read: `faces_over`; nor one an
+    // earlier run read, of an archive as it was.)
+    let faces = match d.known(layer, &key).and_then(|f| f.faces.clone()) {
+        Some(faces) => faces,
+        None => {
+            let Ok(data) = d.rm.get(&key) else { return };
+            let faces = mg_mdl::faces_over(&data, 10_000).map_err(|e| e.to_string());
+            d.learn(layer, key, Facts { faces: Some(faces.clone()), ..Facts::default() });
+            faces
+        }
+    };
+    let faces = match faces {
         Ok(faces) => faces,
         Err(e) => {
             d.push(Error, Check::MdlRead, &source, key, "", format!("can't be read: {e}"));
@@ -1261,23 +1344,41 @@ fn tile_model(d: &mut Doctor, name: &str) {
     }
 }
 
-/// A material: texture names longer than a resource name can be (Aurora's
-/// "Pure virtual function called").
 /// A custom model kept as text (ASCII), by `mg_mdl::lint`: what the game
 /// would refuse or crash on is an error, what it would misread a warning
 /// (the first few of a model: a hak of thousands may share one habit;
 /// not the keywords it skips).
 /// Compiled models have nothing to read so.
-fn model_text(d: &mut Doctor, source: &str, key: ResKey) {
+fn model_text(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    // (What an earlier run found, of an archive as it was: not read.)
+    let found = match d.known(layer, &key).and_then(|f| f.text.clone()) {
+        Some(found) => found,
+        None => {
+            let found = model_text_found(d.rm, &key);
+            if let Some(found) = &found {
+                d.learn(layer, key, Facts { text: Some(found.clone()), ..Facts::default() });
+            }
+            found.flatten()
+        }
+    };
+    for (severity, at, message) in found.into_iter().flatten() {
+        d.push(severity, Check::MdlText, source, key, at, message);
+    }
+}
+
+/// [`model_text`]'s findings of a model: `Some(None)` for a compiled one,
+/// `None` for one that can't be read.
+fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
     const WARNINGS: usize = 5;
     // (Told by its first bytes: the haks' compiled models are gigabytes.)
-    let Ok(start) = d.rm.get_start(&key, 12) else { return };
+    let start = rm.get_start(key, 12).ok()?;
     if mg_mdl::is_binary(&start) {
-        return;
+        return Some(None);
     }
-    let Ok(data) = d.rm.get(&key) else { return };
+    let data = rm.get(key).ok()?;
     let text = String::from_utf8_lossy(&data);
     let mut warnings = 0;
+    let mut out = Vec::new();
     for found in mg_mdl::lint::check(&text) {
         let severity = match found.severity {
             mg_mdl::lint::Severity::Error => Severity::Error,
@@ -1295,15 +1396,17 @@ fn model_text(d: &mut Doctor, source: &str, key: ResKey) {
                 continue;
             }
         }
-        let at = format!("line {}", found.line + 1);
-        d.push(severity, Check::MdlText, source, key, at, found.message);
+        out.push((severity, format!("line {}", found.line + 1), found.message));
     }
     if warnings > WARNINGS {
         let more = format!("and {} more warnings of this model's text", warnings - WARNINGS);
-        d.push(Severity::Warning, Check::MdlText, source, key, "", more);
+        out.push((Severity::Warning, String::new(), more));
     }
+    Some(Some(out))
 }
 
+/// A material: texture names longer than a resource name can be (Aurora's
+/// "Pure virtual function called").
 fn material(d: &mut Doctor, source: &str, key: ResKey) {
     let Ok(data) = d.rm.get(&key) else { return };
     let mtr = mg_image::mtr::Mtr::parse(&data);
@@ -2683,8 +2786,8 @@ mod tests {
         rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
         let dir = std::env::temp_dir().join(format!("mg-doctor-shaders-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let cache = ProgramCache::new(&dir);
-        let run = |cache: Option<&ProgramCache>| {
+        let cache = Cache::new(&dir);
+        let run = |cache: Option<&Cache>| {
             let f = examine_groups(
                 &Module::new(),
                 &rm,
@@ -2720,12 +2823,12 @@ mod tests {
         );
         // Kept: each that compiled at a setting; a second run says the same.
         assert_eq!(run(Some(&cache)), got);
-        let kept = std::fs::read_dir(&dir).unwrap().count();
+        let kept = std::fs::read_dir(dir.join("shaders")).unwrap().count();
         // (fs_fine at all six, fs_always at none, each other at the
         // settings before the one it fails at.)
         assert_eq!(kept, 6 + 2 + 1 + 3 + 4 + 5, "{kept}");
         assert_eq!(run(Some(&cache)), got);
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), kept);
+        assert_eq!(std::fs::read_dir(dir.join("shaders")).unwrap().count(), kept);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2986,6 +3089,112 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(!left.iter().any(|c| c.starts_with("set-") || c == "mdl-read"), "{left:?}");
         assert!(left.contains(&"mtr-name".to_string()), "{left:?}");
         assert!(!read_left.contains(&ResType::SET), "{read_left:?}");
+    }
+
+    /// A hak's models are read once: what was found of each (a text's
+    /// findings, a tile model's faces) is kept in the cache and a second
+    /// Verify reads none of them while the hak is as it was, finding the
+    /// same; a hak changed (another time or size) is read again. A folder
+    /// is always read.
+    #[test]
+    fn an_archive_s_models_are_read_once_while_it_is_as_it_was() {
+        #[derive(Debug)]
+        struct Stamped(Watched, std::sync::Arc<std::sync::atomic::AtomicU64>);
+        impl mg_resman::Container for Stamped {
+            fn contains(&self, key: &ResKey) -> bool {
+                self.0.contains(key)
+            }
+            fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, mg_resman::ResError> {
+                self.0.read(key)
+            }
+            fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+                self.0.keys()
+            }
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+            fn fingerprint(&self) -> u64 {
+                self.1.load(std::sync::atomic::Ordering::Relaxed)
+            }
+        }
+        let set = b"[GENERAL]\nName=TST\nTransition=1\n[TILES]\nCount=2\n[TILE0]\nModel=tst_a01\n\
+[TILE1]\nModel=tst_b01\n[GROUPS]\nCount=0\n";
+        let mut hak = MemContainer::new();
+        hak.insert(key("tst", ResType::SET), set.to_vec());
+        hak.insert(key("tst_a01", ResType::MDL), b"not a model".to_vec());
+        let mut text = String::from(
+            "newmodel tst_b01\nsetsupermodel tst_b01 NULL\nbeginmodelgeom tst_b01\n\
+node dummy tst_b01\n  parent NULL\nendnode\nnode trimesh m\n  parent tst_b01\n",
+        );
+        text.push_str("  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n  faces 10001\n");
+        for _ in 0..10_001 {
+            text.push_str("    0 1 2 1 0 0 0 0\n");
+        }
+        text.push_str("endnode\nendmodelgeom tst_b01\ndonemodel tst_b01\n");
+        let emitter = "newmodel fx\nsetsupermodel fx NULL\nbeginmodelgeom fx\n\
+node dummy fx\n  parent NULL\nendnode\nnode emitter spark\n  parent fx\n  p2p 1\nendnode\n\
+endmodelgeom fx\ndonemodel fx\n";
+        hak.insert(key("fx", ResType::MDL), emitter.as_bytes().to_vec());
+        hak.insert(key("tst_b01", ResType::MDL), text.into_bytes());
+        let mut folder = MemContainer::new();
+        folder.insert(key("loose", ResType::MDL), b"newmodel loose\nparent\n".to_vec());
+        let read = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stamp = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(7));
+        let mut rm = resman(&[]);
+        rm.add(
+            priority::HAK_USER,
+            "hak:stamped",
+            LayerClass::Erf,
+            Stamped(Watched(hak, read.clone()), stamp.clone()),
+        );
+        rm.add(
+            priority::OVERRIDE,
+            "override",
+            LayerClass::Directory,
+            Watched(folder, read.clone()),
+        );
+        let dir = mg_testkit::scratch_dir("doctor-model-cache");
+        let cache = Cache::new(&dir);
+        let run = |rm: &ResMan, cache: Option<&Cache>| {
+            read.lock().unwrap().clear();
+            let f = examine_groups(
+                &Module::new(),
+                rm,
+                TalkTables::default(),
+                &Skip::NONE,
+                &mut Timings::default(),
+                cache,
+            );
+            let mut models: Vec<String> = (read.lock().unwrap().iter())
+                .filter(|k| k.restype == ResType::MDL)
+                .map(ToString::to_string)
+                .collect();
+            models.sort();
+            models.dedup();
+            (f, models)
+        };
+        let (plain, _) = run(&rm, None);
+        for c in ["mdl-read", "tile-faces", "mdl-text"] {
+            assert!(plain.iter().any(|f| f.check == c), "{c}: {plain:#?}");
+        }
+        let (first, read_first) = run(&rm, Some(&cache));
+        assert_eq!(first, plain);
+        assert_eq!(read_first, ["fx.mdl", "loose.mdl", "tst_a01.mdl", "tst_b01.mdl"]);
+        // As it was: only the folder's model is read, the findings the same.
+        let (again, read_again) = run(&rm, Some(&cache));
+        assert_eq!(again, plain);
+        assert_eq!(read_again, ["loose.mdl"]);
+        // Changed: read again, and the earlier version's file goes.
+        stamp.store(8, std::sync::atomic::Ordering::Relaxed);
+        rm.rescan("hak:stamped").unwrap();
+        let (changed, read_changed) = run(&rm, Some(&cache));
+        assert_eq!(changed, plain);
+        assert_eq!(read_changed, ["fx.mdl", "loose.mdl", "tst_a01.mdl", "tst_b01.mdl"]);
+        let files: Vec<String> = std::fs::read_dir(dir.join("verify"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(files, ["hak_stamped-0000000000000008.json"]);
     }
 
     /// What `mg verify --skip` and Options › Verify take: groups, checks

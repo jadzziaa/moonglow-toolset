@@ -208,6 +208,13 @@ a placed object's are errors. A hak that hides the game's own longer
 do that. When it matters, an object naming one of the lost rows is
 reported instead.
 
+What Verify finds of each model in a hak (its text's problems, a tile
+model's faces) is kept in Moonglow's cache folder, beside the shader
+programs that compiled, so the next Verify reads only the haks that
+changed (another time or size) since: a module with a hundred haks of
+models is checked again in a fraction of the time. A new release of
+Moonglow reads them all once more.
+
 The checks of enabled [plugins](15-plugins.md) run with these, and their
 findings are listed with the rest: a team's own rules (naming, required
 scripts) become part of Verify Module, with the fixes they offer.

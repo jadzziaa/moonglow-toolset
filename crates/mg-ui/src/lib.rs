@@ -4953,8 +4953,10 @@ impl Moonglow {
         // What is left out (Options › Verify).
         let skip = mg_module::doctor::Skip::read(&self.settings.verify_skip);
         // (The shader programs that compiled kept where the views keep
-        // theirs.)
-        let shaders = self.shader_cache_dir.clone().map(mg_module::doctor::ProgramCache::new);
+        // theirs, and what was found of the haks' models beside them.)
+        let cache = (self.shader_cache_dir.as_deref())
+            .and_then(std::path::Path::parent)
+            .map(mg_module::doctor::Cache::new);
         self.start_job(
             "Verify Module",
             move |job| {
@@ -4984,7 +4986,7 @@ impl Moonglow {
                     tlk,
                     &skip,
                     &mut times,
-                    shaders.as_ref(),
+                    cache.as_ref(),
                 );
                 // (What the plugins would say of themselves goes with them.)
                 let (theirs, said) = if skip.group(Group::Plugins) {

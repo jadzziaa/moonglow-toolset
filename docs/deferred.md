@@ -182,22 +182,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `override`). (S each)
 ## Content doctor
 
-- **A whole Verify of a module with many haks is still 1.4 s:** the
-  Domains of Dread with its 145 haks (28 GB) went from 70 s to 9 s on
-  16 threads, and on 27 October from 4 s to 1.4 s on 32 (70 s of the
-  workers' time to 25 s): the linter no longer looks through the whole text for
-  each node named twice (that made a 6 MB tile, `twcy1_s02_93`, take
-  1.4 s: now 15 ms), a tile model's faces are told from its `faces`
-  counts unless there are more than 10,000 rows, compiled models are
-  told by their first bytes (8.5 GB of them were read whole), and the
-  shader programs compile in parallel. What is left: linting 43,000
-  models kept as text (1.9 GB, 13 s of the workers' time, 300 to
-  400 MB/s on one thread), the tilesets' 7 to 9 s (each compiled tile
-  model read whole to count its faces, and the text tiles with more
-  than 10,000 `faces` rows, at least the 269 warned of, read in full at
-  80 MB/s, where the faces could be counted without building the
-  meshes), and the 2DAs' 2 s. (M) (the
-  Domains of Dread builders' report, October 2026)
 
 ## Test loop
 
