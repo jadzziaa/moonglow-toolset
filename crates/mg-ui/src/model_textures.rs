@@ -417,8 +417,3 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
         ui.close();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-}

@@ -469,7 +469,7 @@ mod tests {
         assert_eq!(some_of(&["a", "b", "c", "d", "e", "f"], 4), "a, b, c and 3 more");
         assert_eq!(some_of(&["a", "b", "c"], 1), "a and 2 more");
         assert_eq!(some_of(&[String::from("a")], 0), "a");
-        assert_eq!(some_of::<&str>(&[], 4), "");
+        assert_eq!(some_of(&[] as &[&str], 4), "");
     }
 
     /// Scripts are read in the editing language's codepage: Polish's
