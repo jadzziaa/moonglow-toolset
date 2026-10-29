@@ -1492,6 +1492,17 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                             egui::Popup::close_all(ui.ctx());
                         }
                     }
+                    ui.separator();
+                    let name = "Command Output";
+                    let can = crate::project_commands::has_output(app);
+                    let (entry, chosen) = row(app, level + 1, name, egui::Button::new(name), can);
+                    let r = ui
+                        .add_enabled(can, entry)
+                        .on_hover_text("The last command's output, all of it, and how it ended");
+                    if r.clicked() || chosen {
+                        app.project_commands.show = true;
+                        egui::Popup::close_all(ui.ctx());
+                    }
                 })
                 .on_disabled_hover_text(
                     "The commands a project names in its moonglow.toml ([commands]): its update \

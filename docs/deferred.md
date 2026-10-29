@@ -2301,9 +2301,6 @@ File › Project. What is left:
   selected and dragged, its Properties typed in; each change is then
   refused with a line in the log (the area view doesn't turn its tools
   off, nor does a form go gray). (S)
-- **A project's command's output is in the log only:** no window of its
-  own to read a long output in, and no input (a command that asks for
-  a password waits until canceled; its stdin is closed). (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

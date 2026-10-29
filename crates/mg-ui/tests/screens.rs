@@ -1120,6 +1120,64 @@ fn project_commands_and_team_prefix() {
     shoot(&mut h, &dir, "team-prefix-builder-code");
 }
 
+/// A project's command running, its output in the job's window and the
+/// line it reads what is typed from (`input = true`); and after, File ›
+/// Project › Command Output (`project-command-running`,
+/// `project-command-output`).
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn project_command_output() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-command-output");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    let update = "echo 'Fetching origin'; echo 'warning: no upstream for builder/krezk' 1>&2; \
+                  for i in 1 2 3 4 5 6 7 8; do echo \"Updating area_$i.are\"; done; \
+                  printf 'Merge the others into your areas? [y/N] '; read answer; \
+                  echo \"answered $answer\"; echo 'Up to date.'";
+    std::fs::write(
+        project.join("moonglow.toml"),
+        format!("[commands]\nupdate = {{ run = {update:?}, input = true }}\n"),
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let key = std::fs::canonicalize(&project).unwrap().display().to_string();
+    app.settings.allowed_commands.push((key, "update".into(), update.into()));
+    app.open_module(&project);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    let started = std::time::Instant::now();
+    while h.query_by_label("Merge the others into your areas? [y/N] ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.event(egui::Event::Text("y".into()));
+    shoot(&mut h, &dir, "project-command-running");
+    h.key_press(egui::Key::Enter);
+    while h.state().busy() {
+        assert!(started.elapsed().as_secs() < 20, "the command never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("Project").click();
+    h.run_steps(2);
+    h.get_by_label("Command Output").click();
+    shoot(&mut h, &dir, "project-command-output");
+}
+
 #[test]
 #[ignore]
 fn model_viewer() {
