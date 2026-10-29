@@ -293,6 +293,17 @@ fn conversation_search_bookmarks_and_test() {
     click(&mut h, "Find");
     let results = h.state().dialog_views[&key].search.results.clone();
     assert_eq!(results.len(), 1);
+    // Match Case, ticked in the pane, is what Find and Replace All go by
+    // (the script editor's options): "Traveller" finds nothing with it.
+    h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "Traveller".into();
+    click(&mut h, "Match Case");
+    assert!(h.state().dialog_views[&key].search.options.match_case);
+    click(&mut h, "Find");
+    assert!(h.state().dialog_views[&key].search.results.is_empty(), "Match Case");
+    click(&mut h, "Match Case");
+    click(&mut h, "Find");
+    let results = h.state().dialog_views[&key].search.results.clone();
+    assert_eq!(results.len(), 1, "case set aside");
     click(&mut h, &format!("Entry {}: A traveller.", results[0].2));
     let selected = h.state().dialog_views[&key].selected.unwrap();
     assert_eq!(selected.parent, Parent::Node(Kind::Reply, who));

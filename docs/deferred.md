@@ -2430,8 +2430,6 @@ of truth, and does each caller's difference matter.
   (`tile_select.rs:375`, `area_view.rs:5080`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
-- `DialogSearch` keeps its own match options and rebuilds
-  `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
 - The wizards' "choices of a table, none without a game" six times,
   each copying the kept list (`area_props.rs:25`, `creature_wizard.rs:85`,
   `creature.rs:115`, `levelup_view.rs:77`, `situated.rs:207`,
