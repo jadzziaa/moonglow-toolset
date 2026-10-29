@@ -36,6 +36,19 @@
 //! ["tdod_rental_*"]               # every variable so named
 //! type = "string"
 //! on = ["creature", "placeable"]
+//!
+//! [tdod_rental]
+//! type = "string"
+//! requires = ["tdod_rental_door"] # on the same object, or it does nothing
+//!
+//! [tdod_climb_dc]
+//! type = "int"
+//! default = 15                    # what the scripts take where it isn't set
+//!
+//! [[rules]]                       # needed where another variable says so
+//! variable = "tdod_kind"
+//! is = "merchant"
+//! require = "tdod_store"
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -199,6 +212,39 @@ pub struct Described {
     /// a test's hook), and it is never kept in a file: not offered, and
     /// one found in the module is said (`var-runtime`).
     pub runtime: bool,
+    /// `requires`: the variables it needs beside it, on the same object
+    /// (a rental proprietor's `tdod_rental` and `tdod_rental_door`): one
+    /// set without them is said (`var-requires`).
+    pub requires: Vec<String>,
+    /// `default`: the value the scripts take where it isn't set; the
+    /// Variables window gives it a row named so.
+    pub default: Option<String>,
+}
+
+/// A rule between variables (`[[rules]]`, as a table's description has
+/// them): where `variable` is set (to `is`, if given), `require` is to
+/// be set on the same object too.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rule {
+    pub variable: String,
+    pub is: Option<String>,
+    pub require: String,
+    /// Its line in the file.
+    pub line: usize,
+}
+
+/// A variable an object has without one it needs beside it
+/// ([`Variables::missing`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Needed {
+    /// The variable that needs it, as the object names it.
+    pub by: String,
+    /// The one missing.
+    pub require: String,
+    /// Where the file says so: its line, and the value that makes it so
+    /// (a rule's `is`).
+    pub line: usize,
+    pub is: Option<String>,
 }
 
 impl PartialEq for Described {
@@ -207,6 +253,7 @@ impl PartialEq for Described {
             == (&o.name, o.line, o.var_type, &o.on, &o.help, &o.values)
             && (&self.source, self.other, self.min, self.max, self.runtime)
                 == (&o.source, o.other, o.min, o.max, o.runtime)
+            && (&self.requires, &self.default) == (&o.requires, &o.default)
     }
 }
 
@@ -490,6 +537,12 @@ impl Described {
             let on: Vec<&str> = self.on.iter().map(|o| o.name()).collect();
             s.push_str(&format!(", on {} {}", article_of(on[0]), or_list(&on)));
         }
+        if let Some(v) = &self.default {
+            s.push_str(&format!(", {v} where it isn't set"));
+        }
+        if !self.requires.is_empty() {
+            s.push_str(&format!(", with {} beside it", self.requires.join(" and ")));
+        }
         if self.runtime {
             s.push_str(", set by the scripts while the server runs, never in a file");
         }
@@ -534,6 +587,8 @@ pub struct Variables {
     /// described one, most likely).
     pub undescribed: Vec<String>,
     undescribed_rx: Vec<RegexEq>,
+    /// `[[rules]]`, in the file's order.
+    pub rules: Vec<Rule>,
     /// The file's name, as messages say it (none: [`FILE_NAME`]).
     file: Option<String>,
 }
@@ -566,7 +621,7 @@ pub enum Unknown<'a> {
 
 impl Variables {
     pub fn is_empty(&self) -> bool {
-        self.described.is_empty() && self.undescribed.is_empty()
+        self.described.is_empty() && self.undescribed.is_empty() && self.rules.is_empty()
     }
 
     /// The file's name, as messages say it: `variables.toml`, or beside a
@@ -697,10 +752,22 @@ impl Variables {
                 _ if key.get_ref() == "undescribed" => {
                     r.warn(value.span().start, "undescribed is to be a list of names: [\"tdod_*\"]")
                 }
+                DeValue::Array(items) if key.get_ref() == "rules" => {
+                    for item in items.iter() {
+                        let at = item.span().start;
+                        let DeValue::Table(t) = item.get_ref() else {
+                            r.warn(at, "rules: each is a table ([[rules]])");
+                            continue;
+                        };
+                        if let Some(rule) = rule(&mut r, at, t) {
+                            self.rules.push(rule);
+                        }
+                    }
+                }
                 _ => r.warn(
                     at,
                     format!(
-                        "\"{}\" is neither a variable ([{}]) nor undescribed = [...]",
+                        "\"{}\" is neither a variable ([{}]) nor undescribed = [...] or [[rules]]",
                         key.get_ref(),
                         key.get_ref()
                     ),
@@ -710,6 +777,76 @@ impl Variables {
         warnings.append(&mut r.warnings);
         Ok(())
     }
+}
+
+/// A `[[rules]]` table: `variable`, `is` (if any) and `require`.
+fn rule(r: &mut Reader, at: usize, t: &DeTable) -> Option<Rule> {
+    let (mut variable, mut is, mut require) = (None, None, None);
+    for e in in_order(t) {
+        let (k, v) = e;
+        match k.get_ref().as_ref() {
+            "variable" => variable = r.text(e).filter(|n| !n.trim().is_empty()),
+            "require" => require = r.text(e).filter(|n| !n.trim().is_empty()),
+            "is" => match value_text(v.get_ref()) {
+                Some(value) => is = Some(value),
+                None => r.warn(v.span().start, "is: a number or text"),
+            },
+            other => r.warn(
+                k.span().start,
+                format!("\"{other}\" is not a key of a rule's (variable, is, require)"),
+            ),
+        }
+    }
+    let line = line_of(r.source, at);
+    match (variable, require) {
+        (Some(variable), Some(require)) => Some(Rule { variable, is, require, line }),
+        _ => {
+            r.warn(
+                at,
+                "a rule names the variable and what it requires: variable = \"…\", require = \"…\"",
+            );
+            None
+        }
+    }
+}
+
+impl Variables {
+    /// What the variables one object has (each name and its value as
+    /// text) need beside them and it hasn't: a described variable's
+    /// `requires`, and the rules whose variable it has (with their value).
+    /// In the object's order, then the file's.
+    pub fn missing(&self, here: &[(&str, &str)]) -> Vec<Needed> {
+        let has = |n: &str| here.iter().any(|(m, _)| *m == n);
+        let mut out: Vec<Needed> = Vec::new();
+        let mut add = |n: Needed| {
+            if !out.iter().any(|o| o.by == n.by && o.require == n.require) {
+                out.push(n);
+            }
+        };
+        for (name, value) in here {
+            if let Some(d) = self.describe(name).filter(|d| !d.runtime) {
+                for require in d.requires.iter().filter(|r| !has(r)) {
+                    let by = name.to_string();
+                    add(Needed { by, require: require.clone(), line: d.line, is: None });
+                }
+            }
+            for rule in self.rules.iter().filter(|r| r.variable == *name && !has(&r.require)) {
+                let holds = rule.is.as_ref().is_none_or(|is| same_value(is, value));
+                if holds {
+                    let (by, is) = (name.to_string(), rule.is.clone());
+                    add(Needed { by, require: rule.require.clone(), line: rule.line, is });
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Whether a value is the one a rule names: the same text, or the same
+/// number (`1` and `1.0`).
+fn same_value(want: &str, value: &str) -> bool {
+    let (want, value) = (want.trim(), value.trim());
+    want == value || matches!((want.parse::<f64>(), value.parse::<f64>()), (Ok(a), Ok(b)) if a == b)
 }
 
 /// The edit distance of two names (a typo's: letters added, dropped,
@@ -904,6 +1041,8 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
         min: None,
         max: None,
         runtime: false,
+        requires: Vec::new(),
+        default: None,
     };
     let (mut script, mut prefix, mut table, mut column) = (None, None, None, None);
     for e in in_order(t) {
@@ -990,6 +1129,29 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
                 Some(n) => d.max = Some(n),
                 None => r.warn(at, format!("{} is a number", k.get_ref())),
             },
+            "requires" => match v.get_ref() {
+                DeValue::Array(items) => {
+                    for item in items.iter() {
+                        match item.get_ref() {
+                            DeValue::String(n) if crate::nasher::glob::has_magic(n) => r.warn(
+                                item.span().start,
+                                format!("requires: a variable's name, not a pattern ({n})"),
+                            ),
+                            DeValue::String(n) if !n.trim().is_empty() => {
+                                if !d.requires.iter().any(|x| x == n.as_ref()) {
+                                    d.requires.push(n.to_string());
+                                }
+                            }
+                            _ => r.warn(item.span().start, "requires: a variable's name"),
+                        }
+                    }
+                }
+                _ => r.warn(at, "requires is to be a list: [\"tdod_rental_door\"]"),
+            },
+            "default" => match value_text(v.get_ref()) {
+                Some(value) => d.default = Some(value),
+                None => r.warn(at, "default is a number or text"),
+            },
             "constants" => script = r.text(e).map(|s| s.trim_end_matches(".nss").to_string()),
             "prefix" => prefix = r.text(e),
             "table" => table = r.text(e).map(|s| s.trim_end_matches(".2da").to_ascii_lowercase()),
@@ -1023,6 +1185,10 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
     }
     let listed = d.has_list() || d.min.is_some() || d.max.is_some();
     match d.var_type {
+        Some(VarType::Object | VarType::Location) if d.default.is_some() => {
+            r.warn(line_at, format!("{name}: an object's or a location's value has no default"));
+            d.default = None;
+        }
         Some(VarType::Object | VarType::Location) if listed => {
             r.warn(line_at, format!("{name}: an object's or a location's value isn't listed (values, min, max, constants, table)"));
             d.values.clear();
@@ -1043,6 +1209,19 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
                     line_at,
                     format!("{name}: the value \"{}\" is no {}", c.value, type_label(t)),
                 );
+            }
+            if let Some(value) = &d.default {
+                let wrong = match t {
+                    VarType::Int => whole(value).is_none(),
+                    _ => value.trim().parse::<f64>().is_err(),
+                };
+                if wrong {
+                    r.warn(
+                        line_at,
+                        format!("{name}: its default \"{value}\" is no {}", type_label(t)),
+                    );
+                    d.default = None;
+                }
             }
             if let (Some(Source::Rows { column: Some(_), .. }), VarType::Int) = (&d.source, t) {
                 // (A row's cell is text; an Int's value is the row's number.)
@@ -1193,6 +1372,99 @@ fn walk(key: ResKey, s: &Struct, owner: Owner, path: String, out: &mut Vec<Found
             }
         }
     }
+}
+
+/// Where a script reads or sets a variable by its name written out:
+/// `GetLocalInt(oPC, "tdod_lit")`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Read {
+    pub var_type: VarType,
+    /// The function: `GetLocalInt`, `SetLocalString`.
+    pub function: &'static str,
+    pub script: ResKey,
+    /// Its line (from 1).
+    pub line: usize,
+}
+
+/// The functions that read and set a local variable by name, and the
+/// type each takes.
+const LOCALS: [(&str, VarType); 10] = [
+    ("GetLocalInt", VarType::Int),
+    ("GetLocalFloat", VarType::Float),
+    ("GetLocalString", VarType::String),
+    ("GetLocalObject", VarType::Object),
+    ("GetLocalLocation", VarType::Location),
+    ("SetLocalInt", VarType::Int),
+    ("SetLocalFloat", VarType::Float),
+    ("SetLocalString", VarType::String),
+    ("SetLocalObject", VarType::Object),
+    ("SetLocalLocation", VarType::Location),
+];
+
+/// The variables the module's scripts read or set by a name written out
+/// (`GetLocalInt(o, "tdod_lit")`; not one a script builds), by name: what
+/// describes a variable by the script that reads it. A variable kept in
+/// a file as another type than every script reads it as reads as that
+/// type's empty value (`engine_local_variables`).
+pub fn script_reads(module: &Module) -> std::collections::BTreeMap<String, Vec<Read>> {
+    use mg_script::lex::{TokenKind, tokenize};
+    let mut out: std::collections::BTreeMap<String, Vec<Read>> = Default::default();
+    let mut keys: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    keys.sort();
+    for key in keys {
+        let Some(src) = module.get(&key) else { continue };
+        let toks: Vec<_> = tokenize(src).into_iter().filter(|t| t.kind.is_significant()).collect();
+        let text = |i: usize| toks.get(i).map(|t| &src[t.span.clone()]);
+        for i in 0..toks.len() {
+            if toks[i].kind != TokenKind::Ident {
+                continue;
+            }
+            let word = text(i).unwrap_or_default();
+            let Some((function, var_type)) = LOCALS.iter().find(|(f, _)| f.as_bytes() == word)
+            else {
+                continue;
+            };
+            if text(i + 1) != Some(b"(") {
+                continue;
+            }
+            // The second argument: the first comma at the call's own depth.
+            let (mut depth, mut j) = (0usize, i + 2);
+            while let Some(t) = text(j) {
+                match t {
+                    b"(" | b"[" => depth += 1,
+                    b")" | b"]" if depth == 0 => break,
+                    b")" | b"]" => depth -= 1,
+                    b"," if depth == 0 => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            if text(j) != Some(b",") {
+                continue;
+            }
+            let name_at = j + 1;
+            let ends = matches!(text(name_at + 1), Some(b")" | b","));
+            let Some(tok) = toks.get(name_at) else { continue };
+            if !ends || tok.kind != (TokenKind::String { terminated: true }) {
+                continue;
+            }
+            let quoted = &src[tok.span.clone()];
+            let inner = &quoted[1..quoted.len() - 1];
+            // (A name with an escape in it is left: none is written so.)
+            if inner.contains(&b'\\') {
+                continue;
+            }
+            let name = String::from_utf8_lossy(inner).into_owned();
+            let line = 1 + src[..tok.span.start].iter().filter(|b| **b == b'\n').count();
+            out.entry(name).or_default().push(Read {
+                var_type: *var_type,
+                function,
+                script: key,
+                line,
+            });
+        }
+    }
+    out
 }
 
 /// The file of described variables in a project's root.
@@ -1635,6 +1907,93 @@ on = ["creature", "placeable"]
         );
     }
 
+    /// A variable that needs others beside it (`requires`), one needed
+    /// where another has a value (`[[rules]]`), and a default: read, and
+    /// what an object lacks said; what is wrong with them said by line.
+    #[test]
+    fn what_a_variable_needs_beside_it_and_its_default_are_read() {
+        let (v, w) = read(
+            "[tdod_rental]\ntype = \"string\"\nrequires = [\"tdod_rental_door\"]\n\
+             [tdod_climb_dc]\ntype = \"int\"\ndefault = 15\n\
+             [tdod_kind]\ntype = \"string\"\n\
+             [[rules]]\nvariable = \"tdod_kind\"\nis = \"merchant\"\nrequire = \"tdod_store\"\n\
+             [[rules]]\nvariable = \"tdod_flag\"\nis = 1\nrequire = \"tdod_flag_why\"\n",
+        );
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(v.describe("tdod_rental").unwrap().requires, ["tdod_rental_door"]);
+        assert_eq!(v.describe("tdod_climb_dc").unwrap().default.as_deref(), Some("15"));
+        assert!(v.describe("tdod_climb_dc").unwrap().words().contains("15 where it isn't set"));
+        assert_eq!(v.rules.len(), 2);
+        assert_eq!((v.rules[0].line, v.rules[0].is.as_deref()), (9, Some("merchant")));
+        let needs = |here: &[(&str, &str)]| -> Vec<(String, String, usize)> {
+            v.missing(here).into_iter().map(|n| (n.by, n.require, n.line)).collect()
+        };
+        assert_eq!(
+            needs(&[("tdod_rental", "smithy")]),
+            [("tdod_rental".into(), "tdod_rental_door".into(), 1)]
+        );
+        assert!(needs(&[("tdod_rental", "smithy"), ("tdod_rental_door", "d1")]).is_empty());
+        assert_eq!(
+            needs(&[("tdod_kind", "merchant")]),
+            [("tdod_kind".into(), "tdod_store".into(), 9)]
+        );
+        assert!(needs(&[("tdod_kind", "smith")]).is_empty(), "the rule's value only");
+        assert_eq!(needs(&[("tdod_flag", "1.0")]).len(), 1, "1 and 1.0 are the same number");
+        assert!(needs(&[("tdod_flag", "0")]).is_empty());
+        // What is wrong with them, said by line.
+        let (v, w) = read(
+            "[a]\ntype = \"int\"\ndefault = \"x\"\nrequires = \"b\"\n[c]\ntype = \"object\"\n\
+             default = 1\nrequires = [\"d_*\"]\n[[rules]]\nis = 1\n[[rules]]\nvariable = \"a\"\n\
+             require = \"c\"\nwhen = 2\n",
+        );
+        assert_eq!(
+            w,
+            [
+                "variables.toml:4: requires is to be a list: [\"tdod_rental_door\"]",
+                "variables.toml:1: a: its default \"x\" is no Int",
+                "variables.toml:8: requires: a variable's name, not a pattern (d_*)",
+                "variables.toml:5: c: an object's or a location's value has no default",
+                "variables.toml:9: a rule names the variable and what it requires: variable = \
+                 \"…\", require = \"…\"",
+                "variables.toml:14: \"when\" is not a key of a rule's (variable, is, require)",
+            ]
+        );
+        assert_eq!(v.describe("a").unwrap().default, None);
+        assert_eq!(v.rules.len(), 1);
+    }
+
+    /// The variables the module's scripts read and set by a name written
+    /// out, with the type each call takes, its script and its line; not
+    /// one built by a script, nor a call in a comment or a string.
+    #[test]
+    fn the_scripts_reads_of_a_variable_by_its_name_are_found() {
+        let mut m = Module::new();
+        let script = "void main()\n{\n    object o = OBJECT_SELF;\n\
+            int a = GetLocalInt(o, \"tdod_lit\");\n\
+            SetLocalString(GetModule(), \"tdod_name\", GetName(o, FALSE));\n\
+            string s = GetLocalString(GetObjectByTag(\"x\", 0), \"tdod_kind\");\n\
+            int b = GetLocalInt(o, \"tdod_\" + \"built\");\n\
+            // GetLocalInt(o, \"commented\")\n\
+            string c = \"GetLocalInt(o, \\\"quoted\\\")\";\n\
+            SetLocalInt(o, \"tdod_lit\", a + 1);\n}\n";
+        m.set(ResKey::parse("tdod_reads", ResType::NSS).unwrap(), script.as_bytes().to_vec());
+        let reads = script_reads(&m);
+        let found: Vec<(&str, VarType, &str, usize)> = (reads.iter())
+            .flat_map(|(n, rs)| {
+                rs.iter().map(move |r| (n.as_str(), r.var_type, r.function, r.line))
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("tdod_kind", VarType::String, "GetLocalString", 6),
+                ("tdod_lit", VarType::Int, "GetLocalInt", 4),
+                ("tdod_lit", VarType::Int, "SetLocalInt", 10),
+                ("tdod_name", VarType::String, "SetLocalString", 5),
+            ]
+        );
+    }
+
     #[test]
     fn what_is_not_understood_is_said_by_line_and_the_rest_read() {
         let (v, w) = read(
@@ -1647,7 +2006,7 @@ on = ["creature", "placeable"]
             w,
             [
                 "variables.toml:1: undescribed is to be a list of names: [\"tdod_*\"]",
-                "variables.toml:2: \"colour\" is neither a variable ([colour]) nor undescribed = [...]",
+                "variables.toml:2: \"colour\" is neither a variable ([colour]) nor undescribed = [...] or [[rules]]",
                 "variables.toml:4: type \"integer\": \"int\", \"float\", \"string\", \"object\" or \"location\"",
                 "variables.toml:5: on: module, area, creature, door, encounter, item, placeable, sound, \
                  store, trigger or waypoint, not house",

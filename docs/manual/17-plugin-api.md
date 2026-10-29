@@ -77,6 +77,8 @@ file's order. A description is a table:
 | `other` | A value of the builder's own is right too. |
 | `min`, `max` | Its bounds, or nil. |
 | `runtime` | The scripts set it while the server runs: never kept in a file. |
+| `requires` | The variables it needs beside it on the same object: a list of names, empty for none. |
+| `default` | The value the scripts take where it isn't set, as text, or nil. |
 
 ### `ctx.fix`
 

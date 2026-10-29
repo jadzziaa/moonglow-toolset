@@ -73,12 +73,14 @@ pub enum Check {
     VarObject,
     VarName,
     VarRuntime,
+    VarRequires,
+    VarScript,
     ClaimsMerged,
     ClaimsTag,
 }
 
 impl Check {
-    pub const ALL: [Check; 37] = [
+    pub const ALL: [Check; 39] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -114,6 +116,8 @@ impl Check {
         Check::VarObject,
         Check::VarName,
         Check::VarRuntime,
+        Check::VarRequires,
+        Check::VarScript,
         Check::ClaimsMerged,
         Check::ClaimsTag,
     ];
@@ -155,6 +159,8 @@ impl Check {
             Check::VarObject => "var-object",
             Check::VarName => "var-name",
             Check::VarRuntime => "var-runtime",
+            Check::VarRequires => "var-requires",
+            Check::VarScript => "var-script",
             Check::ClaimsMerged => "claims-merged",
             Check::ClaimsTag => "claims-tag",
         }
@@ -245,6 +251,16 @@ impl Check {
                  runtime = true: state or a test's hook, set while the server runs) is kept in no \
                  file of the module"
             }
+            Check::VarRequires => {
+                "a variable the project says needs others beside it (variables.toml's requires, \
+                 and its [[rules]]: one needed where another has a value) has them on the same \
+                 object"
+            }
+            Check::VarScript => {
+                "a variable kept in a file is of a type the module's scripts read it as (by its \
+                 name written out: GetLocalInt(o, \"tdod_lit\")): one of another type reads as \
+                 that type's empty value"
+            }
             Check::ClaimsMerged => {
                 "an area the project's claims table says is merged (in the game) is in the module \
                  under its ResRef, which keeps players' first visits"
@@ -289,7 +305,9 @@ impl Check {
             | Check::VarValue
             | Check::VarObject
             | Check::VarName
-            | Check::VarRuntime => Group::Objects,
+            | Check::VarRuntime
+            | Check::VarRequires
+            | Check::VarScript => Group::Objects,
             Check::CustomTlk
             | Check::ErfSize
             | Check::NuiSources
@@ -894,8 +912,11 @@ pub fn examine_groups(
     if runs(&[ClaimsMerged, ClaimsTag]) {
         timings.time("merged areas", || merged_areas(&mut d, module));
     }
-    if runs(&[VarType, VarValue, VarObject, VarName, VarRuntime]) {
+    if runs(&[VarType, VarValue, VarObject, VarName, VarRuntime, VarRequires]) {
         timings.time("described variables", || described_variables(&mut d, module));
+    }
+    if runs(&[VarScript]) {
+        timings.time("variables the scripts read", || variables_read(&mut d, module));
     }
     if runs(&[TwoDaDescribed]) {
         timings.time("described 2DAs", || described_tables(&mut d, module));
@@ -2554,7 +2575,31 @@ fn described_variables(d: &mut Doctor, module: &Module) {
     };
     for key in keys {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
-        for f in var_desc::variables_of(key, &gff) {
+        let found = var_desc::variables_of(key, &gff);
+        // What each object (by its path) has without what one of its
+        // variables needs beside it.
+        let mut objects: Vec<&str> = found.iter().map(|f| f.path.as_str()).collect();
+        objects.dedup();
+        for path in objects {
+            let here: Vec<(&str, &str)> = (found.iter())
+                .filter(|f| f.path == path)
+                .map(|f| (f.name.as_str(), f.value.as_str()))
+                .collect();
+            for n in vars.missing(&here) {
+                let place = crate::rename::describe(key, Some(&gff), &format!("{path}/VarTable"));
+                let why = match &n.is {
+                    Some(is) => format!("where {} is {is}", n.by),
+                    None => "beside it".to_string(),
+                };
+                let message = format!(
+                    "{} is set here and {} isn't: {file}:{} says it is needed {why}",
+                    n.by, n.require, n.line
+                );
+                let at = format!("{place} › {}", n.by);
+                d.push(Severity::Warning, Check::VarRequires, "module", key, at, message);
+            }
+        }
+        for f in found {
             let place = crate::rename::describe(key, Some(&gff), &format!("{}/VarTable", f.path));
             let at = format!("{place} › {}", f.name);
             let Some(desc) = vars.describe(&f.name) else {
@@ -2654,6 +2699,69 @@ fn described_variables(d: &mut Doctor, module: &Module) {
                 let message = format!("{}: {problem} ({file}:{})", f.name, desc.line);
                 d.push(Severity::Warning, Check::VarValue, "module", key, at, message);
             }
+        }
+    }
+}
+
+/// Variables kept in the module's files as another type than every one of
+/// its scripts reads (or sets) them as, by their names written out: the
+/// script reads that type's empty value (`engine_local_variables`). A
+/// variable the project describes with a type is held to that
+/// (`var-type`) instead; one no script names by its name is left.
+fn variables_read(d: &mut Doctor, module: &Module) {
+    use crate::var_desc::{self, type_label};
+    let reads = var_desc::script_reads(module);
+    if reads.is_empty() {
+        return;
+    }
+    let vars = &module.project_file.variables;
+    let empty = |t: crate::vars::VarType| match t {
+        crate::vars::VarType::Int => "0",
+        crate::vars::VarType::Float => "0.0",
+        crate::vars::VarType::String => "\"\"",
+        crate::vars::VarType::Object => "OBJECT_INVALID",
+        crate::vars::VarType::Location => "an invalid location",
+    };
+    let article = |t: crate::vars::VarType| match t {
+        crate::vars::VarType::Int => "an",
+        _ => "a",
+    };
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| var_desc::Owner::of_restype(k.restype).is_some())
+        .copied()
+        .collect();
+    keys.sort();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        for f in var_desc::variables_of(key, &gff) {
+            let (Some(have), Some(read)) = (f.var_type, reads.get(&f.name)) else { continue };
+            if read.iter().any(|r| r.var_type == have)
+                || vars.describe(&f.name).is_some_and(|x| x.var_type.is_some() || x.runtime)
+            {
+                continue;
+            }
+            let first = &read[0];
+            let more = match read.len() {
+                1 => String::new(),
+                n => format!(" and {} more", n - 1),
+            };
+            let place = crate::rename::describe(key, Some(&gff), &format!("{}/VarTable", f.path));
+            let message = format!(
+                "{} is {} {} here, and the scripts read it as {} {} ({} in {}.nss line {}{more}): \
+                 they read {}",
+                f.name,
+                article(have),
+                type_label(have),
+                article(first.var_type),
+                type_label(first.var_type),
+                first.function,
+                first.script.resref,
+                first.line,
+                empty(first.var_type)
+            );
+            let at = format!("{place} › {}", f.name);
+            d.push(Severity::Warning, Check::VarScript, "module", key, at, message);
         }
     }
 }
@@ -3355,6 +3463,104 @@ endmodelgeom fx\ndonemodel fx\n";
 
     /// A tag the project's moonglow.toml wants unique, on two objects: a
     /// warning naming both. Without the file, nothing.
+    /// A variable set without one it needs beside it on the same object
+    /// (`requires`, a `[[rules]]` rule where the other has its value) is
+    /// said, once per object; one that has it, or another value, is not.
+    #[test]
+    fn a_variable_without_what_it_needs_beside_it_is_said() {
+        let dir = mg_testkit::scratch_dir("doctor-variables-required");
+        let s = |t: &str| Value::String(t.as_bytes().to_vec());
+        let var = |name: &str, value: &str| {
+            let mut v = Struct::new(0);
+            v.set("Name", s(name));
+            v.set("Type", Value::Dword(3));
+            v.set("Value", s(value));
+            v
+        };
+        let object = |tag: &str, vars: Vec<Struct>| {
+            let mut o = Struct::new(4);
+            o.set("Tag", s(tag));
+            o.set("VarTable", Value::List(vars));
+            o
+        };
+        let mut m = Module::new();
+        let mut git = Gff::new(*b"GIT ");
+        let creatures = vec![
+            object("LONE", vec![var("tdod_rental", "smithy")]),
+            object("BOTH", vec![var("tdod_rental", "inn"), var("tdod_rental_door", "D_INN")]),
+            object("TRADER", vec![var("tdod_kind", "merchant")]),
+            object("SMITH", vec![var("tdod_kind", "smith")]),
+        ];
+        git.root.set("Creature List", Value::List(creatures));
+        m.set_gff(key("krezk", ResType::GIT), &git).unwrap();
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(
+            dir.join("variables.toml"),
+            "[tdod_rental]\ntype = \"string\"\nrequires = [\"tdod_rental_door\"]\n\n\
+             [tdod_rental_door]\ntype = \"string\"\n\n[tdod_kind]\ntype = \"string\"\n\n\
+             [[rules]]\nvariable = \"tdod_kind\"\nis = \"merchant\"\nrequire = \"tdod_store\"\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        assert_eq!(m.project_file.warnings, Vec::<String>::new());
+        let found: Vec<(String, String)> = examine(&m, &resman(&[]), TalkTables::default())
+            .into_iter()
+            .filter(|f| f.check == "var-requires")
+            .map(|f| (f.at, f.message))
+            .collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        assert!(found[0].0.contains("LONE") && found[0].0.ends_with("tdod_rental"), "{found:#?}");
+        assert_eq!(
+            found[0].1,
+            "tdod_rental is set here and tdod_rental_door isn't: variables.toml:1 says it is \
+             needed beside it"
+        );
+        assert!(found[1].0.contains("TRADER"), "{found:#?}");
+        assert_eq!(
+            found[1].1,
+            "tdod_kind is set here and tdod_store isn't: variables.toml:11 says it is needed where \
+             tdod_kind is merchant"
+        );
+        // A variable of another type than the scripts read it as, not
+        // described with a type: said, with the script and line.
+        let mut m = Module::open(&dir).unwrap();
+        m.set(
+            key("tdod_trade", ResType::NSS),
+            b"void main()\n{\n    int n = GetLocalInt(OBJECT_SELF, \"tdod_rental_door\");\n    \
+              string k = GetLocalString(OBJECT_SELF, \"tdod_kind\");\n}\n"
+                .to_vec(),
+        );
+        std::fs::write(
+            dir.join("variables.toml"),
+            "[tdod_kind]\ntype = \"string\"\n\n[tdod_rental_door]\nhelp = \"no type\"\n",
+        )
+        .unwrap();
+        m.reread_project_file();
+        let read: Vec<(String, String)> = examine(&m, &resman(&[]), TalkTables::default())
+            .into_iter()
+            .filter(|f| f.check == "var-script")
+            .map(|f| (f.at, f.message))
+            .collect();
+        assert_eq!(read.len(), 1, "{read:#?}");
+        assert!(read[0].0.contains("BOTH") && read[0].0.ends_with("tdod_rental_door"), "{read:#?}");
+        assert_eq!(
+            read[0].1,
+            "tdod_rental_door is a String here, and the scripts read it as an Int (GetLocalInt in \
+             tdod_trade.nss line 3): they read 0"
+        );
+        // Left out with its check.
+        let skip = Skip::parse(&["var-requires"]).unwrap();
+        let f = examine_groups(
+            &m,
+            &resman(&[]),
+            TalkTables::default(),
+            &skip,
+            &mut Timings::default(),
+            None,
+        );
+        assert!(!f.iter().any(|f| f.check == "var-requires"));
+    }
+
     #[test]
     fn variables_are_held_to_the_project_s_descriptions() {
         let dir = mg_testkit::scratch_dir("doctor-described-variables");

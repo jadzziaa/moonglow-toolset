@@ -1633,6 +1633,62 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     assert_eq!(vars[0].string("Value"), Some(&b"forge"[..]));
 }
 
+/// The Variables window says what a variable needs beside it and the
+/// object lacks (`requires`, `[[rules]]`), until it is added; a name typed
+/// as one with a default takes it as its value.
+#[test]
+fn the_variables_window_says_what_a_variable_needs_and_gives_defaults() {
+    use mg_ui::widgets::{FieldTarget, VarTableEdit};
+    let described = "[tdod_rental]\ntype = \"string\"\nrequires = [\"tdod_rental_door\"]\n\n\
+        [tdod_rental_door]\ntype = \"string\"\n\n\
+        [tdod_climb_dc]\ntype = \"int\"\ndefault = 15\n\n\
+        [[rules]]\nvariable = \"tdod_kind\"\nis = \"merchant\"\nrequire = \"tdod_store\"\n";
+    let dir = project_folder("ui-variables-needed", &[("variables.toml", described)]);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    {
+        let mut m = Module::open(&dir).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("Creature List", mg_gff::Value::List(vec![mg_gff::Struct::new(4)]));
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut app = app_with(Vec::new());
+    app.open_module(&dir);
+    let path = mg_edit::GffPath::root().item("Creature List", 0);
+    app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let add = |h: &mut Harness<'_, Moonglow>, name: &str, value: Option<&str>| {
+        h.get_by_label("Add").click();
+        h.run();
+        let rows = &mut h.state_mut().var_edit.as_mut().unwrap().rows;
+        let i = rows.len() - 1;
+        rows[i].name = name.into();
+        if let Some(v) = value {
+            rows[i].value = v.into();
+        }
+        h.run();
+        h.run();
+    };
+    add(&mut h, "tdod_rental", Some("smithy"));
+    let note = "tdod_rental needs tdod_rental_door beside it (variables.toml:1)";
+    assert!(h.query_by_label(note).is_some());
+    add(&mut h, "tdod_rental_door", Some("D_SMITHY"));
+    assert!(h.query_by_label(note).is_none(), "said until it is added");
+    add(&mut h, "tdod_kind", Some("merchant"));
+    assert!(
+        h.query_by_label(
+            "tdod_kind is merchant: tdod_store is needed beside it (variables.toml:12)"
+        )
+        .is_some()
+    );
+    // A default, taken as the value of a row named so.
+    add(&mut h, "tdod_climb_dc", None);
+    let rows = &h.state().var_edit.as_ref().unwrap().rows;
+    let dc = rows.iter().find(|r| r.name == "tdod_climb_dc").unwrap();
+    assert_eq!((dc.kind, dc.value.as_str()), (1, "15"));
+}
+
 /// The Variables window's offer by the keys: Down and Up move in it,
 /// Enter takes the name (not the window's OK) and Escape closes it (not
 /// the window). A pattern is offered by what its names begin with, typed

@@ -728,7 +728,8 @@ an Int is 0), and a name is matched in its case only (`tdod_lit` is not
 variables in `variables.toml`, beside its `moonglow.toml` (or alone;
 beside a `.mod`, the module's own, `krezk.variables.toml`),
 as a table's columns are described beside it: each variable's type, the
-values it takes, the objects it goes on and a line of help.
+values it takes, the objects it goes on, what it needs beside it, its
+default and a line of help.
 
 ```toml
 undescribed = ["tdod_*"]        # a variable so named, described nowhere here, is said
@@ -750,7 +751,8 @@ type = "int"
 on = ["placeable"]
 min = 1
 max = 60
-help = "The Survival check's DC (15 without it)"
+default = 15
+help = "The Survival check's DC"
 
 [tdod_light]
 type = "int"
@@ -768,6 +770,17 @@ help = "Players within 5 m say !cry MESSAGE"
 type = "string"
 on = ["area"]
 help = "The settlement's key: every street of a town has the same"
+
+[tdod_rental]
+type = "string"
+on = ["creature", "placeable"]
+requires = ["tdod_rental_door"]  # on the same object: the proprietor is registered only with both
+help = "A rental proprietor: the property's key, never changed"
+
+[tdod_rental_door]
+type = "string"
+on = ["creature", "placeable"]
+help = "The tag of the property's door"
 
 [tdod_rental_term]
 type = "string"
@@ -788,6 +801,11 @@ on = ["creature", "placeable"]
 type = "int"
 runtime = true
 help = "A test's hook: the next d20 rolled (the tests set it on the module)"
+
+[[rules]]                       # needed where another variable has a value
+variable = "tdod_rental_term"
+is = "long"
+require = "tdod_rental_price"
 ```
 
 | Key | What it says | Without it |
@@ -802,6 +820,9 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
 | `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
+| `requires` | the variables it needs beside it, on the same object (`requires = ["tdod_rental_door"]`): one set without them does nothing the scripts want | not needed |
+| `default` | the value the scripts take where it isn't set (an Int's or a Float's a number): a row named so in the Variables window takes it as its value | |
+| `[[rules]]` (anywhere, each `variable`, `is` and `require`) | where `variable` is set to `is` (or set at all, without `is`), `require` is to be set on the same object too, as a table's rules have a cell filled where another says so | |
 | `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name (or a builder's glob) nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for
@@ -820,8 +841,10 @@ typed whole) takes its type, a value is chosen from its values, and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong
 kind of object, a name in another case or like the project's and
-described nowhere, one only the scripts set); OK writes it all the
-same, as you have it.
+described nowhere, one only the scripts set) and what a variable needs
+beside it that the object hasn't (*tdod_rental needs tdod_rental_door
+beside it*); a name typed as one with a `default` takes it as its
+value. OK writes it all the same, as you have it.
 
 **Verify Module** (and `mg verify`) holds every variable of the module
 to the descriptions:
@@ -832,6 +855,8 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
+| `var-requires` | a variable set without one it needs beside it on the same object: its `requires`, or a rule's `require` where its value is the rule's `is` | a warning |
+| `var-script` | a variable kept in a file as another type than every one of the module's scripts reads (or sets) it as, by its name written out (`GetLocalInt(oPC, "tdod_lit")`, not a name a script builds): the script reads that type's empty value, the script and line named. A variable described with a type is held to that instead (`var-type`); it is checked with no `variables.toml` too | a warning |
 | `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0; `tdod_rentl_term`: `tdod_rental_*?`, since Moonglow 2.13.0). Verify's **Remove the variable** takes it out | an error: Verify fails |
 
 A file's own glob of the scripts' may take a builder's typo: a name is

@@ -2272,12 +2272,12 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **Described variables (C2) are not described further:** an object's or
-  a location's value has no description of its values; no `default`,
-  no "required on" (a proprietor needs both `tdod_rental` and
-  `tdod_rental_door`), no rule between variables (as a table's
-  `[[rules]]`), no description of a variable by the script that reads
-  it. (M)
+- **Described variables (C2): an object's or a location's value is not
+  described**: what a file holds of one is an object's id or a place in
+  an area, which no list, range or default describes; `values`, `min`, `max` and `default`
+  are refused for them, said by line. Whether anything should describe
+  them (the tag of the object meant, the area of a place) is open.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say.) (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**
   not when a tag is typed in Properties, an object is placed from the
   palette (its blueprint's tag), Create Set names waypoints, Find and
