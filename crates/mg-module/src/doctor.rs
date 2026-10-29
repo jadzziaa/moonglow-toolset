@@ -3456,7 +3456,7 @@ endmodelgeom fx\ndonemodel fx\n";
     /// A waypoint's flag is a waypoint.2da row with a model, as the
     /// previews have it: one that isn't is warned of, a blueprint's or a
     /// placed one's (the game draws no waypoint: only the toolset's flag
-    /// is missing).
+    /// is missing); one without the field is not (BioWare's blueprints).
     #[test]
     fn a_waypoint_s_flag_is_a_row_with_a_model() {
         let table =
@@ -3480,11 +3480,7 @@ endmodelgeom fx\ndonemodel fx\n";
         let f = examine(&m, &rm, TalkTables::default());
         let rows: Vec<_> = f.iter().filter(|f| f.check == "object-row").collect();
         let at: Vec<&str> = rows.iter().map(|f| f.at.as_str()).collect();
-        assert_eq!(
-            at,
-            ["area › waypoint WP_BAD › Appearance", "bare.utw › Appearance"],
-            "{rows:?}"
-        );
+        assert_eq!(at, ["area › waypoint WP_BAD › Appearance"], "{rows:?}");
         assert!(rows.iter().all(|f| f.severity == Severity::Warning), "{rows:?}");
         assert!(rows[0].message.contains("waypoint.2da has no row 7"), "{rows:?}");
     }

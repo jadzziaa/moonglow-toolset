@@ -75,6 +75,9 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
 /// `RESREF` (blue, red, green, yellow), by [`mg_rules::appearance`] as
 /// Verify judges it.
 pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> {
+    if utw.get("Appearance").is_none() {
+        return Err(PreviewError::NoRow { table: "waypoint", row: 0 });
+    }
     let (_, model) = crate::appearance(game, mg_rules::ObjectKind::Waypoint, utw)?;
     let model = model.ok_or_else(|| PreviewError::NoModel("waypoint".into()))?;
     Ok(Preview::model(&model))

@@ -98,9 +98,10 @@ impl std::error::Error for ModelProblem {}
 impl AppearanceRow {
     /// Where an object of `kind` (a blueprint's or a placed object's
     /// fields) reads its appearance; `None` for the kinds with none
-    /// checked here, and an item without a `BaseItem` (an inventory's
-    /// entry, which names its blueprint). A field that is missing reads as
-    /// 0, as the game reads it.
+    /// checked here, an item without a `BaseItem` (an inventory's entry,
+    /// which names its blueprint) and a waypoint without an `Appearance`
+    /// (as many of BioWare's blueprints are). A field that is missing reads
+    /// as 0, as the game reads it.
     pub fn of(kind: ObjectKind, object: &Struct) -> Option<AppearanceRow> {
         let int = |label: &str| object.integer(label).unwrap_or(0);
         let at = |field, table, column, label, look| AppearanceRow {
@@ -126,7 +127,12 @@ impl AppearanceRow {
                 object.integer("BaseItem")?;
                 at("BaseItem", "baseitems", "label", "label", Look::Row)
             }
-            ObjectKind::Waypoint => at("Appearance", "waypoint", "RESREF", "LABEL", Look::Model),
+            // (Not one without the field: BioWare's blueprints often have
+            // none, and Aurora places them with a flag, row 1.)
+            ObjectKind::Waypoint => {
+                object.integer("Appearance")?;
+                at("Appearance", "waypoint", "RESREF", "LABEL", Look::Model)
+            }
             _ => return None,
         })
     }
@@ -287,6 +293,7 @@ mod tests {
             check(w, &[("Appearance", 2)]).unwrap_err().problem,
             Problem::Missing("gi_waypoint02".into())
         );
-        assert_eq!(problem(w, &[]), "No such row: waypoint.2da has no row 0");
+        assert_eq!(problem(w, &[("Appearance", 0)]), "No such row: waypoint.2da has no row 0");
+        assert_eq!(AppearanceRow::of(w, &Struct::default()), None);
     }
 }

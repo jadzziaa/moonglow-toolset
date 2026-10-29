@@ -370,9 +370,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (`mg_rules::appearance`) checks a placeable's, a door's, a
   single-model creature's and a waypoint's row and model by name (the
   waypoint's flag since 2026-10-29: Verify warns of it, the preview and
-  the Properties go by it; BioWare's Chapter 1 has a waypoint blueprint
-  with no `Appearance`, row 0, which waypoint.2da leaves blank, and what
-  Aurora draws for it was not captured), and an item's base item row.
+  the Properties go by it; a waypoint without the field, as 190 of
+  BioWare's blueprints are, is not judged, and what Aurora draws for
+  one was not captured), and an item's base item row.
   Not checked by it, each S, about a day together: an item's own models
   (its parts, `ModelPart1`… and an armor's), whose names mg-preview
   alone makes (the naming would move down into mg-rules); a body of
