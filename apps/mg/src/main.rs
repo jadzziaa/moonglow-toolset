@@ -649,6 +649,10 @@ enum Cmd {
         /// named, not as a custom table's (`mg tlk-import` reads both)
         #[arg(long)]
         base: bool,
+        /// The module the table is for: its text read by the module's
+        /// `encoding.2da` (in its haks), where it has one.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Read a .json or .csv file of talk-table lines into a talk table (a
     /// .tlk file, made if it isn't there) and save it: the lines the file
@@ -660,6 +664,15 @@ enum Cmd {
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The language of a table the import makes (`en`, `fr`, `de`,
+        /// `it`, `es`, `pl`): by default a JSON file's own `language`,
+        /// else English.
+        #[arg(long, value_name = "CODE")]
+        language: Option<String>,
+        /// The module the table is for: its text written by the module's
+        /// `encoding.2da` (in its haks), where it has one.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
@@ -2730,8 +2743,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
         }
-        Cmd::TlkExport { table, output, base } => {
-            let t = talk_table(table, false)?;
+        Cmd::TlkExport { table, output, base, module } => {
+            let mut t = talk_table(table, false)?;
+            if let Some(m) = module {
+                t.game = Some(module_codepage(cli, &crate::open_module(m)?));
+            }
             let (text, format) = match extension(output).as_str() {
                 "json" => (t.to_json(), "json"),
                 "csv" => (t.to_csv_as(!*base).into_bytes(), "csv"),
@@ -2747,9 +2763,37 @@ fn run(cli: &Cli) -> Result<Output> {
                 "strrefs": if format == "csv" && !*base { "custom" } else { "line" },
             }))
         }
-        Cmd::TlkImport { table, file, dry_run } => {
-            let mut t = talk_table(table, true)?;
+        Cmd::TlkImport { table, file, dry_run, language, module } => {
             let text = std::fs::read_to_string(file)?;
+            let asked =
+                match language {
+                    Some(c) => Some(mg_core::Language::from_short_code(c).with_context(|| {
+                        format!("{c:?} isn't a language (en, fr, de, it, es, pl)")
+                    })?),
+                    None => None,
+                };
+            let mut t = talk_table(table, true)?;
+            if !table.is_file() {
+                // (A JSON file says its table's language, as nwn_tlk's.)
+                let of_file = (extension(file) == "json")
+                    .then(|| serde_json::from_str::<serde_json::Value>(&text).ok())
+                    .flatten()
+                    .and_then(|v| v.get("language")?.as_u64())
+                    .and_then(|n| u32::try_from(n).ok())
+                    .map(mg_core::Language);
+                t.tlk.language = asked.or(of_file).unwrap_or(mg_core::Language::ENGLISH);
+            } else if let Some(l) = asked.filter(|l| *l != t.tlk.language) {
+                let name = |l: mg_core::Language| l.name().map_or(l.0.to_string(), str::to_string);
+                bail!(
+                    "{} is in {} already: --language is for a table the import makes ({})",
+                    table.display(),
+                    name(t.tlk.language),
+                    name(l)
+                );
+            }
+            if let Some(m) = module {
+                t.game = Some(module_codepage(cli, &crate::open_module(m)?));
+            }
             let (changed, added) = match extension(file).as_str() {
                 "json" => t.import_json(&text),
                 "csv" => t.import_csv(&text),

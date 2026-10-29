@@ -759,14 +759,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
-- **Talk tables from a terminal:** `mg tlk-export` and `mg tlk-import`
-  write and read a `.tlk` file as JSON or CSV. The JSON is `nwn_tlk`'s
-  (compared with it: `apps/mg/tests/tlk_io.rs`, which found the sound
-  length named `soundLength` where `nwn_tlk` has `soundLen`; both are
-  read). Not done: a table made by an import is English; the text is
-  not read by a module's `encoding.2da`; the JSON carries the main
-  table only, as `nwn_tlk`'s does, and so does the talk table editor's
-  Export JSON. (S each)
 - **Where a StrRef is used:** Find References takes a talk-table line
   (a number typed in its field, or Find References in the talk table's
   editor) and lists the module's localized strings that name it
@@ -3106,3 +3098,7 @@ is not taken for a new gap.
   (the engine and Aurora tests do, on the game's own modules), and the
   formats it doesn't write anew (scripts, models) are held to their
   bytes by the saved copy.
+- **A talk table's JSON is one table's** (`mg tlk-export`, the talk
+  table editor's Export JSON), as `nwn_tlk`'s is and a nasher repository
+  keeps it: the feminine table is a file of its own there, exported on
+  its own (`mg tlk-export TABLEf.tlk`); the CSV carries both.
