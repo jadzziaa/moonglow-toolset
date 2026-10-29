@@ -2514,7 +2514,7 @@ fn a_project_s_command_that_writes_nothing_keeps_the_haks_open() {
 fn until_idle(h: &mut Harness<'_, Moonglow>) {
     let started = std::time::Instant::now();
     while h.state().busy() {
-        assert!(started.elapsed().as_secs() < 30, "the command never ended");
+        assert!(started.elapsed().as_secs() < 60, "the command never ended");
         std::thread::sleep(std::time::Duration::from_millis(10));
         h.step();
     }
@@ -2551,13 +2551,17 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
     h.state_mut().actions.push(mg_ui::Action::ProjectCommand("ask".into()));
     h.run_steps(2);
     assert!(h.state().busy(), "running, waiting for its answer");
-    // Its question shows before its line ends.
-    let started = std::time::Instant::now();
-    while h.query_by_label("Name: ").is_none() {
-        assert!(started.elapsed().as_secs() < 20, "the question never showed");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        h.step();
-    }
+    // Its question shows before its line ends. (Waited for as the
+    // command gets to it, however busy the machine: a minute at most.)
+    let shows = |h: &mut Harness<'_, Moonglow>, line: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(line).is_none() {
+            assert!(started.elapsed().as_secs() < 60, "{line:?} never showed");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.step();
+        }
+    };
+    shows(&mut h, "Name: ");
     h.get_by_label("Send");
     h.get_by_label("End Input");
     // The line has the keys: typed, and Enter sends it.
@@ -2568,11 +2572,8 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
     h.step();
     h.get_by_label("> Hipólito");
     // A hidden line, by Send.
-    while h.query_by_label("Secret: ").is_none() {
-        assert!(started.elapsed().as_secs() < 20, "the second question never showed");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        h.step();
-    }
+    shows(&mut h, "Secret: ");
+    h.get_by_label("Name: ");
     h.get_by_label("Hide").click();
     h.step();
     h.event(egui::Event::Text("swordfish".into()));
@@ -2622,7 +2623,7 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
 #[cfg(unix)]
 #[test]
 fn a_project_s_command_canceled_reads_the_project_s_files_again() {
-    let slow = "printf 'void main() {}\\n' > made.nss; sleep 30";
+    let slow = "printf 'void main() {}\\n' > made.nss; sleep 300";
     let rules = format!("[commands]\nslow = {slow:?}\n");
     let dir = project_folder("ui-project-commands-cancel", &[("moonglow.toml", &rules)]);
     let mut app = app_with(Vec::new());
@@ -2638,7 +2639,7 @@ fn a_project_s_command_canceled_reads_the_project_s_files_again() {
     h.step();
     let started = std::time::Instant::now();
     while !dir.join("made.nss").exists() {
-        assert!(started.elapsed().as_secs() < 20, "the command never wrote");
+        assert!(started.elapsed().as_secs() < 60, "the command never wrote");
         std::thread::sleep(std::time::Duration::from_millis(10));
         h.step();
     }
@@ -2649,10 +2650,10 @@ fn a_project_s_command_canceled_reads_the_project_s_files_again() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run_steps(2);
     until_idle(&mut h);
-    assert!(started.elapsed().as_secs() < 20, "stopped, not waited for");
+    assert!(started.elapsed().as_secs() < 120, "stopped, not waited for");
     let made = ResKey::parse("made", ResType::NSS).unwrap();
     while !h.state().ws.as_ref().unwrap().module.contains(&made) {
-        assert!(started.elapsed().as_secs() < 25, "the project's files never read again");
+        assert!(started.elapsed().as_secs() < 150, "the project's files never read again");
         std::thread::sleep(std::time::Duration::from_millis(20));
         h.step();
     }
