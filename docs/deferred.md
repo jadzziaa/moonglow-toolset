@@ -161,8 +161,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `development` and portrait folders (and the custom talk table) are
   read again on the window's thread after a change (not measured on a
   large `override`). (S each)
-## Content doctor
-
 
 ## Test loop
 

@@ -1179,7 +1179,11 @@ mod tests {
         let names: Vec<String> = (burst.paths.iter())
             .map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/"))
             .collect();
-        assert_eq!(names, ["src/a.nss", "src/c.nss", "src/d.nss"]);
+        // (The file made and removed within the burst may be folded away
+        // by the system: macOS's FSEvents does.)
+        assert!(names.contains(&"src/a.nss".to_string()), "{names:?}");
+        assert!(names.contains(&"src/d.nss".to_string()), "{names:?}");
+        assert!(names.iter().all(|n| ["src/a.nss", "src/c.nss", "src/d.nss"].contains(&n.as_str())));
         std::thread::sleep(Duration::from_millis(400));
         assert!(watch.take().is_none(), "and nothing said after");
         // The builder's own project file, in a hidden folder: by name.
