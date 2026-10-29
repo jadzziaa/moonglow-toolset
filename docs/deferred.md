@@ -182,14 +182,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `override`). (S each)
 ## Content doctor
 
-- **Verify's groups, not its checks:** Options › Verify and `mg verify
-  --skip` leave out a group (seven: missing references, tilesets, models
-  and materials, 2DAs, objects' rows and variables, talk table and
-  archives, plugins), not one check, one hak or one tileset; a group
-  left out isn't checked since 22 October (so nothing is counted of
-  it: the summary and the JSON's `skipped` only name it), and Build
-  Module's Missing Resources has its own categories, apart from these.
-  (S) (Taro49's report, October 2026)
 - **A whole Verify of a module with many haks is still 1.4 s:** the
   Domains of Dread with its 145 haks (28 GB) went from 70 s to 9 s on
   16 threads, and on 27 October from 4 s to 1.4 s on 32 (70 s of the

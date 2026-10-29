@@ -925,12 +925,13 @@ fn project_plugins(m: &Module, all: bool, named: &[Plugin], out: &mut Output) ->
 }
 
 /// The findings of every check of the plugins chosen, for `mg verify`,
-/// each with its fix if the check gave it one.
-/// A check that fails is itself a finding, an error.
+/// each with its fix if the check gave it one (a check `--skip` names
+/// isn't run). A check that fails is itself a finding, an error.
 pub(crate) fn findings(
     gi: &GameInstall,
     m: &Module,
     chosen: &Chosen<'_>,
+    skip: &mg_module::doctor::Skip,
     out: &mut Output,
 ) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
@@ -954,6 +955,9 @@ pub(crate) fn findings(
         for plugin in plugins {
             let settings = settings_for(&plugin, m, &[], out)?;
             for check in &plugin.manifest.checks {
+                if skip.plugin_check(&plugin.check_id(&check.id)) {
+                    continue;
+                }
                 let host = Rc::new(CliHost::default());
                 let input = Input {
                     settings: Some(settings.clone()),

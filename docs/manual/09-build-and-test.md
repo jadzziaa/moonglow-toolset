@@ -129,8 +129,9 @@ result.
 **Build › Verify Module** writes to the log, as errors and warnings, what
 is missing and what is wrong with the module's custom content. To leave
 some of it out (a hak's tileset errors you are not going to fix),
-untick its group in **Options › Verify**; the summary line says what
-was left out and how many problems it had. **Clear**, in the log's
+untick its group, or one check of it, in **Options › Verify**, or name
+the hak or the tileset there; the summary line says what was left out,
+not checked. **Clear**, in the log's
 corner, empties the log before a second run.
 
 **Fixes.** A problem whose right change is plain has a button beside it
@@ -215,12 +216,16 @@ scripts) become part of Verify Module, with the fixes they offer.
 JSON for a build pipeline (`mg --json verify`; see [Command-line
 tools](11-command-line.md)). There each problem carries the id of the
 check that found it (`set-model`, `2da-row`…); `mg checks` lists the
-checks and the group each is in, and `mg verify --skip GROUP` leaves a
-group out (`references`, `tilesets`, `models`, `2das`, `objects`,
-`module`, `plugins`; several separated by commas): its checks aren't
-run, which makes a Verify of a module with many haks much quicker, and
-the JSON's `skipped` names the groups (`"tilesets": null`: not
-checked). `mg verify --timings` says how long each part of the check
+checks and the group each is in, and `mg verify --skip WHAT` leaves
+something out (several separated by commas): a group (`references`,
+`tilesets`, `models`, `2das`, `objects`, `module`, `plugins`), one
+check (`set-hole`, or a plugin's, `example.tag-conventions/tag-case`),
+the missing references of one category (`references:creatures`), a hak
+(`tdod_tiles01.hak` or `hak:tdod_tiles01`), the `override` or
+`development` folder, or one resource (a tileset, `ttr01.set`, with its
+tiles' models; a 2DA; a model). What is left out isn't checked, which
+makes a Verify of a module with many haks much quicker, and the JSON's
+`skipped` names each (`"tilesets": null`: not checked). `mg verify --timings` says how long each part of the check
 took.
 A finding's `fix` in the JSON is the fix it offers, as an edit file `mg
 apply` takes; `mg verify --fix CHECK` makes the fixes of a check's

@@ -575,6 +575,22 @@ fn a_plugin_s_checks_run_with_verify() {
             && m.ends_with("; left out, not checked (Options › Verify): Plugins' checks")),
         "{log:#?}"
     );
+    // One plugin's check left out, by its id: the other plugin's runs.
+    h.get_by_label("Clear Log").click();
+    h.run();
+    h.state_mut().settings.verify_skip = vec!["example.tag-conventions/tag-case".into()];
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(!log.iter().any(|(_, m)| m.contains("gate_guard")), "{log:#?}");
+    assert!(log.iter().any(|(_, m)| m.contains("a check only reads")), "{log:#?}");
+    assert!(
+        log.iter().any(|(_, m)| m.starts_with("Verify: ")
+            && m.ends_with(
+                "; left out, not checked (Options › Verify): example.tag-conventions/tag-case"
+            )),
+        "{log:#?}"
+    );
 }
 
 /// A finding's fix is a button beside its line in Verify's report: made

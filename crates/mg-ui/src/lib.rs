@@ -3326,6 +3326,16 @@ impl Moonglow {
                     .into_iter()
                     .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
                     .collect();
+                // The enabled plugins' checks, for Options › Verify.
+                draft.plugin_checks = (self.enabled_plugins().into_iter())
+                    .flat_map(|p| {
+                        (p.manifest.checks.iter())
+                            .map(|c| {
+                                (p.check_id(&c.id), format!("{}: {}", p.manifest.name, c.title))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
                 // And the project's.
                 let project = project_commands::commands(self).map(|(_, c)| c);
                 project_commands::register_keys(&mut draft.keymap, &project.unwrap_or_default());
@@ -4940,13 +4950,8 @@ impl Moonglow {
             .filter(|p| !p.manifest.checks.is_empty())
             .map(|p| (p.clone(), self.plugin_settings(p)))
             .collect();
-        // The groups left out (Options › Verify).
-        let skip: Vec<mg_module::doctor::Group> = self
-            .settings
-            .verify_skip
-            .iter()
-            .filter_map(|id| mg_module::doctor::Group::from_id(id))
-            .collect();
+        // What is left out (Options › Verify).
+        let skip = mg_module::doctor::Skip::read(&self.settings.verify_skip);
         // (The shader programs that compiled kept where the views keep
         // theirs.)
         let shaders = self.shader_cache_dir.clone().map(mg_module::doctor::ProgramCache::new);
@@ -4956,7 +4961,7 @@ impl Moonglow {
                 use mg_module::doctor::Group;
                 let game = job.game.as_deref()?;
                 // (A group left out isn't checked.)
-                let missing = if skip.contains(&Group::References) {
+                let missing = if skip.group(Group::References) {
                     Vec::new()
                 } else {
                     job.progress.say("Looking for what is missing");
@@ -4982,14 +4987,15 @@ impl Moonglow {
                     shaders.as_ref(),
                 );
                 // (What the plugins would say of themselves goes with them.)
-                let (theirs, said) = if skip.contains(&Group::Plugins) {
+                let (theirs, said) = if skip.group(Group::Plugins) {
                     (Vec::new(), Vec::new())
                 } else {
-                    plugins::check_findings(&plugins, job)
+                    plugins::check_findings(&plugins, &skip, job)
                 };
                 findings.extend(theirs.iter().map(|f| f.finding.clone()));
                 let mut missing = missing;
-                let left = mg_module::doctor::leave_out(&mut missing, &mut findings, &skip);
+                skip.leave_out(&mut missing, &mut findings);
+                let left = skip.named();
                 // Each finding with its fix, if it has one; and what the
                 // fixes were worked out on.
                 let found = mg_edit::fix::attach(&job.module, findings, &theirs);
@@ -5260,14 +5266,14 @@ pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameDat
     game.as_mut().and_then(Arc::get_mut)
 }
 
-/// What Verify's summary says it left out: each group and how many it
-/// had, and where to have them back.
-fn left_out(left: &[mg_module::doctor::Group]) -> String {
+/// What Verify's summary says it left out (a group by its title, the rest
+/// by its word: a check's id, a hak, a resource), and where to have them
+/// back.
+fn left_out(left: &[String]) -> String {
     if left.is_empty() {
         return String::new();
     }
-    let groups: Vec<&str> = left.iter().map(|g| g.title()).collect();
-    format!("; left out, not checked (Options › Verify): {}", groups.join(", "))
+    format!("; left out, not checked (Options › Verify): {}", left.join(", "))
 }
 
 /// How a line of Verify's report is said.

@@ -32,6 +32,33 @@ pub enum Category {
 }
 
 impl Category {
+    pub const ALL: [Category; 14] = [
+        Category::Module,
+        Category::Areas,
+        Category::Creatures,
+        Category::Doors,
+        Category::Encounters,
+        Category::Items,
+        Category::Placeables,
+        Category::Sounds,
+        Category::Stores,
+        Category::Triggers,
+        Category::Waypoints,
+        Category::Conversations,
+        Category::Scripts,
+        Category::Other,
+    ];
+
+    /// Its id, as Verify leaves it out (`mg verify --skip
+    /// references:creatures`, Options › Verify): its name in lower case.
+    pub fn id(self) -> String {
+        format!("{self:?}").to_ascii_lowercase()
+    }
+
+    pub fn from_id(id: &str) -> Option<Category> {
+        Category::ALL.into_iter().find(|c| c.id().eq_ignore_ascii_case(id.trim()))
+    }
+
     /// The category of a reference, from its source and path (area
     /// instances belong to their object type).
     pub fn of(r: &Reference) -> Category {
