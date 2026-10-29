@@ -667,7 +667,25 @@ const VAR_FOOT: f32 = 96.0;
 /// The most notes of the project's descriptions shown under the list.
 const VAR_NOTES: usize = 4;
 
-/// A window in the middle of the app's, of a size its content gives it.
+/// The variable sets saved in `dir`, each read ([`crate::var_sets::read_all`],
+/// the files read again only when they change, kept in `ctx`'s memory).
+fn read_sets(
+    ctx: &egui::Context,
+    dir: Option<&std::path::Path>,
+) -> Vec<(String, Result<Vec<VarRow>, String>)> {
+    let id = egui::Id::new("variable-sets-read");
+    let mut kept: crate::var_sets::Read = ctx.data_mut(|d| d.remove_temp(id)).unwrap_or_default();
+    let read = crate::var_sets::read_all(dir, &mut kept);
+    ctx.data_mut(|d| d.insert_temp(id, kept));
+    read
+}
+
+/// A set's name as the menu and the Variable Sets window list it: one
+/// whose file isn't a set marked so, why in its tip.
+fn not_a_set(ui: &Ui, name: &str) -> egui::RichText {
+    egui::RichText::new(format!("{name} (not a set)")).color(ui.visuals().warn_fg_color)
+}
+
 /// The Variable Sets window: the saved sets, each renamed or deleted (the
 /// one deleted last put back), and their folder opened.
 fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWindow>) {
@@ -675,7 +693,8 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
         *sets = None;
         return;
     };
-    let names = crate::var_sets::list(Some(&dir));
+    let read = read_sets(ctx, Some(&dir));
+    let names: Vec<String> = read.iter().map(|(n, _)| n.clone()).collect();
     let mut open = true;
     let mut close = false;
     let window = dialog(ctx, "Variable Sets", &mut open).collapsible(false).resizable(false);
@@ -763,8 +782,12 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
         }
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
             egui::Grid::new("variable-sets").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
-                for name in &names {
-                    ui.label(name);
+                for (name, set) in &read {
+                    // (What it holds in its tip; one that isn't a set, why.)
+                    match set {
+                        Ok(rows) => ui.label(name).on_hover_text(crate::var_sets::describe(rows)),
+                        Err(e) => ui.label(not_a_set(ui, name)).on_hover_text(e),
+                    };
                     if ui.small_button("Rename…").clicked() {
                         w.renaming = Some((name.clone(), name.clone()));
                     }
@@ -1155,27 +1178,37 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // Variable sets, kept in Moonglow's data folder, and in
                     // files anywhere.
                     let dir = app.var_set_dir.clone();
-                    let names = crate::var_sets::list(dir.as_deref());
                     ui.menu_button("Add Set", |ui| {
+                        // (Read as the menu is drawn: what each holds is its
+                        // tip, and a file that isn't a set is said so.)
+                        let read = read_sets(ui.ctx(), dir.as_deref());
                         if dir.is_none() {
                             ui.weak("Moonglow has no data folder to keep sets in");
-                        } else if names.is_empty() {
+                        } else if read.is_empty() {
                             ui.weak("No variable sets saved yet");
                         }
-                        for n in &names {
-                            if ui.button(n).clicked() {
-                                let dir = dir.as_deref().expect("listed");
-                                match crate::var_sets::load(dir, n) {
-                                    Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
-                                    Err(e) => app.log.error(format!("Add Set: {e}")),
+                        for (n, set) in read {
+                            match set {
+                                Ok(rows) => {
+                                    let tip = crate::var_sets::describe(&rows);
+                                    if ui.button(n).on_hover_text(tip).clicked() {
+                                        crate::var_sets::merge(&mut edit.rows, rows);
+                                        ui.close();
+                                    }
                                 }
-                                ui.close();
+                                Err(e) => {
+                                    let b = egui::Button::new(not_a_set(ui, &n));
+                                    ui.add_enabled(false, b).on_disabled_hover_text(e);
+                                }
                             }
                         }
                         ui.separator();
                         if ui
                             .button("Add from File…")
-                            .on_hover_text("Add the variables of a set file (.vars.json) anywhere")
+                            .on_hover_text(
+                                "Add the variables of set files (.vars.json) anywhere, one or \
+                                 several",
+                            )
                             .clicked()
                         {
                             add_file = true;
@@ -1223,10 +1256,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         )
                         .clicked();
                 });
-                if add_file && let Some(path) = app.dialogs.open_file(FileKind::VariableSet, None) {
-                    match crate::var_sets::load_file(&path) {
-                        Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
-                        Err(e) => app.log.error(format!("Add from File: {e}")),
+                // (Several at once, in the order chosen: a later file's
+                // variable of a name an earlier one has takes its value.)
+                if add_file {
+                    for path in app.dialogs.open_files(FileKind::VariableSet, None) {
+                        match crate::var_sets::load_file(&path) {
+                            Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                            Err(e) => app.log.error(format!("Add from File: {e}")),
+                        }
                     }
                 }
                 if save_file

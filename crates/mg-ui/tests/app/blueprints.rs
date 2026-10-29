@@ -2158,6 +2158,8 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     let sets = scratch.join("sets");
     mg_ui::var_sets::save(&sets, "Loot", &[VarRow::new("MG_LOOT", 1, "3")]).unwrap();
     mg_ui::var_sets::save(&sets, "Doors", &[VarRow::new("MG_LOCKED", 1, "1")]).unwrap();
+    // (A file edited by hand that isn't a set.)
+    std::fs::write(sets.join("Broken.vars.json"), "{ \"variables\": [").unwrap();
     h.state_mut().var_set_dir = Some(sets.clone());
     h.run();
     h.get_by_label("Advanced").click();
@@ -2170,10 +2172,23 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     for label in ["Doors", "Loot", "Add from File…", "Manage Sets…", "Open Sets Folder"] {
         assert!(h.query_by_label(label).is_some(), "{label}");
     }
+    // The one that isn't a set is said so, and can't be added; what a set
+    // holds is its tip.
+    assert!(h.get_by_label("Broken (not a set)").accesskit_node().is_disabled());
+    h.get_by_label("Loot").hover();
+    h.run();
+    assert!(h.query_by_label("MG_LOOT (int) = 3").is_some(), "Loot's tip");
     h.get_by_label("Manage Sets…").click();
     h.run();
     assert!(h.query_by_label("Add from File…").is_none(), "the menu closed");
     assert!(h.query_by_label_contains(&sets.display().to_string()).is_some(), "the folder");
+    // There too; deleted (it is a file all the same), the rest as they were.
+    h.get_by_label("Broken (not a set)");
+    h.get_all_by_label("Delete").next().unwrap().click();
+    h.run();
+    assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Doors", "Loot"]);
+    h.get_by_label("✖").click();
+    h.run();
     // Rename… Loot (the second): refused over Doors and a name that isn't
     // a file's, then renamed.
     h.get_all_by_label("Rename…").nth(1).unwrap().click();
@@ -2231,14 +2246,23 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
         saved.iter().map(|r| (r.name.as_str(), r.value.as_str())).collect::<Vec<_>>(),
         [("MG_LOOT", "9")]
     );
-    // Add from File…: merged as Add Set does.
+    // Add from File…: merged as Add Set does, several files at once (a
+    // later one's variable of a name taking its value).
     std::fs::write(
         &file,
         "{\"variables\": [{\"name\": \"MG_LOOT\", \"type\": \"int\", \"value\": 5}, \
          {\"name\": \"MG_SAY\", \"type\": \"string\", \"value\": \"Hail\"}]}",
     )
     .unwrap();
-    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![file], ..Default::default() });
+    let other = scratch.join("elsewhere").join("more.vars.json");
+    std::fs::write(
+        &other,
+        "{\"variables\": [{\"name\": \"MG_SAY\", \"type\": \"string\", \"value\": \"Begone\"}, \
+         {\"name\": \"MG_RATE\", \"type\": \"float\", \"value\": 0.5}]}",
+    )
+    .unwrap();
+    let many = vec![vec![file, other]];
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open_many: many, ..Default::default() });
     h.get_by_label("Add Set").click();
     h.run();
     h.get_by_label("Add from File…").click();
@@ -2246,7 +2270,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     let rows = &h.state().var_edit.as_ref().unwrap().rows;
     assert_eq!(
         rows.iter().map(|r| (r.name.as_str(), r.kind, r.value.as_str())).collect::<Vec<_>>(),
-        [("MG_LOOT", 1, "5"), ("MG_SAY", 3, "Hail")]
+        [("MG_LOOT", 1, "5"), ("MG_SAY", 3, "Begone"), ("MG_RATE", 2, "0.5")]
     );
     // Open Sets Folder makes the folder when it isn't there yet.
     let fresh = scratch.join("fresh");

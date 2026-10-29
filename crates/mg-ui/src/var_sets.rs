@@ -112,6 +112,67 @@ pub fn rename(dir: &Path, from: &str, to: &str) -> Result<(), String> {
     SHELF.rename(Some(dir), from, to)
 }
 
+/// The sets saved in `dir`, by name, each read: its variables, or why its
+/// file isn't a set (bad JSON, an unknown type), which the menu and the
+/// Variable Sets window say beside its name. A file is read again when
+/// its size or modified time changes (`kept`, from the last call: a
+/// window lists them every frame).
+pub fn read_all(dir: Option<&Path>, kept: &mut Read) -> Vec<(String, Result<Vec<VarRow>, String>)> {
+    let names = list(dir);
+    let mut out = Vec::with_capacity(names.len());
+    let mut now = Read::default();
+    for name in names {
+        let Ok(path) = SHELF.file(dir, &name) else { continue };
+        let stamp = std::fs::metadata(&path).ok().map(|m| (m.len(), m.modified().ok()));
+        let read = match kept.0.remove(&path) {
+            Some((was, read)) if was == stamp => read,
+            _ => load(dir.expect("listed"), &name),
+        };
+        now.0.insert(path, (stamp, read.clone()));
+        out.push((name, read));
+    }
+    *kept = now;
+    out
+}
+
+/// The sets as [`read_all`] last read them, by file.
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::type_complexity)]
+pub struct Read(
+    std::collections::HashMap<
+        PathBuf,
+        (Option<(u64, Option<std::time::SystemTime>)>, Result<Vec<VarRow>, String>),
+    >,
+);
+
+/// The most variables a set's summary names ([`describe`]).
+const DESCRIBED: usize = 12;
+
+/// What a set holds, as its tip says it: a variable a line, `NAME (type)
+/// = value`, the first [`DESCRIBED`] and how many more.
+pub fn describe(rows: &[VarRow]) -> String {
+    if rows.is_empty() {
+        return "No variables".to_string();
+    }
+    let kind = |k: u32| match k {
+        1 => "int",
+        2 => "float",
+        _ => "string",
+    };
+    let mut lines: Vec<String> = rows
+        .iter()
+        .take(DESCRIBED)
+        .map(|r| match r.kind {
+            3 => format!("{} ({}) = \"{}\"", r.name, kind(r.kind), r.value),
+            k => format!("{} ({}) = {}", r.name, kind(k), r.value),
+        })
+        .collect();
+    if rows.len() > DESCRIBED {
+        lines.push(format!("and {} more", rows.len() - DESCRIBED));
+    }
+    lines.join("\n")
+}
+
 /// What a set's file is called: `NAME.vars.json`.
 pub fn file_name(name: &str) -> String {
     format!("{}{}", name.trim(), SHELF.suffix)
@@ -219,5 +280,38 @@ mod tests {
         std::fs::write(scratch.join("bad.vars.json"), "{}").unwrap();
         let e = load_file(&scratch.join("bad.vars.json")).unwrap_err();
         assert!(e.contains("bad.vars.json") && e.contains("no \"variables\""), "{e}");
+    }
+
+    /// Every set read, a file that isn't one said so by its name; read
+    /// again when it changes, and summed up for its tip.
+    #[test]
+    fn sets_are_read_with_those_that_are_not_sets_said() {
+        let dir = mg_testkit::scratch_dir("ui-var-sets-read").join("variable-sets");
+        let rows: Vec<VarRow> =
+            (0..14).map(|i| VarRow::new(&format!("MG_V{i:02}"), 1, &i.to_string())).collect();
+        save(&dir, "Many", &rows).unwrap();
+        save(&dir, "Say", &[VarRow::new("MG_SAY", 3, "Hail"), VarRow::new("MG_F", 2, "0.5")])
+            .unwrap();
+        std::fs::write(dir.join("Broken.vars.json"), "{ \"variables\": [").unwrap();
+        let mut kept = Read::default();
+        let read = read_all(Some(&dir), &mut kept);
+        let names: Vec<&str> = read.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["Broken", "Many", "Say"]);
+        assert!(read[0].1.as_ref().unwrap_err().contains("Broken"), "{:?}", read[0].1);
+        let say = describe(read[2].1.as_ref().unwrap());
+        assert_eq!(say, "MG_SAY (string) = \"Hail\"\nMG_F (float) = 0.5");
+        let many = describe(read[1].1.as_ref().unwrap());
+        assert_eq!(many.lines().count(), 13);
+        assert!(many.starts_with("MG_V00 (int) = 0\n") && many.ends_with("and 2 more"), "{many}");
+        assert_eq!(describe(&[]), "No variables");
+        // Mended by hand: read again.
+        std::fs::write(dir.join("Broken.vars.json"), "{ \"variables\": [] }").unwrap();
+        let read = read_all(Some(&dir), &mut kept);
+        assert_eq!(read[0].1.as_ref().map(Vec::len), Ok(0));
+        // Gone: forgotten.
+        std::fs::remove_file(dir.join("Many.vars.json")).unwrap();
+        assert_eq!(read_all(Some(&dir), &mut kept).len(), 2);
+        assert_eq!(kept.0.len(), 2);
+        assert!(read_all(None, &mut kept).is_empty());
     }
 }
