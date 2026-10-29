@@ -1719,13 +1719,6 @@ contribution itself states as not done or not checked.
   doesn't; whether the client would use one isn't known. (S) (waits on
   the download test above: a `dialogf.tlk` published, a woman's
   character given its text or not)
-- **No upload**: the folder is copied to the web server by hand (its
-  pruning is done: Remove Unused Data and `mg nwsync-prune`, as
-  `nwn_nwsync_prune`, 2026-10-29). An upload would need a way in that
-  the builder's server takes (SFTP, an S3 bucket, a web server's own),
-  a new dependency for it and the credentials kept; the triage proposed
-  dropping it, the web server being the builder's own. (S to M) (waits
-  on the owner's word: drop it, or which way in)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
   so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to

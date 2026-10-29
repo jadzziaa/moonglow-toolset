@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
+description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:40:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:15:00Z }
 ---
 
 # Options
@@ -28,6 +28,13 @@ the module is opened again from its file.
   view) and **Copy to Scratch Folder** (the module tree) copy a script
   with its compiled script, or an area, as loose files. Empty: asked for
   the first time. See [Modules](03-modules.md).
+- **NWSync upload command**: what **Upload** in Build › Publish to
+  NWSync runs to send the repository to your web server, once for each
+  part (`{part}`: `data`, then `manifests`, then `latest`), in the
+  repository's folder (`{folder}`); **It reads what I type** gives it a
+  line under its output, as a project's command with `input = true`.
+  A project's `[nwsync] upload` is used in its place. See [Uploading to
+  the web server](09-build-and-test.md#uploading-to-the-web-server).
 
 ## Area
 

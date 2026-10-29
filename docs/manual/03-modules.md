@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:15:00Z }
 ---
 
 # Modules
@@ -583,7 +583,7 @@ beside it, named by it, as its folder holds other modules too:
 `krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
 `krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a
 builder's own is not read (the log says so): `[claims]`, `[commands]`,
-`[plugins]`, `[builder]` and `.moonglow/user.toml` are a module
+`[nwsync]`, `[plugins]`, `[builder]` and `.moonglow/user.toml` are a module
 folder's or a nasher project's. Without the file, Moonglow does what it
 does for any module.
 
@@ -622,6 +622,9 @@ protected = ["kz_*"]                # areas whose Tag and ResRef are kept, besid
 update = "bin/update"
 submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
 
+[nwsync]                            # Publish to NWSync's Upload, once for each part
+upload = "rsync -a {part} builder@nwsync.example.org:/srv/nwsync/"
+
 [plugins]
 folder = "plugins"                  # the project's own plugins (as without it)
 
@@ -652,6 +655,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
+| `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
 | `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 
