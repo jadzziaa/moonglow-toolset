@@ -3,8 +3,9 @@
 //! table beside it when there is one. The table is a file of its own in the
 //! user's `tlk/` folder, saved with the module, with its own undo; a module
 //! kept in a nasher project may keep it there as JSON instead, one a
-//! language, saved as `nwn_tlk` writes it. A table found in a hak or the
-//! module is shown read-only. Open File and New File edit a `.tlk` anywhere
+//! language, saved as `nwn_tlk` writes it; one kept in the module (a
+//! `.tlk` among its resources) is saved into it, with it. A table found
+//! in a hak is shown read-only. Open File and New File edit a `.tlk` anywhere
 //! instead, with or without a module open.
 
 use egui::Ui;
@@ -243,9 +244,32 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     if !t.is_dirty() || !t.editable() {
         return true;
     }
-    match t.save() {
+    // (One kept in the module goes into it as a step, which the module's
+    // own save then writes, as a 2DA of the module's does.)
+    let mut into_module = Vec::new();
+    let saved = t.save_with_module(&mut |key, data| {
+        into_module.push(mg_edit::Edit::SetResource { key, data: Some(data) });
+        Ok(())
+    });
+    let saved = saved.and_then(|()| match into_module.is_empty() {
+        true => Ok(()),
+        false => {
+            let command = mg_edit::Command::new("Save talk table", into_module);
+            app.apply(command).map_err(|e| e.to_string())
+        }
+    });
+    let Some(t) = &mut app.talk else { return true };
+    match saved {
         Ok(()) => {
-            app.log.info(format!("Saved talk table {} ({} lines)", t.source, t.len()));
+            let in_module = t.source == talk::Source::Module;
+            match in_module {
+                true => app.log.info(format!(
+                    "Talk table {} ({} lines) put into the module: the module's Save writes it",
+                    t.name,
+                    t.len()
+                )),
+                false => app.log.info(format!("Saved talk table {} ({} lines)", t.source, t.len())),
+            }
             // (Written here: not a change made outside, for `read_again`:
             // its files' times now are the ones known.)
             let files = std::iter::once(&t.source).chain(t.feminine.as_ref().map(|(s, _)| s));
@@ -253,6 +277,9 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
                 .map(|p| (p.to_path_buf(), std::fs::metadata(p).and_then(|m| m.modified()).ok()))
                 .collect();
             app.talk_view.stamps = Some(stamps);
+            if in_module {
+                app.refresh_module_layer();
+            }
             app.reload_custom_tlk();
             true
         }
@@ -646,8 +673,8 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if !editable {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            "This table is in a hak or the module: change it where that is built (Moonglow \
-             edits tables in the tlk folder).",
+            "This table is in a hak: change it where the hak is built (Moonglow edits tables \
+             in the tlk folder and in the module).",
         );
     }
     let mut changed = false;

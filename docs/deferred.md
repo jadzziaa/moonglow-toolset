@@ -759,9 +759,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
-- **Talk tables in a hak or the module** are read-only: Moonglow edits
-  only tables in the `tlk` folder. A table kept in the module could be
-  edited and saved with it. (S)
 - **Talk tables from a terminal:** `mg tlk-export` and `mg tlk-import`
   write and read a `.tlk` file as JSON or CSV. The JSON is `nwn_tlk`'s
   (compared with it: `apps/mg/tests/tlk_io.rs`, which found the sound

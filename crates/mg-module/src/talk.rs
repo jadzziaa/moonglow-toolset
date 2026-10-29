@@ -20,8 +20,12 @@ use mg_tlk::{FLAG_SOUND, FLAG_SOUND_LENGTH, FLAG_TEXT, Tlk, TlkEntry};
 /// Where a talk table was found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
-    /// A layer of the resource manager: a hak or the module, by its label.
+    /// A layer of the resource manager other than the module: a hak, by
+    /// its label.
     Layer(String),
+    /// A resource of the module's own (`name.tlk` in it), saved with it
+    /// ([`Table::save_with_module`]).
+    Module,
     /// A file in a `tlk/` folder.
     File(PathBuf),
     /// A nasher project's JSON file (`<name>.tlk.json`; `<name>.tlk.csv`
@@ -35,8 +39,14 @@ impl Source {
     pub fn file(&self) -> Option<&Path> {
         match self {
             Source::File(p) | Source::Json { path: p, .. } => Some(p),
-            Source::Layer(_) => None,
+            Source::Layer(_) | Source::Module => None,
         }
+    }
+
+    /// Whether a table here can be changed and saved: a file of its own,
+    /// or the module's (saved with it); not a hak's.
+    pub fn writable(&self) -> bool {
+        self.file().is_some() || *self == Source::Module
     }
 }
 
@@ -44,6 +54,7 @@ impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Source::Layer(l) => f.write_str(l),
+            Source::Module => f.write_str("the module"),
             Source::File(p) | Source::Json { path: p, .. } => write!(f, "{}", p.display()),
         }
     }
@@ -97,8 +108,12 @@ pub fn find(rm: &ResMan, tlk_dirs: &[PathBuf], name: &str) -> Option<Found> {
     if let Some(key) = ResKey::parse(name, ResType::TLK)
         && let Ok(data) = rm.get(&key)
     {
-        let label = rm.origin(&key).unwrap_or("?").to_string();
-        return Some(Found { source: Source::Layer(label), data: data.into_owned() });
+        let layer = rm.find(&key).map(|i| &rm.layers()[i]);
+        let source = match layer {
+            Some(l) if l.priority == mg_resman::priority::MODULE => Source::Module,
+            l => Source::Layer(l.map_or("?", |l| l.label.as_str()).to_string()),
+        };
+        return Some(Found { source, data: data.into_owned() });
     }
     tlk_dirs.iter().find_map(|d| {
         let path = d.join(format!("{name}.tlk"));
@@ -264,9 +279,10 @@ impl Table {
         self.game.map_or(language.codepage(), |g| g.for_language(language))
     }
 
-    /// Whether it can be saved: a file, not part of a hak or the module.
+    /// Whether it can be saved: a file, or the module's (saved with it);
+    /// not part of a hak.
     pub fn editable(&self) -> bool {
-        self.source.file().is_some() && self.feminine.as_ref().is_none_or(|f| f.0.file().is_some())
+        self.source.writable() && self.feminine.as_ref().is_none_or(|f| f.0.writable())
     }
 
     pub fn len(&self) -> usize {
@@ -729,7 +745,35 @@ impl Table {
     /// project's JSON as `nwn_tlk` writes it (and not at all where it has
     /// that already).
     pub fn save(&mut self) -> Result<(), String> {
+        self.save_with_module(&mut |key, _| Err(format!("{key} is the module's: save the module")))
+    }
+
+    /// [`save`](Self::save), a table kept in the module (and its feminine
+    /// table, if there) handed to `module` as its resource's bytes, for
+    /// the module's save to write; nothing is saved if it refuses.
+    pub fn save_with_module(
+        &mut self,
+        module: &mut dyn FnMut(ResKey, Vec<u8>) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if let Some((_, fem)) = &mut self.feminine {
+            while fem.entries.len() < self.tlk.entries.len() {
+                fem.entries.push(self.tlk.entries[fem.entries.len()].clone());
+            }
+        }
+        let names = [self.name.clone(), self::feminine(&self.name)];
+        let tables = std::iter::once((&self.source, &self.tlk))
+            .chain(self.feminine.as_ref().map(|(s, t)| (s, t)));
+        for ((source, tlk), name) in tables.zip(&names) {
+            if *source == Source::Module {
+                let key = ResKey::parse(name, ResType::TLK)
+                    .ok_or_else(|| format!("{name:?} isn't a resource name"))?;
+                module(key, tlk.to_bytes().map_err(|e| e.to_string())?)?;
+            }
+        }
         let write = |source: &Source, tlk: &Tlk| -> Result<(), String> {
+            if *source == Source::Module {
+                return Ok(());
+            }
             if let Source::Json { path, style } = source {
                 return crate::nasher::write_talk_table(path, tlk, *style).map(|_| ());
             }
@@ -744,10 +788,7 @@ impl Table {
                 .and_then(|()| std::fs::rename(&tmp, path))
                 .map_err(|e| format!("{}: {e}", path.display()))
         };
-        if let Some((source, fem)) = &mut self.feminine {
-            while fem.entries.len() < self.tlk.entries.len() {
-                fem.entries.push(self.tlk.entries[fem.entries.len()].clone());
-            }
+        if let Some((source, fem)) = &self.feminine {
             write(source, fem)?;
         }
         write(&self.source, &self.tlk)?;
@@ -900,6 +941,47 @@ mod tests {
         assert!(e.contains("mytlk.tlk.json") && e.contains("language"), "{e}");
     }
 
+    /// A table kept in the module is edited and handed to the module's
+    /// save; one of a hak's is not edited here.
+    #[test]
+    fn a_module_s_table_is_saved_into_it() {
+        let dir = std::env::temp_dir().join(format!("mg-talk-module-{}", std::process::id()));
+        let mut t = Table::create("mine", &dir, Language::ENGLISH, true);
+        t.source = Source::Module;
+        assert!(t.editable());
+        assert!(!Source::Layer("my.hak".into()).writable() && Source::Module.writable());
+        let line = Line {
+            text: "Hail".into(),
+            feminine: Some("Hail, lady".into()),
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        t.add_line(&line).unwrap();
+        // Not without the module.
+        assert!(t.save().unwrap_err().contains("mine.tlk is the module's"));
+        let mut handed = Vec::new();
+        t.save_with_module(&mut |k, data| {
+            handed.push((k, data));
+            Ok(())
+        })
+        .unwrap();
+        assert!(!t.is_dirty());
+        assert_eq!(handed.len(), 1, "the feminine table is a file of its own here");
+        assert_eq!(handed[0].0.to_string(), "mine.tlk");
+        let tlk = Tlk::read(&handed[0].1).unwrap();
+        assert_eq!(tlk.text(StrRef(0)).as_deref(), Some("Hail"));
+        let f = Tlk::read(&std::fs::read(dir.join("minef.tlk")).unwrap()).unwrap();
+        assert_eq!(f.text(StrRef(0)).as_deref(), Some("Hail, lady"));
+        // A module that refuses it: not saved.
+        t.add_line(&line).unwrap();
+        assert!(t.save_with_module(&mut |_, _| Err("no".into())).is_err());
+        assert!(t.is_dirty());
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut t = Table::create("mine", &dir, Language::ENGLISH, false);
+        t.source = Source::Layer("my.hak".into());
+        assert!(!t.editable());
+    }
+
     #[test]
     fn haks_then_the_module_then_the_folder() {
         let dir = std::env::temp_dir().join(format!("mg-talk-{}", std::process::id()));
@@ -917,7 +999,7 @@ mod tests {
         let mut module = MemContainer::new();
         module.insert(key, b"module".to_vec());
         rm.add(priority::MODULE, "module", LayerClass::Erf, module);
-        assert_eq!(got(&rm, "mine"), Some((Source::Layer("module".into()), b"module".to_vec())));
+        assert_eq!(got(&rm, "mine"), Some((Source::Module, b"module".to_vec())));
         let mut hak = MemContainer::new();
         hak.insert(key, b"hak".to_vec());
         rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
