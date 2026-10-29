@@ -78,16 +78,16 @@ pub(crate) fn let_run(mut child: std::process::Child) {
     });
 }
 
-/// How many games started for a test are still running.
-static GAMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// The games started for a test that are still running, by process id.
+static GAMES: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
 
-/// [`let_run`] for the game started for a test: counted while it runs.
+/// [`let_run`] for the game started for a test: known while it runs.
 pub(crate) fn let_game_run(mut child: std::process::Child) {
-    use std::sync::atomic::Ordering;
-    GAMES.fetch_add(1, Ordering::SeqCst);
+    let pid = child.id();
+    GAMES.lock().unwrap_or_else(|e| e.into_inner()).push(pid);
     std::thread::spawn(move || {
         let _ = child.wait();
-        GAMES.fetch_sub(1, Ordering::SeqCst);
+        GAMES.lock().unwrap_or_else(|e| e.into_inner()).retain(|p| *p != pid);
     });
 }
 
@@ -95,12 +95,193 @@ pub(crate) fn let_game_run(mut child: std::process::Child) {
 /// test would write the test module under it (Test From Here writes it
 /// anew each time), and the game then reports a corrupt module.
 pub(crate) fn game_running() -> bool {
-    GAMES.load(std::sync::atomic::Ordering::SeqCst) > 0
+    !GAMES.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+}
+
+/// The game client's program names, on the three systems.
+pub(crate) const CLIENT_NAMES: [&str; 3] = ["nwmain-linux", "nwmain", "nwmain.exe"];
+
+/// A program running on this machine, found by its name ([`running`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Running {
+    pub pid: u32,
+    /// Its arguments, where the system tells another program's (Linux and
+    /// macOS; not Windows).
+    pub args: Option<Vec<String>>,
+}
+
+impl Running {
+    /// Whether it was started on the module `name` (`+TestNewModule` or
+    /// `+LoadNewModule` and the name, as a test starts the game); `None`
+    /// where its arguments are not known.
+    pub(crate) fn plays(&self, name: &str) -> Option<bool> {
+        let args = self.args.as_ref()?;
+        let start = |a: &str| a == "+TestNewModule" || a == "+LoadNewModule";
+        if args.windows(2).any(|w| start(&w[0]) && w[1].eq_ignore_ascii_case(name)) {
+            return Some(true);
+        }
+        // (macOS's `ps` gives the command line as one, its arguments by
+        // spaces, a name's own spaces too: the name then ends it, or is
+        // followed by another option.)
+        let line = args.join(" ").to_lowercase();
+        let name = name.to_lowercase();
+        let plays = ["+testnewmodule ", "+loadnewmodule "].iter().any(|start| {
+            line.match_indices(start).any(|(at, _)| {
+                let rest = &line[at + start.len()..];
+                rest.strip_prefix(name.as_str())
+                    .is_some_and(|r| r.is_empty() || r.starts_with(" +") || r.starts_with(" -"))
+            })
+        });
+        Some(plays)
+    }
+}
+
+/// The programs running whose name is one of `names` (case aside), as the
+/// system lists them; read only: nothing is ever stopped (the user may be
+/// playing). Empty where the list can't be read.
+pub(crate) fn running(names: &[&str]) -> Vec<Running> {
+    let named = |n: &str| names.iter().any(|m| m.eq_ignore_ascii_case(n));
+    let mut out = Vec::new();
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(entries) = std::fs::read_dir("/proc") else { return out };
+        for e in entries.flatten() {
+            let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+                continue;
+            };
+            // (By the program's file, or by the name it was started by,
+            // `comm`, cut at 15 bytes: a link's.)
+            let exe = std::fs::read_link(e.path().join("exe")).ok();
+            let exe = exe.as_deref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy());
+            let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
+            if !exe.is_some_and(|n| named(n.trim_end_matches(" (deleted)")))
+                && !named(comm.trim_end())
+            {
+                continue;
+            }
+            let args = std::fs::read(e.path().join("cmdline")).ok().map(|b| {
+                b.split(|c| *c == 0)
+                    .filter(|a| !a.is_empty())
+                    .map(|a| String::from_utf8_lossy(a).into_owned())
+                    .collect()
+            });
+            out.push(Running { pid, args });
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // (`ps`'s accounting name, the program's own without its path,
+        // which has spaces: `Neverwinter Nights`; then its command line.)
+        let Ok(ps) = Command::new("ps").args(["-ax", "-o", "pid=,ucomm=,args="]).output() else {
+            return out;
+        };
+        for line in String::from_utf8_lossy(&ps.stdout).lines() {
+            if let Some((pid, name, args)) = ps_line(line)
+                && named(name)
+            {
+                out.push(Running { pid, args: Some(vec![args.to_string()]) });
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // (No console window flashing up for it.)
+        const NO_WINDOW: u32 = 0x0800_0000;
+        let Ok(list) =
+            Command::new("tasklist").args(["/FO", "CSV", "/NH"]).creation_flags(NO_WINDOW).output()
+        else {
+            return out;
+        };
+        for line in String::from_utf8_lossy(&list.stdout).lines() {
+            let cells: Vec<&str> = line.split("\",\"").map(|c| c.trim_matches('"')).collect();
+            if let [name, pid, ..] = cells[..]
+                && named(name)
+                && let Ok(pid) = pid.parse()
+            {
+                out.push(Running { pid, args: None });
+            }
+        }
+    }
+    let _ = &named;
+    out
+}
+
+/// A line of `ps -o pid=,ucomm=,args=`: the process, its name and its
+/// command line, the columns padded with spaces.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn ps_line(line: &str) -> Option<(u32, &str, &str)> {
+    let word = |s: &str| -> (usize, usize) {
+        let start = s.len() - s.trim_start().len();
+        let end = s[start..].find(char::is_whitespace).map_or(s.len(), |e| start + e);
+        (start, end)
+    };
+    let (a, b) = word(line);
+    let pid = line[a..b].parse().ok()?;
+    let rest = &line[b..];
+    let (c, d) = word(rest);
+    (c < d).then(|| (pid, &rest[c..d], rest[d..].trim()))
+}
+
+/// The game clients running that Moonglow did not start for a test (one
+/// the user started, or one left by an earlier session of Moonglow).
+pub(crate) fn other_games() -> Vec<Running> {
+    let own = GAMES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    running(&CLIENT_NAMES).into_iter().filter(|g| !own.contains(&g.pid)).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A program running is found by its name, with its arguments where
+    /// the system tells them, and is said to play the module its
+    /// `+TestNewModule` names (GitHub issue 6: a game Moonglow did not
+    /// start had the test module written under it).
+    #[cfg(unix)]
+    #[test]
+    fn a_running_program_is_found_by_its_name() {
+        // (A shell that stays, with the arguments a test gives the game.)
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30; true", "sh", "+TestNewModule", "moonglow-test"])
+            .spawn()
+            .unwrap();
+        let found = running(&["SH"]);
+        let me = found.iter().find(|r| r.pid == child.id()).cloned();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let me = me.unwrap_or_else(|| panic!("not found: {found:?}"));
+        assert_eq!(me.plays("Moonglow-Test"), Some(true));
+        assert_eq!(me.plays("other"), Some(false));
+        assert!(running(&["no-such-program-of-moonglow"]).is_empty());
+        let unknown = Running { pid: 1, args: None };
+        assert_eq!(unknown.plays("moonglow-test"), None);
+    }
+
+    /// `ps`'s padded columns read (macOS), a path with spaces in the
+    /// command line kept whole for the module's name to be found in it.
+    #[test]
+    fn a_line_of_ps_is_read() {
+        let line = "  4242 nwmain           /Users/a/Neverwinter Nights/bin/macos/nwmain.app/Contents/\
+                    MacOS/nwmain -userdirectory /Users/a/nwn +TestNewModule My Module";
+        let (pid, name, args) = ps_line(line).unwrap();
+        assert_eq!((pid, name), (4242, "nwmain"));
+        let game = Running { pid, args: Some(vec![args.to_string()]) };
+        assert_eq!(game.plays("my module"), Some(true));
+        assert_eq!(game.plays("My"), Some(false));
+        assert_eq!(ps_line("  17 "), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_running_program_is_found_by_its_name() {
+        let mut child = Command::new("ping").args(["-n", "30", "127.0.0.1"]).spawn().unwrap();
+        let found = running(&["ping.exe"]);
+        let me = found.iter().any(|r| r.pid == child.id());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(me, "not found: {found:?}");
+    }
 
     /// A program let run leaves nothing behind when it ends: no "defunct"
     /// entry waiting for Moonglow to collect it.

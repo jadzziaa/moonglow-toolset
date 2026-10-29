@@ -1615,3 +1615,68 @@ fn closing_the_window_asks_first() {
     h.run_steps(3);
     assert!(h.state().quit_requested);
 }
+
+/// Test Module and a game running that Moonglow did not start (GitHub
+/// issue 6): one started on the module stops the test (the module would be
+/// written under it), as one Moonglow started does; another is warned of
+/// and the test goes on. Never stopped. (Stand-ins named as the client: a
+/// shell for the game running, `true` for the client the test starts.)
+#[cfg(target_os = "linux")]
+#[test]
+fn a_game_moonglow_did_not_start_is_known_before_a_test() {
+    let dir = mg_testkit::scratch_dir("ui-other-game");
+    let (root, user, elsewhere) = (dir.join("root"), dir.join("user"), dir.join("elsewhere"));
+    let client = root.join("bin/linux-x86/nwmain-linux");
+    for d in [client.parent().unwrap(), &user.join("modules"), &elsewhere] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let (Some(sh), Some(truth)) = (which("sh"), true_program()) else { return };
+    std::fs::copy(&truth, &client).unwrap();
+    let running = elsewhere.join("nwmain-linux");
+    std::fs::copy(&sh, &running).unwrap();
+    let path = sample_module(&dir);
+    std::fs::copy(&path, user.join("modules/mgtest.mod")).unwrap();
+    let game = |module: &str| {
+        std::process::Command::new(&running)
+            .args(["-c", "sleep 30; true", "nwmain-linux", "+TestNewModule", module])
+            .spawn()
+            .unwrap()
+    };
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.open_module(&user.join("modules/mgtest.mod"));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(2);
+    let test = |h: &mut Harness<'_, Moonglow>| {
+        let from = h.state().log.entries.len();
+        h.state_mut().actions.push(mg_ui::Action::TestModule);
+        h.run_steps(3);
+        h.state().log.entries[from..].iter().map(|(_, m)| m.clone()).collect::<Vec<_>>()
+    };
+    // On the module: no test.
+    let mut on_it = game("mgtest");
+    let said = test(&mut h);
+    on_it.kill().unwrap();
+    on_it.wait().unwrap();
+    let refused =
+        format!("A game is running on mgtest (process {}), not started by Moonglow", on_it.id());
+    assert!(said.iter().any(|m| m.starts_with(&refused)), "{said:?}");
+    assert!(!said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+    // On another: warned of, and the test goes on.
+    let mut other = game("elsewhere");
+    let said = test(&mut h);
+    other.kill().unwrap();
+    other.wait().unwrap();
+    let warned = "A game is running that Moonglow did not start (process ";
+    assert!(
+        said.iter().any(|m| m.starts_with(warned) && m.contains(&other.id().to_string())),
+        "{said:?}"
+    );
+    assert!(said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+}
+
+/// A program on `PATH`.
+#[cfg(target_os = "linux")]
+fn which(name: &str) -> Option<std::path::PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
+}

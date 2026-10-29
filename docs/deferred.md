@@ -249,9 +249,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Steam hidden. With Steam running, the test then shows in Steam as the
   game being played. (needs a builder's word)
   (from builders' reports after 1.14.1)
-- **A running game** is known only if Moonglow started it for a test:
-  one started otherwise still has the test module written under it. (S)
-  (GitHub issue 6)
 
 ## Persistent-world scale
 

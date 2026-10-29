@@ -4210,6 +4210,31 @@ impl Moonglow {
         );
     }
 
+    /// Whether a test may write the module `name` and start the game on
+    /// it, as to games running that Moonglow did not start (GitHub issue
+    /// 6): not under one started on that module (closed first, as one
+    /// Moonglow started); under any other, with a warning (one started
+    /// from the game's own menu may have it open). Read only: a game is
+    /// never stopped.
+    fn other_game_allows(&mut self, name: &str) -> bool {
+        let others = test_module::other_games();
+        if let Some(game) = others.iter().find(|g| g.plays(name) == Some(true)) {
+            self.log.warn(format!(
+                "A game is running on {name} (process {}), not started by Moonglow: close it, then                  test again (the test would write the module under it)",
+                game.pid
+            ));
+            return false;
+        }
+        if !others.is_empty() {
+            let pids: Vec<String> = others.iter().map(|g| g.pid.to_string()).collect();
+            self.log.warn(format!(
+                "A game is running that Moonglow did not start (process {}): if it has {name}                  open, close it and test again, for the module is written under it",
+                pids.join(", ")
+            ));
+        }
+        true
+    }
+
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
         if test_module::game_running() {
@@ -4261,6 +4286,10 @@ impl Moonglow {
         if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
             let Some(packed) = self.pack_target() else { return };
             let Some(file) = packed.file_name() else { return };
+            let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            if !self.other_game_allows(&name) {
+                return;
+            }
             let dest = user.join("modules").join(file);
             let copied = std::fs::create_dir_all(user.join("modules"))
                 .and_then(|()| std::fs::copy(&packed, &dest).map(|_| ()));
@@ -4269,7 +4298,6 @@ impl Moonglow {
                 return;
             }
             self.log.info(format!("Installed {}", dest.display()));
-            let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
             self.launch_test(&client, user, &name, choose);
             return;
         }
@@ -4284,6 +4312,11 @@ impl Moonglow {
             ));
             return;
         };
+        // (Saved already, by Test Module's save: the game is not started
+        // on it under another that has it.)
+        if !self.other_game_allows(&name) {
+            return;
+        }
         self.launch_test(&client, user, &name, choose);
     }
 
@@ -4308,6 +4341,9 @@ impl Moonglow {
             self.log.error("Test From Here: no game client, or no user folder (Options › Folders)");
             return;
         };
+        if !self.other_game_allows(test_module::FROM_HERE) {
+            return;
+        }
         let bytes = self.test_from_here_archive(area, at, facing);
         let dest = user.join("modules").join(format!("{}.mod", test_module::FROM_HERE));
         let written = bytes.and_then(|b| {
