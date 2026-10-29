@@ -174,6 +174,19 @@ impl GameInstall {
             .collect()
     }
 
+    /// The user's own hak folder (`hak/` in the user folder), where haks
+    /// made or written go; `None` without a user folder.
+    pub fn user_hak_dir(&self) -> Option<PathBuf> {
+        self.user("hak")
+    }
+
+    /// The file of the hak `name` (without `.hak`) the game opens: the
+    /// first of [`GameInstall::hak_dirs`] that has it.
+    pub fn find_hak(&self, name: &str) -> Option<PathBuf> {
+        let file = format!("{name}.hak");
+        self.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
+    }
+
     /// Where custom talk tables are: the user's `tlk/`, then the install's
     /// `data/tlk/` (the premium campaigns' tables, beside their haks in
     /// `data/hk/`).
@@ -401,26 +414,14 @@ impl ResMan {
         let mut missing = Vec::new();
         for name in names {
             let name = name.as_ref();
-            let file = format!("{name}.hak");
-            // (A Workshop item's hak counts as the user's.)
-            let user = install
-                .user("hak")
-                .into_iter()
-                .chain(install.workshop("hak"))
-                .map(|d| d.join(&file))
-                .find(|p| p.is_file());
-            let (p, path) = match user {
-                Some(path) => (priority::HAK_USER, path),
-                None => {
-                    match Some(install.root.join("data/hk").join(&file)).filter(|p| p.is_file()) {
-                        Some(path) => (priority::HAK, path),
-                        None => {
-                            missing.push(name.to_string());
-                            continue;
-                        }
-                    }
-                }
+            let Some(path) = install.find_hak(name) else {
+                missing.push(name.to_string());
+                continue;
             };
+            // (The install's own, `data/hk/`, under the user's; a
+            // Workshop item's hak counts as the user's.)
+            let stock = path.parent() == Some(install.root.join("data").join("hk").as_path());
+            let p = if stock { priority::HAK } else { priority::HAK_USER };
             self.add(p, format!("hak:{name}"), LayerClass::Erf, ErfContainer::open(&path)?);
         }
         Ok(missing)

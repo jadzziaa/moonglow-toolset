@@ -418,8 +418,18 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         let mut rects = Vec::with_capacity(n);
         egui::ScrollArea::vertical().id_salt("ifo-haks").max_height(tall).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            if n == 0 {
-                ui.weak("No haks: the module uses the game's own resources.");
+            // (An older module's single hak, `Mod_Hak`, read where it has
+            // no list: the haks layered, `mg_module::haks_of`.)
+            match mg_module::haks_of(root).first().filter(|_| n == 0) {
+                Some(old) => {
+                    _ = ui.weak(format!(
+                        "No list of haks: the module names its hak, {old}, in the older single \
+                     field (Mod_Hak), which is read where there is no list. A hak added here \
+                     starts the list in its place: add {old} to it too, to keep it."
+                    ))
+                }
+                None if n == 0 => _ = ui.weak("No haks: the module uses the game's own resources."),
+                None => {}
             }
             for (i, h) in haks.iter().enumerate() {
                 let row = ui.horizontal(|ui| {

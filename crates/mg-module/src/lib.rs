@@ -375,25 +375,7 @@ impl Module {
     /// The module's haks, highest priority first: `Mod_HakList`, or the
     /// single pre-1.69 `Mod_Hak` field when there is no list.
     pub fn haks(&self) -> Result<Vec<String>, ModuleError> {
-        let info = self.info()?;
-        let text = |s: ExoString| String::from_utf8_lossy(s.as_bytes()).into_owned();
-        let list: Vec<String> = info
-            .root
-            .items(&ifo::MOD_HAK_LIST)
-            .iter()
-            .map(|h| text(h.read(&ifo::mod_hak_list::MOD_HAK)))
-            .filter(|h| !h.is_empty())
-            .collect();
-        if !list.is_empty() || info.root.contains(ifo::MOD_HAK_LIST.label) {
-            return Ok(list);
-        }
-        Ok(info
-            .root
-            .try_read(&ifo::MOD_HAK)
-            .map(text)
-            .filter(|h| !h.is_empty())
-            .into_iter()
-            .collect())
+        Ok(haks_of(&self.info()?.root))
     }
 
     /// The custom talk table's name (without `.tlk`), if any.
@@ -914,6 +896,22 @@ pub(crate) fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
     }
 }
 
+/// The haks a `module.ifo`'s root names, highest priority first: its
+/// `Mod_HakList`, or the single pre-1.69 `Mod_Hak` field when it has no
+/// list; names trimmed, empty ones left out. [`Module::haks`] reads the
+/// module's saved IFO by it, and the window its IFO with unsaved edits.
+pub fn haks_of(info: &mg_gff::Struct) -> Vec<String> {
+    let text = |s: ExoString| String::from_utf8_lossy(s.as_bytes()).trim().to_owned();
+    let list: Vec<String> = (info.items(&ifo::MOD_HAK_LIST).iter())
+        .map(|h| text(h.read(&ifo::mod_hak_list::MOD_HAK)))
+        .filter(|h| !h.is_empty())
+        .collect();
+    if !list.is_empty() || info.contains(ifo::MOD_HAK_LIST.label) {
+        return list;
+    }
+    info.try_read(&ifo::MOD_HAK).map(text).filter(|h| !h.is_empty()).into_iter().collect()
+}
+
 /// A GFF's root from `module` as it is now, else from the game: how a
 /// blueprint is read wherever one is needed.
 pub fn gff_root(
@@ -981,6 +979,19 @@ mod tests {
         ifo.root.set("Mod_Hak", Value::String(b"old".to_vec()));
         m.set_info(&ifo).unwrap();
         assert_eq!(m.haks().unwrap(), ["old"]);
+        assert_eq!(haks_of(&ifo.root), ["old"]);
+        // A list, even an empty one, is read in its place; names are
+        // trimmed and empty ones left out.
+        let mut list = ifo.root.clone();
+        list.set(ifo::MOD_HAK_LIST.label, Value::List(Vec::new()));
+        assert!(haks_of(&list).is_empty());
+        let row = |name: &[u8]| {
+            let mut item = ifo::MOD_HAK_LIST.new_item();
+            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(name.to_vec()));
+            item
+        };
+        list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b" top "), row(b""), row(b"low")]));
+        assert_eq!(haks_of(&list), ["top", "low"]);
     }
 
     #[test]

@@ -1074,9 +1074,9 @@ impl Moonglow {
         // module's edits may name them.
         let (mut wrote, mut wrote_files) = (false, false);
         let result = result.and_then(|outcome| {
-            let dir = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
+            let dir = self.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir);
             for hak in &outcome.haks {
-                let Some(dir) = dir.as_ref().map(|u| u.join("hak")) else {
+                let Some(dir) = dir.clone() else {
                     return Err(PluginError::Package(format!(
                         "{name}: {title}: there is no user folder to write the hak {} into",
                         hak.name

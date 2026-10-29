@@ -193,7 +193,7 @@ pub fn build_from_folder(app: &mut Moonglow) {
 
 /// The user's hak folder.
 fn hak_dir(app: &Moonglow) -> Option<PathBuf> {
-    app.install.as_ref()?.user_dir.as_ref().map(|u| u.join("hak"))
+    app.install.as_ref()?.user_hak_dir()
 }
 
 /// Saves a hak (asking where for a new one, or with `ask`). A hak the

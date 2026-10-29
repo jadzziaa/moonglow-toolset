@@ -4014,11 +4014,7 @@ impl Moonglow {
         let program = self.settings.external_compiler.clone()?;
         let haks = self.listed_haks();
         let install = self.install.as_ref();
-        let dirs = install.map(mg_resman::GameInstall::hak_dirs).unwrap_or_default();
-        let haks = haks
-            .iter()
-            .filter_map(|h| dirs.iter().map(|d| d.join(format!("{h}.hak"))).find(|p| p.is_file()))
-            .collect();
+        let haks = haks.iter().filter_map(|h| install?.find_hak(h)).collect();
         Some(mg_module::external_compiler::ExternalCompiler {
             program,
             arguments: self.settings.external_compiler_args.clone(),
@@ -4649,24 +4645,7 @@ impl Moonglow {
 
     /// The haks Module Properties lists now, unsaved changes included.
     fn listed_haks(&mut self) -> Vec<String> {
-        use mg_schema::StructExt;
-        let Some(ws) = &mut self.ws else { return Vec::new() };
-        let Ok(info) = ws.doc(&module_props::info_key()) else { return Vec::new() };
-        let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
-        let mut haks: Vec<String> = info
-            .root
-            .items(&mg_schema::ifo::MOD_HAK_LIST)
-            .iter()
-            .map(|h| text(h.read(&mg_schema::ifo::mod_hak_list::MOD_HAK).as_bytes()))
-            .filter(|h| !h.is_empty())
-            .collect();
-        if haks.is_empty() {
-            haks.extend(
-                Some(text(info.root.read(&mg_schema::ifo::MOD_HAK).as_bytes()))
-                    .filter(|h| !h.is_empty()),
-            );
-        }
-        haks
+        self.ws.as_mut().map(listed_haks).unwrap_or_default()
     }
 
     /// Layers the module's haks as Module Properties lists them, when the
@@ -5102,6 +5081,12 @@ impl Moonglow {
         let views = self.viewport.as_ref().is_some_and(|vp| vp.holds(game));
         Arc::strong_count(game) - 1 > usize::from(views)
     }
+}
+
+/// The module's haks as Module Properties lists them, unsaved changes
+/// included ([`mg_module::haks_of`], as the module's saved haks are read).
+pub(crate) fn listed_haks(ws: &mut mg_edit::Workspace) -> Vec<String> {
+    ws.doc(&module_props::info_key()).map(|info| mg_module::haks_of(&info.root)).unwrap_or_default()
 }
 
 /// What is kept for windows of `tab`'s kind (a size, a place), or for its

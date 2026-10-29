@@ -1035,7 +1035,11 @@ is Windows-1252.
 top: where two haks have a resource of the same name, the game takes the
 one from the hak higher in the list. A hak that is in none of the hak
 folders is marked **not found**: the game will not load the module until
-it is there, or taken off the list.
+it is there, or taken off the list. A module from before the list (1.69)
+names a single hak in its own field, `Mod_Hak`: Moonglow and `mg` use
+it where the module has no list, and the empty list says which it is. A
+hak added starts the list, which is then read in its place, so add that
+hak to it too.
 - **Choose** a row with a click; Ctrl + click adds or takes out a row,
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots

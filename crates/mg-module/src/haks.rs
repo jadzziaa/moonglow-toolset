@@ -70,8 +70,7 @@ pub fn hak_report(install: &GameInstall, names: &[String]) -> Result<HakReport, 
             })?;
     let mut report = HakReport::default();
     for name in names {
-        let file = format!("{name}.hak");
-        let path = install.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file());
+        let path = install.find_hak(name);
         report.haks.push((name.clone(), path.clone()));
         let Some(path) = path else { continue };
         let hak = ErfContainer::open(&path)
@@ -115,12 +114,31 @@ mod tests {
         hak(item.join("hak/shared.hak"), "shared");
         hak(root.join("data/hk/stock.hak"), "stock");
         let names = ["mine", "shared", "stock", "nowhere"].map(String::from);
-        let mut install = GameInstall::new(&root, Some(user), "en");
+        let mut install = GameInstall::new(&root, Some(user.clone()), "en");
         let found = |install: &GameInstall| -> Vec<bool> {
             hak_report(install, &names).unwrap().haks.iter().map(|(_, p)| p.is_some()).collect()
         };
         assert_eq!(found(&install), [true, false, true, false]);
         install.workshop = true;
         assert_eq!(found(&install), [true, true, true, false]);
+        // One place finds a hak's file, the user's own first.
+        assert_eq!(install.find_hak("mine"), Some(user.join("hak/mine.hak")));
+        assert_eq!(install.find_hak("stock"), Some(root.join("data/hk/stock.hak")));
+        assert_eq!(install.find_hak("nowhere"), None);
+        assert_eq!(install.user_hak_dir(), Some(user.join("hak")));
+        hak(user.join("hak/stock.hak"), "stock");
+        assert_eq!(install.find_hak("stock"), Some(user.join("hak/stock.hak")));
+        // Layered as the game has them: the user's and a Workshop item's
+        // over the install's own.
+        let mut rm = mg_resman::ResMan::new();
+        let missing = rm.add_haks(&install, &["shared", "mine", "nowhere"]).unwrap();
+        assert_eq!(missing, ["nowhere"]);
+        std::fs::remove_file(user.join("hak/stock.hak")).unwrap();
+        rm.add_haks(&install, &["stock"]).unwrap();
+        let priority =
+            |label: &str| rm.layers().iter().find(|l| l.label == label).map(|l| l.priority);
+        assert_eq!(priority("hak:shared"), Some(mg_resman::priority::HAK_USER));
+        assert_eq!(priority("hak:mine"), Some(mg_resman::priority::HAK_USER));
+        assert_eq!(priority("hak:stock"), Some(mg_resman::priority::HAK));
     }
 }

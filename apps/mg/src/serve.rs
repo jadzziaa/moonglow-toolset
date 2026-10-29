@@ -302,7 +302,7 @@ pub(crate) fn prepare(
     for hak in &haks {
         let file = format!("{hak}.hak");
         let to = dir.join("hak").join(&file);
-        match gi.hak_dirs().iter().map(|d| d.join(&file)).find(|p| p.is_file()) {
+        match gi.find_hak(hak) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}
             None if to.is_file() => {}
