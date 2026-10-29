@@ -307,10 +307,8 @@ fn export_lists_a_kind() {
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
     h.run();
-    // As Aurora's Export begins: an archive that is there is added to
-    // (Aurora asks, Yes to append first).
     let draft = h.state().export.clone().unwrap();
-    assert!(draft.add && draft.dependencies);
+    assert!(draft.dependencies);
     // Every kind, each under its heading, the tree's kinds first.
     assert!(h.query_by_label("Areas (.are)").is_some());
     assert!(h.query_by_label("Scripts (.nss)").is_some());
@@ -335,6 +333,54 @@ fn export_lists_a_kind() {
     let left = &h.state().export.as_ref().unwrap().selected;
     assert_eq!(left.len(), scripts.len() - 1);
     assert!(!left.contains(&ResKey::parse("mg_two", ResType::NSS).unwrap()));
+}
+
+/// An Export to an archive that is there asks what Aurora's asks, in its
+/// words: Yes adds the resources to it (what it held stays), No replaces
+/// it, Cancel writes nothing (Aurora's Export, captured 2026-10-29).
+#[test]
+fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
+    let dir = mg_testkit::scratch_dir("ui-export-ask");
+    let source = sample_module(&dir);
+    let erf = dir.join("kept.erf");
+    let area = ResKey::parse("start", ResType::ARE).unwrap();
+    let keep = ResKey::parse("w1_keep", ResType::NSS).unwrap();
+    let held = |path: &std::path::Path| -> Vec<ResKey> {
+        let bytes = std::fs::read(path).unwrap();
+        let archive = mg_erf::Erf::read(&bytes).unwrap();
+        archive.entries.iter().map(|e| ResKey::new(e.resref, e.restype)).collect()
+    };
+    let answer = |label: &str| {
+        // The archive there, holding one script.
+        let mut old = mg_erf::ErfWriter::new(*b"ERF ");
+        old.add(keep.resref, keep.restype, b"void main() {}\n".to_vec()).unwrap();
+        std::fs::write(&erf, old.to_bytes().unwrap()).unwrap();
+        let mut app = Moonglow::new(
+            None,
+            Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() }),
+        );
+        app.open_module(&source);
+        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
+        h.run();
+        h.get_by_label("Export 1…").click();
+        h.run();
+        // Asked first: nothing written yet.
+        assert_eq!(held(&erf), [keep], "asked before anything is written");
+        h.get_by_label_contains("already exists. Do you wish to append to it?");
+        h.get_by_label("Click YES to append to the file.");
+        h.get_by_label("Click NO to overwrite the file.");
+        h.get_by_label("Click CANCEL to do nothing.");
+        h.get_by_label(label).click();
+        h.run();
+        assert!(h.state().export_ask.is_none(), "answered");
+        held(&erf)
+    };
+    let appended = answer("Yes");
+    assert!(appended.contains(&keep) && appended.contains(&area), "{appended:?}");
+    let replaced = answer("No");
+    assert!(!replaced.contains(&keep) && replaced.contains(&area), "{replaced:?}");
+    assert_eq!(answer("Cancel"), [keep], "nothing written");
 }
 
 #[test]

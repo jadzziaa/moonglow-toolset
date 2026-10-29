@@ -2,7 +2,7 @@
 //! with what they depend on.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use egui::Ui;
@@ -24,8 +24,6 @@ pub struct ExportDraft {
     /// Move creatures in the module's own factions to the standard ones.
     pub reset_factions: bool,
     pub comments: String,
-    /// Add to the archive chosen, if there is one, instead of replacing it.
-    pub add: bool,
     /// The module's keys in the window's order, at a workspace revision,
     /// and those the kind and filter then listed: made again only when
     /// one of them changes (a module's 25,000 sorted and each named for
@@ -36,6 +34,28 @@ pub struct ExportDraft {
 /// [`ExportDraft::listed`]: the revision, kind and filter, the keys in
 /// order, and those listed.
 pub(crate) type Listed = (u64, Option<ResType>, String, Arc<Vec<ResKey>>, Arc<Vec<ResKey>>);
+
+/// An Export to an archive that is there, waiting on the question
+/// Aurora's Export asks of it: append to it (Yes), overwrite it (No), or
+/// do nothing (Cancel).
+#[derive(Debug, Clone)]
+pub struct ExportAsk {
+    pub draft: ExportDraft,
+    pub resources: Vec<ResKey>,
+    pub path: PathBuf,
+}
+
+/// The answer to [`ExportAsk`]'s question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportAnswer {
+    /// Yes: the resources are added to the archive (those of the same
+    /// names replaced; the rest and its description stay).
+    Append,
+    /// No: the archive is replaced.
+    Overwrite,
+    /// Cancel: nothing is written.
+    Cancel,
+}
 
 /// An archive being imported and what to overwrite.
 #[derive(Debug, Clone, PartialEq)]
@@ -483,22 +503,48 @@ impl Moonglow {
         let Some(path) = self.dialogs.save_file(FileKind::Erf, suggested.as_deref()) else {
             return;
         };
+        // An archive that is there: asked about first, as Aurora asks.
+        if path.exists() {
+            self.export_ask = Some(ExportAsk { draft, resources, path });
+            return;
+        }
+        self.write_export(&draft, &resources, &path, false);
+    }
+
+    /// [`ExportAsk`] answered.
+    pub fn answer_export(&mut self, answer: ExportAnswer) {
+        let Some(ask) = self.export_ask.take() else { return };
+        if answer != ExportAnswer::Cancel {
+            let append = answer == ExportAnswer::Append;
+            self.write_export(&ask.draft, &ask.resources, &ask.path, append);
+        }
+    }
+
+    /// Writes an Export's resources to `path`: added to the archive there
+    /// (`append`), or a new one in its place.
+    fn write_export(
+        &mut self,
+        draft: &ExportDraft,
+        resources: &[ResKey],
+        path: &Path,
+        append: bool,
+    ) {
         let Some(ws) = &self.ws else { return };
-        // Add to Existing File: what the archive holds stays, but for
-        // resources of the same names.
-        let existing = if draft.add { std::fs::read(&path).ok() } else { None };
+        // Appended: what the archive holds stays, but for resources of the
+        // same names.
+        let existing = if append { std::fs::read(path).ok() } else { None };
         // What it was made from follows the description (Import reads it).
         let stamp = mg_module::stamp::Stamp::of(&ws.module);
         let comments = mg_module::stamp::describe(&draft.comments, &stamp);
         let (comments, reset) = (comments.as_str(), draft.reset_factions);
         let result = match &existing {
             Some(old) => {
-                mg_module::transfer::export_into_erf(old, &ws.module, &resources, comments, reset)
+                mg_module::transfer::export_into_erf(old, &ws.module, resources, comments, reset)
             }
-            None => mg_module::transfer::export_erf(&ws.module, &resources, comments, reset),
+            None => mg_module::transfer::export_erf(&ws.module, resources, comments, reset),
         }
         .map_err(|e| e.to_string())
-        .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
+        .and_then(|bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.log.info(format!(
                 "{} {} resources to {}, stamped with {}",
@@ -512,8 +558,46 @@ impl Moonglow {
     }
 }
 
+/// The question an Export to an archive that is there asks, in Aurora's
+/// words (its Export, captured 2026-10-29): Yes appends, No overwrites,
+/// Cancel does nothing.
+fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(ask) = &app.export_ask else { return };
+    let mut answer = None;
+    let modal = egui::Modal::new(egui::Id::new("export-ask")).show(ctx, |ui| {
+        ui.set_max_width(460.0);
+        ui.label(format!(
+            "The file '{}' already exists. Do you wish to append to it?",
+            ask.path.display()
+        ));
+        ui.add_space(6.0);
+        ui.label("Click YES to append to the file.");
+        ui.label("Click NO to overwrite the file.");
+        ui.label("Click CANCEL to do nothing.");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button("Yes").clicked() {
+                answer = Some(ExportAnswer::Append);
+            }
+            if ui.button("No").clicked() {
+                answer = Some(ExportAnswer::Overwrite);
+            }
+            if ui.button("Cancel").clicked() {
+                answer = Some(ExportAnswer::Cancel);
+            }
+        });
+    });
+    if modal.should_close() && answer.is_none() {
+        answer = Some(ExportAnswer::Cancel);
+    }
+    if let Some(a) = answer {
+        app.answer_export(a);
+    }
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    ask_ui(app, &ctx);
     if let (Some(draft), Some(ws)) = (&mut app.export, &app.ws) {
         let mut close = false;
         // Kind by kind, those of the module's tree first and in its order.
@@ -657,11 +741,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.checkbox(&mut draft.dependencies, "Include the resources they use");
             ui.checkbox(&mut draft.reset_factions, "Put creatures in the standard factions");
-            ui.checkbox(&mut draft.add, "Add to the file if it exists").on_hover_text(
-                "Choosing an archive that is already there adds these resources to it \
-                 (replacing those of the same names) instead of replacing the whole file. \
-                 The file dialog may still ask about overwriting it.",
-            );
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Description");
                 ui.text_edit_singleline(&mut draft.comments).on_hover_text(

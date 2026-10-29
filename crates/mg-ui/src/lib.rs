@@ -554,6 +554,8 @@ pub struct Moonglow {
     /// The Options window's pending values, while it is open.
     pub options: Option<OptionsDraft>,
     pub export: Option<ExportDraft>,
+    /// An Export to an archive that is there, asking whether to append.
+    pub export_ask: Option<transfer::ExportAsk>,
     pub browser: Browser,
     pub loc_edit: Option<widgets::LocStringEdit>,
     pub module_page: module_props::Page,
@@ -1010,6 +1012,7 @@ impl Moonglow {
             settings: Settings::default(),
             options: None,
             export: None,
+            export_ask: None,
             browser: Browser::new(),
             loc_edit: None,
             module_page: module_props::Page::default(),
@@ -3292,13 +3295,9 @@ impl Moonglow {
             Action::TakeInLeftOut => self.take_in_left_out(),
             Action::ExportDialog(keys) => {
                 if self.ws.is_some() {
-                    // Adding to an archive that is there to begin with, as
-                    // Aurora's Export does (it asks whether to append, Yes
-                    // first).
                     self.export = Some(ExportDraft {
                         selected: keys.into_iter().collect(),
                         dependencies: true,
-                        add: true,
                         ..Default::default()
                     });
                 }
