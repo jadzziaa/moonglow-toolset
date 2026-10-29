@@ -290,6 +290,12 @@ fn replace_takes_plain_fields_and_regular_expressions() {
     let (ok, out) = mg(&["replace", m, "draft", "final", "--only", "fields"]);
     assert!(ok, "{out}");
     assert_eq!(guard(&path).get("Comment"), Some(&Value::String(b"final".to_vec())));
-    let (ok, out) = mg(&["replace", m, "x", "y", "--only", "tag"]);
-    assert!(!ok && out["error"].as_str().unwrap().contains("tag: not names"), "{out}");
+    // The start of one kind's name names it (as before the plain kinds).
+    let (ok, out) = mg(&["replace", m, "final", "draft", "--only", "fie", "--dry-run"]);
+    assert!(ok && out["strings"].as_array().unwrap().len() == 1, "{out}");
+    let (ok, out) = mg(&["replace", m, "x", "y", "--only", "tagz"]);
+    assert!(!ok && out["error"].as_str().unwrap().contains("tagz: not names"), "{out}");
+    // (`all` is named whole: `a` names nothing.)
+    let (ok, out) = mg(&["replace", m, "x", "y", "--only", "a"]);
+    assert!(!ok, "{out}");
 }

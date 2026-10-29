@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:59:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:44:40Z }
 ---
 
 # Command-line tools
@@ -108,7 +108,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg dialog-import MODULE FILE [--name NAME]` | read a Twine or Ink story into the module as a conversation (replacing one of that name), or a CSV export's text back into its conversation, and save |
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only); `--only` takes `tags`, `resrefs` (not a resource's own name: `mg rename` renames it), `variables` (names and string values), `fields` (the other text fields) and `all` too, and `--regex` makes FIND a regular expression whose groups WITH may name (`--regex '^wp_(.*)_1$' 'WP_${1}_EXIT'`). A tag it makes another object's is warned of, as `mg set` warns of it |
 | `mg set MODULE NAME.EXT FIELD=VALUE…` | set fields of a resource and save: a field is a path from the resource's root (`Tag`, `/ClassList[0]/ClassLevel`) and keeps its type; `--remove FIELD`; `--dry-run` prints the change and makes none. `--plugins DIR` (repeatable) and the project's own plugins as you allowed them look at what is saved, as before a save in the window: a refusal is an error and nothing is written, a warning is a note ([what plugins do by themselves](15-plugins.md#what-plugins-do-by-themselves)) |
-| `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks; `--plugins DIR` as for `mg set` |
+| `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks; `--plugins DIR` as for `mg set`. Both warn of a tag they put on more than one object of the module, as the window's [Duplicate Tags](04-areas.md#duplicate-tags) says it |
 | `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (every word of it in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`, and what they hold: `--where FIELD=VALUE` (a field of the area or its sounds and music, `*` as in tags; a row by its label or name too), `--where-var NAME=VALUE` (a variable, its value if given), `--music ROW` (by day, by night or in battle); with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME`, `--static-placeables` or `--dynamic-placeables`, `--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`, `--remove-grass MATERIAL`, `--tileset-grass yes|no` or `--lighting-scheme SCHEME`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area). A field that holds a row takes its label or name too (`--set MusicDay=mus_cave`, `LoadScreenID=...`); `--names` shows the rows changed by name, `57 (Cave)` (`from_name` and `to_name` in the JSON) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg

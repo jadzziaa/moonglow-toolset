@@ -868,6 +868,9 @@ pub(crate) struct AreaChooser {
     pub(crate) held: Option<(Option<Has>, u64, std::collections::BTreeSet<ResRef>)>,
     /// The name Save Set… keeps the ticked areas under.
     pub set_name: String,
+    /// The sets kept for this module, read once the window opens and
+    /// again after Save Set and Delete Set (not each frame).
+    pub(crate) sets: Option<Vec<String>>,
     pub chosen: std::collections::BTreeSet<ResRef>,
 }
 
@@ -966,7 +969,10 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
     let holding = c.holding(app).cloned();
     let module =
         crate::area_sets::module_name(app.ws.as_ref().and_then(|w| w.module.location.as_ref()));
-    let sets = crate::area_sets::list_for(app.area_set_dir.as_deref(), &module);
+    let sets = (c
+        .sets
+        .get_or_insert_with(|| crate::area_sets::list_for(app.area_set_dir.as_deref(), &module)))
+    .clone();
     let music = areas_music_choices(app);
     let Some(ws) = &app.ws else { return };
     let mut areas: Vec<(ResRef, crate::tree::AreaInfo)> = ws
@@ -1137,6 +1143,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                         }
                         Err(e) => app.log.error(format!("Save Set: {e}")),
                     }
+                    c.sets = None;
                 }
                 if sets.iter().any(|s| s.eq_ignore_ascii_case(c.set_name.trim()))
                     && ui
@@ -1149,6 +1156,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                         Ok(()) => app.log.info(format!("Deleted the set {name}")),
                         Err(e) => app.log.error(format!("Delete Set: {e}")),
                     }
+                    c.sets = None;
                 }
             });
             let holds = |a: &ResRef| holding.as_ref().is_none_or(|h| h.contains(a));

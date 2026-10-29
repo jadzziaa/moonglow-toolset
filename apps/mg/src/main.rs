@@ -2938,7 +2938,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     kinds.extend(TextKind::ALL);
                     continue;
                 }
-                let k = (TextKind::ALL.into_iter()).find(|k| k.name() == o).with_context(|| {
+                // (By its name, or the start of one name only: `desc`.)
+                let exact = (TextKind::ALL.into_iter()).find(|k| k.name() == o);
+                let mut starting = TextKind::ALL.into_iter().filter(|k| k.name().starts_with(&o));
+                let prefix = match (starting.next(), starting.next()) {
+                    (Some(k), None) if !o.is_empty() && !"all".starts_with(&o) => Some(k),
+                    _ => None,
+                };
+                let k = exact.or(prefix).with_context(|| {
                     format!(
                         "{o}: not names, descriptions, conversations, journal, other, tags, \
                          resrefs, variables, fields or all"
