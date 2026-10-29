@@ -184,7 +184,7 @@ fn heard_of(
     deep: bool,
 ) -> Heard {
     use notify::EventKind;
-    use notify::event::{AccessKind, AccessMode, CreateKind, RemoveKind};
+    use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind};
     let Ok(event) = event else { return Heard { changed: true, all: true, ..Heard::default() } };
     if event.need_rescan() {
         return Heard { changed: true, all: true, ..Heard::default() };
@@ -198,6 +198,9 @@ fn heard_of(
         }
         _ => {}
     }
+    // (A folder's own entry modified, not renamed: Windows says so of the
+    // folder a file is written in, whose files are said themselves.)
+    let touched = matches!(event.kind, EventKind::Modify(k) if !matches!(k, ModifyKind::Name(_)));
     let mut heard = Heard::default();
     for path in event.paths.into_iter().map(|p| as_watched(p, real)) {
         // A file named as watched (the builder's own project file), or one
@@ -218,13 +221,14 @@ fn heard_of(
         if !deep && !named && path.parent().is_some_and(|p| !paths.iter().any(|w| w == p)) {
             continue;
         }
-        heard.changed = true;
         // A folder (made, moved there) or what was one (a name with no
         // extension, gone): all of it is looked at.
-        let folder = match std::fs::metadata(&path) {
-            Ok(meta) => meta.is_dir(),
-            Err(_) => path.extension().is_none(),
-        };
+        let dir = std::fs::metadata(&path).map(|meta| meta.is_dir());
+        if touched && dir.as_ref().is_ok_and(|d| *d) {
+            continue;
+        }
+        heard.changed = true;
+        let folder = dir.unwrap_or_else(|_| path.extension().is_none());
         if folder {
             heard.all = true;
         } else {
@@ -1154,6 +1158,32 @@ mod tests {
         assert_ne!(added, longer);
         std::fs::remove_file(dir.join("src/b.nss")).unwrap();
         assert_eq!(signature(std::slice::from_ref(&dir), true), longer);
+    }
+
+    /// A folder's own entry modified (Windows says so of the folder a file
+    /// is written in) is nothing of its own: its files are said; a folder
+    /// made, removed or renamed is all.
+    #[test]
+    fn a_folder_modified_is_said_by_its_files() {
+        use notify::event::{CreateKind, DataChange, ModifyKind, RenameMode};
+        let dir = mg_testkit::scratch_dir("ui-outside-folder-modified");
+        std::fs::create_dir_all(dir.join("src/sub")).unwrap();
+        std::fs::write(dir.join("src/a.nss"), "").unwrap();
+        let roots = vec![dir.clone()];
+        let event = |kind: EventKind, path: &str| -> Heard {
+            let e = notify::Event::new(kind).add_path(dir.join(path));
+            heard_of(Ok(e), &roots, &[], true)
+        };
+        use notify::EventKind;
+        let folder = event(EventKind::Modify(ModifyKind::Any), "src");
+        assert!(!folder.changed && !folder.all, "{folder:?}");
+        let data = event(EventKind::Modify(ModifyKind::Data(DataChange::Any)), "src/sub");
+        assert!(!data.changed, "{data:?}");
+        let file = event(EventKind::Modify(ModifyKind::Any), "src/a.nss");
+        assert!(file.changed && !file.all && file.paths.contains(&dir.join("src/a.nss")));
+        let moved = event(EventKind::Modify(ModifyKind::Name(RenameMode::To)), "src/sub");
+        assert!(moved.all, "{moved:?}");
+        assert!(event(EventKind::Create(CreateKind::Folder), "src/sub").all);
     }
 
     /// What the watch hears, waited for.
