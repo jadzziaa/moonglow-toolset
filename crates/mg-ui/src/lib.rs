@@ -922,6 +922,11 @@ pub struct Moonglow {
     /// with the tabs in it: they leave room along its inner edge for the
     /// button that folds it away (`palettes_edge`).
     palette_edge: Option<(Side, Vec<Tab>)>,
+    /// Where the palettes' pane's covered arrow (egui_dock's) was drawn:
+    /// the keyboard is moved on past it ([`Moonglow::pass_covered_arrow`]).
+    palette_arrow: Option<egui::Rect>,
+    /// The last Tab pressed was Shift+Tab: the way the keyboard goes.
+    tab_back: bool,
     /// A module was opened: the Palettes pane opens once the module tree
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
@@ -1158,6 +1163,8 @@ impl Moonglow {
             dock_width: None,
             palette_share: None,
             palette_edge: None,
+            palette_arrow: None,
+            tab_back: false,
             open_palette: false,
             plugins: Default::default(),
             plugin_dir: None,
@@ -1447,6 +1454,7 @@ impl Moonglow {
             // window as tall as its tab bar, margin included, which left
             // half the bar (and half the arrow that opens it again).
             ui.spacing_mut().window_margin = egui::Margin::ZERO;
+            self.pass_covered_arrow(ui.ctx());
             {
                 let mut viewer = tabs::Viewer { app: self };
                 DockArea::new(&mut dock).show_close_buttons(true).show_inside(ui, &mut viewer);
@@ -1865,6 +1873,37 @@ impl Moonglow {
         }
     }
 
+    /// The keyboard on the palettes' covered arrow (reached by Tab or
+    /// Shift+Tab, where Enter pressed it): moved on past it, the way it was
+    /// going, before the dock draws its widgets again (egui gives the
+    /// focus to the next widget as they ask for it).
+    fn pass_covered_arrow(&mut self, ctx: &egui::Context) {
+        let tab = ctx.input(|i| {
+            i.events.iter().rev().find_map(|e| match e {
+                egui::Event::Key { key: egui::Key::Tab, pressed: true, modifiers, .. } => {
+                    Some(modifiers.shift)
+                }
+                _ => None,
+            })
+        });
+        if let Some(back) = tab {
+            self.tab_back = back;
+        }
+        let Some(arrow) = self.palette_arrow else { return };
+        let on_arrow = ctx.memory(|m| m.focused()).is_some_and(|id| {
+            ctx.read_response(id).is_some_and(|r| arrow.contains(r.rect.center()))
+        });
+        if on_arrow {
+            let way = if self.tab_back {
+                egui::FocusDirection::Previous
+            } else {
+                egui::FocusDirection::Next
+            };
+            ctx.memory_mut(|m| m.move_focus(way));
+            ctx.request_repaint();
+        }
+    }
+
     /// The palettes' pane's fold button, on the edge it faces the middle
     /// by, once the dock has drawn it (a pane of the dock's, not a panel:
     /// its tabs leave the room for it, `palette_edge`). Only where it is a
@@ -1872,6 +1911,7 @@ impl Moonglow {
     /// tabs, in a window of its own, above or below it, View folds it away.
     fn palettes_edge(&mut self, ui: &mut egui::Ui) {
         self.palette_edge = None;
+        self.palette_arrow = None;
         let Some(dock) = self.dock_rect else { return };
         let leaf = self.dock.iter_leaves().find(|(p, leaf)| {
             p.surface.is_main()
@@ -1905,7 +1945,8 @@ impl Moonglow {
             let fill = visuals.extreme_bg_color;
             let cover = arrow.with_max_y(arrow.bottom() - px).expand2(egui::vec2(px, 0.0));
             ui.painter().rect_filled(cover, corner, fill);
-            ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::click());
+            ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::CLICK);
+            self.palette_arrow = Some(arrow);
         }
         let x = match side {
             Side::Right => rect.left(),

@@ -398,6 +398,36 @@ fn panels_fold_away_and_come_back() {
     assert!(palette(&h).is_some());
 }
 
+/// The palettes' pane's covered arrow (egui_dock's, which folds a pane to
+/// its bar) is not reached by Tab or Shift+Tab: the keyboard goes on past
+/// it, so Enter can't fold the pane there.
+#[test]
+fn the_palettes_covered_arrow_is_passed_by_the_keyboard() {
+    let Some(mut h) = game_harness("pane-arrow-keys") else { return };
+    h.run_steps(3);
+    let (rect, viewport) = (h.state().dock.iter_leaves())
+        .find(|(_, l)| l.tabs.contains(&Tab::Palette))
+        .map(|(_, l)| (l.rect, l.viewport))
+        .expect("the palettes' pane");
+    let arrow =
+        egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 24.0, viewport.top()));
+    for back in [false, true] {
+        let modifiers = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        // (Each widget the keyboard went to: round the window, not back
+        // and forth beside the arrow.)
+        let mut went = std::collections::HashSet::new();
+        for _ in 0..150 {
+            h.key_press_modifiers(modifiers, egui::Key::Tab);
+            h.run_steps(2);
+            let focused = h.ctx.memory(|m| m.focused());
+            let at = focused.and_then(|id| h.ctx.read_response(id)).map(|r| r.rect);
+            went.extend(focused);
+            assert!(at.is_none_or(|r| !arrow.contains(r.center())), "on the arrow: {at:?}");
+        }
+        assert!(went.len() > 20, "round the window ({back}): {}", went.len());
+    }
+}
+
 /// GitHub issue 10, as its reporter put it on 1.31.0: one button per pane
 /// to fold it away, on the edge the pane faces the middle by (the module
 /// tree's right, the palettes' left, the log's top), centered along it,

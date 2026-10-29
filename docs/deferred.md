@@ -1730,29 +1730,30 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M) (a senior builder's review, October 2026)
-- **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
-  Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
+- **Panes folded away** (GitHub issue 10, open: waits on its reporter's
+  retest of the one-button rule, built on 1.31.0): a View menu (Module
+  Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
   pane folded away leaves a strip at its edge that brings it back, as
   wide as it was; the palettes' pane closed by its ✕ counts as folded;
   the state is kept in the settings. Each pane has one button of its
-  own to fold it away, by the reporter's rule on 1.31.0: a chevron on
-  the edge it faces the middle by (the tree's right, the palettes'
-  left, or right where they were split off the middle's left, the
-  log's top), centered along it, in a thin strip that is all a folded
-  pane leaves, the button in the same place (the tree's «, the
-  palettes' » among their type icons, the log's ⏷ and ⏶ Log, and
-  egui_dock's arrow in the palettes' tab bar went). Not done: the
-  strip names its pane only in the tip; egui_dock's arrow on the
-  palettes' tab bar is covered over (egui_dock has it on every pane or
-  none, and windows fold to their bar by it), so the bar keeps its
-  blank room before the first tab, the covered arrow can still be
-  reached by Tab and pressed by Enter, and the middle's panes keep
-  theirs;
-  palettes joined to the middle's tabs, split above or below it or in
-  a window have no edge button (View and their ✕ fold them), and those
-  split above or below leave their strip on the right. (S)
-  (from builders' reports after 1.19.1)
+  own to fold it away, by the reporter's rule: a chevron on the edge it
+  faces the middle by (the tree's right, the palettes' left, or right
+  where they were split off the middle's left, the log's top), centered
+  along it, in a thin strip that is all a folded pane leaves, the button
+  in the same place. egui_dock's arrow on the palettes' tab bar is
+  covered over and its clicks taken (egui_dock has it on every pane or
+  none, and windows fold to their bar by it), and the keyboard passes
+  it (Tab and Shift+Tab, `the_palettes_covered_arrow_is_passed_by_the_keyboard`).
+  Left for the reporter's word, as their rule shapes each (S each): the
+  strip names its pane only in the tip (a name along a 16-point strip
+  would be drawn turned); the palettes' bar keeps the arrow's blank room
+  before its first tab, and the middle's panes keep their arrows
+  (egui_dock offers no per-pane choice: a patched egui_dock, or the
+  middle's arrows covered the same way); palettes joined to the middle's
+  tabs, split above or below it or in a window have no edge button (View
+  and their ✕ fold them), and those split above or below leave their
+  strip on the right. (from builders' reports after 1.19.1)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
