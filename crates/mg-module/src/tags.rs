@@ -100,6 +100,14 @@ impl TagIndex {
         index
     }
 
+    /// Another index's objects added after this one's (a tag's places in
+    /// the order the two have them).
+    pub fn absorb(&mut self, other: &TagIndex) {
+        for (tag, places) in &other.by_tag {
+            self.by_tag.entry(tag.clone()).or_default().extend_from_slice(places);
+        }
+    }
+
     /// The objects with the tag (exactly so: the game's lookups compare
     /// tags as they are).
     pub fn places(&self, tag: &[u8]) -> &[Tagged] {
@@ -168,6 +176,62 @@ impl TagIndex {
         }
         out.sort_by(|a, b| (a.tag, &a.places).cmp(&(b.tag, &b.places)));
         out
+    }
+}
+
+/// The module's tags kept area by area, so that a paste in a persistent
+/// world of hundreds of areas doesn't parse every area not open again:
+/// an area's ARE or GIT is read once for each copy of its bytes the
+/// module holds (another once it is set again: [`Module::shared`]).
+/// Documents an editor holds (`loaded`, which may differ from the
+/// module's bytes) are read from there each time, as they cost no parse.
+#[derive(Debug, Default)]
+pub struct TagCache {
+    parts: HashMap<ResKey, (std::sync::Arc<[u8]>, TagIndex)>,
+    /// How many resources were parsed for their tags (for tests).
+    pub parsed: usize,
+}
+
+impl TagCache {
+    /// Every area's and placed object's tag in the module as it is now:
+    /// `loaded` gives the documents an editor holds (unsaved edits in
+    /// them), the module's bytes the others'.
+    pub fn index<'a>(
+        &mut self,
+        m: &Module,
+        loaded: impl Fn(&ResKey) -> Option<&'a Struct>,
+    ) -> TagIndex {
+        let mut keys: Vec<ResKey> = m
+            .keys()
+            .filter(|k| matches!(k.restype, ResType::ARE | ResType::GIT))
+            .copied()
+            .collect();
+        keys.sort();
+        // (Those gone, or held by an editor now, are let go.)
+        self.parts.retain(|k, _| m.contains(k) && loaded(k).is_none());
+        let mut index = TagIndex::default();
+        for key in keys {
+            let add = |index: &mut TagIndex, root: &Struct| match key.restype {
+                ResType::ARE => index.add_area(key.resref, root),
+                _ => index.add_git(key.resref, root),
+            };
+            if let Some(root) = loaded(&key) {
+                add(&mut index, root);
+                continue;
+            }
+            let Some(bytes) = m.shared(&key) else { continue };
+            let kept = self.parts.get(&key).filter(|(b, _)| std::sync::Arc::ptr_eq(b, bytes));
+            if kept.is_none() {
+                self.parsed += 1;
+                let mut part = TagIndex::default();
+                if let Ok(g) = mg_gff::Gff::read(bytes) {
+                    add(&mut part, &g.root);
+                }
+                self.parts.insert(key, (bytes.clone(), part));
+            }
+            index.absorb(&self.parts[&key].1);
+        }
+        index
     }
 }
 
@@ -246,7 +310,9 @@ pub fn is_custom_tag(object: &Struct, blueprint: Option<&Struct>) -> bool {
 /// [`TagRules::paste_warning_or`]; `custom`: tags a builder set and those
 /// that must be unique). A static placeable's never. A tag the project
 /// wants unique in each area (`unique_in_area`) is counted in the area it
-/// was made in, whatever the rule: other areas' are as meant.
+/// was made in: other areas' are as meant, and said only where the
+/// project warns of any tag made twice ([`PasteWarning::Any`]), as any
+/// other tag on several objects.
 pub fn clashes(
     index: &TagIndex,
     made: &[MadeTag],
@@ -264,8 +330,16 @@ pub fn clashes(
             continue;
         }
         let text = String::from_utf8_lossy(tag).into_owned();
-        let rule = rules.unique_for(&text);
+        let mut rule = rules.unique_for(&text);
         let (count, area) = match rule {
+            // (Once in its area, but on other areas' objects too: as
+            // meant, but where the project warns of any tag made twice.)
+            Some((_, Scope::Area))
+                if warning == PasteWarning::Any && index.count_in(tag, m.area) < 2 =>
+            {
+                rule = None;
+                (index.count(tag), None)
+            }
             Some((_, Scope::Area)) => (index.count_in(tag, m.area), Some(m.area)),
             _ => (index.count(tag), None),
         };
@@ -312,6 +386,21 @@ pub fn retag(tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
         }
     }
     unreachable!("a number is free")
+}
+
+/// Whether a new object's tag (its bytes, as the module has them) in
+/// `area` would be another's, as the project counts it: in the area, for
+/// a tag it wants unique in each area (`unique_in_area`: other areas' are
+/// as meant); else in the module.
+pub fn taken_in<'a>(
+    index: &'a TagIndex,
+    rules: &'a TagRules,
+    area: ResRef,
+) -> impl Fn(&[u8]) -> bool + 'a {
+    move |tag: &[u8]| match rules.unique_for(&String::from_utf8_lossy(tag)) {
+        Some((_, Scope::Area)) => index.count_in(tag, area) > 0,
+        _ => index.count(tag) > 0,
+    }
 }
 
 /// A store's tag from the project's pattern (`{area}` the area's tag,
@@ -472,10 +561,17 @@ mod tests {
         let in_mill =
             MadeTag { tag: b"KZ_STORE_1", area: r("mill"), custom: true, is_static: false };
         assert!(clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)).is_empty());
-        rules.paste_warning = Some(PasteWarning::Any);
+        rules.paste_warning = Some(PasteWarning::Custom);
         assert!(
             clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)).is_empty(),
             "other areas' are as meant"
+        );
+        // Where the project warns of any tag made twice, it is one: said
+        // as any other is (the Domains of Dread's setup on 2.1.0).
+        rules.paste_warning = Some(PasteWarning::Any);
+        assert_eq!(
+            clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)),
+            [Clash { tag: "KZ_STORE_1".into(), count: 2, unique: None, area: None }]
         );
         // A second in the mill: said, with the area.
         i.add_git(r("mill"), &store("KZ_STORE_1"));
@@ -509,6 +605,55 @@ mod tests {
         assert!(TagIndex::default().breaches(&TagRules::default()).is_empty());
     }
 
+    /// A paste reads the module's areas from what it kept of them: only
+    /// an area whose bytes changed is parsed again, and an area an editor
+    /// holds is read from its document (unsaved edits too).
+    #[test]
+    fn the_tag_cache_parses_only_what_changed() {
+        let git = |tags: &[&str]| {
+            let mut g = mg_gff::Gff::new(*b"GIT ");
+            let list = tags.iter().map(|t| tagged(t)).collect();
+            g.root.set("Placeable List", Value::List(list));
+            g.to_bytes().unwrap()
+        };
+        let are = |tag: &str| {
+            let mut g = mg_gff::Gff::new(*b"ARE ");
+            g.root = tagged(tag);
+            g.to_bytes().unwrap()
+        };
+        let mut m = Module::new();
+        for (area, objects) in [("cave", ["LAMP", "ROCK"]), ("inn", ["LAMP", "BED"])] {
+            m.set(ResKey::new(r(area), ResType::ARE), are(&area.to_uppercase()));
+            m.set(ResKey::new(r(area), ResType::GIT), git(&objects));
+        }
+        let none = |_: &ResKey| None;
+        let mut cache = TagCache::default();
+        let first = cache.index(&m, none);
+        assert_eq!(cache.parsed, 4);
+        assert_eq!(first.count(b"LAMP"), 2);
+        assert_eq!(first.places(b"LAMP"), TagIndex::of_module(&m).places(b"LAMP"), "in order");
+        // Nothing changed: nothing parsed.
+        assert_eq!(cache.index(&m, none).count(b"LAMP"), 2);
+        assert_eq!(cache.parsed, 4);
+        // One area's objects set again: that one alone.
+        m.set(ResKey::new(r("inn"), ResType::GIT), git(&["BED"]));
+        let after = cache.index(&m, none);
+        assert_eq!(cache.parsed, 5);
+        assert_eq!(after.count(b"LAMP"), 1);
+        // An area an editor holds: its document, as edited.
+        let held = tagged("CAVE_NOW");
+        let key = ResKey::new(r("cave"), ResType::ARE);
+        let got = cache.index(&m, |k: &ResKey| (*k == key).then_some(&held));
+        assert_eq!((got.count(b"CAVE"), got.count(b"CAVE_NOW")), (0, 1));
+        assert_eq!(cache.parsed, 5);
+        // Let go again: read from the module's bytes once more.
+        assert_eq!(cache.index(&m, none).count(b"CAVE"), 1);
+        assert_eq!(cache.parsed, 6);
+        // An area removed is gone from the index.
+        m.remove(&ResKey::new(r("inn"), ResType::GIT));
+        assert_eq!(cache.index(&m, none).count(b"BED"), 0);
+    }
+
     #[test]
     fn a_retag_is_the_tag_with_the_first_free_number() {
         let taken = |t: &str| ["LAMP", "LAMP_2", "STORE_7"].contains(&t);
@@ -533,5 +678,37 @@ mod tests {
         assert_eq!(store_tag("{area}{n}", &long, &|_| false).len(), MAX_TAG);
         let first = "X".repeat(32);
         assert_eq!(store_tag("{area}{n}", &long, &|t| t == first), format!("{}_2", "X".repeat(30)));
+    }
+
+    /// `{n}` of a tag the project wants unique in each area is the first
+    /// number free in the area; of any other tag, in the module.
+    #[test]
+    fn a_store_s_number_is_free_in_its_area_where_the_project_counts_it_there() {
+        let store = |tags: &[&str]| {
+            let mut g = Struct::new(0);
+            g.set("StoreList", Value::List(tags.iter().map(|t| tagged(t)).collect()));
+            g
+        };
+        let mut i = TagIndex::default();
+        i.add_git(r("cave"), &store(&["KZ_STORE_1", "KZ_STORE_2"]));
+        i.add_git(r("mill"), &store(&["KZ_STORE_1"]));
+        let mut rules = TagRules {
+            unique_in_area: Patterns::new(&["*_STORE_*"]).unwrap(),
+            ..TagRules::default()
+        };
+        let taken = |area: &str| {
+            let counted = taken_in(&i, &rules, r(area));
+            move |t: &str| counted(t.as_bytes())
+        };
+        assert_eq!(store_tag("KZ_STORE_{n}", "", &taken("mill")), "KZ_STORE_2");
+        assert_eq!(store_tag("KZ_STORE_{n}", "", &taken("inn")), "KZ_STORE_1", "the inn has none");
+        // Unique in the module (or not named): counted in the module.
+        rules.unique_in_area = Patterns::default();
+        rules.unique = Patterns::new(&["KZ_*"]).unwrap();
+        let counted = taken_in(&i, &rules, r("inn"));
+        assert_eq!(store_tag("KZ_STORE_{n}", "", &|t| counted(t.as_bytes())), "KZ_STORE_3");
+        let rules = TagRules::default();
+        let counted = taken_in(&i, &rules, r("inn"));
+        assert_eq!(store_tag("KZ_STORE_{n}", "", &|t| counted(t.as_bytes())), "KZ_STORE_3");
     }
 }

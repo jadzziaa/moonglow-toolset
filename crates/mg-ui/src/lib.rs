@@ -719,6 +719,9 @@ pub struct Moonglow {
     /// The Duplicate Tags window: tags a paste or a copy put on more than
     /// one object, and Retag.
     pub tag_clash: Option<tag_clash::TagClash>,
+    /// The module's tags, area by area, for the paste's and Setup Store's
+    /// checks ([`tag_clash::index`]).
+    pub(crate) tag_cache: mg_module::tags::TagCache,
     /// The Builder Code window (Edit › Builder Code…): the code typed.
     pub builder_code: Option<builder_code::Draft>,
     /// The script editor's code navigation and errors as you type.
@@ -1055,6 +1058,7 @@ impl Moonglow {
             rename: None,
             copy_as: None,
             tag_clash: None,
+            tag_cache: Default::default(),
             builder_code: None,
             placeable_gallery: None,
             script_nav: Default::default(),

@@ -2677,8 +2677,6 @@ and duplicate tags on paste. What is left:
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)
-- **Setup Store's blueprint list** doesn't scroll to the project's
-  blueprint, chosen at first, when it is far down the list. (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**
   not when a tag is typed in Properties, an object is placed from the
   palette (its blueprint's tag), Create Set names waypoints, Find and
@@ -2687,16 +2685,6 @@ and duplicate tags on paste. What is left:
 - **Retag changes the copies' tags only:** what names the old tag (a
   copied area's doors' `LinkedTo`, scripts) still names the original's;
   an area's copy's other duplicated tags are counted, not retagged. (M)
-- **A paste reads every area's objects for their tags:** those not open
-  are parsed from the module each time (not kept, so that a save doesn't
-  rewrite them); in a persistent world of hundreds of areas a paste may
-  take a moment. An index kept by the workspace's revision would answer
-  at once. (S)
-- **`unique_in_area` is quiet about other areas whatever
-  `paste_warning` says:** with `"any"`, a store's tag pasted into
-  another area isn't said, as the project says it may be there; and
-  Setup Store's `{n}` still takes the first number free in the module,
-  not in the area. (S) (the Domains of Dread's setup on 2.1.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

@@ -357,8 +357,9 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
 
 /// Setup Store in a project whose moonglow.toml has `[store]`: the
 /// project's script opens it (none is written), its tag follows the
-/// pattern and is the only one, its blueprint is offered first, and the
-/// shopkeeper keeps its tag in the project's variable.
+/// pattern and is the only one (of its area, as `unique_in_area` wants
+/// it), its blueprint is offered first, and the shopkeeper keeps its tag
+/// in the project's variable.
 #[test]
 fn setup_store_follows_the_project_file() {
     use mg_module::instances::{Placement, Placing, instance};
@@ -397,13 +398,24 @@ fn setup_store_follows_the_project_file() {
     let git = ResKey::new(area, ResType::GIT);
     let mut g = m.gff(&git).unwrap().unwrap();
     g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
-    g.root.set("StoreList", mg_gff::Value::List(vec![first]));
+    g.root.set("StoreList", mg_gff::Value::List(vec![first.clone()]));
     m.set_gff(git, &g).unwrap();
+    // Another area with the pattern's second number: wanted unique in each
+    // area (`unique_in_area`), it is free in this one.
+    let spec = AreaSpec { name: "Mill".into(), ..spec };
+    let mill = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let mut other = first;
+    other.set("Tag", mg_gff::Value::String(format!("{area_tag}_STORE_2").into_bytes()));
+    let mills = ResKey::new(mill, ResType::GIT);
+    let mut g = m.gff(&mills).unwrap().unwrap();
+    g.root.set("StoreList", mg_gff::Value::List(vec![other]));
+    m.set_gff(mills, &g).unwrap();
     let dir = mg_testkit::scratch_dir("ui-setup-store-project").join("shop");
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(
         dir.join("moonglow.toml"),
-        "[store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
+        "[tags]\nunique_in_area = [\"*_STORE_*\"]\n\n\
+         [store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
          blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
     )
     .unwrap();
@@ -445,6 +457,76 @@ fn setup_store_follows_the_project_file() {
     let var = c.list("VarTable").unwrap().iter().find(|v| v.string("Name") == Some(b"tdod_store"));
     let var = var.expect("the shopkeeper's variable");
     assert_eq!((var.dword("Type"), var.string("Value")), (Some(3), Some(tag.as_bytes())));
+}
+
+/// Setup Store's list of stores opens scrolled to the project's
+/// blueprint, chosen at first, though it is the last of the game's.
+#[test]
+fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    // The store the list shows last: by name, then ResRef, as it sorts.
+    let mut stores: Vec<(String, ResRef)> = game
+        .resman
+        .list(ResType::UTM)
+        .into_iter()
+        .map(|r| {
+            let data = game.resman.get(&ResKey::new(r, ResType::UTM)).unwrap();
+            let g = Gff::read(&data).unwrap();
+            let name = g.root.locstring("LocName").and_then(|l| game.locstring(l));
+            (name.unwrap_or_default(), r)
+        })
+        .collect();
+    stores.sort();
+    let (name, last) = stores.last().cloned().unwrap();
+    assert!(stores.len() > 20, "a list longer than the window shows");
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let blueprint = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let keeper = instance(&placing, ResType::UTC, &Gff::read(&blueprint).unwrap().root, at, &[]);
+    let key = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&key).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
+    m.set_gff(key, &g).unwrap();
+    let dir = mg_testkit::scratch_dir("ui-setup-store-far-down").join("shop");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(dir.join("moonglow.toml"), format!("[store]\nblueprint = \"{last}\"\n"))
+        .unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    app.open_palette = false;
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.run();
+    // The row is drawn inside the list, above the buttons under it.
+    let row = h.get_by_label(&format!("{name} ({last})")).rect();
+    let top = h.get_by_label("Choose the store to use.").rect().bottom();
+    let bottom = h.get_by_label("Next >").rect().top();
+    assert!(row.top() > top && row.bottom() < bottom, "{row:?} between {top} and {bottom}");
+    // Chosen once: the list is the builder's to scroll after.
+    let first = format!("{} ({})", stores[0].0, stores[0].1);
+    h.get_by_label(&format!("{name} ({last})")).click();
+    h.run();
+    assert!(h.get_by_label(&first).rect().bottom() < top, "not scrolled back");
 }
 
 /// A nasher project's files changed by another program are read again
