@@ -230,3 +230,101 @@ fn a_tile_s_own_height_stands_where_the_engine_puts_it() {
         assert!(got.contains(&want), "expected {want}; the engine reported:\n{}", got.join("\n"));
     }
 }
+
+/// With group tiles freed (Options › Area), a stroke over one tile of a
+/// placed group gives that tile the terrain tile that fits it, and the
+/// group's door on it goes with it; the door on the group's tile left as
+/// it was stays. In the engine: the one door left, where it was.
+#[test]
+fn a_freed_group_tile_takes_its_door_with_it() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_freed_group");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(9);
+    let mut m = new_module(&game, "Freed", &mut rng).unwrap();
+    let spec = AreaSpec { name: "Freed".into(), tileset: r("ttr01"), width: 6, height: 6 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let set = mg_area::tileset(&game, r("ttr01")).unwrap();
+    let index = TileIndex::new(&set);
+    let rules = Rules::new(&index, &set);
+    let palette = TilesetPalette::read(&game, r("ttr01"), &set, &index);
+    let Some(Brush::Group(barn)) = palette.brush("Barn 1 2x2") else { panic!("no barn") };
+    let read = |r: ResRef| {
+        let data = game.resman.get(&ResKey::new(r, ResType::UTD)).ok()?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+    let mut ws = Workspace::new(m);
+    // The barn at (0, 0); then, the groups freed, the corner between its
+    // tile (1, 1) and the tiles beyond it raised.
+    for i in 0..2 {
+        let are = ws.doc(&are_key).unwrap().root.clone();
+        let git = ws.doc(&git_key).unwrap().root.clone();
+        let mut g = grid(&are, &index).unwrap();
+        g.free_groups = i == 1;
+        let before = g.clone();
+        let s = if i == 0 {
+            g.place_group(&index, &set.groups[barn], 0, 0, 0)
+        } else {
+            g.raise(&index, &rules, 2, 2, true)
+        };
+        let changes = g.apply(&index, s.expect("the stroke"), &mut rng);
+        let mut edits = tile_edits(are_key, &are, &set, &changes, &mut || [0, 0, 0]);
+        let old = |(x, y): (u32, u32)| before.tile(x, y);
+        let step = set.general.transition;
+        edits.extend(door_edits(&game, git_key, &git, &set, step, &old, &changes, &read));
+        ws.apply(Command::new(format!("Stroke {i}"), edits)).unwrap();
+    }
+    ws.flush().unwrap();
+    let mut m = ws.module;
+    let are = m.gff(&are_key).unwrap().unwrap();
+    let tiles: Vec<i64> = are.root.list("Tile_List").unwrap()[..14]
+        .iter()
+        .filter_map(|t| t.integer("Tile_ID"))
+        .collect();
+    let git = m.gff(&git_key).unwrap().unwrap();
+    let doors = git.root.list("Door List").map_or(0, <[mg_gff::Struct]>::len);
+    let tag = are.root.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned()).unwrap();
+    let probe = format!(
+        r#"
+string F(float f) {{ return FloatToString(f, 0, 2); }}
+
+void main()
+{{
+    object a = GetObjectByTag("{tag}");
+    object o = GetFirstObjectInArea(a);
+    while (GetIsObjectValid(o))
+    {{
+        if (GetObjectType(o) == OBJECT_TYPE_DOOR)
+        {{
+            vector v = GetPosition(o);
+            WriteTimestampedLogEntry("MG_DOOR " + GetTag(o) + "|" + F(v.x) + "|" + F(v.y));
+        }}
+        o = GetNextObjectInArea(a);
+    }}
+    WriteTimestampedLogEntry("MG_DONE");
+}}
+"#
+    );
+    let ncs = compile(&dir, "mg_probe", &probe);
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_MOD_LOAD, r("mg_probe"));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::new(r("mg_probe"), ResType::NCS), ncs);
+    let user = dir.join("user");
+    m.save_as(&ModuleLocation::Archive(user.join("modules/mg_freed.mod"))).unwrap();
+    let run = run_server(&root, &user, "mg_freed", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "the server did not finish:\n{}", run.log);
+    // The barn's tiles 144 to 147 but (1, 1), 146 once, now a terrain
+    // tile; its door gone with it, tile 144's (as in the first test) left.
+    assert_eq!(&tiles[..2], [145, 147], "the barn's far row");
+    assert_eq!(tiles[6], 144, "the barn's tile left as it was");
+    assert!(!(144..=147).contains(&tiles[7]), "the freed tile is terrain: {tiles:?}");
+    assert_eq!(doors, 1, "one door in the GIT");
+    assert_eq!(run.values("MG_DOOR"), ["Barn1Door|3.21|13.49"], "{}", run.log);
+}

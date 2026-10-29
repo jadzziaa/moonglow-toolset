@@ -1213,12 +1213,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Aurora's). Pasted tiles over a group are refused as a group is; how
   Aurora pastes over a group wasn't checked. (S) (from Jasperre's tile
   feedback, October 2026)
-- **Group tiles freed (the option on):** a stroke chooses terrain tiles
-  for the group tiles it no longer fits; the doors such a change takes
-  or leaves were not looked at in the engine. The plugin API keeps its
-  documented `place_group` (over part of another group, that one goes
-  whole) and doesn't follow the option; its strokes keep groups whole as
-  before. (S) (from Jasperre's tile feedback, October 2026)
 - **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
   tiles, not a group's pieces, so a piece of a group goes in alone only
   through Tile Properties' All tiles (the Features and Groups pictures,
@@ -1912,7 +1906,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   there from a pane; from a window of its own, the window was seen to
   move and not to dock, by the tests' drag (not confirmed either way in
   the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
-  23 after 1.30.2)
+  23 after 1.30.2) (the window's drop waits on a drag by hand in the
+  running program, the owner's or issue 21's reporter's: the UI tests
+  can't make a window of its own, and issue 21 has no answer since
+  2026-10-10)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and
   a builder: Aurora's arrows go to the parent on Left and fold the
@@ -1995,9 +1992,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The game's text in the language edited:** the install is read as
   that language when its `lang/<code>/data/dialog.tlk` is there (its
   talk table, and the rest of its `lang` folder); a module's custom
-  talk table is one file whatever the language. Whether the feminine
-  table (`dialogf.tlk`) is shown where the game would use it was not
-  looked at. Checked on Polish only. (S)
+  talk table is one file whatever the language (checked for each of
+  the five other languages installed, `the_install_s_language_is_the_one_edited`).
+  Whether the feminine table (`dialogf.tlk`) is shown where the game
+  would use it was not looked at: the game reads it for a woman's
+  character, which the editor has none of. (S) (waits on Aurora: whether
+  it ever shows the feminine table's text, a line by StrRef in its
+  conversation editor say; if never, this is settled)
 - **Loading screen pictures** are put together as the game's stock
   `pnl_loadscreen` model maps them (two halves of a square texture); a
   module with its own `pnl_loadscreen` model, or a texture that isn't
@@ -2070,7 +2071,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tests stand in for the backend, and the keys were not pressed in the
   running program on Linux, Windows or macOS. Shift+Delete in the module
   tree no longer deletes the resource (it is a cut, which the tree does
-  not take). (S) (Sacha's report on 2.5.4)
+  not take). (S) (Sacha's report on 2.5.4) (waits on the keys pressed
+  in the running program: the owner's on Linux, Sacha's on his system)
 - **Sharing key sets:** Options › Keyboard › Export… and Import… write
   and take the keys chosen as a file; the dialogs themselves weren't
   driven.
@@ -2536,9 +2538,6 @@ document; the entries here that name the audit are that list in short.
   §I.2, `notes_tilesets.md` §B.4 and §I, `notes_shaders.md` §M,
   `notes_gff_changelog.md` §G. (S each)
   (the documentation audit of 2026-10-12)
-- **The plan's "Held by" lists were chosen by reading:** the record of
-  the phases names files and tests for each phase from their names and
-  headers, not from a run. (S) (the documentation audit of 2026-10-12)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
@@ -3444,3 +3443,8 @@ is not taken for a new gap.
   writes each as a talk table of its own, and nothing pairs a line with
   its feminine line. (S) (Settled with the rest of "Tables for plugins",
   done in the deferred sprint of 2026-10-28: it is the game's format.)
+- **The plugin API's `place_group` ignores Options › Area's freed group
+  tiles:** it keeps its documented way (over part of another group, that
+  one goes whole), so a plugin's strokes keep groups whole whatever the
+  builder's option. (Settled 2026-10-29, when the window's freed strokes
+  were checked in the engine.)
