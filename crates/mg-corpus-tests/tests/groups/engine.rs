@@ -31,6 +31,8 @@ mod engine_doctor;
 mod engine_ee_fields;
 #[path = "../engine_encoding.rs"]
 mod engine_encoding;
+#[path = "../engine_equipped_items.rs"]
+mod engine_equipped_items;
 #[path = "../engine_facings.rs"]
 mod engine_facings;
 #[path = "../engine_factions.rs"]

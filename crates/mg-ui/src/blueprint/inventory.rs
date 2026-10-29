@@ -77,6 +77,21 @@ impl Form<'_> {
     }
 
     /// An entry's name: a whole item's own, else its blueprint's.
+    /// Why the creature may not wear an item it has equipped (`entry`, of
+    /// its `Equip_ItemList`), said for a builder: the game takes such an
+    /// item off, into the backpack, as it loads the creature
+    /// ([`mg_rules::GameData::wear_problem`]).
+    pub(super) fn wear_problem(&mut self, entry: &Struct) -> Option<String> {
+        let kept = match entry.integer("BaseItem") {
+            Some(_) => None,
+            None => Some(self.kept_blueprint(BlueprintKind::Item, entry_resref(entry))?),
+        };
+        let item = kept.as_deref().unwrap_or(entry);
+        let game = self.app.game.as_deref()?;
+        let problem = game.wear_problem(&self.root, item)?;
+        Some(game.wear_problem_text(&problem))
+    }
+
     pub(super) fn entry_name(&self, entry: &Struct, names: &HashMap<ResRef, String>) -> String {
         let own = entry
             .locstring("LocalizedName")

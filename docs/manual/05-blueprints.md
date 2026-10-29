@@ -595,7 +595,17 @@ A domain or school left **Not set** is the game's to choose.
   over the list) carry an item's blueprint from any inventory to any
   other, in any module open after it: what is pasted is made from it. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
-  asks whether to give it the feat. A store's items can be marked
+  asks whether to give it the feat. An item equipped that the creature
+  may not wear is marked ⚠ in its slot, its tip saying why: the game
+  takes it off, into the backpack, as it loads the creature (placed in
+  an area or made from its blueprint), and `ActionEquipItem` doesn't
+  put it on, so the area view and the creature's preview leave it off
+  too. The creature may wear an item when it has one of the feats the
+  item needs (on its Feats page), and, for each kind of Use
+  Limitation property the item has, fits one of them: one of its
+  classes, its race, its alignment (an Alignment Group or a Specific
+  Alignment: either kind fits). An item's worth and the creature's
+  level are no matter. A store's items can be marked
   **Infinite** (its Inventory's column).
 - **Dropable and Pickpocketable:** under the palette, as in Aurora's
   inventory, **Options** shows the item selected (**Selected Item**) and

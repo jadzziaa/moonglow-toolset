@@ -218,12 +218,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **What a creature can't wear:** the game leaves out an equipped item
-  the creature may not use when it loads the area (a stock cloak with
-  its item properties came out of a commoner's cloak slot, and
-  `ActionEquipItem` was refused too; without the properties it was
-  worn). Moonglow draws whatever the file has equipped. Which
-  properties keep an item off wasn't looked into. (S–M)
 - **The PC faction, what's left** (waits on an Aurora capture and the
   client): Moonglow keeps objects out of faction 0 and says so where it
   is written (the faction lists, the Store Wizard, `mg set`, the raw

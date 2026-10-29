@@ -226,5 +226,5 @@ fn armor(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, Preview
     let mut worn = uti.clone();
     worn.id = 0x2;
     utc.set("Equip_ItemList", Value::List(vec![worn]));
-    crate::creature(game, &utc, &|_: ResRef| None)
+    crate::creature::dressed(game, &utc, &|_: ResRef| None, false)
 }

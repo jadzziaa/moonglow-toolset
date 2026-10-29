@@ -175,6 +175,82 @@ fn an_object_s_preview_is_its_kind_s() {
     assert!(of_object(&game, K::Trigger, &utp, &items, alone).is_none());
 }
 
+/// An item the creature may not wear is not drawn on it, as the game
+/// takes it off as it loads the creature (`engine_equipped_items.rs`): a
+/// commoner in the cloak the client showed taken off (limited to bards,
+/// sorcerers and wizards), and in the same cloak without its properties,
+/// which it wears. An armor's own preview is a body that wears it
+/// whatever. Both drawn to `target/test-output/previews/commoner_cloak_*.png`.
+#[test]
+fn what_a_creature_may_not_wear_is_not_drawn() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    // (A human's body of parts with the commoner's class, feats, race and
+    // alignment: the commoner's own appearance is a model of its own,
+    // which wears no cloak.)
+    let own = blueprint(&game, "nw_commale", ResType::UTC).root;
+    let mut commoner = CreatureLook::new(6).to_utc();
+    for label in ["ClassList", "FeatList", "Race", "GoodEvil", "LawfulChaotic"] {
+        commoner.set(label, own.get(label).unwrap().clone());
+    }
+    let wearing = |cloak: &mg_gff::Struct| {
+        let mut utc = commoner.clone();
+        let mut worn = cloak.clone();
+        worn.id = 0x40;
+        utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+        utc
+    };
+    let limited = blueprint(&game, "nw_aarcl013", ResType::UTI).root;
+    let mut plain = limited.clone();
+    plain.set("PropertiesList", mg_gff::Value::List(Vec::new()));
+    let cloaked = |p: &Preview| p.parts.iter().any(|x| x.model.contains("_cloak_"));
+    let worn = creature(&game, &wearing(&plain), &|_| None).unwrap();
+    let off = creature(&game, &wearing(&limited), &|_| None).unwrap();
+    assert!(cloaked(&worn), "{:?}", models(&worn));
+    assert!(!cloaked(&off), "{:?}", models(&off));
+    // Heavy armor on the armor's own body, which has no proficiency.
+    let plate = blueprint(&game, "nw_aarcl007", ResType::UTI).root;
+    assert!(item(&game, &plate).unwrap().parts.iter().any(|x| x.model.contains("chest")));
+
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let dir = mg_testkit::scratch_dir("previews");
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    for (name, preview) in [("worn", &worn), ("off", &off)] {
+        let c = Composed::new(&gpu, preview, &load).unwrap();
+        let (min, max) = c.bounds();
+        let radius = ((max - min).length() * 0.5).max(0.1);
+        // (From behind: the cloak hangs there.)
+        let camera = Camera::orbit(
+            (min + max) * 0.5,
+            radius / 20f32.to_radians().sin() * 1.1,
+            (-90f32).to_radians(),
+            15f32.to_radians(),
+        );
+        let scene = Scene {
+            instances: c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY),
+            area: AreaLight::default(),
+            background: [0.2, 0.25, 0.3],
+            ..Default::default()
+        };
+        let img = r.render_image(&gpu, rm, &scene, &camera, 256, 256);
+        let file = std::fs::File::create(dir.join(format!("commoner_cloak_{name}.png"))).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.width, img.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.write_header().unwrap().write_image_data(&img.data).unwrap();
+    }
+}
+
 /// A part whose model names a texture that doesn't exist takes the texture
 /// of its own name, as the game does: `pfh0_belt063` names `beltmerged`.
 #[test]

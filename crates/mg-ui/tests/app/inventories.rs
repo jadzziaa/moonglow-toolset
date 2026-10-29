@@ -316,6 +316,44 @@ fn equipping_without_the_feat_asks_to_add_it() {
     assert_eq!(primary(&mut h), before);
 }
 
+/// An item equipped that the creature may not wear (the game takes it off
+/// as it loads the creature) is marked in its slot: the bandit's
+/// longsword once it has no feats; given Martial Weapon Proficiency, not.
+#[test]
+fn what_the_game_takes_off_is_marked() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_marked", ResType::UTC)
+    else {
+        return;
+    };
+    let feats = |list: Vec<u16>| {
+        let list = list
+            .into_iter()
+            .map(|f| {
+                let mut s = mg_gff::Struct::new(1);
+                s.set("Feat", mg_gff::Value::Word(f));
+                s
+            })
+            .collect();
+        mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "FeatList".into(),
+            value: Some(mg_gff::Value::List(list)),
+        }
+    };
+    let apply = |h: &mut Harness<'_, Moonglow>, e| {
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("feats", vec![e])));
+        h.run();
+    };
+    h.get_by_label("Inventory").click();
+    h.run();
+    assert!(h.query_all_by_label("⚠ Longsword").next().is_none(), "a bandit wears its sword");
+    apply(&mut h, feats(Vec::new()));
+    assert!(h.query_all_by_label("⚠ Longsword").next().is_some(), "without its feats, not");
+    apply(&mut h, feats(vec![45]));
+    assert!(h.query_all_by_label("⚠ Longsword").next().is_none());
+}
+
 #[test]
 fn creature_items_can_be_dropable_and_pickpocketable() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_flags", ResType::UTC) else {

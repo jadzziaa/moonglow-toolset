@@ -1236,6 +1236,10 @@ const MISSING_FEATS: (u32, &str) = (
      creature so that it can equip the item?",
 );
 
+/// What an equipped item's tip says when the creature may not wear it.
+const WORN_OFF: &str = "The game takes this off, into the backpack, as it loads the creature, \
+     and the area view and the creature's preview leave it off";
+
 /// A talk table string, else its English text.
 fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
     game.and_then(|g| g.string(mg_core::StrRef(strref))).unwrap_or_else(|| english.to_string())
@@ -1395,18 +1399,31 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 crate::widgets::section_heading(ui, "Equipment");
                 let icons: Vec<_> =
                     equipped.iter().map(|e| f.entry_icon_of(ui.ctx(), e, female)).collect();
+                // What the game takes off as it loads the creature: the
+                // item marked, and why in its tip.
+                let off: Vec<Option<String>> = equipped.iter().map(|e| f.wear_problem(e)).collect();
                 let layout = SlotLayout::new(ui);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for (n, (bit, slot)) in SLOTS.into_iter().enumerate() {
                         let at = equipped.iter().position(|s| s.id == bit);
-                        let shown = at.map_or_else(
-                            || "—".to_string(),
-                            |i| f.entry_name(&equipped[i], &names),
-                        );
+                        let name = at.map(|i| f.entry_name(&equipped[i], &names));
                         let tip = at.map(|i| {
-                            format!("{shown} ({})", inventory::entry_resref(&equipped[i]))
+                            let r = inventory::entry_resref(&equipped[i]);
+                            let mut tip = format!("{} ({r})", name.as_deref().unwrap_or(""));
+                            if let Some(why) = &off[i] {
+                                tip += &format!(
+                                    "\n\n{WORN_OFF}: {why}{}",
+                                    if why.ends_with('.') { "" } else { "." }
+                                );
+                            }
+                            tip
                         });
+                        let shown = match (name, at.and_then(|i| off[i].as_ref())) {
+                            (Some(name), Some(_)) => format!("⚠ {name}"),
+                            (Some(name), None) => name,
+                            (None, _) => "—".to_string(),
+                        };
                         let look = SlotLook {
                             slot,
                             icon: at.map_or(&[][..], |i| &icons[i][..]),

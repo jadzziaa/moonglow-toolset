@@ -2286,6 +2286,58 @@ fn creature_inventory_options() {
     shoot(&mut h, &dir, "creature-inventory-options-selected");
 }
 
+/// A creature's Inventory page with what the game takes off it marked: a
+/// commoner (no proficiency) with a cloak limited to bards, sorcerers and
+/// wizards, a longsword and a club, the cloak's tip saying why
+/// (`creature-inventory-worn-off.png`, and `-tip` with the pointer on the
+/// cloak).
+#[test]
+#[ignore]
+fn creature_inventory_worn_off() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_inventory_warning = true;
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named("nw_commale", ResType::UTC).unwrap();
+    let mut utc = mg_gff::Gff::read(&data).unwrap();
+    let slot = |bit: u32, resref: &str| {
+        let mut s = mg_gff::Struct::new(bit);
+        s.set("EquippedRes", mg_gff::Value::resref(mg_core::ResRef::from_str(resref).unwrap()));
+        s
+    };
+    let worn =
+        vec![slot(0x10, "nw_wswls001"), slot(0x20, "nw_wblcl001"), slot(0x40, "nw_aarcl013")];
+    utc.root.set("Equip_ItemList", mg_gff::Value::List(worn));
+    let key = ResKey::parse("mg_commoner", ResType::UTC).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_gff(key, &utc).unwrap();
+    let path = dir.join("mg_commoner-worn-off.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 720.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "creature-inventory-worn-off");
+    // (The last marked: the cloak's slot comes after the weapons'.)
+    let cloak = h
+        .get_all_by_label_contains("⚠")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .last();
+    if let Some(cloak) = cloak {
+        cloak.hover();
+        h.run_steps(30);
+        shoot(&mut h, &dir, "creature-inventory-worn-off-tip");
+    }
+}
+
 /// The Inventory pages in a window as narrow as one opens beside the
 /// area (about 480 points): a placed creature's, the creature
 /// blueprint's, a placed store's and a placed chest's
