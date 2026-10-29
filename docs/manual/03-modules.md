@@ -1224,7 +1224,9 @@ folder's files, subfolders included, to look over and save.
 - **Update from Folder:** a hak built with Build Hak from Folder
   remembers the folder (from one session to the next, once saved):
   **Update from Folder** takes the folder's files again in place of the
-  hak's, as they are now.
+  hak's, as they are now, as one step to undo. What the hak has and the
+  folder has no file of (a file added by hand, or from another folder)
+  is taken out, and the log names it: **Undo** puts it back.
 - **Adding:** **Add Files…** and **Add Folder…** add files. Where the hak
   already has some of them, it asks first, listing them, as Aurora's hak
   editor does: **Replace** them, **Skip Those** and add the rest, or

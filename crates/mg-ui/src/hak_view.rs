@@ -575,15 +575,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         }
         Some(Do::CompileModels) => compile_models(app, i),
         Some(Do::UpdateFromFolder) => {
-            // What the folder has now: its files in place of the hak's.
+            // What the folder has now: its files in place of the hak's, in
+            // one step to undo; what the folder has no file of goes, and
+            // is named (a hak added to by hand, or built from several
+            // folders, loses it: Undo puts it back).
             let doc = &mut app.haks[i];
             if let Some(dir) = doc.folder.clone() {
-                let all: Vec<ResKey> = doc.hak.items().iter().map(|i| i.key).collect();
-                doc.hak.remove(&all);
-                let added = doc.hak.add_folder(&dir);
+                let (added, gone) = doc.hak.update_from_folder(&dir);
                 doc.changed();
                 app.log.info(format!("Read {} again", dir.display()));
                 report(app, &added);
+                if !gone.is_empty() {
+                    let names: Vec<String> = gone.iter().take(12).map(ResKey::to_string).collect();
+                    let more = gone.len().saturating_sub(names.len());
+                    let more = if more > 0 { format!(" and {more} more") } else { String::new() };
+                    app.log.warn(format!(
+                        "Took out {} resources the folder has no file of (Undo puts them back): \
+                         {}{more}",
+                        gone.len(),
+                        names.join(", ")
+                    ));
+                }
             }
         }
     }

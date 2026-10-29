@@ -978,6 +978,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     let mut have = names(&h);
     have.sort();
     assert_eq!(have, ["mg_ui_new.2da", "mg_ui_other.2da", "mg_ui_test.2da"]);
+    // (One step to undo, not two.)
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Update from Folder"));
     // By size, the largest is listed first.
     h.state_mut().haks[0].sort = mg_ui::hak_view::Sort::Size;
     h.run();

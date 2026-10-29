@@ -815,10 +815,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Viewing in the hak editor** shows fields, text, a compiled model as
   its text, or the first bytes: no pictures or sounds, a model not as a
   picture, and a 2DA as its text. (S)
-- **Update from Folder** takes the folder's files in place of the hak's
-  (two undo steps: the removal, then the adding); a hak that was built
-  from several folders, or added to by hand, loses what the folder
-  hasn't. (S)
 
 ## Raw fields
 
@@ -2314,12 +2310,6 @@ viewer under 2). What is left:
 - **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
   an off-screen creature's bones are posed and drawn. A renderer change,
   so through CI on a branch first. (M)
-- **Smaller:** the remembered-files cache (`Remembered::file`) is named by
-  Rust's own hasher (a cache, so harmless across releases);
-  `moonglow-hak-<pid>` folders left by a crashed Moonglow are not
-  cleaned up; the hak editor's Save copies the old hak to `.bak` where
-  the module's Save now links it; a temporary `.moonglow-tmp` left in a
-  project by a crash is not in a project's ignored files. (S each)
 
 ## Written more than once (the review of 2026-10-21)
 

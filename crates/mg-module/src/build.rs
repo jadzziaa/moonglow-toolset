@@ -278,13 +278,14 @@ impl Remembered {
     /// The file that keeps what is remembered of the module at `module`,
     /// in `dir` (Moonglow's own folder, not the module's: nothing is
     /// written into a builder's repository or module folder).
+    /// Named by the module's path's SHA-1, which every release of
+    /// Moonglow makes alike (Rust's own hasher may change from one
+    /// compiler to the next, and a module was then built afresh).
     pub fn file(dir: &std::path::Path, module: &std::path::Path) -> std::path::PathBuf {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
         let module = &settled(module);
-        module.hash(&mut h);
+        let digest = mg_core::sha1::sha1(module.as_os_str().as_encoded_bytes());
         let name = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        dir.join(format!("{name}-{:016x}.json", h.finish()))
+        dir.join(format!("{name}-{}.json", mg_core::sha1::hex(&digest[..8])))
     }
 
     /// What is kept in `dir` of the module at `module`, if it was made
@@ -838,6 +839,9 @@ mod tests {
         // Kept in a file, and read back the same.
         let dir = std::env::temp_dir().join(format!("mg-remembered-{}", std::process::id()));
         let file = Remembered::file(&dir, std::path::Path::new("/modules/My Module.mod"));
+        // (By the path's SHA-1, which no release of Rust changes.)
+        #[cfg(unix)]
+        assert_eq!(file.file_name().unwrap(), "My Module-007d7206c5c58c29.json");
         assert!(file.file_name().unwrap().to_string_lossy().starts_with("My Module-"));
         r.write(&file).unwrap();
         assert_eq!(Remembered::read(&file), Some(r.clone()));

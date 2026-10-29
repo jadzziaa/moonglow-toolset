@@ -121,6 +121,41 @@ pub struct Hak {
     stash: Arc<Stash>,
 }
 
+/// What the folders of renamed resources' bytes are named, before the
+/// process's number ([`Hak::rename`]).
+const STASH: &str = "moonglow-hak-";
+
+/// Takes away the folders of renamed bytes in `temp` that a Moonglow no
+/// longer running left there (one that crashed: a process's own goes with
+/// its last hak). A process is known gone where the system says
+/// (Linux's `/proc`); elsewhere a folder untouched for a week is taken as
+/// left. How many went.
+pub fn sweep_stashes(temp: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(temp) else { return 0 };
+    let ours = std::process::id();
+    let week = std::time::Duration::from_secs(7 * 24 * 3600);
+    let mut gone = 0;
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(pid) = name.strip_prefix(STASH).and_then(|p| p.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid == ours || !e.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let left = if cfg!(target_os = "linux") && Path::new("/proc/self").exists() {
+            !Path::new("/proc").join(pid.to_string()).exists()
+        } else {
+            let touched = e.metadata().and_then(|m| m.modified()).ok();
+            touched.and_then(|t| t.elapsed().ok()).is_some_and(|age| age > week)
+        };
+        if left && std::fs::remove_dir_all(e.path()).is_ok() {
+            gone += 1;
+        }
+    }
+    gone
+}
+
 /// Junk that file managers leave in folders.
 fn ignored(name: &str) -> bool {
     name.starts_with('.')
@@ -341,41 +376,46 @@ impl Hak {
     /// Adds files, replacing resources of the same name; one undo step.
     pub fn add_files(&mut self, paths: &[PathBuf]) -> Added {
         let mut out = Added::default();
-        let mut found = Vec::new();
-        for p in paths {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if ignored(&name) {
-                continue;
-            }
-            match (key_for(&name), std::fs::metadata(p)) {
-                (Ok(key), Ok(meta)) if meta.is_file() => found.push((key, meta.len(), p.clone())),
-                (Ok(_), Ok(_)) => {}
-                (Err(why), _) => out.skipped.push((p.clone(), why)),
-                (_, Err(e)) => out.skipped.push((p.clone(), e.to_string())),
-            }
+        let items = file_items(paths, &mut out);
+        if !items.is_empty() {
+            self.put("Add files", items, &mut out);
         }
-        // Two files with one name (in different folders): the first stays.
-        found.sort_by(|a, b| a.2.cmp(&b.2));
-        let mut seen = std::collections::HashSet::new();
-        let found: Vec<_> = found
-            .into_iter()
-            .filter(|(key, _, p)| {
-                let first = seen.insert(*key);
-                if !first {
-                    out.skipped.push((p.clone(), format!("another {key} is added already")));
-                }
-                first
-            })
-            .collect();
-        if found.is_empty() {
-            return out;
-        }
-        let items = found
-            .into_iter()
-            .map(|(key, size, path)| Item { key, size, source: Source::File(path) })
-            .collect();
-        self.put("Add files", items, &mut out);
         out
+    }
+
+    /// Update from Folder: the hak's resources become the files of `dir`
+    /// and of the folders in it, as [`Hak::add_folder`] reads them, in one
+    /// step to undo: those of the same names replaced, the others added,
+    /// and those the folder has no file of taken out (returned, for
+    /// saying which: a hak built from several folders, or added to by
+    /// hand, loses them).
+    pub fn update_from_folder(&mut self, dir: &Path) -> (Added, Vec<ResKey>) {
+        let mut out = Added::default();
+        let items = file_items(&folder_files(dir), &mut out);
+        let now: std::collections::HashSet<ResKey> = items.iter().map(|i| i.key).collect();
+        let mut change = Change::default();
+        for item in items {
+            match self.places.get(&item.key) {
+                Some(&at) => {
+                    change.replaced.push((at, self.items[at].clone(), item));
+                    out.replaced += 1;
+                }
+                None => {
+                    change.appended.push(item);
+                    out.added += 1;
+                }
+            }
+        }
+        change.removed = (self.items.iter().enumerate())
+            .filter(|(_, i)| !now.contains(&i.key))
+            .map(|(at, i)| (at, i.clone()))
+            .collect();
+        let gone = change.removed.iter().map(|(_, i)| i.key).collect();
+        let empty = change.replaced.is_empty() && change.removed.is_empty();
+        if !(empty && change.appended.is_empty()) {
+            self.commit("Update from Folder", change);
+        }
+        (out, gone)
     }
 
     /// Adds resources by where their bytes are (given, or a file's),
@@ -383,7 +423,41 @@ impl Hak {
     pub fn add_sources(&mut self, resources: Vec<(ResKey, Source)>) -> Result<Added, String> {
         self.add_sources_as("Add resources", resources)
     }
+}
 
+/// The resources files would add, each by its name, a file that names no
+/// resource said in `out` (as two files of one name, the second).
+fn file_items(paths: &[PathBuf], out: &mut Added) -> Vec<Item> {
+    let mut found = Vec::new();
+    for p in paths {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if ignored(&name) {
+            continue;
+        }
+        match (key_for(&name), std::fs::metadata(p)) {
+            (Ok(key), Ok(meta)) if meta.is_file() => found.push((key, meta.len(), p.clone())),
+            (Ok(_), Ok(_)) => {}
+            (Err(why), _) => out.skipped.push((p.clone(), why)),
+            (_, Err(e)) => out.skipped.push((p.clone(), e.to_string())),
+        }
+    }
+    // Two files with one name (in different folders): the first stays.
+    found.sort_by(|a, b| a.2.cmp(&b.2));
+    let mut seen = std::collections::HashSet::new();
+    found
+        .into_iter()
+        .filter(|(key, _, p)| {
+            let first = seen.insert(*key);
+            if !first {
+                out.skipped.push((p.clone(), format!("another {key} is added already")));
+            }
+            first
+        })
+        .map(|(key, size, path)| Item { key, size, source: Source::File(path) })
+        .collect()
+}
+
+impl Hak {
     /// [`add_sources`](Self::add_sources), the step named `what` in Undo.
     pub fn add_sources_as(
         &mut self,
@@ -464,7 +538,11 @@ impl Hak {
     /// Keeps renamed bytes in a scratch file until the hak is saved (and
     /// removed when the hak is closed).
     fn stash(&self, key: ResKey, bytes: &[u8]) -> Result<PathBuf, String> {
-        let dir = std::env::temp_dir().join(format!("moonglow-hak-{}", std::process::id()));
+        let temp = std::env::temp_dir();
+        // (Once a process: the folders a Moonglow that crashed left.)
+        static SWEPT: std::sync::Once = std::sync::Once::new();
+        SWEPT.call_once(|| _ = sweep_stashes(&temp));
+        let dir = temp.join(format!("{STASH}{}", std::process::id()));
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -579,12 +657,13 @@ impl Hak {
 
 /// Puts `resources` into the hak at `path`, replacing those of the same
 /// name there: the hak is made if there is none, and one that is there is
-/// first copied beside itself as `.bak`.
+/// first kept beside itself as `.bak` (linked, as the module's Save keeps
+/// the module: a hak of gigabytes is not copied).
 pub fn write_into(path: &Path, resources: Vec<(ResKey, Source)>) -> Result<Added, String> {
     let mut hak = if path.exists() {
         let hak = Hak::open(path)?;
-        let bak = path.with_extension("hak.bak");
-        std::fs::copy(path, &bak).map_err(|e| format!("{}: {e}", bak.display()))?;
+        let bak = crate::sibling(path, ".bak");
+        crate::keep_previous(path).map_err(|e| format!("{}: {e}", bak.display()))?;
         hak
     } else {
         Hak::new()
@@ -629,6 +708,10 @@ mod tests {
         let bak = Hak::open(&dir.join("made.hak.bak")).unwrap();
         assert_eq!(bak.data(key("two")).unwrap(), b"2");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn key(name: &str) -> ResKey {
+        ResKey::parse(name, ResType::TXT).unwrap()
     }
 
     fn write(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
@@ -769,6 +852,80 @@ mod tests {
         assert_eq!(copy.data(renamed).unwrap(), b"1");
         drop(copy);
         assert!(!stashed.exists());
+    }
+
+    /// Update from Folder: one step, which one Undo takes back whole; the
+    /// folder's files in place of the hak's, those it has no file of
+    /// taken out and named.
+    #[test]
+    fn update_from_folder_is_one_step_and_names_what_goes() {
+        let dir = mg_testkit::scratch_dir("mg-hak-update");
+        let src = dir.join("src");
+        write(&src, "a.txt", b"a1");
+        write(&src, "b.txt", b"b1");
+        let mut hak = Hak::new();
+        hak.add_folder(&src);
+        // Added to by hand: a resource the folder has no file of.
+        hak.add_sources(vec![(key("byhand"), Source::Bytes(b"h"[..].into()))]).unwrap();
+        write(&src, "a.txt", b"a2");
+        std::fs::remove_file(src.join("b.txt")).unwrap();
+        write(&src, "c.txt", b"c1");
+        let names = |h: &Hak| {
+            let mut n: Vec<String> = h.items().iter().map(|i| i.key.to_string()).collect();
+            n.sort();
+            n
+        };
+        let before = names(&hak);
+        let (added, gone) = hak.update_from_folder(&src);
+        assert_eq!((added.added, added.replaced), (1, 1));
+        let mut gone: Vec<String> = gone.iter().map(ResKey::to_string).collect();
+        gone.sort();
+        assert_eq!(gone, ["b.txt", "byhand.txt"]);
+        assert_eq!(names(&hak), ["a.txt", "c.txt"]);
+        assert_eq!(hak.data(key("a")).unwrap(), b"a2");
+        assert_eq!(hak.undo_label(), Some("Update from Folder"));
+        hak.undo();
+        assert_eq!(names(&hak), before, "one Undo takes it all back");
+        assert_eq!(hak.data(key("byhand")).unwrap(), b"h");
+        hak.redo();
+        assert_eq!(names(&hak), ["a.txt", "c.txt"]);
+    }
+
+    /// A folder of renamed bytes that a Moonglow no longer running left in
+    /// the temporary folder goes; this process's own, and a running one's,
+    /// stay.
+    #[test]
+    fn stashes_a_crashed_moonglow_left_are_swept() {
+        let temp = mg_testkit::scratch_dir("mg-hak-sweep");
+        let made = |pid: u32| {
+            let d = temp.join(format!("{STASH}{pid}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("0-one.txt"), b"1").unwrap();
+            d
+        };
+        let ours = made(std::process::id());
+        // (Past Linux's highest process number: no process has it.)
+        let crashed = made(4_194_305);
+        let unrelated = temp.join("moonglow-hak-notes");
+        std::fs::create_dir_all(&unrelated).unwrap();
+        if !Path::new("/proc/self").exists() {
+            return; // (Elsewhere a folder goes after a week untouched.)
+        }
+        assert_eq!(sweep_stashes(&temp), 1);
+        assert!(!crashed.exists() && ours.exists() && unrelated.exists());
+    }
+
+    /// The hak a write into replaces is kept beside it as `.bak`, as it was
+    /// (linked where the disk can, not copied).
+    #[test]
+    fn write_into_keeps_the_hak_it_replaces() {
+        let dir = mg_testkit::scratch_dir("mg-hak-bak");
+        let path = dir.join("k.hak");
+        write_into(&path, vec![(key("one"), Source::Bytes(b"1"[..].into()))]).unwrap();
+        let first = std::fs::read(&path).unwrap();
+        write_into(&path, vec![(key("two"), Source::Bytes(b"2"[..].into()))]).unwrap();
+        assert_eq!(std::fs::read(dir.join("k.hak.bak")).unwrap(), first);
+        assert_eq!(Hak::open(&path).unwrap().items().len(), 2);
     }
 
     #[test]

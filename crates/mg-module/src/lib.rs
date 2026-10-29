@@ -179,6 +179,7 @@ impl Module {
         if path.is_dir() {
             return Self::open_folder(path);
         }
+        left_writing(&sibling(path, WRITING));
         let data = std::fs::read(path).map_err(io(path))?;
         let erf = Erf::read(&data)
             .map_err(|e| ModuleError::Archive { path: path.into(), message: e.to_string() })?;
@@ -230,6 +231,8 @@ impl Module {
         for f in files.iter().filter(|f| f.is_file()) {
             let Some(name) = f.file_name().and_then(|n| n.to_str()) else { continue };
             let Some(key) = folder_key(name) else {
+                // (A crash's half-written file goes, once it is old.)
+                left_writing(f);
                 continue; // not a resource (notes, editor files, ...)
             };
             let at = f.metadata().and_then(|d| d.modified()).unwrap_or(std::time::UNIX_EPOCH);
@@ -598,11 +601,7 @@ impl Module {
             return Err(e);
         }
         if path.exists() {
-            let backup = sibling(path, ".bak");
-            let _ = std::fs::remove_file(&backup);
-            if std::fs::hard_link(path, &backup).is_err() {
-                std::fs::copy(path, &backup).map_err(io(&backup))?;
-            }
+            keep_previous(path).map_err(io(&sibling(path, ".bak")))?;
         }
         std::fs::rename(&tmp, path).map_err(io(path))
     }
@@ -885,6 +884,41 @@ pub(crate) fn folder_key(name: &str) -> Option<ResKey> {
     ResKey::from_filename(name)
 }
 
+/// What a file is written as beside the one it takes the place of, before
+/// it is moved there ([`write_replacing`], a save): left only by a crash.
+pub(crate) const WRITING: &str = ".moonglow-tmp";
+
+/// Whether `path` is a file Moonglow writes before moving it into place
+/// (`name.ext.moonglow-tmp`): not a resource, and taken away where it is
+/// over ten minutes old, which a write in progress never is (what a crash
+/// left in a module's folder or a project, which version control would
+/// otherwise offer to commit).
+pub(crate) fn left_writing(path: &Path) -> bool {
+    let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    if !name.ends_with(WRITING) {
+        return false;
+    }
+    let age =
+        std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+    if age.is_some_and(|a| a > std::time::Duration::from_secs(600)) {
+        let _ = std::fs::remove_file(path);
+    }
+    true
+}
+
+/// Keeps the file at `path` as it is now beside it, as `name.ext.bak`
+/// (one there before goes), before a new one is moved into its place: a
+/// second name for the same file where the disk can give one (no copy of
+/// a hak of gigabytes), else a copy. Where it is kept.
+pub(crate) fn keep_previous(path: &Path) -> std::io::Result<PathBuf> {
+    let backup = sibling(path, ".bak");
+    let _ = std::fs::remove_file(&backup);
+    if std::fs::hard_link(path, &backup).is_err() {
+        std::fs::copy(path, &backup)?;
+    }
+    Ok(backup)
+}
+
 pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(suffix);
@@ -1008,6 +1042,36 @@ mod tests {
         m.save().unwrap();
         assert_eq!(script(&path).as_deref(), Some(&b"again"[..]));
         assert_eq!(script(&dir.join("test.mod.bak")).as_deref(), Some(&b"changed"[..]));
+    }
+
+    /// A file half written when Moonglow stopped (`.moonglow-tmp`), beside
+    /// a module's file or in its folder, goes when the module is opened
+    /// once it is over ten minutes old; a newer one, which a save under
+    /// way may be writing, stays; neither is a resource.
+    #[test]
+    fn a_crash_s_half_written_files_go_when_the_module_is_opened() {
+        let dir = mg_testkit::scratch_dir("mg-module-left-writing");
+        let folder = dir.join("folder");
+        sample().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+        let archive = dir.join("test.mod");
+        sample().save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        let left = |path: PathBuf, old: bool| {
+            std::fs::write(&path, b"half").unwrap();
+            if old {
+                let f = std::fs::File::options().write(true).open(&path).unwrap();
+                f.set_modified(hour_ago).unwrap();
+            }
+            path
+        };
+        let stale = left(folder.join("script.nss.moonglow-tmp"), true);
+        let fresh = left(folder.join("area.git.moonglow-tmp"), false);
+        let beside = left(dir.join("test.mod.moonglow-tmp"), true);
+        let m = Module::open(&folder).unwrap();
+        assert!(!stale.exists() && fresh.exists());
+        assert_eq!(m.len(), sample().len(), "neither is a resource");
+        Module::open(&archive).unwrap();
+        assert!(!beside.exists());
     }
 
     /// Saving into the module's own folder writes only the files that
