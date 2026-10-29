@@ -2494,11 +2494,6 @@ of truth, and does each caller's difference matter.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
-- In mg-mdl: `compile.rs:93` `tangents` has no caller (a different
-  normalize from `engine_tangents`); `sub`, `dot` and `cross` three
-  times; `PartNumbers::read` (`binary_write.rs:296`) walks nodes beside
-  `Bin`. PLT coloring twice (`mg-render assets.rs:119`,
-  `images.rs:221`).
 - The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
   now but are still two (the edits wanted by the area view against the
   module's mutations). (Making placeables static is one since

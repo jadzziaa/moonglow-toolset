@@ -509,11 +509,24 @@ pub fn animations(
     out
 }
 
+/// `a` less `b`.
+pub(crate) fn sub(a: Vec3, b: Vec3) -> Vec3 {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+/// The dot product.
+pub(crate) fn dot(a: Vec3, b: Vec3) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// The cross product.
+pub(crate) fn cross(u: Vec3, v: Vec3) -> Vec3 {
+    [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+}
+
 /// Face normals from positions, area-weighted (the cross product's length).
 pub(crate) fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
-    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+    cross(sub(b, a), sub(c, a))
 }
 
 /// A vector made unit as the game makes it (`Vector::Normalize`,

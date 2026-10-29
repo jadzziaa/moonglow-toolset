@@ -19,9 +19,8 @@ use std::collections::HashMap;
 use crate::ctrl::flags;
 use crate::{
     AabbEntry, AnimNode, Animation, Classification, Controller, Emitter, Light, Mesh, MeshExtra,
-    Model, Node, NodeKind, Skin, Vec3,
+    Model, Node, NodeKind, Skin, Vec3, cross, dot, sub,
 };
-use mg_core::bin::Reader;
 use thiserror::Error;
 
 /// Why a model cannot be written as a binary.
@@ -194,15 +193,6 @@ pub(crate) fn flags_for_controllers(controllers: &[Controller]) -> u32 {
         .unwrap_or(flags::HEADER)
 }
 
-fn sub(a: Vec3, b: Vec3) -> Vec3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-fn cross(u: Vec3, v: Vec3) -> Vec3 {
-    [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
-}
-fn dot(a: Vec3, b: Vec3) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 fn length(v: Vec3) -> f32 {
     dot(v, v).sqrt()
 }
@@ -297,24 +287,8 @@ impl PartNumbers {
     /// are best taken from its file: BioWare's compiler numbered nodes in
     /// their file's order, which a compiled model's tree does not keep.
     pub fn read(data: &[u8]) -> Option<PartNumbers> {
-        if !crate::is_binary(data) {
-            return None;
-        }
-        let m = data.get(12..)?;
-        let u32_at = |at: usize| Reader::at(m, at).and_then(|mut r| r.u32()).ok();
-        let mut numbers = Vec::new();
-        let mut stack = vec![u32_at(0x48)? as usize];
-        while let Some(at) = stack.pop() {
-            if numbers.len() > 100_000 {
-                return None;
-            }
-            numbers.push(u32_at(at + 0x1C)? as i32);
-            let (list, count) = (u32_at(at + 0x48)? as usize, u32_at(at + 0x4C)? as usize);
-            for i in (0..count.min(100_000)).rev() {
-                stack.push(u32_at(list + 4 * i)? as usize);
-            }
-        }
-        Some(PartNumbers { numbers, count: u32_at(0x4C)? })
+        let (numbers, count) = crate::binary::part_numbers(data)?;
+        Some(PartNumbers { numbers, count })
     }
 }
 

@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use crate::ctrl::flags;
-use crate::{AabbEntry, Mesh, MeshExtra, Model, NodeKind, Vec3};
+use crate::{AabbEntry, Mesh, MeshExtra, Model, NodeKind, Vec3, dot, sub};
 use thiserror::Error;
 
 use crate::binary_write::{self as binary, PartNumbers};
@@ -71,65 +71,6 @@ pub struct Compiled {
     /// What was left out or made up, with the text's line where it has one
     /// (0: none).
     pub notes: Vec<(usize, String)>,
-}
-
-fn sub(a: Vec3, b: Vec3) -> Vec3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-fn dot(a: Vec3, b: Vec3) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-fn cross(u: Vec3, v: Vec3) -> Vec3 {
-    [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
-}
-fn normalized(v: Vec3) -> Vec3 {
-    let len = dot(v, v).sqrt();
-    if len > 1e-20 { v.map(|x| x / len) } else { [0.0; 3] }
-}
-
-/// Tangents for a mesh's vertices from its first texture coordinates: per
-/// vertex the direction texture `u` grows in, at right angles to the
-/// normal, and the bitangent's sign.
-pub fn tangents(mesh: &Mesh) -> Vec<[f32; 4]> {
-    let count = mesh.vertices.len();
-    let uv = &mesh.uvs[0];
-    if uv.len() != count || mesh.normals.len() != count {
-        return Vec::new();
-    }
-    let (mut tan, mut bitan) = (vec![[0.0f32; 3]; count], vec![[0.0f32; 3]; count]);
-    for [a, b, c] in mesh.triangles().map(|t| t.map(|v| v as usize)) {
-        if a >= count || b >= count || c >= count {
-            continue;
-        }
-        let (e1, e2) =
-            (sub(mesh.vertices[b], mesh.vertices[a]), sub(mesh.vertices[c], mesh.vertices[a]));
-        let (du1, dv1) = (uv[b][0] - uv[a][0], uv[b][1] - uv[a][1]);
-        let (du2, dv2) = (uv[c][0] - uv[a][0], uv[c][1] - uv[a][1]);
-        let det = du1 * dv2 - du2 * dv1;
-        if det.abs() < 1e-20 {
-            continue;
-        }
-        let r = 1.0 / det;
-        let t: Vec3 = std::array::from_fn(|k| (e1[k] * dv2 - e2[k] * dv1) * r);
-        let s: Vec3 = std::array::from_fn(|k| (e2[k] * du1 - e1[k] * du2) * r);
-        for v in [a, b, c] {
-            for k in 0..3 {
-                tan[v][k] += t[k];
-                bitan[v][k] += s[k];
-            }
-        }
-    }
-    (0..count)
-        .map(|v| {
-            let n = mesh.normals[v];
-            // At right angles to the normal (Gram–Schmidt).
-            let d = dot(n, tan[v]);
-            let t = normalized(std::array::from_fn(|k| tan[v][k] - n[k] * d));
-            let t = if t == [0.0; 3] { [1.0, 0.0, 0.0] } else { t };
-            let sign = if dot(cross(n, t), bitan[v]) < 0.0 { -1.0 } else { 1.0 };
-            [t[0], t[1], t[2], sign]
-        })
-        .collect()
 }
 
 /// A mesh's tangents as the game's compiler makes them (nwn-mdl-spec
