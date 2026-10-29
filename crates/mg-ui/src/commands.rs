@@ -72,6 +72,8 @@ pub enum Id {
     BuildModule,
     PublishNwsync,
     Verify,
+    /// The module saved to a copy and read back (`mg roundtrip`).
+    RoundTrip,
     /// The area the module starts in, opened at the start location.
     GoToStart,
     TestModule,
@@ -230,6 +232,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::BuildModule),
             Do(Id::PublishNwsync),
             Do(Id::Verify),
+            Do(Id::RoundTrip),
             Do(Id::TestModule),
             Do(Id::TestChoose),
             Do(Id::PackTarget),
@@ -452,6 +455,12 @@ impl Id {
                 "The module's haks and talk table, for players' games to download",
             ),
             Id::Verify => ("verify", "Verify Module", ""),
+            Id::RoundTrip => (
+                "round-trip",
+                "Round-Trip Check",
+                "Save a copy of the module, read it back and write each GFF and 2DA anew: what \
+                 doesn't come back as it was is said in the log (the module is not touched)",
+            ),
             Id::GoToStart => (
                 "go-to-start",
                 "Go to Start Location",
@@ -725,6 +734,7 @@ impl Id {
             | Id::BuildModule
             | Id::PublishNwsync
             | Id::Verify
+            | Id::RoundTrip
             | Id::GoToStart
             | Id::TestModule
             | Id::TestChoose => open,
@@ -767,6 +777,7 @@ impl Id {
             Id::CompileAll => Action::CompileScripts,
             Id::CompileModels => Action::CompileModels,
             Id::Verify => Action::Verify,
+            Id::RoundTrip => Action::RoundTrip,
             // (The games running looked at before the save writes the
             // module under one.)
             Id::TestModule | Id::TestChoose if !app.test_may_start() => return,

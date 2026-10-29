@@ -72,6 +72,38 @@ fn build_unused_and_counted_as_used() {
     shoot(&mut h, &dir, "build-unused-mark-menu");
 }
 
+/// Build › Round-Trip Check in its menu, with its tip, and what it says in
+/// the log once run (a module with a file that is no GFF under a GFF's
+/// name: kept, and said).
+#[test]
+#[ignore]
+fn build_round_trip_check() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-round-trip");
+    let path = dir.join("sample.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    m.set(ResKey::parse("broken", ResType::UTP).unwrap(), b"not a gff".to_vec());
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 720.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Round-Trip Check").hover();
+    h.run_steps(30);
+    shoot(&mut h, &dir, "build-round-trip-menu");
+    h.get_by_label("Round-Trip Check").click();
+    h.run();
+    shoot(&mut h, &dir, "build-round-trip-log");
+}
+
 /// A color button's picker, open, with Paste beside it (a builder's
 /// report: the picker copied a color and nothing pasted one back).
 #[test]

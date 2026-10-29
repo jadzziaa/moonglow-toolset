@@ -16,7 +16,7 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Conversations](06-conversations.md) - Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 * [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, and the compiler.
 * [Journal and factions](08-journal-and-factions.md) - The Journal Editor and the Faction Editor.
-* [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
+* [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 * [Options](10-options.md) - The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 * [Command-line tools](11-command-line.md) - The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 * [Differences from Aurora](12-differences.md) - Where Moonglow deliberately departs from Aurora.

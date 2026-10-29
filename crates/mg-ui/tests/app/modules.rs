@@ -1703,3 +1703,31 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
 fn which(name: &str) -> Option<std::path::PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
 }
+
+/// Build › Round-Trip Check runs `mg roundtrip`'s check on the module as
+/// it is in the window, unsaved changes too, as a job, and says what it
+/// found in the log; the module's file is not touched.
+#[test]
+fn the_round_trip_check_runs_from_the_build_menu() {
+    let dir = mg_testkit::scratch_dir("ui-round-trip");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::parse("broken", ResType::UTP).unwrap(), b"not a gff".to_vec());
+    m.save().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Round-Trip Check").click();
+    h.run();
+    h.run();
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, e)| e.clone()).collect();
+    let summary = log.iter().find(|e| e.starts_with("Round trip: ") && e.contains("resources"));
+    let summary = summary.unwrap_or_else(|| panic!("{log:?}"));
+    assert!(summary.ends_with("written anew: all the same"), "{summary}");
+    assert!(log.iter().any(|e| e.starts_with("Round trip: broken.utp cannot be read")), "{log:?}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the module's file is not touched");
+}

@@ -370,6 +370,9 @@ pub enum Action {
     /// Build › Compile Models: the module's models kept as text.
     CompileModels,
     Verify,
+    /// Build › Round-Trip Check: the module saved to a copy and read back,
+    /// its GFFs and 2DAs written anew (`mg roundtrip`).
+    RoundTrip,
     /// Saves, then starts the game on the module (F9).
     TestModule,
     Quit,
@@ -3590,6 +3593,7 @@ impl Moonglow {
             Action::CompileScripts => self.compile_scripts(),
             Action::CompileModels => self.compile_models(),
             Action::Verify => self.verify(),
+            Action::RoundTrip => self.round_trip(),
             Action::TestModule => self.test_module(false),
             Action::TestModuleChoose => self.test_module(true),
             Action::TestFromHere { area, at, facing, choose } => {
@@ -4873,6 +4877,47 @@ impl Moonglow {
 
     /// Verify Module, as a job: what is missing, and what is wrong with the
     /// custom content, into the log.
+    /// Build › Round-Trip Check, as a job: the module as it is (unsaved
+    /// changes too) saved to a copy of its own and read back, and its GFFs
+    /// and 2DAs written anew; what doesn't come back as it was is said in
+    /// the log. The module and its file are not touched.
+    fn round_trip(&mut self) {
+        if self.ws.is_none() {
+            return;
+        }
+        let copy =
+            std::env::temp_dir().join(format!("moonglow-roundtrip-{}.mod", std::process::id()));
+        self.start_job(
+            "Round-Trip Check",
+            move |job| {
+                job.progress.say("Saving a copy and reading it back");
+                let progress = |done, total| {
+                    job.progress.step(done, total);
+                    !job.progress.cancelled()
+                };
+                mg_module::roundtrip::check(&job.module, &copy, false, &progress)
+            },
+            |app, report| match report {
+                Ok(r) => {
+                    for (k, why) in &r.unread {
+                        app.log.warn(format!(
+                            "Round trip: {k} cannot be read ({why}): kept as it is, never written \
+                             anew"
+                        ));
+                    }
+                    for (k, what) in &r.differences {
+                        app.log.error(format!("Round trip: {k}: {what}"));
+                    }
+                    match r.differences.is_empty() {
+                        true => app.log.info(format!("Round trip: {}", r.summary())),
+                        false => app.log.error(format!("Round trip: {}", r.summary())),
+                    }
+                }
+                Err(e) => app.log.error(format!("Round trip: {e}")),
+            },
+        );
+    }
+
     fn verify(&mut self) {
         if self.ws.is_none() || self.game.is_none() {
             return;

@@ -38,6 +38,7 @@ pub mod project_plugins;
 pub mod query;
 pub mod refs;
 pub mod rename;
+pub mod roundtrip;
 pub mod script_set;
 pub mod script_wizard;
 pub mod search;

@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Build, verify and test
-description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
+description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:28:20Z }
 ---
@@ -242,6 +242,25 @@ with no nodes, or whose supermodel isn't found stays as text, and the
 log says why; the compiler's notes on a model compiled (three of each)
 are in the log too. (The hak editor's Compile Models does the same for a
 hak, `mg pack --compile-models` for a folder.)
+
+## Round-Trip Check
+
+**Build › Round-Trip Check** checks that Moonglow keeps the module as it
+is, as `mg roundtrip` does: in the background, it saves a copy of the
+module as it is in the window (unsaved changes too) to a temporary file,
+reads it back and compares every resource byte for byte, then writes
+every GFF and 2DA anew and compares what it reads back (the same fields
+and cells, the fields Moonglow has no name for too; a GFF written twice
+must come out the same). The log says how much was compared and names
+each resource that came back otherwise; a file that can't be read as its
+type says (no GFF under a GFF's name) is kept as it is, never written
+anew, and named too. The module and its file are not touched.
+
+It doesn't ask the game or Aurora (the tests do, on the game's own
+modules), and a GFF is compared by its fields, not its bytes: Moonglow
+lays a GFF out its own way, as every edit does. Scripts, models and the
+other formats are kept as their bytes, which the saved copy holds them
+to.
 
 ## Test Module
 

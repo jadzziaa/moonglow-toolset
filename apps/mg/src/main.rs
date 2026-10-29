@@ -4072,72 +4072,9 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
     if keep.is_some() && copy.exists() {
         bail!("{} is there already", copy.display());
     }
-    let mut differences: Vec<(String, String)> = Vec::new();
-    let mut differs = |key: &ResKey, what: &str| differences.push((key.to_string(), what.into()));
-
-    // Saved as it is: every resource byte for byte.
-    let saved = original.clone().save_as(&ModuleLocation::Archive(copy.clone()));
-    let back = saved.map_err(anyhow::Error::from).and_then(|()| Ok(crate::open_module(&copy)?));
-    if keep.is_none() {
-        let _ = std::fs::remove_file(&copy);
-    }
-    let back = back.context("the copy could not be saved and read back")?;
-    for k in original.keys() {
-        match back.get(k) {
-            None => differs(k, "missing from the saved copy"),
-            Some(b) if Some(b) != original.get(k) => differs(k, "other bytes in the saved copy"),
-            Some(_) => {}
-        }
-    }
-    for k in back.keys().filter(|k| !original.contains(k)) {
-        differs(k, "in the saved copy alone");
-    }
-
-    // Written anew, as an edit writes it: the same when read back.
-    let cp = Codepage::WINDOWS_1252;
-    let (mut gffs, mut tables, mut unread) = (0, 0, Vec::new());
-    for k in original.keys() {
-        let data = original.get(k).expect("its own key");
-        if k.restype.is_gff() {
-            let read = match Gff::read(data) {
-                Ok(g) => g,
-                Err(e) => {
-                    unread.push((k.to_string(), e.to_string()));
-                    continue;
-                }
-            };
-            gffs += 1;
-            match read.to_bytes() {
-                Err(e) => differs(k, &format!("cannot be written: {e}")),
-                Ok(written) => match Gff::read(&written) {
-                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
-                    Ok(again) if again != read => differs(k, "other fields once written"),
-                    Ok(again) if again.to_bytes().ok().as_ref() != Some(&written) => {
-                        differs(k, "other bytes each time it is written")
-                    }
-                    Ok(_) => {}
-                },
-            }
-        } else if k.restype == ResType::TWODA {
-            let read = match mg_2da::TwoDa::parse(data, cp) {
-                Ok(t) => t,
-                Err(e) => {
-                    unread.push((k.to_string(), e.to_string()));
-                    continue;
-                }
-            };
-            tables += 1;
-            match read.to_bytes(cp) {
-                Err(e) => differs(k, &format!("cannot be written: {e}")),
-                Ok(written) => match mg_2da::TwoDa::parse(&written, cp) {
-                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
-                    Ok(again) if again != read => differs(k, "other cells once written"),
-                    Ok(_) => {}
-                },
-            }
-        }
-    }
-
+    let report = mg_module::roundtrip::check(&original, &copy, keep.is_some(), &|_, _| true)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let mg_module::roundtrip::Report { gffs, tables, differences, unread, .. } = &report;
     let mut out = Output::new(serde_json::json!({
         "module": path_text(path),
         "resources": original.len(),
@@ -4153,20 +4090,13 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
             .collect::<Vec<_>>(),
         "copy": keep.map(path_text),
     }));
-    for (k, what) in &differences {
+    for (k, what) in differences {
         out.line(format!("{k}\t{what}"));
     }
-    for (k, why) in &unread {
+    for (k, why) in unread {
         out.note(format!("warning: {k} cannot be read ({why}): kept as it is, never written anew"));
     }
-    out.note(format!(
-        "{} resources saved and read back, {gffs} GFFs and {tables} 2DAs written anew: {}",
-        original.len(),
-        match differences.len() {
-            0 => "all the same".to_string(),
-            n => format!("{n} differ"),
-        }
-    ));
+    out.note(report.summary());
     out.failed = !differences.is_empty();
     Ok(out)
 }

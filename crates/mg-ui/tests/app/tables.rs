@@ -747,7 +747,7 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Old words, new"));
     assert!(!user.join("tlk/mg_inmod.tlk").exists());
     let saved = Module::open(&path).unwrap();
-    let tlk = mg_tlk::Tlk::read(&saved.get(&key).unwrap()).unwrap();
+    let tlk = mg_tlk::Tlk::read(saved.get(&key).unwrap()).unwrap();
     assert_eq!(tlk.text(mg_core::StrRef(0)).as_deref(), Some("Old words, new"));
     let said = h.state().log.entries.iter().any(|(_, e)| e.contains("put into the module"));
     assert!(said, "{:?}", h.state().log.entries);

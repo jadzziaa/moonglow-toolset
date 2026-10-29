@@ -2048,15 +2048,6 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-- **`mg roundtrip`** (a builder asked what keeps work from being
-  corrupted): a module saved, read back and each GFF and 2DA written
-  anew, compared with what it was. It does not ask the game or Aurora
-  (the engine and Aurora tests do, on the game's own modules), does not
-  write the other formats anew (scripts, models and the rest are kept as
-  bytes, and compared as such), and is not in the toolset's menus. A
-  written GFF is compared by its fields, not its bytes: Moonglow lays a
-  GFF out its own way, as every edit already does. (S)
-  (from builders' reports after 1.19.1)
 
 ## NWSync publishing
 
@@ -3109,3 +3100,9 @@ is not taken for a new gap.
   character or an item still shows what it said, not an empty line, and
   the line stays the key's for when it is named again. Said in the
   manual's Strings by name.
+- **The round trip** (`mg roundtrip`, Build › Round-Trip Check) compares
+  a GFF written anew by its fields, not its bytes: Moonglow lays a GFF
+  out its own way, as every edit does. It doesn't ask the game or Aurora
+  (the engine and Aurora tests do, on the game's own modules), and the
+  formats it doesn't write anew (scripts, models) are held to their
+  bytes by the saved copy.
