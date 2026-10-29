@@ -396,7 +396,7 @@ fn a_tileset_s_rules_and_doors_are_edited() {
     h.run();
     let doors = |h: &Harness<'_, Moonglow>| set(h).tiles[0].doors.clone();
     assert_eq!(doors(&h).len(), 1);
-    // Moved: its X typed.
+    // Moved: its X set, as its field sets it.
     let doc = &mut h.state_mut().tilesets[0];
     doc.change(|f| f.set("TILE0DOOR0", "X", "5.0"));
     h.run();
