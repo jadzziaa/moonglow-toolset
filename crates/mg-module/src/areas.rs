@@ -93,6 +93,135 @@ pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
     out
 }
 
+/// What an area holds that it may be chosen by (Edit Areas Together's
+/// Holding, `mg areas --where`): its ARE's root fields and its GIT's
+/// `AreaProperties` (music, ambient sounds), each by label with its value
+/// as text (a number as written, a string or resref, a name's English);
+/// its variables (its GIT's, and those Moonglow wrote to its ARE before
+/// 1.34.3), by name with their values.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Holds {
+    pub fields: Vec<(String, String)>,
+    pub vars: Vec<(String, String)>,
+}
+
+/// An area's [`Holds`], from its ARE's root and its GIT's.
+pub fn holds(are: &Struct, git: Option<&Struct>, cp: Codepage) -> Holds {
+    let text = |v: &Value| match v {
+        Value::String(b) | Value::ResRef(b) => Some(cp.decode(b).into_owned()),
+        Value::List(_) | Value::Struct(_) => None,
+        v => crate::query::field_text(v),
+    };
+    let mut out = Holds::default();
+    let props = git.and_then(|g| g.child("AreaProperties"));
+    for s in std::iter::once(are).chain(props) {
+        for f in &s.fields {
+            if let Some(t) = text(&f.value) {
+                out.fields.push((f.label.to_string_lossy(), t));
+            }
+        }
+    }
+    for s in git.into_iter().chain(std::iter::once(are)) {
+        for v in s.list("VarTable").unwrap_or(&[]) {
+            let name = cp.decode(v.string("Name").unwrap_or_default()).into_owned();
+            let value = v.get("Value").and_then(text).unwrap_or_default();
+            out.vars.push((name, value));
+        }
+    }
+    out
+}
+
+/// A condition on what an area holds ([`Holds`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Has {
+    /// A field by label (`*` as in tags, case ignored) and, if given, its
+    /// value (the same).
+    Field { label: String, value: Option<String> },
+    /// A variable by name, and if given its value.
+    Var { name: String, value: Option<String> },
+    /// Music by day, by night or in battle: an ambientmusic.2da row.
+    Music(i64),
+}
+
+impl Has {
+    /// `LABEL` or `LABEL=VALUE`: a field (`MusicDay=57`, `*Fog*`).
+    pub fn parse_field(s: &str) -> Result<Has, String> {
+        let (label, value) = Self::split(s, "a field")?;
+        Ok(Has::Field { label, value })
+    }
+
+    /// `NAME` or `NAME=VALUE`: a variable (`tdod_rental`, `kz_*=1`).
+    pub fn parse_var(s: &str) -> Result<Has, String> {
+        let (name, value) = Self::split(s, "a variable")?;
+        Ok(Has::Var { name, value })
+    }
+
+    fn split(s: &str, what: &str) -> Result<(String, Option<String>), String> {
+        let (name, value) = match s.split_once('=') {
+            Some((n, v)) => (n.trim(), Some(v.trim().to_string())),
+            None => (s.trim(), None),
+        };
+        if name.is_empty() {
+            return Err(format!("{s:?}: name {what}, as NAME or NAME=VALUE"));
+        }
+        Ok((name.to_string(), value))
+    }
+
+    pub fn matches(&self, h: &Holds) -> bool {
+        use crate::query::glob;
+        let any = |list: &[(String, String)], name: &str, value: &Option<String>| {
+            list.iter().any(|(n, v)| glob(name, n) && value.as_ref().is_none_or(|p| glob(p, v)))
+        };
+        match self {
+            Has::Field { label, value } => any(&h.fields, label, value),
+            Has::Var { name, value } => any(&h.vars, name, value),
+            Has::Music(row) => {
+                let row = row.to_string();
+                (h.fields.iter()).any(|(l, v)| {
+                    matches!(l.as_str(), "MusicDay" | "MusicNight" | "MusicBattle") && *v == row
+                })
+            }
+        }
+    }
+}
+
+/// Each area's [`Holds`], kept by its ARE's and GIT's bytes: an area is
+/// read again only once they are set again, as `tags::TagCache` keeps
+/// tags (a chooser asked again as a builder types reads nothing anew).
+#[derive(Debug, Default)]
+pub struct HoldsCache {
+    parts: std::collections::HashMap<ResRef, (Bytes, Bytes, Holds)>,
+}
+
+type Bytes = Option<std::sync::Arc<[u8]>>;
+
+impl HoldsCache {
+    /// What `area` holds in the module as it is (its bytes: flush the
+    /// workspace's documents first), none for an area it lacks.
+    pub fn of(&mut self, m: &Module, area: ResRef, cp: Codepage) -> Option<&Holds> {
+        let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+        let are = m.shared(&are_key).cloned()?;
+        let git = m.shared(&git_key).cloned();
+        let same = |a: &Bytes, b: &Bytes| match (a, b) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        let kept = self
+            .parts
+            .get(&area)
+            .is_some_and(|(a, g, _)| same(a, &Some(are.clone())) && same(g, &git));
+        if !kept {
+            let read = |b: &[u8]| mg_gff::Gff::read(b).ok();
+            let are_gff = read(&are)?;
+            let git_gff = git.as_deref().and_then(read);
+            let h = holds(&are_gff.root, git_gff.as_ref().map(|g| &g.root), cp);
+            self.parts.insert(area, (Some(are), git, h));
+        }
+        self.parts.get(&area).map(|(_, _, h)| h)
+    }
+}
+
 /// Which areas: all the conditions given must hold.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Filter {
@@ -105,9 +234,17 @@ pub struct Filter {
     pub interior: Option<bool>,
     pub underground: Option<bool>,
     pub natural: Option<bool>,
+    /// What each must hold: fields' values, variables, music
+    /// ([`Filter::holds`]).
+    pub has: Vec<Has>,
 }
 
 impl Filter {
+    /// Whether what an area holds meets [`Filter::has`].
+    pub fn holds(&self, h: &Holds) -> bool {
+        self.has.iter().all(|c| c.matches(h))
+    }
+
     /// Whether it narrows the areas at all.
     pub fn is_empty(&self) -> bool {
         *self == Filter::default()
@@ -710,6 +847,55 @@ mod tests {
     use mg_gff::Gff;
 
     const CP: Codepage = Codepage::WINDOWS_1252;
+
+    /// An area holds its ARE's fields, its GIT's music and sounds, and the
+    /// variables of both; conditions take `*` and ignore case; the cache
+    /// reads an area again only once its bytes change.
+    #[test]
+    fn areas_are_chosen_by_what_they_hold() {
+        let mut m = Module::new();
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tag", Value::String(b"KZ_SQUARE".to_vec()));
+        are.root.set("FogClipDist", Value::Float(45.0));
+        are.root.set("OnEnter", Value::resref(r("kz_enter")));
+        m.set_gff(ResKey::new(r("kz_square"), ResType::ARE), &are).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut props = Struct::new(100);
+        props.set("MusicDay", Value::Int(57));
+        props.set("MusicNight", Value::Int(12));
+        git.root.set("AreaProperties", Value::Struct(props));
+        let mut var = Struct::new(0);
+        var.set("Name", Value::String(b"tdod_rental".to_vec()));
+        var.set("Type", Value::Dword(1));
+        var.set("Value", Value::Int(3));
+        git.root.set("VarTable", Value::List(vec![var]));
+        m.set_gff(ResKey::new(r("kz_square"), ResType::GIT), &git).unwrap();
+        let mut cache = HoldsCache::default();
+        let h = cache.of(&m, r("kz_square"), CP).unwrap().clone();
+        let yes = |c: Has| assert!(c.matches(&h), "{c:?}");
+        let no = |c: Has| assert!(!c.matches(&h), "{c:?}");
+        yes(Has::Music(57));
+        yes(Has::Music(12));
+        no(Has::Music(5));
+        yes(Has::parse_field("onenter=KZ_*").unwrap());
+        yes(Has::parse_field("Fog*=45").unwrap());
+        no(Has::parse_field("MusicDay=12").unwrap());
+        yes(Has::parse_field("MusicDay").unwrap());
+        yes(Has::parse_var("tdod_*=3").unwrap());
+        no(Has::parse_var("tdod_rental=4").unwrap());
+        no(Has::parse_var("kz_owner").unwrap());
+        assert!(Has::parse_var("=3").is_err());
+        let filter = Filter {
+            has: vec![Has::Music(57), Has::parse_var("tdod_rental").unwrap()],
+            ..Default::default()
+        };
+        assert!(filter.holds(&h) && !filter.is_empty());
+        // Kept until the bytes change.
+        assert!(cache.of(&m, r("nowhere"), CP).is_none());
+        git.root.set("VarTable", Value::List(Vec::new()));
+        m.set_gff(ResKey::new(r("kz_square"), ResType::GIT), &git).unwrap();
+        assert!(!filter.holds(cache.of(&m, r("kz_square"), CP).unwrap()), "read again");
+    }
 
     fn r(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()

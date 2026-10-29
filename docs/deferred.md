@@ -440,11 +440,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the
   same item or feat to each would need its own design. (M)
-- **Choosing areas by more:** the chooser filters by name, ResRef,
-  tileset and the three kinds; not by a property's value (areas with a
-  given music or variable), and its choice isn't kept as a named set.
-  Advanced Search finds such areas (a variable, any field's value), but
-  the chooser can't take what it found. (S–M)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting

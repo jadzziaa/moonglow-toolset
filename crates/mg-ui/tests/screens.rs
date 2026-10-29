@@ -5718,6 +5718,48 @@ fn find_and_replace_text() {
     shoot(&mut h, &dir, "find-and-replace");
 }
 
+/// Edit › Edit Areas Together… over Chapter 1: the areas, then (where the
+/// window has it) those holding a value of MusicDay.
+#[test]
+#[ignore]
+fn edit_areas_together() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-areas-together");
+    let path = scratch.join("chapter1.mod");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "edit-areas-together");
+    if h.query_by_label("Holding").is_some() {
+        h.get_by_value("Anything").click();
+        h.run();
+        h.get_all_by_label("A field's value").last().unwrap().click();
+        h.run();
+        for (hint, text) in [("MusicDay, Fog*, OnEnter", "MusicDay"), ("any", "3*")] {
+            let by = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+            h.get(egui_kittest::kittest::by().predicate(by)).click();
+            h.run();
+            h.get(egui_kittest::kittest::by().predicate(by)).type_text(text);
+            h.run();
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, "edit-areas-together-holding");
+    }
+}
+
 /// Right-click menus, Properties last in each (Aurora's order): a
 /// placed waypoint's in the area view, and the area's row in the module
 /// tree.

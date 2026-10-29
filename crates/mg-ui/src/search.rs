@@ -396,7 +396,7 @@ impl Moonglow {
 
 /// A row of a table, chosen by name (a long list has a filter); `any`
 /// names the choice of none. With no names (no game data), a number.
-fn row_picker(
+pub(crate) fn row_picker(
     ui: &mut Ui,
     id: &str,
     choices: &[Choice],
@@ -431,7 +431,7 @@ fn row_picker(
 }
 
 /// The choices of a table, as the game names them.
-fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
+pub(crate) fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
     let Some(game) = game else { return Vec::new() };
     let columns = ChoiceColumns { name: table.name, label: table.label };
     game.choice_list(table.table, columns).map(|c| c.to_vec()).unwrap_or_default()

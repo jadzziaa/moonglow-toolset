@@ -494,6 +494,88 @@ fn an_area_is_renamed_from_its_tab() {
     assert!(h.state().area_views.contains_key(&meadow));
 }
 
+/// Edit Areas Together's Holding narrows the areas to those holding a
+/// variable (or music, or a field's value), as they are now (an unsaved
+/// change too); the ticked are kept as a set for the module, and ticked
+/// again from Sets.
+#[test]
+fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
+    let dir = mg_testkit::scratch_dir("ui-areas-holding");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let int_var = |name: &str, value: i32| {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("Name", mg_gff::Value::String(name.as_bytes().to_vec()));
+        s.set("Type", mg_gff::Value::Dword(1));
+        s.set("Value", mg_gff::Value::Int(value));
+        s
+    };
+    for (name, title, vars) in [
+        ("cave1", "Wolf Cave", vec![int_var("nDepth", 1)]),
+        ("cave2", "Bear Cave", vec![int_var("nBears", 4)]),
+        ("inn", "Apple Inn", Vec::new()),
+    ] {
+        let mut are = Gff::new(*b"ARE ");
+        let title = LocString::from_text(Language::ENGLISH, Gender::Male, title);
+        are.root.set("Name", mg_gff::Value::LocString(title));
+        m.set(key(name, ResType::ARE), are.to_bytes().unwrap());
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("AreaProperties", mg_gff::Value::Struct(mg_gff::Struct::new(100)));
+        git.root.set("VarTable", mg_gff::Value::List(vars));
+        m.set(key(name, ResType::GIT), git.to_bytes().unwrap());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.area_set_dir = Some(dir.join("area-sets"));
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run();
+    h.get_by_value("Anything").click();
+    h.run();
+    h.get_all_by_label("A variable").last().unwrap().click();
+    h.run();
+    type_into_hint(&mut h, "tdod_rental, kz_*", "n*");
+    h.run();
+    assert!(h.query_by_label_contains("Apple Inn").is_none(), "the inn has none");
+    h.get_by_label_contains("Wolf Cave");
+    type_into_hint(&mut h, "any", "4");
+    assert!(h.query_by_label_contains("Wolf Cave").is_none(), "of value 4");
+    h.get_by_label_contains("Bear Cave");
+    // An unsaved change is what it holds.
+    let edit = mg_edit::Edit::SetField {
+        key: key("cave1", ResType::GIT),
+        path: mg_edit::GffPath::root().item("VarTable", 0),
+        label: "Value".into(),
+        value: Some(mg_gff::Value::Int(4)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Var", vec![edit])));
+    h.run();
+    h.get_by_label_contains("Wolf Cave");
+    h.get_by_label("Tick Shown").click();
+    h.run();
+    // Kept as a set, and ticked again.
+    type_into_hint(&mut h, "set name", "Caves");
+    h.get_by_label("Save Set").click();
+    h.run();
+    let file = dir.join("area-sets/Caves.areas.json");
+    let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["areas"], serde_json::json!(["cave1", "cave2"]));
+    assert_eq!(kept["module"], "sample");
+    h.get_by_label("Untick All").click();
+    h.run();
+    assert!(h.query_by_label("Edit 0 Together").is_some());
+    h.get_by_value("Tick a Set…").click();
+    h.run();
+    h.get_all_by_label("Caves").last().unwrap().click();
+    h.run();
+    h.get_by_label("Edit 2 Together");
+}
+
 /// Edit › Edit Areas Together…: areas ticked in the chooser (narrowed by
 /// its filters) open in one Area Properties, where a change is set on each:
 /// a field, a flag (each area keeping its other flags), and the variables

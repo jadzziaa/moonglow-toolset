@@ -503,6 +503,7 @@ fn main() -> eframe::Result<()> {
             moonglow.load_plugins();
             moonglow.prefab_dir = mg_ui::prefabs::dir();
             moonglow.var_set_dir = mg_ui::var_sets::dir();
+            moonglow.area_set_dir = mg_ui::area_sets::dir();
             moonglow.lighting_dir = mg_ui::lighting::dir();
             moonglow.find_recoveries();
             // Sounds play when there is an output device.

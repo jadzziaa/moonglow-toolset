@@ -1208,9 +1208,26 @@ The game's tufts gather in patches, Moonglow's are spread evenly.
 
 **Edit › Edit Areas Together…** (or an area's right-click menu in the
 module tree) lists the module's areas to tick. Narrow the list by a name
-or ResRef, by tileset, and by kind (interior or exterior, above or under
-ground, natural or artificial); **Tick Shown** ticks what the filters
-leave. **Edit N Together** opens one Area Properties for the areas
+or ResRef, by tileset, by kind (interior or exterior, above or under
+ground, natural or artificial), and by what they hold (**Holding**):
+- **Music**: the areas that play it by day, by night or in battle (an
+  `ambientmusic.2da` row, named as the game names it).
+- **A variable**: by name, of a value if one is typed (`tdod_rental`,
+  `kz_* = 1`; `*` as in tags, case ignored).
+- **A field's value**: a field of the area or of its sounds and music, by
+  label and value (`MusicDay = 57`, `Fog* = 0`, `OnEnter = kz_*`).
+
+What they hold is read as it is now, unsaved changes too. **Tick Shown**
+ticks what the filters leave; Advanced Search's **Choose N Area(s)…**
+opens the window with the areas of what it found ticked (an area with a
+creature of a class, an item property…).
+
+The areas ticked are kept under a name with **Save Set** (the name
+typed beside it), for this module, in Moonglow's data folder's
+`area-sets` (a small JSON file to share or write by hand: `{ "module":
+"krezk", "areas": ["kz_square", "kz_inn"] }`); **Tick a Set…** ticks
+a set's areas again, and **Delete Set** deletes the set whose name is
+typed. **Edit N Together** opens one Area Properties for the areas
 ticked, shown as the first of them:
 
 - A change is set on each area, as one undoable step: the lighting scheme

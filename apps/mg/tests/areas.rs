@@ -247,6 +247,38 @@ fn make_static_follows_the_project_file() {
     );
 }
 
+/// `--where FIELD=VALUE`, `--where-var NAME=VALUE` and `--music ROW`
+/// choose the areas by what they hold (their ARE's fields, their GIT's
+/// music and variables), with the other filters, to list or to change.
+#[test]
+fn areas_are_chosen_by_what_they_hold() {
+    let dir = mg_testkit::scratch_dir("mg-areas-where");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let run = |args: &[&str]| {
+        let out = crate::mg().arg("areas").arg(&path).args(args).output().unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        let listed: Vec<String> = (text(&out.stdout).lines())
+            .map(|l| l.split('\t').next().unwrap().to_string())
+            .collect();
+        (out.status.success(), listed, text(&out.stderr))
+    };
+    let (ok, _, notes) = run(&["cave2", "--set", "MusicDay=57", "--var", "kz_bears=4"]);
+    assert!(ok, "{notes}");
+    assert_eq!(run(&["--music", "57"]).1, ["cave2"]);
+    assert_eq!(run(&["--music", "3"]).1, ["cave1", "inn"]);
+    assert_eq!(run(&["--where", "musicday=57"]).1, ["cave2"], "a label in any case");
+    assert_eq!(run(&["--where", "SunFog*=2", "--underground"]).1, ["cave1", "cave2"]);
+    assert_eq!(run(&["--where-var", "kz_*"]).1, ["cave2"]);
+    assert!(run(&["--where-var", "kz_bears=5"]).1.is_empty());
+    // A filter of its own: what is chosen changes.
+    let (ok, changed, notes) = run(&["--where-var", "kz_bears=4", "--set", "SunFogAmount=7"]);
+    assert!(ok, "{notes}");
+    assert_eq!(changed, ["cave2"]);
+    let (ok, _, notes) = run(&["--where-var", "=4"]);
+    assert!(!ok && notes.contains("name a variable"), "{notes}");
+}
+
 /// `--grass`, `--remove-grass` and `--tileset-grass`: the areas' own grass
 /// set in their GITs' AreaProperties, where the game reads it.
 #[test]

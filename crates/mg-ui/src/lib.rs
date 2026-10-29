@@ -9,6 +9,7 @@ mod area_audio;
 mod area_grass;
 mod area_props;
 pub mod area_reshape;
+pub mod area_sets;
 pub mod area_tools;
 pub mod area_view;
 pub mod audio;
@@ -760,6 +761,11 @@ pub struct Moonglow {
     pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
+    /// Where Edit Areas Together's sets are kept (`area_sets`).
+    pub area_set_dir: Option<PathBuf>,
+    /// What each area holds, for Edit Areas Together's Holding (read
+    /// again once an area's bytes change).
+    pub(crate) area_holds: mg_module::areas::HoldsCache,
     /// Where lighting is kept (`lighting`: an area's Visual settings under
     /// a name).
     pub lighting_dir: Option<PathBuf>,
@@ -1086,6 +1092,8 @@ impl Moonglow {
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,
+            area_set_dir: None,
+            area_holds: Default::default(),
             lighting_dir: None,
             reload_checked: None,
             tlk_stamp: None,
