@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
 ---
 
 # Plugin API reference
@@ -322,7 +322,10 @@ model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
 name (a row's number in that table: `kinds("feat").MASTERFEAT` is
 `"row:masterfeats"`; since Moonglow 1.21.2), `"table"` (another
 table's name, without `.2da`: `kinds("classes").FeatsTable`; since
-Moonglow 2.13.0), or, for a column whose cells name a row of the table
+Moonglow 2.13.0), `"script"` (a script the game runs:
+`kinds("spells").ImpactScript`, `kinds("vfx_persistent").ONENTER`, and
+the scripts of `statescripts`, `traps`, `disease` and `poison`), or,
+for a column whose cells name a row of the table
 another column's value chooses (a class's requirements,
 `cls_pres_*`'s `ReqParam1` by its `ReqType`; since 2.13.0), a table
 `{ by = "ReqType", rows = { FEAT = "feat", SKILL = "skills", … } }`: a
@@ -351,7 +354,7 @@ script's source by its name (`{ my_inc = source }`). It gives:
 | | |
 | --- | --- |
 | `d.rows` | The table whose rows the described table's are, if it says. |
-| `d.columns` | Each described column's kind, by name: `"text"`, `"int"`, `"float"`, `"list"`, `"flags"`, `"strref"`, or `"row:"` and a table's name. |
+| `d.columns` | Each described column's kind, by name: `"text"`, `"int"`, `"float"`, `"list"`, `"flags"`, `"strref"`, `"script"`, or `"row:"` and a table's name. |
 | `d.notes` | What the description said that was not understood. |
 | `d:name(column, value)` | A value's name in a list, or the names of the flags it has; nil where it has none. |
 | `d:faults(twoda, lengths)` | The cells of `twoda` that are not what the description says, each `{ row, column, value, message }`. `lengths` gives how many rows the tables it names have (`{ classes = 42 }`); a table not given is not held to. Strings are not looked up. |

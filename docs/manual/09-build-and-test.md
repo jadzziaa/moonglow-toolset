@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
 ---
 
 # Build, verify and test
@@ -33,6 +33,61 @@ Compile and Missing Resources are on by default, Unused off. The
 about, and **Export…** saves the list as text. With **Build module on
 save** (Options › General), every save builds first (with Palettes
 ticked, every save makes the palettes anew, as Aurora's Build does).
+
+### What counts as used
+
+**Unused** lists the module's scripts, conversations and blueprints
+that nothing uses (Advanced Controls chooses which of the three). A
+script is one line, whichever of its files the module has: `Unused:
+x.nss (source and compiled)`, `x.ncs (compiled only (no source))` or
+`x.nss (source only (not compiled))`. A resource is used when:
+
+- **A field names it**: an event's script, a conversation, a placed
+  object's blueprint, an inventory's item, a store's... as Missing
+  Resources reads them.
+- **A script includes it** (`#include`).
+- **A string in a script spells its name**, whatever the string is
+  passed to: `ExecuteScript("x")`, `SetEventScript`, `CreateObject`,
+  `ActionStartConversation`, `SetLocalString` (not in a comment, nor a
+  script's own name), and what a longer string quotes
+  (`ExecuteScriptChunk("ExecuteScript(\"x\", OBJECT_SELF);")`).
+- **The game runs a script from its 2DAs**, as the module sees them (its
+  own 2DAs and its haks' over the game's): `spells.2da` ImpactScript (a
+  spell's script), `vfx_persistent.2da` ONENTER, ONEXIT and HEARTBEAT
+  (an area of effect's), `statescripts.2da` SCRIPTNAME (what a charmed,
+  confused, frightened, dominated, stunned or sleeping creature runs),
+  `traps.2da` TrapScript (a trap a script, a DM or a player sets),
+  `disease.2da` End_Incu_Script and 24_Hour_Script, and `poison.2da`
+  Script_1 and Script_2. (`areaeffects.2da` names scripts too, but the
+  game doesn't read it.) A module that overrides the game's
+  `nw_s0_fireball` keeps it without a 2DA of its own. And a 2DA of the
+  module's own whose [description](03-modules.md#a-tables-description)
+  says a column holds a script (`kind = "script"`): a table a script
+  reads with `Get2DAString` and runs with `ExecuteScript`.
+- **What the module reaches in its haks or the game names it**: a
+  conversation in a hak that a placed creature has, a hak's blueprint a
+  string creates, and what those name in turn (Kingmaker keeps its
+  conversations and blueprints in its hak), and the scripts the game's
+  own spell scripts name (Dirge's area of effect).
+- **The project file names it** in `[used]` (below).
+
+A name made as a script runs (`ExecuteScript("ai_" + sMode)`, a name
+read from a variable or a 2DA of the module's own) is not seen. Name
+those in the project file: select the line and **Mark as Used** (or
+right-click it), which writes its name into
+[the project file](03-modules.md#the-project-file-moonglowtoml)'s
+`[used]` (beside a `.mod`, `NAME.moonglow.toml`, made where there is
+none); the line goes, and so do the others it names. **Counted as
+Used**, under the results, lists what `[used]` names, with **Remove**
+beside each, and adds a name or a glob (`j_ai_*`: `*` any letters) of a
+script, a conversation or a blueprint. Aurora never reads or writes the
+file, so the marks stay when the module is saved there. `mg used`
+does the same from the command line.
+
+Find References says where a script is used in the same terms: under
+the module's uses, **Run by the game, from its 2DAs** (a table's row and
+column; the module's own table opens), and the `[used]` glob that
+counts it as used.
 
 ## Publish to NWSync
 

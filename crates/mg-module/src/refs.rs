@@ -225,6 +225,43 @@ pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
     out
 }
 
+/// The plain string literals of a script source that can be a resource's
+/// name (1 to 16 characters a ResRef takes), as the compiler reads them
+/// (not in comments): whatever they are passed to, `ExecuteScript("x")`
+/// as `SetLocalString(o, "next", "x")`; and in a longer string, the
+/// strings it quotes (`ExecuteScriptChunk("ExecuteScript(\"x\", OBJECT_SELF);")`).
+pub fn script_strings(source: &[u8]) -> Vec<ResRef> {
+    use mg_script::lex::{TokenKind, tokenize};
+    let name = |s: &[u8]| {
+        if s.is_empty() || s.len() > 16 {
+            return None;
+        }
+        ResRef::from_str(std::str::from_utf8(s).ok()?).ok()
+    };
+    let mut out = Vec::new();
+    for t in tokenize(source) {
+        if !matches!(t.kind, TokenKind::String { terminated: true }) {
+            continue;
+        }
+        let Some(s) = t.span.end.checked_sub(1).and_then(|end| source.get(t.span.start + 1..end))
+        else {
+            continue;
+        };
+        if s.len() <= 16 {
+            out.extend(name(s));
+            continue;
+        }
+        // (A chunk of script: what it quotes, between \" and \".)
+        let text = String::from_utf8_lossy(s);
+        let mut parts = text.split("\\\"");
+        parts.next();
+        while let (Some(inner), Some(_)) = (parts.next(), parts.next()) {
+            out.extend(name(inner.as_bytes()));
+        }
+    }
+    out
+}
+
 /// The module's scripts that include any of `changed`, however
 /// indirectly (they compile differently when it changes), not `changed`
 /// themselves; sorted.

@@ -207,12 +207,12 @@ pub(crate) fn read_decided(_: &mut ProjectFile, r: &mut Reader, entry: Entry, _o
     );
 }
 
-fn invalid(e: impl std::fmt::Display) -> std::io::Error {
+pub(crate) fn invalid(e: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
 }
 
 /// A file's text read for editing (none there: empty).
-fn document(path: &Path, name: &str) -> std::io::Result<toml_edit::DocumentMut> {
+pub(crate) fn document(path: &Path, name: &str) -> std::io::Result<toml_edit::DocumentMut> {
     let text = match std::fs::read(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),

@@ -21,6 +21,57 @@ fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
     image.save(dir.join(format!("{name}.png"))).unwrap();
 }
 
+/// Build Module's Unused results, a script a line with its files, one
+/// chosen for Mark as Used, and Counted as Used open with the project
+/// file's `[used]` (Jasperre's report, October 2026).
+#[test]
+#[ignore]
+fn build_unused_and_counted_as_used() {
+    use mg_module::verify::{ScriptFiles, Unused};
+    use mg_ui::build_view::{BuildWindow, Finding};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-build-used");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[used]\nscripts = [\"ai_*\", \"j_exec_target\"]\nblueprints = [\"spawn_*\"]\n",
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    let mut w = BuildWindow::default();
+    w.unused = true;
+    let unused = |n: &str, t, s| {
+        let key = ResKey::parse(n, t).unwrap();
+        Unused { key, script: s }
+    };
+    let found = [
+        unused("j_ai_old", ResType::NSS, Some(ScriptFiles::Both)),
+        unused("j_debug", ResType::NCS, Some(ScriptFiles::CompiledOnly)),
+        unused("j_test", ResType::NSS, Some(ScriptFiles::SourceOnly)),
+        unused("guard_spare", ResType::UTC, None),
+    ];
+    w.results = found
+        .iter()
+        .map(|u| Finding { text: format!("Unused: {u}"), about: Some(u.key), unused: Some(*u) })
+        .collect();
+    w.selected = Some(0);
+    app.build = Some(w);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 720.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Counted as Used").click();
+    shoot(&mut h, &dir, "build-unused-counted-as-used");
+    h.get_by_label("Unused: j_debug.ncs (compiled only (no source))").click_secondary();
+    shoot(&mut h, &dir, "build-unused-mark-menu");
+}
+
 /// A color button's picker, open, with Paste beside it (a builder's
 /// report: the picker copied a color and nothing pasted one back).
 #[test]

@@ -28,7 +28,11 @@
 //!   it) and their inventory icons;
 //! - a model's own files ([`mg_preview::files`]): its walkmeshes, textures
 //!   (as the game picks a DDS or TGA, and a PLT), materials (`.mtr`) and
-//!   TXIs and what they name, its emitters' models and its supermodels.
+//!   TXIs and what they name, its emitters' models and its supermodels;
+//! - the scripts the game runs from its tables as the module sees them
+//!   ([`mg_module::verify::table_scripts`]: spells' impact scripts, areas
+//!   of effect's, states', traps', diseases' and poisons'), reached from
+//!   the table.
 //!
 //! Not followed, and so not judged by it: what scripts reach by a number
 //! (visual effects, spells, item properties, appearances set by a
@@ -202,6 +206,21 @@ impl<'a> Walk<'a> {
                 self.settle();
             }
         }
+        // And the scripts the game runs from its tables, as the module
+        // sees them (a hak's spell scripts its spells.2da names), reached
+        // from the table.
+        let read = |name: &str| self.game.table(name).ok();
+        let run = mg_module::verify::table_scripts(&read);
+        for r in run {
+            self.root = r.from;
+            for c in r.candidates() {
+                self.reach(c);
+            }
+            while let Some(next) = self.queue.pop() {
+                self.follow(next);
+                self.settle();
+            }
+        }
     }
 
     /// Notes a resource the load order has as reached (to follow further,
@@ -283,17 +302,8 @@ impl<'a> Walk<'a> {
 
     /// A script's string literals that name something.
     fn strings(&mut self, src: &[u8]) {
-        use mg_script::lex::{TokenKind, tokenize};
-        for t in tokenize(src) {
-            if !matches!(t.kind, TokenKind::String { terminated: true }) {
-                continue;
-            }
-            let s = &src[t.span.start + 1..t.span.end - 1];
-            if s.is_empty() || s.len() > 16 {
-                continue;
-            }
-            let name = String::from_utf8_lossy(s).to_ascii_lowercase();
-            let Ok(r) = ResRef::from_str(&name) else { continue };
+        for r in mg_module::refs::script_strings(src) {
+            let name = r.to_string().to_ascii_lowercase();
             for ty in NAMED_IN_SCRIPTS {
                 self.reach(ResKey::new(r, ty));
             }

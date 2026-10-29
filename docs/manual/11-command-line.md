@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T18:05:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
 ---
 
 # Command-line tools
@@ -61,11 +61,12 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
 | `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed |
 | `mg search MODULE` | blueprints, placed objects (and the items they hold), areas and conversations by what they hold, one kind at a time: `--var NAME` (`*` matches any run; with `--var-type int` and `--value`), `--property TYPE` (with `--subtype`, `--value`, `--param`), `--class`, `--feat`, `--spell`, `--skill` (with `--min-rank N`), `--appearance ROW` (with `--of creature`, `placeable`, `door`, `generic-door`, `waypoint` or `item`), `--script NAME`, or any field by `--field LABEL`, `--int N` or `--text TEXT`. A row is its number or its name in the game's 2DAs and talk table (the module's haks' too): `--property "skill bonus" --subtype hide`. `--type uti,utc` and `--placed` or `--blueprints` narrow it as in `mg find`; an item blueprint found is also found in the inventories of the blueprints that carry it |
-| `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
+| `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources: a script once, `unused\tx.nss\tsource and compiled`, `compiled only (no source)` or `source only (not compiled)`; what counts as used is Build Module's [Unused](09-build-and-test.md#what-counts-as-used)); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does |
 | `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`) or a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force` |
 | `mg vars MODULE [NAME]` | the variables the project describes (`variables.toml`, see [Modules](03-modules.md#described-variables)): each one's type, what it goes on, its values (a script's constants and a table's rows read) and its help; `--on KIND` those that go on one kind of object (`placeable`, `area`, `module`…), never one the scripts alone set (`runtime`); `--undescribed`, in their place, the module's variables no description names (of those on `KIND`, of the names the glob `NAME` takes), each with its types, what it is on, where, and the description it is near: one in another case, or a typo of a name `undescribed` takes (since Moonglow 2.13.0; `--json`: `not_described`) |
 | `mg claims PROJECT [list\|claim\|release\|merged] [AREA…]` | the project's [claims table](03-modules.md#claimed-areas) (`[claims] file` in its `moonglow.toml`): every area of the table and of the module, whose each is (`--json` too); or the areas named claimed or released by your builder code, as Claim This Area and Release Claim do (`--force`: another builder's claim), or marked merged with their Tags as the module has them. It writes the table, a file of the checkout: commit it |
+| `mg used MODULE [--add NAME] [--remove NAME] [--kind KIND]` | what Unused counts as used though nothing in the module names it (the project file's `[used]`; beside a `.mod`, `NAME.moonglow.toml`, made where there is none): listed, and names or globs added or taken out (repeatable), of `scripts` (the default), `conversations` or `blueprints`: a script `ExecuteScript` runs by a name made as it runs ([What counts as used](09-build-and-test.md#what-counts-as-used)) |
 | `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it, and what the team's `[resrefs] pattern` makes of a name (its own prefix, without a code, where it has no `{code}`) ([Modules](03-modules.md#your-builder-code)) |
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
 | `mg verify MODULE --skip GROUP` | leave a group out (repeatable, or several separated by commas: `--skip tilesets,models,2das`): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`. Its checks aren't run (the tilesets and models of a hundred haks are most of the time a Verify takes); the JSON's `skipped` names each group left out, as `null` (not checked), and only the rest count toward failing |
@@ -100,7 +101,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`); the archive's description says what it was made from (git commit, Moonglow's version, the module) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
-| `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag) |
+| `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag); of a script, also the cells of the game's 2DAs that run it, as the module sees them (`run by the game\tspells.2da row 12, ImpactScript`, where the game is found), and the project file's `[used]` glob that counts it as used |
 | `mg rename MODULE NAME.EXT NEW` | rename a script, area, conversation or blueprint everywhere and save (`--strings` changes script strings too); a NUI window (`NAME.jui`) goes with its settings and its two scripts, the scripts that open it follow, and it is built again under its new name as `mg nui generate` builds (with `--json`: `built`, and `compiled` with what did not compile) |
 | `mg update-instances MODULE [NAME.EXT…]` | remake placed objects from their blueprints (all of the module's if none are named) and save (`--area AREA` for one area) |
 | `mg dialog-export MODULE NAME.dlg OUT` | write a conversation as plain text, CSV, Twine or Ink, by `OUT`'s extension (`.txt`, `.csv`, `.twee`, `.ink`) |
@@ -454,13 +455,15 @@ and nothing on standard error, for scripts, build pipelines and tools
 - **The result:** a command's result as fields: `mg find` a `found` list
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
-  `warnings`, `missing`, `findings` and `unused` (a finding's `fix` is
+  `warnings`, `missing`, `findings` and `unused` (an unused resource's
+  `resource`, its files' `names`, and `files`: of a script `both`,
+  `compiled` or `source`, else null; a finding's `fix` is
   null, or the fix it offers: its `label` and its `command`, an edit
   file `mg apply` takes; with `--fix`, `fixes` lists those `made` and
   those `refused`); `mg plugin test` its `tests` (each `file`, `name`,
   `passed`, `problems` and `notes`), `passed`, `failed` and `noted`
-  (how many passed with notes); `mg refs` its `uses`
-  and `script_strings`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
+  (how many passed with notes); `mg refs` its `uses`,
+  `script_strings`, `tables` (each `table` and `at`) and `marked`; `mg used` its `scripts`, `conversations`, `blueprints` and `file`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
   over), `failed` and `errors` (each with `script`, `line` and `message`),
   and `warnings`, each once however many scripts met it (with `script`,
   `line`, `message` and `scripts`, how many: a function's return type

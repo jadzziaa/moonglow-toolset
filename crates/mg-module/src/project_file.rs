@@ -269,6 +269,51 @@ pub struct StoreRules {
     pub keeper_variable: Option<String>,
 }
 
+/// `[used]`: what the Unused report counts as used though nothing in the
+/// module names it, by name or glob: a script `ExecuteScript` runs by a
+/// name made as it runs (`"ai_" + sMode`), a blueprint `CreateObject`
+/// makes so, a conversation `ActionStartConversation` starts so.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UsedRules {
+    pub scripts: Patterns,
+    pub conversations: Patterns,
+    /// Blueprints of any type (`.utc`, `.uti`…), by their ResRef.
+    pub blueprints: Patterns,
+}
+
+impl UsedRules {
+    /// The key of `[used]` that holds a resource type's names: `scripts`
+    /// (source and compiled), `conversations`, `blueprints`; none for a
+    /// type the report doesn't judge.
+    pub fn key_for(t: ResType) -> Option<&'static str> {
+        match t {
+            ResType::NSS | ResType::NCS => Some("scripts"),
+            ResType::DLG => Some("conversations"),
+            t if mg_rules::ObjectKind::from_restype(t).is_some() => Some("blueprints"),
+            _ => None,
+        }
+    }
+
+    /// The patterns of a key of `[used]` (`scripts`...).
+    pub fn of(&self, key: &str) -> Option<&Patterns> {
+        match key {
+            "scripts" => Some(&self.scripts),
+            "conversations" => Some(&self.conversations),
+            "blueprints" => Some(&self.blueprints),
+            _ => None,
+        }
+    }
+
+    /// The pattern that marks a resource as used, where one does.
+    pub fn marking(&self, resref: ResRef, t: ResType) -> Option<&str> {
+        self.of(Self::key_for(t)?)?.matching(&resref.to_string_lossy())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.scripts.is_empty() && self.conversations.is_empty() && self.blueprints.is_empty()
+    }
+}
+
 /// The builder's own settings (`.moonglow/user.toml`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UserSettings {
@@ -501,6 +546,8 @@ pub struct ProjectFile {
     pub make_static: StaticRules,
     pub tags: TagRules,
     pub store: Option<StoreRules>,
+    /// `[used]`: what the Unused report counts as used.
+    pub used: UsedRules,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
     /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
@@ -715,6 +762,16 @@ impl ProjectFile {
             ModuleLocation::Archive(path) => {
                 Place::beside(path).filter(|p| p.team().is_file() || p.variables().is_file())
             }
+            _ => Self::root_of(location).map(Place::folder),
+        }
+    }
+
+    /// Where a module's team file is or would be made: as
+    /// [`ProjectFile::place_of`], and beside a `.mod` that has none yet
+    /// (`krezk.moonglow.toml`).
+    pub fn place_to_write(location: &ModuleLocation) -> Option<Place> {
+        match location {
+            ModuleLocation::Archive(path) => Place::beside(path),
             _ => Self::root_of(location).map(Place::folder),
         }
     }
@@ -999,6 +1056,22 @@ impl ProjectFile {
                     }
                     self.store = Some(store);
                 }
+                ("used", false) => {
+                    for e in r.section(entry) {
+                        let slot = match e.0.get_ref().as_ref() {
+                            "scripts" => &mut self.used.scripts,
+                            "conversations" => &mut self.used.conversations,
+                            "blueprints" => &mut self.used.blueprints,
+                            _ => {
+                                r.unknown(section, e);
+                                continue;
+                            }
+                        };
+                        if let Some(p) = r.patterns(e) {
+                            *slot = p;
+                        }
+                    }
+                }
                 ("claims", false) => self.read_claim_rules(&mut r, entry),
                 ("commands", false) => {
                     for e in r.section(entry) {
@@ -1048,11 +1121,13 @@ impl ProjectFile {
                 (crate::project_plugins::DECIDED, _) => {
                     crate::project_plugins::read_decided(self, &mut r, entry, own)
                 }
-                ("make_static" | "tags" | "store" | "resrefs" | "claims" | "commands", true) => r
-                    .warn(
-                        key.span().start,
-                        format!("[{section}] is the team's: it goes in {FILE_NAME}"),
-                    ),
+                (
+                    "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands",
+                    true,
+                ) => r.warn(
+                    key.span().start,
+                    format!("[{section}] is the team's: it goes in {FILE_NAME}"),
+                ),
                 _ => {
                     r.warn(key.span().start, format!("[{section}] is not a section Moonglow reads"))
                 }
@@ -1227,6 +1302,70 @@ impl ProjectFile {
         let code = code.map(str::to_ascii_lowercase);
         let text = with_code(&text, code.as_deref()).map_err(invalid)?;
         Self::write_user(root, &text)
+    }
+
+    /// Adds a name or glob to `[used] key` (`scripts`, `conversations`,
+    /// `blueprints`) in the team's file where it is (making the file where
+    /// it isn't: beside a `.mod`, `NAME.moonglow.toml`), or with `add`
+    /// false takes it out; the rest of the file is kept as written. A
+    /// glob that is there already (whatever its case) is not added again.
+    pub fn set_used(place: &Place, key: &str, pattern: &str, add: bool) -> std::io::Result<()> {
+        use crate::project_plugins::{document, invalid};
+        if UsedRules::default().of(key).is_none() {
+            return Err(invalid(format!(
+                "[used] has no {key}: scripts, conversations, blueprints"
+            )));
+        }
+        let pattern = pattern.trim();
+        if add {
+            Patterns::new(&[pattern]).map_err(invalid)?;
+            if pattern.is_empty() {
+                return Err(invalid("an empty name"));
+            }
+        }
+        let path = place.team();
+        let mut doc = document(&path, &place.team_name())?;
+        let same =
+            |v: &toml_edit::Value| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(pattern));
+        if !doc.contains_key("used") {
+            if !add {
+                return Ok(());
+            }
+            // (At the end, after what the file says: toml_edit would put
+            // a first table before a file's comments.)
+            let mut text = doc.to_string();
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            if !text.trim().is_empty() {
+                text.push('\n');
+            }
+            let quoted = toml_edit::Value::from(pattern).to_string();
+            text.push_str(&format!("[used]\n{key} = [{}]\n", quoted.trim()));
+            return crate::write_replacing(&path, text.as_bytes());
+        }
+        let used = doc.entry("used").or_insert_with(|| toml_edit::Item::Table(Default::default()));
+        let used = used
+            .as_table_like_mut()
+            .ok_or_else(|| invalid("\"used\" is not a table (mend it first)"))?;
+        if used.get(key).is_none() {
+            if !add {
+                return Ok(());
+            }
+            used.insert(key, toml_edit::value(toml_edit::Array::new()));
+        }
+        let list = used
+            .get_mut(key)
+            .and_then(|i| i.as_array_mut())
+            .ok_or_else(|| invalid(format!("[used] {key} is not a list (mend it first)")))?;
+        if add {
+            if !list.iter().any(same) {
+                list.push(pattern);
+            }
+        } else {
+            list.retain(|v| !same(v));
+        }
+        crate::write_replacing(&path, doc.to_string().as_bytes())
     }
 }
 
@@ -1899,5 +2038,82 @@ keeper_variable = "tdod_store"
                 p.warnings
             );
         }
+    }
+
+    /// `[used]` reads scripts, conversations and blueprints by name or
+    /// glob, whatever their case; what it doesn't know is said.
+    #[test]
+    fn used_names_scripts_conversations_and_blueprints() {
+        let p = read(
+            "[used]\nscripts = [\"ai_*\", \"Exec_Me\"]\nconversations = [\"dlg_?\"]\n\
+             blueprints = [\"spawn_*\"]\nplaceables = [\"x\"]\n",
+        );
+        assert_eq!(p.warnings, ["moonglow.toml:5: \"placeables\" is not a key of [used]"]);
+        let rr = |s| ResRef::from_str(s).unwrap();
+        let u = &p.used;
+        assert_eq!(u.marking(rr("ai_fight"), ResType::NCS), Some("ai_*"));
+        assert_eq!(u.marking(rr("exec_me"), ResType::NSS), Some("Exec_Me"));
+        assert_eq!(u.marking(rr("ai_fight"), ResType::DLG), None, "a script's glob");
+        assert_eq!(u.marking(rr("dlg_a"), ResType::DLG), Some("dlg_?"));
+        assert_eq!(u.marking(rr("spawn_orc"), ResType::UTC), Some("spawn_*"));
+        assert_eq!(u.marking(rr("spawn_orc"), ResType::UTI), Some("spawn_*"));
+        assert_eq!(u.marking(rr("spawn_orc"), ResType::TWODA), None);
+        // The team's: not the builder's own file.
+        let mut p = ProjectFile::default();
+        p.apply(".moonglow/user.toml", "[used]\nscripts = [\"x\"]\n", true);
+        assert!(p.used.is_empty());
+        assert_eq!(
+            p.warnings,
+            [".moonglow/user.toml:1: [used] is the team's: it goes in moonglow.toml"]
+        );
+    }
+
+    /// Mark as Used writes `[used]` into the team's file, the rest kept as
+    /// written; beside a `.mod` it makes `NAME.moonglow.toml`, which the
+    /// module reads from then on, through a save and opening it again.
+    #[test]
+    fn marks_are_written_and_survive_save_and_reopen() {
+        let dir = mg_testkit::scratch_dir("project-file-used");
+        let mut m = crate::Module::new();
+        m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(dir.join(FILE_NAME), "# the team's\n[tags]\nunique = [\"A_*\"] # kept\n")
+            .unwrap();
+        let place = ProjectFile::place_to_write(m.location.as_ref().unwrap()).unwrap();
+        ProjectFile::set_used(&place, "scripts", "ai_*", true).unwrap();
+        ProjectFile::set_used(&place, "scripts", "AI_*", true).unwrap();
+        ProjectFile::set_used(&place, "scripts", "exec_me", true).unwrap();
+        ProjectFile::set_used(&place, "blueprints", "spawn_*", true).unwrap();
+        let text = std::fs::read_to_string(dir.join(FILE_NAME)).unwrap();
+        assert!(text.starts_with("# the team's\n[tags]\nunique = [\"A_*\"] # kept\n"), "{text}");
+        assert!(text.contains("scripts = [\"ai_*\", \"exec_me\"]"), "once: {text}");
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file.used.scripts.globs, ["ai_*", "exec_me"]);
+        assert!(m.project_file.warnings.is_empty(), "{:?}", m.project_file.warnings);
+        ProjectFile::set_used(&place, "scripts", "exec_me", false).unwrap();
+        assert!(ProjectFile::set_used(&place, "placeables", "x", true).is_err());
+        assert!(ProjectFile::set_used(&place, "scripts", "[", true).is_err(), "no glob");
+        m.reread_project_file();
+        m.save().unwrap();
+        let m = crate::Module::open(&dir).unwrap();
+        assert_eq!(m.project_file.used.scripts.globs, ["ai_*"]);
+        assert_eq!(m.project_file.used.blueprints.globs, ["spawn_*"]);
+        assert!(m.project_file.tags.unique.matches("A_1"));
+
+        // A .mod: its own file beside it, made by the mark.
+        let path = mg_testkit::scratch_dir("project-file-used-mod").join("krezk.mod");
+        let mut m = crate::Module::new();
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let place = ProjectFile::place_to_write(m.location.as_ref().unwrap()).unwrap();
+        assert_eq!(ProjectFile::place_of(m.location.as_ref().unwrap()), None, "none yet");
+        ProjectFile::set_used(&place, "conversations", "chat_*", true).unwrap();
+        let beside = path
+            .with_file_name(format!("{}.{FILE_NAME}", path.file_stem().unwrap().to_string_lossy()));
+        assert_eq!(place.team(), beside);
+        assert!(beside.is_file());
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file.used.conversations.globs, ["chat_*"]);
+        m.save().unwrap();
+        let m = crate::Module::open(&path).unwrap();
+        assert_eq!(m.project_file.used.conversations.globs, ["chat_*"]);
     }
 }

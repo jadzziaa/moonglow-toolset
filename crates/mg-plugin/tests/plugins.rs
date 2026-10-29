@@ -587,7 +587,8 @@ fn tables_are_made_and_written() {
         return row, t.rows, #t.columns, again:get(1, "Name"), again:get(1, "Label"),
             again:get(2, "Cost"), again:get(2, "Name"), new:write(),
             mg.twoda.kinds("feat").FEAT, mg.twoda.kinds("placeables").ModelName,
-            mg.twoda.kinds("feat").MASTERFEAT, next(mg.twoda.kinds("nothing"))
+            mg.twoda.kinds("feat").MASTERFEAT, next(mg.twoda.kinds("nothing")),
+            mg.twoda.kinds("spells").ImpactScript, mg.twoda.kinds("vfx_persistent").ONENTER
     "#;
     run_console(code, input(), host.clone()).unwrap();
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
@@ -605,7 +606,9 @@ fn tables_are_made_and_written() {
             "\"strref\"",
             "\"model\"",
             "\"row:masterfeats\"",
-            "nil"
+            "nil",
+            "\"script\"",
+            "\"script\""
         ]
     );
     let e = run_console(
