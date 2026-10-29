@@ -991,6 +991,10 @@ fn build_module_marks_an_unused_script_as_used() {
     assert!(!results(&h).iter().any(|r| r == line), "no longer said: {:?}", results(&h));
     let used = &h.state().ws.as_ref().unwrap().module.project_file.used;
     assert_eq!(used.scripts.globs, ["hello"]);
+    // Built again: still not said.
+    h.get_all_by_label("Build").last().unwrap().click();
+    h.run_steps(3);
+    assert!(!results(&h).is_empty() && !results(&h).iter().any(|r| r.contains("hello")));
     // Counted as Used lists it, and takes it out.
     h.get_by_label("Counted as Used").click();
     h.run();

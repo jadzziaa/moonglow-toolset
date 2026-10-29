@@ -303,8 +303,10 @@ pub fn table_scripts_in(rm: &ResMan) -> Vec<Reference> {
 /// The scripts the module's own 2DAs name in the columns their
 /// descriptions say hold a script's name (`kind = "script"` in
 /// `name.2da.toml`: a table of the module's that a script reads with
-/// `Get2DAString` and runs with `ExecuteScript`).
-pub fn described_scripts(module: &Module) -> Vec<Reference> {
+/// `Get2DAString` and runs with `ExecuteScript`). A description's lists
+/// of a script's constants read the module's script, else the one `rm`
+/// finds (the game's `nwscript`).
+pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference> {
     use crate::table_desc::{Description, Kind, path_in_module};
     let mut out = Vec::new();
     let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
@@ -314,8 +316,13 @@ pub fn described_scripts(module: &Module) -> Vec<Reference> {
         else {
             continue;
         };
-        let script = |name: &str| ResKey::parse(name, ResType::NSS).and_then(|k| module.get(&k));
-        let script = |name: &str| script(name).map(<[u8]>::to_vec);
+        let script = |name: &str| {
+            let k = ResKey::parse(name, ResType::NSS)?;
+            module
+                .get(&k)
+                .map(<[u8]>::to_vec)
+                .or_else(|| rm.and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned()))
+        };
         let Ok(d) = Description::parse(&text, &script) else { continue };
         let data = module.get(&key).unwrap_or_default();
         let Ok(t) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default()) else { continue };
@@ -401,7 +408,7 @@ pub fn outside_references(
 /// stacked).
 pub fn also_used(module: &Module, references: &[Reference], rm: &ResMan) -> Vec<Reference> {
     let mut also = table_scripts_in(rm);
-    also.extend(described_scripts(module));
+    also.extend(described_scripts(module, Some(rm)));
     // (From the scripts the tables run too: the game's Dirge, x0_s0_dirge,
     // names its area of effect's scripts, x0_s0_dirgeen...)
     let from: Vec<Reference> = references.iter().chain(&also).cloned().collect();
@@ -748,6 +755,10 @@ mod tests {
     #[test]
     fn a_script_a_described_table_names_is_used() {
         let dir = mg_testkit::scratch_dir("verify-described-scripts");
+        let mut game = MemContainer::new();
+        game.insert(key("nwscript", ResType::NSS), b"int J_ONE = 1;\n".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, game);
         let mut m = Module::new();
         m.set_info(&Gff::new(*b"IFO ")).unwrap();
         m.set(
@@ -759,16 +770,23 @@ mod tests {
         }
         m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
         let names = |m: &Module| -> Vec<String> {
-            let also = described_scripts(m);
+            let also = described_scripts(m, Some(&rm));
             let refs = module_references(m);
             unused_of(m, &refs, &also).iter().map(|u| u.key.resref.to_string()).collect()
         };
         assert_eq!(names(&m), ["j_fight", "j_not"], "undescribed");
-        std::fs::write(dir.join("j_modes.2da.toml"), "[columns.Script]\nkind = \"script\"\n")
-            .unwrap();
+        // (Its other column a list of the game's constants, read from
+        // the game's nwscript.)
+        std::fs::write(
+            dir.join("j_modes.2da.toml"),
+            "[columns.Script]\nkind = \"script\"\n[columns.Other]\nkind = \"list\"\n\
+             constants = \"nwscript\"\nprefix = \"J_\"\nother = true\n",
+        )
+        .unwrap();
         let m = Module::open(&dir).unwrap();
         assert_eq!(names(&m), ["j_not"]);
-        let r = &described_scripts(&m)[0];
+        let r = &described_scripts(&m, Some(&rm))[0];
+        assert!(described_scripts(&m, None).is_empty(), "the game's list not found");
         assert_eq!((r.from, r.path.as_str()), (key("j_modes", ResType::TWODA), "row 0, Script"));
     }
 

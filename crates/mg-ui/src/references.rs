@@ -715,7 +715,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             (Query::Resource(k), Some(game)) if k.restype == ResType::NSS => {
                 let read = |name: &str| game.table(name).ok();
                 let mut run = mg_module::verify::table_scripts(&read);
-                run.extend(mg_module::verify::described_scripts(&ws.module));
+                run.extend(mg_module::verify::described_scripts(&ws.module, Some(&game.resman)));
                 run.retain(|r| r.target == k.resref);
                 run
             }

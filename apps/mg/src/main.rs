@@ -2552,7 +2552,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     match install(cli).and_then(|gi| module_resman(&gi, &m, &mut out)) {
                         Ok(rm) => mg_module::verify::table_scripts_in(&rm)
                             .into_iter()
-                            .chain(mg_module::verify::described_scripts(&m))
+                            .chain(mg_module::verify::described_scripts(&m, Some(&rm)))
                             .filter(|r| r.target == key.resref)
                             .collect(),
                         Err(e) => {
