@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:26:25Z }
 ---
 
 # Getting started
@@ -56,7 +56,11 @@ user folder (where your modules, haks, talk tables and override live):
 
 A game in another Steam library (on a second drive, say) is found too:
 Moonglow reads the list of libraries Steam keeps. So is GOG's usual
-folder.
+folder on Linux (`~/GOG Games/Neverwinter Nights Enhanced Edition`) and
+Windows (`GOG Galaxy\Games\Neverwinter Nights Enhanced Edition` under
+Program Files, or `GOG Games\Neverwinter Nights Enhanced Edition` on any
+drive). On macOS only Steam's folder is looked in: a game from GOG there
+is set in Options, as below.
 
 The log at the bottom of the window says where it found the game ("Game
 data loaded from …"); the status bar shows the folder. If the game is

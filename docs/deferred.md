@@ -2222,13 +2222,6 @@ document; the entries here that name the audit are that list in short.
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
-- **The manual, what the audit named and is not put right:** GOG's
-  folder is not looked for on macOS (chapter 1 does not say so);
-  chapter 14 says "There's no OK or Cancel", which is true of property
-  editors only, and repeats chapter 12 in "Habits to change". (S each)
-  (Chapter 15's `--event` example now names the `house-rules` example,
-  which declares events.)
-  (the documentation audit of 2026-10-12)
 - **The parity checklists:** the main menus are not compared with
   Aurora's item by item; "eight tests not in
   `app.rs` named without their file" is as the audit found it. (S

@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:26:25Z }
 ---
 
 # Differences from Aurora
@@ -11,9 +11,14 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 Moonglow aims to do what Aurora does and write what Aurora writes. Where
 it differs, it is on purpose:
 
-- **Edits apply as you make them.** Property windows are tabs with no
-  OK or Cancel; every change is one undoable step, and **undo is
-  unlimited** (Aurora's area undo has a set number of levels).
+- **Edits apply as you make them**, each one undoable step, and **undo
+  is unlimited** (Aurora's area undo has a set number of levels). The
+  editors' windows (a blueprint's Properties, a placed object's, Module
+  and Area Properties, a conversation, the journal, the factions) still
+  have **OK** and **Cancel** as Aurora's do: Cancel sets back what was
+  changed in the window since it was opened, as one step. A 2DA is
+  saved when you ask, so its OK saves it and its Cancel closes it as
+  last saved (after asking).
 - **Tabs and windows, not dialogs**: every editor is a tab or a window
   that stays open beside the others; areas stay in the main pane.
 - **The Welcome tab** is the start page, not a dialog at start.

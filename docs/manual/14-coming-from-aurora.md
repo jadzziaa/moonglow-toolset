@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:26:25Z }
 ---
 
 # Coming from Aurora
@@ -90,13 +90,9 @@ Each names what Aurora does, then what Moonglow does instead.
 ## Habits to change
 
 - **A change applies as you make it.** To take one back, use Undo
-  (Ctrl+Z), as many times as you need. Closing an editor loses nothing.
-  The editors' windows (a blueprint's Properties, a placed object's,
-  Module and Area Properties, a conversation, the journal, the factions)
-  have **OK** and **Cancel** as Aurora's do: Cancel sets back what was
-  changed in the window since it was opened, as one step. A 2DA is
-  saved when you ask, so its OK saves it and its Cancel closes it as
-  last saved (after asking).
+  (Ctrl+Z), as many times as you need. The editors' **OK** and
+  **Cancel** are as Aurora's (what each does is in
+  [Differences from Aurora](12-differences.md)).
 - **Save writes everything**: the module, and every script you've edited.
   A script's **Compile** button saves and compiles that script. F7
   compiles all of them.
@@ -105,11 +101,9 @@ Each names what Aurora does, then what Moonglow does instead.
   of a kind (Properties, scripts, conversations) open as tabs of one
   window; untick the options for that (General, Script Editor,
   Conversation Editor) to have each in a window of its own.
-- **The Welcome tab** replaces Aurora's start dialog. A `.mod` with its
-  folder beside it asks which to open, as Aurora does (Options ›
-  General: or always the folder, as Aurora's Always open module
-  directories, or always the `.mod`); a folder opens with File › Open
-  Folder….
+- **The Welcome tab** replaces Aurora's start dialog, and a module
+  folder opens with File › Open Folder… (how a `.mod` with its folder
+  beside it is opened is in [Differences from Aurora](12-differences.md)).
 - **The camera** also moves with W, A, S and D, and a right drag turns it.
   The rest are Aurora's bindings (see [Areas](04-areas.md)).
 - **Settings are Moonglow's own.** Aurora's `nwtoolset.ini` isn't read.
