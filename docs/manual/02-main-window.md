@@ -33,7 +33,7 @@ is the area view's Go to Start Location too (the same command).
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
-| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
+| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, Check for Updates…, About Moonglow Toolset |
 
@@ -272,7 +272,10 @@ base item and properties, an object's appearance, a trap's type, a loading
 screen. A creature's skills are named in their list, and a talk-table
 string's text is shown beside its number. An object's faction of 0 (a
 blueprint's, or one an area places) is marked as the PC faction, the
-players' alone, which Verify warns of (a trigger's, no).
+players' alone, which Verify warns of (a trigger's, no). From a
+terminal, `mg gff --names` names the rows the same way, and `mg find
+--where` and `mg areas --set` take a row's label or name in place of its
+number.
 
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view

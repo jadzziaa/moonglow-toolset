@@ -293,6 +293,17 @@ fn conversation_search_bookmarks_and_test() {
     click(&mut h, "Find");
     let results = h.state().dialog_views[&key].search.results.clone();
     assert_eq!(results.len(), 1);
+    // Match Case, ticked in the pane, is what Find and Replace All go by
+    // (the script editor's options): "Traveller" finds nothing with it.
+    h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "Traveller".into();
+    click(&mut h, "Match Case");
+    assert!(h.state().dialog_views[&key].search.options.match_case);
+    click(&mut h, "Find");
+    assert!(h.state().dialog_views[&key].search.results.is_empty(), "Match Case");
+    click(&mut h, "Match Case");
+    click(&mut h, "Find");
+    let results = h.state().dialog_views[&key].search.results.clone();
+    assert_eq!(results.len(), 1, "case set aside");
     click(&mut h, &format!("Entry {}: A traveller.", results[0].2));
     let selected = h.state().dialog_views[&key].selected.unwrap();
     assert_eq!(selected.parent, Parent::Node(Kind::Reply, who));
@@ -538,14 +549,21 @@ fn conversations_export_and_import() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
     let mut h = harness(app, 1100.0, 800.0);
     h.run();
+    // Options › Language French (this test thread's): the CSV has a
+    // column for it, to be translated into.
+    mg_ui::set_edit_language(mg_core::Language::FRENCH);
     for format in ["Twine (Twee)…", "CSV…"] {
         h.get_by_label("Export").click();
         h.run();
         h.get_by_label(format).click();
         h.run();
     }
+    mg_ui::set_edit_language(mg_core::Language::ENGLISH);
     assert!(std::fs::read_to_string(&twee).unwrap().contains("[[Sorry.->END]]"));
-    let edited = std::fs::read_to_string(&csv).unwrap().replace("Halt!", "Stop right there!");
+    let exported = std::fs::read_to_string(&csv).unwrap();
+    assert!(exported.starts_with("id,speaker,text,condition,action,parent,comment,text_fr\r\n"));
+    let edited = (exported.replace("Halt!", "Stop right there!"))
+        .replace("start,,\r\n", "start,,Halte-là !\r\n");
     std::fs::write(&csv, edited).unwrap();
     h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv], ..Default::default() });
     h.get_by_label("Import Lines…").click();
@@ -555,6 +573,10 @@ fn conversations_export_and_import() {
         text(&nodes(&g, Kind::Entry)[0])
     };
     assert_eq!(line(&mut h, key), "Stop right there!");
+    let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    let french = nodes(&g, Kind::Entry)[0].locstring("Text").unwrap().clone();
+    let french = french.text(mg_core::Language::FRENCH, mg_core::Gender::Male).unwrap();
+    assert_eq!(french, "Halte-là !");
     // An Ink story, as a new conversation named after its file.
     let ink = dir.join("Night Watch.ink");
     std::fs::write(&ink, "-> gate\n=== gate ===\nWho goes there?\n+ [A friend.] -> END\n").unwrap();

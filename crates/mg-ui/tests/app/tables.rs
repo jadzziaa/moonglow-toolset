@@ -684,6 +684,75 @@ fn a_flags_list_is_ticked_by_the_keys() {
     assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x7"), "Green ticked");
 }
 
+/// A talk table kept in the module (a `.tlk` among its resources) is
+/// edited and saved with it: into the module, not a file of its own.
+#[test]
+fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
+    use mg_module::talk::{Line, Source};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-talk-in-module");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_inmod", ResType::TLK).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("mg_inmod"));
+    m.set_info(&info).unwrap();
+    let mut t = mg_module::talk::Table::create("mg_inmod", &dir, Language::ENGLISH, false);
+    let line = |text: &str| Line {
+        text: text.into(),
+        feminine: None,
+        sound: String::new(),
+        sound_length: 0.0,
+    };
+    t.add_line(&line("Old words")).unwrap();
+    m.set(key, t.tlk.to_bytes().unwrap());
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1000.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.run();
+    let talk = h.state().talk.as_ref().expect("the module's table open");
+    assert_eq!((&talk.source, talk.editable()), (&Source::Module, true));
+    assert!(h.query_by_label_contains("This table is in a hak").is_none(), "not read-only");
+    h.get_by_label("16777216").click();
+    h.run();
+    h.get_all_by_value("Old words")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::End);
+    h.event(egui::Event::Text(", new".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "Old words, new");
+    // Saving the module saves the table into it; the game data reads it,
+    // and nothing is written to the tlk folder.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(!h.state().talk.as_ref().unwrap().is_dirty());
+    assert!(!h.state().has_unsaved_work(), "the module's step saved too");
+    let game = h.state().game.as_deref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Old words, new"));
+    assert!(!user.join("tlk/mg_inmod.tlk").exists());
+    let saved = Module::open(&path).unwrap();
+    let tlk = mg_tlk::Tlk::read(saved.get(&key).unwrap()).unwrap();
+    assert_eq!(tlk.text(mg_core::StrRef(0)).as_deref(), Some("Old words, new"));
+    let said = h.state().log.entries.iter().any(|(_, e)| e.contains("put into the module"));
+    assert!(said, "{:?}", h.state().log.entries);
+}
+
 #[test]
 fn premium_campaigns_find_their_talk_tables_in_the_install() {
     // Tyrants of the Moonsea names `tyrants`, which the game ships in
@@ -699,6 +768,16 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
     assert!(app.game.as_deref().unwrap().custom_tlk().is_some());
+    // Opened in the editor, the game's own table is read only: its Save
+    // never writes into the install.
+    let mut h = harness(app, 1000.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().expect("the campaign's table open");
+    assert!(!t.editable(), "{}", t.source);
+    assert!(t.source.to_string().starts_with("the game's files ("), "{}", t.source);
+    assert!(h.query_by_label_contains("This table is in the game's files").is_some());
 }
 
 /// The talk table editor's split is kept for each table in Moonglow's

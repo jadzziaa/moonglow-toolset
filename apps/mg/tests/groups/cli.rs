@@ -42,6 +42,8 @@ mod plugins;
 mod replace;
 #[path = "../roundtrip.rs"]
 mod roundtrip;
+#[path = "../row_names.rs"]
+mod row_names;
 #[path = "../search.rs"]
 mod search;
 #[path = "../serve.rs"]

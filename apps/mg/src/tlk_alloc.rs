@@ -22,9 +22,9 @@ pub(crate) struct Args<'a> {
 }
 
 /// The strings of a names file, as JSON read them: a text is a string; a
-/// table with a `text` (and perhaps a `sound` and a `sound_length`) is a
-/// string with those; any other table is a group, whose name goes before
-/// its strings' with a dot.
+/// table with a `text` (and perhaps a `feminine`, a `sound` and a
+/// `sound_length`) is a string with those; any other table is a group,
+/// whose name goes before its strings' with a dot.
 fn names_of(value: &Value, under: &str, out: &mut Vec<Name>) -> Result<()> {
     let Some(table) = value.as_object() else { bail!("{under}: not a table of strings") };
     for (k, v) in table {
@@ -33,15 +33,21 @@ fn names_of(value: &Value, under: &str, out: &mut Vec<Name>) -> Result<()> {
             Value::String(text) => out.push(Name { key, text: text.clone(), ..Default::default() }),
             Value::Object(o)
                 if o.get("text").is_some_and(Value::is_string)
-                    && o.keys()
-                        .all(|k| matches!(k.as_str(), "text" | "sound" | "sound_length")) =>
+                    && o.keys().all(|k| {
+                        matches!(k.as_str(), "text" | "feminine" | "sound" | "sound_length")
+                    }) =>
             {
                 let text =
                     |k: &str| o.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
                 let sound_length = o.get("sound_length").and_then(Value::as_f64).unwrap_or(0.0);
+                let feminine = o.get("feminine").map(|v| v.as_str().map(str::to_string));
+                let Some(feminine) = feminine.map_or(Some(None), |f| f.map(Some)) else {
+                    bail!("{key}: its feminine is not a text")
+                };
                 out.push(Name {
                     key,
                     text: text("text"),
+                    feminine,
                     sound: text("sound"),
                     sound_length: sound_length as f32,
                 });
@@ -56,10 +62,9 @@ fn names_of(value: &Value, under: &str, out: &mut Vec<Name>) -> Result<()> {
 fn names(path: &Path) -> Result<Vec<Name>> {
     let text = std::fs::read_to_string(path).with_context(|| path.display().to_string())?;
     let value: Value = match crate::extension(path).as_str() {
+        // (In the file's order: new keys take lines in it.)
         "toml" => {
-            let table: toml::Table =
-                text.parse().map_err(|e| anyhow!("{}: {e}", path.display()))?;
-            serde_json::to_value(table)?
+            tlk_alloc::toml_in_order(&text).map_err(|e| anyhow!("{}: {e}", path.display()))?
         }
         "json" => serde_json::from_str(&text).with_context(|| path.display().to_string())?,
         _ => bail!("the names file must end .toml or .json"),
@@ -78,6 +83,14 @@ pub(crate) fn run(a: &Args<'_>) -> Result<Output> {
         Err(e) => return Err(e).with_context(|| map_path.display().to_string()),
     };
     let mut table = crate::talk_table(a.table, true)?;
+    // A key with a feminine text of its own makes the feminine table
+    // (`TABLEf.tlk` beside it), the others' lines in it as in the table.
+    if table.feminine.is_none() && names.iter().any(|n| n.feminine.is_some()) {
+        let name = mg_module::talk::feminine(&table.name);
+        let path = a.table.with_file_name(format!("{name}.tlk"));
+        let tlk = mg_tlk::Tlk::new(table.tlk.language);
+        table.feminine = Some((mg_module::talk::Source::File(path), tlk));
+    }
     let ours: std::collections::BTreeSet<u32> =
         known.lines.values().chain(known.retired.values()).copied().collect();
     let taken = |line: u32| {
@@ -104,6 +117,10 @@ pub(crate) fn run(a: &Args<'_>) -> Result<Output> {
         let was = line.clone();
         (line.text, line.sound, line.sound_length) =
             (n.text.clone(), n.sound.clone(), n.sound_length);
+        // (The feminine table's line is the text, unless it has its own.)
+        if table.feminine.is_some() {
+            line.feminine = Some(n.feminine.clone().unwrap_or_else(|| n.text.clone()));
+        }
         if line != was || row >= table.len() {
             lines.insert(row, line);
         }

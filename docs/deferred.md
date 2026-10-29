@@ -511,8 +511,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Conversation authoring
 
-- **Other languages in exports:** Twine, Ink and CSV carry the English
-  text only. A CSV could carry a column per language for translators. (S)
 - **Animations, comments and delays** don't go to Twine or Ink (script
   parameters do, since dansen9191's report). Parameters on a link with
   no condition script, or a line with no action script, are dropped (the
@@ -631,11 +629,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **`mg tlk-alloc`** (a custom talk table from strings kept by name):
-  new keys take lines in the order of their names, not of the file; a
-  key's feminine text is not set (the feminine table's lines stay as
-  they are); a retired key's line keeps its last text in the table. (S
-  each)
 - **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
   after 1.21.3: a table's cells in the module, a hak or a file, checked
   as typed, with rows taken from another copy). Not done:
@@ -720,17 +713,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
-- **Talk tables in a hak or the module** are read-only: Moonglow edits
-  only tables in the `tlk` folder. A table kept in the module could be
-  edited and saved with it. (S)
-- **Talk tables from a terminal:** `mg tlk-export` and `mg tlk-import`
-  write and read a `.tlk` file as JSON or CSV. The JSON is `nwn_tlk`'s
-  (compared with it: `apps/mg/tests/tlk_io.rs`, which found the sound
-  length named `soundLength` where `nwn_tlk` has `soundLen`; both are
-  read). Not done: a table made by an import is English; the text is
-  not read by a module's `encoding.2da`; the JSON carries the main
-  table only, as `nwn_tlk`'s does, and so does the talk table editor's
-  Export JSON. (S each)
 - **Where a StrRef is used:** Find References takes a talk-table line
   (a number typed in its field, or Find References in the talk table's
   editor) and lists the module's localized strings that name it
@@ -743,6 +725,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   already has the same text, asked first: proposed by builders, not
   begun. Move to Talk Table does one string at a time. (L)
   (from builders' reports after 1.19.1)
+- **A retired key's line keeps its text** in the table `mg tlk-alloc`
+  writes (a key taken out of the names file): a number saved in a
+  character or an item still shows what it said, not an empty line, and
+  the line stays the key's for when it is named again. Said in the
+  manual's Strings by name.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
+- **A talk table's JSON is one table's** (`mg tlk-export`, the talk
+  table editor's Export JSON), as `nwn_tlk`'s is and a nasher repository
+  keeps it: the feminine table is a file of its own there, exported on
+  its own (`mg tlk-export TABLEf.tlk`); the CSV carries both.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
 
 ## Haks in the GUI
 
@@ -781,8 +774,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or object's faction (the module's `repute.fac`, not a 2DA), a
   conversation's animations, a store's categories, and fields that hold
   a talk-table number as a plain int. (S–M)
-- **Only in the window:** `mg gff`, `mg find --where` and `mg areas`
-  print and take the numbers; names aren't shown or accepted there. (S)
 
 ## Getting files out
 
@@ -1955,15 +1946,13 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-- **`mg roundtrip`** (a builder asked what keeps work from being
-  corrupted): a module saved, read back and each GFF and 2DA written
-  anew, compared with what it was. It does not ask the game or Aurora
-  (the engine and Aurora tests do, on the game's own modules), does not
-  write the other formats anew (scripts, models and the rest are kept as
-  bytes, and compared as such), and is not in the toolset's menus. A
-  written GFF is compared by its fields, not its bytes: Moonglow lays a
-  GFF out its own way, as every edit already does. (S)
-  (from builders' reports after 1.19.1)
+- **The round trip** (`mg roundtrip`, Build › Round-Trip Check) compares
+  a GFF written anew by its fields, not its bytes: Moonglow lays a GFF
+  out its own way, as every edit does. It doesn't ask the game or Aurora
+  (the engine and Aurora tests do, on the game's own modules), and the
+  formats it doesn't write anew (scripts, models) are held to their
+  bytes by the saved copy.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
 
 ## NWSync publishing
 
@@ -2302,8 +2291,6 @@ of truth, and does each caller's difference matter.
   Select Portrait's grid: captured 2026-10-29).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
-- `DialogSearch` keeps its own match options and rebuilds
-  `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
 - The wizards' "choices of a table, none without a game" six times,
   each copying the kept list (`area_props.rs:25`, `creature_wizard.rs:85`,
   `creature.rs:115`, `levelup_view.rs:77`, `situated.rs:207`,

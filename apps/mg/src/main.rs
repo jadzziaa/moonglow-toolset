@@ -77,6 +77,13 @@ enum Cmd {
         /// a table, Windows-1252.
         #[arg(long)]
         module: Option<PathBuf>,
+        /// Name the row a field's number stands for, as the window's
+        /// fields view does: "row" beside its "value" ("Human" of
+        /// racialtypes.2da), and "__row" on each item of a list whose
+        /// items are rows (a creature's skills). Read from the game's 2DAs;
+        /// `mg gff` reads such a file back, the names set aside.
+        #[arg(long)]
+        names: bool,
     },
     /// Show where a resource comes from in the game's load order: the
     /// layer the game reads it from, then every layer whose copy that
@@ -630,6 +637,11 @@ enum Cmd {
         /// The conversation, `name.dlg`.
         dialog: String,
         output: PathBuf,
+        /// A CSV's column for a language to translate into (`fr`, `de`,
+        /// `it`, `es`, `pl`), though no line has text in it yet; more than
+        /// once for several. The languages lines have text in have theirs.
+        #[arg(long = "language", value_name = "CODE")]
+        languages: Vec<String>,
     },
     /// Read a Twine (.twee) or Ink (.ink) story into a module as a
     /// conversation (replacing one of the same name) and save; or, from a
@@ -656,6 +668,10 @@ enum Cmd {
         /// named, not as a custom table's (`mg tlk-import` reads both)
         #[arg(long)]
         base: bool,
+        /// The module the table is for: its text read by the module's
+        /// `encoding.2da` (in its haks), where it has one.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Read a .json or .csv file of talk-table lines into a talk table (a
     /// .tlk file, made if it isn't there) and save it: the lines the file
@@ -667,6 +683,15 @@ enum Cmd {
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The language of a table the import makes (`en`, `fr`, `de`,
+        /// `it`, `es`, `pl`): by default a JSON file's own `language`,
+        /// else English.
+        #[arg(long, value_name = "CODE")]
+        language: Option<String>,
+        /// The module the table is for: its text written by the module's
+        /// `encoding.2da` (in its haks), where it has one.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
@@ -776,6 +801,12 @@ enum Cmd {
         /// List what would change; change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Show the row a changed field's number stands for beside it (a
+        /// tune of ambientmusic.2da: `57 (Cave)`), as the window does.
+        /// (`--set` takes a row's label or name in place of its number
+        /// either way: `MusicDay=mus_cave`.)
+        #[arg(long)]
+        names: bool,
     },
     /// Make the objects placed from blueprints again from them, where they
     /// stand (Aurora's Update Instances), and save: their tags, names,
@@ -1823,12 +1854,21 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Gff { input, output, module } => {
+        Cmd::Gff { input, output, module, names } => {
             let codepage = match module {
                 Some(module) => module_codepage(cli, &crate::open_module(module)?),
                 None => Codepage::WINDOWS_1252,
             };
-            gff(input, output.as_deref(), cli.json, codepage)?
+            let game = match *names {
+                true => Some(
+                    install(cli)
+                        .ok()
+                        .and_then(|gi| mg_rules::GameData::open(&gi).ok())
+                        .context("--names reads the game's 2DAs: no game install found")?,
+                ),
+                false => None,
+            };
+            gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?
         }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
@@ -2726,22 +2766,34 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::DialogExport { module, dialog, output } => {
+        Cmd::DialogExport { module, dialog, output, languages } => {
             use mg_module::dialog_io::Format;
             let m = crate::open_module(module)?;
             let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
+            let languages = (languages.iter())
+                .map(|c| {
+                    mg_core::Language::from_short_code(c)
+                        .with_context(|| format!("{c:?} isn't a language (fr, de, it, es, pl)"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if !languages.is_empty() && f != Format::Csv {
+                bail!("--language is for a CSV: Twine and Ink carry the English text");
+            }
             // (Its lines as the module's own table reads them, if any.)
-            let text = f.write(&g, &key.resref.to_string());
-            let text = Codepage::WINDOWS_1252.spelled_in(&text, module_codepage(cli, &m));
+            let title = key.resref.to_string();
+            let text = f.write_in(&g, &title, module_codepage(cli, &m), &languages);
             std::fs::write(output, text.as_bytes())?;
             Output::new(
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
         }
-        Cmd::TlkExport { table, output, base } => {
-            let t = talk_table(table, false)?;
+        Cmd::TlkExport { table, output, base, module } => {
+            let mut t = talk_table(table, false)?;
+            if let Some(m) = module {
+                t.game = Some(module_codepage(cli, &crate::open_module(m)?));
+            }
             let (text, format) = match extension(output).as_str() {
                 "json" => (t.to_json(), "json"),
                 "csv" => (t.to_csv_as(!*base).into_bytes(), "csv"),
@@ -2757,9 +2809,37 @@ fn run(cli: &Cli) -> Result<Output> {
                 "strrefs": if format == "csv" && !*base { "custom" } else { "line" },
             }))
         }
-        Cmd::TlkImport { table, file, dry_run } => {
-            let mut t = talk_table(table, true)?;
+        Cmd::TlkImport { table, file, dry_run, language, module } => {
             let text = std::fs::read_to_string(file)?;
+            let asked =
+                match language {
+                    Some(c) => Some(mg_core::Language::from_short_code(c).with_context(|| {
+                        format!("{c:?} isn't a language (en, fr, de, it, es, pl)")
+                    })?),
+                    None => None,
+                };
+            let mut t = talk_table(table, true)?;
+            if !table.is_file() {
+                // (A JSON file says its table's language, as nwn_tlk's.)
+                let of_file = (extension(file) == "json")
+                    .then(|| serde_json::from_str::<serde_json::Value>(&text).ok())
+                    .flatten()
+                    .and_then(|v| v.get("language")?.as_u64())
+                    .and_then(|n| u32::try_from(n).ok())
+                    .map(mg_core::Language);
+                t.tlk.language = asked.or(of_file).unwrap_or(mg_core::Language::ENGLISH);
+            } else if let Some(l) = asked.filter(|l| *l != t.tlk.language) {
+                let name = |l: mg_core::Language| l.name().map_or(l.0.to_string(), str::to_string);
+                bail!(
+                    "{} is in {} already: --language is for a table the import makes ({})",
+                    table.display(),
+                    name(t.tlk.language),
+                    name(l)
+                );
+            }
+            if let Some(m) = module {
+                t.game = Some(module_codepage(cli, &crate::open_module(m)?));
+            }
             let (changed, added) = match extension(file).as_str() {
                 "json" => t.import_json(&text),
                 "csv" => t.import_csv(&text),
@@ -2789,9 +2869,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let name = name.clone().or(stem).context("name the conversation with --name")?;
             let key = ResKey::parse(&name, mg_core::ResType::DLG)
                 .with_context(|| format!("{name:?} isn't a resource name"))?;
-            let source = std::fs::read_to_string(file)?;
-            let source =
-                (module_codepage(cli, &m).spelled_in(&source, Codepage::WINDOWS_1252)).into_owned();
+            let raw = std::fs::read_to_string(file)?;
+            let game = module_codepage(cli, &m);
+            let source = (game.spelled_in(&raw, Codepage::WINDOWS_1252)).into_owned();
             let mut out = Output::default();
             let mut changed = None;
             // A story is a conversation of its own; a text export goes
@@ -2805,7 +2885,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 let mut g =
                     m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
                 let n = format
-                    .update(&mut g, &source)
+                    .update_in(&mut g, &raw, game)
                     .expect("it reads text")
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
                 out.note(format!("{n} lines changed"));
@@ -2893,6 +2973,7 @@ fn run(cli: &Cli) -> Result<Output> {
             seed,
             all,
             dry_run,
+            names,
         } => {
             use mg_module::areas::{self, Change, Filter};
             let resref =
@@ -3036,6 +3117,41 @@ fn run(cli: &Cli) -> Result<Output> {
                 h.write_u32(std::process::id());
                 h.finish() >> 16
             });
+            // A field that holds a row, given by the row's label or name
+            // (`MusicDay=mus_cave`): its number, from the game's table (the
+            // module's haks' over it), read only when one is so given.
+            let named_row = |c: &Change| match c {
+                Change::Set { field, value } => {
+                    areas::row_table(field).is_some() && mg_2da::parse_int(value.trim()).is_none()
+                }
+                _ => false,
+            };
+            let game = if changes.iter().any(named_row) {
+                install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
+                let g = search::game_data(cli, &m, &mut out)
+                    .context("the game's data can't be read for a row's name")?;
+                Some(g)
+            } else if *names && !changes.is_empty() {
+                install(cli).ok().and_then(|_| search::game_data(cli, &m, &mut out))
+            } else {
+                None
+            };
+            for c in changes.iter_mut().filter(|c| named_row(c)) {
+                let Change::Set { field, value } = c else { continue };
+                let (Some(table), Some(game)) = (areas::row_table(field), &game) else { continue };
+                let row = game.row_of(&table, value);
+                *value = row.map_err(|e| anyhow::anyhow!("{field}={value}: {e}"))?.to_string();
+            }
+            // (With --names: the name of the row a field's number stands for.)
+            let name_of = |field: &str, v: &Option<String>| -> Option<String> {
+                let (table, game) = (areas::row_table(field)?, game.as_ref()?);
+                let row = mg_2da::parse_int(v.as_deref()?).filter(|_| *names)?;
+                game.row_name(&table, i64::from(row))
+            };
+            let named = |field: &str, v: &Option<String>| match name_of(field, v) {
+                Some(name) => v.as_ref().map(|v| format!("{v} ({name})")),
+                None => v.clone(),
+            };
             let done = areas::apply(&mut m, &resrefs, &changes, codepage, seed)
                 .map_err(anyhow::Error::msg)?;
             if scheme && !done.is_empty() {
@@ -3076,8 +3192,8 @@ fn run(cli: &Cli) -> Result<Output> {
                         "{}\t{}\t{} -> {}",
                         c.area,
                         c.what,
-                        text(&c.from),
-                        text(&c.to)
+                        text(&named(&c.what, &c.from)),
+                        text(&named(&c.what, &c.to))
                     ));
                 }
                 for (area, i, tag, why) in &left_dynamic {
@@ -3112,6 +3228,8 @@ fn run(cli: &Cli) -> Result<Output> {
                     "field": c.what,
                     "from": c.from,
                     "to": c.to,
+                    "from_name": name_of(&c.what, &c.from),
+                    "to_name": name_of(&c.what, &c.to),
                 })).collect::<Vec<_>>(),
                 "left_dynamic": left_dynamic.iter().map(|(area, i, tag, why)| json!({
                     "area": area.to_string(),
@@ -3421,7 +3539,52 @@ fn run(cli: &Cli) -> Result<Output> {
                         None => (f.trim().to_string(), None),
                     })
                     .collect(),
+                typed_fields: Vec::new(),
             };
+            // A field that holds a row, given by the row's label or name
+            // (`Appearance_Type=Human`): for each type the field names a
+            // row of, that row's number (`Appearance` is a placeables.2da
+            // row for a placeable, doortypes.2da's for a door).
+            let mut q = q;
+            let types = match q.types.is_empty() {
+                true => mg_rules::ObjectKind::ALL.map(|k| k.restype()).to_vec(),
+                false => q.types.clone(),
+            };
+            let table_of = |t: ResType, label: &str| {
+                mg_rules::rows::row_table(t.extension().unwrap_or_default(), &[], label)
+            };
+            let named = |(label, value): &(String, Option<String>)| {
+                value.as_deref().is_some_and(|v| {
+                    !v.contains('*')
+                        && mg_2da::parse_int(v.trim()).is_none()
+                        && types.iter().any(|t| table_of(*t, label).is_some())
+                })
+            };
+            if q.fields.iter().any(named) {
+                let mut notes = Output::default();
+                let game = install(cli)
+                    .ok()
+                    .and_then(|_| search::game_data(cli, &m, &mut notes))
+                    .context("a row named, not numbered, reads the game's 2DAs")?;
+                let (rows, plain): (Vec<_>, Vec<_>) = q.fields.drain(..).partition(named);
+                q.fields = plain;
+                for (label, value) in rows {
+                    let value = value.unwrap_or_default();
+                    let mut values = Vec::new();
+                    let mut why = Vec::new();
+                    for &t in &types {
+                        let Some(table) = table_of(t, &label) else { continue };
+                        match game.row_of(&table, &value) {
+                            Ok(row) => values.push((t, row.to_string())),
+                            Err(e) => why.push(e),
+                        }
+                    }
+                    if values.is_empty() {
+                        bail!("{label}={value}: {}", why.join("; "));
+                    }
+                    q.typed_fields.push((label, values));
+                }
+            }
             let mut found = mg_module::query::find(&m, &q);
             for f in &mut found {
                 f.name = Codepage::WINDOWS_1252.spelled_in(&f.name, cp).into_owned();
@@ -4089,72 +4252,9 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
     if keep.is_some() && copy.exists() {
         bail!("{} is there already", copy.display());
     }
-    let mut differences: Vec<(String, String)> = Vec::new();
-    let mut differs = |key: &ResKey, what: &str| differences.push((key.to_string(), what.into()));
-
-    // Saved as it is: every resource byte for byte.
-    let saved = original.clone().save_as(&ModuleLocation::Archive(copy.clone()));
-    let back = saved.map_err(anyhow::Error::from).and_then(|()| Ok(crate::open_module(&copy)?));
-    if keep.is_none() {
-        let _ = std::fs::remove_file(&copy);
-    }
-    let back = back.context("the copy could not be saved and read back")?;
-    for k in original.keys() {
-        match back.get(k) {
-            None => differs(k, "missing from the saved copy"),
-            Some(b) if Some(b) != original.get(k) => differs(k, "other bytes in the saved copy"),
-            Some(_) => {}
-        }
-    }
-    for k in back.keys().filter(|k| !original.contains(k)) {
-        differs(k, "in the saved copy alone");
-    }
-
-    // Written anew, as an edit writes it: the same when read back.
-    let cp = Codepage::WINDOWS_1252;
-    let (mut gffs, mut tables, mut unread) = (0, 0, Vec::new());
-    for k in original.keys() {
-        let data = original.get(k).expect("its own key");
-        if k.restype.is_gff() {
-            let read = match Gff::read(data) {
-                Ok(g) => g,
-                Err(e) => {
-                    unread.push((k.to_string(), e.to_string()));
-                    continue;
-                }
-            };
-            gffs += 1;
-            match read.to_bytes() {
-                Err(e) => differs(k, &format!("cannot be written: {e}")),
-                Ok(written) => match Gff::read(&written) {
-                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
-                    Ok(again) if again != read => differs(k, "other fields once written"),
-                    Ok(again) if again.to_bytes().ok().as_ref() != Some(&written) => {
-                        differs(k, "other bytes each time it is written")
-                    }
-                    Ok(_) => {}
-                },
-            }
-        } else if k.restype == ResType::TWODA {
-            let read = match mg_2da::TwoDa::parse(data, cp) {
-                Ok(t) => t,
-                Err(e) => {
-                    unread.push((k.to_string(), e.to_string()));
-                    continue;
-                }
-            };
-            tables += 1;
-            match read.to_bytes(cp) {
-                Err(e) => differs(k, &format!("cannot be written: {e}")),
-                Ok(written) => match mg_2da::TwoDa::parse(&written, cp) {
-                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
-                    Ok(again) if again != read => differs(k, "other cells once written"),
-                    Ok(_) => {}
-                },
-            }
-        }
-    }
-
+    let report = mg_module::roundtrip::check(&original, &copy, keep.is_some(), &|_, _| true)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let mg_module::roundtrip::Report { gffs, tables, differences, unread, .. } = &report;
     let mut out = Output::new(serde_json::json!({
         "module": path_text(path),
         "resources": original.len(),
@@ -4170,25 +4270,70 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
             .collect::<Vec<_>>(),
         "copy": keep.map(path_text),
     }));
-    for (k, what) in &differences {
+    for (k, what) in differences {
         out.line(format!("{k}\t{what}"));
     }
-    for (k, why) in &unread {
+    for (k, why) in unread {
         out.note(format!("warning: {k} cannot be read ({why}): kept as it is, never written anew"));
     }
-    out.note(format!(
-        "{} resources saved and read back, {gffs} GFFs and {tables} 2DAs written anew: {}",
-        original.len(),
-        match differences.len() {
-            0 => "all the same".to_string(),
-            n => format!("{n} differ"),
-        }
-    ));
+    out.note(report.summary());
     out.failed = !differences.is_empty();
     Ok(out)
 }
 
-fn gff(input: &Path, output: Option<&Path>, json: bool, cp: Codepage) -> Result<Output> {
+/// Puts the name of the row each field's number stands for beside it, in
+/// a GFF's JSON (`mg gff --names`): `"row"` in a field's object, which
+/// `from_json` sets aside, and `"__row"` on a list's item whose place is
+/// a row; `path` the labels of the fields and lists it is under.
+fn name_rows(
+    s: &mut serde_json::Map<String, serde_json::Value>,
+    game: &mg_rules::GameData,
+    file_type: &str,
+    path: &mut Vec<String>,
+) {
+    use mg_rules::rows::{list_table, row_table};
+    use serde_json::Value as J;
+    for (label, field) in s.iter_mut().filter(|(l, _)| !l.starts_with("__")) {
+        let J::Object(field) = field else { continue };
+        let labels: Vec<&str> = path.iter().map(String::as_str).collect();
+        let kind = field.get("type").and_then(J::as_str).unwrap_or_default().to_string();
+        match kind.as_str() {
+            "struct" | "list" => {
+                let by_place =
+                    (kind == "list").then(|| list_table(file_type, &labels, label)).flatten();
+                path.push(label.clone());
+                let items: Vec<&mut J> = match field.get_mut("value") {
+                    Some(J::Array(items)) => items.iter_mut().collect(),
+                    Some(v @ J::Object(_)) => vec![v],
+                    _ => Vec::new(),
+                };
+                for (i, item) in items.into_iter().enumerate() {
+                    let J::Object(item) = item else { continue };
+                    if let Some(name) = by_place.and_then(|t| game.row_name(&t, i as i64)) {
+                        item.insert("__row".into(), J::String(name));
+                    }
+                    name_rows(item, game, file_type, path);
+                }
+                path.pop();
+            }
+            _ => {
+                let Some(table) = row_table(file_type, &labels, label) else { continue };
+                let row = field.get("value").and_then(J::as_i64);
+                if let Some(name) = row.and_then(|r| game.row_name(&table, r)) {
+                    field.insert("row".into(), J::String(name));
+                }
+            }
+        }
+    }
+}
+
+fn gff(
+    input: &Path,
+    output: Option<&Path>,
+    json: bool,
+    cp: Codepage,
+    names: Option<&mg_rules::GameData>,
+) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
         let value: serde_json::Value = serde_json::from_slice(&data)?;
@@ -4206,7 +4351,11 @@ fn gff(input: &Path, output: Option<&Path>, json: bool, cp: Codepage) -> Result<
         bail!("{} is not a GFF file type", input.display());
     }
     let gff = Gff::read(&data)?;
-    let value = mg_gff::to_json(&gff, cp)?;
+    let mut value = mg_gff::to_json(&gff, cp)?;
+    if let (Some(game), serde_json::Value::Object(root)) = (names, &mut value) {
+        let file_type = String::from_utf8_lossy(&gff.file_type).into_owned();
+        name_rows(root, game, &file_type, &mut Vec::new());
+    }
     match output {
         Some(o) => {
             std::fs::write(o, serde_json::to_string_pretty(&value)? + "\n")?;

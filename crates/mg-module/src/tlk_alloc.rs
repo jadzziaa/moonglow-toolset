@@ -16,8 +16,44 @@ use mg_core::StrRef;
 pub struct Name {
     pub key: String,
     pub text: String,
+    /// The feminine table's text, where it is not `text`.
+    pub feminine: Option<String>,
     pub sound: String,
     pub sound_length: f32,
+}
+
+/// A TOML file as JSON, its keys in the order the file has them (the
+/// `toml` crate's tables are sorted: a names file's new keys would take
+/// their lines in the order of their names). A date is its text.
+pub fn toml_in_order(text: &str) -> Result<serde_json::Value, String> {
+    use serde_json::Value as J;
+    use toml_edit::{Item, Value as T};
+    fn value(v: &T) -> J {
+        match v {
+            T::String(s) => J::String(s.value().clone()),
+            T::Integer(i) => J::from(*i.value()),
+            T::Float(f) => serde_json::Number::from_f64(*f.value()).map_or(J::Null, J::Number),
+            T::Boolean(b) => J::Bool(*b.value()),
+            T::Datetime(d) => J::String(d.value().to_string()),
+            T::Array(a) => J::Array(a.iter().map(value).collect()),
+            T::InlineTable(t) => {
+                J::Object(t.iter().map(|(k, v)| (k.to_string(), value(v))).collect())
+            }
+        }
+    }
+    fn table(t: &toml_edit::Table) -> J {
+        J::Object(t.iter().map(|(k, i)| (k.to_string(), item(i))).collect())
+    }
+    fn item(i: &Item) -> J {
+        match i {
+            Item::None => J::Null,
+            Item::Value(v) => value(v),
+            Item::Table(t) => table(t),
+            Item::ArrayOfTables(a) => J::Array(a.iter().map(table).collect()),
+        }
+    }
+    let doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
+    Ok(table(doc.as_table()))
 }
 
 /// Which line of the table each key has.
@@ -237,6 +273,22 @@ mod tests {
         assert_eq!((third.map.lines["feat.dodge"], third.restored.len()), (1, 1));
         assert!(third.added.is_empty());
         assert_eq!(Map::read(&third.map.to_json()).unwrap(), third.map);
+    }
+
+    /// A names file's keys in its own order, groups and all, whatever
+    /// their names' order: new keys take lines in it.
+    #[test]
+    fn toml_keeps_the_file_s_order() {
+        let v = toml_in_order(
+            "zed = \"Z\"\n[feat.cleave]\nname = \"N\"\ndesc = { text = \"D\", sound_length = \
+             1.5 }\n[aaa]\nb = 2\na = true\n",
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&v).unwrap(),
+            r#"{"zed":"Z","feat":{"cleave":{"name":"N","desc":{"text":"D","sound_length":1.5}}},"aaa":{"b":2,"a":true}}"#
+        );
+        assert!(toml_in_order("[a\n").is_err());
     }
 
     #[test]

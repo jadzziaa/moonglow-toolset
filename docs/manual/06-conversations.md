@@ -158,10 +158,17 @@ there).
 **Export** writes the conversation in other formats:
 - **Plain text**: a readable script, for proofreading or review.
 - **CSV**: one row per line (`E3` an NPC line, `R5` a reply) with its
-  speaker, text, condition, action and comment. Edit the text in a
-  spreadsheet or have it translated; **Import Lines…** then reads back
-  the speakers, text and comments of the lines it names, as one undoable
-  step. Lines whose text comes from the game's talk table show empty.
+  speaker, text, condition, action and comment, and a column for each
+  other language the lines have text in: `text_fr`, `text_de`,
+  `text_it`, `text_es`, `text_pl` (`text_fr_f` for a feminine text,
+  `text_en_f` English's). With another language chosen in Options ›
+  General, its column is there even while no line has text in it, ready
+  to be translated into; a column you add by its name is read too. Edit
+  the text in a spreadsheet or have it translated; **Import Lines…** then
+  reads back the speakers, texts and comments of the lines it names, as
+  one undoable step (a language's cell left empty takes that language's
+  text off the line). Lines whose text comes from the game's talk table
+  show empty.
 - **Twine** (Twee 3, for Twine 2 or Tweego) and **Ink** (for Inky): the
   conversation as a branching story.
 
@@ -205,7 +212,9 @@ written in those tools and brought in. The mapping:
 Text Moonglow writes is escaped where the format would read it as syntax:
 in Twine as HTML character references, which story formats show as the
 characters; in Ink with backslashes, and a blank line as `//`. Only the
-English text goes out, not animations, comments or delays. Every conversation the game and its modules ship
+English text goes out to Twine and Ink (a passage holds one text: the
+CSV carries the other languages), not animations, comments or delays.
+Every conversation the game and its modules ship
 plays the same after a round trip through Twine or Ink. Ink beyond this
 subset (stitches, gathers, logic) is refused with its line number.
 

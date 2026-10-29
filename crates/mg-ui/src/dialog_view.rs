@@ -765,8 +765,9 @@ pub enum Bottom {
 pub struct DialogSearch {
     pub find: String,
     pub replace: String,
-    pub match_case: bool,
-    pub whole_word: bool,
+    /// Match Case and Whole Word, as the script editor's Find Text has them
+    /// (its `backwards` is not offered here).
+    pub options: crate::script_tools::SearchOptions,
     /// All conversations in the module, not only this one.
     pub all_files: bool,
     /// Conversation, line, and its text.
@@ -1141,8 +1142,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if let Some(path) =
                 app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
             {
-                // (The lines as the module's own table reads them, if any.)
-                let text = crate::text::from_windows_1252(&f.write(&g, &key.resref.to_string()));
+                // (The lines as the module's own table reads them, if any;
+                // a CSV with a column for the language edited, to
+                // translate into.)
+                let edited = crate::text::edit_language();
+                let to = if edited == mg_core::Language::ENGLISH { vec![] } else { vec![edited] };
+                let game = crate::text::game_table();
+                let text = f.write_in(&g, &key.resref.to_string(), game, &to);
                 match std::fs::write(&path, text) {
                     Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
                     Err(e) => app.log.error(format!("{}: {e}", path.display())),
@@ -1163,9 +1169,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             )
         {
             let mut ng = g.clone();
-            let read = (std::fs::read_to_string(&path).map_err(|e| e.to_string()))
-                .map(|csv| crate::text::for_windows_1252(&csv));
-            match read.and_then(|csv| mg_module::dialog_io::update_from_csv(&mut ng, &csv)) {
+            let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            let game = crate::text::game_table();
+            match read.and_then(|csv| mg_module::dialog_io::update_from_csv_in(&mut ng, &csv, game))
+            {
                 Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
                 Ok(n) => {
                     app.log.info(format!("{}: {n} line(s) changed", path.display()));
@@ -2176,12 +2183,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 fn matches(text: &str, find: &str, s: &DialogSearch) -> bool {
-    let o = crate::script_tools::SearchOptions {
-        match_case: s.match_case,
-        whole_word: s.whole_word,
-        backwards: false,
-    };
-    crate::script_tools::find(text, find, 0, &o).is_some()
+    crate::script_tools::find(text, find, 0, &s.options).is_some()
 }
 
 /// The Search pane: find in this conversation or all of them, replace in
@@ -2215,8 +2217,8 @@ fn search_pane(
         ui.end_row();
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut s.match_case, "Match Case");
-        ui.checkbox(&mut s.whole_word, "Match Whole Word Only");
+        ui.checkbox(&mut s.options.match_case, "Match Case");
+        ui.checkbox(&mut s.options.whole_word, "Match Whole Word Only");
         ui.checkbox(&mut s.all_files, "All Files in Module");
     });
     let mut find = false;
@@ -2266,13 +2268,8 @@ fn search_pane(
             if let Some(list) = ng.root.list_mut(kind.list()) {
                 for line in list {
                     let t = text(line);
-                    let o = crate::script_tools::SearchOptions {
-                        match_case: s.match_case,
-                        whole_word: s.whole_word,
-                        backwards: false,
-                    };
                     let (new, count) =
-                        crate::script_tools::replace_all(&t, &s.find, &s.replace, &o);
+                        crate::script_tools::replace_all(&t, &s.find, &s.replace, &s.options);
                     if count > 0 {
                         let ls = line.locstring("Text").cloned().unwrap_or_default();
                         line.set("Text", with_english(ls, &new).into_value());

@@ -30,14 +30,15 @@
 //!   query: `do:a_give?item=gold%20coins&count=5`. Names and values are
 //!   text in the game's codepage, as the lines' are.
 //!
-//! Only English text is exported; animations, comments and delays are
-//! not. A conversation read back plays as the original did
+//! A CSV carries every language's text, a column each; Twine and Ink,
+//! which hold one text a line, carry English's. Animations, comments and
+//! delays don't go to Twine or Ink. A conversation read back plays as the original did
 //! ([`play_outline`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use mg_core::{Codepage, ResRef};
+use mg_core::{Codepage, Gender, Language, LocString, LocStringKey, ResRef};
 use mg_gff::{Gff, Struct, Value};
 
 use crate::dialog::{
@@ -91,6 +92,20 @@ impl Format {
         }
     }
 
+    /// [`write`](Self::write) as a game whose codepage is `game` reads the
+    /// text (a module's `encoding.2da` table, else Windows-1252): a CSV
+    /// with a column for each of `languages` too ([`to_csv_in`]); the
+    /// others in English.
+    pub fn write_in(self, g: &Gff, title: &str, game: Codepage, languages: &[Language]) -> String {
+        match self {
+            Format::Csv => to_csv_in(g, game, languages),
+            f => {
+                let en = game.for_language(Language::ENGLISH);
+                CODEPAGE.spelled_in(&f.write(g, title), en).into_owned()
+            }
+        }
+    }
+
     /// What reading a file in this format gives.
     pub fn reads(self) -> Reads {
         match self {
@@ -116,6 +131,19 @@ impl Format {
     pub fn update(self, g: &mut Gff, text: &str) -> Option<Result<usize, String>> {
         match self {
             Format::Csv => Some(update_from_csv(g, text)),
+            Format::Text | Format::Twine | Format::Ink => None,
+        }
+    }
+
+    /// [`update`](Self::update) for a game whose codepage is `game`.
+    pub fn update_in(
+        self,
+        g: &mut Gff,
+        text: &str,
+        game: Codepage,
+    ) -> Option<Result<usize, String>> {
+        match self {
+            Format::Csv => Some(update_from_csv_in(g, text, game)),
             Format::Text | Format::Twine | Format::Ink => None,
         }
     }
@@ -665,57 +693,137 @@ pub fn read_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
 
 const CSV_HEADER: [&str; 7] = ["id", "speaker", "text", "condition", "action", "parent", "comment"];
 
+/// The column of a variant of a line's text other than English's (`text`):
+/// `text_fr`, `text_de`..., a feminine one `text_fr_f` (`text_en_f`
+/// English's); a language with no two-letter code by its number
+/// (`text_128`).
+pub fn csv_text_column(key: LocStringKey) -> String {
+    let l = key.language();
+    let code = l.short_code().map_or_else(|| l.0.to_string(), str::to_string);
+    match key.gender() {
+        Gender::Male => format!("text_{code}"),
+        Gender::Female => format!("text_{code}_f"),
+    }
+}
+
+/// The variant a [`csv_text_column`] header names (`TEXT_FR` too), not
+/// English's male `text`.
+fn csv_text_key(header: &str) -> Option<LocStringKey> {
+    let header = header.trim().to_ascii_lowercase();
+    let rest = header.strip_prefix("text_")?;
+    let (code, gender) = match rest.strip_suffix("_f") {
+        Some(c) => (c, Gender::Female),
+        None => (rest, Gender::Male),
+    };
+    let language = Language::from_short_code(code).or_else(|| code.parse().ok().map(Language))?;
+    let key = LocStringKey::new(language, gender);
+    (key != LocStringKey::new(Language::ENGLISH, Gender::Male)).then_some(key)
+}
+
 /// Every line as a CSV row: `id` (`E3` an NPC line, `R5` a reply),
-/// speaker, text, condition, action, the line it follows, comment.
-/// Only `speaker`, `text` and `comment` are read back
-/// ([`update_from_csv`]).
+/// speaker, text, condition, action, the line it follows, comment; then
+/// a column for each other language (and feminine text) a line has text
+/// in ([`csv_text_column`]). Only `speaker`, the texts and `comment` are
+/// read back ([`update_from_csv`]).
 pub fn to_csv(g: &Gff) -> String {
-    let mut out = CSV_HEADER.join(",") + "\r\n";
+    to_csv_in(g, Codepage::WINDOWS_1252, &[])
+}
+
+/// [`to_csv`] as a game whose codepage is `game` reads the text (a
+/// module's `encoding.2da` table, else Windows-1252), with a column for
+/// each of `languages` too, though no line has text in it yet (the
+/// languages it is to be translated into).
+pub fn to_csv_in(g: &Gff, game: Codepage, languages: &[Language]) -> String {
+    let english = LocStringKey::new(Language::ENGLISH, Gender::Male);
+    let mut keys: Vec<LocStringKey> =
+        languages.iter().map(|l| LocStringKey::new(*l, Gender::Male)).collect();
+    for kind in [Kind::Entry, Kind::Reply] {
+        for n in crate::dialog::nodes(g, kind) {
+            let variants = n.locstring("Text").into_iter().flat_map(|t| &t.strings);
+            keys.extend(variants.map(|(k, _)| *k));
+        }
+    }
+    keys.retain(|k| *k != english);
+    keys.sort();
+    keys.dedup();
+    let mut header: Vec<String> = CSV_HEADER.iter().map(|h| h.to_string()).collect();
+    header.extend(keys.iter().map(|k| csv_text_column(*k)));
+    let mut out = header.join(",") + "\r\n";
     let mut seen = std::collections::HashSet::new();
+    struct Ctx<'a> {
+        g: &'a Gff,
+        game: Codepage,
+        keys: &'a [LocStringKey],
+    }
     fn walk(
-        g: &Gff,
+        c: &Ctx<'_>,
         parent: Parent,
         seen: &mut std::collections::HashSet<(Kind, u32)>,
         out: &mut String,
     ) {
         let kind = parent.child_kind();
-        for l in links(g, parent) {
+        let en = c.game.for_language(Language::ENGLISH);
+        let plain =
+            |s: &Struct, label: &str| en.decode(s.string(label).unwrap_or_default()).into_owned();
+        for l in links(c.g, parent) {
             let i = link_index(l);
             if is_link(l) || !seen.insert((kind, i)) {
                 continue;
             }
-            let Some(n) = node(g, kind, i) else { continue };
+            let Some(n) = node(c.g, kind, i) else { continue };
             let from = match parent {
                 Parent::Root => "start".to_string(),
                 Parent::Node(k, p) => passage(k, p),
             };
-            let row = [
+            let variant = |k: LocStringKey| {
+                n.locstring("Text")
+                    .and_then(|t| t.text_in(k.language(), k.gender(), c.game))
+                    .map(|t| t.into_owned())
+                    .unwrap_or_default()
+            };
+            let mut row = vec![
                 passage(kind, i),
-                string(n, "Speaker"),
-                text(n),
+                plain(n, "Speaker"),
+                variant(LocStringKey::new(Language::ENGLISH, Gender::Male)),
                 resref(l, "Active").unwrap_or_default(),
                 resref(n, "Script").unwrap_or_default(),
                 from,
-                string(n, "Comment"),
+                plain(n, "Comment"),
             ];
+            row.extend(c.keys.iter().map(|k| variant(*k)));
             out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
             out.push_str("\r\n");
-            walk(g, Parent::Node(kind, i), seen, out);
+            walk(c, Parent::Node(kind, i), seen, out);
         }
     }
-    walk(g, Parent::Root, &mut seen, &mut out);
+    walk(&Ctx { g, game, keys: &keys }, Parent::Root, &mut seen, &mut out);
     out
 }
 
 /// Reads back the speaker, text and comment of the lines a CSV names by
-/// `id` (columns found by their header; others ignored). How many lines
-/// changed; an unknown id or a missing `id` column is an error.
+/// `id` (columns found by their header; others ignored), and the text of
+/// each other language a `text_fr`... column has ([`csv_text_column`]):
+/// a cell left empty there takes that language's text away. How many
+/// lines changed; an unknown id or a missing `id` column is an error.
 pub fn update_from_csv(g: &mut Gff, csv: &str) -> Result<usize, String> {
+    update_from_csv_in(g, csv, Codepage::WINDOWS_1252)
+}
+
+/// [`update_from_csv`] for a game whose codepage is `game`.
+pub fn update_from_csv_in(g: &mut Gff, csv: &str, game: Codepage) -> Result<usize, String> {
     let rows = read_csv(csv)?;
     let (header, rows) = rows.split_first().ok_or("the file is empty")?;
     let col = |name: &str| header.iter().position(|h| h.trim().eq_ignore_ascii_case(name));
     let id = col("id").ok_or("no id column")?;
     let (speaker, text_col, comment) = (col("speaker"), col("text"), col("comment"));
+    let others: Vec<(usize, LocStringKey)> =
+        header.iter().enumerate().filter_map(|(i, h)| csv_text_key(h).map(|k| (i, k))).collect();
+    let en = game.for_language(Language::ENGLISH);
+    let plain =
+        |s: &Struct, label: &str| en.decode(s.string(label).unwrap_or_default()).into_owned();
+    let shown = |ls: &LocString, l: Language, gender: Gender| {
+        ls.text_in(l, gender, game).map(|t| t.into_owned())
+    };
     let mut changed = 0;
     for (n, row) in rows.iter().enumerate() {
         if row.iter().all(|f| f.is_empty()) {
@@ -732,21 +840,41 @@ pub fn update_from_csv(g: &mut Gff, csv: &str) -> Result<usize, String> {
             rest.parse().map_err(|_| format!("line {line}: {name:?} isn't a line id"))?;
         let n = node_mut(g, kind, index).ok_or(format!("line {line}: there's no line {name}"))?;
         let before = n.clone();
-        if let Some(t) = text_col.and_then(|c| row.get(c)).filter(|t| **t != text(n)) {
-            let mut ls = n.locstring("Text").cloned().unwrap_or_default();
-            ls.set_text(mg_core::Language::ENGLISH, mg_core::Gender::Male, t).ok_or(format!(
+        let mut ls = n.locstring("Text").cloned().unwrap_or_default();
+        if let Some(t) = text_col.and_then(|c| row.get(c))
+            && shown(&ls, Language::ENGLISH, Gender::Male).unwrap_or_default() != *t
+        {
+            ls.set_text_in(Language::ENGLISH, Gender::Male, t, game).ok_or(format!(
                 "line {line}: {name}'s text can't be written in English's codepage"
             ))?;
+        }
+        for (c, key) in &others {
+            let Some(t) = row.get(*c) else { continue };
+            let (l, gender) = (key.language(), key.gender());
+            match shown(&ls, l, gender) {
+                Some(old) if old == *t => {}
+                None if t.is_empty() => {}
+                Some(_) if t.is_empty() => {
+                    ls.remove(l, gender);
+                }
+                _ => {
+                    let lang = l.name().map_or_else(|| l.0.to_string(), str::to_string);
+                    ls.set_text_in(l, gender, t, game).ok_or(format!(
+                        "line {line}: {name}'s {lang} text can't be written in its codepage"
+                    ))?;
+                }
+            }
+        }
+        if n.locstring("Text") != Some(&ls) && !(ls.is_empty() && n.locstring("Text").is_none()) {
             n.set("Text", Value::LocString(ls));
         }
         if kind == Kind::Entry
-            && let Some(s) =
-                speaker.and_then(|c| row.get(c)).filter(|s| **s != string(n, "Speaker"))
+            && let Some(s) = speaker.and_then(|c| row.get(c)).filter(|s| **s != plain(n, "Speaker"))
         {
-            n.set("Speaker", string_value(s));
+            n.set("Speaker", Value::String(en.encode_lossy(s)));
         }
-        if let Some(c) = comment.and_then(|c| row.get(c)).filter(|c| **c != string(n, "Comment")) {
-            n.set("Comment", string_value(c));
+        if let Some(c) = comment.and_then(|c| row.get(c)).filter(|c| **c != plain(n, "Comment")) {
+            n.set("Comment", Value::String(en.encode_lossy(c)));
         }
         changed += usize::from(*n != before);
     }
@@ -1550,6 +1678,61 @@ mod tests {
             update_from_csv(&mut g, "id,text\r\nE99,x\r\n").unwrap_err().contains("no line E99")
         );
         assert_eq!(read_csv("a,\"b\nc\",d\r\n").unwrap(), [vec!["a", "b\nc", "d"]]);
+    }
+
+    /// A CSV carries a column for each language a line has text in, and
+    /// those asked for, for a translator; they are read back.
+    #[test]
+    fn csv_carries_every_language() {
+        let mut g = sample();
+        let hello = node_mut(&mut g, Kind::Entry, 1).unwrap();
+        let mut ls = hello.locstring("Text").cloned().unwrap();
+        ls.set(Language::GERMAN, Gender::Male, b"Hallo, Fremder.".to_vec());
+        ls.set(Language::GERMAN, Gender::Female, b"Hallo, Fremde.".to_vec());
+        hello.set("Text", Value::LocString(ls));
+        let csv = to_csv(&g);
+        let header = csv.lines().next().unwrap();
+        assert_eq!(header, "id,speaker,text,condition,action,parent,comment,text_de,text_de_f");
+        assert!(csv.contains(",\"Hallo, Fremder.\",\"Hallo, Fremde.\"\r\n"), "{csv}");
+        // Asked for, French has a column though no line has text in it;
+        // Polish is read in its own codepage.
+        let csv = to_csv_in(&g, Codepage::WINDOWS_1252, &[Language::FRENCH, Language::POLISH]);
+        assert!(
+            csv.starts_with("id,speaker,text,condition,action,parent,comment,text_fr,text_de,")
+        );
+        assert_eq!(update_from_csv(&mut g, &csv), Ok(0), "untouched");
+        let rows = read_csv(&csv).unwrap();
+        let col = |h: &str| rows[0].iter().position(|c| c == h).unwrap();
+        let (fr, pl, de_f) = (col("text_fr"), col("text_pl"), col("text_de_f"));
+        let mut edited = rows.clone();
+        let hello_row = edited.iter_mut().find(|r| r[0] == "E1").unwrap();
+        hello_row[fr] = "Bonjour, étranger.".into();
+        hello_row[pl] = "Witaj, przybyszu. Łódź".into();
+        hello_row[de_f] = String::new();
+        let back: String = (edited.iter())
+            .map(|r| r.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(",") + "\r\n")
+            .collect();
+        assert_eq!(update_from_csv(&mut g, &back), Ok(1));
+        let t = node(&g, Kind::Entry, 1).unwrap().locstring("Text").unwrap();
+        assert_eq!(t.text(Language::FRENCH, Gender::Male).unwrap(), "Bonjour, étranger.");
+        assert_eq!(
+            t.get(Language::POLISH, Gender::Male).unwrap(),
+            b"Witaj, przybyszu. \xa3\xf3d\x9f"
+        );
+        assert_eq!(t.text(Language::GERMAN, Gender::Male).unwrap(), "Hallo, Fremder.");
+        assert_eq!(t.get(Language::GERMAN, Gender::Female), None, "an emptied cell");
+        assert_eq!(text(node(&g, Kind::Entry, 1).unwrap()), "Hello, stranger.");
+        // Headers are named in any case; one that names no language is
+        // another column, ignored.
+        assert_eq!(
+            csv_text_key("TEXT_FR"),
+            Some(LocStringKey::new(Language::FRENCH, Gender::Male))
+        );
+        assert_eq!(csv_text_key("text_en_f").map(|k| k.gender()), Some(Gender::Female));
+        assert_eq!(csv_text_key("text_en"), None);
+        assert_eq!(csv_text_key("text_xx"), None);
+        assert_eq!(csv_text_column(LocStringKey::new(Language::KOREAN, Gender::Male)), "text_128");
+        assert_eq!(csv_text_key("text_128").map(|k| k.language()), Some(Language::KOREAN));
     }
 
     #[test]

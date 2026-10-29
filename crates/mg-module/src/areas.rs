@@ -37,6 +37,16 @@ const AUDIO_FIELDS: [&str; 9] = [
     "MusicNight",
 ];
 
+/// The 2DA whose row a field [`Change::Set`] sets stands for, if it is
+/// one (`MusicDay`, an ambientmusic.2da row; `LoadScreenID`): an audio
+/// field's of the GIT's `AreaProperties`, the others the ARE's.
+pub fn row_table(field: &str) -> Option<mg_rules::rows::RowTable> {
+    match AUDIO_FIELDS.contains(&field) {
+        true => mg_rules::rows::row_table("GIT ", &["AreaProperties"], field),
+        false => mg_rules::rows::row_table("ARE ", &[], field),
+    }
+}
+
 /// What lists of areas show and filter by.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AreaInfo {

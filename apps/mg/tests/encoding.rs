@@ -116,6 +116,22 @@ fn a_module_s_encoding_table_is_the_text_of_its_commands() {
     let (ok, _) = mg(&root, None, &["set", module, "guard.utc", "Tag=ð"]);
     assert!(ok);
     assert_eq!(guard(&path).string("Tag").unwrap(), b"\xf0");
+
+    // A talk table for the module, through `--module`: its text written
+    // and read by the table; without, as Windows-1252.
+    let (tlk, csv) = (dir.join("turkish.tlk"), dir.join("lines.csv"));
+    std::fs::write(&csv, "StrRef,Text\n16777216,Dağ\n").unwrap();
+    let (t, c) = (tlk.to_str().unwrap(), csv.to_str().unwrap());
+    let (ok, r) = mg(&root, Some(&user), &["tlk-import", t, c, "--module", module]);
+    assert!(ok, "{r}");
+    let read = mg_tlk::Tlk::read(&std::fs::read(&tlk).unwrap()).unwrap();
+    assert_eq!(read.entries[0].text, b"Da\xf0");
+    let out = dir.join("out.csv");
+    let o = out.to_str().unwrap();
+    assert!(mg(&root, Some(&user), &["tlk-export", t, o, "--module", module]).0);
+    assert!(std::fs::read_to_string(&out).unwrap().contains("16777216,Dağ,"));
+    assert!(mg(&root, Some(&user), &["tlk-export", t, o]).0);
+    assert!(std::fs::read_to_string(&out).unwrap().contains("16777216,Dað,"));
 }
 
 /// The lines `mg refs` shows of a module's scripts are read in the

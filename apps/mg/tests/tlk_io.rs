@@ -85,3 +85,51 @@ fn a_talk_table_goes_in_and_out_as_json_and_csv() {
     let pretty = Command::new(tool).args(["-i", &table, "-k", "json", "-p"]).output().unwrap();
     assert_eq!(std::fs::read(dir.join("again.json")).unwrap(), pretty.stdout);
 }
+
+/// A table made by an import is in the language asked for (`--language`),
+/// else a JSON file's own, else English; its text is written in that
+/// language's codepage (Polish's Windows-1250). A table that is there
+/// keeps its language.
+#[test]
+fn a_table_made_by_an_import_is_in_its_language() {
+    let dir = mg_testkit::scratch_dir("mg-tlk-io-language");
+    let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    std::fs::write(dir.join("pl.csv"), "StrRef,Text\n16777216,Łódź\n").unwrap();
+    let polish = at("polish.tlk");
+    let said = ok(&["--json", "tlk-import", &polish, &at("pl.csv"), "--language", "pl"]);
+    let v: serde_json::Value = serde_json::from_str(&said).unwrap();
+    assert_eq!(v["added"], 1, "{said}");
+    let t = mg_tlk::Tlk::read(&std::fs::read(&polish).unwrap()).unwrap();
+    assert_eq!(
+        (t.language, &t.entries[0].text[..]),
+        (mg_core::Language::POLISH, &b"\xa3\xf3d\x9f"[..])
+    );
+    // Back out as it went in.
+    ok(&["tlk-export", &polish, &at("pl-out.csv")]);
+    assert!(std::fs::read_to_string(dir.join("pl-out.csv")).unwrap().contains("16777216,Łódź,"));
+    // There already: its language is not changed by the import.
+    let out = mg(&["tlk-import", &polish, &at("pl.csv"), "--language", "de"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("is in Polish already"));
+    assert!(mg(&["tlk-import", &polish, &at("pl.csv"), "--language", "pl"]).status.success());
+    // A JSON file's own language.
+    std::fs::write(
+        dir.join("de.json"),
+        r#"{"language": 2, "entries": [{"id": 0, "text": "Fähre"}]}"#,
+    )
+    .unwrap();
+    let german = at("german.tlk");
+    ok(&["tlk-import", &german, &at("de.json")]);
+    let t = mg_tlk::Tlk::read(&std::fs::read(&german).unwrap()).unwrap();
+    assert_eq!(t.language, mg_core::Language::GERMAN);
+    // Without either, English, which has no letters for Polish's.
+    let english = at("english.tlk");
+    let out = mg(&["tlk-import", &english, &at("pl.csv")]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("can't write"));
+    std::fs::write(dir.join("en.csv"), "StrRef,Text\n16777216,Ferry\n").unwrap();
+    ok(&["tlk-import", &english, &at("en.csv")]);
+    let t = mg_tlk::Tlk::read(&std::fs::read(&english).unwrap()).unwrap();
+    assert_eq!(t.language, mg_core::Language::ENGLISH);
+    let out = mg(&["tlk-import", &at("other.tlk"), &at("pl.csv"), "--language", "xx"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("\"xx\" isn't a language"));
+}
