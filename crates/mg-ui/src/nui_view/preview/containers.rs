@@ -48,8 +48,8 @@ impl Renderer<'_> {
         // bar's track, which falls short of the view by the bar's two
         // end buttons (NWN EE 8193.37, np_group: 374 + 4 − (124 − 36)
         // = 290 down).
-        let content =
-            natural(&node["children"][0], s, row, depth + 1) * scale + Vec2::splat(4.0 * scale);
+        let content = self.scaled(natural(&node["children"][0], s, row, depth + 1))
+            + Vec2::splat(4.0 * scale);
         let scroll = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
         // x: the vertical bar's width; y: the horizontal bar's height.
         let bars = vec2(
@@ -171,7 +171,7 @@ impl Renderer<'_> {
             .map(|child| child_gap(ty, child) * scale)
             .sum::<f32>();
         let sizes: Vec<_> =
-            children.iter().map(|n| natural(n, s, row, depth + 1) * scale).collect();
+            children.iter().map(|n| self.scaled(natural(n, s, row, depth + 1))).collect();
         let fixed: f32 = children
             .iter()
             .zip(&sizes)
@@ -260,7 +260,8 @@ impl Renderer<'_> {
             a.paint(p, "window.border_image", body, scale, true, tint);
         }
         let mut inner = body.shrink(4.0 * scale);
-        let height = num(&node["row_height"], s, row, 25.0).clamp(1.0, 4096.0) * scale;
+        let height =
+            self.scaled(vec2(0.0, num(&node["row_height"], s, row, 25.0).clamp(1.0, 4096.0))).y;
         let stride = height + 4.0 * scale;
         let count = val(&node["row_count"], s, row);
         let count =
@@ -349,7 +350,7 @@ impl Renderer<'_> {
                     true,
                 );
             }
-            let widths = list_widths(cells, inner.width(), scale);
+            let widths = list_widths(cells, inner.width(), scale, |w| self.scaled(vec2(w, 0.0)).x);
             let old_clip = ui.clip_rect();
             ui.set_clip_rect(inner.intersect(old_clip));
             let mut first = (offset / stride).floor() as usize;

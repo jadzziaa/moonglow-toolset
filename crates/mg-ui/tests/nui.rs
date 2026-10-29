@@ -2404,6 +2404,41 @@ fn l_text(w: &mg_ui::nui_render::Window<'_>, binds: Value) -> Option<String> {
     l.elements.iter().find(|e| e.kind == "label").and_then(|e| e.text.clone())
 }
 
+/// At a UI scale that isn't whole a control's size is whole pixels,
+/// rounded down, as the game scales it (a row 34 high is 37 at 111%, not
+/// 37.7: the preview's rows drifted from the game's by up to a pixel each);
+/// at a whole scale nothing changes. A list's rows and cells too.
+#[test]
+fn sizes_are_whole_pixels_at_a_scale_that_isn_t_whole() {
+    use mg_ui::nui_render::{Options, layout};
+    let mut doc = mg_nui::window();
+    doc["root"]["children"] = json!([
+        {"type": "label", "id": "tall", "value": "A", "height": 34.0},
+        {"type": "button", "id": "wide", "label": "B", "width": 150.0, "height": 30.0},
+        {"type": "list", "id": "rows", "row_height": 25.0, "row_count": 2, "height": 100.0,
+         "row_template": [[{"type": "label", "id": "cell", "value": "C"}, 140.0, false]]}
+    ]);
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse("pixels", ResType::JUI).unwrap(), serde_json::to_vec(&doc).unwrap());
+    let w = mg_ui::nui_render::Window { name: "pixels", ..crier_window(&m) };
+    let pixels = |scale: f32, id: &str, row: Option<usize>| {
+        let l = layout(&w, &Options { scale, ..Default::default() }).unwrap();
+        let e = l.elements.iter().find(|e| e.id.as_deref() == Some(id) && e.row == row).unwrap();
+        ((e.area.w * scale).round(), (e.area.h * scale).round())
+    };
+    assert_eq!(pixels(1.11, "tall", None).1, 37.0);
+    assert_eq!(pixels(1.11, "wide", None), (166.0, 33.0));
+    assert_eq!(pixels(1.11, "cell", Some(1)), (155.0, 27.0));
+    assert_eq!(pixels(1.5, "tall", None).1, 51.0);
+    assert_eq!(pixels(1.5, "cell", Some(0)), (210.0, 37.0));
+    assert_eq!(pixels(2.0, "wide", None), (300.0, 60.0));
+    // A row's place is its rows' whole heights and gaps below the first.
+    let l = layout(&w, &Options { scale: 1.11, ..Default::default() }).unwrap();
+    let cells: Vec<_> = l.elements.iter().filter(|e| e.id.as_deref() == Some("cell")).collect();
+    let stride = (cells[1].area.y - cells[0].area.y) * 1.11;
+    assert!((stride - (27.0 + 4.0 * 1.11)).abs() < 0.01, "{stride}");
+}
+
 fn crier_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
     mg_ui::nui_render::Window { module: m, resman: None, game: None, name: "crier" }
 }

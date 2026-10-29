@@ -665,8 +665,10 @@ and the preview follow them.
   100%), unless `ui.unconstrain-scale` is set: at 150% on a window 800 high
   the game draws at 1.11, on one 993 high at 1.38. The preview's **Screen**
   mode applies the same cap. The game rounds each scaled size down to whole
-  pixels (a row 34 high is 37 at 1.11, not 37.8), so at a scale that isn't
-  whole the preview's rows drift from the game's by up to a pixel each.
+  pixels (a row 34 high is 37 at 1.11, not 37.7), and so does the preview:
+  each control's size, a list's rows and its cells' widths. The gaps and
+  margins between controls are scaled as they are (whether the game rounds
+  those too is not measured).
 - **A control with no width** in a column is as wide as the column's widest
   control, in the game and in the preview. One case differs: after a control
   with a width of its own, rows of buttons without widths can make the game

@@ -225,23 +225,19 @@ pub(super) fn fills_height(node: &Value, s: &Settings, row: Option<usize>) -> bo
 
 /// Native List demo: variable cells share the remaining span equally, while
 /// fixed cells retain their pixel width. Cell fWidth is not a proportional weight.
-pub(super) fn list_widths(cells: &[Value], width: f32, scale: f32) -> Vec<f32> {
-    let fixed: f32 = cells
-        .iter()
-        .filter(|c| !c[2].as_bool().unwrap_or(true))
-        .map(|c| c[1].as_f64().unwrap_or(150.0).max(0.0) as f32 * scale)
-        .sum();
+/// The widths of a list's cells in `width`: a cell's own, `scaled` (points
+/// to the canvas's pixels, as the game scales them), and the variable ones
+/// sharing what is left.
+pub(super) fn list_widths(
+    cells: &[Value],
+    width: f32,
+    scale: f32,
+    scaled: impl Fn(f32) -> f32,
+) -> Vec<f32> {
+    let own = |c: &Value| scaled(c[1].as_f64().unwrap_or(150.0).max(0.0) as f32);
+    let fixed: f32 = cells.iter().filter(|c| !c[2].as_bool().unwrap_or(true)).map(own).sum();
     let count = cells.iter().filter(|c| c[2].as_bool().unwrap_or(true)).count();
     let gaps = 4.0 * scale * cells.len().saturating_sub(1) as f32;
     let share = ((width - gaps - fixed) / count.max(1) as f32).max(0.0);
-    cells
-        .iter()
-        .map(|c| {
-            if c[2].as_bool().unwrap_or(true) {
-                share
-            } else {
-                c[1].as_f64().unwrap_or(150.0).max(0.0) as f32 * scale
-            }
-        })
-        .collect()
+    cells.iter().map(|c| if c[2].as_bool().unwrap_or(true) { share } else { own(c) }).collect()
 }
