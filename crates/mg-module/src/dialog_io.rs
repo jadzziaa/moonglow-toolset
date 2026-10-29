@@ -5,9 +5,12 @@
 //!
 //! How a conversation maps onto Twine and Ink:
 //! - **NPC lines** are passages (Twine) or knots (Ink), named `E3` when
-//!   exported. The speaker, action script, journal update and sound are
-//!   tags: `speaker:TAG`, `do:SCRIPT`, `journal:QUEST:ENTRY`,
-//!   `sound:SOUND`.
+//!   exported. The speaker, action script, journal update, sound,
+//!   animation, delay and comment are tags: `speaker:TAG`, `do:SCRIPT`,
+//!   `journal:QUEST:ENTRY`, `sound:SOUND`, `anim:talk-forceful` (the
+//!   Other Actions tab's name, else its number), `delay:500` (where it
+//!   isn't the game's own), `comment:TEXT` (escaped as a parameter's
+//!   value is, and a space too in a Twine passage's tags).
 //! - **Player replies** are the links (Twine) or choices (Ink) in an NPC
 //!   line's passage, leading to the next NPC line, or `END`. A reply's
 //!   condition and action go in braces in Twine (`[[Who are you? {if
@@ -31,9 +34,8 @@
 //!   text in the game's codepage, as the lines' are.
 //!
 //! A CSV carries every language's text, a column each; Twine and Ink,
-//! which hold one text a line, carry English's. Animations, comments and
-//! delays don't go to Twine or Ink. A conversation read back plays as the original did
-//! ([`play_outline`]).
+//! which hold one text a line, carry English's. A conversation read back
+//! plays as the original did ([`play_outline`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -334,9 +336,49 @@ fn unescape(v: &str) -> String {
     v.replace("%20", " ").replace("%25", "%")
 }
 
+/// An animation's name in a tag (`talk-forceful`): the Other Actions
+/// tab's, lower case, spaces as `-`; one it doesn't name by its number.
+fn animation_name(value: u32) -> String {
+    match crate::dialog::ANIMATIONS.iter().find(|(_, v)| *v == value) {
+        Some((label, _)) => label.to_ascii_lowercase().replace(' ', "-"),
+        None => value.to_string(),
+    }
+}
+
+/// The animation an `anim:` tag names (a name as [`animation_name`]
+/// writes it, in any case, or a number).
+fn read_animation(v: &str) -> Result<u32, String> {
+    let v = v.trim();
+    if let Ok(n) = v.parse() {
+        return Ok(n);
+    }
+    let name = v.to_ascii_lowercase().replace(' ', "-");
+    (crate::dialog::ANIMATIONS.iter())
+        .find(|(label, _)| label.to_ascii_lowercase().replace(' ', "-") == name)
+        .map(|(_, value)| *value)
+        .ok_or(format!("anim:{v} isn't an animation of a conversation's lines (talk-normal, bow…)"))
+}
+
+/// A line's comment in a tag: percent-escaped as a parameter is, and a
+/// space too in a Twine passage's tags (which can't hold one), or at
+/// either end (which a tag's reader trims).
+fn comment_text(comment: &str, passage_tags: bool) -> String {
+    // (Of the whitespace, only the space is left unescaped.)
+    let inner = percent(comment, if passage_tags { " " } else { "" });
+    let core = inner.trim_matches(' ');
+    if core.is_empty() {
+        return "%20".repeat(inner.len());
+    }
+    let lead = inner.len() - inner.trim_start_matches(' ').len();
+    let trail = inner.len() - inner.trim_end_matches(' ').len();
+    format!("{}{core}{}", "%20".repeat(lead), "%20".repeat(trail))
+}
+
 /// A line's tags: speaker, action (with its parameters: `do:a_give
 /// item="gold coins"`, or in a Twine passage's tags, which can't hold a
-/// space, `do:a_give?item=gold%20coins`), journal update, sound.
+/// space, `do:a_give?item=gold%20coins`), journal update, sound,
+/// animation (`anim:bow`), delay (`delay:500`, where it has one) and
+/// comment (`comment:Asked about the sword`).
 fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     let mut out = Vec::new();
     let speaker = string(n, "Speaker");
@@ -358,11 +400,22 @@ fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     if let Some(s) = resref(n, "Sound") {
         out.push(format!("sound:{}", escape(&s)));
     }
+    if let Some(a) = n.integer("Animation").filter(|a| *a != 0) {
+        out.push(format!("anim:{}", animation_name(a as u32)));
+    }
+    // (None: the game's own, `0xFFFFFFFF`, which new lines have.)
+    if let Some(d) = n.integer("Delay").filter(|d| *d != i64::from(u32::MAX)) {
+        out.push(format!("delay:{d}"));
+    }
+    let comment = string(n, "Comment");
+    if !comment.is_empty() {
+        out.push(format!("comment:{}", comment_text(&comment, passage_tags)));
+    }
     out
 }
 
-/// Applies tags (`speaker:`, `do:`, `journal:`, `sound:`) to a line;
-/// others are ignored.
+/// Applies tags (`speaker:`, `do:`, `journal:`, `sound:`, `anim:`,
+/// `delay:`, `comment:`) to a line; others are ignored.
 fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
     let r = |v: &str| ResRef::from_str(v).map(Value::resref).map_err(|e| format!("{v}: {e}"));
     for t in tags {
@@ -390,6 +443,12 @@ fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
                 n.set("Quest", string_value(q));
                 n.set("QuestEntry", Value::Dword(e.trim().parse().unwrap_or(0)));
             }
+            "anim" => n.set("Animation", Value::Dword(read_animation(&v)?)),
+            "delay" => {
+                let d = v.trim().parse().map_err(|_| format!("delay:{v} isn't a number"))?;
+                n.set("Delay", Value::Dword(d));
+            }
+            "comment" => n.set("Comment", string_value(&unpercent(raw.trim()))),
             _ => {}
         }
     }
@@ -721,7 +780,8 @@ fn csv_text_key(header: &str) -> Option<LocStringKey> {
 }
 
 /// Every line as a CSV row: `id` (`E3` an NPC line, `R5` a reply),
-/// speaker, text, condition, action, the line it follows, comment; then
+/// speaker, text, condition and action (each with its parameters, as in
+/// Twine and Ink: `c_has item=gold`), the line it follows, comment; then
 /// a column for each other language (and feminine text) a line has text
 /// in ([`csv_text_column`]). Only `speaker`, the texts and `comment` are
 /// read back ([`update_from_csv`]).
@@ -765,6 +825,10 @@ pub fn to_csv_in(g: &Gff, game: Codepage, languages: &[Language]) -> String {
         let en = c.game.for_language(Language::ENGLISH);
         let plain =
             |s: &Struct, label: &str| en.decode(s.string(label).unwrap_or_default()).into_owned();
+        let call = |s: &Struct, script: &str, params: &str| {
+            let params = crate::dialog::params_in(s, params, en);
+            resref(s, script).map(|r| call_text(&r, &params)).unwrap_or_default()
+        };
         for l in links(c.g, parent) {
             let i = link_index(l);
             if is_link(l) || !seen.insert((kind, i)) {
@@ -785,8 +849,9 @@ pub fn to_csv_in(g: &Gff, game: Codepage, languages: &[Language]) -> String {
                 passage(kind, i),
                 plain(n, "Speaker"),
                 variant(LocStringKey::new(Language::ENGLISH, Gender::Male)),
-                resref(l, "Active").unwrap_or_default(),
-                resref(n, "Script").unwrap_or_default(),
+                // The scripts with their parameters, as in Twine and Ink.
+                call(l, "Active", "ConditionParams"),
+                call(n, "Script", "ActionParams"),
                 from,
                 plain(n, "Comment"),
             ];
@@ -1079,7 +1144,8 @@ fn parse_twee(source: &str) -> Story {
 }
 
 /// A reply's label as read: its text and the braces after it (`{if c}`,
-/// `{do a}`, `{journal q:10}`, `{sound s}`).
+/// `{do a}`, `{journal q:10}`, `{sound s}`, `{anim bow}`, `{delay 500}`,
+/// `{comment text}`).
 fn reply_label(label: &str) -> (String, Option<String>, Vec<String>) {
     let mut text = label.to_string();
     let mut cond = None;
@@ -1089,7 +1155,9 @@ fn reply_label(label: &str) -> (String, Option<String>, Vec<String>) {
         let inner = text[open + 1..open + close].trim().to_string();
         match inner.split_once(' ') {
             Some(("if", c)) => cond = Some(c.trim().to_string()),
-            Some((k @ ("do" | "journal" | "sound"), v)) => tags.push(format!("{k}:{}", v.trim())),
+            Some((k @ ("do" | "journal" | "sound" | "anim" | "delay" | "comment"), v)) => {
+                tags.push(format!("{k}:{}", v.trim()))
+            }
             _ => break,
         }
         text.replace_range(open..open + close + 1, "");
@@ -1638,6 +1706,86 @@ mod tests {
             let zoe = &node(&back, Kind::Entry, hello).unwrap().list("ActionParams").unwrap()[2];
             assert_eq!(zoe.string("Value"), Some(&b"Zo\xeb"[..]), "{format}");
         }
+    }
+
+    /// A line's animation, delay and comment go out to Ink and Twine as
+    /// tags and come back: an NPC line's (a passage's tags, which can't
+    /// hold a space; a knot's own lines) and a reply's (Twine's braces, a
+    /// choice's tags); an animation the Other Actions tab doesn't name by
+    /// its number; a comment with what Ink and Twine read as syntax and
+    /// spaces at its ends. A line with the defaults has none of them.
+    #[test]
+    fn animations_comments_and_delays_survive_ink_and_twine() {
+        let mut g = sample();
+        let comment = " Asked {twice} about the sword #2 // keep -> E3 ";
+        let hello = node_mut(&mut g, Kind::Entry, 1).unwrap();
+        hello.set("Animation", Value::Dword(40));
+        hello.set("Delay", Value::Dword(500));
+        hello.set("Comment", string_value(comment));
+        let bye = node_mut(&mut g, Kind::Reply, 1).unwrap();
+        bye.set("Animation", Value::Dword(123));
+        bye.set("Delay", Value::Dword(0));
+        bye.set("Comment", string_value("Zoë's goodbye"));
+        let want = play_outline(&g, 10_000).unwrap();
+        assert!(
+            want.iter().any(|l| l.contains("anim:talk-forceful delay:500 comment:")),
+            "{want:?}"
+        );
+
+        let ink = to_ink(&g);
+        assert!(ink.contains("\n# anim:talk-forceful\n# delay:500\n# comment:%20Asked %7Btwice%7D about the sword %232 %2F%2F keep -%3E E3%20\n"), "{ink}");
+        assert!(ink.contains("# anim:123 # delay:0 # comment:Zoë's goodbye -> END"), "{ink}");
+        let twee = to_twee(&g, "keeper");
+        assert!(
+            twee.contains(" anim:talk-forceful delay:500 comment:%20Asked%20%7Btwice%7D%20about"),
+            "{twee}"
+        );
+        assert!(twee.contains("{anim 123} {delay 0} {comment Zoë's goodbye}->END]]"), "{twee}");
+        // (The defaults: no tag, on the other lines.)
+        assert!(ink.matches("anim:").count() == 2 && ink.matches("delay:").count() == 2, "{ink}");
+
+        for (format, back) in [("Ink", from_ink(&ink)), ("Twine", from_twee(&twee))] {
+            let back = back.unwrap_or_else(|e| panic!("{format}: {e}"));
+            assert_eq!(play_outline(&back, 10_000).unwrap(), want, "{format}");
+            let start = links(&back, Parent::Root);
+            let hello = node(&back, Kind::Entry, link_index(&start[1])).unwrap();
+            assert_eq!(hello.integer("Animation"), Some(40), "{format}");
+            assert_eq!(hello.integer("Delay"), Some(500), "{format}");
+            assert_eq!(string(hello, "Comment"), comment, "{format}");
+            let replies = links(&back, Parent::Node(Kind::Entry, link_index(&start[1])));
+            let bye = node(&back, Kind::Reply, link_index(&replies[1])).unwrap();
+            assert_eq!((bye.integer("Animation"), bye.integer("Delay")), (Some(123), Some(0)));
+            assert_eq!(bye.string("Comment"), Some(&b"Zo\xeb's goodbye"[..]), "{format}");
+            // (Those without: as a new line has them.)
+            let who = node(&back, Kind::Reply, link_index(&replies[0])).unwrap();
+            assert_eq!(
+                (who.integer("Animation"), who.integer("Delay")),
+                (Some(0), Some(u32::MAX.into()))
+            );
+        }
+        // An animation by its label, in any case; one there isn't.
+        let mut n = crate::dialog::new_node(Kind::Entry, "");
+        apply_tags(&mut n, &["anim:Talk Laughing".to_string()]).unwrap();
+        assert_eq!(n.integer("Animation"), Some(41));
+        let e = apply_tags(&mut n, &["anim:dance".to_string()]).unwrap_err();
+        assert!(e.contains("anim:dance"), "{e}");
+        assert!(apply_tags(&mut n, &["delay:soon".to_string()]).is_err());
+    }
+
+    /// The CSV's condition and action name their scripts' parameters too.
+    #[test]
+    fn csv_scripts_carry_their_parameters() {
+        let mut g = sample();
+        crate::dialog::links_mut(&mut g, Parent::Node(Kind::Entry, 1)).unwrap()[0]
+            .set("ConditionParams", params_list(&pairs(&[("item", "gold coins")])));
+        node_mut(&mut g, Kind::Reply, 1)
+            .unwrap()
+            .set("ActionParams", params_list(&pairs(&[("mood", "cold")])));
+        let rows = read_csv(&to_csv(&g)).unwrap();
+        let row = |id: &str| rows.iter().find(|r| r[0] == id).unwrap().clone();
+        assert_eq!(row("R0")[3], "c_curious item=\"gold coins\"");
+        assert_eq!(row("R1")[4], "a_bye mood=cold");
+        assert_eq!(row("E1")[4], "a_hello", "no parameters: the script alone");
     }
 
     /// An `# if:` tag names the condition it gives parameters to, and one

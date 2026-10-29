@@ -358,14 +358,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     hits of their own, read-only, and a change offered on none of
     them). (S–M)
 
-## Conversation authoring
-
-- **Animations, comments and delays** don't go to Twine or Ink (script
-  parameters do, since dansen9191's report). Parameters on a link with
-  no condition script, or a line with no action script, are dropped (the
-  game reads none of them); the CSV's condition and action columns name
-  the script only. (S–M)
-
 ## Palettes
 
 - **Palette categories by a talk-table line, in the game:** since
