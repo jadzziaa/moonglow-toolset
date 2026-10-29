@@ -582,9 +582,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a module saved in Aurora comes back in name order. Whether Moonglow's
   own order stays (a builder's arrangement, kept until Aurora saves the
   module) or follows Aurora is the owner's to say. (S)
-- **The Gallery:** up to 192 pictures are kept at once (more are made
-  again as they come back into sight) and all are made again when a
-  blueprint changes. (S) (from builders' reports after 1.10.1)
 - **A custom palette's names in the game** (a builder: after a save in
   Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
   colors wrong; Aurora's Custom palette showed the same, reading the
