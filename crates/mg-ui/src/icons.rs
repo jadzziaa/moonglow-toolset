@@ -55,6 +55,9 @@ pub(crate) const CLAIMED_MINE: &str = "✔";
 pub(crate) const MERGED: &str = "📌";
 /// Prefabs: groups of placed objects kept to place again.
 pub(crate) const PREFABS: &str = "🗐";
+/// A window's bar: Maximize, and Restore while it is maximized.
+pub(crate) const MAXIMIZE: &str = "🗖";
+pub(crate) const RESTORE: &str = "🗗";
 
 /// An object type's glyph.
 pub(crate) fn object(kind: ObjectKind) -> &'static str {
@@ -328,6 +331,8 @@ impl Tools {
             TOGETHER,
             TO_SCRATCH,
             FADE,
+            MAXIMIZE,
+            RESTORE,
             SNAP,
             TURN,
             PREFABS,

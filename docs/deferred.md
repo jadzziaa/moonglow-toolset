@@ -1724,13 +1724,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   share of their editor, and the talk table editor's to seven tenths.
   The limits on the script, conversation and journal editors' lower
   halves aren't under test (the talk table's are). (S)
-- **Windows' sizes and Maximize:** a window's size is remembered by the
-  kind of editor, not its place on screen; Maximize is a double click on
-  the tab or its menu, with no button in the window's bar (egui_dock
-  offers no place for one) and no key; a maximized window isn't kept so
-  when the main window is resized, and nothing shows that it is
-  maximized. That a size dragged by hand is remembered is not under
-  test (the tests set the size). (S–M)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays

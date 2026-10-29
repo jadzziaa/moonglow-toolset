@@ -103,6 +103,7 @@ changes them; the menus show the current keys.
 | Ctrl+Tab, Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
+| Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
 | F6, Shift+F6 | The arrow keys to the next pane (the module tree, the middle, the palettes), or the one before: to what the pane's tab in front has (in the middle a talk table's lines, a 2DA's cells, at its first cell if none is selected, the resource browser's list, else an area's view; a palette at its first row) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
@@ -373,10 +374,15 @@ A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
 kind of editor has its own, and each type of blueprint: a waypoint's
 Properties opens at the size the last waypoint's was left, not an
-encounter's). **Double-click a window's tab** to maximize
+encounter's), and a size dragged at its edge or corner is kept so.
+**Double-click a window's tab** (or the bar beside it) to maximize
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
-**Restore** are on the tab's right-click menu too. **The module tree
+**Restore** are on the tab's right-click menu too, and the button at the
+right of the window's bar, before its ✕, does it and shows which it is:
+🗖 Maximize, 🗗 Restore. **Ctrl+Shift+M** (Maximize Window in Options ›
+Keyboard) does it for the window of the tab in front. A maximized
+window stays over the whole of Moonglow's window as that is resized. **The module tree
 follows the tab chosen**: a tab clicked, reached by the keys (Ctrl+Tab,
 Ctrl+Page Down, Ctrl and a digit) or opened (from the tree, a script
 field's Edit, Find References…) marks its resource's row in the tree as

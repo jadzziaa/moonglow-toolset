@@ -1892,6 +1892,91 @@ fn windows_remember_their_size_and_maximize() {
     assert_eq!(h.state().settings.window_sizes, [("area-properties".to_string(), [400, 300])]);
 }
 
+/// Maximize Window (Ctrl+Shift+M) and the button on the window's bar
+/// maximize the window of the tab in front and put it back, the button
+/// saying which (Maximize, Restore); a maximized window stays so as
+/// Moonglow's window is resized; and a size dragged by hand, at the
+/// window's corner, is the next window's of its kind.
+#[test]
+fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
+    let Some((mut h, area)) = area_harness("window-maximize-keys") else { return };
+    let props = Tab::AreaProperties(area);
+    let pane = |h: &Harness<'_, Moonglow>| {
+        let s = h.state();
+        let path = s.dock.find_tab(&props).expect("open");
+        assert!(!path.surface.is_main(), "in a window of its own");
+        s.dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    h.run_steps(8);
+    let first = pane(&h);
+    let maximized = |h: &Harness<'_, Moonglow>| pane(h).area() > first.area() + 1000.0;
+    // The key, with the window's tab in front.
+    h.get_by_label("Maximize").click();
+    h.run_steps(8);
+    assert!(maximized(&h), "by its button: {:?}", pane(&h));
+    h.get_by_label("Restore");
+    assert!(h.query_by_label("Maximize").is_none(), "the button says it is maximized");
+    // Moonglow's window larger: the maximized one with it.
+    let before = pane(&h);
+    h.set_size(egui::vec2(1300.0, 950.0));
+    h.run_steps(8);
+    let after = pane(&h);
+    assert!(after.width() > before.width() + 150.0, "{after:?} after {before:?}");
+    assert!(after.bottom() > 950.0 * 0.95, "to the window's foot: {after:?}");
+    // And smaller.
+    h.set_size(egui::vec2(1150.0, 820.0));
+    h.run_steps(8);
+    let smaller = pane(&h);
+    assert!(smaller.right() <= 1150.0 + 1.0 && smaller.bottom() <= 820.0 + 1.0, "{smaller:?}");
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    // (Its tab clicked: the window's pane in front, not the palettes'.)
+    let tab = pane(&h).left_top() + egui::vec2(60.0, 10.0);
+    h.hover_at(tab);
+    press(&h, tab, true, egui::Modifiers::NONE);
+    press(&h, tab, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.hover_at(tab + egui::vec2(0.0, 200.0));
+    h.run_steps(60);
+    let front = h.state().front_tab();
+    assert_eq!(front.as_ref(), Some(&props), "the tab in front");
+    h.key_press_modifiers(keys, egui::Key::M);
+    h.run_steps(8);
+    assert!(!maximized(&h), "put back by the key: {:?}", pane(&h));
+    h.get_by_label("Maximize");
+    h.key_press_modifiers(keys, egui::Key::M);
+    h.run_steps(8);
+    assert!(maximized(&h), "by the key: {:?}", pane(&h));
+    h.get_by_label("Restore").click();
+    h.run_steps(8);
+    assert!(!maximized(&h), "put back by the button");
+    // Its corner dragged by hand: the next of its kind opens so.
+    let corner = pane(&h).right_bottom() + egui::vec2(2.0, 2.0);
+    h.hover_at(corner);
+    h.run_steps(2);
+    press(&h, corner, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(corner - egui::vec2(15.0, 10.0) * k as f32);
+        h.run_steps(1);
+    }
+    press(&h, corner - egui::vec2(90.0, 60.0), false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    let dragged = pane(&h);
+    assert!((first.width() - dragged.width() - 90.0).abs() < 8.0, "{dragged:?} from {first:?}");
+    let kept = h.state().settings.window_sizes.iter().find(|(k, _)| k == "area-properties");
+    let kept = kept.map(|(_, s)| *s).expect("remembered");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(props.clone()));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    h.run_steps(8);
+    let again = pane(&h);
+    assert!((again.size() - dragged.size()).length() < 3.0, "opens at {again:?}, {dragged:?}");
+    // (The window's size, its frame and all: a point or two over its pane.)
+    let near = |a: u32, b: f32| (a as f32 - b).abs() < 4.0;
+    assert!(near(kept[0], dragged.width()) && near(kept[1], dragged.height()), "{kept:?}");
+    assert!(kept[0] as f32 <= first.width() - 80.0, "the dragged size kept: {kept:?}");
+}
+
 /// Escape closes what is in front: the Variables window over a Properties
 /// window first (which a click on Properties doesn't bury), then the
 /// Properties window itself.

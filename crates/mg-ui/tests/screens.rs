@@ -186,6 +186,54 @@ fn module_properties_haks() {
     shoot(&mut h, &dir, "module-properties-advanced");
 }
 
+/// The main window's fix package (`target/test-output/screens-window/`):
+/// Module Properties' window with its bar's Maximize button (🗖), the
+/// window maximized (🗗 Restore), and Custom Content of an older module
+/// that names its one hak in `Mod_Hak`. (Run on the code before the
+/// package, the same pictures show the bar without its button and the
+/// hak list saying the module has none.)
+#[test]
+#[ignore]
+fn window_bar_maximize_and_an_older_hak() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-window");
+    let user = dir.join("older-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+    std::fs::write(user.join("hak/older.hak"), empty).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_HAK, ExoString::from("older"));
+    m.set_info(&info).unwrap();
+    let path = dir.join("older.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (Opened again: in a window of its own, not the middle the module
+    // opened it in.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(8);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "window-bar-maximize");
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(mg_ui::Tab::ModuleProperties));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "window-bar-restore");
+}
+
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command

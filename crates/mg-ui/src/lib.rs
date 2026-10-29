@@ -2002,10 +2002,18 @@ impl Moonglow {
 
     /// The tab Close Tab closes: the one in front of the pane with the
     /// focus (a window's, or the middle's), if it can be closed.
-    pub(crate) fn front_tab(&self) -> Option<Tab> {
+    pub fn front_tab(&self) -> Option<Tab> {
         let pane = self.dock.focused_leaf().or_else(|| self.tab_pane())?;
         let leaf = self.dock.leaf(pane).ok()?;
         leaf.tabs.get(leaf.active.0).filter(|t| t.closeable()).cloned()
+    }
+
+    /// The tab in front ([`Moonglow::front_tab`]) where it is in a window
+    /// of its own: what Maximize Window maximizes.
+    pub(crate) fn front_window_tab(&self) -> Option<Tab> {
+        let tab = self.front_tab()?;
+        let path = self.dock.find_tab(&tab)?;
+        (!path.surface.is_main()).then_some(tab)
     }
 
     /// Next Tab and Previous Tab: the pane's next tab brought to the
@@ -2316,8 +2324,10 @@ impl Moonglow {
 
     /// The bar beside a window's tabs does what its tab does: a double
     /// click maximizes the window and restores it, and a right click
-    /// offers that. (egui_dock gives the bar nothing; a builder looked for
-    /// both there, as on any window's title.) The window is still dragged
+    /// offers that; a button at its right end before the close button
+    /// does it too, and shows which the window is (🗖 Maximize, 🗗
+    /// Restore). (egui_dock gives the bar nothing; a builder looked for
+    /// them there, as on any window's title.) The window is still dragged
     /// by it.
     fn window_bars(&mut self, ui: &mut egui::Ui) {
         let buttons = std::mem::take(&mut self.tab_buttons);
@@ -2346,7 +2356,28 @@ impl Moonglow {
             if response.double_clicked() {
                 toggle = Some(tab.clone());
             }
-            let label = if self.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
+            let maximized = self.windows_maximized(&leaf.tabs);
+            let label = if maximized { "Restore" } else { "Maximize" };
+            // (Registered after the bar: it takes its clicks.)
+            let glyph = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
+            let side = (bar.height() - 4.0).clamp(12.0, 20.0);
+            let at = egui::Rect::from_center_size(
+                egui::pos2(bar.right() - side / 2.0 - 2.0, bar.center().y),
+                egui::vec2(side, side),
+            );
+            let button = egui::Button::new(glyph).frame(false).small();
+            let pressed = ui
+                .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
+                    let r = ui.put(at, button);
+                    r.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
+                    });
+                    r.on_hover_text(label).clicked()
+                })
+                .inner;
+            if pressed {
+                toggle = Some(tab.clone());
+            }
             response.context_menu(|ui| {
                 if ui.button(label).clicked() {
                     toggle = Some(tab.clone());
@@ -2357,6 +2388,16 @@ impl Moonglow {
         if let Some(tab) = toggle {
             self.actions.push(Action::ToggleMaximize(tab));
         }
+    }
+
+    /// Whether the window of these tabs (one of its panes') is maximized:
+    /// it is known by its first tab.
+    fn windows_maximized(&self, tabs: &[Tab]) -> bool {
+        let Some(path) = tabs.first().and_then(|t| self.dock.find_tab(t)) else { return false };
+        (self.dock.iter_leaves())
+            .find(|(p, _)| p.surface == path.surface)
+            .and_then(|(_, leaf)| leaf.tabs.first())
+            .is_some_and(|first| self.maximized.contains_key(first))
     }
 
     /// Where each window is: its first tab, and the room its panes take.
@@ -2382,6 +2423,18 @@ impl Moonglow {
     /// maximized one's).
     fn remember_window_sizes(&mut self) {
         let mut again = Vec::new();
+        // A maximized window stays so as Moonglow's window is resized:
+        // put over the room again where it changed.
+        if let Some(room) = self.maximize_room() {
+            let moved = |put: egui::Rect| {
+                (put.min - room.min).length() > 0.5 || (put.max - room.max).length() > 0.5
+            };
+            for tab in self.maximized.keys() {
+                if self.windows.get(tab).is_some_and(|w| moved(w.put)) {
+                    again.push((tab.clone(), room));
+                }
+            }
+        }
         // The windows with a pane folded (the arrow at their bar's left).
         let folded: Vec<Tab> = self
             .dock

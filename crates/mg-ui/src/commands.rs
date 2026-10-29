@@ -96,6 +96,9 @@ pub enum Id {
     NextTab,
     PreviousTab,
     ReopenTab,
+    /// The window of the tab in front made to fill Moonglow's window, or
+    /// put back (as its bar's button, a double click on it, its menu).
+    MaximizeWindow,
     /// The arrow keys given to the next pane, or the one before.
     NextPane,
     PreviousPane,
@@ -301,6 +304,7 @@ impl Id {
         }
         out.extend([Id::PreviewWindow, Id::FullScreen]);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
+        out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
         out
     }
@@ -485,6 +489,11 @@ impl Id {
             Id::PreviewWindow => ("preview-window", "Preview Window", ""),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
             Id::CloseTab => ("close-tab", "Close Tab", "The tab in front"),
+            Id::MaximizeWindow => (
+                "maximize-window",
+                "Maximize Window",
+                "The window of the tab in front over the whole of Moonglow's, or back",
+            ),
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
@@ -551,6 +560,7 @@ impl Id {
             Id::FullScreen => Cmd::FullScreen,
             Id::Close => Cmd::Close,
             Id::CloseTab => Cmd::CloseTab,
+            Id::MaximizeWindow => Cmd::MaximizeWindow,
             Id::NextTab => Cmd::NextTab,
             Id::PreviousTab => Cmd::PreviousTab,
             Id::ReopenTab => Cmd::ReopenTab,
@@ -655,6 +665,7 @@ impl Id {
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
+            Id::MaximizeWindow => app.front_window_tab().is_some(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
             // (A script's, with the keys in its editor: as its Ctrl+Z,
@@ -860,6 +871,10 @@ impl Id {
             }
             Id::CloseTab => match app.front_tab() {
                 Some(tab) => Action::CloseTabs(vec![tab]),
+                None => return,
+            },
+            Id::MaximizeWindow => match app.front_window_tab() {
+                Some(tab) => Action::ToggleMaximize(tab),
                 None => return,
             },
             Id::NextTab => return app.step_tab(1),
