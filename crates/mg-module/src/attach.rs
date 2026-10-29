@@ -123,7 +123,10 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
                 vec![(None, from.file_name().unwrap_or_default().to_string_lossy().into_owned())]
             }
             _ => {
-                return Err(format!("{}: not a hak, a talk table or a zip of them", from.display()));
+                return Err(format!(
+                    "{}: not a hak, a talk table or a zip of them",
+                    from.display()
+                ));
             }
         };
         for (entry, file) in found {
