@@ -1039,21 +1039,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
-  Verify's `shader-compile` check leave out. (from M0, 2026-10-21)
-  - Verify compiles each program once, as the game at its highest
-    settings has it (`Preamble::default`: quality 2, enhanced lighting,
-    32 lights, keyholing on, `NO_DISCARD 0`). A program that fails only
-    at low or medium quality, with enhanced lighting off
-    (`FRAGMENT_LIGHTING 0`), for an opaque material (`NO_DISCARD 1`) or
-    with another light count isn't reported. Nor is it compiled again
-    per Verify run cheaply: each run compiles every custom program (TDoD
-    with its shader haks: about a second). (S)
-  - Arrays of samplers are refused (not split), and `customShaderGS`
-    (a geometry shader) is not read; no shader seen has either. (S)
+  Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
+  compiles each program at six settings since 2026-10-29, and keeps what
+  compiled, `doctor::settings`)
+  - Arrays of samplers are refused (not split) where a view draws the
+    program (Verify, which asks glslang alone, takes them), and
+    `customShaderGS` (a geometry shader) is not read; no shader seen has
+    either. (S)
   - What the engine does is assumed in three places, none checked in the
     client: an indented `#include` is spliced (14 of the stock ones
     are), a missing include fails the program, and splicing stops 16
-    deep. (S)
+    deep (`mg_shader::assemble`, `MAX_DEPTH`). (S) (waits on a session
+    that runs the client: three programs put in a scratch user
+    directory's `override`, as `light_uniforms_match_the_client` puts
+    its, one with an indented include, one naming an include that isn't
+    there and one at the end of a chain 17 deep, each drawn magenta or
+    not)
   - A uniform that is a struct is described as `Other`, without its
     members (none in the stock blocks). (Locations, which glslang numbers
     in the order a stage first uses them, are settled in M1: vertex
@@ -1461,18 +1462,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   have nodes the two ways move differently, none of them looked at one
   by one. A node an animation numbers −1 is not moved, on the reading
   that the game moves none for it. (S)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
-- **Other findings against `notes_models.md`,** each theirs to confirm
-  here before the note is changed: part numbers follow file order and a
-  compiled tree does not keep it (5,079 of 24,298 models without a
-  supermodel); function pointers are ignored; a mesh's box holds the
-  origin too; shininess is 1 where a text gives none; EE's 0x3B0 skin
-  layout with bone numbers as `i16[64]` is what the game takes; the
-  game compiler's normals and tangents equal `mg-mdl`'s ASCII reader's
-  to four decimals; ten `c_wingdrg2_*` wing skins are bound in another
-  pose than they rest in. (S each, the note's upkeep)
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
@@ -2151,24 +2140,9 @@ document; the entries here that name the audit are that list in short.
   list (`manual::fitted`; it was cut off at the page's edge before, and
   the text after it too). Tables with wrapped cells would read better.
   (S–M) (from the research notes)
-- **Open-question lists the notes answered since:** `notes_models.md`
-  §I.2, `notes_tilesets.md` §B.4 and §I, `notes_shaders.md` §M,
-  `notes_gff_changelog.md` §G. (S each)
-  (the documentation audit of 2026-10-12)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
-- **The manual, what the audit named and is not put right:** GOG's
-  folder is not looked for on macOS (chapter 1 does not say so);
-  chapter 14 says "There's no OK or Cancel", which is true of property
-  editors only, and repeats chapter 12 in "Habits to change". (S each)
-  (Chapter 15's `--event` example now names the `house-rules` example,
-  which declares events.)
-  (the documentation audit of 2026-10-12)
-- **The parity checklists:** the main menus are not compared with
-  Aurora's item by item; "eight tests not in
-  `app.rs` named without their file" is as the audit found it. (S
-  each) (the documentation audit of 2026-10-12)
 
 ## The code itself (the code review of October 2026)
 

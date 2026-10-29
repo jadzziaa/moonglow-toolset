@@ -256,6 +256,9 @@ pub(crate) struct CompiledBack {
     // text alone (where the model's numbers are its own).
     kept: Tally,
     fresh: Tally,
+    // Of those, the models whose numbers follow their tree (pre-order):
+    // file order, which a compiled tree does not keep.
+    in_tree_order: Tally,
     binds: Tally,
     odd_binds: Mutex<std::collections::BTreeSet<String>>,
     failures: Mutex<Vec<(String, Vec<String>)>>,
@@ -376,6 +379,7 @@ impl CompiledBack {
             && !skinned
             && sorted.iter().enumerate().all(|(i, n)| *n == i as i32)
         {
+            self.in_tree_order.add(numbers.numbers.iter().enumerate().all(|(i, n)| *n == i as i32));
             let alone = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).ok()?;
             let parts = PartNumbers::read(&alone.binary).unwrap();
             self.fresh.add(by_name(&Model::read(&alone.binary).ok()?, &parts) == theirs);
@@ -396,13 +400,14 @@ fn decompiled_models_compile_back() {
     failures.sort();
     eprintln!(
         "{} models compiled ({} with skins), {} differ; part numbers kept from the compiled \
-         model: {}; numbered again from the text alone: {}; skins' inverse binds as their \
-         files': {}",
+         model: {}; numbered again from the text alone: {} (numbered in their tree's order: \
+         {}); skins' inverse binds as their files': {}",
         back.compiled.load(Ordering::Relaxed),
         back.skins.load(Ordering::Relaxed),
         failures.len(),
         back.kept.text(),
         back.fresh.text(),
+        back.in_tree_order.text(),
         back.binds.text()
     );
     for (name, d) in failures.iter().take(25) {

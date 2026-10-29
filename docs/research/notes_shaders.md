@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:41:41Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 and 2026-10-29 on 89.8193.37-17
@@ -953,6 +953,6 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
 8. **Tile main-light overrides**: radius 10/5 is forced (E.6). Not checked: shadowradius 12/8, shadow 1, priority 4.
 9. **Shadow plane colour/alpha source** (`vColor` of the plane = ShadowOpacity?). How are static sun projections built? Only relevant if shadows are implemented.
 10. **SSAO composite blend mode**; the framebuffer format (RGBA8 vs 16F) with and without bloom. ~~How `NO_DISCARD` is chosen per material~~: answered in §A.4 [CLIENT]. Still open: a static placeable's meshes baked together sharing one (§A.4).
-11. `vso` is referenced by nwtoolset.exe but absent from resman. What does the toolset do with it?
-12. ~~**Engine selection logic** for `_sm` vs plain~~: answered in §A.4 [CLIENT] (a TXI's `envmaptexture` or the object's `Reflection`/`ENVMAP` choose `_sm`; the tileset's `EnvMap` doesn't, it is the map every lit mesh reflects). Still open: `fswater` (TXI `bumpmaptexture shinywater` + the setting), a decal with an environment map (`vsvt_sm`?), additive meshes (blended: the marker can't be read), items' environment map.
+11. `vso` is referenced by nwtoolset.exe but absent from resman (§A: checked with `nwn_resman_grep`; dead or legacy). What does the toolset do with it?
+12. ~~**Engine selection logic** for `_sm` vs plain~~: answered in §A.4 [CLIENT] (a TXI's `envmaptexture` or the object's `Reflection`/`ENVMAP` choose `_sm`; the tileset's `EnvMap` doesn't, it is the map every lit mesh reflects). ~~`fswater` (TXI `bumpmaptexture shinywater` + the setting), a decal with an environment map (`vsvt_sm`?), additive meshes (blended: the marker can't be read)~~: answered in §A.4 [CLIENT] (M5: `vswater`/`fswater` for a `shinywater` TXI, `vsvt_sm`/`fst_sm` for a decal with an `envmaptexture`, an additive mesh read over a board painted black takes the pair it would take unblended). Still open: which map an item on the ground reflects (§A.4: `vslit_sm`/`fslit_sm`, the map not read).
 13. **Procedural TXI textures** (arturo/cycle/water): exact CPU algorithms; the wiki has only descriptions.

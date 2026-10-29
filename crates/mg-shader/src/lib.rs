@@ -140,10 +140,23 @@ pub fn compile_assembled(a: &Assembled) -> Result<Program, ShaderError> {
     from_words(a, &words, &io)
 }
 
+/// Whether glslang takes an assembled program, as the game's driver is
+/// asked to take it: what Verify's `shader-compile` check wants (a program
+/// the game's driver refuses is drawn magenta). Moonglow's own passes and
+/// naga are not run, so what they don't take ([`ShaderError::Spirv`],
+/// [`ShaderError::Naga`]) is never an error here.
+pub fn check_assembled(a: &Assembled) -> Result<(), ShaderError> {
+    glsl::compile(a).map(|_| ())
+}
+
 /// glslang and the passes on the words: what [`ProgramCache`] keeps.
 pub(crate) fn to_words(a: &Assembled) -> Result<(Vec<u32>, Vec<spirv::Io>), ShaderError> {
-    let words = glsl::compile(a)?;
-    let words = spirv::split_samplers(&words)?;
+    passes(&glsl::compile(a)?)
+}
+
+/// Moonglow's passes on glslang's words.
+pub(crate) fn passes(words: &[u32]) -> Result<(Vec<u32>, Vec<spirv::Io>), ShaderError> {
+    let words = spirv::split_samplers(words)?;
     let words = spirv::index_lights(&words)?;
     let words = spirv::add_spare_blocks(&words)?;
     let words = spirv::add_draw_index(&words)?;

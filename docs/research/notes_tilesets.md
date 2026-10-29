@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)'
 description: The NWN:EE tileset system for the area editor - the SET format, the corner and edge model and terrain painting, ARE and GIT tile data, walkmesh and pathing, tile lights, minimap and palette - with citations and open questions.
 tags: [tilesets, set, terrain, areas]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:40:48Z }
 ---
 
 # NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)
@@ -174,6 +174,7 @@ Tile naming convention: `<ts>_<row letter><NN>_<variant NN>`. a–e terrains, f�
 - Tile lights: MainLight colours are **chosen randomly when painting a tile or generating the initial tiles**, from environment.2da columns `MAIN1_COLOR1..4`, `MAIN2_COLOR1..4` and `SECONDARY_COLOR1..4` of the area's LightingScheme [D BioWare ARE PDF §2.2].
 
 ### B.4 Painting algorithm (reconstruction; **[I]** unless tagged)
+Written before Aurora was captured: §B.4a and §B.4b settle items 1–4 and 6 (eight neighbours, relative rule heights, no chaining, refusal of the whole stroke, one corner raised a step with its neighbours following, crossers by quarter-cells, groups pivoting on Tile0). Item 5's weighting and Shift's cycling order, and whether Aurora forces the border ring, are still open (§I).
 1. **Terrain paint at vertex v with terrain T** (height kept = current absolute height of v):
    a. Set v := (T, h).
    b. Apply primary rules outward. For each vertex u that shares a tile with v (the 8 neighbours), if a rule `(Placed=T@hRel, Adjacent=u.terrain@uRel)` exists, set u := Changed@(ChangedRel). The rules are expressed in relative heights (0/1) [?: how absolute heights map onto the 0/1 in rules].
@@ -188,7 +189,7 @@ Tile naming convention: `<ts>_<row letter><NN>_<variant NN>`. a–e terrains, f�
 5. **Tile choice among candidates**: random, weighting [?]. There is no weight key in SET. Base sets provide duplicates (variants) of common signatures, so uniform random over (tile, orientation) pairs reproduces the look [I]. Shift-click order is probably tile index order × orientation 0..3 [?].
 6. **New area** (wizard): all vertices = Default at height 0, with Border terrain on the outer ring [I], and interior sets get a Floor patch in the centre [D tutorial wording + I]. Tiles are chosen randomly, lights from environment.2da [D]. areag.ini supplies the other area defaults (music, flags…) [D areag.ini].
 
-What must be reverse-engineered (Aurora under Wine, scripted paint sequences, diff the ARE `Tile_List`): rule application order and neighbourhood (4 vs 8 vertices), propagation depth, handling of height in rules, crosser persistence under terrain paint, the RNG and shift-cycle order, the raise brush footprint, the new-area seed, what happens when no tile fits, border-ring behaviour, and SECONDARY RULES.
+What must be reverse-engineered (Aurora under Wine, scripted paint sequences, diff the ARE `Tile_List`): ~~rule application order and neighbourhood (4 vs 8 vertices), propagation depth, handling of height in rules~~ (§B.4a), crosser persistence under terrain paint, the RNG and shift-cycle order, ~~the raise brush footprint~~ (§B.4a), ~~the new-area seed~~ (§I item 5), ~~what happens when no tile fits~~ (§B.4a: the stroke is refused), border-ring behaviour, and SECONDARY RULES.
 
 ### B.4a Painting as Aurora does it (captured, 89.8193.37) [V]
 Verified by `tools/aurora/capture_terrain.py`: 54 scripted steps in ttr01, ttz01, tic01 and tdm01 areas, replayed by `crates/mg-corpus-tests/tests/aurora_terrain.rs` against `mg_tiles::paint`. This settles most of §B.4 and items 1–3 of §I.
@@ -434,17 +435,17 @@ Game docs: `$G/lang/en/docs/CHANGELOG.md`, `patchnotes/*.md`, `Neverwinter Night
 ---
 
 ## I. Open questions / reverse-engineering checklist (priority order)
-1. Terrain paint algorithm: neighbourhood for primary rules (4 or 8 vertices), recursion/propagation depth, the order rules apply in, how relative rule heights relate to absolute vertex heights, and the fallback when no tile matches (refuse, red cursor, or force Default).
-2. Crosser drag semantics: which edges get set on start, middle and end tiles; whether terrain painting preserves crossers; bridge/crossing selection; the invalid-drag rule.
-3. Raise/Lower footprint and propagation (one vertex or several; multi-level stacking; the interaction with rules when heights differ by more than 1).
-4. RNG: distribution over (tile variant × orientation), and whether orientations of symmetric tiles are deduplicated. Shift-cycle order.
-5. New-area seed: Border ring vs Default fill, the centre Floor patch size, initial light colours (environment.2da MAIN*_COLORn).
-6. Group placement pivot under rotation in the UI; validity checks against neighbours and heights; behaviour at area edges; partial-group deletion.
+1. ~~Terrain paint algorithm~~: answered in §B.4a (captured, `aurora_terrain.rs` `painting_matches_aurora`). As first asked: neighbourhood for primary rules (4 or 8 vertices), recursion/propagation depth, the order rules apply in, how relative rule heights relate to absolute vertex heights, and the fallback when no tile matches (refuse, red cursor, or force Default).
+2. ~~Crosser drag semantics~~: answered in §B.4a (quarter-cells; a crossing picked by ordinary matching), but whether a terrain brush keeps the crossers of the tiles it re-picks. As first asked: which edges get set on start, middle and end tiles; whether terrain painting preserves crossers; bridge/crossing selection; the invalid-drag rule.
+3. ~~Raise/Lower footprint and propagation~~: answered in §B.4a (one corner a step, the eight neighbours following, recursively). As first asked: Raise/Lower footprint and propagation (one vertex or several; multi-level stacking; the interaction with rules when heights differ by more than 1).
+4. RNG (partly answered: random among the fits, the others kept, §B.4a; the weighting and Shift's order, which Moonglow takes as by tile, then orientation, `mg_tiles::paint::next_fit`, were not captured): distribution over (tile variant × orientation), and whether orientations of symmetric tiles are deduplicated. Shift-cycle order.
+5. ~~New-area seed~~: answered by the captured wizard areas (`aurora_new.rs` `new_modules_and_areas_match_aurora`, every tileset at several sizes; `mg_tiles::new_area`): `Default` at height 0, `Border` on the outer corners, `Floor` on the corners within half a cell of the centre (one to four), each tile's lights at random from the scheme's environment.2da colors. As first asked: Border ring vs Default fill, the centre Floor patch size, initial light colours (environment.2da MAIN*_COLORn).
+6. ~~Group placement pivot~~: answered in §B.4b (Tile0 under the pointer, a quarter counter-clockwise a right click, the height of the ground under Tile0, cut groups replaced by terrain on shrinking) and by `aurora_terrain.rs` `groups_go_whole` (a group over part of another is refused). As first asked: Group placement pivot under rotation in the UI; validity checks against neighbours and heights; behaviour at area edges; partial-group deletion.
 7. Border/edge: whether the toolset forces boundary vertices to `Border`; exact `_edge.2da` lookup (corner order, `+` and Height meaning for multi-level heights); whether Aurora renders edge tiles.
 8. SECONDARY RULES semantics and the unused keys (`DefaultAreaProperties`, `Image`, `ReplaceTexture`, SOUND sections, `Sounds>0` format).
 9. Door hookpoints when `Doors` ≠ number of `[TILEnDOORm]` sections: which one wins.
 10. Duplicate group Tile0 in the ITP: first or last group; handling of the tcm02 group with Tile0=-1; ITP leaves that point at non-group models (single-tile placement?).
 11. tilecolor.2da use in the toolset.
 12. PathNode effective rotation = SET Orientation + Tile_Orientation (probably).
-13. Area size limit in the EE wizard (1..32?) and whether the engine accepts larger areas.
+13. ~~Area size limit in the EE wizard~~: 2 to 32 tiles a side ([the parity checklists](../parity/checklists.md), Area Wizard; `mg_module::new::AREA_SIZE_RANGE`); whether the engine accepts larger areas is still open. As first asked: Area size limit in the EE wizard (1..32?) and whether the engine accepts larger areas.
 Method: run nwtoolset.exe under Wine with scripted input on small areas of ttr01 (rules + heights), ttz01 (no rules), tic01 (rooms/walls) and tdm01 (crossers), then diff ARE Tile_List against Moonglow using the verified formulas above (index, rotation, heights).

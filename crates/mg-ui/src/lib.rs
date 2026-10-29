@@ -4900,6 +4900,9 @@ impl Moonglow {
             .iter()
             .filter_map(|id| mg_module::doctor::Group::from_id(id))
             .collect();
+        // (The shader programs that compiled kept where the views keep
+        // theirs.)
+        let shaders = self.shader_cache_dir.clone().map(mg_module::doctor::ProgramCache::new);
         self.start_job(
             "Verify Module",
             move |job| {
@@ -4929,6 +4932,7 @@ impl Moonglow {
                     tlk,
                     &skip,
                     &mut times,
+                    shaders.as_ref(),
                 );
                 // (What the plugins would say of themselves goes with them.)
                 let (theirs, said) = if skip.contains(&Group::Plugins) {

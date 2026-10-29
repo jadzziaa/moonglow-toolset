@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:35:17Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -15,7 +15,7 @@ sources:
 Aurora's dialogs (from `aurora-ui-inventory.md`) against Moonglow, control by
 control. ✅ done and tested, ◐ partly, ✗ not yet, — deliberately different
 (with the reason). Tests named in brackets are in `crates/mg-ui/tests/app/`
-unless given otherwise.
+unless their file (under `crates/`) follows the name.
 
 ## Module Properties (`TfrmIFOProp`)
 
@@ -33,7 +33,7 @@ unless given otherwise.
 | Custom Content: hak list, Add (from hak folders), Remove, Move Up, Move Down | same; changes apply when the module is reopened | ✅ |
 | Custom Content: Check for Conflicts… (TdlgHakPak) | report window (the text of `mg haks`) | ◐ report text only; Aurora's dialog lists conflicts in a grid |
 | Custom Content: Custom Tlk File (tlk folder) | list of `.tlk` in the user's `tlk/`; the chosen table is loaded for StrRef lookups | ✅ |
-| OK / Cancel | every change is applied at once and undoable | — Moonglow edits live with undo instead of a modal OK |
+| OK / Cancel | the same: every change applies as it is made, one undoable step, and Cancel sets back what the window changed since it was opened, as one step | ✅ [the_editors_cancel_sets_back_what_they_changed] |
 
 ## String Edit (`TdlgLocString`, `TdlgNewEditStringExternal`)
 
@@ -84,16 +84,16 @@ unless given otherwise.
 | General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
 | General: welcome dialog at startup; colour depth and character set warnings | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings | — |
 | General: always open module directories (off: a `.mod` with a folder of its name beside it asks "A directory with the same name has been found. Do you want to open this directory as a module?", Yes the folder, No the `.mod`) | General: A .mod with its folder beside it (ask, the folder, or the `.mod`); the question in Aurora's words, Open Directory and Open .mod File; the folder saved into and written as the `.mod` too | ✅ [a_mod_with_its_folder_beside_it_asks_which_to_open] |
-| General: reserved resref namespace, resource in hak and standard resource overwrite warnings | in the log when a command adds a blueprint named nw_, x0_ to x3_, or a script, conversation or blueprint a hak also has (the hak's wins) or the game has; each has its checkbox on Options › General | ✅ [a_script_named_as_the_game_s_own_is_warned_about], [warnings_are_on_by_default_and_apply] |
+| General: reserved resref namespace, resource in hak and standard resource overwrite warnings | in the log when a command adds a blueprint named nw_, x0_ to x3_, or a script, conversation or blueprint a hak also has (the hak's wins) or the game has; each has its checkbox on Options › General | ✅ [a_script_named_as_the_game_s_own_is_warned_about], [warnings_are_on_by_default_and_apply (`mg-ui/src/options.rs`)] |
 | General: invalid creature spell assignment warning (on closing a creature's properties: spells too high for the class level, too high for the casting ability, more than the class may have) | the same checks, shown on the creature's Spells page while editing, with Never warn again; the option on Options › General | ✅ (`aurora_spell_warnings.rs`: 31 creatures) [the_spells_page_warns_about_invalid_assignments] |
 | General: creature inventory warning (notice on opening a creature's inventory); equipping an item without its feats asks to add the first | the notice on the Inventory page, with Never warn again; Equip asks the same (Yes adds the feat and equips, one undoable step; No leaves the slot) | ✅ (`aurora_inventory.rs`) [equipping_without_the_feat_asks_to_add_it] |
 | General: use environment mapping on creatures and items | — (Moonglow's renderer always applies environment maps, as the game does) | — |
-| Area: background colour, encounter spawn point markers (height, width), door orientation arrows | Options › Area: a background colour (default: the area's fog, as the game shows it; Aurora's is silver grey), a post over each spawn point (Height and Width as Aurora's, 12 and 4 tenths of a metre by default), a cyan arrow along each door's facing | ✅ [area_options_apply] |
+| Area: background colour, encounter spawn point markers (height, width), door orientation arrows | Options › Area: a background colour (default: the area's fog, as the game shows it; Aurora's is silver grey), a post over each spawn point (Height and Width as Aurora's, 12 and 4 tenths of a metre by default), a cyan arrow along each door's facing | ✅ [area_options_apply (`mg-ui/src/options.rs`)] |
 | Area: undo levels | — (undo is unlimited) | — |
 | Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
-| Conversation Editor: Show popup when creating a new text entry (on), Paste Link Options (Link Destination To Source), Drag Link Options (Link Source To Destination), automatic backup every 5 minutes | the same options and defaults (`notes_dialog_options.md`); backups go to the temporary folder's `moonglow-backups/<module>/<name>.bak` (Aurora: the module's working folder) | ✅ [conversation_options_popup_link_directions_drag_and_backup], [conversation_link_and_backup_options_apply] |
+| Conversation Editor: Show popup when creating a new text entry (on), Paste Link Options (Link Destination To Source), Drag Link Options (Link Source To Destination), automatic backup every 5 minutes | the same options and defaults (`notes_dialog_options.md`); backups go to the temporary folder's `moonglow-backups/<module>/<name>.bak` (Aurora: the module's working folder) | ✅ [conversation_options_popup_link_directions_drag_and_backup], [conversation_link_and_backup_options_apply (`mg-ui/src/options.rs`)] |
 | Language page | the language text fields show and edit (Use Default Language: English, or a chosen one); labels name it | ✅ |
-| Sounds page: play placed sound objects (on), ambient sound (off) and ambient music (off) in the area; ambient music volume (92) | the same, with Aurora's defaults | ✅ [sound_options_apply] |
+| Sounds page: play placed sound objects (on), ambient sound (off) and ambient music (off) in the area; ambient music volume (92) | the same, with Aurora's defaults | ✅ [sound_options_apply (`mg-ui/src/options.rs`)] |
 | Sounds page: 2D/3D bias, show listener position, 3D provider (hidden) | — (Moonglow's placed sounds fade with distance from the view's focus; no 3D panning) | — |
 | Spell Checking page | — (in EE Aurora's spell check finds nothing: no lexicon ships; see the Conversation Editor) | — |
 
@@ -109,7 +109,7 @@ unless given otherwise.
 | Basic: OpenGL chart of how the selected faction regards the others (drag bars to edit), Full Detail | sliders per faction with Aurora's colours, Full Detail adds how the others regard it | ✅ (sliders instead of a drawn chart) |
 | Advanced: grid, row regards column, editable 0–100 | same grid, coloured, hover says hostile/neutral/friendly like Aurora's status bar | ✅ |
 | Reputations in the engine | 36 creature pairs report `GetReputation` as written, after adding, editing and removing | ✅ (`engine_factions.rs`) |
-| OK / Cancel | live edits, one undoable command each | — |
+| OK / Cancel | the same, over live edits (one undoable command each): Cancel sets back what the window changed, as one step | ✅ [the_editors_cancel_sets_back_what_they_changed] |
 
 ## Journal Editor (`TdlgJournalEditor`)
 
@@ -121,7 +121,7 @@ unless given otherwise.
 | Copy, Cut, Paste, Delete | same (paste appends; IDs are kept) | ✅ |
 | Category: Name + `…`, Tag (32), Priority (Highest…Lowest), XP, Comments | same | ✅ |
 | Entry: ID, Finish Category, Text + `…` | same | ✅ |
-| Apply / OK / Cancel | live edits, one undoable command each | — |
+| Apply / OK / Cancel | OK and Cancel, over live edits (one undoable command each): Cancel sets back what the window changed, as one step; no Apply, as every edit is applied as it is made | ✅ [the_editors_cancel_sets_back_what_they_changed] |
 | In the engine | `GetJournalQuestExperience` returns each category's XP by tag | ✅ (`engine_journal.rs`) |
 
 ## Script Editor (`TdlgScriptEditor`, `TdlgScriptSearch`, `TSEditCodeCompletionList`)
@@ -181,12 +181,12 @@ unless given otherwise.
 | Preview window: orbit, zoom | Resources > open a model: orbit (left drag), pan (right/middle drag), zoom (wheel), Frame | ✅ [model_viewer_plays_animations] |
 | Aurora's own lighting (no EE lighting) | the game's enhanced-lighting equations (area light, point lights, GGX specular, environment maps, fog) | ✅ improvement (`render.rs`: lighting matches a CPU evaluation; `client_render.rs`: reference scenes within 10/255 of the game client, light uniforms equal to the client's) |
 | Animations (placeables, doors, creatures idle) | any animation of the model or its supermodels, play/pause; skins deform on the GPU with the stored bind poses | ✅ (`render.rs`: animated models; bind poses match the stored ones for 98% of bones) |
-| Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), converted as the game does (colours above 1 reach further); tile main lights take the area's colours and the engine's radii | ✅ [lights_convert_like_the_game] |
+| Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), converted as the game does (colours above 1 reach further); tile main lights take the area's colours and the engine's radii | ✅ [lights_convert_like_the_game (`mg-render/src/scene.rs`)] |
 | Emitters | fountain, single and explosion emitters with flip-book textures, colour, alpha and size over life, camera-facing, upright, ground-aligned, motion-blur and linked quads, alpha, additive and punch-through blending; trail spawning; point-to-point (Bezier and gravity) to the reference child; lightning bolts; chunk models | ✅ (`render.rs`: a brazier's fire and smoke, a tile's lightning; the p2p, drag and lightning details follow the wiki's descriptions, not measurements) |
-| Animated meshes (water, waterfalls, door skins), animated alpha and self-illumination | vertex and UV sets sampled `sampleperiod` apart and interpolated, normals recomputed; alpha and self-illumination keys | ✅ (`render.rs`: a water tile and a lamp's "on" animation) [mesh_animations_render] |
-| Dangly meshes (hair, cloaks, pennants) | a damped spring per vertex within displacement × constraint; an approximation, the game's dynamics are undocumented | ◐ (`render.rs`: a creature's hair and coat lag and settle) [dangly_meshes_sway] |
-| Normal, specular, roughness, height (parallax, occlusion) and self-illumination maps, from MDL `texture1`–`3` or an MTR (named by `materialname` or like the bitmap) with its parameters | as the game's normal-mapped shaders; tangent frames from screen-space derivatives | ✅ (`render.rs`: synthetic maps shade as expected; the base game ships almost none) [material_maps_shade] |
-| Environment maps | TXI `envmaptexture`/`bumpyshinytexture` (`default`: the object's, then the area's, then `chrome1`), the object's own (appearance `ENVMAP`: its textures' alpha becomes reflectivity), 2D sphere maps and cube maps (TXI `cube 1`, faces `name0`…`name5`) | ✅ [environment_maps_reflect] |
+| Animated meshes (water, waterfalls, door skins), animated alpha and self-illumination | vertex and UV sets sampled `sampleperiod` apart and interpolated, normals recomputed; alpha and self-illumination keys | ✅ (`render.rs`: a water tile and a lamp's "on" animation) [mesh_animations_render (`mg-render/tests/render.rs`)] |
+| Dangly meshes (hair, cloaks, pennants) | a damped spring per vertex within displacement × constraint; an approximation, the game's dynamics are undocumented | ◐ (`render.rs`: a creature's hair and coat lag and settle) [dangly_meshes_sway (`mg-render/tests/render.rs`)] |
+| Normal, specular, roughness, height (parallax, occlusion) and self-illumination maps, from MDL `texture1`–`3` or an MTR (named by `materialname` or like the bitmap) with its parameters | as the game's normal-mapped shaders; tangent frames from screen-space derivatives | ✅ (`render.rs`: synthetic maps shade as expected; the base game ships almost none) [material_maps_shade (`mg-render/tests/render.rs`)] |
+| Environment maps | TXI `envmaptexture`/`bumpyshinytexture` (`default`: the object's, then the area's, then `chrome1`), the object's own (appearance `ENVMAP`: its textures' alpha becomes reflectivity), 2D sphere maps and cube maps (TXI `cube 1`, faces `name0`…`name5`) | ✅ [environment_maps_reflect (`mg-render/tests/render.rs`)] |
 | Blueprint previews (Aurora: creature, item, placeable and door previews in their editors and palettes) | Resources › Preview (and the blueprint editors in Phase 8): part-based creatures (skeleton, body or armour parts, robes hiding parts, head or helmet, cloak), single-model creatures, wings, tails, weapons and shields in hand, PLT colours, appearance environment maps, the idle animation; items (simple, layered, composite, armour on a body); placeables (their state's animation, light, reflection); doors | ✅ (`previews.rs`: base-game blueprints assemble and draw) [blueprint_previews_open] |
 
 ## Palettes (`TfraMainPalette`)
@@ -197,7 +197,7 @@ unless given otherwise.
 | Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
 | Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
-| Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ✅ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance: `aurora_update_instances.rs` [update_instances_matches_aurora] |
+| Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ✅ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance: [update_instances_matches_aurora (`mg-corpus-tests/tests/aurora_update_instances.rs`)] |
 | Selecting a blueprint arms placement in the area | the same | ✅ [area_viewer_places_draws_boxes_and_turns] |
 | In-place rename of custom blueprints | names are edited in the blueprint editors: in Aurora 89.8193.37 a second click on a custom palette entry opens an edit box, but nothing handles it (the trees have no OnEdited) and the name stays | — |
 
@@ -207,7 +207,9 @@ Each blueprint opens in its own tab with the dialog's pages; every change
 is one undoable command, integer fields keep their stored type (a missing
 field takes the type the game's files give it), fields the editor does not
 show are kept, and a stored value outside a field's range is shown as it is
-(only edits are clamped). Aurora's OK/Cancel are the module's undo and save.
+(only edits are clamped). The window's OK and Cancel are Aurora's: Cancel
+sets back what the window changed since it was opened, as one step
+([a_properties_window_s_cancel_sets_back_what_it_changed]).
 Shared parts: Name (`…` for all languages), Tag, palette Category, Blueprint
 ResRef (renames the blueprint, a store's `ResRef` field), Variables…,
 scripts (name, picker, Edit), Comments.
@@ -240,9 +242,9 @@ scripts (name, picker, Edit), Comments.
 | Creature Feats (grid with filter, summary) | every feat with a name, a filter, Assigned only, a count | ✅ [creature_editor_lists] (the granted/available marks not yet) |
 | Creature Spells: class radio, level filter, prepared counts or known spells, metamagic, summary, clear/save/load class spell list | the spellcasting classes (classes.2da `SpellCaster`), their spells (`SpellTableColumn`), prepared counts (`MemorizesSpells`) or known checkboxes, a level filter and summary | ◐ [creature_editor_lists]; Clear, Save and Load Class Spell List (`.ini`, `[Spells<class>]` as the game's `data/scr` lists; a prepared spell goes to its level raised by its metamagic) [class_spell_lists_save_clear_and_load] (choosing metamagic not yet) |
 | Creature Special Abilities (spell, caster level) | add from the spell list, caster level, remove | ✅ [creature_editor_lists] |
-| Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows) and the backpack at the first free place, each item with its icon; Aurora's Options under the palette: Selected Item, Dropable and Pickpocketable, there and grayed until an item is clicked (written as 1 when set, left out when not, as Aurora and the game's blueprints); Ctrl+click and Shift+click select several, set together in one step, a dash where they differ; a placed creature's held items the same | ✅ [creature_editor_lists] (Equip, and drag and drop between the palette, the slots and the backpack), [creature_items_can_be_dropable_and_pickpocketable], [a_placed_creature_s_items_can_be_dropable_and_pickpocketable], [an_item_aurora_equips_is_neither_dropable_nor_pickpocketable], [the_engine_reads_a_creature_s_item_flags] |
-| The CR calculation (Basic and Advanced: Challenge Rating, CR Adjustment) | Aurora's calculation (`mg_rules::challenge`, `docs/research/notes_creature_cr.md`), recalculated with every change (as Aurora does on OK); the calculation shown on hover | ✅ [challenge_ratings_match_aurora: 4204 creatures] |
-| Levelup Wizard (`TfrmCreatureLevelupWizard`: classes and levels; packages pick hit points, abilities, skills and feats) | the same window, from the Classes page and the area viewer's context menu; one undoable step (`mg_rules::levelup`) | ✅ [levelling_up_matches_aurora: 7 levellings, with a new class's memorized spells and package equipment; the_levelup_wizard_levels_a_creature_up_as_aurora_does, the_levelup_wizard_adds_a_class_with_its_spells_and_gear]; a new spontaneous caster's known spells not checked against Aurora |
+| Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows) and the backpack at the first free place, each item with its icon; Aurora's Options under the palette: Selected Item, Dropable and Pickpocketable, there and grayed until an item is clicked (written as 1 when set, left out when not, as Aurora and the game's blueprints); Ctrl+click and Shift+click select several, set together in one step, a dash where they differ; a placed creature's held items the same | ✅ [creature_editor_lists] (Equip, and drag and drop between the palette, the slots and the backpack), [creature_items_can_be_dropable_and_pickpocketable], [a_placed_creature_s_items_can_be_dropable_and_pickpocketable], [an_item_aurora_equips_is_neither_dropable_nor_pickpocketable (`mg-corpus-tests/tests/aurora_inventory.rs`)], [the_engine_reads_a_creature_s_item_flags (`mg-corpus-tests/tests/engine_item_flags.rs`)] |
+| The CR calculation (Basic and Advanced: Challenge Rating, CR Adjustment) | Aurora's calculation (`mg_rules::challenge`, `docs/research/notes_creature_cr.md`), recalculated with every change (as Aurora does on OK); the calculation shown on hover | ✅ [challenge_ratings_match_aurora (`mg-corpus-tests/tests/aurora_creatures.rs`): 4204 creatures] |
+| Levelup Wizard (`TfrmCreatureLevelupWizard`: classes and levels; packages pick hit points, abilities, skills and feats) | the same window, from the Classes page and the area viewer's context menu; one undoable step (`mg_rules::levelup`) | ✅ [levelling_up_matches_aurora (`mg-corpus-tests/tests/aurora_levelup.rs`): 7 levellings, with a new class's memorized spells and package equipment; the_levelup_wizard_levels_a_creature_up_as_aurora_does, the_levelup_wizard_adds_a_class_with_its_spells_and_gear]; a new spontaneous caster's known spells not checked against Aurora |
 | Creature Template tab (crtemplates.2da: Half-Dragon, Lich, Vampire, ...) | not shown: Aurora 89.8193.37's Creature Properties hide the tab (its form still has it) | — |
 
 ## Blueprint wizards (`TdlgBlueprintWizard` and each type's)
@@ -253,7 +255,7 @@ scripts (name, picker, Edit), Comments.
 | What they make: every field, its type, order and value; the resref (letters and digits, a trailing number kept within 16 characters, `blueprint` and a number for names with other characters) and the tag | `mg_module::blueprints` | ✅ (`aurora_blueprints.rs`: 15 blueprints made by Aurora's wizards, identical) |
 | Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |
 | Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
-| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | Wizards › Creature Wizard… and the creature palette's New…: the same pages; the creature from `mg_module::blueprints::creature` (levelled up from nothing by the packages) | ✅ [creature_wizard_matches_aurora: 19 creatures of 17 racial types, every field and their order but three odd flags; the_creature_wizard_makes_aurora_s_creature]; random names from the race's letter tables [every_playable_race_has_random_names]; no 3D preview yet |
+| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | Wizards › Creature Wizard… and the creature palette's New…: the same pages; the creature from `mg_module::blueprints::creature` (levelled up from nothing by the packages) | ✅ [creature_wizard_matches_aurora (`mg-corpus-tests/tests/aurora_creature_wizard.rs`): 19 creatures of 17 racial types, every field and their order but three odd flags; the_creature_wizard_makes_aurora_s_creature]; random names from the race's letter tables [every_playable_race_has_random_names (`mg-corpus-tests/tests/creature_names.rs`)]; no 3D preview yet |
 | Item Wizard's Magical, Item Level and Item Quality (Level and Quality enabled by Magical; Next waits for both) | the same on the Name page; random properties from the base item's itmwiz table, by tier, number and most worth as 127 items Aurora's wizard made show; charges, class limits, unidentified | ✅ [item_wizard_makes_a_magical_item_of_a_level_and_quality; `aurora_item_wizard.rs`: every captured item holds to the rules; `item_wizard.rs`: every base item, level and quality gives valid properties] (Aurora's draws are random: the same rules, not the same items) |
 
 ## Area viewer (`TfrmViewerArea`, the main frame's Object Filters and Preview toolbars)
@@ -264,7 +266,7 @@ scripts (name, picker, Edit), Comments.
 | First view: straight down, north up, the whole area; numpad 5 returns to it | the same | ✅ |
 | Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
 | Preview: Fog, Use Area Lighting; day or night | Fog (off at first, as Aurora's Scene › Fog), Night; the area's lighting always | ✅ the fog is the client's: it ends at the fog clip distance and starts the fog amount nearer than 30 m (`client_render.rs`, measured uniforms) |
-| Sky (Aurora's view: none; the game: the area's skybox) | the skybox (skyboxes.2da, day or night as shown) around the camera at ground level, unlit, behind everything, with the game's horizon fade in the area's fog colour | ✅ improvement (`render.rs` [the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged]; `client_render.rs` grass_and_sky_look: the horizon band in the client's colour) |
+| Sky (Aurora's view: none; the game: the area's skybox) | the skybox (skyboxes.2da, day or night as shown) around the camera at ground level, unlit, behind everything, with the game's horizon fade in the area's fog colour | ✅ improvement (`render.rs` [the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged (`mg-render/tests/render.rs`)]; `client_render.rs` grass_and_sky_look: the horizon band in the client's colour) |
 | Grass (Aurora's view: none; the game: tufts on grass-material walkmesh faces, `[GRASS]` of the tileset, and the area's overrides, `SetAreaGrassOverride`) | 🌿 Grass on the toolbar: tufts by face area × density on each material that grows grass (the tileset's on Grass unless turned off, the area's own from the GIT's AreaProperties), on the tiles within 30 m of the view's focus; Area Properties › Grass edits it, grown live | ✅ improvement (`client_render.rs` grass_overrides_look: mean color near the client's camera within 3 of the client's for default, sparse, dense, tall and red; the client's grass ends about 24 m from its camera and gathers in patches; `engine_grass.rs`: where the engine reads it) [grass_is_set_in_area_properties_and_grown_in_the_view] |
 | Preview: Play Placed Sounds, Play Ambient Sound, Play Ambient Music (toolbar and View menu) | 🔊 Sounds, Ambient, Music on the area view's toolbar (the Options › Sounds settings): the area's ambient sound and music (day or night as shown) looped, placed sounds heard from the view's focus (full within Max Volume Distance, fading out at Cutoff Distance, a linear approximation), in order or random, looping, repeating after their interval or once, by their hours | ✅ (`area_audio.rs` tests) [the_area_view_plays_the_area_s_sounds] |
 | Display Grid | Grid (tile outlines at each tile's height) | ✅ |
@@ -290,8 +292,8 @@ scripts (name, picker, Edit), Comments.
 | Properties of several selected doors or placeables (`TdlgSituatedMultiEditor`): common fields; blank = unchanged | for several objects of any one type: the type's pages, shown as the first; each field changed is set on all (one command) | ✅ [several_objects_edited_together] |
 | Preview window (`TfrmPreview`): the chosen blueprint in 3D (items also 2D), name, tag, resref, comments and fields of its type | 👁 Preview: the same, items with their inventory icon | ✅ [preview_window_shows_the_chosen_blueprint] |
 | Context menu: Conversation (opens the object's), Inventory (its Properties at the inventory page) | the same | ✅ [context_menu_sets_states_mutes_and_adds_spawn_points] |
-| Context menu: Setup Store (a creature or placeable: the Store Setup Wizard's conversation, open-store script, store placed where the shopkeeper stands, Merchant faction for a hostile one) | Setup Store…: the same pages, defaults and files (`mg_module::store_setup`); the store chosen from a list of the game's or the module's stores rather than a palette tree | ✅ [store_setup_matches_aurora, setup_store_makes_the_conversation_script_and_store] |
-| Context menu: Add Popup Text (a placeable: a conversation of one line, the placeable's own) | Add Popup Text…: the same conversation and assignment, one undoable step | ✅ [popup_text_matches_aurora, add_popup_text_gives_a_placeable_a_one_line_conversation]; Aurora 89.8193.37 loses the assignment unless something else changes the area before saving: Moonglow keeps it |
+| Context menu: Setup Store (a creature or placeable: the Store Setup Wizard's conversation, open-store script, store placed where the shopkeeper stands, Merchant faction for a hostile one) | Setup Store…: the same pages, defaults and files (`mg_module::store_setup`); the store chosen from a list of the game's or the module's stores rather than a palette tree | ✅ [store_setup_matches_aurora (`mg-corpus-tests/tests/aurora_store_setup.rs`), setup_store_makes_the_conversation_script_and_store] |
+| Context menu: Add Popup Text (a placeable: a conversation of one line, the placeable's own) | Add Popup Text…: the same conversation and assignment, one undoable step | ✅ [popup_text_matches_aurora (`mg-corpus-tests/tests/aurora_store_setup.rs`), add_popup_text_gives_a_placeable_a_one_line_conversation]; Aurora 89.8193.37 loses the assignment unless something else changes the area before saving: Moonglow keeps it |
 | Context menu: Levelup Wizard | see the creature's Levelup Wizard | ✅ |
 | Terrain palette (Features, Groups, Terrain: terrains, crossers, Eraser, Raise/Lower), sorted by name | Palettes › Tiles: the area's tileset palette, the same entries and order | ✅ (`aurora_terrain.rs`: four tilesets' Terrain branches as Aurora lists them) |
 | Terrain brushes: a corner's terrain, the primary rules on its neighbours; Raise/Lower (right click lowers); only the touched tiles change; a stroke nothing fits does nothing | the same; the cursor (the four tiles around the corner) turns red where the stroke would do nothing | ✅ (`aurora_terrain.rs`: 62 steps give Aurora's corners, heights and crossers) [area_viewer_paints_terrain] |
@@ -306,14 +308,61 @@ scripts (name, picker, Edit), Comments.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Build Module: Unused, Missing Resources, Compile, Spell Check; Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results ("No errors found"; double click opens), export | Build › Build Module…: the same options, layout and defaults; the compile passes as one undoable command; the results and what each pass did in the log | ◐ [build_module_compiles_and_reports]; Creature CR as Aurora's [challenge_ratings_match_aurora]; no Spell Check |
-| Encounters pass: each encounter's creature entries (blueprints and placed encounters) given the creature blueprints' CR and appearance; entries whose creature does not exist removed | `mg_module::build::compile_encounters` (after the Creature CR pass, as Aurora) | ✅ [encounters_are_compiled_as_aurora_does] |
+| Build Module: Unused, Missing Resources, Compile, Spell Check; Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results ("No errors found"; double click opens), export | Build › Build Module…: the same options, layout and defaults; the compile passes as one undoable command; the results and what each pass did in the log | ◐ [build_module_compiles_and_reports]; Creature CR as Aurora's [challenge_ratings_match_aurora (`mg-corpus-tests/tests/aurora_creatures.rs`)]; no Spell Check |
+| Encounters pass: each encounter's creature entries (blueprints and placed encounters) given the creature blueprints' CR and appearance; entries whose creature does not exist removed | `mg_module::build::compile_encounters` (after the Creature CR pass, as Aurora) | ✅ [encounters_are_compiled_as_aurora_does (`mg-corpus-tests/tests/aurora_encounters.rs`)] |
 | Test Module (F9): saves, then `nwmain -userdirectory <dir> +TestNewModule <module>` | the same; the module must be in the user directory's `modules` folder | ◐ (the command is tested, not run: the game only runs here in the sandbox) |
 
 ## Main menus, the Plot Wizard and the item generators (`mmFrame`, `TdlgPlotWizard`, `TdlgItemGeneratorEdit`)
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Main menu: File, Edit, View, Wizards, Tools, Build, Help, with the area's Edit and Scene menus merged in | File, Edit, View, Wizards, Tools, Build, Plugins, Help, by the keyboard too (the manual's chapter 2 lists them); an area's commands are on its toolbar and its context menu | ◐ not compared with Aurora's menus item by item; the keys Aurora has and Moonglow lacks are in the deferred list |
+| Main menu: File, Edit, View, Wizards, Tools, Build, Help, with the area's Edit and Scene menus merged in | File, Edit, View, Wizards, Tools, Build, Plugins, Help, by the keyboard too (the manual's chapter 2 lists them); an area's commands are on its toolbar and its context menu | ✅ item by item below, against the inventory's `mmFrame` and `AreaMenu`; the keys Aurora has and Moonglow lacks (Plot Wizard's, Refresh's) are settled in the deferred list |
 | Plot Wizard (Wizards menu, Ctrl+Alt+P) | not built | ✗ |
 | Item generators (Item Generator Editor, Random Item Generator Chooser; hidden in Aurora: the Random Item Templates button is never shown) | not offered | — |
+
+### The main menus item by item
+
+Aurora's items as `aurora-ui-inventory.md` has them (`mmFrame`, and the
+area viewer's `AreaMenu` merged into it), its keys in brackets, against
+where Moonglow has each (`crates/mg-ui/src/commands.rs` `MENUS` and
+`TOOLBAR`, `keys.rs`; the area view's toolbar is the manual's chapter 4).
+Items Aurora hides are left out but for Save To Savegame and the Module
+Wizard.
+
+| Aurora | Moonglow | |
+|---|---|---|
+| File › New (Ctrl+N), Open (Ctrl+O), Close, Save (Ctrl+S), Save As | File › New Module…, Open Module…, Close, Save, Save As…, with Aurora's keys; also Open Folder…, Recent Modules, Save As nasher Project… | ✅ |
+| File › Save To Savegame (hidden, disabled) | none | — Aurora hides it |
+| File › Import…, Export… | File › Import…, Export… (and Import Conversation…) | ✅ |
+| File › Exit (Alt+X) | File › Exit (Alt+X) | ✅ [closing_the_window_asks_first] |
+| Edit › Undo (Ctrl+Z), Redo (Ctrl+Shift+Z) | Edit › Undo, Redo, each naming its step; the same keys, and Ctrl+Y | ✅ |
+| Edit › Copy (Ctrl+C), Cut (Ctrl+X), Paste (Ctrl+V), the area's too | the same keys wherever there is something to copy (and Ctrl+Insert, Shift+Delete, Shift+Insert); in the area view's and the module tree's context menus, not the Edit menu | ✅ |
+| Edit › Resize Area, Rotate Area | Edit › Resize Area…, Rotate Area… | ✅ |
+| Edit › Find Instance | Edit › Find Instance… | ✅ |
+| Edit › Module Properties | Edit › Module Properties (and the main toolbar's Properties) | ✅ |
+| Edit › Area Properties (the area's Edit too) | the area view's toolbar and the module tree's context menu | ✅ |
+| View › Selection Mode › Select Terrain, Select Objects | the area view's Select Tiles (F10, Aurora's Select Terrain's key) | ✅ |
+| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | one main toolbar and the area view's, always shown; Options › General › Toolbar buttons: Icons only | — |
+| View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Module Tree, Palettes Panel (each ticked while shown), Hide All Panels, Reset Layout | ✅ |
+| View › Interface Panels › Toolbar, Visual Camera Controls | none: the camera's keys and the mouse (the manual's chapter 4) | — |
+| View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
+| View › Full Screen (F11) | Full Screen (F11), from the key and the Command Palette | ✅ |
+| View › Show Preview Window | the main toolbar's Preview | ✅ |
+| Environment (the area's Scene) › Refresh (F5) | none: the view is drawn as it changes; Tools › Reload Resources reads changed haks and folders | — (its key is settled) |
+| Environment › Display Grid, Display Shadows, Fog, Use Area Lighting | the area view's toolbar: Grid, Shadows (with three kinds), Fog, Lighting | ✅ |
+| Environment › Fade Geometry › Never, Object Mode Only, Always | the area view's toolbar: Fade Geometry, the same three | ✅ |
+| Environment › Render AABB Nodes | the area view's toolbar: Walkmesh… (the ground's, and the objects') | ✅ |
+| Environment › Play Ambient Sound, Play Ambient Music, Play Placed Sounds | the area view's toolbar: Ambient, Music, Sounds | ✅ |
+| Build › Verify Area | none: Build › Verify Module verifies the whole module, its areas with it | ✗ |
+| Build › Build Module | Build › Build Module… | ✅ [build_module_compiles_and_reports] |
+| Build › Test Module (F9) | Build › Test Module (F9), and Test Module, Choose Character (Shift+F9) | ✅ |
+| Build › Area Statistics | Build › Area Statistics | ✅ |
+| Tools › Conversation Editor (Ctrl+Alt+V), Script Editor (Ctrl+Alt+S) | Tools › New Conversation…, New Script…, with Aurora's keys | ✅ |
+| Tools › Faction Editor (Ctrl+Alt+F), Journal Editor (Ctrl+Alt+J) | Tools › Faction Editor, Journal Editor, with Aurora's keys | ✅ |
+| Tools › Options | Tools › Options… | ✅ |
+| Wizards › Module Wizard (Ctrl+Alt+M; hidden: the Welcome dialog's) | File › New Module… (Ctrl+N), the Welcome tab's New Module… | ✅ |
+| Wizards › Area Wizard (Ctrl+Alt+A), Creature Wizard (Ctrl+Alt+C) | Wizards › Area Wizard…, Creature Wizard…, with Aurora's keys | ✅ |
+| Wizards › Door, Encounter, Item (Ctrl+Alt+I), Merchant, Placeable, Sound, Trigger, Waypoint Wizard | Wizards › the same, the Merchant Wizard as the Store Wizard (Stores everywhere: the manual's chapter 12) | ✅ |
+| Wizards › Plot Wizard (Ctrl+Alt+P) | not built (above) | ✗ |
+| Help › Neverwinter Nights Website | none | — |
+| Help › About | Help › About Moonglow Toolset (and User Manual, Command Palette…, Check for Updates…) | ✅ |

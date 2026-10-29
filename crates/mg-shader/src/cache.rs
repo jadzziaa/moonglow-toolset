@@ -99,6 +99,27 @@ impl ProgramCache {
         Ok((program, Cached::Miss))
     }
 
+    /// [`crate::check_assembled`] with the cache: a program kept before
+    /// (by an area's view or an earlier Verify) is taken without compiling
+    /// it ([`Cached::Hit`]); one glslang takes now is kept, where Moonglow's
+    /// passes take it too. Only glslang's refusals are errors.
+    pub fn check(&self, a: &Assembled) -> Result<Cached, ShaderError> {
+        let key = Self::key(a);
+        let path = self.path(key);
+        if let Ok(bytes) = std::fs::read(&path)
+            && read_entry(&bytes, key, a).is_some()
+        {
+            return Ok(Cached::Hit);
+        }
+        let words = crate::glsl::compile(a)?;
+        // (A program the passes don't take is the game's to compile all the
+        // same: it is checked again next time, as it isn't kept.)
+        if let Ok((words, io)) = crate::passes(&words) {
+            let _ = self.write(&path, &entry(key, a, &words, &io));
+        }
+        Ok(Cached::Miss)
+    }
+
     fn write(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         // (Whole or not at all: written beside it, then put in its place.)
@@ -225,6 +246,48 @@ void main ()
         )
         .unwrap();
         assert_eq!(cache.compile(&other).unwrap().1, Cached::Miss);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Verify's check: glslang alone, kept as a compile keeps it (and a
+    /// program compiled for an area's view is checked by reading it); one
+    /// glslang refuses is an error and not kept; one only Moonglow's passes
+    /// refuse (an array of samplers) is no error, as the game takes it.
+    #[test]
+    fn a_check_keeps_what_glslang_takes() {
+        let d = dir("check");
+        let cache = ProgramCache::new(&d);
+        let a = assembled();
+        assert_eq!(cache.check(&a).unwrap(), Cached::Miss);
+        assert_eq!(cache.check(&a).unwrap(), Cached::Hit);
+        assert_eq!(cache.compile(&a).unwrap().1, Cached::Hit, "the same entry");
+        let other = assemble(
+            "fs_cached",
+            Stage::Fragment,
+            &Preamble { quality: 0, ..Preamble::default() },
+            &sources(),
+        )
+        .unwrap();
+        cache.compile(&other).unwrap();
+        assert_eq!(cache.check(&other).unwrap(), Cached::Hit, "compiled first");
+        let mut broken = sources();
+        broken.insert("fs_broken".into(), "void main () { gl_FragColor = vec4(nope); }\n".into());
+        let b = assemble("fs_broken", Stage::Fragment, &Preamble::default(), &broken).unwrap();
+        assert!(matches!(cache.check(&b), Err(ShaderError::Compile(_))));
+        assert!(matches!(cache.check(&b), Err(ShaderError::Compile(_))), "not kept");
+        let mut arrays = sources();
+        arrays.insert(
+            "fs_arrays".into(),
+            "uniform sampler2D tex[2];\nvarying vec2 vTexCoord;\n\
+             void main () { gl_FragColor = texture2D(tex[0], vTexCoord) + texture2D(tex[1], vTexCoord); }\n"
+                .into(),
+        );
+        let c = assemble("fs_arrays", Stage::Fragment, &Preamble::default(), &arrays).unwrap();
+        assert!(matches!(crate::compile_assembled(&c), Err(ShaderError::Spirv(_))));
+        assert!(crate::check_assembled(&c).is_ok());
+        assert_eq!(cache.check(&c).unwrap(), Cached::Miss);
+        assert_eq!(cache.check(&c).unwrap(), Cached::Miss, "not kept: the passes refuse it");
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2);
         let _ = std::fs::remove_dir_all(&d);
     }

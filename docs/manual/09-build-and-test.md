@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:28:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:51:56Z }
 ---
 
 # Build, verify and test
@@ -181,7 +181,7 @@ crash Aurora with an access violation that names nothing:
 | A group whose first tile is `-1` or shared with another group, or names a tile that doesn't exist | the group won't paint, or Aurora crashes |
 | A tileset door type that isn't a `doortypes.2da` row | the door has no appearance |
 | A material (`.mtr`) naming a texture longer than 16 characters | Aurora's "Pure virtual function called" |
-| A shader program that doesn't compile: one a material names (`customshaderVS`, `customshaderFS`), one of the haks' `.shd` programs, or a stock program broken by a hak's copy of a stock include (`inc_lighting`). Named at the file and line with the shader compiler's message, the programs it breaks listed; compiled as the game at its highest settings has them | the game draws the meshes that use it magenta |
+| A shader program that doesn't compile: one a material names (`customshaderVS`, `customshaderFS`), one of the haks' `.shd` programs, or a stock program broken by a hak's copy of a stock include (`inc_lighting`). Named at the file and line with the shader compiler's message, the programs it breaks listed. Compiled as the game's players have them: at the game's highest settings, then at Performance and Low shader quality, with enhanced lighting off, for an opaque material and with 3 lights; a program that fails only at one of these is named with it (`fs_water (fragment, at Low shader quality)`). Programs that compiled are kept in Moonglow's cache folder, so the next Verify compiles only what changed | the game draws the meshes that use it magenta |
 | A 2DA row with more cells than columns (two rows run together) | Aurora's access violation; the game drops the cells |
 | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 | Aurora fails (the game is fine) |
 | A 2DA string reference past the end of its talk table (also of the item property tables, and the `Name` of the tables they name; since Moonglow 2.13.0) | "Bad Strref" |

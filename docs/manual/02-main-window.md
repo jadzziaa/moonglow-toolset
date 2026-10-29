@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:34:06Z }
 ---
 
 # The main window
@@ -101,6 +101,7 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+C | Creature Wizard |
 | Ctrl+Alt+I | Item Wizard |
 | F11 | Full screen |
+| Alt+X | Exit (File › Exit, Aurora's key) |
 | Ctrl+W, Ctrl+F4 | Close the tab in front |
 | Ctrl+Tab, Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
