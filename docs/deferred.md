@@ -1169,12 +1169,37 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (asked by the Domains of Dread module session; checked in the client,
   2026-10-09)
 - **A rippling glow (TXI `proceduretype arturo`) does not look like the
-  client's:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive, arturo
-  `distort 1`) shows in Moonglow as bright red and yellow patches over
-  the body, in the client as dim orange veins, with either shader (the
-  game's programs leave a rippling texture to Moonglow's). How the
-  client makes an arturo texture (its channel scale and translation, the
-  distortion) was not read. (M)
+  client's:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
+  `channelscale` 0 0 0 0, `channeltranslate` 1 1 1 1, `distort 1`,
+  `arturowidth`/`arturoheight` 32, `distortionamplitude 10`, `speed 16`,
+  no `defaultwidth`; its TGA and DDS alike, 256 by 256, alpha 37 of 255
+  on average) shows in Moonglow as bright red and yellow patches over
+  the body, the texture as it is (`area_creatures_game_shaders` in
+  `screens.rs` with `MG_SCREEN_APPEARANCES=28518` and the module's
+  `tdod_top` and `tdod_p_ce3`, 2026-10-29), in the client as dim orange
+  veins, with either shader (a rippling texture is Moonglow's). Not
+  ported, waiting on a client reading: the procedure is the engine's
+  own, on the CPU, and the wiki says only that with `distort 1` the
+  channels' scale and translation are ignored and the amplitude is in
+  texels; Moonglow takes it as a part of `defaultwidth` (64 without one:
+  10/64 of the picture here, where 10 of its 256 texels is a quarter as
+  far). A ripple moves the picture and doesn't dim it, so the
+  difference may be the blending: Moonglow adds an additive texture
+  whole (One, One), the client may weigh it by its alpha. The game's 39
+  arturo TXIs all name a scale and a translation; `distort 2` is only
+  `fxpa_globe*`'s, `distortangle` only the decal skins'
+  (`c_water_skin`, `vdu_tex_shade`). **What the client batch is to
+  read**, `creatures_look` with the zombie (`MG_OVERRIDE` with its model,
+  textures and appearance.2da, `MG_APPEARANCES=28518,28518`): (a) as it
+  is, a few frames apart; (b) its TXI without `proceduretype` and
+  `distort` (still dim: the blending, not the ripple); (c) a flat card
+  with probe TXIs, one keyword changed at a time (`distort 0` with this
+  scale and translation: white or the texture; `distortionamplitude` 10
+  against 40, with and without `defaultwidth`; `speed`), for how far and
+  how fast it ripples. (The client binary's symbols name the procedure,
+  `ArturoTextureController`: reading its code, where the client's
+  pictures are what Moonglow reads, is the owner's to say.) (M: the
+  reading, then the port)
   (from the Domains of Dread's report on the flickering zombie, 2026-10-22;
   seen in the client, `creatures_look`)
 
@@ -1217,12 +1242,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
-- **A model that fails while it is drawn:** a model that breaks what
-  builds or poses it is left out and the module stays open
-  (`mg_render::guard`: tiles, objects, the model viewer, thumbnails). A
-  failure inside the renderer's own drawing (uploading its textures, the
-  GPU's calls) is not caught and still ends Moonglow, with a crash
-  report. (M) (from the research notes)
 - **Index lists against the client:** that the game draws a compiled
   mesh's index list where it has more triangles than the face list
   (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
@@ -1901,9 +1920,6 @@ viewer under 2). What is left:
   whole area model each frame: not timed, `frame_perf` has no drag of a
   selection (S to add). (The tiles palette searched as it is typed is
   timed since: 5.0 ms at worst over area092's 784 tiles, in budget.)
-- **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
-  an off-screen creature's bones are posed and drawn. A renderer change,
-  so through CI on a branch first. (M)
 
 ## Written more than once (the review of 2026-10-21)
 

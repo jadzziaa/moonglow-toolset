@@ -479,6 +479,9 @@ fn main() -> eframe::Result<()> {
                 moonglow.log.info(format!("User folder for this run: {}", dir.display()));
             }
             if let Some(rs) = &cc.wgpu_render_state {
+                // (What the GPU refuses is said in the log and left out,
+                // where wgpu would end the program.)
+                mg_ui::model_guard::note_gpu_errors(&rs.device);
                 moonglow.set_render_state(rs.clone());
                 let taken = std::mem::take(&mut *taken.lock().unwrap_or_else(|e| e.into_inner()));
                 if let Some(missing) = taken.missing {
