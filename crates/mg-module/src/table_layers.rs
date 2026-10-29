@@ -27,6 +27,13 @@ fn same(top: &TwoDa, lower: &TwoDa, row: usize, column: usize) -> bool {
 }
 
 impl Layered {
+    /// One copy alone (a hak's, not in the load order), `label` its
+    /// layer's: every cell its own.
+    pub fn single(label: impl Into<String>, table: TwoDa) -> Layered {
+        let cells = vec![vec![0; table.columns().len()]; table.len()];
+        Layered { copies: vec![(label.into(), table)], cells }
+    }
+
     /// The table in effect.
     pub fn table(&self) -> &TwoDa {
         &self.copies[0].1

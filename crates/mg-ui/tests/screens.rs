@@ -1247,7 +1247,17 @@ fn item_previews() {
         .with_size(egui::vec2(900.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    for name in ["nw_aarcl004", "nw_cloth027", "nw_arhe001", "nw_ashsw001", "x2_adrowshl001"] {
+    for name in [
+        "nw_aarcl004",
+        "nw_cloth027",
+        "nw_arhe001",
+        "nw_ashsw001",
+        "x2_adrowshl001",
+        "nw_wswls001",
+        "nw_waxbt001",
+        "nw_wbwln001",
+        "nw_wswdg001",
+    ] {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
         h.run_steps(4);
@@ -1296,6 +1306,56 @@ fn palettes() {
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     shoot(&mut h, &dir, "palettes");
+}
+
+/// The palette's Gallery of long and tall things (`gallery-framed-*`):
+/// dragons, long and winged, each in its picture as it stands; banners,
+/// statues and rugs; swords lying. The pictures are framed on the model's
+/// posed vertices as the picture sees them (the Moonglow Viewer session's
+/// proposal, 2026-10-07).
+#[test]
+#[ignore]
+fn gallery_framed() {
+    use mg_module::palette::BlueprintKind;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.palette_gallery = true;
+    app.settings.game_shaders = Some(false);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for (kind, filter) in [
+        (BlueprintKind::Creature, "dragon"),
+        (BlueprintKind::Placeable, "banner"),
+        (BlueprintKind::Placeable, "statue"),
+        (BlueprintKind::Placeable, "rug"),
+        (BlueprintKind::Item, "longsword"),
+    ] {
+        {
+            let p = &mut h.state_mut().palette;
+            p.kind = kind;
+            (p.tiles, p.custom) = (false, false);
+            p.filter = filter.into();
+        }
+        for _ in 0..600 {
+            h.run_steps(1);
+            if h.state().thumbnails.waiting() == 0 {
+                break;
+            }
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("gallery-framed-{filter}"));
+    }
 }
 
 /// An item copied into an open module folder from elsewhere, before the
@@ -3123,6 +3183,20 @@ fn hak_editor_and_attach() {
     h.state_mut().haks[0].hak.add_files(&[added]);
     h.run();
     shoot(&mut h, &dir, "hak-editor");
+    // Its resources viewed: a picture, a table (`hak-editor-view-*`).
+    for t in [mg_core::ResType::TGA, mg_core::ResType::DDS, mg_core::ResType::TWODA] {
+        let items = h.state().haks[0].hak.items().to_vec();
+        let Some(item) = items.iter().find(|i| i.key.restype == t) else { continue };
+        let name = item.key.to_string();
+        h.state_mut().haks[0].filter = name.clone();
+        h.run();
+        h.get_by_label(&name).click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run();
+        shoot(&mut h, &dir, &format!("hak-editor-view-{t}"));
+    }
+    h.state_mut().haks[0].filter.clear();
     let tab = h.state().dock.find_tab(&mg_ui::Tab::Hak(h.state().haks[0].id)).unwrap();
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();

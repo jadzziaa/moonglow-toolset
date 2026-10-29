@@ -454,12 +454,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tells the rows apart). The pictures are made on the UI thread after
   the frame, 2 ms of a frame at most, as every gallery's are. (S)
   (GitHub issue 7)
-- **An item stood up in its viewer** is turned a quarter about its
-  length's axis from how it lies; which side then faces the viewer isn't
-  chosen (a sword shows its edge more than its flat). Items in the
-  palette's Gallery lie as modelled; on the ground in an area they are
-  turned as baseitems.2da's `RotateOnGround` says. (S)
-  (GitHub issue 7)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that
@@ -588,9 +582,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a module saved in Aurora comes back in name order. Whether Moonglow's
   own order stays (a builder's arrangement, kept until Aurora saves the
   module) or follows Aurora is the owner's to say. (S)
-- **The Gallery:** up to 192 pictures are kept at once (more are made
-  again as they come back into sight) and all are made again when a
-  blueprint changes. (S) (from builders' reports after 1.10.1)
 - **A custom palette's names in the game** (a builder: after a save in
   Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
   colors wrong; Aurora's Custom palette showed the same, reading the
@@ -818,16 +809,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   for the release cut (a folder of used assets to pack smaller haks) is
   not written: `--json` has the lists. (M)
 
-- **No zip, 7z or rar:** content downloaded as an archive is unpacked
-  first; Add Haks and Talk Table takes the haks and talk table. (S; `zip`
-  is a dependency already, 7z and rar would each be a new one)
-- **Viewing in the hak editor** shows fields, text, a compiled model as
-  its text, or the first bytes: no pictures or sounds, a model not as a
-  picture, and a 2DA as its text. (S)
-- **Update from Folder** takes the folder's files in place of the hak's
-  (two undo steps: the removal, then the adding); a hak that was built
-  from several folders, or added to by hand, loses what the folder
-  hasn't. (S)
+- **No 7z or rar:** content downloaded as one is unpacked first; Add
+  Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk
+  table from it since 2026-10-29. Each would be a dependency of its own
+  (7z's and rar's decoders), which is the owner's to choose or drop.
+  (S each)
+- **Viewing in the hak editor:** a model of a hak the game doesn't read
+  (not one of the module's, or changed there and not saved) shows as its
+  text. Drawing it wants the model viewer to read its models, supermodels
+  and textures from the hak over the load order: a source of its own
+  (`model_view::Source`, keyed in `model_views`), `compose`'s loader and
+  the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
+  2DAs and a model the game reads from the hak are shown (2026-10-29).
+  (M)
 
 ## Raw fields
 
@@ -1498,21 +1492,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   faces after a deletion (SHOULD); a body part's bones named from its
   skeleton when decompiled (not checked). The suite could run in the
   corpus tests (its probes and goldens are CC0). (S–M)
-- **Export Files of a model** (a builder: exporting a bugged placeable
-  to whoever mends it meant digging through the haks for its files).
-  The model viewer, in an editor's page and in its own window, writes
-  what the game loads to draw the thing into a folder
-  (`mg_preview::files`): models, `.pwk` and `.dwk`, textures as the game
-  picks them (and a PLT of the name), MTRs with their textures and
-  shaders, TXIs and the textures they name, emitters' chunk models,
-  light flares, supermodels. The game's own files are left out unless
-  every file is the game's. Not done: the blueprint itself and its
-  `placeables.2da` row are not written; a tile's or an area's files are
-  not offered this way; a texture named and found nowhere is not
-  reported. (S each) It asks before writing over files of the same
-  names in the folder, and `mg model-files` does the same from a
-  terminal (`--force` to write over).
-  (from builders' reports after 1.19.1)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5).
@@ -1556,13 +1535,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game compiler's normals and tangents equal `mg-mdl`'s ASCII reader's
   to four decimals; ten `c_wingdrg2_*` wing skins are bound in another
   pose than they rest in. (S each, the note's upkeep)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
-- **Smaller:** `mg-ui`'s form widgets and palette chooser exported for
-  the viewer to use (it keeps copies); a camera framed tightly on posed
-  vertices, so that `mg-preview`'s pictures of long models (dragons)
-  fill their frame. (S each)
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
@@ -2333,12 +2305,6 @@ viewer under 2). What is left:
 - **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
   an off-screen creature's bones are posed and drawn. A renderer change,
   so through CI on a branch first. (M)
-- **Smaller:** the remembered-files cache (`Remembered::file`) is named by
-  Rust's own hasher (a cache, so harmless across releases);
-  `moonglow-hak-<pid>` folders left by a crashed Moonglow are not
-  cleaned up; the hak editor's Save copies the old hak to `.bak` where
-  the module's Save now links it; a temporary `.moonglow-tmp` left in a
-  project by a crash is not in a project's ignored files. (S each)
 
 ## Written more than once (the review of 2026-10-21)
 
@@ -2458,9 +2424,6 @@ of truth, and does each caller's difference matter.
   Aurora's order (a creature's classes and a door's generic appearance
   are by name in Aurora too; its portraits are in the table's order, as
   Select Portrait's grid: captured 2026-10-29).
-- The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
-  sideways, which the area view's has (`model_view.rs:745`,
-  `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
 - The eight corners of a box five times (`model_view.rs:441`, `:459`,
   `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
   renderer.rs:1709`); lightcolor.2da's toolset colors twice

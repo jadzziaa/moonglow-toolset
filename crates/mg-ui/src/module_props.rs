@@ -792,7 +792,15 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
                         There::Same => format!("already in your {folder} folder"),
                         There::Different => format!("a different one is in your {folder} folder"),
                     };
-                    ui.weak(what).on_hover_text(p.to.display().to_string());
+                    let from = match &p.entry {
+                        Some(entry) => format!("{entry} in {}", p.from.display()),
+                        None => p.from.display().to_string(),
+                    };
+                    ui.weak(what).on_hover_text(format!(
+                        "{from}
+→ {}",
+                        p.to.display()
+                    ));
                     if !p.is_tlk {
                         let next_hak = (i + 1..n).find(|&j| !draft.placements[j].is_tlk);
                         let prev_hak = (0..i).rev().find(|&j| !draft.placements[j].is_tlk);

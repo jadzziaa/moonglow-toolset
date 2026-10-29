@@ -1076,7 +1076,9 @@ hak to it too.
 - Each move or removal is one step to undo.
 
 **Add Haks and Talk Table…** (Custom Content) attaches downloaded content
-in one step. Choose the haks and a talk table wherever they are, and put
+in one step. Choose the haks and a talk table wherever they are, or the
+`.zip` they were downloaded as (its haks and talk table are taken from
+it, wherever in it they are; there is no need to unpack it first), and put
 the haks in order (highest priority first). Moonglow copies them into the
 user folder's `hak` and `tlk` (asking before replacing different files of
 the same names), lists the haks at the top of the module's list and names
@@ -1237,8 +1239,12 @@ folder's files, subfolders included, to look over and save.
   **Rename…**, **Extract…** and **Remove**. The list is by name, by type
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the
-  list: a GFF's fields, a text file's text, a compiled model as the
-  text it compiles from, else its first bytes.
+  list: a picture (a TGA or DDS; a PLT in each layer's first color), a
+  sound with **Play**, a 2DA's rows and columns as the resource browser
+  shows them, a GFF's fields, a text file's text, else its first bytes.
+  A model is drawn in the model viewer where the game reads this hak's
+  copy (the hak is one of the module's, saved as it is); otherwise it
+  shows as the text it compiles from.
 - **Compile Models** compiles the hak's models kept as text (ASCII),
   each against its supermodel from this hak, the open module's haks or
   the game, as one step to undo (a hak of many models takes a while:
@@ -1250,7 +1256,9 @@ folder's files, subfolders included, to look over and save.
 - **Update from Folder:** a hak built with Build Hak from Folder
   remembers the folder (from one session to the next, once saved):
   **Update from Folder** takes the folder's files again in place of the
-  hak's, as they are now.
+  hak's, as they are now, as one step to undo. What the hak has and the
+  folder has no file of (a file added by hand, or from another folder)
+  is taken out, and the log names it: **Undo** puts it back.
 - **Adding:** **Add Files…** and **Add Folder…** add files. Where the hak
   already has some of them, it asks first, listing them, as Aurora's hak
   editor does: **Replace** them, **Skip Those** and add the rest, or
@@ -1553,11 +1561,25 @@ plugin reads a description with `mg.twoda.describe`
   (`.mtr`, `.txi`), the models its emitters throw and the model its
   animations come from, taken from the haks and wherever else in the
   load order they are. No digging through haks to hand a broken
-  placeable to whoever mends it. The game's own files are left out,
-  unless all of it is the game's; the log lists each file and the hak
-  it came from. Where the folder has files of those names already, it
-  asks first: replace them, skip those, or cancel. `mg model-files` does
-  the same from a terminal.
+  placeable to whoever mends it. A blueprint's own file goes with them
+  (a placed object's: the blueprint it was placed from), and its row of
+  the table its look is chosen by (a placeable's of `placeables.2da`, a
+  door's of `genericdoors.2da` or `doortypes.2da`, a creature's of
+  `appearance.2da`, an item's of `baseitems.2da`), as a 2DA of that one
+  row numbered as it is in the table: `placeables.2da-row-312.txt`,
+  named so that it is never taken for the table. A tile's view (a double
+  click on a tile's picture in the palette) has Export Files too, and
+  writes its walkmesh (`.wok`) with its model. The game's own files are
+  left out, unless all of it is the game's; the log lists each file and
+  the hak it came from, and names what the model names and the load
+  order has nowhere (a texture the game draws it without). Where the
+  folder has files of those names already, it asks first: replace them,
+  skip those, or cancel. **Export Model Files…** on an area's
+  right-click menu in the module tree does the same for the area: its
+  `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes
+  and minimap pictures, its skybox and loading screen, and the models of
+  every creature, door, placeable and item placed in it. `mg
+  model-files` does both from a terminal.
 - **Copy to Scratch Folder** (the same right-click menu; **To Scratch** in
   the script editor and the area view) writes them into the scratch
   folder: one you choose the first time, kept from then on (Tools ›

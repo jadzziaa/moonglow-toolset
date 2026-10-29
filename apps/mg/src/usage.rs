@@ -341,45 +341,22 @@ impl<'a> Walk<'a> {
     }
 
     fn area(&mut self, are: &Struct) {
+        let mut set = None;
         if let Some(name) = text(are, "Tileset")
             && let Ok(r) = ResRef::from_str(&name)
         {
             self.reach_named(&format!("{name}palstd"), ResType::ITP);
-            if let Some(set) = self.tileset(r) {
-                for t in [&set.general.env_map, &set.grass.texture].into_iter().flatten() {
-                    self.gather.add_texture(t);
-                }
-                for tile in are.list("Tile_List").unwrap_or_default() {
-                    let id = tile.integer("Tile_ID").unwrap_or(-1);
-                    let Some(t) = usize::try_from(id).ok().and_then(|i| set.tiles.get(i)) else {
-                        continue;
-                    };
-                    self.gather.add_model(&t.model);
-                    if let Ok(m) = ResRef::from_str(&t.model.to_ascii_lowercase()) {
-                        self.gather.add_file(m, ResType::WOK);
-                    }
-                    if let Some(map) = &t.image_map_2d {
-                        self.gather.add_texture(map);
-                    }
-                }
-            }
+            set = self.tileset(r);
         }
-        if let Some(t) = self.table("skyboxes") {
-            let row = are.integer("SkyBox").unwrap_or(0);
-            for c in ["DAWN", "DAY", "DUSK", "NIGHT"] {
-                if row > 0
-                    && let Some(m) = cell(&t, row, c)
-                {
-                    self.gather.add_model(&m);
-                }
-            }
+        // (The tables its skybox and loading screen are read from.)
+        self.table("skyboxes");
+        if are.integer("LoadScreenID").is_some_and(|r| r > 0) {
+            self.table("loadscreens");
         }
-        if let Some(row) = are.integer("LoadScreenID").filter(|&r| r > 0)
-            && let Some(t) = self.table("loadscreens")
-            && let Some(image) = cell(&t, row, "BMPResRef")
-        {
-            self.gather.add_texture(&image);
-        }
+        // Its tiles' models, walkmeshes and minimap pictures, the
+        // tileset's maps, the skybox and the loading screen, as Export
+        // Files gathers them.
+        self.gather.area(self.game, are, set.as_deref(), None);
     }
 
     fn tileset(&mut self, r: ResRef) -> Option<Arc<mg_set::Tileset>> {

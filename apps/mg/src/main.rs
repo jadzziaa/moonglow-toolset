@@ -814,7 +814,8 @@ enum Cmd {
     /// table, and saves the module.
     Attach {
         module: PathBuf,
-        /// .hak and .tlk files, highest priority first.
+        /// .hak and .tlk files, highest priority first (a .zip's haks and
+        /// talk table, taken from it, in its order by name).
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// Replace a different file of the same name in the user folder.
@@ -872,13 +873,18 @@ enum Cmd {
     /// resources by type.
     Info { module: PathBuf },
     /// Write the files the game draws something with into a folder: its
-    /// models, their walkmeshes (.pwk, .dwk), textures, materials (.mtr,
-    /// .txi), the models its emitters throw and the model its animations
-    /// come from, from the haks and wherever else in the load order they
-    /// are. The game's own files are left out, unless all are the game's.
+    /// models, their walkmeshes (.pwk, .dwk, .wok), textures, materials
+    /// (.mtr, .txi), the models its emitters throw and the model its
+    /// animations come from, from the haks and wherever else in the load
+    /// order they are; a blueprint with itself and its row of the table its
+    /// look is chosen by (placeables.2da-row-N.txt); an area with its .are
+    /// and .git, its tileset, its tiles and skybox and what is placed in
+    /// it. The game's own files are left out, unless all are the game's.
+    /// What is named and found nowhere is said.
     ModelFiles {
-        /// A model's name (plc_a08), or a blueprint (chest.utp; also .utd,
-        /// .uti, .utc), in the module if one is given, else in the game.
+        /// A model's name (plc_a08), a blueprint (chest.utp; also .utd,
+        /// .uti, .utc) or an area (tavern.are), in the module if one is
+        /// given, else in the game.
         what: String,
         /// The folder to write into (made if missing).
         out: PathBuf,
@@ -3915,9 +3921,28 @@ fn model_files(
         None => Module::new(),
     };
     let game = plugins::game_for(Some(gi), &m, &mut out).context("the game data")?;
+    // (A blueprint's file and its fields, with its look's row.)
+    let mut blueprint = None;
+    // An area: what the game draws it with, after its own .are and .git.
+    let mut own = Vec::new();
+    let mut gather = mg_preview::files::Gatherer::new(&game.resman);
     let preview = match ResKey::from_filename(what) {
+        Some(key) if key.restype == ResType::ARE => {
+            let read = |t: ResType| {
+                let key = ResKey::new(key.resref, t);
+                let data = game.resman.get(&key).ok()?;
+                Some((key, Gff::read(&data).ok()?.root))
+            };
+            let (key, are) =
+                read(ResType::ARE).with_context(|| format!("{key} is found nowhere"))?;
+            let git = read(ResType::GIT);
+            gather.area(&game, &are, None, git.as_ref().map(|(_, s)| s));
+            own.push(key);
+            own.extend(git.map(|(k, _)| k));
+            None
+        }
         Some(key) if key.restype == ResType::MDL => {
-            mg_preview::Preview::model(&key.resref.to_string())
+            Some(mg_preview::Preview::model(&key.resref.to_string()))
         }
         Some(key) => {
             let data = game.resman.get(&key).with_context(|| format!("{key} is found nowhere"))?;
@@ -3934,19 +3959,44 @@ fn model_files(
                 _ => bail!("{key}: give a model's name or a .utp, .utd, .uti or .utc"),
             };
             let preview = preview.map_err(|e| anyhow::anyhow!("{key}: {e}"))?;
-            mg_preview::replaced(preview, &object)
+            let preview = mg_preview::replaced(preview, &object);
+            blueprint = Some((key, object));
+            Some(preview)
         }
-        None => mg_preview::Preview::model(what),
+        None => Some(mg_preview::Preview::model(what)),
     };
-    let files = mg_preview::files::files(&game, &preview);
+    if let Some(preview) = &preview {
+        gather.preview(preview);
+    }
+    let missing = gather.missing().to_vec();
+    let files = gather.into_files();
     if files.is_empty() {
         bail!("{what}: no model found");
     }
     let stock = files.iter().filter(|f| f.stock).count();
     let every = all || stock == files.len();
-    let chosen: Vec<_> = files.iter().filter(|f| every || !f.stock).collect();
-    let existing: Vec<String> =
-        chosen.iter().map(|f| f.key.to_string()).filter(|name| dir.join(name).exists()).collect();
+    // Each file to write: its name, where it is from, whether it is the
+    // game's own, and its bytes (`None`: the resource of that name).
+    let mut chosen: Vec<(String, String, bool, Option<Vec<u8>>)> = Vec::new();
+    for key in &own {
+        let origin = game.resman.origin(key).unwrap_or_default().to_string();
+        chosen.push((key.to_string(), origin, false, None));
+    }
+    if let Some((key, object)) = &blueprint {
+        let origin = game.resman.origin(key).unwrap_or_default().to_string();
+        chosen.push((key.to_string(), origin, false, None));
+        let kind = mg_rules::ObjectKind::from_restype(key.restype);
+        if let Some(row) = kind.and_then(|k| mg_preview::files::look_row(&game, k, object)) {
+            let origin = format!("{}.2da of {}", row.table, row.origin);
+            chosen.push((row.file_name(), origin, false, Some(row.text.into_bytes())));
+        }
+    }
+    chosen.extend(
+        (files.iter().filter(|f| every || !f.stock))
+            .map(|f| (f.key.to_string(), f.origin.clone(), f.stock, None)),
+    );
+    let existing: Vec<&str> =
+        chosen.iter().map(|f| f.0.as_str()).filter(|name| dir.join(name).exists()).collect();
     if !existing.is_empty() && !force && !dry_run {
         bail!(
             "{} has {} of these files already ({}): --force writes over them",
@@ -3958,23 +4008,30 @@ fn model_files(
     if !dry_run {
         std::fs::create_dir_all(dir)?;
     }
-    for f in &chosen {
+    for (name, origin, _, text) in &chosen {
         if !dry_run {
-            std::fs::write(f.key.path_in(dir)?, game.resman.get(&f.key)?)?;
+            match text {
+                Some(text) => std::fs::write(dir.join(name), text)?,
+                None => {
+                    let key = ResKey::from_filename(name).context("a resource's name")?;
+                    std::fs::write(key.path_in(dir)?, game.resman.get(&key)?)?;
+                }
+            }
         }
-        out.line(format!("{}\t{}", f.key, f.origin));
+        out.line(format!("{name}\t{origin}"));
     }
-    let left_out = files.len() - chosen.len();
+    let left_out = files.iter().filter(|f| !every && f.stock).count();
     out.json = serde_json::json!({
         "folder": path_text(dir),
         "written": !dry_run,
         "files": chosen
             .iter()
-            .map(|f| serde_json::json!({
-                "file": f.key.to_string(), "from": f.origin, "stock": f.stock,
+            .map(|(name, origin, stock, _)| serde_json::json!({
+                "file": name, "from": origin, "stock": stock,
             }))
             .collect::<Vec<_>>(),
         "left_out": left_out,
+        "missing": missing,
     });
     let done = if dry_run { "would be written" } else { "written" };
     out.note(match left_out {
@@ -3984,6 +4041,9 @@ fn model_files(
             chosen.len()
         ),
     });
+    if !missing.is_empty() {
+        out.note(format!("found nowhere (the game draws it without them): {}", missing.join(", ")));
+    }
     Ok(out)
 }
 

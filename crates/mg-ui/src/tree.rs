@@ -1412,6 +1412,20 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 scratch: false,
                             });
                         }
+                        if k.restype == ResType::ARE
+                            && ui
+                                .button("Export Model Files…")
+                                .on_hover_text(
+                                    "Write the files the game draws the area with into a \
+                                     folder: its tileset, its tiles' models, walkmeshes and \
+                                     textures, its skybox, and the models of what is placed in \
+                                     it, from the haks and wherever else they are (the game's \
+                                     own are left out, unless all of it is the game's)",
+                                )
+                                .clicked()
+                        {
+                            app.actions.push(Action::ExportAreaFiles(k.resref));
+                        }
                         let tip = crate::transfer::scratch_tip(
                             app.settings.scratch_dir.as_deref(),
                             &format!("{k}{with}"),
