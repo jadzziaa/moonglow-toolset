@@ -515,24 +515,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mark up. Not compared with Aurora's list (its rounding, whether it
   counts a stack); the buy price (mark down) is not shown. (S)
   (GitHub issues 10 to 24, after 1.20.0)
-- **Arrow keys on lists of choices:** every dropdown is drawn by
-  `widgets::dropdown` (a test reads the sources for an egui combo box
-  made elsewhere) or, for a table's rows, `widgets::row_choice`, and
-  takes them while it has the focus (clicked, open or after a choice;
-  Tab), as does Area Properties' Lighting Scheme grid (Left and Right
-  across its columns); a list with the keyboard keeps them from the
-  conversation tree. Escape gives the focus up, as everywhere in the
-  interface, so after closing a list with Escape it is clicked again.
-  Not done: the lists of commands (Module Properties' Add hak…, a
-  trigger's Setup Area Transition…), the 2DA editor's list of flags (a
-  set of ticks) and the Variables window's ▾ menu of a value's
-  suggestions take none; under test are the area's lists and dialogs,
-  Options' Interface size, Advanced Search's kinds and variable types, a
-  creature's Alignment, a conversation's Play Animation and the
-  Lighting Scheme, the others by the source rule alone. A list whose
-  options are read only while it is used (Module Properties' movies and
-  talk tables, a conversation's speaker tags, the NUI editor's targets
-  and binds) reads them every frame it has the focus. (S) (GitHub issue 7)
 - **Pictures in the Appearance list, what is left:** a creature's (a
   plain male body of the appearance), a placeable's, a door's (Appearance
   Type and Generic Appearance) and an item's (its model's, a weapon's

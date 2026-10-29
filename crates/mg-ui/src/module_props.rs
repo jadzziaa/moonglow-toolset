@@ -576,18 +576,27 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     // The list's commands, under it: what adds to it and checks it, and
     // what is done with the rows chosen.
     ui.horizontal(|ui| {
-        // (Commands, not a choice: no arrow keys.)
-        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_ui(ui, |ui| {
-            for h in &available {
-                if ui.selectable_label(false, h).clicked() {
-                    let mut item = ifo::MOD_HAK_LIST.new_item();
-                    item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
-                    let insert =
-                        Edit::insert_item(info_key(), GffPath::root(), list(), haks.len(), item);
-                    app.actions.push(command(vec![insert], "Add hak"));
+        // (Commands, not a choice: the arrows move along them, Enter adds.)
+        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_menu(
+            ui,
+            |ui, keys| {
+                for h in &available {
+                    let r = ui.selectable_label(false, h);
+                    if keys.row(&r) || r.clicked() {
+                        let mut item = ifo::MOD_HAK_LIST.new_item();
+                        item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
+                        let insert = Edit::insert_item(
+                            info_key(),
+                            GffPath::root(),
+                            list(),
+                            haks.len(),
+                            item,
+                        );
+                        app.actions.push(command(vec![insert], "Add hak"));
+                    }
                 }
-            }
-        });
+            },
+        );
         if ui
             .button("Add Haks and Talk Table…")
             .on_hover_text(

@@ -548,6 +548,58 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     assert_eq!(table_of(&h, id).get(0, "Spell"), Some("302"));
 }
 
+/// A flags cell's list of ticks by the keys (GitHub issue 7): once its
+/// box is clicked, Down opens it, the arrows move along the flags and
+/// Space ticks the one there (the list staying open).
+#[test]
+fn a_flags_list_is_ticked_by_the_keys() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-table-flags-keys");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_flags.2da");
+    std::fs::write(&file, "2DA V2.0\r\n\r\n  Label Mask\r\n0 One 0x1\r\n").unwrap();
+    let toml = "[columns.Mask]\nkind = \"flags\"\nvalues = { Red = 1, Green = 2, Blue = 4 }\n";
+    std::fs::write(dir.join("my_flags.2da.toml"), toml).unwrap();
+    let app = game_app(&root, None);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Red"))
+        .map(|n| n.rect().center())
+        .expect("the flags' list");
+    h.hover_at(at);
+    h.run_steps(1);
+    // Opened and closed by clicks: the box keeps the keys.
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    }
+    assert!(h.query_by_label("Blue  (4)").is_none(), "closed");
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowDown] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    h.key_press(egui::Key::Space);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x5"), "Blue ticked");
+    assert!(h.query_by_label("Blue  (4)").is_some(), "still open");
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x7"), "Green ticked");
+}
+
 #[test]
 fn premium_campaigns_find_their_talk_tables_in_the_install() {
     // Tyrants of the Moonsea names `tyrants`, which the game ships in

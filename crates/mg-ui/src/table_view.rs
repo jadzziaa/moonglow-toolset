@@ -1928,12 +1928,13 @@ fn inspector(
                     n => format!("{n} flags"),
                 };
                 ui.weak("flags:");
-                // (A set of ticks, not one choice: no arrow keys.)
+                // (A set of ticks, not one choice: the arrows move along
+                // them, Space or Enter ticks one.)
                 crate::widgets::dropdown(("table-flags-choice", id))
                     .selected_text(shown)
                     .width(300.0)
                     .stays_open()
-                    .show_ui(ui, |ui| {
+                    .show_menu(ui, |ui, keys| {
                         for e in entries {
                             let Some(v) =
                                 mg_module::table_desc::whole(&e.value).filter(|v| *v != 0)
@@ -1942,7 +1943,12 @@ fn inspector(
                             };
                             let mut ticked = bits & v == v;
                             let label = format!("{}  ({})", e.name, e.value);
-                            if ui.checkbox(&mut ticked, label).changed() {
+                            let r = ui.checkbox(&mut ticked, label);
+                            let keyed = keys.row(&r);
+                            if keyed {
+                                ticked = !ticked;
+                            }
+                            if r.changed() || keyed {
                                 let next = if ticked { bits | v } else { bits & !v };
                                 set = Some(kind.flags_cell(next, value.as_deref()));
                             }

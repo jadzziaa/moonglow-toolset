@@ -590,16 +590,17 @@ fn value_choice(
     if d.other {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
-            ui.menu_button("▾", |ui| {
-                for x in &c.list {
-                    if ui.button(shown(x)).clicked() {
-                        *value = x.value.clone();
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text("Its values (variables.toml)");
+            // (Its values to choose from, the arrow keys stepping through
+            // them as every dropdown's do.)
+            let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
+            dropdown(("var-value-offer", row))
+                .selected_text("")
+                .width(24.0)
+                .height(320.0)
+                .show(ui, value, &values, |v| {
+                    c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown)
+                })
+                .on_hover_text("Its values (variables.toml)");
         });
         return;
     }
@@ -2915,17 +2916,9 @@ impl<'a> RowChoice<'a> {
 /// shows them), Page Up and Page Down ten away, Home and End the first
 /// and last. The row chosen so.
 pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
-    if r.clicked() {
-        r.request_focus();
-    }
-    if !r.has_focus() || rows.is_empty() {
+    if !hold_arrows(ui, r) || rows.is_empty() {
         return None;
     }
-    claim_arrows(ui, r);
-    // (The arrows are the list's while it has the focus, not egui's way
-    // from one widget to the next.)
-    let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
-    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
     let last = rows.len() as i64 - 1;
     let at = rows.iter().position(|&row| row == current).map(|a| a as i64);
     let to = ui.input(|i| {
@@ -2948,6 +2941,22 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
         }
     })?;
     rows.get(to as usize).copied().filter(|&row| row != current)
+}
+
+/// A list of choices' box `r` takes the keyboard when clicked, and the
+/// arrow keys while it has it (not egui's way from one widget to the
+/// next): whether it has it.
+fn hold_arrows(ui: &Ui, r: &egui::Response) -> bool {
+    if r.clicked() {
+        r.request_focus();
+    }
+    if !r.has_focus() {
+        return false;
+    }
+    claim_arrows(ui, r);
+    let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
+    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
+    true
 }
 
 /// (Where the list of choices with the keyboard is kept: [`choice_has_keys`].)
@@ -3039,11 +3048,15 @@ pub(crate) fn arrow_step<T: PartialEq + Clone>(
 /// builder over egui's combo box, `id_salt` its id.
 pub(crate) struct Dropdown {
     combo: egui::ComboBox,
+    /// Its id salt as an id: where [`Dropdown::show_menu`] keeps its keys.
+    salt: egui::Id,
+    stays_open: bool,
 }
 
 /// A [`Dropdown`] with the id `id_salt`.
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
-    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt) }
+    let salt = egui::Id::new(&id_salt);
+    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt), salt, stays_open: false }
 }
 
 /// A [`Dropdown`] with `label` after its box (and naming it).
@@ -3051,7 +3064,8 @@ pub(crate) fn dropdown_labelled(
     id_salt: impl egui::AsIdSalt,
     label: impl Into<egui::WidgetText>,
 ) -> Dropdown {
-    Dropdown { combo: egui::ComboBox::new(id_salt, label) }
+    let salt = egui::Id::new(&id_salt);
+    Dropdown { combo: egui::ComboBox::new(id_salt, label), salt, stays_open: false }
 }
 
 impl Dropdown {
@@ -3076,6 +3090,7 @@ impl Dropdown {
     /// Open until a click lands outside it (a list of ticks, not one choice).
     pub(crate) fn stays_open(mut self) -> Self {
         self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        self.stays_open = true;
         self
     }
 
@@ -3113,21 +3128,138 @@ impl Dropdown {
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
         let r = self.combo.show_ui(ui, |ui| rows(ui, current)).response;
-        if r.clicked() || r.has_focus() {
+        // (The options read only when an arrow key is pressed: not each
+        // frame the box has the keys.)
+        let keyed = ui.input(|i| {
+            use egui::Key;
+            [Key::ArrowDown, Key::ArrowUp, Key::PageDown, Key::PageUp, Key::Home, Key::End]
+                .iter()
+                .any(|k| i.key_pressed(*k) && i.modifiers.is_none())
+        });
+        if keyed && (r.clicked() || r.has_focus()) {
             arrow_step(ui, &r, &options(), current);
+        } else {
+            hold_arrows(ui, &r);
         }
         r
     }
 
+    /// A dropdown of commands (Add hak…, Setup Area Transition…) or of
+    /// ticks (the 2DA editor's flags), not one choice: once its box is
+    /// clicked or reached with Tab, Up and Down open it and move a cursor
+    /// along its rows (Home and End: the first and last), and Enter or
+    /// Space does what the row's click does ([`MenuKeys::row`]): a
+    /// command closes the list, a tick leaves it open. The box's response.
+    pub(crate) fn show_menu(
+        self,
+        ui: &mut Ui,
+        contents: impl FnOnce(&mut Ui, &mut MenuKeys),
+    ) -> egui::Response {
+        let state_id = ui.make_persistent_id(("menu-keys", self.salt));
+        let mut state: MenuState = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
+        let focused = state.button.is_some_and(|b| ui.memory(|m| m.has_focus(b)));
+        let popup = state.button.map(|b| b.with("popup"));
+        let open = popup.is_some_and(|p| egui::Popup::is_id_open(ui.ctx(), p));
+        let mut pressed = None;
+        if focused && let Some(popup) = popup {
+            let none = egui::Modifiers::NONE;
+            let key = |k| ui.input_mut(|i| i.consume_key(none, k));
+            let last = state.rows.saturating_sub(1);
+            let at = state.cursor;
+            let to = if key(egui::Key::ArrowDown) {
+                Some(at.map_or(0, |a| (a + 1).min(last)))
+            } else if key(egui::Key::ArrowUp) {
+                Some(at.map_or(last, |a| a.saturating_sub(1)))
+            } else if open && key(egui::Key::Home) {
+                Some(0)
+            } else if open && key(egui::Key::End) {
+                Some(last)
+            } else {
+                None
+            };
+            if let Some(to) = to {
+                if !open {
+                    // (Opened at its first row: its rows are not known yet.)
+                    egui::Popup::open_id(ui.ctx(), popup);
+                    state.cursor = Some(0);
+                } else {
+                    state.cursor = Some(to);
+                }
+                state.reveal = true;
+            }
+            if open && state.cursor.is_some() && (key(egui::Key::Enter) || key(egui::Key::Space)) {
+                pressed = state.cursor;
+            }
+        }
+        let mut keys = MenuKeys { cursor: state.cursor, pressed, reveal: state.reveal, rows: 0 };
+        let r = self.combo.show_ui(ui, |ui| contents(ui, &mut keys)).response;
+        hold_arrows(ui, &r);
+        let still_open = egui::ComboBox::is_open(ui.ctx(), r.id);
+        if pressed.is_some() && !self.stays_open {
+            egui::Popup::close_id(ui.ctx(), r.id.with("popup"));
+        }
+        state = MenuState {
+            button: Some(r.id),
+            // (Once open, the rows are known.)
+            rows: if still_open { keys.rows } else { state.rows.max(keys.rows) },
+            cursor: if still_open || state.cursor.is_some() && !open {
+                state.cursor.map(|c| c.min(keys.rows.max(1) - 1))
+            } else {
+                None
+            },
+            reveal: false,
+        };
+        if pressed.is_some() && !self.stays_open {
+            state.cursor = None;
+        }
+        ui.data_mut(|d| d.insert_temp(state_id, state));
+        r
+    }
+
     /// A dropdown that is not a list of choices, whose arrow keys would
-    /// have nothing to step through: commands (Add hak…), a set of ticks,
-    /// a grid of colors.
+    /// have nothing to step through: a grid of colors.
     pub(crate) fn show_ui<R>(
         self,
         ui: &mut Ui,
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
         self.combo.show_ui(ui, contents)
+    }
+}
+
+/// Where [`Dropdown::show_menu`]'s keys are: the box (last drawn), its
+/// rows (when last open) and the row the cursor is at.
+#[derive(Clone, Copy, Default)]
+struct MenuState {
+    button: Option<egui::Id>,
+    rows: usize,
+    cursor: Option<usize>,
+    reveal: bool,
+}
+
+/// The keys of a [`Dropdown::show_menu`]'s rows: each row's response goes
+/// through [`MenuKeys::row`], in the order shown.
+pub(crate) struct MenuKeys {
+    cursor: Option<usize>,
+    pressed: Option<usize>,
+    reveal: bool,
+    rows: usize,
+}
+
+impl MenuKeys {
+    /// A row of the list, `r` its response: shown as under the pointer
+    /// where the cursor is; true when Enter or Space was pressed there (do
+    /// what its click does).
+    pub(crate) fn row(&mut self, r: &egui::Response) -> bool {
+        let at = self.rows;
+        self.rows += 1;
+        if self.cursor == Some(at) {
+            r.clone().highlight();
+            if self.reveal {
+                r.scroll_to_me(None);
+            }
+        }
+        self.pressed == Some(at)
     }
 }
 

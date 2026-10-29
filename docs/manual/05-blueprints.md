@@ -207,9 +207,13 @@ The palette's buttons:
   the first and last. Every other dropdown takes them the same way: a
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
-  editors, the wizards, the resource browser and Advanced Search (not
-  the lists of commands, Add hak… and Setup Area Transition…, nor a
-  list of ticks). A creature's and a placeable's Appearance list, and a
+  editors, the wizards, the resource browser and Advanced Search, and a
+  described variable's ▾ of its values. The lists of commands (Add hak…,
+  Setup Area Transition…) and of ticks (a 2DA's flags) take them too:
+  Down opens one, Up and Down (Home, End) go along its rows, and Enter or
+  Space does what a click there does (a command closes the list; a tick
+  leaves it open for the next). Escape closes a list and gives up the
+  keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
   door's Appearance Type and Generic Appearance, show each appearance's
   picture beside the row the pointer rests on, and the chosen one's with
   the pointer resting on the list's box: leave it there and the picture

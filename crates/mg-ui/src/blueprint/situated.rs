@@ -436,11 +436,11 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         // Aurora's Setup Area Transition: a door or waypoint in an area
         // (gathered while the list is open: from every area's objects).
         let mut pick = None;
-        // (Commands, not a choice: no arrow keys.)
+        // (Commands, not a choice: the arrows move along them, Enter sets.)
         crate::widgets::dropdown(("utt-setup", f.key))
             .selected_text("Setup Area Transition…")
             .width(260.0)
-            .show_ui(ui, |ui| {
+            .show_menu(ui, |ui, keys| {
                 let dests = destinations(f);
                 // (Areas by name, when the module tree lists them so.)
                 let mut areas: std::collections::HashMap<_, String> = Default::default();
@@ -456,7 +456,8 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
                 for (area, tag, flags) in &dests {
                     let kind = if *flags == 1 { "door" } else { "waypoint" };
                     let area = &areas[area];
-                    if ui.selectable_label(false, format!("{area}: {tag} ({kind})")).clicked() {
+                    let r = ui.selectable_label(false, format!("{area}: {tag} ({kind})"));
+                    if keys.row(&r) || r.clicked() {
                         pick = Some((tag.clone(), *flags));
                     }
                 }
