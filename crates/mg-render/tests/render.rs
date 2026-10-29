@@ -1309,6 +1309,107 @@ fn meshes_out_of_the_camera_s_sight_are_left_out() {
     assert!(lit(62), "the quad across the edge: {:?}", image.pixel(62, 32));
 }
 
+/// A 2×2 quad on the ground at `x`, skinned to its one bone (node 1).
+fn skinned_quad(x: f32) -> Model {
+    let mut model = quad();
+    let mut bone = Node::new("bone", NodeKind::Dummy);
+    bone.parent = Some(0);
+    model.nodes[0].children = vec![1, 2];
+    let mut skin = model.nodes.remove(1);
+    if let NodeKind::Mesh(m) = &mut skin.kind {
+        for v in &mut m.vertices {
+            v[0] += x;
+        }
+        m.extra = mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+            bones: vec![1],
+            weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
+            inverse_bind: Vec::new(),
+        });
+    }
+    model.nodes.insert(1, bone);
+    model.nodes.push(skin);
+    model
+}
+
+/// A skinned mesh, and one whose vertices an animation replaces, are left
+/// out where the camera can't see them as they are now, not as they were
+/// bound: one bound in sight, carried out of it by its bone (or its
+/// vertices), is left out; one bound out of sight, carried into it, is
+/// drawn where it is carried to. (They were never left out: an off-screen
+/// creature was posed and drawn.)
+#[test]
+fn skinned_and_animated_meshes_out_of_sight_are_left_out() {
+    let Some(gpu) = gpu() else { return };
+    // From above: the ground from -3.4 to 3.4 each way is in the picture.
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |instance: Instance| {
+        let scene = Scene {
+            instances: vec![instance],
+            area: AreaLight { ambient: Vec3::splat(0.5), ..Default::default() },
+            ..Default::default()
+        };
+        let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+        (r.drawn, image.pixel(32, 32)[0] > 40)
+    };
+    // Skinned: bound at x, its bone carried by `by` along x.
+    let posed = |x: f32, by: f32| {
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(skinned_quad(x))));
+        assert!(model.meshes[0].skin.is_some());
+        let pose = vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::X * by), Mat4::IDENTITY];
+        Instance { pose: Some(Arc::new(pose)), ..Instance::new(model, Mat4::IDENTITY) }
+    };
+    let (drawn, lit) = shot(posed(0.0, 0.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "bound and posed in sight");
+    let (drawn, lit) = shot(posed(0.0, 20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (0, 1, false), "carried out of sight");
+    let (drawn, lit) = shot(posed(20.0, -20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "carried into sight");
+    // Animated: the quad's vertices moved by `by` along x.
+    let plain = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let moved = |model: &Arc<GpuModel>, by: f32| {
+        let mut state = mg_render::MeshState::new(model);
+        let corners = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+        let vertices = corners
+            .iter()
+            .map(|[x, y]| mg_render::model::Vertex {
+                pos: [x + by, *y, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0; 2],
+                tangent: [0.0; 4],
+                color: [255; 4],
+                uv1: [0.0; 2],
+                uv2: [0.0; 2],
+                uv3: [0.0; 2],
+            })
+            .collect();
+        state.meshes[0].vertices = Some(vertices);
+        Instance { state: Some(Arc::new(state)), ..Instance::new(model.clone(), Mat4::IDENTITY) }
+    };
+    let (drawn, lit) = shot(moved(&plain, 20.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (0, 1, false), "moved out of sight");
+    let far = Arc::new(GpuModel::new(&gpu, Arc::new(skinless_at(20.0))));
+    let (drawn, lit) = shot(moved(&far, 0.0));
+    assert_eq!((drawn.meshes, drawn.hidden, lit), (1, 0, true), "moved into sight");
+}
+
+/// A [`quad`] at `x`.
+fn skinless_at(x: f32) -> Model {
+    let mut model = quad();
+    if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+        for v in &mut m.vertices {
+            v[0] += x;
+        }
+    }
+    model
+}
+
 /// Each draw takes its own values (they lie in one list, a draw's found by
 /// its number): quads of three colours show each in its own, one of them
 /// see-through (three draws, each with values of its own: its depth, and

@@ -1908,23 +1908,49 @@ impl Renderer {
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
                 let half = (mesh.max - mesh.min) * 0.5;
                 let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
-                // Out of the camera's sight: not drawn. (Of the meshes
-                // that stay in their box: not one a skin moves with its
-                // bones or whose vertices an animation replaces.)
                 let moved = replaced.and_then(|r| r.vertices.as_ref());
+                // Bones: bind pose to current pose, in the skin node's space.
+                let bone_base = bones.len() as u32;
+                if let Some(skin) = &mesh.skin {
+                    let skin_now = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                    let to_skin = skin_now.inverse();
+                    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
+                        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
+                        bones.push(cols(to_skin * now * *inverse_bind));
+                    }
+                }
+                // Out of the camera's sight: not drawn. A mesh that stays
+                // in its box, by its box; one a skin moves, by the box its
+                // bones carry it to; one whose vertices an animation
+                // replaces, by theirs.
                 let mut bounds = None;
-                if !is_sky && mesh.skin.is_none() && moved.is_none() {
+                if !is_sky {
+                    let (min, max) = match (moved, &mesh.skin) {
+                        (Some(v), _) => vertices_box(v),
+                        (None, Some(skin)) => {
+                            let bones = &bones[bone_base as usize..];
+                            posed_box(mesh.min, mesh.max, skin.weighed, skin.unweighed, bones)
+                        }
+                        (None, None) => (mesh.min, mesh.max),
+                    };
                     // (The box as it lies in the scene, turned and scaled,
                     // and a ball around it.)
+                    let (centre, half) =
+                        (world.transform_point3((min + max) * 0.5), (max - min) * 0.5);
                     let turned = glam::Mat3::from_mat4(world);
                     let around = turned.x_axis.abs() * half.x
                         + turned.y_axis.abs() * half.y
                         + turned.z_axis.abs() * half.z;
                     if frustum.hides(centre, around.length()) {
+                        bones.truncate(bone_base as usize);
                         hidden += 1;
                         continue;
                     }
-                    bounds = Some(Bounds { min: centre - around, max: centre + around });
+                    // (Where it meets other see-through meshes: of a mesh
+                    // that stays in its box only.)
+                    if mesh.skin.is_none() && moved.is_none() {
+                        bounds = Some(Bounds { min: centre - around, max: centre + around });
+                    }
                 }
                 // (Linear: the material's as worked out once, else as an
                 // animation has it now.)
@@ -1936,16 +1962,6 @@ impl Renderer {
                     dynamic.extend_from_slice(v);
                     (start, dynamic.len() as u64 * size)
                 });
-                // Bones: bind pose to current pose, in the skin node's space.
-                let bone_base = bones.len() as u32;
-                if let Some(skin) = &mesh.skin {
-                    let skin_now = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-                    let to_skin = skin_now.inverse();
-                    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
-                        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
-                        bones.push(cols(to_skin * now * *inverse_bind));
-                    }
-                }
                 let model_view = view * world;
                 let radius = world.transform_vector3(half).length();
                 let mat = &mesh.material;
@@ -3018,6 +3034,49 @@ fn scene_pass<'e>(
     pass
 }
 
+/// The box around vertices (an animation's, replacing a mesh's).
+fn vertices_box(vertices: &[Vertex]) -> (Vec3, Vec3) {
+    vertices.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(min, max), v| {
+        let p = Vec3::from(v.pos);
+        (min.min(p), max.max(p))
+    })
+}
+
+/// The box a skinned mesh bound in the box `min`…`max` lies in, posed by
+/// `bones` (each from the bind pose to the pose, in the skin node's
+/// space, as its draw takes them). A posed vertex is its bones' places
+/// for it, weighed: made to add up to one (Moonglow's own shader), it
+/// lies within the boxes the bones carry the bound box to, so their box
+/// holds every vertex, however far the bones go; as they are (the
+/// game's programs), within that box shrunk or grown about the skin
+/// node's origin by what the weights add up to. A vertex weighed to no
+/// bone stays where it was bound (Moonglow's) or goes to the origin (the
+/// game's).
+fn posed_box(
+    min: Vec3,
+    max: Vec3,
+    [least, most]: [f32; 2],
+    unweighed: bool,
+    bones: &[[[f32; 4]; 4]],
+) -> (Vec3, Vec3) {
+    let (centre, half) = ((min + max) * 0.5, (max - min) * 0.5);
+    let empty = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let (lo, hi) = bones.iter().fold(empty, |(lo, hi), b| {
+        let m = Mat4::from_cols_array_2d(b);
+        let turned = glam::Mat3::from_mat4(m);
+        let at = m.transform_point3(centre);
+        let around = turned.x_axis.abs() * half.x
+            + turned.y_axis.abs() * half.y
+            + turned.z_axis.abs() * half.z;
+        (lo.min(at - around), hi.max(at + around))
+    });
+    let (mut lo, mut hi) = (lo.min(lo * least).min(lo * most), hi.max(hi * least).max(hi * most));
+    if unweighed {
+        (lo, hi) = (lo.min(min).min(Vec3::ZERO), hi.max(max).max(Vec3::ZERO));
+    }
+    (lo, hi)
+}
+
 /// A box of the scene as the camera sees it (`on_screen`: its projection
 /// times its view): the rectangle around it on the screen, from -1 to 1
 /// each way; all of the screen for one that reaches behind the camera.
@@ -3137,6 +3196,33 @@ impl Targets {
 
 #[cfg(test)]
 mod tests {
+    use glam::{Mat4, Vec3};
+
+    /// A skinned mesh's posed box holds where every bone carries it, and
+    /// the bound box only where a vertex is weighed to no bone; weights
+    /// that add up to more or less than one (as the game's programs take
+    /// them) grow or shrink it about the skin's origin.
+    #[test]
+    fn a_skinned_mesh_s_posed_box_holds_what_its_bones_carry() {
+        let (min, max) = (Vec3::new(9.0, -1.0, 0.0), Vec3::new(11.0, 1.0, 2.0));
+        let bone = |m: Mat4| m.to_cols_array_2d();
+        let bones = [
+            bone(Mat4::from_translation(Vec3::new(-10.0, 0.0, 0.0))),
+            bone(Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+        ];
+        let (lo, hi) = super::posed_box(min, max, [1.0, 1.0], false, &bones);
+        // (Carried to the origin; turned a quarter about it, to x -1…1,
+        // y 9…11.)
+        assert!(lo.abs_diff_eq(Vec3::new(-1.0, -1.0, 0.0), 1e-4), "{lo}");
+        assert!(hi.abs_diff_eq(Vec3::new(1.0, 11.0, 2.0), 1e-4), "{hi}");
+        let (lo, hi) = super::posed_box(min, max, [1.0, 1.0], true, &bones[..1]);
+        assert!(lo.abs_diff_eq(Vec3::new(-1.0, -1.0, 0.0), 1e-4), "{lo}");
+        assert!(hi.abs_diff_eq(Vec3::new(11.0, 1.0, 2.0), 1e-4), "bound box too: {hi}");
+        let (lo, hi) = super::posed_box(min, max, [0.5, 2.0], false, &bones[1..]);
+        assert!(lo.abs_diff_eq(Vec3::new(-2.0, 4.5, 0.0), 1e-4), "{lo}");
+        assert!(hi.abs_diff_eq(Vec3::new(2.0, 22.0, 4.0), 1e-4), "{hi}");
+    }
+
     /// A program's defines, as a custom fragment program has them (Heed's
     /// `fhss_skintile`, the stock `fslit_nm` but for keyholing): what
     /// Moonglow's own shader lights its material as.
