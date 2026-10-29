@@ -29,9 +29,8 @@ use crate::{Action, Moonglow};
 /// What is asked about claims and protected names.
 #[derive(Debug, Default)]
 pub(crate) struct ClaimsState {
-    /// The Save window: the areas not this builder's that a save would
-    /// write, each with why, and what Save Anyway goes on with.
-    pub(crate) save_ask: Option<(Vec<(ResRef, String)>, Action)>,
+    /// The Save window.
+    pub(crate) save_ask: Option<SaveAsk>,
     /// Save Anyway was chosen: the next save is not asked about.
     pub(crate) cleared: bool,
     /// The Protected Area window.
@@ -40,6 +39,26 @@ pub(crate) struct ClaimsState {
     let_through: Option<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
+}
+
+/// A save held: the areas not this builder's that it would write, each
+/// with why, as the project's claims had it then, and what Save Anyway
+/// goes on with.
+#[derive(Debug, Clone)]
+pub(crate) struct SaveAsk {
+    areas: Vec<(ResRef, String)>,
+    then: Action,
+    /// The claims the list was made by (the table, the rules and the
+    /// builder's code): read again (a pull, with reloading on), the list
+    /// is made again.
+    by: Whose,
+}
+
+/// What says whose each area is.
+type Whose = (Option<mg_module::claims::Claims>, mg_module::claims::ClaimRules, Option<String>);
+
+fn whose(p: &ProjectFile) -> Whose {
+    (p.claim_table.clone(), p.claims.clone(), p.user.builder_code.clone())
 }
 
 /// A change to a protected area, held until the builder answers.
@@ -221,9 +240,21 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
     if std::mem::take(&mut app.claims.cleared) || !kept(app) {
         return false;
     }
-    let Some(ws) = app.ws.as_mut() else { return false };
-    if ws.flush().is_err() {
+    let asked = others_changed(app);
+    if asked.is_empty() {
         return false;
+    }
+    let by = project(app).map(whose).unwrap_or_default();
+    app.claims.save_ask = Some(SaveAsk { areas: asked, then, by });
+    true
+}
+
+/// The areas not this builder's (in a project that warns of them) that a
+/// save would write a change to, each with why.
+fn others_changed(app: &mut Moonglow) -> Vec<(ResRef, String)> {
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    if ws.flush().is_err() {
+        return Vec::new();
     }
     let m = &ws.module;
     let mut areas: Vec<ResRef> = m
@@ -247,18 +278,13 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
             !same(m.get(&k), m.as_read(&k))
         })
     };
-    let asked: Vec<(ResRef, String)> = areas
+    areas
         .into_iter()
         .filter_map(|a| match m.project_file.access(a) {
             Access::Warn(why) if changed(a) => Some((a, why)),
             _ => None,
         })
-        .collect();
-    if asked.is_empty() {
-        return false;
-    }
-    app.claims.save_ask = Some((asked, then));
-    true
+        .collect()
 }
 
 /// Claims an area (or releases this builder's claim of it) in the
@@ -460,7 +486,23 @@ fn end_pass(app: &mut Moonglow) {
 }
 
 fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some((areas, then)) = app.claims.save_ask.clone() else { return };
+    let Some(ask) = app.claims.save_ask.take() else { return };
+    // The claims read again while it waits (a pull): the list made again,
+    // and the save gone on with where none is left.
+    let now = project(app).map(whose).unwrap_or_default();
+    let ask = if now == ask.by {
+        ask
+    } else {
+        let areas = if kept(app) { others_changed(app) } else { Vec::new() };
+        if areas.is_empty() {
+            app.log.info("The claims table changed: the save writes no area not yours now");
+            app.actions.push(ask.then);
+            return;
+        }
+        SaveAsk { areas, by: now, ..ask }
+    };
+    app.claims.save_ask = Some(ask.clone());
+    let SaveAsk { areas, then, .. } = ask;
     let mut open = true;
     let (mut save, mut cancel) = (false, false);
     crate::widgets::dialog(ctx, "Areas Not Yours", &mut open)

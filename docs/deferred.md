@@ -2701,9 +2701,6 @@ File › Project. What is left:
 - **The window can't take another builder's claim** (only `mg claims
   --force` does), nor hand one to another builder, nor show the table
   whole (`mg claims` lists it). (S)
-- **A claims table changed by git while a save waits** is read again by
-  the folder's watch (with reloading on); the Areas Not Yours window
-  keeps the list it opened with. (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)

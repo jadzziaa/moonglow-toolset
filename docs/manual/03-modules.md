@@ -874,7 +874,9 @@ log by line, as the project file's are.
 - where it warns (the default), you may change it, and a save that
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed
-  area in a project that warns of those.
+  area in a project that warns of those. The table read again while it
+  asks (a pull, with Options › General's reloading on), its list follows
+  it, and with none left the save goes on.
 
 **Claim This Area** and **Release Claim**, in the area's menu in the
 module tree and on its tab, write your row into the table (made, with

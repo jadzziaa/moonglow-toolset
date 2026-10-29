@@ -1739,6 +1739,27 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     assert!(h.query_by_label("Areas Not Yours").is_none());
+    // The table changed while the save waits (a pull, read again by the
+    // folder's watch): the window's list follows it, and with none left
+    // the save goes on.
+    h.state_mut().actions.push(rename_start("Square"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    h.run();
+    h.get_by_label("  •  start is claimed by cd since 2026-10-20");
+    std::fs::write(dir.join("claims.2da"), claims_table("ef", "claimed")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    h.get_by_label("  •  start is claimed by ef since 2026-10-20");
+    assert!(h.state().has_unsaved_work());
+    std::fs::write(dir.join("claims.2da"), claims_table("ab", "claimed")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Areas Not Yours").is_none());
+    assert!(logged(&h, "The claims table changed: the save writes no area not yours now"));
+    assert!(!h.state().has_unsaved_work(), "saved");
 }
 
 /// C6: Claim This Area (the module tree's menu) writes the builder's row
