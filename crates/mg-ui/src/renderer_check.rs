@@ -93,17 +93,33 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
 }
 
 /// The game's programs (`.shd`), as the lit check reads them: out of the
-/// game data, which it does not hold.
-struct GameShaders(std::collections::HashMap<mg_core::ResRef, String>);
+/// game data, which it does not hold. Each with the game's own copy, which
+/// the check draws with, and where the load order's comes from when it is
+/// a builder's ([`mg_render::Assets::game_shader`], `shader_origin`).
+struct GameShaders(std::collections::HashMap<mg_core::ResRef, Program>);
+
+/// A program as the load order has it, the game's own copy, and where the
+/// load order's comes from when it isn't the game's.
+struct Program {
+    loaded: String,
+    own: Option<String>,
+    origin: Option<String>,
+}
 
 impl GameShaders {
     fn of(resman: &mg_resman::ResMan) -> GameShaders {
-        let shd = mg_core::ResType::SHD;
+        use mg_render::Assets;
         let read = |r: mg_core::ResRef| {
-            let data = resman.get(&mg_resman::ResKey::new(r, shd)).ok()?;
-            Some((r, String::from_utf8_lossy(&data).into_owned()))
+            let name = r.to_string();
+            let loaded = resman.shader(&name)?;
+            let (own, origin) = (resman.game_shader(&name), resman.shader_origin(&name));
+            Some((r, Program { loaded, own, origin }))
         };
-        GameShaders(resman.list(shd).into_iter().filter_map(read).collect())
+        GameShaders(resman.list(mg_core::ResType::SHD).into_iter().filter_map(read).collect())
+    }
+
+    fn program(&self, name: &str) -> Option<&Program> {
+        self.0.get(&mg_core::ResRef::cut(name)?)
     }
 }
 
@@ -113,7 +129,15 @@ impl mg_render::Assets for GameShaders {
     }
 
     fn shader(&self, name: &str) -> Option<String> {
-        self.0.get(&mg_core::ResRef::cut(name)?).cloned()
+        self.program(name).map(|p| p.loaded.clone())
+    }
+
+    fn game_shader(&self, name: &str) -> Option<String> {
+        self.program(name).and_then(|p| p.own.clone())
+    }
+
+    fn shader_origin(&self, name: &str) -> Option<String> {
+        self.program(name).and_then(|p| p.origin.clone())
     }
 }
 
@@ -312,4 +336,35 @@ pub(crate) fn restart(app: &mut Moonglow, backend: wgpu::Backend) {
     ));
     app.relaunch =
         Some(Relaunch { module: app.module_path(), backend, environment: check.from_environment });
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_render::Assets;
+    use mg_resman::{LayerClass, MemContainer, ResKey, ResMan, priority};
+
+    use super::GameShaders;
+
+    /// The lit check's programs, read apart from the game data, keep the
+    /// game's own copy it draws with and where a builder's comes from (the
+    /// two fixes of one day met here: read up front, it had drawn the
+    /// builder's `inc_lighting` again).
+    #[test]
+    fn the_lit_check_s_programs_keep_the_game_s_own_copy() {
+        let key = |name: &str| ResKey::new(name.parse().unwrap(), mg_core::ResType::SHD);
+        let (mut game, mut over) = (MemContainer::new(), MemContainer::new());
+        game.insert(key("inc_lighting"), b"game".to_vec());
+        game.insert(key("fslit"), b"stock".to_vec());
+        over.insert(key("inc_lighting"), b"builder".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
+        let shaders = GameShaders::of(&rm);
+        assert_eq!(shaders.shader("inc_lighting").as_deref(), Some("builder"));
+        assert_eq!(shaders.game_shader("inc_lighting").as_deref(), Some("game"));
+        assert_eq!(shaders.shader_origin("inc_lighting").as_deref(), Some("override"));
+        assert_eq!(shaders.game_shader("fslit").as_deref(), Some("stock"));
+        assert_eq!(shaders.shader_origin("fslit"), None);
+        assert_eq!(shaders.game_shader("nothing"), None);
+    }
 }
