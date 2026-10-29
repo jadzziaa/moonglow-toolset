@@ -1659,17 +1659,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tree no longer deletes the resource (it is a cut, which the tree does
   not take). (S) (Sacha's report on 2.5.4) (waits on the keys pressed
   in the running program: the owner's on Linux, Sacha's on his system)
-- **Undo's name for a side editor's step:** with the pointer over a
-  hak's, a 2DA's, a tileset's or the talk table's editor, or the keys in
-  a 2DA's grid, Edit › Undo and Redo (and the toolbar's) are that
-  editor's, and say plain "Undo" rather than the step (the module's step
-  is named; the hak's and the 2DA's have names to give, the tileset's
-  and the talk table's none). The tileset's editor has no test of its
-  own for its keys (it shares the hak's path, `side_doc.rs`). A text
-  field in one of these editors that has the keyboard but has not been
-  typed in since it took it (the Find field, clicked again) passes
-  Undo's key to the editor's step, as fields elsewhere pass it to the
-  module's; the 2DA grid's own reading of Ctrl+Z left it to the field. (S)
 
 ## NUI Creator (the review of its pull request, October 2026)
 

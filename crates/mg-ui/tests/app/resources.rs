@@ -799,6 +799,21 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     let ctrl = egui::Modifiers::COMMAND;
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
+    // Edit › Undo is the hak's, the pointer gone from the editor to the
+    // menu, and names its step; so is the toolbar's.
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label_contains("Undo Add files").click();
+    h.run();
+    assert_eq!(items(&h), 0, "the hak's step undone from the menu");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run();
+    h.get_by_label("Redo").click();
+    h.run();
+    assert_eq!(items(&h), 1, "redone by the toolbar's Redo");
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run();
     h.key_press_modifiers(ctrl, egui::Key::Z);
     h.run();
     assert_eq!(items(&h), 0, "the hak's step undone");
@@ -810,6 +825,28 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     h.key_press_modifiers(ctrl | egui::Modifiers::SHIFT, egui::Key::Z);
     h.run();
     assert_eq!(items(&h), 1, "redone");
+    // Its Find field clicked, not typed in: nothing of its own to take
+    // back, so Undo is the hak's, as a field elsewhere passes it to the
+    // module's (GitHub issue 18's rule). Typed in, the field's own.
+    let find =
+        egui_kittest::kittest::by().predicate(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.placeholder() == Some("name or .type")
+        });
+    h.get(find.clone()).click();
+    h.run();
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 0, "the hak's step, from its Find field");
+    h.key_press_modifiers(ctrl | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 1);
+    h.get(find).type_text("mg");
+    h.run();
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 1, "the field's typing, not the hak's step");
+    h.key_press(egui::Key::Escape);
+    h.run();
     // Away from the editor (over the module tree), the module's.
     h.hover_at(h.get_by_label("Areas (1)").rect().center());
     h.run();

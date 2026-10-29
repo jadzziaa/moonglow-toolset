@@ -553,13 +553,17 @@ impl Id {
     fn label(self, app: &Moonglow) -> String {
         let ws = app.ws.as_ref();
         match self {
-            // (A script's step, with the keys in its editor, or a side
-            // editor's, with the keys in its grid: not the module's to
-            // name.)
-            Id::Undo | Id::Redo
-                if app.undo_script.is_some() || app.local_can_undo(self == Id::Redo).is_some() =>
-            {
-                self.text().1.into_owned()
+            // (A script's step, with the keys in its editor: not the
+            // module's to name, nor one it has a name for.)
+            Id::Undo | Id::Redo if app.undo_script.is_some() => self.text().1.into_owned(),
+            // (A side editor's, with the pointer over it or the keys in its
+            // grid: named where the editor names its steps, a hak's and a
+            // 2DA's.)
+            Id::Undo | Id::Redo if app.local_can_undo(self == Id::Redo).is_some() => {
+                match app.local_step_name(self == Id::Redo) {
+                    Some(step) => format!("{} {step}", self.text().1),
+                    None => self.text().1.into_owned(),
+                }
             }
             Id::Undo => match ws.and_then(|ws| ws.can_undo()) {
                 Some(what) => format!("Undo {what}"),
@@ -1677,8 +1681,11 @@ pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
                 ui.separator();
                 continue;
             };
+            // (Undo and Redo say the step they take, as the Edit menu does.)
+            let tip =
+                if matches!(id, Id::Undo | Id::Redo) { id.label(app) } else { tip.to_string() };
             let tip = match app.keymap.label_of(&id.id(), ui.ctx()) {
-                k if k.is_empty() => tip.to_string(),
+                k if k.is_empty() => tip,
                 k => format!("{tip} ({k})"),
             };
             let clicked = if id == Id::PreviewWindow {

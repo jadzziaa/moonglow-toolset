@@ -320,6 +320,46 @@ fn nwsync_publish_and_prune() {
     }
 }
 
+/// Edit › Undo opened from a hak's editor (`target/test-output/screens-undo/`,
+/// `edit-menu-over-a-hak`): the hak's step, named ("Undo Add files"), where
+/// before the install-and-publish fix package the menu said the module's
+/// step ("Undo A table") and took it.
+#[test]
+#[ignore]
+fn side_editor_undo_in_the_edit_menu() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens-undo");
+    let file = dir.join("mg_one.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let path = dir.join("undo.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let table = b"2DA V2.0\n\n   Label\n0  Bread\n".to_vec();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(table) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run_steps(2);
+    h.state_mut().haks[0].hak.add_files(std::slice::from_ref(&file));
+    h.run_steps(2);
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run_steps(2);
+    h.get_by_label("Edit").click();
+    shoot(&mut h, &dir, "edit-menu-over-a-hak");
+    eprintln!("{}", dir.join("edit-menu-over-a-hak.png").display());
+}
+
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command

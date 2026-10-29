@@ -25,6 +25,11 @@ pub(crate) trait SideDoc {
     }
     /// Whether it has a step to undo (or, `redo`, to redo).
     fn can_undo(&self, redo: bool) -> bool;
+    /// The name of the step Undo (or, `redo`, Redo) would take, where its
+    /// editor names its steps: Edit › Undo says it ("Undo Add Files").
+    fn step_name(&self, _redo: bool) -> Option<String> {
+        None
+    }
     /// Undoes (or redoes) its last step.
     fn undo(&mut self, redo: bool);
     /// Saves it where it lives (asking where, if it must): whether it was.
@@ -48,7 +53,10 @@ impl SideDoc for hak_view::HakDoc {
         self.hak.path.as_ref().is_some_and(|p| root.is_none_or(|r| !p.starts_with(r)))
     }
     fn can_undo(&self, redo: bool) -> bool {
-        (if redo { self.hak.redo_label() } else { self.hak.undo_label() }).is_some()
+        self.step_name(redo).is_some()
+    }
+    fn step_name(&self, redo: bool) -> Option<String> {
+        (if redo { self.hak.redo_label() } else { self.hak.undo_label() }).map(str::to_string)
     }
     fn undo(&mut self, redo: bool) {
         if redo {
@@ -75,8 +83,14 @@ impl SideDoc for table_view::TableDoc {
         self.has_unsaved()
     }
     fn can_undo(&self, redo: bool) -> bool {
-        self.typing.is_none()
-            && (if redo { self.edit.redo_label() } else { self.edit.undo_label() }).is_some()
+        self.step_name(redo).is_some()
+    }
+    /// (None while a cell is being typed: the typing is the cell's own.)
+    fn step_name(&self, redo: bool) -> Option<String> {
+        if self.typing.is_some() {
+            return None;
+        }
+        (if redo { self.edit.redo_label() } else { self.edit.undo_label() }).map(str::to_string)
     }
     /// (Not while a cell is being typed: the typing is the cell's own.)
     fn undo(&mut self, redo: bool) {
@@ -231,9 +245,14 @@ impl Moonglow {
     }
 
     /// The side editor Undo and Redo are for, if one: the one under the
-    /// pointer, else the 2DA grid that has the keys.
+    /// pointer, else the 2DA grid that has the keys, else, with the
+    /// pointer on the menu bar or the toolbar (or a menu open), the one it
+    /// was over before (Edit › Undo and the toolbar's Undo are its).
     fn local_undo_target(&self) -> Option<Tab> {
-        self.undo_under_pointer.clone().or_else(|| self.undo_keys.clone())
+        self.undo_under_pointer
+            .clone()
+            .or_else(|| self.undo_keys.clone())
+            .or_else(|| self.undo_before_bars.clone().filter(|_| self.pointer_on_bars))
     }
 
     /// Whether Undo (or, `redo`, Redo) is a side editor's or the talk
@@ -246,6 +265,14 @@ impl Moonglow {
             return Some(if redo { t.can_redo() } else { t.can_undo() });
         }
         self.side_doc(&tab).map(|d| d.can_undo(redo))
+    }
+
+    /// The name of the step a side editor's Undo (or, `redo`, Redo) would
+    /// take, when Undo is that editor's and it names its steps (a hak's,
+    /// a 2DA's; a tileset's and the talk table's name none).
+    pub(crate) fn local_step_name(&self, redo: bool) -> Option<String> {
+        let tab = self.local_undo_target()?;
+        self.side_doc(&tab)?.step_name(redo)
     }
 
     /// Undo (or, `redo`, Redo) in the editor of a file outside the module

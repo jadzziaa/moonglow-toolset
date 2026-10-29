@@ -629,6 +629,11 @@ pub struct Moonglow {
     /// The 2DA grid that has the keys, as drawn this frame: Undo and Redo
     /// are its, the pointer over no side editor.
     pub(crate) undo_keys: Option<Tab>,
+    /// The side editor the pointer was over before it went onto the menu
+    /// bar or the toolbar (or a menu opened): Edit › Undo and the
+    /// toolbar's are its while the pointer is there (`pointer_on_bars`).
+    pub(crate) undo_before_bars: Option<Tab>,
+    pub(crate) pointer_on_bars: bool,
     /// The script whose editor has the keys, or had them when the menu
     /// still open was opened (the click on it takes them): Edit › Undo
     /// and Redo and the toolbar's are that editor's, as its keys are
@@ -1049,6 +1054,8 @@ impl Moonglow {
             side_closing: Default::default(),
             undo_under_pointer: None,
             undo_keys: None,
+            undo_before_bars: None,
+            pointer_on_bars: false,
             undo_script: None,
             test_checked: None,
             model_views: HashMap::new(),
@@ -1359,11 +1366,22 @@ impl Moonglow {
         if !self.busy() {
             self.shortcuts(ui);
         }
-        egui::Panel::top("menu").show(ui, |ui| {
+        // (A menu open as the frame began: one of its entries may be
+        // chosen in it, and close it.)
+        let menu_was_open = egui::Popup::is_any_open(ui.ctx());
+        let bars = egui::Panel::top("menu").show(ui, |ui| {
             commands::menu_bar(self, ui);
             // Buttons for the common commands, below the menu as in Aurora.
             commands::toolbar(self, ui);
         });
+        // (On the way from a side editor to Edit › Undo or the toolbar's,
+        // or with a menu open, Undo stays the editor's the pointer left.)
+        self.pointer_on_bars = ui.rect_contains_pointer(bars.response.rect)
+            || menu_was_open
+            || egui::Popup::is_any_open(ui.ctx());
+        if !self.pointer_on_bars {
+            self.undo_before_bars = self.undo_under_pointer.clone();
+        }
         // A newer release, told under the toolbar until dismissed.
         updates::notice_bar(self, ui);
         // A renderer that draws nothing (the startup check, the area

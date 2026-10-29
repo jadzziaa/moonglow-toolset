@@ -330,9 +330,8 @@ fn key_sets_are_exported_and_imported_through_their_dialogs() {
     // Reset, then taken back from the file.
     h.get_by_label("Reset All").click();
     h.run();
-    let manual = |h: &Harness<'_, Moonglow>| {
-        h.state().options.as_ref().unwrap().keymap.keys(Cmd::Manual)
-    };
+    let manual =
+        |h: &Harness<'_, Moonglow>| h.state().options.as_ref().unwrap().keymap.keys(Cmd::Manual);
     assert_ne!(manual(&h), [ctrl_m]);
     h.get_by_label("Import…").click();
     h.run();
