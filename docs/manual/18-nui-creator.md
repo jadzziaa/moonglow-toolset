@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T22:04:18Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -433,7 +433,13 @@ Cancel:
 
 `mg nui schema --layout` prints a new window and each control as the
 Creator adds it, with the fields the game's `nw_inc_nui` functions write;
-the game's `nw_inc_nui.nss` says what they mean.
+the game's `nw_inc_nui.nss` says what they mean. `mg nui schema --jui`
+prints the layout's form as a JSON Schema: the window's properties and
+each control's by its type, the kind of value each takes, and whether a
+bind may give it or `nw_inc_nui` makes it static. It is made of the
+tables the checks hold a window to, so the two agree; what the checks
+hold beyond a property's value (a group's one child, a child that doesn't
+fit across its row, a text field's `max`) `mg nui validate` says.
 
 ## Build and export
 
@@ -494,6 +500,17 @@ hak, this machine's override or development folder, or found nowhere), which
 players get from the hak or which you add to the module. The game's own go
 unsaid: every client has them.
 
+**Import…**, beside it, brings windows made elsewhere into the module, as
+`mg nui import` does: choose `.jui` files (each brings its `NAME.txt` and
+`NAME_e.nss` from beside it) or ERF archives (`.erf`, `.hak`, `.mod`,
+`.nwm`) and zip files of windows. Each window comes with its settings, when
+they are the Creator's, and its event script's source; not its opener or
+compiled scripts, which Build writes for this module. A window the module
+has otherwise is asked about first: **Replace** brings every window,
+**Skip Those** only the ones the module doesn't have. The windows come in
+as one Undo step, the first opens in the Creator, and the log says what
+their checks found.
+
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
@@ -514,15 +531,19 @@ every option):
 3. `mg nui render MODULE NAME -o NAME.png` draws it as the canvas does,
    off the screen, at a UI scale and a window size of your choosing, and
    `mg nui layout MODULE NAME --json` gives each control's rectangle and
-   what doesn't fit (clipped, out of view, no room, text cut): the same
-   layout the picture shows. Both take a `.jui` file alone too, and draw
-   the window otherwise than as it opens with the same options:
+   what doesn't fit (clipped, out of view, no room, text cut, a title
+   longer than its bar): the same layout the picture shows, a list's
+   rows out of its view included. Both take a `.jui` file alone too, and
+   draw the window otherwise than as it opens with the same options:
    `--state hover:send` (or `pressed`, `disabled`, `normal`; without
-   `:ID`, every control), `--binds FILE.json` (the binds as a script sets
-   them, so a list has the rows a character would see) and `--variant
-   NAME` (a swap layout variant in its group). For the crier's list of
-   cries in this repository's tests:
-   `mg nui render cries.jui --binds cries.binds.json --state hover:read`.
+   `:ID`, every control; `hover:read@2`, a list's control in its third
+   row alone), `--binds FILE.json` (the binds as a script sets them, so
+   a list has the rows a character would see; a value the bind's
+   properties don't take is said, as the checks say it) and `--variant
+   NAME` (a swap layout variant in its group; again for another group's).
+   For the crier's list of cries in this repository's tests:
+   `mg nui render cries.jui --binds cries.binds.json --state hover:read
+   --state pressed:read@2`.
 4. `mg nui generate MODULE NAME` writes and compiles its scripts.
 
 In a nasher project whose sources take in scripts and JSON only, a
@@ -644,8 +665,10 @@ and the preview follow them.
   100%), unless `ui.unconstrain-scale` is set: at 150% on a window 800 high
   the game draws at 1.11, on one 993 high at 1.38. The preview's **Screen**
   mode applies the same cap. The game rounds each scaled size down to whole
-  pixels (a row 34 high is 37 at 1.11, not 37.8), so at a scale that isn't
-  whole the preview's rows drift from the game's by up to a pixel each.
+  pixels (a row 34 high is 37 at 1.11, not 37.7), and so does the preview:
+  each control's size, a list's rows and its cells' widths. The gaps and
+  margins between controls are scaled as they are (whether the game rounds
+  those too is not measured).
 - **A control with no width** in a column is as wide as the column's widest
   control, in the game and in the preview. One case differs: after a control
   with a width of its own, rows of buttons without widths can make the game

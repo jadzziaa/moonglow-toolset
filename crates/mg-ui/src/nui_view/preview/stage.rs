@@ -79,6 +79,7 @@ pub(in crate::nui_view) fn canvas(
         size,
         extent,
         scale,
+        ui_scale,
         available,
         changes: Vec::new(),
         selected_bounds: None,
@@ -156,6 +157,7 @@ pub(in crate::nui_view) fn still(
         size,
         extent: size,
         scale,
+        ui_scale: scale,
         available: size * scale,
         changes: Vec::new(),
         selected_bounds: None,
@@ -357,7 +359,10 @@ pub(super) struct Stage<'a> {
     context_prefix: Option<&'a str>,
     size: Vec2,
     extent: Vec2,
+    /// Points to the canvas's pixels: the UI scale times the zoom.
     scale: f32,
+    /// The game's UI scale, whose sizes are whole pixels.
+    ui_scale: f32,
     available: Vec2,
     changes: Vec<interaction::Change>,
     selected_bounds: Option<Rect>,
@@ -530,6 +535,9 @@ impl Stage<'_> {
         let mut title_rect = header.shrink2(vec2(10.0, 2.0) * scale);
         let button_count = usize::from(closable) + usize::from(collapsible);
         title_rect.max.x -= 26.0 * button_count as f32 * scale;
+        if !title.is_empty() {
+            assets.record_title(title);
+        }
         text(
             p,
             assets,
@@ -628,6 +636,7 @@ impl Stage<'_> {
                 s,
                 assets: self.assets,
                 scale,
+                ui_scale: self.ui_scale,
                 state: &mut *self.state,
                 dropped: &mut self.dropped,
                 unsupported: &mut self.unsupported,
@@ -639,7 +648,7 @@ impl Stage<'_> {
                 context_prefix: self.context_prefix,
             };
             if !flag(&v["collapsed"], s, None, false) {
-                let desired = natural(&v["root"], s, None, 0) * scale;
+                let desired = renderer.scaled(natural(&v["root"], s, None, 0));
                 let mut root = inner;
                 // A column made only of Groups has no child width advice.
                 // Its padding alone must not collapse the entire canvas.

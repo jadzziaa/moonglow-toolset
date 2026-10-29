@@ -272,6 +272,9 @@ pub enum Action {
     ApplyMade(Command, plugin_events::Made),
     /// Creates a NUI window with this name and opens it in the NUI Creator.
     NewNui(String),
+    /// Brings NUI windows into the module from files the user chooses
+    /// (the NUI Creator's Import…), as `mg nui import` does.
+    ImportNui,
     /// Builds a NUI window's opener include and event script (Build &
     /// compile), then, when `export`, offers what it is made of for export.
     GenerateNui {
@@ -525,6 +528,9 @@ pub struct Moonglow {
     pub(crate) nui_views: HashMap<ResKey, nui_view::State>,
     /// The New NUI Window window's name.
     pub(crate) new_nui: Option<String>,
+    /// NUI windows being imported whose resources the module has, until
+    /// asked whether to replace them.
+    pub(crate) nui_import: Option<Vec<mg_nui::import::Incoming>>,
     palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
@@ -1011,6 +1017,7 @@ impl Moonglow {
             nui_assets: Default::default(),
             nui_views: HashMap::new(),
             new_nui: None,
+            nui_import: None,
             palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
@@ -3507,6 +3514,7 @@ impl Moonglow {
             Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
             Action::ApplyFix(line) => self.apply_fix(line),
             Action::NewNui(name) => nui_view::create(self, &name),
+            Action::ImportNui => nui_view::import(self),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {

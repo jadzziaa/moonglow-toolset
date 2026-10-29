@@ -5,7 +5,10 @@ use super::*;
 pub(super) struct Renderer<'a> {
     pub(super) s: &'a Settings,
     pub(super) assets: &'a skin::Assets,
+    /// Points to the canvas's pixels: the UI scale times the zoom.
     pub(super) scale: f32,
+    /// The game's UI scale.
+    pub(super) ui_scale: f32,
     pub(super) state: &'a mut State,
     pub(super) dropped: &'a mut Option<(String, &'static str)>,
     pub(super) unsupported: &'a mut BTreeSet<String>,
@@ -113,6 +116,15 @@ fn text_section(ty: &str) -> &'static str {
 }
 
 impl Renderer<'_> {
+    /// A control's size in points on the canvas as the game scales it:
+    /// whole pixels at its UI scale, rounded down (NWN EE 8193.37: a row 34
+    /// high is 37 at 111%, not 37.7), then zoomed.
+    pub(super) fn scaled(&self, size: Vec2) -> Vec2 {
+        let ui = if self.ui_scale > 0.0 { self.ui_scale } else { 1.0 };
+        // (A hair over, so that a size that is whole in decimals stays so.)
+        (size * ui + Vec2::splat(1e-3)).floor() * (self.scale / ui)
+    }
+
     /// A control in the room `outer` its parent gives it: drawn, and noted
     /// where it went when that is asked for (`mg nui layout`), drawn or not.
     pub(super) fn node(
@@ -229,7 +241,11 @@ impl Renderer<'_> {
         // Disabled by its ID, what is in it is too, as in the game; all
         // disabled, each is, and one given another state by ID has it.)
         let still = &self.state.still_states;
-        let by_id = node["id"].as_str().and_then(|id| still.get(&Some(id.to_owned()))).copied();
+        let id = node["id"].as_str();
+        let in_row = id
+            .zip(row)
+            .and_then(|(id, r)| self.state.still_row_states.get(&(id.to_owned(), r)).copied());
+        let by_id = in_row.or_else(|| id.and_then(|id| still.get(&Some(id.to_owned()))).copied());
         let asked = by_id.or_else(|| still.get(&None).copied());
         let disabled = parent_disabled
             || !flag(&node["enabled"], s, row, true)

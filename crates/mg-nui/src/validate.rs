@@ -2,7 +2,8 @@
 //!
 //! [`validate`] holds a layout and its settings to the shapes the
 //! `nw_inc_nui` constructors build (which arguments are fixed and which a
-//! bind may give, the kind of value each takes) and to what the client is
+//! bind may give, the kind of value each takes: the tables of
+//! [`crate::properties`]) and to what the client is
 //! known to do with them (the comments name the game version each was seen
 //! in). It describes that contract and does not run a window. Widgets,
 //! fields and draw items it does not know are warned of and left alone:
@@ -12,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use crate::properties::{self, Kind, Property, Takes};
 use crate::{Action, ELEMENTS, EVENT_TYPES, Names, Settings};
 
 /// How bad a finding is: the module doctor's, so that a window's findings
@@ -59,15 +61,10 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             c.blank(variant, &format!("/views/{name}"), "NWN shows the window blank when this variant is shown: its last draw layers have Clip to control on. Turn it off (it clips nothing in the game)");
         }
     }
-    for k in ["resizable", "collapsed", "closable", "transparent", "border", "accepts_input"] {
-        c.property(window, k, "", Kind::Bool, true, false);
+    // (Its version is said above.)
+    for p in properties::WINDOW.iter().filter(|p| p.name != "version") {
+        c.table(window, p, "", false);
     }
-    c.property(window, "title", "", Kind::Text, true, false);
-    c.property(window, "geometry", "", Kind::Rect, false, false);
-    for k in ["size_constraint", "edge_constraint"] {
-        c.property(window, k, "", Kind::Rect, true, false);
-    }
-    c.property(window, "font", "", Kind::Text, false, false);
     // The names of the layout and of each variant, read once each.
     let mut names = Names::of(window);
     for name in &names.binds {
@@ -291,68 +288,6 @@ fn last_draw_list<'a>(v: &'a Value, path: &str) -> Option<(String, &'a Value)> {
     last
 }
 
-/// The kind of value a property takes.
-#[derive(Clone, Copy)]
-enum Kind {
-    Bool,
-    Text,
-    Int,
-    Number,
-    Rect,
-    Color,
-    Array,
-    RowCount,
-    Labels,
-    Entries,
-    Vec2,
-    FloatPairs,
-    Numbers,
-}
-impl Kind {
-    fn matches(self, v: &Value) -> bool {
-        match self {
-            Self::Bool => v.is_boolean(),
-            Self::Text => v.is_string() || v.get("strref").is_some_and(|s| s.is_i64()),
-            Self::Int => v.as_i64().is_some_and(|n| i32::try_from(n).is_ok()),
-            Self::Number => v.is_number(),
-            Self::Array => v.is_array(),
-            Self::FloatPairs => {
-                v.as_array().is_some_and(|a| a.len() % 2 == 0 && a.iter().all(Value::is_number))
-            }
-            Self::Numbers => v.as_array().is_some_and(|a| a.iter().all(Value::is_number)),
-            Self::RowCount => v.is_i64() || v.is_array(),
-            Self::Labels => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
-            Self::Entries => v.as_array().is_some_and(|a| {
-                a.iter().all(|v| {
-                    v.as_array().is_some_and(|a| a.len() == 2 && a[0].is_string() && a[1].is_i64())
-                })
-            }),
-            Self::Vec2 => ["x", "y"].iter().all(|k| v.get(k).is_some_and(Value::is_number)),
-            Self::Rect => {
-                ["x", "y", "w", "h"].iter().all(|k| v.get(k).is_some_and(Value::is_number))
-            }
-            Self::Color => ["r", "g", "b", "a"].iter().all(|k| v.get(k).is_some_and(Value::is_i64)),
-        }
-    }
-    fn label(self) -> &'static str {
-        match self {
-            Self::Bool => "boolean",
-            Self::Text => "string or StrRef",
-            Self::Int => "integer",
-            Self::Number => "number",
-            Self::Rect => "rectangle {x,y,w,h}",
-            Self::Color => "color {r,g,b,a} with integer channels",
-            Self::Array => "array",
-            Self::FloatPairs => "flat array of x/y number pairs",
-            Self::Numbers => "array of numbers",
-            Self::RowCount => "integer or bind array (its length is the row count)",
-            Self::Labels => "array of string labels",
-            Self::Entries => "array of [label, integer] combo entries",
-            Self::Vec2 => "vector {x,y}",
-        }
-    }
-}
-
 /// What a property's value has to be.
 #[derive(Clone, Copy)]
 enum Rule {
@@ -452,11 +387,13 @@ impl<'a> Check<'a> {
             message: message.into(),
         });
     }
-    /// Literal values outside what the stock constants allow.
-    fn ranges(&mut self, v: &Value, path: &str, keys: &[(&str, i64, i64, &str)]) {
-        for (key, low, high, constants) in keys {
-            if let Some(n) = v.get(*key).and_then(Value::as_i64)
-                && !(*low..=*high).contains(&n)
+    /// Literal values outside what the stock constants allow, of the
+    /// properties of `table` that `ty` has.
+    fn ranges(&mut self, v: &Value, path: &str, ty: &str, table: &[Property]) {
+        let keys = table.iter().filter(|p| p.of(ty)).filter_map(|p| Some((p.name, p.constants?)));
+        for (key, (low, high, constants)) in keys {
+            if let Some(n) = v.get(key).and_then(Value::as_i64)
+                && !(low..=high).contains(&n)
             {
                 self.warn(
                     &format!("{path}/{key}"),
@@ -530,25 +467,42 @@ impl<'a> Check<'a> {
             self.error(&p, &rule.message());
         }
     }
+    /// Holds `obj`'s property of the table `p` to what it takes: a static
+    /// value, a modifier's number, or a value or bind (`per_row`: in a
+    /// list's row, where a bind gives a value a row).
+    fn table(&mut self, obj: &'a Value, p: &Property, path: &str, per_row: bool) {
+        match p.takes {
+            Takes::Static => self.static_property(obj, p.name, path, p.kind),
+            Takes::Modifier => {
+                if let Some(n) = obj.get(p.name)
+                    && !n.is_number()
+                {
+                    self.error(
+                        &format!("{path}/{}", p.name),
+                        "Geometry modifiers are static numbers; nw_inc_nui does not support binds here",
+                    );
+                }
+            }
+            Takes::Bound => {
+                // (A row count written in is a number; from a bind, an
+                // array's length will do.)
+                let kind = if p.kind == Kind::RowCount && obj[p.name].get("bind").is_none() {
+                    Kind::Int
+                } else {
+                    p.kind
+                };
+                self.property(obj, p.name, path, kind, p.nullable, per_row && p.per_row);
+            }
+        }
+    }
+
     /// Checks an element and what it holds; its place is `path`.
     fn element(&mut self, v: &'a Value, path: &str, array_bind: bool) {
         let Some(ty) = v.get("type").and_then(Value::as_str) else {
             self.error(path, "Element needs a string type");
             return;
         };
-        self.ranges(
-            v,
-            path,
-            &[
-                ("image_aspect", 0, 5, "NUI_ASPECT_*"),
-                ("image_halign", 0, 2, "NUI_HALIGN_*"),
-                ("text_halign", 0, 2, "NUI_HALIGN_*"),
-                ("image_valign", 0, 2, "NUI_VALIGN_*"),
-                ("text_valign", 0, 2, "NUI_VALIGN_*"),
-                ("scrollbars", 0, 4, "NUI_SCROLLBARS_*"),
-                ("direction", 0, 1, "NUI_DIRECTION_*"),
-            ],
-        );
+        self.ranges(v, path, ty, properties::ELEMENT);
         let picture = match ty {
             "image" => Some("value"),
             "button_image" => Some("label"),
@@ -585,39 +539,8 @@ impl<'a> Check<'a> {
                 self.error(path, "Element id must be a string");
             }
         }
-        for k in ["width", "height", "aspect", "margin", "padding"] {
-            if let Some(n) = v.get(k)
-                && !n.is_number()
-            {
-                self.error(
-                    &format!("{path}/{k}"),
-                    "Geometry modifiers are static numbers; nw_inc_nui does not support binds here",
-                );
-            }
-        }
-        for k in ["enabled", "visible", "encouraged"] {
-            self.property(v, k, path, Kind::Bool, false, array_bind);
-        }
-        for k in ["tooltip", "disabled_tooltip", "font"] {
-            self.property(v, k, path, Kind::Text, false, array_bind);
-        }
-        self.property(v, "foreground_color", path, Kind::Color, false, array_bind);
-        if matches!(ty, "image" | "button_image") {
-            self.property(v, "image_region", path, Kind::Rect, false, array_bind);
-        }
-        let val = match ty {
-            "label" | "text" | "textedit" | "image" => Some(Kind::Text),
-            "button_select" | "check" => Some(Kind::Bool),
-            "slider" | "combo" | "options" | "tabbar" => Some(Kind::Int),
-            "sliderf" | "progress" => Some(Kind::Number),
-            "color_picker" => Some(Kind::Color),
-            _ => None,
-        };
-        if let Some(kind) = val {
-            self.property(v, "value", path, kind, false, array_bind);
-        }
-        if matches!(ty, "button" | "button_image" | "button_select" | "check" | "textedit") {
-            self.property(v, "label", path, Kind::Text, false, array_bind);
+        for p in properties::ELEMENT.iter().filter(|p| p.of(ty)) {
+            self.table(v, p, path, array_bind);
         }
         if matches!(
             ty,
@@ -636,27 +559,6 @@ impl<'a> Check<'a> {
                 path,
                 "What the player enters here is lost: bind its value to keep it and read it in the event script",
             );
-        }
-        for k in ["text_halign", "text_valign", "image_aspect", "image_halign", "image_valign"] {
-            self.property(v, k, path, Kind::Int, false, array_bind);
-        }
-        for k in ["direction", "scrollbars"] {
-            self.static_property(v, k, path, Kind::Int);
-        }
-        for k in ["border", "multiline", "wordwrap"] {
-            self.static_property(v, k, path, Kind::Bool);
-        }
-        if matches!(ty, "slider" | "sliderf") {
-            for k in ["min", "max", "step"] {
-                self.property(
-                    v,
-                    k,
-                    path,
-                    if ty == "slider" { Kind::Int } else { Kind::Number },
-                    false,
-                    array_bind,
-                );
-            }
         }
         // A Toggle button with a fixed value stays as it is when clicked in
         // NWN EE 8193.37 (np_bsel): only a bound one switches.
@@ -681,8 +583,10 @@ impl<'a> Check<'a> {
             );
         }
         if ty == "textedit" {
-            self.property(v, "max", path, Kind::Int, false, false);
-            if v.get("max").is_some_and(|m| m.as_u64().is_none_or(|n| !(1..=65535).contains(&n))) {
+            // (A bound one is the table's error: static.)
+            if v.get("max").is_some_and(|m| {
+                m.get("bind").is_none() && m.as_u64().is_none_or(|n| !(1..=65535).contains(&n))
+            }) {
                 self.error(
                     &format!("{path}/max"),
                     "NuiTextEdit max length must be a static integer from 1 to 65535",
@@ -696,29 +600,22 @@ impl<'a> Check<'a> {
                 );
             }
         }
-        // Unlike NuiCombo, Options/Toggles require the labels array itself at
-        // construction. A bind object here fails in the native client parser.
-        if matches!(ty, "options" | "tabbar") {
-            self.static_property(v, "elements", path, Kind::Labels);
-        }
-        if ty == "combo" {
-            self.property(v, "elements", path, Kind::Entries, false, array_bind);
-        }
-        if ty == "chart" {
-            self.static_property(v, "value", path, Kind::Array);
-            if let Some(slots) = v["value"].as_array() {
-                for (i, slot) in slots.iter().enumerate() {
-                    let p = format!("{path}/value/{i}");
-                    if !slot.is_object() {
-                        self.error(&p, "NuiChartSlot must be an object");
-                        continue;
-                    }
-                    self.static_property(slot, "type", &p, Kind::Int);
-                    self.ranges(slot, &p, &[("type", 0, 1, "NUI_CHART_TYPE_*")]);
-                    self.property(slot, "legend", &p, Kind::Text, false, array_bind);
-                    self.property(slot, "color", &p, Kind::Color, false, array_bind);
-                    self.property(slot, "data", &p, Kind::Numbers, false, array_bind);
+        // (Unlike NuiCombo's, Options' and Tabs' labels are the array
+        // itself at construction: a bind there fails in the client's parser.
+        // The table has them static.)
+        if ty == "chart"
+            && let Some(slots) = v["value"].as_array()
+        {
+            for (i, slot) in slots.iter().enumerate() {
+                let p = format!("{path}/value/{i}");
+                if !slot.is_object() {
+                    self.error(&p, "NuiChartSlot must be an object");
+                    continue;
                 }
+                for property in properties::CHART_SLOT {
+                    self.table(slot, property, &p, array_bind);
+                }
+                self.ranges(slot, &p, "", properties::CHART_SLOT);
             }
         }
         if matches!(ty, "row" | "col" | "group") {
@@ -763,15 +660,6 @@ impl<'a> Check<'a> {
             }
         }
         if ty == "list" {
-            self.property(
-                v,
-                "row_count",
-                path,
-                if v["row_count"].get("bind").is_some() { Kind::RowCount } else { Kind::Int },
-                false,
-                false,
-            );
-            self.static_property(v, "row_height", path, Kind::Number);
             if v["scrollbars"] == 4 {
                 self.error(path, "NuiList cannot use AUTO scrollbars");
             }
@@ -804,7 +692,6 @@ impl<'a> Check<'a> {
             }
         }
         if v.get("draw_list").is_some() {
-            self.property(v, "draw_list_scissor", path, Kind::Bool, false, array_bind);
             if let Some(items) = v["draw_list"].as_array() {
                 if scissor_on(v, self.settings) {
                     self.warn(
@@ -835,9 +722,9 @@ impl<'a> Check<'a> {
             return;
         }
         let arrays = v["arrayBinds"].as_bool().unwrap_or(false);
-        self.static_property(v, "arrayBinds", path, Kind::Bool);
-        for k in ["order", "render"] {
-            self.static_property(v, k, path, Kind::Int);
+        let ty = ty.to_string();
+        for p in properties::DRAW.iter().filter(|p| p.of(&ty)) {
+            self.table(v, p, path, arrays);
         }
         if v["order"].as_i64().is_some_and(|o| o != -1 && o != 1) {
             self.warn(
@@ -846,44 +733,13 @@ impl<'a> Check<'a> {
                  (NUI_DRAW_LIST_ITEM_ORDER_*); the game draws the item all the same",
             );
         }
-        self.ranges(
-            v,
-            path,
-            &[
-                ("render", 0, 5, "NUI_DRAW_LIST_ITEM_RENDER_*"),
-                ("image_aspect", 0, 5, "NUI_ASPECT_*"),
-                ("image_halign", 0, 2, "NUI_HALIGN_*"),
-                ("image_valign", 0, 2, "NUI_VALIGN_*"),
-            ],
-        );
-        if ty == 5 {
+        self.ranges(v, path, &ty, properties::DRAW);
+        if ty == "5" {
             self.picture_name(v, "image", path);
-        }
-        for k in ["enabled", "fill"] {
-            self.property(v, k, path, Kind::Bool, true, arrays);
-        }
-        self.property(v, "color", path, Kind::Color, true, arrays);
-        for k in ["line_thickness", "radius", "amin", "amax"] {
-            self.property(v, k, path, Kind::Number, true, arrays);
-        }
-        for k in ["rect", "image_region"] {
-            self.property(v, k, path, Kind::Rect, false, arrays);
-        }
-        for k in ["a", "b", "ctrl0", "ctrl1"] {
-            self.property(v, k, path, Kind::Vec2, false, arrays);
         }
         // The stock include documents the arc's center as a rectangle; NWN
         // EE 8193.37 draws the arc the same with a point there (`arc_point`
         // and `arc_rect` in the client test), so either is kept as it is.
-        for k in ["text", "font", "image"] {
-            self.property(v, k, path, Kind::Text, false, arrays);
-        }
-        for k in ["image_aspect", "image_halign", "image_valign"] {
-            self.property(v, k, path, Kind::Int, false, arrays);
-        }
-        if ty == 0 {
-            self.property(v, "points", path, Kind::FloatPairs, false, arrays);
-        }
     }
 }
 

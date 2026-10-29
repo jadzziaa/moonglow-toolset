@@ -1,13 +1,15 @@
 //! The forms of a window's two resources, as a program that writes them
 //! needs them: the settings (`NAME.txt`, [`FORMAT`]) as a JSON Schema
-//! ([`settings_schema`]), and the controls of a layout as the Creator makes
-//! them ([`controls`]). `mg nui schema` prints them. The schema is written
+//! ([`settings_schema`]), the layout (`NAME.jui`) as a JSON Schema made of
+//! the checks' tables ([`jui_schema`]), and the controls of a layout as the
+//! Creator makes them ([`controls`]). `mg nui schema` prints them. The schema is written
 //! here beside [`Settings`] and [`Handler`], and its tests hold it to what
 //! they read and write: a key added to the settings without its place
 //! here fails them.
 
 use serde_json::{Map, Value, json};
 
+use crate::properties::{self, Kind, Property, Takes};
 use crate::{ELEMENTS, EVENT_TYPES, FORMAT, template, window};
 
 #[cfg(doc)]
@@ -104,6 +106,188 @@ pub fn controls() -> Value {
         "description": "A JUI is the JSON NuiCreate takes, as nw_inc_nui's functions build it (NuiWindow, NuiCol, NuiLabel...). `window` is a new window; `controls` each type's fields as the NUI Creator adds it. Any element also takes id, width, height, aspect, margin, padding, enabled, visible, encouraged, tooltip, disabled_tooltip, foreground_color, font and draw_list. A property may be a bind ({\"bind\": NAME}) unless nw_inc_nui makes it a static number. Widths: these templates give none, and a control without one is not stretched to its column. A button, button_image, button_select, check, combo, slider or sliderf without a width is 150 points wide (nw_inc_nui's NUI_STYLE_PRIMARY_WIDTH, the width the client gives it); options and tabbar 150 an entry; color_picker 300. A label, text, textedit, image, spacer, progress, list, chart, row, col or group without one takes its column's width. A column is as wide as its widest control (a label, text, textedit, image or spacer counts nothing toward it, a list, chart or progress 150), the window's root column too: a new window's column is 154 wide, its Close button 150, however wide the window. In a row, those that take their column's width share what the others leave; the rest keep theirs. Give the controls widths: the window's width less 20 fills its root column (8 points of inset and 2 of padding a side).",
         "window": window(),
         "controls": controls,
+    })
+}
+
+/// A property's schema as the table has it: its kind's value; for one a
+/// bind may give, or a bind; null where null will do.
+fn property_schema(p: &Property) -> Value {
+    let mut choices = vec![match p.takes {
+        Takes::Modifier => json!({"type": "number"}),
+        _ => p.kind.schema(),
+    }];
+    if p.takes == Takes::Bound {
+        choices.push(json!({"$ref": "#/$defs/bind"}));
+    }
+    if p.nullable {
+        choices.push(json!({"type": "null"}));
+    }
+    if p.name == "title" && p.nullable {
+        choices.push(json!({"const": false}));
+    }
+    let mut about = p.about.to_owned();
+    match p.takes {
+        Takes::Bound => {}
+        Takes::Static => about += " (static: nw_inc_nui takes no bind for it)",
+        Takes::Modifier => about += " (a static number: no bind)",
+    }
+    if let Some((low, high, constants)) = p.constants {
+        about += &format!(" ({constants}: {low} to {high}; another is shown all the same)");
+    }
+    let mut schema = if choices.len() == 1 { choices.remove(0) } else { json!({"anyOf": choices}) };
+    schema["description"] = about.into();
+    schema
+}
+
+/// The properties of `table` that `ty` has, as a schema's `properties`.
+fn properties_of(table: &[Property], ty: &str) -> Map<String, Value> {
+    table.iter().filter(|p| p.of(ty)).map(|p| (p.name.to_owned(), property_schema(p))).collect()
+}
+
+/// A window's layout (`NAME.jui`, the JSON `NuiCreate` takes) as a JSON
+/// Schema (draft 2020-12), made of the tables the checks hold a layout to
+/// ([`crate::properties`]): the window's properties, and each control's by
+/// its `type`, the kind of value each takes and whether a bind may give
+/// it; a chart's series and the draw layers'. Keys it does not name are
+/// kept, and the game is the judge of them. What the checks hold in code
+/// (a group's one child, a row's fit across, the game's refusals) is not
+/// in it: `mg nui validate` says those.
+pub fn jui_schema() -> Value {
+    let mut defs: Map<String, Value> =
+        Kind::ALL.iter().map(|k| k.definition()).map(|(n, s)| (n.to_owned(), s)).collect();
+    defs.insert(
+        "bind".into(),
+        json!({"type": "object", "required": ["bind"], "description":
+            "A bind (NuiBind): the value is the bind's, set by the opener and by scripts \
+             (NuiSetBind); in a list's row, an array of a value a row",
+            "properties": {
+                "bind": {"type": "string", "description": "The bind's name"},
+                "number_flags": {"type": "integer", "description": "1: a whole number shown in hexadecimal"},
+                "number_precision": {"type": "integer", "description": "A number's decimal places"},
+                "text_flags": {"type": "integer", "description": "1: lower case, 2: upper case (ASCII letters)"},
+            }}),
+    );
+    let mut types = Vec::new();
+    for ty in ELEMENTS {
+        let mut properties = properties_of(properties::ELEMENT, ty);
+        properties.insert("type".into(), json!({"const": ty}));
+        properties.insert(
+            "id".into(),
+            json!({"type": "string", "description":
+            "Its ID: whose events are (NuiGetEventElement), and NuiFindWindow's by it"}),
+        );
+        // (The constructor writes label and value for every type: null where
+        // the type reads none.)
+        for k in ["label", "value"] {
+            properties.entry(k).or_insert_with(|| {
+                json!({"description": "Written by the constructor (null); this type reads none"})
+            });
+        }
+        let element = json!({"$ref": "#/$defs/element"});
+        match *ty {
+            "row" | "col" => {
+                properties.insert(
+                    "children".into(),
+                    json!({"type": "array", "items": element,
+                    "description": "Its controls, side by side (row) or one under another (col)"}),
+                );
+            }
+            "group" => {
+                properties.insert(
+                    "children".into(),
+                    json!({"type": "array", "items": element,
+                    "minItems": 1, "maxItems": 1, "description":
+                    "Its one layout; a swap layout's is replaced by NuiSetGroupLayout"}),
+                );
+            }
+            "list" => {
+                properties.insert(
+                    "row_template".into(),
+                    json!({"type": "array", "maxItems": 16,
+                    "description": "A row's cells (NuiListTemplateCell): the control, its width \
+                                    (0: automatic) and whether it takes what the others leave",
+                    "items": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems":
+                        [element, {"type": "number", "minimum": 0}, {"type": "boolean"}]}}),
+                );
+            }
+            _ => {}
+        }
+        properties.insert(
+            "draw_list".into(),
+            json!({"type": "array", "items":
+            {"$ref": "#/$defs/draw"}, "description": "Draw layers painted with it (NuiDrawList)"}),
+        );
+        let def = format!("element_{ty}");
+        defs.insert(
+            def.clone(),
+            json!({"type": "object", "properties": properties,
+            "required": ["type"]}),
+        );
+        types.push(json!({"if": {"properties": {"type": {"const": ty}}, "required": ["type"]},
+            "then": {"$ref": format!("#/$defs/{def}")}}));
+    }
+    defs.insert(
+        "element".into(),
+        json!({"type": "object", "required": ["type"],
+        "description": format!("A control, by its type: {}; another type is kept, and the game \
+                                is the judge of it", ELEMENTS.join(", ")),
+        "properties": {"type": {"type": "string"}},
+        "allOf": types}),
+    );
+    let mut slot = properties_of(properties::CHART_SLOT, "");
+    slot.insert("type".into(), property_schema(&properties::CHART_SLOT[0]));
+    defs.insert(
+        "chart_slot".into(),
+        json!({"type": "object", "properties": slot,
+        "description": "A chart's series (NuiChartSlot)"}),
+    );
+    if let Some(value) = defs["element_chart"]["properties"].get_mut("value") {
+        value["items"] = json!({"$ref": "#/$defs/chart_slot"});
+    }
+    let mut draw: Map<String, Value> = properties::DRAW
+        .iter()
+        .map(|p| {
+            let mut s = property_schema(p);
+            if !p.of.is_empty() {
+                let names: Vec<&str> =
+                    p.of.iter()
+                        .filter_map(|n| n.parse::<usize>().ok())
+                        .filter_map(|n| properties::DRAW_TYPES.get(n).copied())
+                        .collect();
+                s["description"] = format!("{} (a {}'s)", p.about, names.join(", ")).into();
+            }
+            (p.name.to_owned(), s)
+        })
+        .collect();
+    let named: Vec<String> =
+        properties::DRAW_TYPES.iter().enumerate().map(|(i, n)| format!("{i} {n}")).collect();
+    draw.insert(
+        "type".into(),
+        json!({"type": "integer", "minimum": 0, "maximum": 7,
+        "description": format!("NUI_DRAW_LIST_ITEM_TYPE_*: {}", named.join(", "))}),
+    );
+    defs.insert(
+        "draw".into(),
+        json!({"type": "object", "required": ["type"], "properties": draw,
+        "description": "A draw layer (NuiDrawListPolyLine, NuiDrawListText...)"}),
+    );
+    let mut window = properties_of(properties::WINDOW, "");
+    window.insert("version".into(), json!({"const": 1, "description": "1, the stock NuiWindow's"}));
+    window.insert(
+        "root".into(),
+        json!({"$ref": "#/$defs/element", "description":
+        "Its layout: a row, column or group as nw_inc_nui makes them (the game shows another \
+         control there too)"}),
+    );
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/jadzziaa/moonglow-toolset/nui-layout.schema.json",
+        "title": "NUI window layout (NAME.jui)",
+        "description": "The JSON NuiCreate takes, as nw_inc_nui's functions build it: the window (NuiWindow) and its controls by type, the kind of value each property takes and whether a bind ({\"bind\": NAME}) may give it. Made of the tables the NUI Creator's checks hold a layout to; what they hold in code (a group's one child, a child that doesn't fit across its row, a text field's max, what the game refuses) `mg nui validate` says. Keys it doesn't name are kept.",
+        "type": "object",
+        "required": ["version", "root"],
+        "properties": window,
+        "$defs": defs,
     })
 }
 
@@ -256,5 +440,114 @@ mod tests {
         let about = c["description"].as_str().unwrap();
         assert!(about.contains("is 150 points wide (nw_inc_nui's NUI_STYLE_PRIMARY_WIDTH"));
         assert!(about.contains("A column is as wide as its widest control"));
+    }
+
+    /// The layout's schema is the checks' table: every property of every
+    /// type is in its type's schema, a bind allowed where the table takes
+    /// one and refused where it makes the property static; and every key
+    /// the Creator's templates and new window write is named.
+    #[test]
+    fn the_layout_schema_is_the_checks_table() {
+        let s = jui_schema();
+        let defs = &s["$defs"];
+        for ty in ELEMENTS {
+            let def = &defs[format!("element_{ty}")]["properties"];
+            for p in properties::ELEMENT.iter().filter(|p| p.of(ty)) {
+                let schema = def[p.name].to_string();
+                assert_eq!(
+                    schema.contains("#/$defs/bind"),
+                    p.takes == Takes::Bound,
+                    "{ty}.{}: {schema}",
+                    p.name
+                );
+            }
+            for k in keys(&template(ty)) {
+                assert!(def.get(&k).is_some(), "{ty}: {k} is not in the schema");
+            }
+        }
+        for k in keys(&window()) {
+            assert!(s["properties"].get(&k).is_some(), "the window's {k}");
+        }
+        for p in properties::DRAW {
+            assert!(defs["draw"]["properties"].get(p.name).is_some(), "{}", p.name);
+        }
+        // Every reference is to a definition there.
+        let text = s.to_string();
+        for reference in text.split("\"$ref\":\"#/$defs/").skip(1) {
+            let name = reference.split('"').next().unwrap();
+            assert!(defs.get(name).is_some(), "{name}");
+        }
+        assert_eq!(
+            defs["element_slider"]["properties"]["max"]["anyOf"][0]["$ref"],
+            "#/$defs/integer"
+        );
+        assert_eq!(
+            defs["element_sliderf"]["properties"]["max"]["anyOf"][0]["$ref"],
+            "#/$defs/number"
+        );
+        assert_eq!(defs["element_options"]["properties"]["elements"]["$ref"], "#/$defs/labels");
+    }
+
+    /// A wrong value, of any property of the table, of any type that has
+    /// it, is found where it is; a bind is refused where the table makes
+    /// the property static, and taken (with a first value of its kind)
+    /// where it doesn't: the checks read the table the schema is made of.
+    #[test]
+    fn the_checks_hold_every_property_of_the_table() {
+        let wrong = |k: Kind| if k == Kind::Bool { json!("x") } else { json!(true) };
+        let first = |k: Kind| match k {
+            Kind::Bool => json!(true),
+            Kind::Text => json!("a"),
+            Kind::Int | Kind::RowCount => json!(1),
+            Kind::Number => json!(0.5),
+            Kind::Rect => json!({"x": 0, "y": 0, "w": 1, "h": 1}),
+            Kind::Color => json!({"r": 1, "g": 2, "b": 3, "a": 4}),
+            Kind::Array | Kind::Numbers | Kind::FloatPairs => json!([]),
+            Kind::Labels => json!(["a"]),
+            Kind::Entries => json!([["a", 0]]),
+            Kind::Vec2 => json!({"x": 0, "y": 0}),
+        };
+        let errors_at = |w: &Value, s: &Settings, at: &str| {
+            crate::validate(w, s)
+                .into_iter()
+                .any(|d| d.severity == crate::Severity::Error && d.path == at)
+        };
+        let checked = |doc: &mut Value, put: &dyn Fn(&mut Value, Value), at: &str, p: &Property| {
+            let s = Settings::default();
+            put(doc, wrong(p.kind));
+            assert!(errors_at(doc, &s, at), "{at}: {} taken", wrong(p.kind));
+            put(doc, json!({"bind": "b"}));
+            let mut s = Settings::default();
+            s.bindings
+                .insert("b".into(), crate::Binding { value: first(p.kind), ..Default::default() });
+            assert_eq!(errors_at(doc, &s, at), p.takes != Takes::Bound, "{at}: a bind");
+        };
+        for ty in ELEMENTS {
+            for p in properties::ELEMENT.iter().filter(|p| p.of(ty)) {
+                let mut doc = window();
+                doc["root"]["children"] = json!([template(ty)]);
+                let put = |d: &mut Value, v: Value| d["root"]["children"][0][p.name] = v;
+                checked(&mut doc, &put, &format!("/root/children/0/{}", p.name), p);
+            }
+        }
+        for p in properties::WINDOW.iter().filter(|p| p.name != "version") {
+            let put = |d: &mut Value, v: Value| d[p.name] = v;
+            checked(&mut window(), &put, &format!("/{}", p.name), p);
+        }
+        for (i, kind) in properties::DRAW_TYPES.iter().enumerate() {
+            for p in properties::DRAW.iter().filter(|p| p.of(&i.to_string())) {
+                let mut doc = window();
+                doc["root"]["draw_list"] = json!([{"type": i, "rect": first(Kind::Rect)}]);
+                let put = |d: &mut Value, v: Value| d["root"]["draw_list"][0][p.name] = v;
+                checked(&mut doc, &put, &format!("/root/draw_list/0/{}", p.name), p);
+                assert!(!kind.is_empty());
+            }
+        }
+        for p in properties::CHART_SLOT {
+            let mut doc = window();
+            doc["root"]["children"] = json!([template("chart")]);
+            let put = |d: &mut Value, v: Value| d["root"]["children"][0]["value"][0][p.name] = v;
+            checked(&mut doc, &put, &format!("/root/children/0/value/0/{}", p.name), p);
+        }
     }
 }

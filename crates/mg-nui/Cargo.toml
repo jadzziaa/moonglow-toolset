@@ -10,12 +10,14 @@ publish.workspace = true
 [dependencies]
 mg-core.workspace = true
 mg-edit.workspace = true
+mg-erf.workspace = true
 mg-module.workspace = true
 mg-resman.workspace = true
 mg-script.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true

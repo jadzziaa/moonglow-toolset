@@ -113,12 +113,19 @@ pub(crate) enum NuiCmd {
     },
     /// Print the form of a window's settings file (NAME.txt, the format
     /// moonglow.nui/1) as a JSON Schema: every key, its type, its default
-    /// and what it does, and each handler's form. With --layout: a new
+    /// and what it does, and each handler's form. With --jui: the layout's
+    /// (NAME.jui) as a JSON Schema, the window's properties and each
+    /// control's by its type, the kind of value each takes and whether a
+    /// bind may give it, as the checks hold them. With --layout: a new
     /// window's layout, and each control as the NUI Creator adds it.
     Schema {
-        /// The layout's controls (NAME.jui) instead of the settings.
-        #[arg(long)]
+        /// The layout's controls as the Creator adds them (NAME.jui)
+        /// instead of the settings.
+        #[arg(long, conflicts_with = "jui")]
         layout: bool,
+        /// The layout's JSON Schema (NAME.jui) instead of the settings'.
+        #[arg(long)]
+        jui: bool,
     },
     /// Where the NUI Creator's preview puts each control of a NUI window:
     /// its rectangle in the window's points (the window's top left at 0,
@@ -195,8 +202,12 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
         NuiCmd::Import { module, sources, replace, dry_run } => {
             import(module, sources, *replace, *dry_run)
         }
-        NuiCmd::Schema { layout } => {
-            let schema = if *layout { mg_nui::controls() } else { mg_nui::settings_schema() };
+        NuiCmd::Schema { layout, jui } => {
+            let schema = match (layout, jui) {
+                (true, _) => mg_nui::controls(),
+                (_, true) => mg_nui::jui_schema(),
+                _ => mg_nui::settings_schema(),
+            };
             let mut out = Output::default();
             for line in serde_json::to_string_pretty(&schema)?.lines() {
                 out.line(line);
