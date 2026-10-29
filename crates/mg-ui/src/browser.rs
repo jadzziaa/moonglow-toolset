@@ -295,13 +295,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if ui.button("Open").clicked() {
                         actions.push(Action::OpenTab(tab()));
                     }
-                    // (The viewer shows the copy the game reads.)
-                    if copy.is_none()
-                        && k.restype != ResType::MDL
-                        && crate::model_view::previewable(k.restype)
+                    // (A copy's as its layer has it: a model, a blueprint.)
+                    let previewable = crate::model_view::previewable(k.restype)
+                        && (copy.is_some() || k.restype != ResType::MDL);
+                    if previewable
                         && ui.button("Preview").on_hover_text("See it in the 3D viewer").clicked()
                     {
-                        actions.push(Action::OpenTab(Tab::Model(*k)));
+                        let tab = match &copy {
+                            Some(layer) => Tab::ModelCopy { key: *k, layer: layer.clone() },
+                            None => Tab::Model(*k),
+                        };
+                        actions.push(Action::OpenTab(tab));
                     }
                     if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
                         actions.push(Action::SaveResource(*k, copy.clone()));

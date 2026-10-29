@@ -773,10 +773,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **Overridden copies in the resource browser** open read-only as their
   layer has them (fields, tables, text, a model as its text), copy to
-  the module and save; the model viewer (Preview) shows only the copy
-  the game reads, Export as Files writes only those, and a plugin's
-  selection sees a copy's tab as nothing. (S) (a builder's report on
-  2.0.0)
+  the module and save; since 2026-10-29 Preview shows a copy's model or
+  blueprint (`Tab::ModelCopy`) and Export as Files writes the copies
+  listed, each in a folder of its layer's. Left: a plugin's selection
+  sees a copy's tab as nothing (`Moonglow::plugin_open`). Seeing it
+  needs the plugin API to name a layer: an entry with its `layer`
+  (`mg_plugin::Selected` has none) and a way to read that copy
+  (`ctx.game:bytes(name, layer)`, say), documented in the API reference
+  and its tests: an API addition, not a fix. (S–M) (a builder's report
+  on 2.0.0)
 
 
 ## Area visibility

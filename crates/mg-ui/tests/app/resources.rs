@@ -205,6 +205,75 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     h.get_by_label_contains("1 of ");
 }
 
+/// The resource browser's Preview shows an overridden copy as its layer
+/// has it: the game's own model under one of ours in override (a builder's
+/// report on 2.0.0: Preview showed only the copy the game reads).
+#[test]
+fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-preview-copy");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    // Ours: a dummy and two quads.
+    let quad = |name: &str, x: f32| {
+        format!(
+            "node trimesh {name}\n  parent plc_a01\n  bitmap white\n  verts 4\n    -1 1 0\n    \
+             -1 -1 0\n    1 1 0\n    1 -1 0\n  tverts 4\n    0 1 0\n    0 0 0\n    1 1 0\n    \
+             1 0 0\n  faces 2\n    0 1 2 1 0 1 2 1\n    3 2 1 1 3 2 1 1\n  position {x} 0 0\n\
+             endnode\n"
+        )
+    };
+    let ours = format!(
+        "newmodel plc_a01\nsetsupermodel plc_a01 NULL\nclassification character\n\
+         beginmodelgeom plc_a01\nnode dummy plc_a01\n  parent NULL\nendnode\n{}{}\
+         endmodelgeom plc_a01\ndonemodel plc_a01\n",
+        quad("left", -1.0),
+        quad("right", 1.0)
+    );
+    std::fs::write(user.join("override/plc_a01.mdl"), ours).unwrap();
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, Some(user));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let rm = &app.game.as_deref().unwrap().resman;
+    assert_eq!(rm.origin(&key), Some("override"));
+    let game_layer = rm.copies(&key).into_iter().nth(1).map(|i| rm.layers()[i].label.clone());
+    let game_layer = game_layer.expect("the game's own under it");
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    app.browser.filter = "plc_a01".into();
+    app.browser.restype = Some(ResType::MDL);
+    let mut h = gpu_harness(app, rs, 1100.0, 800.0);
+    h.run();
+    // The game's copy's row, under ours: its menu has Preview.
+    let rows: Vec<_> = h.get_all_by_label("plc_a01.mdl").collect();
+    assert!(rows.len() >= 2, "ours and the game's");
+    rows[1].click_secondary();
+    h.run();
+    h.get_by_label("Preview").click();
+    h.run();
+    let tab = Tab::ModelCopy { key, layer: game_layer.clone() };
+    assert!(h.state().dock.find_tab(&tab).is_some(), "the copy's viewer");
+    // (What the viewer says of the model: `PLC_A01: 22 nodes, 12 meshes`.)
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let node = |n: egui_kittest::Node<'_>| n.accesskit_node().value();
+        h.query_all_by_label_contains(" nodes, ").filter_map(node).collect()
+    };
+    let ours = |h: &Harness<'_, Moonglow>| {
+        said(h).iter().any(|s| s.to_lowercase() == "plc_a01: 3 nodes, 2 meshes")
+    };
+    assert_eq!(said(&h).len(), 1, "a model shown");
+    assert!(!ours(&h), "the game's model, not ours: {:?}", said(&h));
+    assert!(h.state().model_views.keys().any(|s| s.to_string().ends_with(&game_layer))); // The model the game reads, ours, in the viewer of the resource.
+    close_tab(h.state_mut(), &tab);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    h.run();
+    assert!(ours(&h), "ours, which overrides it");
+}
+
 /// Whether `app`'s game data has the two haks of [`module_with_two_tables`]
 /// layered, the higher read first, without the log saying that they could
 /// not be.

@@ -1459,7 +1459,9 @@ impl Moonglow {
                 .dock
                 .iter_all_tabs()
                 .map(|(_, t)| t)
-                .filter(|t| matches!(t, Tab::Model(_) | Tab::InstanceModel { .. }))
+                .filter(|t| {
+                    matches!(t, Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. })
+                })
                 .cloned()
                 .collect();
             self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
