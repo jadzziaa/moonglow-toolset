@@ -709,13 +709,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
-- **Where a StrRef is used:** Find References takes a talk-table line
-  (a number typed in its field, or Find References in the talk table's
-  editor) and lists the module's localized strings that name it
-  (blueprints, areas, conversations, the journal) and its 2DAs' cells
-  in the columns known to hold StrRefs. Not done: the haks' 2DAs are
-  not looked in (they are not the module's), nor fields that hold a
-  StrRef as a plain number, nor scripts (`GetStringByStrRef`). (S each)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not

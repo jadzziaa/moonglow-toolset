@@ -1189,8 +1189,17 @@ module's talk table:
   feminine table. **Find** finds lines by words or by StrRef. **Go to**
   takes a StrRef or a line's number: press Enter and the list goes to
   that line, among all the others, and it is chosen. **Find References**
-  lists where the module names the chosen line (a hak's 2DAs are not
-  looked in).
+  lists where the module names the chosen line (as does a number typed
+  in the References tab's field): its blueprints', areas',
+  conversations' and journal's strings, a palette's category, a
+  soundset's entries, its 2DAs' cells in the columns known to hold a
+  line, and a script's call with the number written in it
+  (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
+  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
+  argument, `SetTlkOverride`…; a number kept in a variable or a constant
+  isn't followed), which opens at its line. Under them, **In the haks'
+  2DAs** lists the cells of the module's haks' tables that name it, each
+  hak's own copy.
 - **Choosing a line:** click anywhere on its row. The keys are the
   list's from then: Up and Down (Page Up and Page Down, Home and End)
   choose a line, and Enter, or a double click, goes to its text.

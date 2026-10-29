@@ -2611,6 +2611,7 @@ dependencies = [
  "mg-script",
  "mg-set",
  "mg-shader",
+ "mg-ssf",
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",

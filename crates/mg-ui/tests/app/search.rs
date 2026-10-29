@@ -147,6 +147,47 @@ fn find_references_finds_where_a_talk_table_line_is_named() {
     assert!(h.state().references.usages.is_empty());
 }
 
+/// A talk-table line a script names by number (`GetStringByStrRef`), a
+/// palette's category and a hak's 2DA: listed, the script's at its line.
+#[test]
+fn find_references_finds_a_line_in_scripts_and_the_haks_2das() {
+    use mg_schema::{StructExt, ifo};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-strref-haks");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let classes = b"2DA V2.0\n\n   Label Name\n0  Kz 16777300\n1  Other 5\n".to_vec();
+    hak.add(ResRef::from_str("classes").unwrap(), ResType::TWODA, classes).unwrap();
+    std::fs::write(user.join("hak/kz_classes.hak"), hak.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, mg_schema::ExoString::from("kz_classes"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    let script = b"void main()\n{\n    SpeakStringByStrRef(16777300);\n}\n".to_vec();
+    m.set(ResKey::parse("kz_speak", ResType::NSS).unwrap(), script);
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_300));
+    h.run_steps(3);
+    let places: Vec<String> = h.state().references.usages.iter().map(|u| u.place.clone()).collect();
+    assert_eq!(places, ["kz_speak.nss › line 3"]);
+    h.get_by_label("In the haks' 2DAs (1):");
+    h.get_by_label("kz_classes › classes.2da › row 0, Name");
+    // The script's opens at its line.
+    h.get_by_label("kz_speak.nss › line 3").click();
+    h.run_steps(3);
+    let key = ResKey::parse("kz_speak", ResType::NSS).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), "the script opens");
+}
+
 #[test]
 fn find_and_replace_text_across_the_module() {
     use mg_edit::{Command, Edit};
