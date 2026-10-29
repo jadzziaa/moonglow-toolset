@@ -874,6 +874,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
     let Ok(t) = d.set.clone() else { return };
     // The folder's models and textures, over the game data while rendering.
     const LAYER: &str = "tileset folder";
+    app.release_game_data();
     if let Some(game) = crate::exclusive(&mut app.game) {
         game.resman.add(
             mg_resman::priority::TEMP,
@@ -900,6 +901,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
             None => failed.push(format!("{}: model not found", tile.model)),
         }
     }
+    app.release_game_data();
     if let Some(game) = crate::exclusive(&mut app.game) {
         game.resman.remove(LAYER);
     }
