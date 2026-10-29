@@ -1224,7 +1224,7 @@ mod tests {
         assert!(changes.iter().all(|c| c.path.starts_with(&path)));
         // Found and not yet answered: a save doesn't write over them.
         let e = m.save().unwrap_err();
-        assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == &[path.clone()]), "{e}");
+        assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&path)), "{e}");
         // Found again until taken; then nothing.
         assert_eq!(m.outside().unwrap().0.len(), 3);
         let (changes, _) = m.outside().unwrap();
