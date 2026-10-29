@@ -8,17 +8,7 @@ use std::path::Path;
 use serde_json::Value;
 
 fn run(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    let (ok, json) = crate::quiet_json_out(
-        crate::mg()
-            .args([
-                "--root",
-                root.to_str().unwrap(),
-                "--user-dir",
-                user.to_str().unwrap(),
-                "--json",
-            ])
-            .args(args),
-    );
+    let (ok, json) = crate::quiet_json_out(crate::mg_on(root, Some(user)).arg("--json").args(args));
     assert!(json.is_object(), "{args:?}: {json}");
     (ok, json)
 }
@@ -71,11 +61,8 @@ fn every_command_answers_in_json() {
     let listed = ok(&["model-files", "plc_a01", &at("files"), "--dry-run"]);
     assert_eq!(listed["files"], files["files"]);
     ok(&["model-files", "plc_a01", &at("files"), "--force"]);
-    let refused = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
-        .args(["model-files", "plc_a01", &at("files")])
-        .output()
-        .unwrap();
+    let refused =
+        crate::mg_on(&root, None).args(["model-files", "plc_a01", &at("files")]).output().unwrap();
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("--force"));
     // Plugins: the plugin host's own fixture, listed, checked, run and

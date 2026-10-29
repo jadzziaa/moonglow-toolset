@@ -9,10 +9,8 @@ use mg_resman::ResKey;
 use serde_json::Value;
 
 fn compile(root: &Path, dir: &Path, module: &Path, more: &[&str]) -> Value {
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--json", "--user-dir"])
-        .arg(dir.join("user"))
-        .arg("compile")
+    let out = crate::mg_on(root, Some(&dir.join("user")))
+        .args(["--json", "compile"])
         .arg(module)
         .args(more)
         // (A data folder that starts empty: what was compiled before is
@@ -113,9 +111,7 @@ fn uncompiled_and_build_remember_what_they_compiled() {
     assert_eq!(kept(), 1);
     let project = dir.join("project");
     let mg = |args: &[&str]| {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--user-dir"])
-            .arg(dir.join("user"))
+        let out = crate::mg_on(&root, Some(&dir.join("user")))
             .args(args)
             .env("MOONGLOW_DATA_DIR", dir.join("data"))
             .output()
@@ -170,9 +166,7 @@ fn x2_inc_cutscene_s_includers_compile_with_one_warning() {
     assert!(m.contains(&ResKey::parse("cut_b", ResType::NCS).unwrap()));
 
     // As text: on standard error, once.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir"])
-        .arg(dir.join("user"))
+    let out = crate::mg_on(&root, Some(&dir.join("user")))
         .args(["compile", "--all"])
         .arg(&chess)
         .env("MOONGLOW_DATA_DIR", dir.join("data"))

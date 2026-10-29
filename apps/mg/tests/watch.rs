@@ -11,8 +11,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 fn mg(root: &Path, args: &[&str]) -> Command {
-    let mut c = crate::mg();
-    c.args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json"]).args(args);
+    let mut c = crate::mg_on(root, None);
+    c.arg("--json").args(args);
     c
 }
 

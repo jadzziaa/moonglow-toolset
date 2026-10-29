@@ -27,18 +27,7 @@ const STOPS: &str = "#include \"mg_test\"\nvoid main()\n{\n    int nNone = \
 const ENDLESS: &str = "void main() { int n = 0; while (TRUE) { n++; } }\n";
 
 fn mg(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    crate::json_out(
-        crate::mg()
-            .args([
-                "--root",
-                root.to_str().unwrap(),
-                "--user-dir",
-                user.to_str().unwrap(),
-                "--json",
-            ])
-            .arg("test")
-            .args(args),
-    )
+    crate::json_out(crate::mg_on(root, Some(user)).args(["--json", "test"]).args(args))
 }
 
 #[test]
@@ -141,8 +130,7 @@ fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
     let mut m = mg_module::Module::open(&chess).unwrap();
     m.set(value, set_value(1));
     m.save().unwrap();
-    let compile = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+    let compile = crate::mg_on(&root, Some(user.as_ref()))
         .args(["compile", chess.to_str().unwrap()])
         .output()
         .unwrap();
@@ -168,8 +156,8 @@ fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
     assert_eq!(m.get(&ncs).unwrap(), &old[..], "the builder's module is only read");
 
     // Compiled in the module: nothing said, and the test still passes.
-    let compile = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+    let compile = crate::mg_on(&root, Some(user.as_ref()))
+        .arg("--json")
         .args(["compile", c])
         .output()
         .unwrap();

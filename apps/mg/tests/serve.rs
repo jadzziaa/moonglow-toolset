@@ -6,12 +6,8 @@ use std::path::Path;
 use serde_json::Value;
 
 fn serve(root: &Path, user: &Path, args: &[&str]) -> (bool, Vec<Value>, String) {
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
-        .arg("serve")
-        .args(args)
-        .output()
-        .unwrap();
+    let out =
+        crate::mg_on(root, Some(user)).arg("--json").arg("serve").args(args).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let events = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     (out.status.success(), events, text)
@@ -118,11 +114,7 @@ fn a_module_of_sources_is_served_compiled() {
 
     // Compiled in the folder, then changed: served as it is now, not as
     // its older compiled script.
-    let _ = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
-        .args(["compile", f])
-        .output()
-        .unwrap();
+    let _ = crate::mg_on(&root, Some(user.as_ref())).args(["compile", f]).output().unwrap();
     assert!(folder.join("mg_hello.ncs").is_file());
     let changed = "void main() { WriteTimestampedLogEntry(\"MG_SERVED_CHANGED\"); }\n";
     std::fs::write(folder.join("mg_hello.nss"), changed).unwrap();
@@ -151,8 +143,8 @@ fn ctrl_c_stops_the_server_with_exit() {
     let chess = dir.join("chess.mod");
     std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
     let served = dir.join("served");
-    let mut child = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+    let mut child = crate::mg_on(&root, Some(user.as_ref()))
+        .arg("--json")
         .args(["serve", chess.to_str().unwrap(), "--dir", served.to_str().unwrap()])
         .args(["--timeout", "90"])
         .process_group(0)

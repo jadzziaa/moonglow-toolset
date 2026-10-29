@@ -1,11 +1,7 @@
 //! `mg 2da-check`: a builder's own table held to its description
 //! (`name.2da.toml` beside it), its lists read from a script's constants.
 
-use serde_json::Value;
-
-fn mg(args: &[&str]) -> (bool, Value) {
-    crate::json_out(crate::mg().arg("--json").args(args))
-}
+use crate::mg_json as mg;
 
 const DESCRIPTION: &str = r#"
 rows = "loot_kinds"

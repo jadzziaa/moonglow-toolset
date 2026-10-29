@@ -10,11 +10,7 @@ use mg_resman::ResKey;
 use serde_json::Value as Json;
 
 fn run(root: &std::path::Path, args: &[&str]) -> (bool, Json, String) {
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "search"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(root, None).args(["--json", "search"]).args(args).output().unwrap();
     let json = serde_json::from_slice(&out.stdout).unwrap_or(Json::Null);
     (out.status.success(), json, String::from_utf8_lossy(&out.stderr).into_owned())
 }

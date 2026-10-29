@@ -12,11 +12,7 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     let chess = root.join("data/mod/Neverwinter Chess.mod");
     let dir = mg_testkit::scratch_dir("mg-verify");
     let verify = |path: &std::path::Path| {
-        crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-            .arg(path)
-            .output()
-            .unwrap()
+        crate::mg_on(&root, None).args(["verify", "--json"]).arg(path).output().unwrap()
     };
     let clean = verify(&chess);
     assert!(clean.status.success(), "{}", String::from_utf8_lossy(&clean.stderr));
@@ -45,8 +41,8 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     // isn't checked, so it passes, and says which groups it left out.
     for skip in [&["--skip", "objects", "--skip", "tilesets"][..], &["--skip", "objects,tilesets"]]
     {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        let out = crate::mg_on(&root, None)
+            .args(["verify", "--json"])
             .args(skip)
             .arg(&broken)
             .output()
@@ -58,8 +54,8 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     }
     // `--timings` says how long each part took, on stderr; the report is
     // the same.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+    let out = crate::mg_on(&root, None)
+        .args(["verify", "--json"])
         .arg("--timings")
         .arg(&broken)
         .output()
@@ -91,11 +87,7 @@ fn verify_finds_area_variables_the_game_does_not_read() {
     m.set_gff(are, &g).unwrap();
     let path = dir.join("area-vars.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--json"]).arg(&path).output().unwrap();
     assert!(!out.status.success());
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let f = &json["findings"][0];
@@ -105,8 +97,8 @@ fn verify_finds_area_variables_the_game_does_not_read() {
     // gone, so Verify passes; the variables are in the GIT.
     assert_eq!(f["fix"]["label"], "Move the variables to the GIT");
     assert_eq!(f["fix"]["command"]["edits"].as_array().unwrap().len(), 2, "{f}");
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify"])
+    let out = crate::mg_on(&root, None)
+        .arg("verify")
         .args(["--fix", "area-variables"])
         .arg(&path)
         .output()
@@ -140,11 +132,7 @@ fn verify_warns_of_an_object_of_the_pc_faction() {
     m.set_gff(git, &g).unwrap();
     let path = dir.join("pc-faction.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--json"]).arg(&path).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let found: Vec<&serde_json::Value> = json["findings"]
@@ -181,11 +169,7 @@ fn verify_warns_of_a_unique_tag_on_two_objects() {
     m.set_gff(git, &g).unwrap();
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(dir.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .arg(&dir)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--json"]).arg(&dir).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let found: Vec<&serde_json::Value> = json["findings"]
@@ -206,8 +190,8 @@ fn verify_warns_of_a_unique_tag_on_two_objects() {
     // The fix, said and not made (--dry-run), then made: the second
     // waypoint has a tag of its own, and Verify finds nothing.
     let fix = |more: &[&str]| {
-        crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "verify"])
+        crate::mg_on(&root, None)
+            .args(["--json", "verify"])
             .args(["--fix", "tag-unique"])
             .args(more)
             .arg(&dir)
@@ -250,8 +234,7 @@ fn verify_finds_the_talk_table_where_the_game_does() {
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("tlk")).unwrap();
     let verify = |path: &std::path::Path| {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+        let out = crate::mg_on(&root, Some(user.as_ref()))
             .args(["verify", "--json"])
             .arg(path)
             .output()
@@ -309,8 +292,8 @@ fn verify_unused_says_a_script_once_and_counts_what_runs_it() {
     );
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     let unused = || {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "verify"])
+        let out = crate::mg_on(&root, None)
+            .args(["--json", "verify"])
             .arg("--unused")
             .arg(&dir)
             .output()
@@ -341,11 +324,7 @@ fn verify_unused_says_a_script_once_and_counts_what_runs_it() {
         ]
     );
     // As text: a line a script, with what it has.
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--unused"])
-        .arg(&dir)
-        .output()
-        .unwrap();
+    let out = crate::mg_on(&root, None).args(["verify", "--unused"]).arg(&dir).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("unused\tmg_both.nss\tsource and compiled\n"), "{text}");
     assert!(text.contains("unused\tmg_compiled.ncs\tcompiled only (no source)\n"), "{text}");
@@ -374,8 +353,8 @@ fn verify_unused_says_a_script_once_and_counts_what_runs_it() {
     assert_eq!(json["scripts"], serde_json::json!(["mg_ai_*"]));
     // Where it is used: by the game's table, or by the project file.
     let refs = |name: &str| {
-        let out = crate::mg()
-            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "refs"])
+        let out = crate::mg_on(&root, None)
+            .args(["--json", "refs"])
             .arg(&dir)
             .arg(name)
             .output()

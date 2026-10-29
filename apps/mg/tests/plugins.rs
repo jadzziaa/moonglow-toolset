@@ -36,7 +36,7 @@ fn tag(module: &Path) -> String {
 }
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    crate::quiet_json_out(crate::mg().args(["--no-user-dir", "--json"]).args(args))
+    crate::quiet_json_out(crate::mg_alone().arg("--json").args(args))
 }
 
 #[test]
@@ -315,12 +315,7 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
         .canonicalize()
         .unwrap();
     let run = |more: &[&str]| {
-        crate::mg()
-            .args(["--no-user-dir", "plugin", "test"])
-            .arg(&example)
-            .args(more)
-            .output()
-            .unwrap()
+        crate::mg_alone().args(["plugin", "test"]).arg(&example).args(more).output().unwrap()
     };
     let out = run(&[]);
     let text = String::from_utf8_lossy(&out.stdout);
@@ -349,8 +344,8 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
         "{text}"
     );
     assert!(String::from_utf8_lossy(&out.stderr).contains("2 passed, 3 failed"));
-    let none = crate::mg()
-        .args(["--no-user-dir", "plugin", "test"])
+    let none = crate::mg_alone()
+        .args(["plugin", "test"])
         .arg(fixtures().join("hostile"))
         .output()
         .unwrap();
@@ -411,9 +406,7 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
         ));
     }
     std::fs::write(source.join("tests/game.toml"), tests).unwrap();
-    let out = crate::mg()
-        .args(["--no-user-dir", "--root"])
-        .arg(dir.join("no-game"))
+    let out = crate::mg_on(dir.join("no-game"), None)
         .args(["--json", "plugin", "test"])
         .arg(&source)
         .output()
@@ -444,8 +437,8 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
     assert_eq!(none["notes"], serde_json::json!([without]), "{json}");
     assert_eq!(json["noted"], 1, "{json}");
     // With the machine's game too, `root = false` reads none of it.
-    let out = crate::mg()
-        .args(["--no-user-dir", "plugin", "test"])
+    let out = crate::mg_alone()
+        .args(["plugin", "test"])
         .arg(&source)
         .env("NWN_ROOT", game.clone().unwrap_or_else(|| dir.join("no-game")))
         .output()
@@ -485,11 +478,12 @@ fn project_with_plugins(name: &str) -> PathBuf {
     dir
 }
 
-/// `mg` with a data folder of its own (where Moonglow keeps the answers
-/// about projects' plugins), so that tests running at once keep apart:
-/// `MOONGLOW_DATA_DIR`, on every platform (`mg_module::build::data_dir`).
+/// `mg` with no user folder of the game's and a data folder of its own
+/// (where Moonglow keeps the answers about projects' plugins), so that
+/// tests running at once keep apart: `MOONGLOW_DATA_DIR`, on every
+/// platform (`mg_module::build::data_dir`).
 fn mg_in(home: &Path) -> std::process::Command {
-    let mut c = crate::mg();
+    let mut c = crate::mg_alone();
     c.env("MOONGLOW_DATA_DIR", home.join("data/moonglow"));
     c
 }
@@ -500,7 +494,7 @@ fn answers_in(home: &Path) -> std::path::PathBuf {
 }
 
 fn mg_at(home: &Path, args: &[&str]) -> (bool, Json) {
-    crate::quiet_json_out(mg_in(home).args(["--no-user-dir", "--json"]).args(args))
+    crate::quiet_json_out(mg_in(home).arg("--json").args(args))
 }
 
 /// A project's plugins: listed with what the builder allowed and their
@@ -541,18 +535,12 @@ fn a_project_s_plugins_are_listed_as_allowed() {
     let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert_eq!(listed["plugins"][0]["project"]["trust"], "denied");
     // As text: a line for it and one for each setting.
-    let out = mg_in(&home)
-        .args(["--no-user-dir", "plugin", "list", "--project", project])
-        .output()
-        .unwrap();
+    let out = mg_in(&home).args(["plugin", "list", "--project", project]).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("\tthe project's: denied"), "{text}");
     assert!(text.contains("\tsetting\tprefix\tstring\tproject\t\"KRZ_\""), "{text}");
     // A plugin the project has not.
-    let out = mg_in(&home)
-        .args(["--no-user-dir", "plugin", "allow", project, "nobody.else"])
-        .output()
-        .unwrap();
+    let out = mg_in(&home).args(["plugin", "allow", project, "nobody.else"]).output().unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("the project has no plugin nobody.else"));
 }
@@ -654,15 +642,8 @@ fn a_plugin_s_settings_are_read_and_kept_on_the_command_line() {
     assert!(out.to_string().contains("KRZ_ab_ca"), "cut to 9: {out}");
     // A --setting that is none, or not of its kind.
     let fails = |more: &[&str]| {
-        let out = crate::mg()
-            .args([
-                "--no-user-dir",
-                "plugin",
-                "run",
-                dir.to_str().unwrap(),
-                plugin.to_str().unwrap(),
-                "prefix-tags",
-            ])
+        let out = crate::mg_alone()
+            .args(["plugin", "run", dir.to_str().unwrap(), plugin.to_str().unwrap(), "prefix-tags"])
             .args(more)
             .output()
             .unwrap();
@@ -719,8 +700,8 @@ fn a_plugin_refuses_or_warns_of_what_mg_saves() {
     let rules = house_rules();
     let dir = tavern("mg-plugin-save-refused", "");
     let set = |tag: &str, plugins: bool| {
-        let mut cmd = crate::mg();
-        cmd.args(["--no-user-dir", "--json", "set", dir.to_str().unwrap(), "tavern.are"]);
+        let mut cmd = crate::mg_alone();
+        cmd.args(["--json", "set", dir.to_str().unwrap(), "tavern.are"]);
         cmd.arg(format!("Tag={tag}"));
         if plugins {
             cmd.args(["--plugins", rules.to_str().unwrap()]);
@@ -741,8 +722,8 @@ fn a_plugin_refuses_or_warns_of_what_mg_saves() {
     );
     assert_eq!(area_tag(&dir), "TAVERN", "nothing written");
     // --dry-run says the same, and writes nothing either.
-    let out = crate::mg()
-        .args(["--no-user-dir", "set", dir.to_str().unwrap(), "tavern.are", "Tag=INN", "--dry-run"])
+    let out = crate::mg_alone()
+        .args(["set", dir.to_str().unwrap(), "tavern.are", "Tag=INN", "--dry-run"])
         .args(["--plugins", rules.to_str().unwrap()])
         .output()
         .unwrap();
@@ -786,8 +767,8 @@ fn a_plugin_s_new_events_run_by_hand() {
     let rules = house_rules();
     let fixture = rules.join("tests/module");
     let run = |more: &[&str]| -> (bool, Json) {
-        let out = crate::mg()
-            .args(["--no-user-dir", "--json", "plugin", "run"])
+        let out = crate::mg_alone()
+            .args(["--json", "plugin", "run"])
             .args([fixture.to_str().unwrap(), rules.to_str().unwrap()])
             .args(more)
             .output()

@@ -24,11 +24,11 @@ fn key(name: &str) -> ResKey {
 }
 
 fn command(root: Option<&Path>, args: &[&str]) -> std::process::Command {
-    let mut mg = crate::mg();
-    if let Some(root) = root {
-        mg.arg("--root").arg(root);
-    }
-    mg.arg("--no-user-dir").args(args);
+    let mut mg = match root {
+        Some(root) => crate::mg_on(root, None),
+        None => crate::mg_alone(),
+    };
+    mg.args(args);
     mg
 }
 

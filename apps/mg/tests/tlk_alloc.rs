@@ -3,9 +3,7 @@
 
 use serde_json::Value;
 
-fn mg(args: &[&str]) -> (bool, Value) {
-    crate::json_out(crate::mg().arg("--json").args(args))
-}
+use crate::mg_json as mg;
 
 #[test]
 fn names_get_lines_that_stay() {

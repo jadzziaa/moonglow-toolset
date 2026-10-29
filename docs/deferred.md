@@ -56,13 +56,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   the passes' `FORMAT` alone and no longer starts anew when it moves to a
   newer toolset tag. One line at the viewer's start
   (`mg_core::release::set`, its own version) names it as before. (S)
-- **Shared test fixtures written many times, what is left:** `fn lines`
-  of the Aurora tests is one (`aurora_common`, 2026-10-27) and reading
-  `mg --json`'s answer is `json_out` and `quiet_json_out` in the command
-  line's group, but each file of `apps/mg/tests` still has its own
-  wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
-  and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
-  mg-render's tests'. (S)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
