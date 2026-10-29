@@ -174,6 +174,19 @@ pub struct StaticRules {
     pub keep_tags: Patterns,
     /// A placeable whose blueprint's ResRef (`TemplateResRef`) these match.
     pub keep_resrefs: Patterns,
+    /// Not of the file: the module's scripts' string literals, so that a
+    /// placeable whose tag a script names stays dynamic
+    /// ([`StaticRules::with_scripts`]; none until it is called).
+    pub scripts: crate::areas::ScriptStrings,
+}
+
+impl StaticRules {
+    /// These rules, with the string literals of `module`'s scripts read
+    /// ([`crate::areas::ScriptStrings::of`]).
+    pub fn with_scripts(mut self, module: &crate::Module) -> StaticRules {
+        self.scripts = crate::areas::ScriptStrings::of(module);
+        self
+    }
 }
 
 impl Default for StaticRules {
@@ -182,6 +195,7 @@ impl Default for StaticRules {
             keep_variables: Patterns::new(&["*"]).expect("a glob"),
             keep_tags: Patterns::default(),
             keep_resrefs: Patterns::default(),
+            scripts: Default::default(),
         }
     }
 }

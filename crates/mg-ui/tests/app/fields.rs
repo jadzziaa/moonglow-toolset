@@ -1302,7 +1302,7 @@ fn arrow_keys_step_through_the_area_s_lists() {
 
     // Area Properties › Grass: the surface material of the area's own.
     let root = h.state_mut().ws.as_mut().unwrap().doc(&git).unwrap().root.clone();
-    let edits = mg_area::grass::add_override(git, &root, &GrassOverride::new(1, None));
+    let edits = mg_area::grass::set_override(git, &root, &GrassOverride::new(1, None));
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Grass", edits)));
     h.run_steps(2);
     h.get_all_by_label("Grass").last().unwrap().click();

@@ -3,7 +3,6 @@
 //! written, so an object that is moved keeps its orientation bit for bit.
 
 use std::collections::BTreeMap;
-use std::f32::consts::FRAC_PI_2;
 
 use glam::Vec3;
 use mg_edit::{Edit, GffPath};
@@ -47,24 +46,12 @@ type Change = (Place, &'static str, Value);
 /// encounter turns by its outline: the points turn about its position (and
 /// an encounter's spawn points with them).
 fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Change> {
-    let mut fields: Vec<(&'static str, f32)> = Vec::new();
-    if o.kind.has_bearing() {
-        fields.extend([("X", position.x), ("Y", position.y), ("Z", position.z)]);
-        fields.push(("Bearing", rotation));
-    } else {
-        fields.extend([
-            ("XPosition", position.x),
-            ("YPosition", position.y),
-            ("ZPosition", position.z),
-        ]);
-        let turns = matches!(
-            o.kind,
-            ObjectKind::Creature | ObjectKind::Item | ObjectKind::Store | ObjectKind::Waypoint
-        );
-        if turns && (rotation - o.rotation).abs() > 1e-6 {
-            let facing = rotation + FRAC_PI_2;
-            fields.extend([("XOrientation", facing.cos()), ("YOrientation", facing.sin())]);
-        }
+    let at = mg_module::placement::Placement { position: position.to_array(), rotation };
+    let mut fields = at.fields(o.kind);
+    // (An orientation is written again only when it turned: its cosine and
+    // sine read back are not quite what they were.)
+    if !o.kind.has_bearing() && (rotation - o.rotation).abs() <= 1e-6 {
+        fields.retain(|(label, _)| !label.ends_with("Orientation"));
     }
     let mut out: Vec<Change> = fields
         .into_iter()
@@ -75,7 +62,7 @@ fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Cha
     let turned = turn.abs() > 1e-6;
     let round = glam::Vec2::from_angle(turn);
     if turned {
-        let (x, y) = if o.kind == ObjectKind::Trigger { ("PointX", "PointY") } else { ("X", "Y") };
+        let [x, y, _] = mg_module::placement::point_fields(o.kind).unwrap_or(["X", "Y", "Z"]);
         for (i, p) in s.list("Geometry").unwrap_or(&[]).iter().enumerate() {
             let was = glam::Vec2::new(p.float(x).unwrap_or(0.0), p.float(y).unwrap_or(0.0));
             let to = round.rotate(was);
@@ -287,6 +274,7 @@ pub fn delete_edits(git: ResKey, objects: &[(ObjectKind, usize)]) -> Vec<Edit> {
 mod tests {
     use super::*;
     use mg_core::{ResRef, ResType};
+    use std::f32::consts::FRAC_PI_2;
 
     fn git() -> ResKey {
         ResKey::new(ResRef::from_str("area").unwrap(), ResType::GIT)

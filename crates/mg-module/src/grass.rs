@@ -255,63 +255,150 @@ impl GrassOverride {
     }
 }
 
-/// The overrides' list in `props` (a GIT's `AreaProperties`), made if it
-/// has none.
-fn list_mut(props: &mut Struct) -> &mut Vec<Struct> {
-    if props.child(OVERRIDES).and_then(|o| o.list(LIST)).is_none() {
-        let mut overrides = Struct::new(OVERRIDES_ID);
-        overrides.set(LIST, Value::List(Vec::new()));
-        props.set(OVERRIDES, Value::Struct(overrides));
-    }
-    props.child_mut(OVERRIDES).and_then(|o| o.list_mut(LIST)).expect("made above")
+/// One change a grass edit makes to a GIT's `AreaProperties`, in order:
+/// what [`set_in`] and its kin make in place (`mg areas`), and what the
+/// area view's undoable edits make (`mg_area::grass`), so that the two
+/// can't come to differ. Indices are of `GrassOvrList` as it is when the
+/// step is made (after the steps before it).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// Sets a field of `AreaProperties` (the tileset's grass off; the
+    /// overrides' struct, made with its list where there is none).
+    Property { label: &'static str, value: Value },
+    /// Sets a field of override `index`.
+    Field { index: usize, label: &'static str, value: Value },
+    /// Puts an override into the list at `index`.
+    Insert { index: usize, item: Struct },
+    /// Takes override `index` out of the list.
+    Remove(usize),
 }
 
-/// Grows `o` on its material in `props` (a GIT's `AreaProperties`): the
-/// item it has for the material changed where it differs (what else the
-/// item holds stays; others for the material go), else a new one. What it
-/// was before, if anything changed.
-pub fn set_in(props: &mut Struct, o: &GrassOverride) -> Option<Option<GrassOverride>> {
-    let list = list_mut(props);
-    let same = |s: &Struct| GrassOverride::read(s).is_some_and(|t| t.material == o.material);
-    let Some(at) = list.iter().rposition(same) else {
-        list.push(o.item());
-        return Some(None);
+/// The overrides' list in `props` (a GIT's `AreaProperties`), if it has
+/// one.
+fn list_in(props: Option<&Struct>) -> Option<&[Struct]> {
+    props?.child(OVERRIDES)?.list(LIST)
+}
+
+/// The places of the overrides for `material` in `list`, last first (as
+/// they are taken out: the indices before stay as they are).
+fn places_of(list: &[Struct], material: u32) -> impl Iterator<Item = usize> + '_ {
+    let same = move |s: &Struct| GrassOverride::read(s).is_some_and(|o| o.material == material);
+    list.iter().enumerate().rev().filter(move |(_, s)| same(s)).map(|(i, _)| i)
+}
+
+/// What grows `o` on its material in `props` (a GIT's `AreaProperties`):
+/// the item it has for the material (the last, should there be two)
+/// changed where it differs, what else the item holds kept, and the
+/// others for the material taken out; else a new one at the end, in a
+/// list made if there is none. Nothing, if it grows `o` already.
+pub fn set_plan(props: Option<&Struct>, o: &GrassOverride) -> Vec<Step> {
+    let Some(list) = list_in(props) else {
+        let mut overrides = Struct::new(OVERRIDES_ID);
+        overrides.set(LIST, Value::List(vec![o.item()]));
+        return vec![Step::Property { label: OVERRIDES, value: Value::Struct(overrides) }];
     };
-    let was = GrassOverride::read(&list[at]);
-    let item = &mut list[at];
+    let mut places = places_of(list, o.material);
+    let Some(index) = places.next() else {
+        return vec![Step::Insert { index: list.len(), item: o.item() }];
+    };
     let mut fields = o.fields();
     fields.push((TEXTURE, Value::String(o.look.texture.as_bytes().to_vec())));
-    let mut changed = false;
-    for (label, v) in fields {
-        if item.get(label) != Some(&v) {
-            item.set(label, v);
-            changed = true;
+    let there = &list[index];
+    let mut steps: Vec<Step> = fields
+        .into_iter()
+        .filter(|(label, v)| there.get(label) != Some(v))
+        .map(|(label, value)| Step::Field { index, label, value })
+        .collect();
+    // (The others are before it: taken out after its fields are set.)
+    steps.extend(places.map(Step::Remove));
+    steps
+}
+
+/// What takes the overrides for `material` out of `props`.
+pub fn remove_plan(props: Option<&Struct>, material: u32) -> Vec<Step> {
+    list_in(props)
+        .map(|list| places_of(list, material).map(Step::Remove).collect())
+        .unwrap_or_default()
+}
+
+/// What moves the grass `props` grows on material `from` to material `to`
+/// (in place of what grows there): the item for `from` keeps its place
+/// in the list and what else it holds.
+pub fn move_plan(props: Option<&Struct>, from: u32, to: u32) -> Vec<Step> {
+    let Some(list) = list_in(props).filter(|_| from != to) else { return Vec::new() };
+    let Some(index) = places_of(list, from).next() else { return Vec::new() };
+    // (Those for `to` go first: the item's index less as many as were
+    // before it.)
+    let gone = remove_plan(props, to);
+    let before = gone.iter().filter(|s| matches!(s, Step::Remove(i) if *i < index)).count();
+    let mut steps = gone;
+    let value = Value::Byte(to.min(255) as u8);
+    steps.push(Step::Field { index: index - before, label: MATERIAL, value });
+    steps
+}
+
+/// What turns the tileset's grass off (or on) in `props`; nothing if it
+/// is so already (no field is off).
+pub fn disabled_plan(props: Option<&Struct>, disabled: bool) -> Vec<Step> {
+    let was = props.and_then(|p| p.integer(DISABLED)).is_some_and(|v| v != 0);
+    if was == disabled {
+        return Vec::new();
+    }
+    vec![Step::Property { label: DISABLED, value: Value::Byte(u8::from(disabled)) }]
+}
+
+/// Makes `steps` in `props`, in order. A step whose place isn't there (a
+/// plan made of other properties) is passed by.
+pub fn apply(props: &mut Struct, steps: &[Step]) {
+    for step in steps {
+        if let Step::Property { label, value } = step {
+            props.set(label, value.clone());
+            continue;
+        }
+        let Some(list) = props.child_mut(OVERRIDES).and_then(|o| o.list_mut(LIST)) else {
+            continue;
+        };
+        match step {
+            Step::Field { index, label, value } => {
+                if let Some(item) = list.get_mut(*index) {
+                    item.set(label, value.clone());
+                }
+            }
+            Step::Insert { index, item } => list.insert((*index).min(list.len()), item.clone()),
+            Step::Remove(index) if *index < list.len() => _ = list.remove(*index),
+            _ => {}
         }
     }
-    let before = list.len();
-    let mut i = 0;
-    list.retain(|s| {
-        i += 1;
-        i - 1 == at || !same(s)
-    });
-    (changed || list.len() != before).then_some(was)
+}
+
+/// Grows `o` on its material in `props` ([`set_plan`]). What it was
+/// before, if anything changed.
+pub fn set_in(props: &mut Struct, o: &GrassOverride) -> Option<Option<GrassOverride>> {
+    let steps = set_plan(Some(props), o);
+    if steps.is_empty() {
+        return None;
+    }
+    let was = list_in(Some(props)).and_then(|l| places_of(l, o.material).next().map(|i| &l[i]));
+    let was = was.and_then(GrassOverride::read);
+    apply(props, &steps);
+    Some(was)
 }
 
 /// Takes the overrides for `material` out of `props`; the one there was.
 pub fn remove_in(props: &mut Struct, material: u32) -> Option<GrassOverride> {
-    let list = props.child_mut(OVERRIDES).and_then(|o| o.list_mut(LIST))?;
-    let was =
-        list.iter().rev().find_map(|s| GrassOverride::read(s).filter(|o| o.material == material));
-    list.retain(|s| GrassOverride::read(s).is_none_or(|o| o.material != material));
+    let list = list_in(Some(props))?;
+    let was = places_of(list, material).next().and_then(|i| GrassOverride::read(&list[i]));
+    let steps = remove_plan(Some(props), material);
+    apply(props, &steps);
     was
 }
 
 /// Turns the tileset's grass off (or on) in `props`; whether that changed
 /// it.
 pub fn set_disabled_in(props: &mut Struct, disabled: bool) -> bool {
-    let was = props.integer(DISABLED).is_some_and(|v| v != 0);
-    props.set(DISABLED, Value::Byte(u8::from(disabled)));
-    was != disabled
+    let steps = disabled_plan(Some(props), disabled);
+    apply(props, &steps);
+    !steps.is_empty()
 }
 
 #[cfg(test)]

@@ -23,20 +23,11 @@
 //! Aurora's two quirks with blueprints lacking `Comment` (a creature then
 //! gets an empty `Comment`, and its first skill another) are not copied.
 
-use std::f32::consts::FRAC_PI_2;
-
 use mg_core::{LocString, ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_rules::{GameData, ObjectKind};
 
-/// Where an instance stands: a position in metres and its model's turn
-/// around Z in radians (its facing less 90°: 0 faces north, as Aurora
-/// places everything).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Placement {
-    pub position: [f32; 3],
-    pub rotation: f32,
-}
+pub use crate::placement::Placement;
 
 /// What placing a blueprint reads besides it: the rules, and item
 /// blueprints (the module's, else the game's) for inventories.
@@ -988,23 +979,18 @@ pub fn instance(
     at: Placement,
     outline: &[[f32; 3]],
 ) -> Option<Struct> {
-    let id = ObjectKind::from_restype(restype)?.struct_id();
+    let kind = ObjectKind::from_restype(restype)?;
+    let id = kind.struct_id();
     let mut s = blueprint.clone();
     s.id = id;
     for label in ["PaletteID", "Comment"] {
         s.remove(label);
     }
-    let [x, y, z] = at.position;
-    let facing = at.rotation + FRAC_PI_2;
+    let [x, y, _] = at.position;
     let f = Value::Float;
+    // (Where it stands, as its kind keeps it: `placement`.)
     let orientation = |s: &mut Struct| {
-        for (label, v) in [
-            ("XPosition", x),
-            ("YPosition", y),
-            ("ZPosition", z),
-            ("XOrientation", facing.cos()),
-            ("YOrientation", facing.sin()),
-        ] {
+        for (label, v) in at.fields(kind) {
             s.set(label, f(v));
         }
     };
@@ -1092,18 +1078,14 @@ pub fn instance(
                 s.set("Static", Value::Byte(u8::from(!usable)));
             }
             held_list(p, &mut s, "ItemList", 0);
-            for (label, v) in [("X", x), ("Y", y), ("Z", z), ("Bearing", at.rotation)] {
-                s.set(label, f(v));
-            }
+            orientation(&mut s);
         }
         ResType::UTD => {
             renew(&mut s, "GenericType", "GenericType_New");
             s.remove("Portrait");
             fill(&mut s, SITUATED);
             fill(&mut s, DOOR);
-            for (label, v) in [("X", x), ("Y", y), ("Z", z), ("Bearing", at.rotation)] {
-                s.set(label, f(v));
-            }
+            orientation(&mut s);
         }
         ResType::UTS => {
             fill(&mut s, SOUND);
@@ -1119,9 +1101,7 @@ pub fn instance(
             let mut sounds = s.list("Sounds").unwrap_or(&[]).to_vec();
             sounds.iter_mut().for_each(|w| w.id = 0);
             s.set("Sounds", Value::List(sounds));
-            for (label, v) in [("XPosition", x), ("YPosition", y), ("ZPosition", z)] {
-                s.set(label, f(v));
-            }
+            orientation(&mut s);
         }
         ResType::UTW => {
             fill(&mut s, WAYPOINT);
@@ -1191,27 +1171,8 @@ fn arrange_as(restype: ResType, s: &mut Struct) {
 /// of its placement), and its outline (triggers' and encounters'
 /// `Geometry`, as stored).
 pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) {
-    let f = |l: &str| s.float(l).unwrap_or(0.0);
-    let (position, rotation) = match restype {
-        ResType::UTD | ResType::UTP => ([f("X"), f("Y"), f("Z")], f("Bearing")),
-        _ => {
-            let (x, y) = (f("XOrientation"), f("YOrientation"));
-            // Sounds, triggers and encounters don't face anywhere.
-            let facing = if x == 0.0 && y == 0.0 { FRAC_PI_2 } else { y.atan2(x) };
-            ([f("XPosition"), f("YPosition"), f("ZPosition")], facing - FRAC_PI_2)
-        }
-    };
-    let labels = match restype {
-        ResType::UTT => ["PointX", "PointY", "PointZ"],
-        _ => ["X", "Y", "Z"],
-    };
-    let outline = s
-        .list("Geometry")
-        .unwrap_or(&[])
-        .iter()
-        .map(|p| labels.map(|l| p.float(l).unwrap_or(0.0)))
-        .collect();
-    (Placement { position, rotation }, outline)
+    let Some(kind) = ObjectKind::from_restype(restype) else { return Default::default() };
+    (Placement::read(kind, s), crate::placement::outline(kind, s))
 }
 
 /// What Update Instances keeps of a placed object besides where it

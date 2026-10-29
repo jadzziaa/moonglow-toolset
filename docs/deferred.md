@@ -320,11 +320,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Bulk editing
 
-- **Make Placeables Static, what it can't see:** a placeable that a
-  script destroys, animates or makes usable by its tag, and has no
-  variables, looks like scenery and is made static; nothing scans the
-  scripts for its tag (a project names such tags in `[make_static]`
-  `keep_tags`). (M)
 - **Lists across several blueprints:** Edit Together leaves out the
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the
@@ -619,11 +614,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 
-- **Grass in patches:** the client's tufts gather in patches across a
-  field (dark clumps, seen in `client_render.rs` grass_overrides_look);
-  Moonglow scatters them evenly by face area and density. The mean color
-  near the camera matches; how the engine places them (per face, by a
-  noise) isn't known. (S–M) (Bee AI's ask, October 2026)
 - **A grass tuft's sway:** a tuft is one upright quad turned at random,
   a texture quarter, as tall as wide, as the client's are (seen with
   white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
@@ -683,20 +673,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   shown, and the area view draws scope 0 only. (M) (xtul's report,
   October 2026)
 
-- **Painting placeables** (the area view's Paint, from builders'
-  reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
-  on a grid Q and E turn, each piece by its own size, a builder's ask
-  after 1.32.2). Not done: a fill's rows of pieces of different depths
-  lined up by their middles rather than their near sides; an eraser
-  (taking the chosen blueprints' placeables out of the circle); the
-  brush's own Lock (painted placeables locked, so later clicks pass
-  through them); counting placeables that aren't the chosen blueprints
-  towards Density (Spacing keeps away from them; Density counts only the
-  brush's own); Spacing from each placeable's size rather than one
-  distance; a row along a path of several legs (a drag is one straight
-  line); random scale on static placeables (the game gives them none, so
-  Scale passes them by). The see-through dab is held by the tests'
-  counts; the pictures show strokes laid. (S each)
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
   draws as the client draws it. His armourer (`hss_armourer`, the area
@@ -1939,12 +1915,6 @@ of truth, and does each caller's difference matter.
   IFO is seen by half the tools. And areas listed and filtered three
   times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
   without the tag). (M)
-- **Where an object stands:** visual transforms read two ways
-  (`areas.rs:191`: any entry; `mg-area lib.rs:233`: scope 0, else the
-  first), and placement fields (X/Y/Z and Bearing, or XPosition and
-  orientation; PointX or X) read and written in six places
-  (`instances.rs:1149`, `mg-area lib.rs:323`, `reshape.rs:92`,
-  `edit.rs:50`, `query.rs:114`, `palette_add.rs:58`). (M)
 - **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
   `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
   `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
@@ -2018,10 +1988,6 @@ of truth, and does each caller's difference matter.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
-- The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
-  now but are still two (the edits wanted by the area view against the
-  module's mutations). (Making placeables static is one since
-  2026-10-22: `areas::static_plan` and `static_fields`.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

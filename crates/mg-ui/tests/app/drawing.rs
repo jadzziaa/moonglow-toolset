@@ -1425,6 +1425,51 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     assert!(saved.default_disabled && saved.overrides[0].material == 1);
 }
 
+/// A field of one grass tile model, every tile turned alike, seen from
+/// high over it: the grass and what it changes in the picture (four times
+/// as bright), in `target/test-output/ui-area-grass-repeat/`, to look at
+/// (each tile grew the same clumps, a pattern tile by tile, before the
+/// tiles of one model grew a few kinds of grass by their places).
+#[test]
+#[ignore = "a look at grass over a field of one tile model"]
+fn grass_over_a_field_of_one_tile_looks() {
+    let one_model = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        let tiles = are.root.list_mut("Tile_List").unwrap();
+        let id = tiles[0].integer("Tile_ID").unwrap();
+        for t in tiles.iter_mut() {
+            t.set("Tile_ID", mg_gff::Value::Int(id as i32));
+            t.set("Tile_Orientation", mg_gff::Value::Int(0));
+        }
+        m.set_gff(key, &are).unwrap();
+    };
+    let Some((mut h, area)) =
+        area_harness_with("grass-repeat", "ttr01", None, 12, None, &one_model)
+    else {
+        return;
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(60.0, 60.0, 0.0);
+        (o.pitch, o.yaw, o.distance) = (1.2, -std::f32::consts::FRAC_PI_2, 70.0);
+    }
+    let dir = mg_testkit::output_dir("ui-area-grass-repeat");
+    h.state_mut().settings.no_grass = false;
+    h.run_steps(12);
+    let with = h.render().expect("render");
+    with.save(dir.join("with.png")).unwrap();
+    h.state_mut().settings.no_grass = true;
+    h.run_steps(12);
+    let mut grass = h.render().expect("render");
+    for (p, w) in grass.pixels_mut().zip(with.pixels()) {
+        for c in 0..3 {
+            p[c] = (w[c].abs_diff(p[c]) as u32 * 4).min(255) as u8;
+        }
+    }
+    grass.save(dir.join("grass.png")).unwrap();
+}
+
 /// Dense grass (30 tufts a square meter) seen across a field, the camera
 /// led forward a meter at a time over the distance where the view begins
 /// to draw fewer of its tufts (45 m: `mg_area::grass::LEVELS`): pictures
@@ -1434,7 +1479,7 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
 #[test]
 #[ignore = "a look at grass thinned with distance"]
 fn grass_thinned_with_distance_looks() {
-    use mg_area::grass::{GRASS_MATERIAL, GrassOverride, add_override};
+    use mg_area::grass::{GRASS_MATERIAL, GrassOverride, set_override};
     let Some((mut h, area)) = area_harness_sized("grass-band", "ttr01", None, 12) else { return };
     let git = ResKey::new(area, ResType::GIT);
     let edits = {
@@ -1444,7 +1489,7 @@ fn grass_thinned_with_distance_looks() {
         let mut o = GrassOverride::new(GRASS_MATERIAL, set.as_ref());
         o.look.density = 30.0;
         let root = app.ws.as_mut().unwrap().doc(&git).unwrap().root.clone();
-        add_override(git, &root, &o)
+        set_override(git, &root, &o)
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Dense", edits)));
     h.run_steps(4);
@@ -1538,19 +1583,22 @@ fn grass_covers_the_whole_view() {
                 view.rect.shrink(20.0).contains(at),
                 "{name}: {p} at {at:?} is out of the view"
             );
-            let (x0, y0) = (at.x as u32 - 20, at.y as u32 - 20);
-            let changed = (x0..x0 + 40)
-                .flat_map(|x| (y0..y0 + 40).map(move |y| (x, y)))
+            // (Close, a square of a few meters: grass grows in clumps, and
+            // one of 40 pixels may fall between two.)
+            let half = if name == "close" { 80 } else { 20 };
+            let (x0, y0) = (at.x as u32 - half, at.y as u32 - half);
+            let changed = (x0..x0 + 2 * half)
+                .flat_map(|x| (y0..y0 + 2 * half).map(move |y| (x, y)))
                 .filter(|&(x, y)| {
                     let (a, b) = (shots[0].get_pixel(x, y), shots[1].get_pixel(x, y));
                     (0..3).any(|c| a[c].abs_diff(b[c]) > 12)
                 })
                 .count();
-            let off = p.distance(eye);
-            if changed <= 40 {
+            let (off, all) = (p.distance(eye), 4 * half * half);
+            if changed <= all as usize / 40 {
                 bare.push(format!(
                     "{name}: the grass at {p} ({off:.0} m from the eye) changed {changed} of \
-                     1600 pixels"
+                     {all} pixels"
                 ));
             }
         }

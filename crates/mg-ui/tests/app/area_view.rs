@@ -585,6 +585,138 @@ fn area_viewer_fills_a_rectangle_with_placeables() {
     assert!(placeables(&mut h).is_empty(), "one fill, one command");
 }
 
+/// The placeable brush's Lock, Erase and a row of two legs: what Lock
+/// paints is locked; Erase takes the chosen blueprint's placeables out of
+/// its circle as one step, not locked ones nor another blueprint's; a
+/// row begun at the last row's end goes on from it.
+#[test]
+fn area_viewer_erases_locks_and_goes_on_from_a_row() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("paint-erase") else { return };
+    let placeables = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").unwrap_or(&[]).to_vec()
+    };
+    let tree = ResKey::parse("plc_tree", ResType::UTP).unwrap();
+    let shrub = ResKey::parse("plc_shrub", ResType::UTP).unwrap();
+    let choose = |h: &mut Harness<'_, Moonglow>, key: ResKey, s: mg_ui::settings::PaintSettings| {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(key);
+        app.palette.chosen.clear();
+        app.paint = true;
+        app.settings.paint = s;
+        h.run_steps(2);
+    };
+    let scatter = mg_ui::settings::PaintSettings {
+        radius_cm: 300,
+        density: 40,
+        spacing_cm: 100,
+        flow: 100,
+        ..Default::default()
+    };
+    // (Where on the screen as the view is now: the strip above it is as
+    // tall as the brush's settings make it.)
+    let spot = Vec3::new(20.0, 20.0, 0.0);
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        h.run_steps(1);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    let of = |list: &[mg_gff::Struct], key: ResKey| {
+        list.iter().filter(|p| p.resref("TemplateResRef") == Some(key.resref)).count()
+    };
+    let locked = |p: &mg_gff::Struct| p.integer(mg_area::LOCKED) == Some(1);
+
+    // Shrubs, locked; then trees, not.
+    choose(&mut h, shrub, mg_ui::settings::PaintSettings { lock: true, ..scatter });
+    h.get_by_label("Lock");
+    click(&mut h, spot);
+    let shrubs = placeables(&mut h);
+    assert!(!shrubs.is_empty() && shrubs.iter().all(locked), "painted locked");
+    choose(&mut h, tree, mg_ui::settings::PaintSettings { count_all: false, ..scatter });
+    click(&mut h, spot);
+    let both = placeables(&mut h);
+    let trees = of(&both, tree);
+    assert!(trees > 0 && both.iter().filter(|p| !locked(p)).count() == trees);
+
+    // Erase, from the strip: the trees in the circle go, as one step; the
+    // shrubs (locked, and of another blueprint) stay.
+    h.get_by_label("Erase").click();
+    h.run_steps(2);
+    assert!(h.state().settings.paint.erase);
+    h.get_by_label_contains("Erasing plc_tree");
+    click(&mut h, spot);
+    let left = placeables(&mut h);
+    assert_eq!((of(&left, tree), of(&left, shrub)), (0, shrubs.len()), "the trees went");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Erase Placeables"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(of(&placeables(&mut h), tree), trees, "one Undo brings them back");
+    // A look, from nearer and lower: the eraser's circle over the trees,
+    // each it would take out marked.
+    let dir = mg_testkit::output_dir("ui-area-paint-erase");
+    let orbit = h.state().area_views[&area].orbit;
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        (o.target, o.distance, o.pitch) = (Vec3::new(20.0, 22.0, 0.0), 18.0, 0.8);
+    }
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, spot));
+    h.run_steps(2);
+    h.render().expect("render").save(dir.join("erase.png")).unwrap();
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = orbit;
+    h.run_steps(2);
+    // The locked shrubs, chosen: the eraser passes them by.
+    choose(&mut h, shrub, mg_ui::settings::PaintSettings { erase: true, ..scatter });
+    click(&mut h, spot);
+    assert_eq!(of(&placeables(&mut h), shrub), shrubs.len(), "locked ones stay");
+
+    // A row east, then one begun at its end, north: the second's first
+    // piece's back at the first's end.
+    let statue = ResKey::parse("plc_statue1", ResType::UTP).unwrap();
+    choose(&mut h, statue, mg_ui::settings::PaintSettings { row: true, ..Default::default() });
+    let before = placeables(&mut h).len();
+    let drag = |h: &mut Harness<'_, Moonglow>, from: Vec3, to: Vec3| {
+        let (a, b) = (screen(h, area, from), screen(h, area, to));
+        h.hover_at(a);
+        h.run_steps(1);
+        press(h, a, true, egui::Modifiers::NONE);
+        for k in 1..=6 {
+            h.hover_at(a + (b - a) * (k as f32 / 6.0));
+        }
+        h.run_steps(1);
+        press(h, b, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    drag(&mut h, Vec3::new(8.0, 32.0, 0.0), Vec3::new(16.0, 32.0, 0.0));
+    let end = h.state().area_views[&area].paint.row_end.expect("the row's end");
+    assert!((end.y - 32.0).abs() < 0.05 && end.x >= 16.0, "{end}");
+    let first = placeables(&mut h).len() - before;
+    // (Pressed half a meter off the end: it goes on from the end itself.)
+    drag(&mut h, end + Vec3::new(0.4, -0.3, 0.0), Vec3::new(end.x, 40.0, 0.0));
+    let all = placeables(&mut h);
+    let leg = &all[before + first..];
+    assert!(!leg.is_empty());
+    let x = |p: &mg_gff::Struct| p.float("X").unwrap();
+    assert!(leg.iter().all(|p| (x(p) - end.x).abs() < 0.05), "north from the end");
+    let y0 = leg.iter().map(|p| p.float("Y").unwrap()).fold(f32::MAX, f32::min);
+    assert!(y0 > end.y && y0 < end.y + 3.0, "beginning at the end: {y0}");
+    // A look: the two legs, and the second's end, ringed, where a third
+    // would go on from.
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        (o.target, o.distance, o.pitch) = (Vec3::new(16.0, 36.0, 0.0), 20.0, 0.9);
+    }
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, Vec3::new(10.0, 38.0, 0.0)));
+    h.run_steps(2);
+    h.render().expect("render").save(dir.join("row-legs.png")).unwrap();
+}
+
 #[test]
 fn area_viewer_places_draws_boxes_and_turns() {
     use glam::Vec3;

@@ -4670,15 +4670,13 @@ fn area_properties_grass() {
     let stone = GrassOverride { material: 4, look: look("ttz_grass", [0.4, 0.7, 0.3]) };
     let mut overrides = mg_gff::Struct::new(mg_area::grass::OVERRIDES_ID);
     overrides.set(mg_area::grass::LIST, mg_gff::Value::List(vec![red.item(), stone.item()]));
-    let edits = vec![
-        mg_area::grass::set_disabled(git, true),
-        mg_edit::Edit::SetField {
-            key: git,
-            path: mg_area::grass::properties_path(),
-            label: mg_area::grass::OVERRIDES.into(),
-            value: Some(mg_gff::Value::Struct(overrides)),
-        },
-    ];
+    let mut edits = mg_area::grass::edits(git, mg_area::grass::disabled_plan(None, true));
+    edits.push(mg_edit::Edit::SetField {
+        key: git,
+        path: mg_area::grass::properties_path(),
+        label: mg_area::grass::OVERRIDES.into(),
+        value: Some(mg_gff::Value::Struct(overrides)),
+    });
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));

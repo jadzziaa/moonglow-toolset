@@ -59,9 +59,7 @@ pub fn is_locked(s: &Struct) -> bool {
 }
 
 fn position(kind: ObjectKind, s: &Struct) -> [f32; 3] {
-    let labels =
-        if kind.has_bearing() { ["X", "Y", "Z"] } else { ["XPosition", "YPosition", "ZPosition"] };
-    labels.map(|l| float(s, l))
+    crate::placement::position_fields(kind).map(|l| float(s, l))
 }
 
 impl Lock {

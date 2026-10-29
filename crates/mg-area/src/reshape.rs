@@ -88,11 +88,8 @@ fn tile_struct(set: &Tileset, p: Placement, lights: [u8; 3]) -> Struct {
 
 /// Where an object stands (its position fields).
 fn position(kind: ObjectKind, s: &Struct) -> (f32, f32) {
-    if kind.has_bearing() {
-        (s.float("X").unwrap_or(0.0), s.float("Y").unwrap_or(0.0))
-    } else {
-        (s.float("XPosition").unwrap_or(0.0), s.float("YPosition").unwrap_or(0.0))
-    }
+    let [x, y, _] = mg_module::placement::position_fields(kind);
+    (s.float(x).unwrap_or(0.0), s.float(y).unwrap_or(0.0))
 }
 
 /// Resizing the area (its ARE `are`, GIT `git`) to `width` by `height`
@@ -345,7 +342,7 @@ fn rotate_once(are: &mut Struct, git: &mut Struct) {
     for kind in ObjectKind::ALL {
         let Some(objects) = git.list_mut(kind.list()) else { continue };
         for s in objects {
-            let (xl, yl) = if kind.has_bearing() { ("X", "Y") } else { ("XPosition", "YPosition") };
+            let [xl, yl, _] = mg_module::placement::position_fields(kind);
             let (x, y) = point(float(s, xl), float(s, yl));
             s.set(xl, Value::Float(x));
             s.set(yl, Value::Float(y));
