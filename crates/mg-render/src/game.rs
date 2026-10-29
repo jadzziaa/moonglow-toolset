@@ -572,7 +572,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         // The client's units (measured, `docs/research/notes_shaders.md`
         // §B.4): see `time_values`.
         SceneCurrentFrame => Val::I(time_values(f.seconds).0),
-        WorldTimer => Val::I(time_values(f.seconds).1),
+        WorldTimer => Val::I(world_timer(f.seconds, f.environment.clock.minutes_per_hour)),
         // The module's, as it starts (the editor's clock doesn't run).
         ModuleHour => Val::I(f.environment.clock.hour as i32),
         ModuleMinutesPerHour => Val::I(f.environment.clock.minutes_per_hour as i32),
@@ -605,7 +605,9 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
     }
 }
 
-/// `sceneCurrentFrame` and `worldtimerTimeOfDay` for a clock of `seconds`.
+/// `sceneCurrentFrame` and `worldtimerTimeOfDay` for a clock of `seconds`,
+/// the timer counted from 0 (as [`world_timer`] counts it, but from its
+/// origin).
 pub(crate) fn time_values(seconds: f32) -> (i32, i32) {
     let s = f64::from(seconds.max(0.0));
     ((s * TIME_FRAMES_PER_SECOND) as i32, (s * TIME_TIMER_PER_SECOND) as i32)
@@ -617,10 +619,26 @@ pub(crate) fn time_values(seconds: f32) -> (i32, i32) {
 /// clock counts 60 a second.
 pub(crate) const TIME_FRAMES_PER_SECOND: f64 = 60.0;
 /// `worldtimerTimeOfDay` counts real milliseconds (measured likewise;
-/// whatever the module's minutes an hour). Its origin in the client
-/// follows neither the module's hour nor its day and is not known: the
-/// stock and TDoD shaders use it as a phase or as seconds.
+/// whatever the module's minutes an hour).
 pub(crate) const TIME_TIMER_PER_SECOND: f64 = 1000.0;
+/// What the client's `worldtimerTimeOfDay` counts from as the player
+/// enters an area, before it is taken within the module's day: 17,697,400
+/// milliseconds, whatever the module's start hour, day, dawn or minutes an
+/// hour (measured to a few tenths of a second, 89.8193.37:
+/// `time_uniforms_in_the_client`).
+pub const WORLD_TIMER_ORIGIN: i64 = 17_697_400;
+
+/// The client's `worldtimerTimeOfDay` `seconds` after the player entered
+/// an area of a module of `minutes_per_hour`: [`WORLD_TIMER_ORIGIN`] and
+/// the milliseconds since, within the module's day (24 of its hours, in
+/// real milliseconds): 424,400 at 1, 2, 3, 4 and 6 minutes an hour,
+/// 3,305,000 at 5 and 10, 6,184,000 at 8, the origin itself from 15 up,
+/// as the client showed them seven seconds in.
+pub fn world_timer(seconds: f32, minutes_per_hour: u32) -> i32 {
+    let day = 24 * 60_000 * i64::from(minutes_per_hour.max(1));
+    let ms = (f64::from(seconds.max(0.0)) * TIME_TIMER_PER_SECOND) as i64;
+    ((WORLD_TIMER_ORIGIN + ms) % day) as i32
+}
 
 fn put(out: &mut [u8], at: u32, bytes: [u8; 4]) {
     let at = at as usize;
@@ -2840,6 +2858,29 @@ pub(crate) fn program_pair(
 
 #[cfg(test)]
 mod tests {
+
+    /// The client's timer seven seconds into an area, by the module's
+    /// minutes an hour (`time_uniforms_in_the_client`, 89.8193.37).
+    #[test]
+    fn the_world_timer_is_the_client_s() {
+        for (minutes, client) in [
+            (1, 424_400),
+            (2, 424_400),
+            (4, 424_400),
+            (5, 3_304_400),
+            (8, 6_184_400),
+            (10, 3_304_400),
+            (15, 17_704_400),
+            (60, 17_704_400),
+        ] {
+            let ours = world_timer(7.0, minutes);
+            assert!((ours - client).abs() < 1000, "{minutes} min/h: {ours} against {client}");
+        }
+        // A day later it is the same; no minutes an hour is taken as one.
+        assert_eq!(world_timer(7.0 + 24.0 * 120.0, 2), world_timer(7.0, 2));
+        assert_eq!(world_timer(1.0, 0), world_timer(1.0, 1));
+    }
+
     use std::collections::BTreeMap;
 
     #[test]
@@ -3330,7 +3371,10 @@ void main ()
         assert_eq!(f32_at(&out, m("lightAreaAmbient").offset + 8), 0.3);
         assert_eq!(f32_at(&out, m("fAlphaDiscardValue").offset), 0.2);
         assert_eq!(f32_at(&out, m("fogParams").offset + 8), 40.0);
-        assert_eq!(i32_at(&out, m("worldtimerTimeOfDay").offset), time_values(2.5).1);
+        assert_eq!(
+            i32_at(&out, m("worldtimerTimeOfDay").offset),
+            world_timer(2.5, crate::scene::Environment::from_are(5, 2).clock.minutes_per_hour)
+        );
         // MTR parameters by name (any case), a vector one too; a name
         // nobody knows is zero.
         assert_eq!(f32_at(&out, m("fSwaySpeed").offset), 0.75);
