@@ -302,16 +302,54 @@ fn add_tuft(mesh: &mut Mesh, t: &Tuft) {
 /// that grass is drawn out to the end of what the view shows.
 pub const LEVELS: [(f32, f32); 4] = [(0.0, f32::INFINITY), (45.0, 10.0), (90.0, 5.0), (180.0, 2.5)];
 
-/// Which of [`LEVELS`] grass this far from the eye is drawn at.
+/// Grass thins towards each of [`LEVELS`] past the first over a stretch
+/// before it, this share of the level's distance (45 m's from 33.75 m),
+/// in [`FADE_STEPS`] steps: a level begun at once was a band where tufts
+/// were gone at a tile's edge, which a careful eye saw as the camera
+/// moved.
+pub const FADE: f32 = 0.25;
+pub const FADE_STEPS: usize = 8;
+
+/// How many levels grass is drawn at ([`level`]): the first, and
+/// [`FADE_STEPS`] towards each of the others, the last of them the level
+/// itself.
+pub const STEPS: usize = 1 + (LEVELS.len() - 1) * FADE_STEPS;
+
+/// Which of the [`STEPS`] levels grass this far from the eye is drawn at:
+/// 0 near, all of it; `k * FADE_STEPS` at and past [`LEVELS`]`[k]`, and
+/// the steps between over the stretch before it ([`FADE`]).
 pub fn level(distance: f32) -> usize {
-    LEVELS.iter().rposition(|(from, _)| distance >= *from).unwrap_or(0)
+    for k in (1..LEVELS.len()).rev() {
+        let from = LEVELS[k].0;
+        if distance >= from {
+            return k * FADE_STEPS;
+        }
+        let start = from * (1.0 - FADE);
+        if distance > start {
+            let along = (distance - start) / (from - start);
+            let step = ((along * FADE_STEPS as f32).ceil() as usize).clamp(1, FADE_STEPS);
+            return (k - 1) * FADE_STEPS + step;
+        }
+    }
+    0
 }
 
 /// The share of its tufts grass of `density` (tufts to a square meter)
-/// is drawn with at `level`.
+/// is drawn with at `level` (of [`STEPS`]): at a level of [`LEVELS`], as
+/// many as make its most to a square meter; between, a step of the way
+/// from the one before.
 pub fn share(level: usize, density: f32) -> f32 {
-    let most = LEVELS[level.min(LEVELS.len() - 1)].1;
-    if density > most { most / density } else { 1.0 }
+    let at = |k: usize| {
+        let most = LEVELS[k.min(LEVELS.len() - 1)].1;
+        if density > most { most / density } else { 1.0 }
+    };
+    let level = level.min(STEPS - 1);
+    if level == 0 {
+        return 1.0;
+    }
+    let (k, step) = ((level - 1) / FADE_STEPS + 1, (level - 1) % FADE_STEPS + 1);
+    let t = step as f32 / FADE_STEPS as f32;
+    at(k - 1) + (at(k) - at(k - 1)) * t
 }
 
 /// How many of a mesh's `all` tufts are kept of a `share` of them: one at
@@ -534,13 +572,14 @@ mod tests {
     /// grass thinned from nearer; near, all of any.
     #[test]
     fn grass_is_thinned_by_its_density_far_off() {
+        let at = |k: usize| k * FADE_STEPS;
         assert_eq!(share(0, 20.0), 1.0);
         assert_eq!(share(0, 1000.0), 1.0);
-        assert_eq!(share(1, 5.0), 1.0);
-        assert_eq!(share(2, 5.0), 1.0);
-        assert_eq!(share(3, 5.0), 0.5);
-        assert_eq!(share(1, 20.0), 0.5);
-        assert_eq!(share(3, 20.0), 0.125);
+        assert_eq!(share(at(1), 5.0), 1.0);
+        assert_eq!(share(at(2), 5.0), 1.0);
+        assert_eq!(share(at(3), 5.0), 0.5);
+        assert_eq!(share(at(1), 20.0), 0.5);
+        assert_eq!(share(at(3), 20.0), 0.125);
         // Each mesh's density: as grown, its kind's (thinned to the most a
         // tile grows).
         let mut faces = field(3);
@@ -550,6 +589,32 @@ mod tests {
         let d = densities(&m, &faces, &growing);
         let keep = MAX_TUFTS as f32 / (100.0 * 51.0);
         assert_eq!(d, [1.0 * keep, 50.0 * keep]);
+    }
+
+    /// Grass thins over a stretch before each level, a step at a time,
+    /// never thicker further off: dense grass (30 a square meter) past
+    /// 45 m lost two thirds of its tufts at once.
+    #[test]
+    fn grass_thins_over_a_stretch_before_each_level() {
+        assert_eq!(level(33.0), 0, "near: all of it");
+        assert_eq!(level(45.0), FADE_STEPS);
+        assert_eq!(level(90.0), 2 * FADE_STEPS);
+        assert_eq!(level(1000.0), STEPS - 1);
+        // Between 33.75 and 45 m, every step, in order.
+        let steps: Vec<usize> = (0..=120).map(|d| level(33.0 + d as f32 / 10.0)).collect();
+        assert!(steps.windows(2).all(|w| w[1] >= w[0] && w[1] - w[0] <= 1), "{steps:?}");
+        assert_eq!(*steps.last().unwrap(), FADE_STEPS);
+        for density in [1.0, 5.0, 12.0, 30.0, 500.0] {
+            let mut last = 1.0;
+            for (k, s) in (0..STEPS).map(|k| (k, share(k, density))) {
+                assert!(s <= last && s > 0.0, "{density}: step {k} {s} after {last}");
+                // (A step a fade's eighth of the way.)
+                assert!(
+                    last - s <= (1.0 - 10.0 / 30.0) / FADE_STEPS as f32 + 1e-6 || density > 30.0
+                );
+                last = s;
+            }
+        }
     }
 
     #[test]

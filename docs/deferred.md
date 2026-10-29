@@ -973,16 +973,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow scatters them evenly by face area and density. The mean color
   near the camera matches; how the engine places them (per face, by a
   noise) isn't known. (S–M) (Bee AI's ask, October 2026)
-- **Grass's reach and its edge:** the area view draws grass wherever it
-  shows grass ground (the owner's report, October 2026: it was the tiles
-  within 30 m of the view's focus); the client draws it within 30 m of
-  its camera by default (`Grass Render Distance` 900, the distance
-  squared, up to 30,000: 173 m) and fades it in there (since 1.82),
-  about 24 m and over 2 m as measured. Moonglow has no fade at its
-  levels' distances either: past 45 m dense grass (more than 10 tufts a
-  square meter), and past 180 m the tilesets' (5), lose tufts at once
-  where a level begins (`mg_area::grass::LEVELS`), a band a careful eye
-  sees as the camera moves. (S)
 - **A grass tuft's shape:** one upright quad turned at random, a texture
   quarter, as tall as wide; the client's geometry (crossed quads, a lean,
   its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)

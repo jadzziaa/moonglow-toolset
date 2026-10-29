@@ -46,9 +46,10 @@ it differs, it is on purpose:
   game draws them.
 - **Grass** is drawn in the area viewer, which Aurora does not draw: the
   tileset's and the area's own (Area Properties › Grass, which Aurora
-  hasn't), on the tiles within 30 m of where the view looks, whatever
-  its distance (the game draws it within about 24 m of its camera). Its
-  tufts are spread evenly, where the game's gather in patches.
+  hasn't), wherever the view shows grass ground, thinner far off (the
+  game draws it within 30 m of its camera by default, fading it in at
+  about 24 m). Its tufts are spread evenly, where the game's gather in
+  patches.
 - **Waypoints** are the flags of their appearance (blue, red, green,
   yellow), **sounds** the game's markers for them (a note: heard from
   where it stands, from a random position, or everywhere in the area)

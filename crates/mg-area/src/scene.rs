@@ -940,7 +940,7 @@ impl AreaScene {
                                 ..Instance::new(c.model.clone(), c.at)
                             }),
                             None => {
-                                let last = crate::grass::LEVELS.len() - 1;
+                                let last = crate::grass::STEPS - 1;
                                 instances.extend(tiles.iter().filter_map(|&i| tile(i, last)));
                             }
                         }
