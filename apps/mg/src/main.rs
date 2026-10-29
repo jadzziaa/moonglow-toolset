@@ -88,11 +88,14 @@ enum Cmd {
         /// a table, Windows-1252.
         #[arg(long)]
         module: Option<PathBuf>,
-        /// Name the row a field's number stands for, as the window's
-        /// fields view does: "row" beside its "value" ("Human" of
-        /// racialtypes.2da), and "__row" on each item of a list whose
-        /// items are rows (a creature's skills). Read from the game's 2DAs;
-        /// `mg gff` reads such a file back, the names set aside.
+        /// Name what a field's number stands for, as the window's fields
+        /// view does: "row" beside its "value" ("Human" of
+        /// racialtypes.2da; an item property's subtype and value by the
+        /// tables its other fields name, an animation, a talk-table
+        /// string, a faction of --module's), and "__row" on each item of
+        /// a list whose items stand for something (a creature's skills, a
+        /// store's pages). Read from the game's 2DAs; `mg gff` reads such
+        /// a file back, the names set aside.
         #[arg(long)]
         names: bool,
     },
@@ -1885,10 +1888,19 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output, module, names } => {
-            let codepage = match module {
-                Some(module) => module_codepage(cli, &crate::open_module(module)?),
+            let module = module.as_ref().map(|m| crate::open_module(m)).transpose()?;
+            let codepage = match &module {
+                Some(module) => module_codepage(cli, module),
                 None => Codepage::WINDOWS_1252,
             };
+            // (A faction's name is the module's: without one, the number.)
+            let factions: Vec<String> = module
+                .as_ref()
+                .map(|m| {
+                    let f = mg_module::factions::Factions::of_module(m);
+                    f.factions.into_iter().map(|f| f.name).collect()
+                })
+                .unwrap_or_default();
             let game = match *names {
                 true => Some(
                     install(cli)
@@ -1898,7 +1910,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 ),
                 false => None,
             };
-            gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?
+            gff(
+                input,
+                output.as_deref(),
+                cli.json,
+                codepage,
+                game.as_ref().map(|g| (g, &factions[..])),
+            )?
         }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
@@ -4355,22 +4373,32 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
 /// a GFF's JSON (`mg gff --names`): `"row"` in a field's object, which
 /// `from_json` sets aside, and `"__row"` on a list's item whose place is
 /// a row; `path` the labels of the fields and lists it is under.
+/// `mg gff --names`: beside each field's number, what it stands for
+/// (`mg_rules::rows::meaning`, as the window's fields view names it): a
+/// row of a table, a faction of `factions` (the module's), an animation,
+/// a talk-table string; and on each item of a list whose items stand for
+/// something by themselves (a creature's skills, a store's pages).
 fn name_rows(
     s: &mut serde_json::Map<String, serde_json::Value>,
     game: &mg_rules::GameData,
+    factions: &[String],
     file_type: &str,
     path: &mut Vec<String>,
 ) {
-    use mg_rules::rows::{list_table, row_table};
+    use mg_rules::rows::{list_item_name, meaning};
     use serde_json::Value as J;
+    // (The struct's numbers, before any is named: an item property's
+    // subtype is of the table its type names.)
+    let numbers: std::collections::HashMap<String, i64> =
+        s.iter().filter_map(|(l, f)| Some((l.clone(), f.get("value")?.as_i64()?))).collect();
+    let sibling = |l: &str| numbers.get(l).copied();
     for (label, field) in s.iter_mut().filter(|(l, _)| !l.starts_with("__")) {
         let J::Object(field) = field else { continue };
-        let labels: Vec<&str> = path.iter().map(String::as_str).collect();
+        let outer = path.clone();
+        let labels: Vec<&str> = outer.iter().map(String::as_str).collect();
         let kind = field.get("type").and_then(J::as_str).unwrap_or_default().to_string();
         match kind.as_str() {
             "struct" | "list" => {
-                let by_place =
-                    (kind == "list").then(|| list_table(file_type, &labels, label)).flatten();
                 path.push(label.clone());
                 let items: Vec<&mut J> = match field.get_mut("value") {
                     Some(J::Array(items)) => items.iter_mut().collect(),
@@ -4379,17 +4407,23 @@ fn name_rows(
                 };
                 for (i, item) in items.into_iter().enumerate() {
                     let J::Object(item) = item else { continue };
-                    if let Some(name) = by_place.and_then(|t| game.row_name(&t, i as i64)) {
+                    let id = item.get("__struct_id").and_then(J::as_u64).unwrap_or(0) as u32;
+                    let name = (kind == "list")
+                        .then(|| list_item_name(Some(game), file_type, &labels, label, (i, id)))
+                        .flatten();
+                    if let Some(name) = name {
                         item.insert("__row".into(), J::String(name));
                     }
-                    name_rows(item, game, file_type, path);
+                    name_rows(item, game, factions, file_type, path);
                 }
                 path.pop();
             }
             _ => {
-                let Some(table) = row_table(file_type, &labels, label) else { continue };
-                let row = field.get("value").and_then(J::as_i64);
-                if let Some(name) = row.and_then(|r| game.row_name(&table, r)) {
+                let Some(m) = meaning(Some(game), file_type, &labels, label, &sibling) else {
+                    continue;
+                };
+                let value = field.get("value").and_then(J::as_i64);
+                if let Some(name) = value.and_then(|v| game.meaning_name(&m, factions, v)) {
                     field.insert("row".into(), J::String(name));
                 }
             }
@@ -4402,7 +4436,7 @@ fn gff(
     output: Option<&Path>,
     json: bool,
     cp: Codepage,
-    names: Option<&mg_rules::GameData>,
+    names: Option<(&mg_rules::GameData, &[String])>,
 ) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
@@ -4422,9 +4456,9 @@ fn gff(
     }
     let gff = Gff::read(&data)?;
     let mut value = mg_gff::to_json(&gff, cp)?;
-    if let (Some(game), serde_json::Value::Object(root)) = (names, &mut value) {
+    if let (Some((game, factions)), serde_json::Value::Object(root)) = (names, &mut value) {
         let file_type = String::from_utf8_lossy(&gff.file_type).into_owned();
-        name_rows(root, game, &file_type, &mut Vec::new());
+        name_rows(root, game, factions, &file_type, &mut Vec::new());
     }
     match output {
         Some(o) => {

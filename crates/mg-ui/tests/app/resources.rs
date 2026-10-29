@@ -1379,6 +1379,96 @@ fn raw_fields_name_their_2da_rows() {
     }
 }
 
+/// The raw fields view names what else a number stands for: a creature's
+/// faction (the module's `repute.fac`, its own included), a conversation
+/// line's animation, a store's pages by their structs' ids; and, with the
+/// game's data, an item property's subtype and value, of the tables its
+/// other fields name. Each but the pages in a list to choose another by
+/// name.
+#[test]
+fn raw_fields_name_factions_animations_pages_and_property_parts() {
+    use egui_kittest::kittest::Queryable;
+    let dir = mg_testkit::scratch_dir("ui-raw-names");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut fac = mg_module::factions::Factions::of_module(&m);
+    let smugglers = fac.add("Smugglers", false, 1);
+    m.set_gff(ResKey::parse("repute", ResType::FAC).unwrap(), &fac.to_gff()).unwrap();
+    let mut utc = mg_gff::Gff::new(*b"UTC ");
+    utc.root.set("FactionID", mg_gff::Value::Word(smugglers as u16));
+    m.set_gff(ResKey::parse("smuggler", ResType::UTC).unwrap(), &utc).unwrap();
+    let mut dlg = mg_gff::Gff::new(*b"DLG ");
+    let mut line = mg_gff::Struct::new(0);
+    line.set("Animation", mg_gff::Value::Dword(35));
+    dlg.root.set("EntryList", mg_gff::Value::List(vec![line]));
+    m.set_gff(ResKey::parse("hello", ResType::DLG).unwrap(), &dlg).unwrap();
+    let mut utm = mg_gff::Gff::new(*b"UTM ");
+    let pages = vec![mg_gff::Struct::new(0), mg_gff::Struct::new(4)];
+    utm.root.set("StoreList", mg_gff::Value::List(pages));
+    m.set_gff(ResKey::parse("shop", ResType::UTM).unwrap(), &utm).unwrap();
+    let mut uti = mg_gff::Gff::new(*b"UTI ");
+    let mut p = mg_gff::Struct::new(0);
+    for (l, v) in [("PropertyName", 0u16), ("Subtype", 0), ("CostValue", 2)] {
+        p.set(l, mg_gff::Value::Word(v));
+    }
+    p.set("CostTable", mg_gff::Value::Byte(1));
+    p.set("Param1", mg_gff::Value::Byte(255));
+    uti.root.set("PropertiesList", mg_gff::Value::List(vec![p]));
+    m.set_gff(ResKey::parse("ring", ResType::UTI).unwrap(), &uti).unwrap();
+    let path = dir.join("names.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let root = mg_testkit::nwn_root();
+    // (Each in a window of its own: the fields view's first list opened.)
+    let open = |name: &str, t: ResType, items: bool| {
+        let app = match &root {
+            Some(root) => game_app(root, None),
+            None => app_with(Vec::new()),
+        };
+        let mut h = harness(app, 1000.0, 700.0);
+        h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+        h.run_steps(2);
+        h.state_mut()
+            .actions
+            .push(mg_ui::Action::OpenTab(Tab::Gff(ResKey::parse(name, t).unwrap())));
+        h.run_steps(3);
+        if items {
+            h.get_all_by_label_contains(" items").next().unwrap().click();
+            h.run_steps(2);
+        }
+        h
+    };
+    let shown = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        h.query_all_by_role(egui::accesskit::Role::ComboBox)
+            .filter_map(|n| n.accesskit_node().value())
+            .collect()
+    };
+    let h = open("smuggler", ResType::UTC, false);
+    assert!(shown(&h).contains(&"Smugglers".to_string()), "{:?}", shown(&h));
+    let mut h = open("hello", ResType::DLG, true);
+    h.get_all_by_label_contains("struct").last().unwrap().click();
+    h.run_steps(2);
+    assert!(shown(&h).contains(&"Bow".to_string()), "{:?}", shown(&h));
+    let h = open("shop", ResType::UTM, true);
+    h.get_by_label("[0] struct 0  Armor");
+    h.get_by_label("[1] struct 4  Weapons");
+    let Some(_) = root else {
+        eprintln!("skipped the item property's parts: no game install");
+        return;
+    };
+    let mut h = open("ring", ResType::UTI, true);
+    h.get_all_by_label_contains("struct").last().unwrap().click();
+    h.run_steps(2);
+    let game = h.state().game.clone().unwrap();
+    let name = |table: &str, row: usize| {
+        let t = game.table(table).unwrap();
+        game.string(mg_core::StrRef(t.get_int(row, "Name").unwrap() as u32)).unwrap()
+    };
+    let cost = game.table("iprp_costtable").unwrap().get(1, "Name").unwrap().to_lowercase();
+    for want in [name("iprp_abilities", 0), name(&cost, 2)] {
+        assert!(shown(&h).contains(&want), "{want:?} in {:?}", shown(&h));
+    }
+}
+
 /// The raw fields view says an object's faction field of 0 puts it in the
 /// PC faction, as Verify warns of it: a creature blueprint's, a placed
 /// door's; not another faction's, nor a placed trigger's (the owner's

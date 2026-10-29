@@ -65,27 +65,7 @@ impl Parent {
 }
 
 /// Animations of the Other Actions tab, in Aurora's order: (label, value).
-pub const ANIMATIONS: [(&str, u32); 19] = [
-    ("Default", 0),
-    ("No Animation", 88),
-    ("Taunt", 28),
-    ("Greeting", 29),
-    ("Listen", 30),
-    ("Worship", 33),
-    ("Salute", 34),
-    ("Bow", 35),
-    ("Steal", 37),
-    ("Talk Normal", 38),
-    ("Talk Pleading", 39),
-    ("Talk Forceful", 40),
-    ("Talk Laughing", 41),
-    ("Victory 1", 44),
-    ("Victory 2", 45),
-    ("Victory 3", 46),
-    ("Look Far", 48),
-    ("Drink", 70),
-    ("Read", 71),
-];
+pub use mg_rules::rows::DIALOG_ANIMATIONS as ANIMATIONS;
 
 fn resref(s: &str) -> Value {
     Value::resref(ResRef::from_str(s).expect("valid resref"))

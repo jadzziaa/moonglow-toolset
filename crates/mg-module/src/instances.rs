@@ -501,9 +501,6 @@ const MODEL_PARTS: [&str; 3] = ["ModelPart1", "ModelPart2", "ModelPart3"];
 /// An item property's fields in Aurora's order.
 const PROPERTY_ORDER: &[&str] =
     &["PropertyName", "Subtype", "CostTable", "CostValue", "Param1", "Param1Value", "ChanceAppear"];
-/// A store's pages (struct ids: armour, weapons, potions and scrolls,
-/// rings and amulets, miscellaneous), as a new store has them.
-const STORE_PAGES: [u32; 5] = [0, 4, 2, 3, 1];
 const ITEM_COLORS: [&str; 6] =
     ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
 
@@ -1058,7 +1055,9 @@ pub fn instance(
             s.remove("ID");
             fill(&mut s, STORE);
             if !s.contains("StoreList") {
-                let pages = STORE_PAGES.iter().map(|&id| Struct::new(id)).collect();
+                // (A store's pages, as a new store has them.)
+                let pages =
+                    mg_rules::rows::STORE_PAGES.iter().map(|&(id, _)| Struct::new(id)).collect();
                 s.set("StoreList", Value::List(pages));
             }
             let mut pages = s.list("StoreList").unwrap_or(&[]).to_vec();

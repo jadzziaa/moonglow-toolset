@@ -4092,6 +4092,59 @@ fn raw_fields_of_the_pc_faction() {
 
 #[test]
 #[ignore]
+fn raw_fields_of_item_properties() {
+    // An item's properties in the raw fields view: each part named by
+    // the table its other fields name (`raw-fields-item-properties`).
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-raw-item-properties");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut ring = mg_gff::Gff::new(*b"UTI ");
+    ring.root.set("BaseItem", mg_gff::Value::Int(52));
+    let property = |name: u16, subtype: u16, cost: (u8, u16), param: (u8, u8)| {
+        let mut p = mg_gff::Struct::new(0);
+        p.set("PropertyName", mg_gff::Value::Word(name));
+        p.set("Subtype", mg_gff::Value::Word(subtype));
+        p.set("CostTable", mg_gff::Value::Byte(cost.0));
+        p.set("CostValue", mg_gff::Value::Word(cost.1));
+        p.set("Param1", mg_gff::Value::Byte(param.0));
+        p.set("Param1Value", mg_gff::Value::Byte(param.1));
+        p
+    };
+    let properties = vec![property(0, 0, (1, 2), (255, 0)), property(44, 0, (18, 2), (9, 3))];
+    ring.root.set("PropertiesList", mg_gff::Value::List(properties));
+    let key = ResKey::parse("ring", ResType::UTI).unwrap();
+    m.set_gff(key, &ring).unwrap();
+    let path = scratch.join("ring.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Gff(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 560.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    h.get_all_by_label_contains(" items").next().unwrap().click();
+    h.run_steps(3);
+    for i in 0..2 {
+        h.get_all_by_label_contains(&format!("[{i}] struct")).next().unwrap().click();
+        h.run_steps(3);
+    }
+    shoot(&mut h, &dir, "raw-fields-item-properties");
+}
+
+#[test]
+#[ignore]
 fn waypoint_with_no_flag() {
     // A waypoint blueprint whose Appearance is no waypoint.2da row: the
     // warning under its Appearance Type, as Verify words it.

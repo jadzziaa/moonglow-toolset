@@ -5,11 +5,17 @@
 //! Which table a field's number is a row of depends on the kind of object
 //! the field belongs to (`Appearance` is placeables.2da for a placeable,
 //! doortypes.2da for a door, waypoint.2da for a waypoint), found from the
-//! file's type and the lists the field is under.
+//! file's type and the lists the field is under; and for an item
+//! property's subtype, value and parameter, on its other fields
+//! ([`meaning`]). Some numbers name no 2DA's row: a faction (the module's
+//! `repute.fac`), a conversation line's animation, a talk-table string
+//! held as a plain number, a store's page by its struct's id.
+
+use std::sync::Arc;
 
 use mg_core::{ResType, StrRef};
 
-use crate::{GameData, ObjectKind};
+use crate::{ChoiceColumns, GameData, ObjectKind};
 
 /// The field a door's generic appearance (a genericdoors.2da row, for a
 /// door whose `Appearance` is 0) is read from: Enhanced Edition's
@@ -48,14 +54,16 @@ enum Kind {
     Encounter,
     Item,
     Placeable,
+    Store,
     Trigger,
     Waypoint,
     Other,
 }
 
 impl Kind {
-    /// The kind of a placed object's or blueprint's fields. Sounds and
-    /// stores have no field that names a row.
+    /// The kind of a placed object's or blueprint's fields. Sounds have no
+    /// field that names a row (a store's are the base items it buys or
+    /// won't).
     fn of(object: ObjectKind) -> Kind {
         match object {
             ObjectKind::Creature => Kind::Creature,
@@ -65,7 +73,8 @@ impl Kind {
             ObjectKind::Placeable => Kind::Placeable,
             ObjectKind::Trigger => Kind::Trigger,
             ObjectKind::Waypoint => Kind::Waypoint,
-            ObjectKind::Sound | ObjectKind::Store => Kind::Other,
+            ObjectKind::Store => Kind::Store,
+            ObjectKind::Sound => Kind::Other,
         }
     }
 }
@@ -88,8 +97,7 @@ fn child_kind(label: &str) -> Option<Kind> {
     Some(match label {
         "AreaProperties" => Kind::Audio,
         "ItemList" | "Equip_ItemList" => Kind::Item,
-        // Sounds and stores: their parent's (no field of theirs names a
-        // row).
+        // Sounds: their parent's (no field of theirs names a row).
         l => match Kind::of(ObjectKind::from_list(l)?) {
             Kind::Other => return None,
             k => k,
@@ -140,7 +148,7 @@ pub fn row_table(file_type: &str, path: &[&str], label: &str) -> Option<RowTable
         (Kind::Creature, "PerceptionRange") => t("ranges", "", "Label"),
         (Kind::Creature, "StartingPackage") => t("packages", "Name", "Label"),
         (Kind::Creature | Kind::Placeable, "BodyBag") => t("bodybag", "Name", "LABEL"),
-        (Kind::Item, "BaseItem") => t("baseitems", "Name", "label"),
+        (Kind::Item | Kind::Store, "BaseItem") => t("baseitems", "Name", "label"),
         (Kind::Item, "PropertyName") => t("itempropdef", "Name", "Label"),
         (Kind::Placeable, "Appearance") => t("placeables", "StrRef", "Label"),
         (Kind::Door, "Appearance") => t("doortypes", "StringRefGame", "Label"),
@@ -161,15 +169,242 @@ pub fn list_table(file_type: &str, path: &[&str], list: &str) -> Option<RowTable
     (kind == Kind::Creature && list == "SkillList").then(|| t("skills", "Name", "Label"))
 }
 
+/// A store's pages, by the id of their struct in its `StoreList` (as
+/// Aurora writes them, in the order its Inventory shows them).
+pub const STORE_PAGES: [(u32, &str); 5] = [
+    (0, "Armor"),
+    (4, "Weapons"),
+    (2, "Potions & Scrolls"),
+    (3, "Rings & Amulets"),
+    (1, "Miscellaneous"),
+];
+
+/// A conversation line's animations (`Animation`), as Aurora's Other
+/// Actions page lists them, in its order: (name, value).
+pub const DIALOG_ANIMATIONS: [(&str, u32); 19] = [
+    ("Default", 0),
+    ("No Animation", 88),
+    ("Taunt", 28),
+    ("Greeting", 29),
+    ("Listen", 30),
+    ("Worship", 33),
+    ("Salute", 34),
+    ("Bow", 35),
+    ("Steal", 37),
+    ("Talk Normal", 38),
+    ("Talk Pleading", 39),
+    ("Talk Forceful", 40),
+    ("Talk Laughing", 41),
+    ("Victory 1", 44),
+    ("Victory 2", 45),
+    ("Victory 3", 46),
+    ("Look Far", 48),
+    ("Drink", 70),
+    ("Read", 71),
+];
+
+/// What a field's number stands for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Meaning {
+    /// A row of a table the field's label names ([`row_table`]).
+    Row(RowTable),
+    /// A row of a table another field names: an item property's subtype
+    /// (`Subtype`, of the table its `PropertyName` has), value
+    /// (`CostValue`, of the cost table `CostTable` names) and parameter's
+    /// value (`Param1Value`, of the table `Param1` names). The table's
+    /// name lower case.
+    TableOf { table: String, name: Option<&'static str>, label: Option<&'static str> },
+    /// A faction of the module: the place of its entry in `repute.fac`'s
+    /// `FactionList`.
+    Faction,
+    /// A conversation line's animation ([`DIALOG_ANIMATIONS`]).
+    Animation,
+    /// A talk-table string, held as a plain number (a palette's `STRREF`).
+    StrRef,
+}
+
+impl Meaning {
+    /// The table and its name and label columns, for a row of one.
+    pub fn table(&self) -> Option<(&str, ChoiceColumns<'static>)> {
+        match self {
+            Meaning::Row(t) => Some((t.table, ChoiceColumns { name: t.name, label: t.label })),
+            Meaning::TableOf { table, name, label } => {
+                Some((table, ChoiceColumns { name: *name, label: *label }))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Whether a field holds a talk-table string's number as a plain number
+/// (not a localized string): a palette's `STRREF` (a category's or a
+/// blueprint's name), a GUI layout's caption (`strref`).
+pub fn is_strref_field(file_type: &str, label: &str) -> bool {
+    match file_type.trim().to_ascii_uppercase().as_str() {
+        "ITP" => label == "STRREF",
+        "GUI" => label.eq_ignore_ascii_case("strref"),
+        _ => false,
+    }
+}
+
+/// What the number in field `label` stands for, for a field of a struct
+/// reached from the root of a file of type `file_type` through the fields
+/// and lists `path` (as [`row_table`] takes them); `sibling` gives the
+/// struct's other number fields (an item property's subtype table is its
+/// type's). The tables an item property's parts are rows of are read from
+/// `game` (without it, none). `None`: a plain number, as far as is known.
+pub fn meaning(
+    game: Option<&GameData>,
+    file_type: &str,
+    path: &[&str],
+    label: &str,
+    sibling: &dyn Fn(&str) -> Option<i64>,
+) -> Option<Meaning> {
+    if let Some(t) = row_table(file_type, path, label) {
+        return Some(Meaning::Row(t));
+    }
+    let kind = path.iter().rev().find_map(|l| child_kind(l)).unwrap_or(file_kind(file_type));
+    let named = |table: String, label: &'static str| {
+        let table = table.trim().to_lowercase();
+        (!table.is_empty() && table != "****").then_some(Meaning::TableOf {
+            table,
+            name: Some("Name"),
+            label: Some(label),
+        })
+    };
+    let property = kind == Kind::Item && path.last() == Some(&"PropertiesList");
+    match label {
+        "Subtype" if property => {
+            let t = game?.property_type(u16::try_from(sibling("PropertyName")?).ok()?)?;
+            named(t.subtypes?, "Label")
+        }
+        "CostTable" if property => Some(Meaning::TableOf {
+            table: "iprp_costtable".into(),
+            name: None,
+            label: Some("Label"),
+        }),
+        "CostValue" if property => {
+            let table = usize::try_from(sibling("CostTable")?).ok().filter(|t| *t != 0)?;
+            named(game?.table("iprp_costtable").ok()?.get(table, "Name")?.to_string(), "Label")
+        }
+        // (iprp_paramtable.2da's label column is spelled so.)
+        "Param1" if property && sibling("Param1") != Some(255) => {
+            named("iprp_paramtable".into(), "Lable")
+        }
+        "Param1Value" if property => {
+            let table = usize::try_from(sibling("Param1")?).ok().filter(|t| *t != 255)?;
+            let name = game?.table("iprp_paramtable").ok()?.get(table, "TableResRef")?.to_string();
+            named(name, "Label")
+        }
+        "FactionID" if kind == Kind::Creature => Some(Meaning::Faction),
+        "Faction"
+            if matches!(kind, Kind::Door | Kind::Placeable | Kind::Trigger | Kind::Encounter) =>
+        {
+            Some(Meaning::Faction)
+        }
+        "Animation"
+            if file_type.trim().eq_ignore_ascii_case("DLG")
+                && matches!(path.last(), Some(&("EntryList" | "ReplyList"))) =>
+        {
+            Some(Meaning::Animation)
+        }
+        l if is_strref_field(file_type, l) => Some(Meaning::StrRef),
+        _ => None,
+    }
+}
+
+/// The name of an item of the list `list` by itself rather than by a
+/// field of it: an item of a list with one per row of a table
+/// ([`list_table`]) by its place, a store's page by its struct's id.
+pub fn list_item_name(
+    game: Option<&GameData>,
+    file_type: &str,
+    path: &[&str],
+    list: &str,
+    (index, struct_id): (usize, u32),
+) -> Option<String> {
+    let kind = path.iter().rev().find_map(|l| child_kind(l)).unwrap_or(file_kind(file_type));
+    if kind == Kind::Store && list == "StoreList" {
+        return STORE_PAGES.iter().find(|p| p.0 == struct_id).map(|p| p.1.to_string());
+    }
+    game?.row_name(&list_table(file_type, path, list)?, index as i64)
+}
+
+/// A faction's or an animation's name, which needs no game data.
+pub fn plain_name(meaning: &Meaning, factions: &[String], value: i64) -> Option<String> {
+    match meaning {
+        Meaning::Faction => factions.get(usize::try_from(value).ok()?).cloned(),
+        Meaning::Animation => {
+            let value = u32::try_from(value).ok()?;
+            DIALOG_ANIMATIONS.iter().find(|a| a.1 == value).map(|a| a.0.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// The factions or the animations, to choose from.
+pub fn plain_choices(meaning: &Meaning, factions: &[String]) -> Vec<crate::Choice> {
+    let choice = |row: usize, text: &str| crate::Choice { row, text: text.to_string() };
+    match meaning {
+        Meaning::Faction => factions.iter().enumerate().map(|(i, f)| choice(i, f)).collect(),
+        Meaning::Animation => {
+            DIALOG_ANIMATIONS.iter().map(|(n, v)| choice(*v as usize, n)).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 impl GameData {
     /// A row's name: its talk-table string, else its label; `None` for a
     /// row the table lacks, or a blank one.
     pub fn row_name(&self, table: &RowTable, row: i64) -> Option<String> {
+        self.row_name_in(table.table, ChoiceColumns { name: table.name, label: table.label }, row)
+    }
+
+    /// [`row_name`](Self::row_name) of a table given by its name.
+    pub fn row_name_in(&self, table: &str, columns: ChoiceColumns<'_>, row: i64) -> Option<String> {
         let row = usize::try_from(row).ok()?;
-        let t = self.table(table.table).ok()?;
+        let t = self.table(table).ok()?;
         let column = |c: Option<&str>| c.and_then(|c| t.column(c));
         let display = t.column(crate::DISPLAY_NAME);
-        self.named_row(&t, row, column(table.name), display, column(table.label))
+        self.named_row(&t, row, column(columns.name), display, column(columns.label))
+    }
+
+    /// What a field's number `value` stands for, by name: a row's name, a
+    /// faction's (of `factions`, the module's, by their places), an
+    /// animation's, a talk-table string. `None` where it names nothing
+    /// (a row the table lacks, a blank string).
+    pub fn meaning_name(
+        &self,
+        meaning: &Meaning,
+        factions: &[String],
+        value: i64,
+    ) -> Option<String> {
+        match meaning {
+            Meaning::StrRef => self.string(StrRef(u32::try_from(value).ok()?)),
+            Meaning::Faction | Meaning::Animation => plain_name(meaning, factions, value),
+            m => {
+                let (table, columns) = m.table()?;
+                self.row_name_in(table, columns, value)
+            }
+        }
+    }
+
+    /// What a field of this meaning may be chosen from, by name (a talk
+    /// table's strings are too many to list: none).
+    pub fn meaning_choices(
+        &self,
+        meaning: &Meaning,
+        factions: &[String],
+    ) -> Arc<Vec<crate::Choice>> {
+        match meaning {
+            Meaning::StrRef => Arc::default(),
+            Meaning::Faction | Meaning::Animation => Arc::new(plain_choices(meaning, factions)),
+            m => m
+                .table()
+                .and_then(|(table, columns)| self.choice_list(table, columns).ok())
+                .unwrap_or_default(),
+        }
     }
 
     /// A row's name by the columns of its table: the talk-table string the
@@ -345,5 +580,110 @@ mod tests {
         assert_eq!(table("UTI ", &["PropertiesList"], "PropertyName"), Some("itempropdef"));
         assert_eq!(list_table("UTC ", &[], "SkillList").map(|t| t.table), Some("skills"));
         assert_eq!(list_table("UTI ", &[], "SkillList"), None);
+        // What a store buys and won't.
+        assert_eq!(table("UTM ", &["WillNotBuy"], "BaseItem"), Some("baseitems"));
+        assert_eq!(table("GIT ", &["StoreList", "WillOnlyBuy"], "BaseItem"), Some("baseitems"));
+    }
+
+    /// Numbers that name no fixed table's row: an item property's
+    /// subtype, value and parameter (of the tables its other fields name),
+    /// a faction, a conversation line's animation, a palette's talk-table
+    /// string, a store's page.
+    #[test]
+    fn a_field_s_meaning_can_depend_on_the_struct_s_other_fields() {
+        let tables: [(&str, &str); 6] = [
+            (
+                "itempropdef",
+                "Name Label SubTypeResRef CostTableResRef Param1ResRef\n\
+                 0 1 Ability iprp_abilities 1 ****\n1 **** Light **** 18 5\n",
+            ),
+            ("iprp_abilities", "Name Label\n0 2 Str\n1 **** Dex\n"),
+            ("iprp_costtable", "Name Label ClientLoad\n0 **** Base 0\n1 IPRP_BONUSCOST Bonus 0\n"),
+            ("iprp_bonuscost", "Name Label Cost\n0 **** zero 0\n1 **** one 1\n2 3 two 2\n"),
+            (
+                "iprp_paramtable",
+                "Name Lable TableResRef\n0 **** Damage iprp_dmg\n1 4 Color iprp_color\n",
+            ),
+            ("iprp_color", "Name Label\n0 **** Blue\n1 5 Yellow\n"),
+        ];
+        let mut mem = MemContainer::new();
+        for (name, body) in tables {
+            let text = format!("2DA V2.0\n\n{body}");
+            mem.insert(ResKey::parse(name, ResType::TWODA).unwrap(), text.as_bytes());
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "mem", LayerClass::Key, mem);
+        let mut tlk = Tlk::new(Language::ENGLISH);
+        for text in ["Bad Strref", "Ability Bonus", "Strength", "+2", "Light Color", "Yellow"] {
+            tlk.entries.push(TlkEntry::text(text));
+        }
+        let game = GameData::new(rm, tlk);
+        let property = |values: &[(&str, i64)]| {
+            let values: Vec<(String, i64)> =
+                values.iter().map(|(l, v)| (l.to_string(), *v)).collect();
+            move |l: &str| values.iter().find(|(k, _)| k == l).map(|(_, v)| *v)
+        };
+        let ability = property(&[
+            ("PropertyName", 0),
+            ("Subtype", 0),
+            ("CostTable", 1),
+            ("CostValue", 2),
+            ("Param1", 255),
+        ]);
+        let at = ["PropertiesList"];
+        let named = |label: &str, sibling: &dyn Fn(&str) -> Option<i64>| {
+            let m = meaning(Some(&game), "UTI ", &at, label, sibling)?;
+            game.meaning_name(&m, &[], sibling(label)?)
+        };
+        assert_eq!(named("PropertyName", &ability).as_deref(), Some("Ability Bonus"));
+        assert_eq!(named("Subtype", &ability).as_deref(), Some("Strength"));
+        assert_eq!(named("CostTable", &ability).as_deref(), Some("Bonus"));
+        assert_eq!(named("CostValue", &ability).as_deref(), Some("+2"));
+        assert_eq!(meaning(Some(&game), "UTI ", &at, "Param1", &ability), None, "255: none");
+        assert_eq!(meaning(Some(&game), "UTI ", &at, "Param1Value", &ability), None);
+        // A parameter: of the table iprp_paramtable.2da names (its label
+        // column spelled "Lable").
+        let light =
+            property(&[("PropertyName", 1), ("CostTable", 0), ("Param1", 1), ("Param1Value", 1)]);
+        assert_eq!(named("Param1", &light).as_deref(), Some("Light Color"));
+        assert_eq!(named("Param1Value", &light).as_deref(), Some("Yellow"));
+        assert_eq!(meaning(Some(&game), "UTI ", &at, "CostValue", &light), None, "cost table 0");
+        assert_eq!(meaning(Some(&game), "UTI ", &at, "Subtype", &light), None, "no subtypes");
+        // A row the table lacks: no name; without the game, no table.
+        let past = property(&[("PropertyName", 0), ("Subtype", 7)]);
+        assert_eq!(named("Subtype", &past), None);
+        assert_eq!(meaning(None, "UTI ", &at, "Subtype", &ability), None);
+        // Not an item property's: none.
+        assert_eq!(meaning(Some(&game), "UTI ", &[], "Subtype", &ability), None);
+        // An item a store or creature carries has them too.
+        let carried = ["Equip_ItemList", "PropertiesList"];
+        assert!(meaning(Some(&game), "UTC ", &carried, "Subtype", &ability).is_some());
+
+        let none = |_: &str| None;
+        let factions = ["PC".to_string(), "Hostile".to_string()];
+        let m = |file: &str, path: &[&str], label: &str| meaning(None, file, path, label, &none);
+        assert_eq!(m("UTC ", &[], "FactionID"), Some(Meaning::Faction));
+        assert_eq!(m("GIT ", &["Door List"], "Faction"), Some(Meaning::Faction));
+        assert_eq!(m("UTE ", &[], "Faction"), Some(Meaning::Faction));
+        assert_eq!(m("UTC ", &[], "Faction"), None, "a creature's is FactionID");
+        assert_eq!(plain_name(&Meaning::Faction, &factions, 1).as_deref(), Some("Hostile"));
+        assert_eq!(plain_name(&Meaning::Faction, &factions, 2), None);
+        assert_eq!(m("DLG ", &["EntryList"], "Animation"), Some(Meaning::Animation));
+        assert_eq!(m("DLG ", &["ReplyList"], "Animation"), Some(Meaning::Animation));
+        assert_eq!(m("DLG ", &[], "Animation"), None);
+        assert_eq!(plain_name(&Meaning::Animation, &[], 28).as_deref(), Some("Taunt"));
+        assert_eq!(plain_choices(&Meaning::Animation, &[]).len(), DIALOG_ANIMATIONS.len());
+        assert_eq!(m("ITP ", &["MAIN", "LIST"], "STRREF"), Some(Meaning::StrRef));
+        assert_eq!(m("UTC ", &[], "STRREF"), None);
+        assert_eq!(game.meaning_name(&Meaning::StrRef, &[], 2).as_deref(), Some("Strength"));
+        // A store's pages, by their structs' ids.
+        let page = |id| list_item_name(None, "UTM ", &[], "StoreList", (0, id));
+        assert_eq!(page(4).as_deref(), Some("Weapons"));
+        assert_eq!(page(9), None);
+        assert_eq!(
+            list_item_name(None, "GIT ", &["StoreList"], "StoreList", (1, 1)).as_deref(),
+            Some("Miscellaneous")
+        );
+        assert_eq!(list_item_name(None, "UTC ", &[], "StoreList", (0, 0)), None);
     }
 }

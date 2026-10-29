@@ -747,14 +747,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2DAs and a model the game reads from the hak are shown (2026-10-29).
   (M)
 
-## Raw fields
-
-- **Rows the fields view doesn't name yet:** an item property's subtype,
-  cost and parameter (their table depends on the property), a creature's
-  or object's faction (the module's `repute.fac`, not a 2DA), a
-  conversation's animations, a store's categories, and fields that hold
-  a talk-table number as a plain int. (S–M)
-
 ## Getting files out
 
 - **Overridden copies in the resource browser** open read-only as their
