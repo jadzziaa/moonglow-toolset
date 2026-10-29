@@ -1511,18 +1511,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
-- **Other findings against `notes_models.md`,** each theirs to confirm
-  here before the note is changed: part numbers follow file order and a
-  compiled tree does not keep it (5,079 of 24,298 models without a
-  supermodel); function pointers are ignored; a mesh's box holds the
-  origin too; shininess is 1 where a text gives none; EE's 0x3B0 skin
-  layout with bone numbers as `i16[64]` is what the game takes; the
-  game compiler's normals and tangents equal `mg-mdl`'s ASCII reader's
-  to four decimals; ten `c_wingdrg2_*` wing skins are bound in another
-  pose than they rest in. (S each, the note's upkeep)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
 - **A model that fails while it is drawn:** a model that breaks what
   builds or poses it is left out and the module stays open
   (`mg_render::guard`: tiles, objects, the model viewer, thumbnails). A

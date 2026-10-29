@@ -3,7 +3,14 @@ type: Research Note
 title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
 description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
 tags: [models, mdl, textures, plt, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:48:33Z }
+sources:
+  - id: viewer
+    resource: ~/Projects/moonglow-viewer/docs/PLAN.md
+    title: 'Moonglow Viewer, PLAN §10.1 (2026-10-07): what the client and the game''s compiler showed (its tests mgv-mdl/tests/client.rs and engine.rs, run there in the toolset''s client sandbox; not run again here)'
+  - id: corpus
+    resource: crates/mg-corpus-tests/tests/mdl_compile.rs
+    title: every_binary_model_writes_back_the_same and decompiled_models_compile_back over the whole install (MOONGLOW_FULL_CORPUS=1, 89.8193.37), 2026-10-29
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:38:19Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -79,6 +86,7 @@ Sources: nwn.wiki "MDL ASCII" (https://nwn.wiki/spaces/NWN1/pages/12027273/MDL+A
 - resman scan (nwn.py, base keys only): **32,832 .mdl = 25,597 binary + 7,235 ASCII**. Binary files start with 4 zero bytes; anything else is ASCII.
 - ASCII ones are not rare leftovers: many EE/facelift tilesets (trs 1263, ttz 451, tss 401, tni 397, tno 242, tnp 220, twc 201, trm 200, tsw 178, tbw 134, tdt 102, dag 72, ...), GUI models (gui 318), invisible objects (invi 260), part-based body parts (pmh/pfh/pma/pmg/pfa/pfd/pfe/pfg/pfo/pmd/pme/pmo ~160-170 each), plc 113, vfx 106, vdr 36, c_* 57, weapons (wbws/wblf/wblc...). **The renderer must parse both formats** (same data model), and should expect sloppy ASCII (see A.6).
 - Game compiles ASCII at load time (slow; generates normals + tangents at runtime). Console: `compileloadedmodels`, `compileloadedasciimodels`, `compilemodel <name>`, CLI `nwmain compilemodel <name>` (output to user dir `modelcompiler/`).
+- **The game's compiler's normals and tangents** are what `mg-mdl`'s ASCII reader makes: area-weighted normals by smoothing group, and the usual tangents for a render hint. Measured on a cube with two smoothing groups and `renderhint NormalAndSpecMapped`, compiled by the game and natively: equal to four decimals (the test holds them within 0.02)[^viewer].
 
 ### A.2 File structure
 ```
@@ -287,7 +295,7 @@ The model header (at M+0) and every animation header start with this block.
 
 | off | dec | type | field | notes |
 |---|---|---|---|---|
-| 0x00 | 0 | u32[2] | function pointers | see §1; ignore |
+| 0x00 | 0 | u32[2] | function pointers | see §1; ignore (confirmed in the client: §B.7) |
 | 0x08 | 8 | char[64] | name | model or animation name |
 | 0x48 | 72 | Ptr | root node | model: root dummy; anim: anim root node |
 | 0x4C | 76 | u32 | node count | model: *includes the supermodel's nodes* (§19) |
@@ -335,7 +343,7 @@ Neverblender's default list is `nvb_def.py:38-40`. The animation's root node poi
 
 | off | dec | type | field | notes |
 |---|---|---|---|---|
-| 0x00 | 0 | u32[6] | function pointers | type-specific (table below); garbage in EE |
+| 0x00 | 0 | u32[6] | function pointers | type-specific (table below); garbage in EE. **Ignored by the game**: files written with zeros there (and in the geometry header's) are drawn by the client as the originals, and the game's own compiler leaves run-time values in files it ships[^viewer] |
 | 0x18 | 24 | u32 | inheritcolor | |
 | 0x1C | 28 | i32 | part number | index in the model's node list; −1 = not in model (anim nodes) |
 | 0x20 | 32 | char[32] | name | |
@@ -439,14 +447,14 @@ ASCII game animations also key emitter parameters that have **no known ID** (lig
 |---|---|---|---|---|
 | 0x070 | 112 | u32[2] | mesh function pointers | |
 | 0x078 | 120 | Array | faces (32-byte `Face`, §10) | model data |
-| 0x084 | 132 | V3 | bbox min | |
-| 0x090 | 144 | V3 | bbox max | |
-| 0x09C | 156 | f32 | radius | |
-| 0x0A0 | 160 | V3 | average (centre) | |
+| 0x084 | 132 | V3 | bbox min | the box holds the mesh's **origin** as well as its vertices |
+| 0x090 | 144 | V3 | bbox max | (made so, as the game's files: 189,762 of 190,570 meshes' boxes[^corpus]) |
+| 0x09C | 156 | f32 | radius | the farthest vertex from the average (180,136 of 190,570[^corpus]) |
+| 0x0A0 | 160 | V3 | average (centre) | the mean of the mesh's **places**, each counted once however many corners meet there (179,310 of 190,570[^corpus]) |
 | 0x0AC | 172 | V3 | diffuse | |
 | 0x0B8 | 184 | V3 | ambient | |
 | 0x0C4 | 196 | V3 | specular | |
-| 0x0D0 | 208 | f32 | shininess | |
+| 0x0D0 | 208 | f32 | shininess | **1** where the text gives none (the game's compiler[^viewer]; `mg_mdl::compile` likewise) |
 | 0x0D4 | 212 | u32 | shadow | 0/1 |
 | 0x0D8 | 216 | u32 | beaming | 0/1 |
 | 0x0DC | 220 | u32 | render | 0/1 (aabb: 0) |
@@ -514,11 +522,12 @@ ASCII face line: `v1 v2 v3 smoothmask t1 t2 t3 material` (`NwnMdlDecomp.cpp:1234
   Verified: n2b count = walked node count, and `bnn[n2b[i]] == i`.
 - Up to 4 influences per vertex (`NmcMesh.cpp:1840-1868`). Bio skins have at most 18 bones.
 - **EE variant**: `c_golemerald:Body` and `c_kocrachn:*` (EE-compiled) have struct size **0x3B0 (944)**.
-  0x2B0..0x3AF is 256 bytes: bone node numbers at 0x2B0, zeros after them. Probably `i16[64]` plus 128 more bytes (64-bone support, wiki: "64 bones per skin") [U].
+  0x2B0..0x3AF is 256 bytes: bone node numbers at 0x2B0, zeros after them. The bone node numbers are **`i16[64]`** (64-bone support, wiki: "64 bones per skin"), then 128 bytes more: a skin of 52 bones written so (`mg_mdl::binary_write`: the numbers as `i16[64]` at 0x2B0, unused slots −1, zeros after) is drawn by the client posed as from its text[^viewer]. A skin of 64 bones itself is untried.
   No header flag separating the two EE layouts was found (`tni_udoor_19..27`, also EE-compiled, use 0x2D4).
   **Robust approach:** derive the bone list by inverting the node→bone map, never from the 0x2B0 array's length, and follow pointers rather than assuming struct sizes.
   nwnmdlcomp decompiled the 0x3B0 file without error because it only indexes bnn[bone<10].
 - Binary weights reference bones; ASCII weights reference node names (`NwnMdlDecomp.cpp:1320-1352`).
+- **Inverse binds** (qbone/tbone_ref_inv): a compiler makes them from the model at rest, and the game's files have them so for 4,514 of their 4,594 bones[^corpus]. The other 80 are the ten `c_wingdrg2_*` wing skins (`blk`, `blu`, `brs`, `brz`, `cop`, `gol`, `grn`, `red`, `sil`, `whi`), bound in another pose than they rest in, which no text holds: compiled from their text, by any compiler, they are bound at rest. How the two look in the client is not compared.
 
 ### B.12 AnimMesh (flags 0xA1; `NwnMdlNodes.h:808-816`) [V]
 
@@ -624,7 +633,7 @@ Node header only, 0x70 bytes. Absent from the corpus.
 
 - Tree: root = geometry header +0x48, recurse through children arrays. **Parent pointers are 0/garbage.** Node order = child order (pre-order).
 - Part numbers (nwnmdlcomp):
-  - A node's number is its file order (`NmcGeometry.cpp:305`).
+  - A node's number is its file order (`NmcGeometry.cpp:305`), confirmed on the game's files: a compiled tree does not keep that order. Of the 24,298 game models without a supermodel or a skin, 5,079 are numbered in another order than their tree's (19,219 follow it[^corpus]), so a decompiler that writes the tree in order renumbers them; `mg_mdl::decompile` writes the nodes in their numbers' order instead (`to_ascii_in_order`), and every one of the 24,298 compiles back to its own numbers. Over all 25,597 binaries, numbers made from the tree as nwnmdlcomp makes them are the file's for 201,659 of 254,130 nodes (79%).
   - With a supermodel the count starts at `super.nodecount + 1` (`NmcGeometry.cpp:1024-1030`), and nodes whose names match the supermodel tree, walked child-by-name case-insensitively, take the supermodel's part number (`NmcMergeNodePartNumbers` 525-560, `NmcMergeGeometryPartNumbers` 572-590).
   - Animation nodes get the model's numbers by the same name walk, or −1 (`NmcGeometry.cpp:1113`).
   - Data: `a_ba` (super `a_ba_non_combat`) nodecount 164, 57 own nodes, max part 161. `c_goldiamond` (super `a_ba`) 198/33/193. 14,677 animation nodes have −1.
@@ -2160,3 +2169,6 @@ From `lang/en/docs/CHANGELOG.md` and `Neverwinter Nights Enhanced Edition (v74..
 7. Toolset handling of `default` ENVMAP (Chrome1 inference) and of placeholder 2DA rows (`USER`, `OS_RESERVED`).
 8. CanRotateIcon semantics (wiki text lost in mirror).
 9. Door model selection rule (Appearance vs GenericType/_New) — confirm with the BioWare Door GFF spec.
+
+[^viewer]: Moonglow Viewer, PLAN §10.1 (2026-10-07), measured in the client and with the game's compiler; not run again here.
+[^corpus]: `mdl_compile.rs` over the whole install, 2026-10-29.
