@@ -39,7 +39,7 @@ impl ObjectKind {
     ];
 
     /// Its position in [`ObjectKind::ALL`].
-    pub fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self as usize
     }
 
@@ -60,7 +60,7 @@ impl ObjectKind {
 
     /// Its blueprint type alone, as a list (`[UTC]`; for tables of the
     /// types that go together).
-    pub fn restypes(self) -> &'static [ResType] {
+    pub const fn restypes(self) -> &'static [ResType] {
         static TYPES: [ResType; 9] = {
             let mut types = [ResType::UTC; 9];
             let mut i = 0;
@@ -113,7 +113,7 @@ impl ObjectKind {
     /// What it is called in one word, lowercase: `creature`, `store`. As
     /// in the palette file names (`<name>pal.itp`), and placed objects'
     /// descriptions (`keep › creature GUARD`).
-    pub fn name(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
             ObjectKind::Creature => "creature",
             ObjectKind::Door => "door",
@@ -131,7 +131,7 @@ impl ObjectKind {
     /// area view's filters, the module tree, Verify. Stores are `Stores`
     /// everywhere, where Aurora says Merchants on its area filters and
     /// palette buttons and Stores elsewhere.
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             ObjectKind::Creature => "Creatures",
             ObjectKind::Door => "Doors",

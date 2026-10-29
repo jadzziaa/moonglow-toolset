@@ -187,6 +187,18 @@ pub(crate) fn from_windows_1252(text: &str) -> String {
     Codepage::WINDOWS_1252.spelled_in(text, game_codepage()).into_owned()
 }
 
+/// Names in a line: all of them where there are `room` or fewer, else the
+/// first and how many more, in `room` places ("a, b, c and 3 more" for
+/// four): never "and 1 more".
+pub(crate) fn some_of(names: &[impl AsRef<str>], room: usize) -> String {
+    let all = || names.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+    if names.len() <= room.max(1) {
+        return all().join(", ");
+    }
+    let shown = room.max(2) - 1;
+    format!("{} and {} more", all()[..shown].join(", "), names.len() - shown)
+}
+
 /// Text for an editor: CRLF line ends shown as plain newlines (a `\r`
 /// the field kept would be a stop of the caret no one sees, and End put
 /// what is typed after it). Returns whether the original used CRLF. What
@@ -450,6 +462,16 @@ pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_few_names_and_how_many_more() {
+        assert_eq!(some_of(&["a", "b"], 4), "a, b");
+        assert_eq!(some_of(&["a", "b", "c", "d"], 4), "a, b, c, d");
+        assert_eq!(some_of(&["a", "b", "c", "d", "e", "f"], 4), "a, b, c and 3 more");
+        assert_eq!(some_of(&["a", "b", "c"], 1), "a and 2 more");
+        assert_eq!(some_of(&[String::from("a")], 0), "a");
+        assert_eq!(some_of(&[] as &[&str], 4), "");
+    }
 
     /// Scripts are read in the editing language's codepage: Polish's
     /// letters round trip in Windows-1250, byte for byte, and those it

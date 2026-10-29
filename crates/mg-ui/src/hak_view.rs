@@ -32,14 +32,116 @@ pub struct HakDoc {
     rows: Option<(String, Sort, u64, Vec<usize>)>,
     /// The order of the list.
     pub sort: Sort,
-    /// The resource shown under the list, as something to read.
-    viewing: Option<(ResKey, crate::browser::Plain)>,
+    /// The resource shown under the list.
+    viewing: Option<(ResKey, Viewing)>,
     /// The folder the hak was built from: Update from Folder reads it
     /// again.
     pub folder: Option<PathBuf>,
     /// Files chosen to add, some of which the hak has already: asked
     /// about before anything is replaced.
     pub adding: Option<Adding>,
+}
+
+/// A hak's resource as it is shown under the list: a picture (a TGA, DDS
+/// or PLT), a sound to play, a 2DA's rows and columns, a model drawn (the
+/// copy the game reads being this hak's), or as the resource browser shows
+/// the rest (fields, text, a compiled model as its text, the first bytes).
+pub(crate) enum Viewing {
+    Picture(egui::TextureHandle),
+    Sound(std::sync::Arc<[u8]>),
+    Table(Box<mg_module::table_layers::Layered>),
+    /// Drawn in the model viewer, from the load order.
+    Model,
+    Plain(crate::browser::Plain),
+}
+
+impl std::fmt::Debug for Viewing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Viewing::{}", self.kind())
+    }
+}
+
+impl Viewing {
+    /// What a word names the view by (for tests and the log).
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Viewing::Picture(_) => "picture",
+            Viewing::Sound(_) => "sound",
+            Viewing::Table(_) => "table",
+            Viewing::Model => "model",
+            Viewing::Plain(_) => "plain",
+        }
+    }
+}
+
+/// How hak `doc`'s resource `key` (its bytes `data`) is viewed.
+fn viewing(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    doc: usize,
+    key: ResKey,
+    data: Vec<u8>,
+) -> Viewing {
+    use mg_core::ResType;
+    let plain = |data: &[u8]| Viewing::Plain(crate::browser::plain(key, data));
+    let picture = |rgba: mg_image::Rgba| {
+        let rgba = rgba.top_down();
+        let size = [rgba.width as usize, rgba.height as usize];
+        let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba.data);
+        let name = format!("hak-view-{key}");
+        Viewing::Picture(ctx.load_texture(name, image, egui::TextureOptions::LINEAR))
+    };
+    match key.restype {
+        ResType::TGA | ResType::DDS => match mg_image::read(key.restype, &data) {
+            Ok(t) => picture(t.to_rgba()),
+            Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
+        },
+        ResType::PLT => match mg_image::plt::Plt::read(&data) {
+            // (In each layer's first color, from the game's palettes.)
+            Ok(plt) => {
+                let palettes: Vec<Option<std::sync::Arc<mg_image::Rgba>>> = match app.loader() {
+                    Some(mut l) => mg_image::plt::PALETTES.iter().map(|p| l.palette(p)).collect(),
+                    None => vec![None; 10],
+                };
+                let refs: [Option<&mg_image::Rgba>; 10] =
+                    std::array::from_fn(|i| palettes.get(i).and_then(|p| p.as_deref()));
+                picture(plt.colorize(&refs, [0; 10]))
+            }
+            Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
+        },
+        ResType::WAV | ResType::BMU => {
+            let data: std::sync::Arc<[u8]> = data.into();
+            match mg_audio::Stream::open(data.clone()) {
+                Ok(_) => Viewing::Sound(data),
+                Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
+            }
+        }
+        ResType::TWODA => {
+            let codepage = app.game.as_deref().map(|g| g.codepage()).unwrap_or_default();
+            match mg_2da::TwoDa::parse(&data, codepage) {
+                Ok(t) => Viewing::Table(Box::new(mg_module::table_layers::Layered::single(
+                    app.haks[doc].title().trim_end_matches(" *"),
+                    t,
+                ))),
+                Err(_) => plain(&data),
+            }
+        }
+        // Drawn where the game reads this copy (the hak is one of the
+        // module's, as saved): the viewer draws from the load order.
+        ResType::MDL
+            if app.game.as_deref().is_some_and(|g| {
+                let stem = app.haks[doc].hak.path.as_deref().and_then(|p| p.file_stem());
+                let layer = stem.map(|s| format!("hak:{}", s.to_string_lossy()));
+                g.resman.get(&key).is_ok_and(|d| *d == data[..])
+                    && layer.is_some_and(|l| {
+                        g.resman.origin(&key).is_some_and(|o| o.eq_ignore_ascii_case(&l))
+                    })
+            }) =>
+        {
+            Viewing::Model
+        }
+        _ => plain(&data),
+    }
 }
 
 /// Files chosen to add to a hak that has some of them already.
@@ -78,6 +180,12 @@ impl HakDoc {
             folder: None,
             adding: None,
         }
+    }
+
+    /// What the resource shown under the list is shown as (`picture`,
+    /// `sound`, `table`, `model`, `plain`), and which.
+    pub fn viewing(&self) -> Option<(ResKey, &'static str)> {
+        self.viewing.as_ref().map(|(k, v)| (*k, v.kind()))
     }
 
     pub fn title(&self) -> String {
@@ -193,7 +301,7 @@ pub fn build_from_folder(app: &mut Moonglow) {
 
 /// The user's hak folder.
 fn hak_dir(app: &Moonglow) -> Option<PathBuf> {
-    app.install.as_ref()?.user_dir.as_ref().map(|u| u.join("hak"))
+    app.install.as_ref()?.user_hak_dir()
 }
 
 /// Saves a hak (asking where for a new one, or with `ask`). A hak the
@@ -512,18 +620,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             });
         }
     });
-    let mut close_view = false;
-    if let Some((key, view)) = &doc.viewing {
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.strong(key.to_string());
-            close_view = ui.small_button("Close").clicked();
-        });
-        crate::browser::plain_ui(ui, *key, view);
-    }
-    if close_view {
-        doc.viewing = None;
-    }
+    // (Drawn below, with the window's state: a table's columns, the model
+    // viewer, the speakers.)
+    let shown = doc.viewing.take();
     if let Some(done) = rename_done {
         if let Some((key, name)) = done.filter(|(k, n)| *n != k.resref.to_string()) {
             match doc.hak.rename(key, name.trim()) {
@@ -539,6 +638,54 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     }
     if changed {
         app.haks[i].changed();
+    } else if let Some((key, view)) = shown {
+        ui.separator();
+        let mut close = false;
+        ui.horizontal(|ui| {
+            ui.strong(key.to_string());
+            close = ui.small_button("Close").clicked();
+            if let Viewing::Sound(data) = &view {
+                let name = key.resref;
+                let sound = crate::audio::Sound { name, data: data.clone() };
+                let playing = app.speaker.playing(crate::audio::Channel::Preview);
+                if ui.button(if playing { "Stop" } else { "Play" }).clicked() {
+                    if playing {
+                        app.stop_sound(crate::audio::Channel::Preview);
+                    } else {
+                        app.speaker.play(crate::audio::Channel::Preview, sound, 1.0, false);
+                    }
+                }
+            }
+        });
+        match &view {
+            Viewing::Picture(texture) => {
+                let size = texture.size_vec2();
+                ui.weak(format!("{} by {} pixels", size.x, size.y));
+                // (At its own size, or smaller to fit the room under the
+                // list.)
+                let room = ui.available_size();
+                let fit = (room.x / size.x.max(1.0)).min(room.y / size.y.max(1.0)).min(1.0);
+                ui.add(egui::Image::new(texture).fit_to_exact_size(size * fit.max(0.01)));
+            }
+            Viewing::Sound(data) => {
+                ui.weak(format!("A sound, {} bytes: Play plays it", data.len()));
+            }
+            Viewing::Table(table) => {
+                let label = table.copies[0].0.clone();
+                crate::browser::two_da(app, ui, key, Some(&label), table);
+            }
+            Viewing::Model => {
+                use crate::model_view::Source;
+                if crate::model_view::embedded(app, ui, Source::Resource(key)) {
+                    app.actions.push(crate::Action::OpenTab(Tab::Model(key)));
+                }
+            }
+            Viewing::Plain(plain) => crate::browser::plain_ui(ui, key, plain),
+        }
+        let doc = &mut app.haks[i];
+        if !close && doc.viewing.is_none() {
+            doc.viewing = Some((key, view));
+        }
     }
     match todo {
         None => {}
@@ -566,24 +713,36 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Some(Do::Save(ask)) => {
             save(app, id, ask);
         }
-        Some(Do::View(key)) => {
-            let doc = &mut app.haks[i];
-            match doc.hak.data(key) {
-                Ok(data) => doc.viewing = Some((key, crate::browser::plain(key, &data))),
-                Err(e) => app.log.error(format!("{key}: {e}")),
+        Some(Do::View(key)) => match app.haks[i].hak.data(key) {
+            Ok(data) => {
+                let view = viewing(app, ui.ctx(), i, key, data);
+                app.haks[i].viewing = Some((key, view));
             }
-        }
+            Err(e) => app.log.error(format!("{key}: {e}")),
+        },
         Some(Do::CompileModels) => compile_models(app, i),
         Some(Do::UpdateFromFolder) => {
-            // What the folder has now: its files in place of the hak's.
+            // What the folder has now: its files in place of the hak's, in
+            // one step to undo; what the folder has no file of goes, and
+            // is named (a hak added to by hand, or built from several
+            // folders, loses it: Undo puts it back).
             let doc = &mut app.haks[i];
             if let Some(dir) = doc.folder.clone() {
-                let all: Vec<ResKey> = doc.hak.items().iter().map(|i| i.key).collect();
-                doc.hak.remove(&all);
-                let added = doc.hak.add_folder(&dir);
+                let (added, gone) = doc.hak.update_from_folder(&dir);
                 doc.changed();
                 app.log.info(format!("Read {} again", dir.display()));
                 report(app, &added);
+                if !gone.is_empty() {
+                    let names: Vec<String> = gone.iter().take(12).map(ResKey::to_string).collect();
+                    let more = gone.len().saturating_sub(names.len());
+                    let more = if more > 0 { format!(" and {more} more") } else { String::new() };
+                    app.log.warn(format!(
+                        "Took out {} resources the folder has no file of (Undo puts them back): \
+                         {}{more}",
+                        gone.len(),
+                        names.join(", ")
+                    ));
+                }
             }
         }
     }
@@ -623,27 +782,12 @@ fn compile_models(app: &mut Moonglow, i: usize) {
         move |app, results| {
             // (The window took no input meanwhile: the hak is as it was.)
             let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
-            let (mut made, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
-            for c in results {
-                match c.result {
-                    Ok((binary, said)) => {
-                        notes += said.len();
-                        for (line, note) in said.iter().take(3) {
-                            let at =
-                                if *line > 0 { format!(" line {line}") } else { String::new() };
-                            app.log.info(format!("{}{at}: {note}", c.model));
-                        }
-                        made.push((c.model, mg_module::hak_edit::Source::Bytes(binary.into())));
-                    }
-                    Err(why) => left.push(format!("{}: {why}", c.model)),
-                }
-            }
-            let compiled = made.len();
-            if compiled == 0 && left.is_empty() {
-                app.log.info("Compile Models: the hak has no models kept as text");
-                return;
-            }
-            if compiled > 0 {
+            let sorted = crate::model_view::CompiledModels::sort(&mut app.log, "the hak", results);
+            let Some(sorted) = sorted else { return };
+            let made: Vec<_> = (sorted.made.iter())
+                .map(|(k, b)| (*k, mg_module::hak_edit::Source::Bytes(b.clone().into())))
+                .collect();
+            if !made.is_empty() {
                 match app.haks[i].hak.add_sources_as("Compile Models", made) {
                     Ok(_) => app.haks[i].changed(),
                     Err(e) => {
@@ -652,17 +796,7 @@ fn compile_models(app: &mut Moonglow, i: usize) {
                     }
                 }
             }
-            app.log.info(format!(
-                "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} left \
-                 as text",
-                left.len()
-            ));
-            for l in left.iter().take(12) {
-                app.log.warn(format!("Left as text: {l}"));
-            }
-            if left.len() > 12 {
-                app.log.warn(format!("…and {} more left as text", left.len() - 12));
-            }
+            sorted.say(&mut app.log);
         },
     );
 }
@@ -686,48 +820,26 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(i) = app.haks.iter().position(|d| d.adding.is_some()) else { return };
     let adding = app.haks[i].adding.clone().expect("found");
     let title = app.haks[i].title();
-    // Replace all (true), skip those (false).
-    let mut answer = None;
-    let mut cancel = false;
-    egui::Window::new("Files Already in the Hak")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            let (n, all) = (adding.replaced.len(), adding.files.len());
-            ui.label(format!(
-                "{} already has {n} of the {all} files chosen:",
-                title.trim_end_matches(" *")
-            ));
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for (path, key) in &adding.replaced {
-                    ui.label(egui::RichText::new(key.to_string()).monospace())
-                        .on_hover_text(path.display().to_string());
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .button(format!("Replace {n}"))
-                    .on_hover_text("Add all the files: these take the place of the hak's")
-                    .clicked()
-                {
-                    answer = Some(true);
-                }
-                if ui
-                    .button("Skip Those")
-                    .on_hover_text("Add the other files and leave the hak's as they are")
-                    .clicked()
-                {
-                    answer = Some(false);
-                }
-                cancel = crate::widgets::cancel(ui);
-            });
-        });
-    if cancel {
-        app.haks[i].adding = None;
-    }
-    let Some(replace) = answer else { return };
+    let (n, all) = (adding.replaced.len(), adding.files.len());
+    let said =
+        format!("{} already has {n} of the {all} files chosen:", title.trim_end_matches(" *"));
+    let files: Vec<_> = (adding.replaced.iter())
+        .map(|(path, key)| (key.to_string(), Some(path.display().to_string())))
+        .collect();
+    let tips = [
+        "Add all the files: these take the place of the hak's",
+        "Add the other files and leave the hak's as they are",
+    ];
+    use crate::widgets::Already;
+    let Some(answer) = crate::widgets::files_already(ctx, "Hak", &said, &files, tips) else {
+        return;
+    };
     app.haks[i].adding = None;
+    let replace = match answer {
+        Already::Replace => true,
+        Already::Skip => false,
+        Already::Cancel => return,
+    };
     let files: Vec<PathBuf> = if replace {
         adding.files
     } else {

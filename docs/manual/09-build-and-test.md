@@ -240,7 +240,8 @@ Each names the line. Compiled models are not read so.
 text, each against its supermodel from the module, its haks or the
 game, in the background and as one step to undo. A model with errors,
 with no nodes, or whose supermodel isn't found stays as text, and the
-log says why. (The hak editor's Compile Models does the same for a
+log says why; the compiler's notes on a model compiled (three of each)
+are in the log too. (The hak editor's Compile Models does the same for a
 hak, `mg pack --compile-models` for a folder.)
 
 ## Test Module

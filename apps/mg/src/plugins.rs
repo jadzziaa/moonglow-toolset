@@ -830,7 +830,7 @@ pub(crate) fn run(
     // Its haks first: the module's edits may name them.
     let hak_dir = hak_dir
         .map(Path::to_path_buf)
-        .or_else(|| gi.and_then(|gi| gi.user_dir.as_ref().map(|u| u.join("hak"))));
+        .or_else(|| gi.and_then(mg_resman::GameInstall::user_hak_dir));
     for hak in &outcome.haks {
         let Some(dir) = &hak_dir else {
             bail!("the plugin writes the hak {}: say where haks go (--hak-dir DIR)", hak.name);

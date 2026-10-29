@@ -9,7 +9,7 @@ use egui::Ui;
 use mg_core::{LocString, ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
-use mg_module::palette::{BlueprintKind, Palette};
+use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::{Choice, ChoiceColumns};
 
@@ -1117,69 +1117,8 @@ impl Form<'_> {
                 l.palette(palette)
             })
         };
-        let mut pick = None;
-        ui.horizontal(|ui| {
-            if let Some(p) = &pal {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
-                crate::images::swatch(ui, rect, &crate::images::tones(p, current));
-            }
-            // (The arrow keys step through the colors in their order.)
-            let mut chosen = current;
-            crate::widgets::dropdown(("palette-color", self.key, label))
-                .selected_text(text.map_or_else(|| current.to_string(), str::to_string))
-                .width(56.0)
-                .height(11.0 * 16.0 + 24.0)
-                .show_with(
-                    ui,
-                    &mut chosen,
-                    || (0..176).collect(),
-                    |ui, chosen| {
-                        let Some(p) = &pal else {
-                            ui.weak("No palette");
-                            return;
-                        };
-                        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                        // 176 colours, 16 to a row.
-                        for row in 0..11u8 {
-                            ui.horizontal(|ui| {
-                                for i in row * 16..row * 16 + 16 {
-                                    let size = egui::vec2(16.0, 14.0);
-                                    let (rect, r) =
-                                        ui.allocate_exact_size(size, egui::Sense::click());
-                                    crate::images::swatch(ui, rect, &crate::images::tones(p, i));
-                                    if i == current && text.is_none() {
-                                        let stroke = ui.visuals().selection.stroke;
-                                        ui.painter().rect_stroke(
-                                            rect,
-                                            0.0,
-                                            stroke,
-                                            egui::StrokeKind::Outside,
-                                        );
-                                    }
-                                    let name = format!("{what} {i}");
-                                    r.widget_info(|| {
-                                        egui::WidgetInfo::labeled(
-                                            egui::WidgetType::Button,
-                                            true,
-                                            &name,
-                                        )
-                                    });
-                                    if r.on_hover_text(&name).clicked() {
-                                        *chosen = i;
-                                        pick = Some(i);
-                                        ui.close();
-                                    }
-                                }
-                            });
-                        }
-                    },
-                );
-            if chosen != current {
-                pick = Some(chosen);
-            }
-        });
-        pick
+        let id = ("palette-color", self.key, label);
+        crate::widgets::palette_color(ui, id, pal.as_deref(), what, current, text)
     }
 
     /// A choice among 2DA rows (the field holds the row; `default` is its
@@ -1403,28 +1342,13 @@ impl Form<'_> {
             ui.weak("(placed in an area)");
             return;
         }
-        let Some(game) = self.app.game.as_deref() else { return };
+        if self.app.game.is_none() {
+            return;
+        }
         // The module's own categories (Palette › Categories…), else the
-        // game's.
-        let own = self.app.ws.as_mut().and_then(|ws| ws.doc(&kind.skeleton_key()).ok().cloned());
-        let skeleton = own.or_else(|| {
-            let data = game.resman.get(&kind.skeleton_key()).ok()?;
-            mg_gff::Gff::read(&data).ok()
-        });
-        let categories: Vec<Choice> = skeleton
-            .map(|g| Palette::read(&g).categories(game))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(id, text)| Choice { row: usize::from(id), text })
-            .collect();
-        // In the palette's order (its tree's, as Palette › Categories…
-        // sets it), or alphabetical (Options › General): group by group,
-        // case and accents aside.
-        let categories = if self.app.settings.categories_by_name {
-            mg_rules::by_path(categories, " / ")
-        } else {
-            categories
-        };
+        // game's; in the palette's order (its tree's, as Palette ›
+        // Categories… sets it), or alphabetical (Options › General).
+        let categories = crate::palette_view::categories(self.app, kind);
         let label = kind.palette_field();
         self.mark_mixed(ui, label);
         let current = self.int(label);

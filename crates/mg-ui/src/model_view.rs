@@ -1,7 +1,8 @@
 //! The model viewer: any model from the resources, or what a creature, item,
 //! placeable or door blueprint looks like (`mg_preview`), drawn with the
 //! game's lighting, turned by dragging (left: orbit, right or middle: pan,
-//! wheel: zoom), with its animations (and its supermodels') to play.
+//! wheel: zoom, as the area view's wheel), with its animations (and its
+//! supermodels') to play.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -11,7 +12,7 @@ use glam::{Mat4, Vec3};
 use mg_core::ResRef;
 use mg_core::ResType;
 use mg_edit::{GffPath, Workspace};
-use mg_gff::Gff;
+use mg_gff::{Gff, Struct};
 use mg_mdl::Model;
 use mg_preview::Preview;
 use mg_preview::compose::Composed;
@@ -22,6 +23,7 @@ use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, MeshState, Renderer,
 use mg_resman::ResKey;
 
 use crate::Moonglow;
+use crate::area_view::{Orbit, Wheel};
 
 /// Multisampling for 3D views.
 pub(crate) const SAMPLES: u32 = 4;
@@ -164,10 +166,8 @@ pub struct ModelView {
     /// Light the model with its own light nodes.
     pub model_lights: bool,
     pub time: f32,
-    pub yaw: f32,
-    pub pitch: f32,
-    pub distance: f32,
-    pub target: Vec3,
+    /// The camera, turned about what it looks at, as the area view's.
+    pub orbit: Orbit,
     /// How what is shown is stood for the viewer: an item is modelled
     /// lying down (its length along the ground) and is shown stood on its
     /// end, as its icon shows it; all else as it is.
@@ -214,20 +214,20 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     preview_on(app, source, app.settings.armor_on_woman)
 }
 
-/// [`preview_of`], armor and cloaks on a woman where `female`.
-fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
-    let game = app.game.as_deref().ok_or("No game data.")?;
-    let data = |k: &ResKey| {
-        app.ws
-            .as_ref()
-            .and_then(|w| w.module.get(k).map(<[u8]>::to_vec))
-            .or_else(|| game.resman.get(k).ok().map(|d| d.into_owned()))
-    };
-    let read = |k: &ResKey| data(k).and_then(|d| Gff::read(&d).ok());
-    let (restype, object) = match source {
-        Source::Resource(key) if key.restype == ResType::MDL => {
-            return Ok(Preview::model(&key.resref.to_string()));
-        }
+/// A resource as the module has it (its editors' copies as last written
+/// into it), else as the game's load order does.
+fn resource_data(app: &Moonglow, key: &ResKey) -> Option<Vec<u8>> {
+    let module = app.ws.as_ref().and_then(|w| w.module.get(key).map(<[u8]>::to_vec));
+    module.or_else(|| app.game.as_deref()?.resman.get(key).ok().map(|d| d.into_owned()))
+}
+
+/// What a source is of: a blueprint's fields, or a placed object's (its
+/// entry in the area's GIT), with the blueprint type it is of; `None` for
+/// a model.
+fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Struct)>, String> {
+    let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
+    Ok(Some(match source {
+        Source::Resource(key) if key.restype == ResType::MDL => return Ok(None),
         Source::Resource(key) => {
             let gff = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
             (key.restype, gff.root)
@@ -241,7 +241,17 @@ fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, 
             let object = path.get(&git.root).cloned().ok_or_else(|| format!("{source}: gone"))?;
             (restype, object)
         }
+    }))
+}
+
+/// [`preview_of`], armor and cloaks on a woman where `female`.
+fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
+    let game = app.game.as_deref().ok_or("No game data.")?;
+    let Some((restype, object)) = source_object(app, source)? else {
+        let Source::Resource(key) = source else { unreachable!("a model is a resource") };
+        return Ok(Preview::model(&key.resref.to_string()));
     };
+    let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
     let preview = match restype {
         ResType::UTC => mg_preview::creature(game, &object, &items),
@@ -264,27 +274,131 @@ pub struct ModelExport {
     what: String,
     dir: std::path::PathBuf,
     /// The files to write, each with where it comes from.
-    files: Vec<(ResKey, String)>,
-    /// Those the folder has already.
-    pub existing: Vec<ResKey>,
+    files: Vec<ExportFile>,
+    /// The names of those the folder has already.
+    pub existing: Vec<String>,
     /// The game's own files left out.
     left_out: usize,
+    /// The models and textures named and found nowhere.
+    pub missing: Vec<String>,
+}
+
+/// One file of an Export Files.
+#[derive(Debug, Clone)]
+struct ExportFile {
+    /// Its name in the folder.
+    name: String,
+    /// Where it comes from (`hak:name`, `the module`…).
+    origin: String,
+    what: Exported,
+}
+
+#[derive(Debug, Clone)]
+enum Exported {
+    /// A resource, as the module has it, else the game's load order.
+    Resource(ResKey),
+    /// Made for the export (a table's row).
+    Text(String),
 }
 
 /// Export Files: what the game loads to draw `source` (its models, their
-/// walkmeshes, textures and materials), written as `name.ext` into a
-/// folder the user chooses. The game's own files are left out, unless
-/// every one of them is the game's. Where the folder has files of those
-/// names already, it asks first ([`export_window`]).
+/// walkmeshes, textures and materials), with a blueprint's file (a placed
+/// object's: the blueprint it was placed from) and its row of the table
+/// its look is chosen by ([`mg_preview::files::look_row`]), written into
+/// a folder the user chooses. The game's own models and textures are left
+/// out, unless every one of them is the game's. Where the folder has files
+/// of those names already, it asks first ([`export_window`]). What the
+/// model names and the load order lacks is said in the log.
 pub fn export_files(app: &mut Moonglow, source: &Source) {
-    let preview = match preview_of(app, source) {
-        Ok(p) => p,
+    // (The editors' copies, which the files are read from.)
+    if let Some(ws) = app.ws.as_mut() {
+        let _ = ws.flush();
+    }
+    let (preview, object) = match preview_of(app, source).and_then(|p| {
+        let object = source_object(app, source)?;
+        Ok((p, object))
+    }) {
+        Ok(found) => found,
         Err(e) => return app.log.error(e),
     };
     let Some(game) = app.game.clone() else { return };
-    let files = mg_preview::files::files(&game, &preview);
+    let mut gather = mg_preview::files::Gatherer::new(&game.resman);
+    gather.preview(&preview);
+    let mut out = Vec::new();
+    if let Some((restype, object)) = &object {
+        // The blueprint itself (a placed object's: the one it was placed
+        // from, where it is found).
+        let key = match source {
+            Source::Resource(key) => Some(*key),
+            Source::Instance { .. } => {
+                object.resref("TemplateResRef").map(|r| ResKey::new(r, *restype))
+            }
+        };
+        let in_module = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
+        if let Some(key) = key.filter(|k| in_module(k) || game.resman.contains(k)) {
+            let origin = if in_module(&key) {
+                "the module".to_string()
+            } else {
+                game.resman.origin(&key).unwrap_or_default().to_string()
+            };
+            out.push(ExportFile { name: key.to_string(), origin, what: Exported::Resource(key) });
+        }
+        let kind = mg_rules::ObjectKind::from_restype(*restype);
+        if let Some(row) = kind.and_then(|k| mg_preview::files::look_row(&game, k, object)) {
+            let (name, origin) = (row.file_name(), format!("{}.2da of {}", row.table, row.origin));
+            out.push(ExportFile { name, origin, what: Exported::Text(row.text) });
+        }
+    }
+    export_gathered(app, source.to_string(), out, gather);
+}
+
+/// Export Model Files… of an area (the module tree's menu): what the game
+/// draws it with ([`mg_preview::files::Gatherer::area`]: its tileset, its
+/// tiles' models, walkmeshes and minimap pictures, its skybox, and what is
+/// placed in it), with its own `.are` and `.git`, as [`export_files`]
+/// writes a blueprint's.
+pub fn export_area_files(app: &mut Moonglow, area: ResRef) {
+    if let Some(ws) = app.ws.as_mut() {
+        let _ = ws.flush();
+    }
+    let Some(game) = app.game.clone() else { return };
+    let read = |t: ResType| {
+        let key = ResKey::new(area, t);
+        resource_data(app, &key).and_then(|d| Gff::read(&d).ok()).map(|g| (key, g.root))
+    };
+    let Some((are_key, are)) = read(ResType::ARE) else {
+        return app.log.error(format!("{area}.are: not found or not readable"));
+    };
+    let git = read(ResType::GIT);
+    let mut gather = mg_preview::files::Gatherer::new(&game.resman);
+    gather.area(&game, &are, None, git.as_ref().map(|(_, s)| s));
+    let own = [Some(are_key), git.map(|(k, _)| k)];
+    let out = own
+        .into_iter()
+        .flatten()
+        .map(|key| ExportFile {
+            name: key.to_string(),
+            origin: "the module".into(),
+            what: Exported::Resource(key),
+        })
+        .collect();
+    export_gathered(app, format!("area {area}"), out, gather);
+}
+
+/// What an Export Files writes, after its own files (`out`: a blueprint
+/// and its row, an area's ARE and GIT): the files `gather` found, the
+/// game's own left out unless every one is the game's, into a folder the
+/// user chooses; asked about first where the folder has some of them.
+fn export_gathered(
+    app: &mut Moonglow,
+    what: String,
+    mut out: Vec<ExportFile>,
+    gather: mg_preview::files::Gatherer<'_>,
+) {
+    let missing = gather.missing().to_vec();
+    let files = gather.into_files();
     if files.is_empty() {
-        return app.log.warn(format!("{source}: no model found to export"));
+        return app.log.warn(format!("{what}: no model found to export"));
     }
     let stock = files.iter().filter(|f| f.stock).count();
     let all = stock == files.len();
@@ -292,16 +406,20 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
     else {
         return;
     };
-    let files: Vec<(ResKey, String)> =
-        files.into_iter().filter(|f| all || !f.stock).map(|f| (f.key, f.origin)).collect();
-    let existing: Vec<ResKey> =
-        files.iter().map(|(k, _)| *k).filter(|k| dir.join(k.to_string()).exists()).collect();
+    out.extend(files.into_iter().filter(|f| all || !f.stock).map(|f| ExportFile {
+        name: f.key.to_string(),
+        origin: f.origin,
+        what: Exported::Resource(f.key),
+    }));
+    let existing: Vec<String> =
+        out.iter().map(|f| f.name.clone()).filter(|n| dir.join(n).exists()).collect();
     let export = ModelExport {
-        what: source.to_string(),
+        what,
         dir,
-        files,
+        files: out,
         existing,
         left_out: if all { 0 } else { stock },
+        missing,
     };
     if export.existing.is_empty() {
         write_export(app, &export, true);
@@ -313,18 +431,21 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
 /// Writes an export's files: all of them, or (`replace` off) those the
 /// folder did not have.
 fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
-    let Some(game) = app.game.clone() else { return };
     let dir = &export.dir;
     let mut written = Vec::new();
-    for (key, origin) in &export.files {
-        if !replace && export.existing.contains(key) {
+    for f in &export.files {
+        if !replace && export.existing.contains(&f.name) {
             continue;
         }
-        let Ok(data) = game.resman.get(key) else { continue };
-        if let Err(e) = key.path_in(dir).and_then(|path| std::fs::write(path, &data)) {
+        let (path, data) = match &f.what {
+            Exported::Resource(key) => (key.path_in(dir), resource_data(app, key)),
+            Exported::Text(text) => (Ok(dir.join(&f.name)), Some(text.clone().into_bytes())),
+        };
+        let Some(data) = data else { continue };
+        if let Err(e) = path.and_then(|path| std::fs::write(path, &data)) {
             return app.log.error(format!("Could not write to {}: {e}", dir.display()));
         }
-        written.push(format!("{key} ({origin})"));
+        written.push(format!("{} ({})", f.name, f.origin));
     }
     let mut notes = String::new();
     if export.left_out > 0 {
@@ -340,51 +461,95 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
         dir.display(),
         written.join(", ")
     ));
+    if !export.missing.is_empty() {
+        app.log.warn(format!(
+            "{} names what is found nowhere (the game draws it without them): {}",
+            export.what,
+            export.missing.join(", ")
+        ));
+    }
     app.export_dir = Some(dir.clone());
+}
+
+/// What Compile Models made, of the module's models or a hak's.
+pub(crate) struct CompiledModels {
+    /// Each model compiled, and its compiled bytes.
+    pub made: Vec<(ResKey, Vec<u8>)>,
+    /// Each left as text, and why.
+    left: Vec<String>,
+    /// How many notes the compiler made.
+    notes: usize,
+}
+
+impl CompiledModels {
+    /// Sorts Compile Models' results; `what` says whose they are ("the
+    /// module", "the hak") in the log, where the compiler's notes go (three
+    /// of each model's). `None`: nothing was kept as text.
+    pub(crate) fn sort(
+        log: &mut crate::Log,
+        what: &str,
+        results: Vec<mg_module::models::Compiled>,
+    ) -> Option<CompiledModels> {
+        let mut sorted = CompiledModels { made: Vec::new(), left: Vec::new(), notes: 0 };
+        for c in results {
+            match c.result {
+                Ok((binary, said)) => {
+                    sorted.notes += said.len();
+                    for (line, note) in said.iter().take(3) {
+                        let at = if *line > 0 { format!(" line {line}") } else { String::new() };
+                        log.info(format!("{}{at}: {note}", c.model));
+                    }
+                    sorted.made.push((c.model, binary));
+                }
+                Err(why) => sorted.left.push(format!("{}: {why}", c.model)),
+            }
+        }
+        if sorted.made.is_empty() && sorted.left.is_empty() {
+            log.info(format!("Compile Models: {what} has no models kept as text"));
+            return None;
+        }
+        Some(sorted)
+    }
+
+    /// Says in the log what was compiled and what was left as text (once
+    /// the compiled models are in).
+    pub(crate) fn say(&self, log: &mut crate::Log) {
+        log.info(format!(
+            "Compile Models: {} compiled ({} notes of the compiler's), {} left as text",
+            self.made.len(),
+            self.notes,
+            self.left.len()
+        ));
+        const LISTED: usize = 12;
+        for l in self.left.iter().take(LISTED) {
+            log.warn(format!("Left as text: {l}"));
+        }
+        if self.left.len() > LISTED {
+            log.warn(format!("…and {} more left as text", self.left.len() - LISTED));
+        }
+    }
 }
 
 /// Asks what to do with the files an Export Files would write over.
 pub(crate) fn export_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(export) = app.model_export.clone() else { return };
-    // Replace all (true), skip those (false).
-    let mut answer = None;
-    let mut cancel = false;
-    egui::Window::new("Files Already in the Folder")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            let (n, all) = (export.existing.len(), export.files.len());
-            ui.label(format!("{} already has {n} of the {all} files:", export.dir.display()));
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for key in &export.existing {
-                    ui.label(egui::RichText::new(key.to_string()).monospace());
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .button(format!("Replace {n}"))
-                    .on_hover_text("Write all the files: these take the place of the folder's")
-                    .clicked()
-                {
-                    answer = Some(true);
-                }
-                if ui
-                    .button("Skip Those")
-                    .on_hover_text("Write the other files and leave the folder's as they are")
-                    .clicked()
-                {
-                    answer = Some(false);
-                }
-                cancel = crate::widgets::cancel(ui);
-            });
-        });
-    if cancel {
-        app.model_export = None;
-    }
-    let Some(replace) = answer else { return };
+    let (n, all) = (export.existing.len(), export.files.len());
+    let said = format!("{} already has {n} of the {all} files:", export.dir.display());
+    let files: Vec<_> = export.existing.iter().map(|k| (k.to_string(), None)).collect();
+    let tips = [
+        "Write all the files: these take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    use crate::widgets::Already;
+    let Some(answer) = crate::widgets::files_already(ctx, "Folder", &said, &files, tips) else {
+        return;
+    };
     app.model_export = None;
-    write_export(app, &export, replace);
+    match answer {
+        Already::Replace => write_export(app, &export, true),
+        Already::Skip => write_export(app, &export, false),
+        Already::Cancel => {}
+    }
 }
 
 /// Whether the viewer can show a resource type.
@@ -479,8 +644,8 @@ impl ModelView {
         // thumbnail shows it.)
         let shield = preview.as_ref().is_ok_and(|p| is_shield(app, source, p));
         let yaw = if shield { 240f32 } else { 60f32 }.to_radians();
-        let stand =
-            if lying { Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
+        let pitch = 20f32.to_radians();
+        let stand = if lying { stood_up(composed.as_ref(), yaw, pitch) } else { Mat4::IDENTITY };
         let mut view = ModelView {
             model,
             stand,
@@ -490,10 +655,7 @@ impl ModelView {
             model_lights: true,
             time: 0.0,
             // Models face +Y: from the front, a little to the side.
-            yaw,
-            pitch: 20f32.to_radians(),
-            distance: 5.0,
-            target: Vec3::ZERO,
+            orbit: Orbit { target: Vec3::ZERO, yaw, pitch, distance: 5.0 },
             targets: None,
             last_frame: None,
             particles: None,
@@ -514,24 +676,33 @@ impl ModelView {
         self.stand != Mat4::IDENTITY
     }
 
+    /// How what it shows is stood for the viewer ([`ModelView::stood`]):
+    /// an item modeled lying, its length up and its broad side to the
+    /// viewer.
+    pub fn stand(&self) -> Mat4 {
+        self.stand
+    }
+
     /// What it shows of a blueprint (none for a model).
     pub fn preview(&self) -> Option<&Preview> {
         self.preview.as_ref()
     }
 
-    /// Fits the camera to the model's rest pose.
+    /// Fits the camera to the model as it stands in the animation it
+    /// plays (a dragon at rest lies stretched out, wings spread, far out
+    /// of the box around its pause).
     pub fn frame(&mut self) {
         if let Some(c) = &self.composed {
-            let (low, high) = c.bounds();
+            let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
             // (The box around it as it is stood.)
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for p in mg_render::box_corners(low, high) {
                 let w = self.stand.transform_point3(p);
                 (min, max) = (min.min(w), max.max(w));
             }
-            self.target = (min + max) * 0.5;
+            self.orbit.target = (min + max) * 0.5;
             let radius = ((max - min).length() * 0.5).max(0.1);
-            self.distance = radius / 20f32.to_radians().sin() * 1.1;
+            self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
             return;
         }
         let Ok(m) = &self.model else { return };
@@ -547,14 +718,37 @@ impl ModelView {
         if min.x > max.x {
             (min, max) = (Vec3::splat(-1.0), Vec3::splat(1.0));
         }
-        self.target = (min + max) * 0.5;
+        self.orbit.target = (min + max) * 0.5;
         let radius = ((max - min).length() * 0.5).max(0.1);
-        self.distance = radius / 20f32.to_radians().sin() * 1.1;
+        self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
     }
 
     fn camera(&self) -> Camera {
-        Camera::orbit(self.target, self.distance, self.yaw, self.pitch)
+        self.orbit.camera()
     }
+}
+
+/// How an item modeled lying (its length along the ground, +Y) is stood
+/// on its end for a viewer at `yaw` and `pitch`, as its icon shows it: its
+/// length up, and turned about it so that its broad side faces the viewer
+/// (a sword its flat, not its edge). Of the quarter turns, the first unless
+/// another shows half as much again of the base model's surface
+/// ([`Composed::seen_area`]), as a picture's side is chosen.
+fn stood_up(composed: Option<&Composed>, yaw: f32, pitch: f32) -> Mat4 {
+    let up = Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    let Some(c) = composed else { return up };
+    let towards = Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
+    let stood = |turn: f32| Mat4::from_rotation_z(turn) * up;
+    let shows = |turn: f32| c.seen_area(stood(turn).inverse().transform_vector3(towards));
+    let quarter = std::f32::consts::FRAC_PI_2;
+    let turn = [quarter, -quarter, 2.0 * quarter]
+        .into_iter()
+        .fold((0.0, shows(0.0)), |best, turn| {
+            let s = shows(turn);
+            if s > best.1 * 1.1 + 1e-6 { (turn, s) } else { best }
+        })
+        .0;
+    stood(turn)
 }
 
 fn load_super(
@@ -834,26 +1028,34 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     );
 
     // Orbit, pan, zoom.
+    let o = &mut view.orbit;
     if response.dragged_by(egui::PointerButton::Primary) {
         let d = response.drag_delta();
-        view.yaw -= d.x * 0.01;
-        view.pitch = (view.pitch + d.y * 0.01).clamp(-1.45, 1.45);
+        o.yaw -= d.x * 0.01;
+        o.pitch = (o.pitch + d.y * 0.01).clamp(-1.45, 1.45);
     }
-    if response.dragged_by(egui::PointerButton::Secondary)
-        || response.dragged_by(egui::PointerButton::Middle)
-    {
-        let d = response.drag_delta();
-        let cam = view.camera();
+    // (Across the screen and up it, by the pointer's points.)
+    let pan = |o: &mut Orbit, d: egui::Vec2| {
+        let cam = o.camera();
         let fwd = (cam.target - cam.eye).normalize();
         let right = fwd.cross(Vec3::Z).normalize_or_zero();
         let up = right.cross(fwd);
-        let scale = view.distance * 0.0015;
-        view.target += (-right * d.x + up * d.y) * scale;
+        o.target += (-right * d.x + up * d.y) * o.distance * 0.0015;
+    };
+    if response.dragged_by(egui::PointerButton::Secondary)
+        || response.dragged_by(egui::PointerButton::Middle)
+    {
+        pan(o, response.drag_delta());
     }
+    // The wheel as the area view's: Shift or Ctrl zooms finer, a pinch
+    // zooms, a sideways scroll pans.
     if response.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            view.distance = (view.distance * (-scroll * 0.002).exp()).clamp(0.05, 5000.0);
+        let wheel = Wheel::read(ui);
+        if wheel.zoom != 0.0 {
+            o.distance = wheel.zoomed(o.distance, (0.05, 5000.0));
+        }
+        if wheel.sideways != 0.0 {
+            pan(o, egui::vec2(wheel.sideways, 0.0));
         }
     }
     app.model_views.insert(key, view);
@@ -880,7 +1082,7 @@ pub struct Thumbnails {
     female: bool,
     /// The items pictured by their looks ([`Pictured::Item`]), and whether
     /// on a woman: those asked for and kept.
-    items: HashMap<u64, (mg_gff::Struct, bool)>,
+    items: HashMap<u64, (Struct, bool)>,
     /// The revision at which the editors' working copies were last written
     /// into the module for the blueprints' looks (once a revision: it
     /// writes every document the workspace has read).
@@ -947,41 +1149,12 @@ impl Thumbnails {
         (key, self.female && item)
     }
 
-    /// The pictures made that this frame shows, by what they are of (of
-    /// item blueprints, those of the body armor is shown on).
-    fn current(&self) -> impl Iterator<Item = (Pictured, &Made)> {
-        self.made.iter().filter(|(k, _)| self.kept_as(k.0) == **k).map(|(k, made)| (k.0, made))
-    }
-
-    /// The thumbnails made, by blueprint.
-    pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
-        self.current()
-            .filter_map(|(k, made)| match k {
-                Pictured::Resource(k) => Some((k, made.id())),
-                Pictured::Look(_)
-                | Pictured::Tile(..)
-                | Pictured::Group(..)
-                | Pictured::Item(_) => None,
-            })
-            .collect()
-    }
-
-    /// Every thumbnail made.
-    pub(crate) fn every(&self) -> HashMap<Pictured, Option<egui::TextureId>> {
-        self.current().map(|(k, made)| (k, made.id())).collect()
-    }
-
-    /// The thumbnails made of creatures' looks.
-    pub(crate) fn looks(&self) -> HashMap<mg_preview::CreatureLook, Option<egui::TextureId>> {
-        self.current()
-            .filter_map(|(k, made)| match k {
-                Pictured::Look(l) => Some((l, made.id())),
-                Pictured::Resource(_)
-                | Pictured::Tile(..)
-                | Pictured::Group(..)
-                | Pictured::Item(_) => None,
-            })
-            .collect()
+    /// `key`'s picture, as this frame shows it (of an item blueprint, the
+    /// one of the body armor is shown on): `None` not made yet,
+    /// `Some(None)` made with nothing to draw. Looked up, where the
+    /// galleries made a map of every picture each frame.
+    pub(crate) fn made(&self, key: Pictured) -> Option<Option<egui::TextureId>> {
+        self.made.get(&self.kept_as(key)).map(Made::id)
     }
 
     /// A new frame, the module at `revision`, armor shown on a woman where
@@ -995,7 +1168,7 @@ impl Thumbnails {
 
     /// What pictures `item` (an item's fields: as it would be with another
     /// model or part), on a woman where `female` (armor and cloaks).
-    pub(crate) fn item(&mut self, item: &mg_gff::Struct, female: bool) -> Pictured {
+    pub(crate) fn item(&mut self, item: &Struct, female: bool) -> Pictured {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         // (Its fields as written out: a struct has no hash of its own.)
@@ -1288,7 +1461,7 @@ fn draw_thumbnail(
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
     let idle = composed.idle.as_deref();
-    let (mut min, mut max) = composed.bounds_in(idle, 0.0);
+    let mut points = composed.points_in(&composed.stance(idle, 0.0));
     let pitch = 20f32.to_radians();
     // From the side that shows the most of it: a thing made for a wall has
     // a face and no back, and from behind there is nothing to see.
@@ -1330,31 +1503,28 @@ fn draw_thumbnail(
         let rough = Camera::orbit(Vec3::ZERO, 10.0, yaw, pitch);
         let seconds = THUMBNAIL_STEPS as f32 * THUMBNAIL_STEP;
         particles = sim.batches(model, playing, seconds, &pose, Mat4::IDENTITY, rough.view());
-        let mut any = false;
-        for v in particles.iter().flat_map(|b| &b.vertices) {
-            let p = Vec3::from(v.pos);
-            (min, max) = if any { (min.min(p), max.max(p)) } else { (p, p) };
-            any = true;
-        }
-        if any {
-            let (low, high) = composed.bounds();
-            if (high - low).length() > 0.2 {
-                (min, max) = (min.min(low), max.max(high));
-            }
-        }
+        points.extend(particles.iter().flat_map(|b| &b.vertices).map(|v| Vec3::from(v.pos)));
     }
-    let target = (min + max) * 0.5;
-    let radius = ((max - min).length() * 0.5).max(0.1);
-    // (Nearer than the viewer stands: a picture is small, and what is in it
-    // should fill it.)
-    // … but far enough that a tall thing (a banner) keeps its top and foot.
-    let tall = (max.z - min.z) * 0.5 / 20f32.to_radians().tan() * 1.08
-        + (max - min).truncate().length() * 0.25;
-    // (A creature stands in its animation, which its bounds at rest don't
-    // quite hold: it is given the viewer's room.)
-    let near = if idle.is_some() { 1.05 } else { 0.85 };
-    let distance = (radius / 20f32.to_radians().sin() * near).max(tall);
-    let camera = Camera::orbit(target, distance, yaw, pitch);
+    // Framed tightly on what it shows, as the picture sees it: a dragon,
+    // long and winged, filled a corner of its picture framed by a ball
+    // around its box. (A creature stands in its animation, which moves it
+    // from where it stands at its start: it is given more room.)
+    let room = if idle.is_some() { 1.15 } else { 1.06 };
+    let fov = Camera::orbit(Vec3::ZERO, 1.0, yaw, pitch).fov_y;
+    let corners = || {
+        let (min, max) = composed.bounds_in(idle, 0.0);
+        (0..8).map(move |c| {
+            let pick = |bit: i32, axis: usize| if c & bit == 0 { min[axis] } else { max[axis] };
+            Vec3::new(pick(1, 0), pick(2, 1), pick(4, 2))
+        })
+    };
+    // (Nothing drawn, an emitter that has thrown nothing yet: its box.)
+    if points.is_empty() {
+        points.extend(corners());
+    }
+    let (target, distance) =
+        mg_preview::compose::framed_on(&points, (yaw, pitch), fov, 1.0).expect("some points");
+    let camera = Camera::orbit(target, (distance * room).max(0.1), yaw, pitch);
     // The sun goes round with the view: a thing seen from another side
     // than the usual (a shield, a banner) is lit on the side seen.
     let mut area = AreaLight::default();
@@ -1382,15 +1552,10 @@ fn draw_group_thumbnail(
     tileset: mg_core::ResRef,
     group: u32,
 ) -> Option<(wgpu::Texture, egui::TextureId)> {
-    let tools = (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
-        .find(|t| t.tileset == tileset)
-        .map(|t| (t.set.clone(), Some(t.index.clone())));
-    let (set, index) = tools.or_else(|| {
-        let game = app.game.as_deref()?;
-        mg_area::tileset(game, tileset).ok().map(|set| (Arc::new(set), None))
-    })?;
+    let set = app.tileset(tileset)?;
     let g = set.groups.get(group as usize)?;
-    let index = index.unwrap_or_else(|| mg_tiles::TileIndex::new(&set));
+    let index = (app.open_tileset(tileset).map(|t| t.index.clone()))
+        .unwrap_or_else(|| mg_tiles::TileIndex::new(&set));
     // The tiles and their places: as placed (the group's first tile at
     // the origin), else the group's own tiles alone.
     let placed: Vec<((i64, i64), mg_tiles::Placement)> =

@@ -96,6 +96,11 @@ pub struct PaletteView {
     /// Tilesets' names as Area Properties shows them, read once each (a
     /// big tileset takes milliseconds to read: too long for every frame).
     pub(crate) tileset_names: HashMap<ResRef, String>,
+    /// Each type's categories as a blueprint's Category lists them
+    /// ([`categories`]), and what they were made for: the workspace's
+    /// revision (none without a module) and whether by name.
+    #[allow(clippy::type_complexity)]
+    categories: HashMap<BlueprintKind, ((Option<u64>, bool), Arc<Vec<mg_rules::Choice>>)>,
     /// The row the arrow keys are at: the one clicked last, or come to
     /// with them.
     pub(crate) cursor: Option<At>,
@@ -376,6 +381,7 @@ impl PaletteView {
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
+        self.categories.clear();
         // (The Standard palette's tags read the module's blueprint first:
         // another module, or the game read again, has its own.)
         self.tags.clear();
@@ -408,12 +414,44 @@ impl Default for PaletteView {
             area: None,
             tile_palettes: HashMap::new(),
             tileset_names: HashMap::new(),
+            categories: HashMap::new(),
             cursor: None,
             toggle: None,
             reveal: false,
             kept: Default::default(),
         }
     }
+}
+
+/// The categories of `kind`'s palette, as a blueprint's Category lists
+/// them: the module's own (Palette › Categories…), else the game's; in
+/// the palette's order, or by name (Options › General), group by group.
+/// Made again when the module changes or the game data is read again, not
+/// every frame.
+pub fn categories(app: &mut Moonglow, kind: BlueprintKind) -> Arc<Vec<mg_rules::Choice>> {
+    let by_name = app.settings.categories_by_name;
+    let made_for = (app.ws.as_ref().map(mg_edit::Workspace::revision), by_name);
+    if let Some((at, made)) = app.palette.categories.get(&kind)
+        && *at == made_for
+    {
+        return made.clone();
+    }
+    let Some(game) = app.game.as_deref() else { return Arc::default() };
+    let own = app.ws.as_mut().and_then(|ws| ws.doc(&kind.skeleton_key()).ok().cloned());
+    let skeleton = own.or_else(|| {
+        let data = game.resman.get(&kind.skeleton_key()).ok()?;
+        Gff::read(&data).ok()
+    });
+    let categories: Vec<mg_rules::Choice> = skeleton
+        .map(|g| Palette::read(&g).categories(game))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, text)| mg_rules::Choice { row: usize::from(id), text })
+        .collect();
+    let categories =
+        Arc::new(if by_name { mg_rules::by_path(categories, " / ") } else { categories });
+    app.palette.categories.insert(kind, (made_for, categories.clone()));
+    categories
 }
 
 /// A resref for a copy of `from`: the resref without its trailing digits
@@ -780,7 +818,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
     {
-        use crate::icons::{PREFABS, START, TILES, blueprint, labelled};
+        use crate::icons::{PREFABS, START, TILES, labelled, object};
         #[derive(Clone, Copy, PartialEq)]
         enum Type {
             Tiles,
@@ -798,7 +836,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Type::Kind(view.kind)
         };
         let mut types = vec![(Type::Tiles, TILES, "Tiles", "The area's tileset")];
-        types.extend(BlueprintKind::ALL.map(|k| (Type::Kind(k), blueprint(k), k.label(), "")));
+        types.extend(BlueprintKind::ALL.map(|k| (Type::Kind(k), object(k), k.label(), "")));
         types.push((
             Type::Prefabs,
             PREFABS,
@@ -1012,14 +1050,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 app.settings.palette_gallery = true;
             }
         });
-        let creature = view.kind == BlueprintKind::Creature;
-        let wizard = creature || crate::blueprint_wizard::KINDS.contains(&view.kind);
         if ui
-            .add_enabled(app.ws.is_some() && wizard, egui::Button::new("New…"))
+            .add_enabled(app.ws.is_some(), egui::Button::new("New…"))
             .on_hover_text("A new blueprint (the type's wizard)")
             .clicked()
         {
-            new_blueprint(app, view.kind);
+            crate::commands::Id::new_blueprint(view.kind).run(app, ui.ctx());
         }
         ui.menu_button("More", |ui| {
             if ui
@@ -1115,6 +1151,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         (Some(ws), true) => ws.module.keys_of(kind.restype()).map(|k| k.resref).collect(),
         _ => std::collections::HashSet::new(),
     };
+    let new_label = new_label(kind);
     let mut tree = Tree {
         game,
         kind,
@@ -1123,7 +1160,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         fold: view.fold,
         open: app.settings.palette_open.clone(),
         open_changed: false,
-        new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
+        new: app.ws.is_some().then_some(new_label.as_str()),
         found: found.as_deref(),
         tags: &tags,
         favorites: favorites
@@ -1134,7 +1171,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         gallery,
         side: crate::appearance_gallery::tile_side(app),
         // (The pictures made so far: of use in the Gallery alone.)
-        ready: if gallery { app.thumbnails.all() } else { HashMap::new() },
+        ready: &app.thumbnails,
         shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
@@ -1294,7 +1331,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.log.error(e.to_string());
                 }
             }
-            Pick::New => new_blueprint(app, kind),
+            Pick::New => crate::commands::Id::new_blueprint(kind).run(app, ui.ctx()),
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::Replace(key, own) => match app.palette.area {
                 Some(area) => {
@@ -1391,33 +1428,10 @@ fn shown_name(name: &mg_module::palette::PaletteName, game: &mg_rules::GameData)
     }
 }
 
-/// Whether a kind of blueprint has a wizard to make a new one.
-fn wizard_for(kind: BlueprintKind) -> bool {
-    kind == BlueprintKind::Creature || crate::blueprint_wizard::KINDS.contains(&kind)
-}
-
-/// "New Creature…" and the like, for the palettes' menus.
-fn new_label(kind: BlueprintKind) -> &'static str {
-    match kind {
-        BlueprintKind::Creature => "New Creature…",
-        BlueprintKind::Door => "New Door…",
-        BlueprintKind::Encounter => "New Encounter…",
-        BlueprintKind::Item => "New Item…",
-        BlueprintKind::Placeable => "New Placeable…",
-        BlueprintKind::Sound => "New Sound…",
-        BlueprintKind::Store => "New Store…",
-        BlueprintKind::Trigger => "New Trigger…",
-        BlueprintKind::Waypoint => "New Waypoint…",
-    }
-}
-
-/// Opens the wizard that makes a new blueprint of `kind`.
-fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
-    if kind == BlueprintKind::Creature {
-        app.creature_wizard = Some(Default::default());
-    } else if crate::blueprint_wizard::KINDS.contains(&kind) {
-        app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
-    }
+/// "New Creature…" and the like, for the palettes' menus: the label the
+/// module tree gives the command.
+fn new_label(kind: BlueprintKind) -> String {
+    crate::tree::new_label(&crate::commands::Id::new_blueprint(kind).name())
 }
 
 /// What the palette tree is drawn with.
@@ -1436,8 +1450,8 @@ struct Tree<'a> {
     open: Vec<String>,
     open_changed: bool,
     /// What a right click offers to make a new blueprint of the kind
-    /// ("New Creature…"), where the kind has a wizard and a module is open.
-    new: Option<&'static str>,
+    /// ("New Creature…"), where a module is open.
+    new: Option<&'a str>,
     /// The blueprints the search finds (`None`: no search).
     found: Option<&'a std::collections::HashSet<ResRef>>,
     tags: &'a HashMap<ResRef, String>,
@@ -1449,7 +1463,7 @@ struct Tree<'a> {
     /// in sight (made or not).
     gallery: bool,
     side: f32,
-    ready: HashMap<ResKey, Option<egui::TextureId>>,
+    ready: &'a crate::model_view::Thumbnails,
     shown: Vec<ResKey>,
     /// And what there is to say of it.
     about: Option<(ResKey, &'a [String])>,
@@ -1934,7 +1948,7 @@ impl Tree<'_> {
     /// (whole on hover). Until the picture is made, or for a blueprint
     /// with nothing to draw, its name alone.
     fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
-        let made = self.ready.get(&key).copied();
+        let made = self.ready.made(crate::model_view::Pictured::Resource(key));
         let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
         if seen {
             self.shown.push(key);
@@ -1957,14 +1971,7 @@ fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
     let int = |label: &str| s.integer(label).unwrap_or(0);
     let on = |label: &str| int(label) != 0;
     // Up to four names, and how many more.
-    let listed = |names: Vec<String>| {
-        let more = names.len().saturating_sub(4);
-        let mut text = names.into_iter().take(4).collect::<Vec<_>>().join(", ");
-        if more > 0 {
-            text.push_str(&format!(" and {more} more"));
-        }
-        text
-    };
+    let listed = |names: Vec<String>| crate::text::some_of(&names, 5);
     let resrefs = |list: &str, label: &str| -> Vec<String> {
         let items = s.list(list).unwrap_or(&[]);
         items.iter().filter_map(|i| i.resref(label)).map(|r| r.to_string()).collect()

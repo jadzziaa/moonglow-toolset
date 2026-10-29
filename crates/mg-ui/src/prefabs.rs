@@ -83,12 +83,7 @@ pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, Stri
     }
     let mut line = kinds.join(", ");
     if !tags.is_empty() {
-        let more = tags.len().saturating_sub(SUMMARY_TAGS);
-        tags.truncate(SUMMARY_TAGS);
-        line.push_str(&format!("\nTags: {}", tags.join(", ")));
-        if more > 0 {
-            line.push_str(&format!(" and {more} more"));
-        }
+        line.push_str(&format!("\nTags: {}", crate::text::some_of(&tags, SUMMARY_TAGS)));
     }
     Ok(line)
 }

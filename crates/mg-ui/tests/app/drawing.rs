@@ -32,6 +32,70 @@ fn model_viewer_plays_animations() {
     assert!(img.width() > 0);
 }
 
+/// The model viewer's wheel is the area view's: the wheel zooms, Shift
+/// and Ctrl with it zoom finer, a pinch zooms, and a sideways scroll pans
+/// (it had the wheel alone, and Shift or Ctrl with it did nothing).
+#[test]
+fn the_model_viewer_s_wheel_is_the_area_view_s() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    h.run_steps(2);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().model_views[&source].orbit;
+    let rect = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&Tab::Model(key)))
+        .map(|(_, l)| l.viewport)
+        .unwrap();
+    h.hover_at(rect.center() + egui::vec2(0.0, 40.0));
+    h.run_steps(2);
+    // An event with `modifiers` held through the frames it is spread over.
+    let send = |h: &mut Harness<'_, Moonglow>, event: egui::Event, modifiers: egui::Modifiers| {
+        h.event(egui::Event::ModifiersChanged(modifiers));
+        h.event(event);
+        h.run_steps(30);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(1);
+    };
+    let wheel = |delta: egui::Vec2, modifiers: egui::Modifiers| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta,
+        phase: egui::TouchPhase::Move,
+        modifiers,
+    };
+    let up = egui::vec2(0.0, 120.0);
+    let mut was = orbit(&h);
+    let mut zoomed = |h: &mut Harness<'_, Moonglow>, what: &str| {
+        let now = orbit(h);
+        assert!(now.distance < was.distance * 0.97, "{what} zoomed: {now:?} from {was:?}");
+        assert!((now.target - was.target).length() < 1e-4, "{what}: not panned");
+        let by = was.distance / now.distance;
+        was = now;
+        by
+    };
+    send(&mut h, wheel(up, egui::Modifiers::NONE), egui::Modifiers::NONE);
+    let plain = zoomed(&mut h, "the wheel");
+    send(&mut h, wheel(up, egui::Modifiers::SHIFT), egui::Modifiers::SHIFT);
+    let shifted = zoomed(&mut h, "Shift and the wheel");
+    assert!(shifted < plain, "finer with Shift: {shifted} against {plain}");
+    send(&mut h, wheel(up, egui::Modifiers::COMMAND), egui::Modifiers::COMMAND);
+    zoomed(&mut h, "Ctrl and the wheel");
+    send(&mut h, egui::Event::Zoom(1.25), egui::Modifiers::NONE);
+    zoomed(&mut h, "a pinch");
+    send(&mut h, wheel(egui::vec2(120.0, 0.0), egui::Modifiers::NONE), egui::Modifiers::NONE);
+    let now = orbit(&h);
+    assert!((now.distance - was.distance).abs() < 1e-4, "a sideways scroll: no zoom");
+    assert!((now.target - was.target).length() > 0.01, "a sideways scroll pans: {now:?}");
+}
+
 /// The model view's Shaders switch is the area view's (one setting for
 /// every 3D view): on by default, the game's lit shaders drawing the model
 /// once its programs are made; off, Moonglow's own; on again.
@@ -1063,11 +1127,41 @@ fn helmets_and_shields_preview_as_worn() {
     let view = |name: &str| {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         let v = &h.state().model_views[&mg_ui::model_view::Source::Resource(key)];
-        (v.stood(), v.yaw.to_degrees().round())
+        (v.stood(), v.orbit.yaw.to_degrees().round())
     };
     assert_eq!(view("nw_wswls001"), (true, 60.0), "a sword stood up");
     assert_eq!(view("nw_arhe001"), (false, 60.0), "a helmet as worn");
     assert_eq!(view("nw_ashsw001"), (false, 240.0), "a shield as worn, from its front");
+}
+
+/// An item stood up in its viewer shows its broad side: a sword and a
+/// dagger their flats, not their edges (turned a quarter about their
+/// length from how they stood before), a battleaxe its blades; a bow,
+/// broad side on as it lies, is stood as it was (GitHub issue 7).
+#[test]
+fn an_item_stood_up_shows_its_broad_side() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    let names = ["nw_wswls001", "nw_wswdg001", "nw_waxbt001", "nw_wbwln001"];
+    for name in names {
+        let key = ResKey::parse(name, ResType::UTI).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    }
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    h.run_steps(2);
+    let plain = glam::Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    for name in names {
+        let key = ResKey::parse(name, ResType::UTI).unwrap();
+        let v = &h.state().model_views[&mg_ui::model_view::Source::Resource(key)];
+        assert!(v.stood(), "{name} stood up");
+        let stand = v.stand();
+        // (Its length up either way.)
+        assert!(stand.transform_vector3(glam::Vec3::Y).abs_diff_eq(glam::Vec3::Z, 1e-5), "{name}");
+        let turned = !stand.abs_diff_eq(plain, 1e-5);
+        assert_eq!(turned, name != "nw_wbwln001", "{name} turned about its length");
+    }
 }
 
 /// A placeable that is only an effect (flames, magic sparks: models with

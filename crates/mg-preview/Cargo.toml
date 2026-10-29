@@ -17,6 +17,7 @@ mg-mdl.workspace = true
 mg-render = { workspace = true, optional = true }
 mg-resman.workspace = true
 mg-rules.workspace = true
+mg-set.workspace = true
 thiserror.workspace = true
 
 # The renderer's half, `compose`: the models turned into mg-render's

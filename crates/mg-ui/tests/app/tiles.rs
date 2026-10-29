@@ -3396,6 +3396,14 @@ fn the_tile_gallery_searches_opens_a_tile_and_drops_one_in_the_area() {
     let tileset = ResRef::from_str("ttr01").unwrap();
     let tab = h.state().dock.find_tab(&Tab::Tile { tileset, tile }).expect("its view");
     h.get_by_label("Corners");
+    // The tileset is the one the area's view read, not read again: the
+    // same each time it is asked for (one read from the game is new).
+    let (once, again) = (h.state().tileset(tileset).unwrap(), h.state().tileset(tileset).unwrap());
+    assert!(std::sync::Arc::ptr_eq(&once, &again), "the open area's tileset");
+    let unopened = ResRef::from_str("tin01").unwrap();
+    let (a, b) = (h.state().tileset(unopened).unwrap(), h.state().tileset(unopened).unwrap());
+    assert!(!std::sync::Arc::ptr_eq(&a, &b), "a tileset no area has open is read");
+    assert!(h.state().tileset(ResRef::from_str("nosuchset").unwrap()).is_none());
     h.state_mut().dock.remove_tab(tab);
     h.run_steps(3);
     // Dragged into the area: placed in the tile it is dropped on.

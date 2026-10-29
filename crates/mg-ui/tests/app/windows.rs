@@ -398,6 +398,36 @@ fn panels_fold_away_and_come_back() {
     assert!(palette(&h).is_some());
 }
 
+/// The palettes' pane's covered arrow (egui_dock's, which folds a pane to
+/// its bar) is not reached by Tab or Shift+Tab: the keyboard goes on past
+/// it, so Enter can't fold the pane there.
+#[test]
+fn the_palettes_covered_arrow_is_passed_by_the_keyboard() {
+    let Some(mut h) = game_harness("pane-arrow-keys") else { return };
+    h.run_steps(3);
+    let (rect, viewport) = (h.state().dock.iter_leaves())
+        .find(|(_, l)| l.tabs.contains(&Tab::Palette))
+        .map(|(_, l)| (l.rect, l.viewport))
+        .expect("the palettes' pane");
+    let arrow =
+        egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 24.0, viewport.top()));
+    for back in [false, true] {
+        let modifiers = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        // (Each widget the keyboard went to: round the window, not back
+        // and forth beside the arrow.)
+        let mut went = std::collections::HashSet::new();
+        for _ in 0..150 {
+            h.key_press_modifiers(modifiers, egui::Key::Tab);
+            h.run_steps(2);
+            let focused = h.ctx.memory(|m| m.focused());
+            let at = focused.and_then(|id| h.ctx.read_response(id)).map(|r| r.rect);
+            went.extend(focused);
+            assert!(at.is_none_or(|r| !arrow.contains(r.center())), "on the arrow: {at:?}");
+        }
+        assert!(went.len() > 20, "round the window ({back}): {}", went.len());
+    }
+}
+
 /// GitHub issue 10, as its reporter put it on 1.31.0: one button per pane
 /// to fold it away, on the edge the pane faces the middle by (the module
 /// tree's right, the palettes' left, the log's top), centered along it,
@@ -1242,6 +1272,79 @@ fn a_module_opens_again_with_the_tabs_it_had() {
     );
 }
 
+/// The talk table opens again on the line chosen when the module was
+/// closed.
+#[test]
+fn the_talk_table_opens_again_on_its_line() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-open-tabs-talk-line");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let mut tlk = mg_tlk::Tlk::new(Language::ENGLISH);
+    for text in ["Zero", "One", "Two", "Three"] {
+        tlk.entries.push(mg_tlk::TlkEntry::text(text));
+    }
+    std::fs::write(user.join("tlk/mg_lines.tlk"), tlk.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_lines".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let kept = dir.join("open-tabs");
+    let session = || {
+        let mut app = game_app(&root, Some(user.clone()));
+        app.settings.no_last_area = true;
+        app.open_palette = false;
+        app.open_tabs_dir = Some(kept.clone());
+        app.open_module(&path);
+        harness(app, 1100.0, 800.0)
+    };
+    let mut h = session();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(3);
+    assert_eq!(h.state().talk.as_ref().map(|t| t.len()), Some(4), "the module's table");
+    h.state_mut().talk_view.selected = Some(2);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let mut h = session();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "open again");
+    assert_eq!(h.state().talk_view.selected, Some(2), "on its line");
+}
+
+/// Tile Properties kept with a module, still waiting for its area's view
+/// when the module is closed again (the area never drawn: here, with no
+/// game data), is kept again, not lost.
+#[test]
+fn tile_properties_waiting_for_its_area_is_kept_again() {
+    let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+    open_some_tabs(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let mut record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let pane = serde_json::json!({ "place": "window", "tabs": ["tile-properties:start:5"] });
+    record["panes"].as_array_mut().unwrap().push(pane);
+    std::fs::write(&file, record.to_string()).unwrap();
+    for session in 0..2 {
+        h.state_mut().open_module(&path);
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "waiting");
+        assert!(h.state().dock.find_tab(&Tab::Factions).is_some(), "the others open");
+        h.state_mut().actions.push(mg_ui::Action::Close);
+        h.run();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("tile-properties:start:5"), "kept again ({session}): {text}");
+    }
+}
+
 /// With Options › General's Open a module with the tabs it had off, a
 /// module's tabs are neither kept nor opened again.
 #[test]
@@ -1481,6 +1584,21 @@ fn views_open_again_as_they_were() {
     let scrolled = editor(&h).top();
     assert_eq!(cursor(&h), (at, at));
     assert!(scrolled < -1000.0, "scrolled to line 150: {scrolled}");
+    // Line 150 bookmarked (F5), and numbered 3 (Ctrl+Shift+3).
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::new(("script", script))));
+    h.run();
+    h.key_press(egui::Key::F5);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Num3);
+    h.run_steps(2);
+    let marks = |h: &Harness<'_, Moonglow>| {
+        let app = h.state();
+        (app.script_bookmarks(script), app.script_numbered_bookmarks(script))
+    };
+    let marked = marks(&h);
+    assert_eq!(marked.0, [150], "bookmarked: {marked:?}");
+    assert_eq!(marked.1.len(), 1, "numbered: {marked:?}");
+    assert_eq!(cursor(&h), (at, at), "the keys left the cursor where it was");
     h.state_mut().actions.push(mg_ui::Action::Close);
     h.run();
     drop(h);
@@ -1488,6 +1606,7 @@ fn views_open_again_as_they_were() {
     h.run_steps(2);
     assert!((editor(&h).top() - scrolled).abs() < 1.0, "{} {scrolled}", editor(&h).top());
     assert_eq!(cursor(&h), (at, at));
+    assert_eq!(marks(&h), marked, "its bookmarks as they were");
     let app = h.state();
     assert_eq!(app.module_page, mg_ui::module_props::Page::Events);
     let view = &app.dialog_views[&talk];
@@ -1890,6 +2009,91 @@ fn windows_remember_their_size_and_maximize() {
     let third = pane(&h, &props);
     assert!((third.size() - small.size()).length() < 2.0, "then at {third:?}");
     assert_eq!(h.state().settings.window_sizes, [("area-properties".to_string(), [400, 300])]);
+}
+
+/// Maximize Window (Ctrl+Shift+M) and the button on the window's bar
+/// maximize the window of the tab in front and put it back, the button
+/// saying which (Maximize, Restore); a maximized window stays so as
+/// Moonglow's window is resized; and a size dragged by hand, at the
+/// window's corner, is the next window's of its kind.
+#[test]
+fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
+    let Some((mut h, area)) = area_harness("window-maximize-keys") else { return };
+    let props = Tab::AreaProperties(area);
+    let pane = |h: &Harness<'_, Moonglow>| {
+        let s = h.state();
+        let path = s.dock.find_tab(&props).expect("open");
+        assert!(!path.surface.is_main(), "in a window of its own");
+        s.dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    h.run_steps(8);
+    let first = pane(&h);
+    let maximized = |h: &Harness<'_, Moonglow>| pane(h).area() > first.area() + 1000.0;
+    // The key, with the window's tab in front.
+    h.get_by_label("Maximize").click();
+    h.run_steps(8);
+    assert!(maximized(&h), "by its button: {:?}", pane(&h));
+    h.get_by_label("Restore");
+    assert!(h.query_by_label("Maximize").is_none(), "the button says it is maximized");
+    // Moonglow's window larger: the maximized one with it.
+    let before = pane(&h);
+    h.set_size(egui::vec2(1300.0, 950.0));
+    h.run_steps(8);
+    let after = pane(&h);
+    assert!(after.width() > before.width() + 150.0, "{after:?} after {before:?}");
+    assert!(after.bottom() > 950.0 * 0.95, "to the window's foot: {after:?}");
+    // And smaller.
+    h.set_size(egui::vec2(1150.0, 820.0));
+    h.run_steps(8);
+    let smaller = pane(&h);
+    assert!(smaller.right() <= 1150.0 + 1.0 && smaller.bottom() <= 820.0 + 1.0, "{smaller:?}");
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    // (Its tab clicked: the window's pane in front, not the palettes'.)
+    let tab = pane(&h).left_top() + egui::vec2(60.0, 10.0);
+    h.hover_at(tab);
+    press(&h, tab, true, egui::Modifiers::NONE);
+    press(&h, tab, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.hover_at(tab + egui::vec2(0.0, 200.0));
+    h.run_steps(60);
+    let front = h.state().front_tab();
+    assert_eq!(front.as_ref(), Some(&props), "the tab in front");
+    h.key_press_modifiers(keys, egui::Key::M);
+    h.run_steps(8);
+    assert!(!maximized(&h), "put back by the key: {:?}", pane(&h));
+    h.get_by_label("Maximize");
+    h.key_press_modifiers(keys, egui::Key::M);
+    h.run_steps(8);
+    assert!(maximized(&h), "by the key: {:?}", pane(&h));
+    h.get_by_label("Restore").click();
+    h.run_steps(8);
+    assert!(!maximized(&h), "put back by the button");
+    // Its corner dragged by hand: the next of its kind opens so.
+    let corner = pane(&h).right_bottom() + egui::vec2(2.0, 2.0);
+    h.hover_at(corner);
+    h.run_steps(2);
+    press(&h, corner, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(corner - egui::vec2(15.0, 10.0) * k as f32);
+        h.run_steps(1);
+    }
+    press(&h, corner - egui::vec2(90.0, 60.0), false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    let dragged = pane(&h);
+    assert!((first.width() - dragged.width() - 90.0).abs() < 8.0, "{dragged:?} from {first:?}");
+    let kept = h.state().settings.window_sizes.iter().find(|(k, _)| k == "area-properties");
+    let kept = kept.map(|(_, s)| *s).expect("remembered");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(props.clone()));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    h.run_steps(8);
+    let again = pane(&h);
+    assert!((again.size() - dragged.size()).length() < 3.0, "opens at {again:?}, {dragged:?}");
+    // (The window's size, its frame and all: a point or two over its pane.)
+    let near = |a: u32, b: f32| (a as f32 - b).abs() < 4.0;
+    assert!(near(kept[0], dragged.width()) && near(kept[1], dragged.height()), "{kept:?}");
+    assert!(kept[0] as f32 <= first.width() - 80.0, "the dragged size kept: {kept:?}");
 }
 
 /// Escape closes what is in front: the Variables window over a Properties

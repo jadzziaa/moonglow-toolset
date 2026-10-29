@@ -2621,6 +2621,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml",
  "toml_edit",
+ "zip",
 ]
 
 [[package]]
@@ -2678,6 +2679,7 @@ dependencies = [
  "mg-render",
  "mg-resman",
  "mg-rules",
+ "mg-set",
  "mg-testkit",
  "mg-tlk",
  "png",
@@ -2849,6 +2851,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
+ "siphasher",
  "skrifa",
  "toml",
  "wgpu",

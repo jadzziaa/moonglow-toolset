@@ -131,6 +131,7 @@ pub enum Cmd {
     NextTab,
     PreviousTab,
     ReopenTab,
+    MaximizeWindow,
     /// The keys to the next pane (the module tree, the middle, the
     /// palettes), or the one before.
     NextPane,
@@ -158,7 +159,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 77] = [
+    pub const ALL: [Cmd; 78] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -220,6 +221,7 @@ impl Cmd {
         Cmd::NextTab,
         Cmd::PreviousTab,
         Cmd::ReopenTab,
+        Cmd::MaximizeWindow,
         Cmd::NextPane,
         Cmd::PreviousPane,
         Cmd::ExpandAll,
@@ -305,6 +307,7 @@ impl Cmd {
             Cmd::NextTab => ("next-tab", "Next Tab", General),
             Cmd::PreviousTab => ("previous-tab", "Previous Tab", General),
             Cmd::ReopenTab => ("reopen-tab", "Reopen Closed Tab", General),
+            Cmd::MaximizeWindow => ("maximize-window", "Maximize Window", General),
             Cmd::NextPane => ("next-pane", "Next Pane", General),
             Cmd::PreviousPane => ("previous-pane", "Previous Pane", General),
             Cmd::ExpandAll => ("expand-all", "Expand All", Panes),
@@ -417,6 +420,7 @@ impl Cmd {
             Cmd::NextTab => vec![k(CTRL, Key::Tab), k(CTRL, Key::PageDown)],
             Cmd::PreviousTab => vec![k(CTRL | SHIFT, Key::Tab), k(CTRL, Key::PageUp)],
             Cmd::ReopenTab => vec![k(CTRL | SHIFT, Key::T)],
+            Cmd::MaximizeWindow => vec![k(CTRL | SHIFT, Key::M)],
             Cmd::NextPane => vec![k(NONE, Key::F6)],
             Cmd::PreviousPane => vec![k(SHIFT, Key::F6)],
             // (Right and Left open and close a row; with Ctrl+Shift,
@@ -696,6 +700,12 @@ impl Keymap {
             !this
         });
         hit
+    }
+
+    /// Whether `e` presses a key some command was given (a plugin's or a
+    /// project's too): Alt and a letter is a menu's only where none was.
+    pub fn bound(&self, e: &Event) -> bool {
+        self.keys.values().chain(self.defaults.values()).flatten().any(|s| is(e, s))
     }
 
     /// Whether `e` presses a key of a command of `group`: a list's own key

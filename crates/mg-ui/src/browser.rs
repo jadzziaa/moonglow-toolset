@@ -339,7 +339,6 @@ enum EditTable {
 /// its file, where that is the builder's own (not one of the game's).
 fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
     let (Some(game), Some(install)) = (&app.game, &app.install) else { return Vec::new() };
-    let dirs = install.hak_dirs();
     let mut layers: Vec<_> = game.resman.layers().iter().collect();
     layers.sort_by_key(|l| std::cmp::Reverse(l.priority));
     layers
@@ -349,7 +348,7 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
             if !l.container.contains(&key) {
                 return None;
             }
-            let path = dirs.iter().map(|d| d.join(format!("{name}.hak"))).find(|p| p.is_file())?;
+            let path = install.find_hak(name)?;
             (!path.starts_with(&install.root)).then(|| (name.to_string(), path))
         })
         .collect()
@@ -779,7 +778,7 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
 /// editor, the column names stay in sight over the rows and the rows'
 /// numbers beside them, and a column is as wide as the edge of its name
 /// was dragged to (here or there: the widths are the table's).
-fn two_da(
+pub(crate) fn two_da(
     app: &mut Moonglow,
     ui: &mut Ui,
     key: ResKey,

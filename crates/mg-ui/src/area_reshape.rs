@@ -134,12 +134,15 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 fn resize(app: &mut Moonglow, d: &ResizeDraft) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let (are_key, git_key) = (ResKey::new(d.area, ResType::ARE), ResKey::new(d.area, ResType::GIT));
-    let Ok(are) = ws.doc(&are_key).map(|g| g.root.clone()) else { return };
-    let git = ws.doc(&git_key).map(|g| g.root.clone()).unwrap_or_default();
+    let Some(Ok(are)) = app.ws.as_mut().map(|ws| ws.doc(&are_key).map(|g| g.root.clone())) else {
+        return;
+    };
     let tileset = are.resref("Tileset").unwrap_or(ResRef::EMPTY);
-    let Ok(set) = mg_area::tileset(game, tileset) else {
+    let set = app.tileset(tileset);
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
+    let git = ws.doc(&git_key).map(|g| g.root.clone()).unwrap_or_default();
+    let Some(set) = set else {
         app.log.error(format!("Resize Area: tileset {tileset} not found"));
         return;
     };

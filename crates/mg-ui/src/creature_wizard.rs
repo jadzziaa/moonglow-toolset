@@ -244,7 +244,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
-    let mut looks = Looks { ready: app.thumbnails.looks(), shown: Vec::new() };
     // The ResRef the name gives, as Finish makes it (on the names' page).
     let names = Names {
         naming: crate::blueprint_wizard::naming(app, ResType::UTC),
@@ -254,7 +253,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         },
     };
     // The game data, and its pictures (the portraits).
-    let mut loader = app.loader().expect("checked");
+    let (mut loader, ready) = app.loader_and_thumbnails().expect("checked");
+    let mut looks = Looks { ready, shown: Vec::new() };
     // Most of the screen to begin with, and resizable: the pages' lists and
     // the review fill what is between the heading and the buttons.
     let screen = ctx.content_rect();
@@ -293,7 +293,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     // The appearances' pictures in sight: kept while they are, and those
     // still to make are made a few a frame.
-    app.thumbnails.show(looks.shown.iter().map(|l| crate::model_view::Pictured::Look(*l)));
+    let shown = looks.shown;
+    app.thumbnails.show(shown.into_iter().map(crate::model_view::Pictured::Look));
     if finish {
         make(app, &w);
     } else if !cancel {
@@ -303,8 +304,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// The pictures of creatures' looks the Appearance page shows: those made,
 /// and those in sight (made or not).
-struct Looks {
-    ready: std::collections::HashMap<mg_preview::CreatureLook, Option<egui::TextureId>>,
+struct Looks<'a> {
+    ready: &'a crate::model_view::Thumbnails,
     shown: Vec<mg_preview::CreatureLook>,
 }
 
@@ -467,7 +468,8 @@ fn page(
                             for c in shown.iter().skip(line * per_row).take(per_row) {
                                 let mut look = mg_preview::CreatureLook::new(c.row as u16);
                                 look.gender = gender;
-                                let made = looks.ready.get(&look).copied();
+                                let made =
+                                    looks.ready.made(crate::model_view::Pictured::Look(look));
                                 let on = usize::from(w.appearance) == c.row;
                                 let (r, seen) =
                                     crate::widgets::picture_tile(ui, side, &c.text, on, made);

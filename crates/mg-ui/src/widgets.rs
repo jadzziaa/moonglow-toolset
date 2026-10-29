@@ -2521,6 +2521,59 @@ pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.escape && d.open.is_empty())
 }
 
+/// What a "Files Already in…" window was answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Already {
+    /// Write (or add) every file, over those there.
+    Replace,
+    /// Write the others, and leave those there as they are.
+    Skip,
+    Cancel,
+}
+
+/// Asks what to do with files that are there already, before they are
+/// written over: the hak editor's adding ("Files Already in the Hak") and
+/// a model's Export Files ("…in the Folder"). `said` heads the list of
+/// them (each with what it is on hover, where given); `replace` and
+/// `skip` say what Replace and Skip Those do. `None` while unanswered.
+pub(crate) fn files_already(
+    ctx: &egui::Context,
+    place: &str,
+    said: &str,
+    files: &[(String, Option<String>)],
+    [replace, skip]: [&str; 2],
+) -> Option<Already> {
+    let mut answer = None;
+    egui::Window::new(format!("Files Already in the {place}"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(said);
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for (name, about) in files {
+                    let r = ui.label(egui::RichText::new(name).monospace());
+                    if let Some(about) = about {
+                        r.on_hover_text(about);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let n = files.len();
+                if ui.button(format!("Replace {n}")).on_hover_text(replace).clicked() {
+                    answer = Some(Already::Replace);
+                }
+                if ui.button("Skip Those").on_hover_text(skip).clicked() {
+                    answer = Some(Already::Skip);
+                }
+                if cancel(ui) {
+                    answer = Some(Already::Cancel);
+                }
+            });
+        });
+    answer
+}
+
 /// A dialog's Cancel button: clicked, or Escape pressed for its window.
 pub(crate) fn cancel(ui: &mut Ui) -> bool {
     cancel_button(ui, None)
@@ -3422,7 +3475,7 @@ const BOLD: &str = "bold";
 /// Adds the bold font family to `ctx`'s fonts (once a context; it is there
 /// from the next frame): Ubuntu Bold, then egui's emoji fonts for the
 /// glyphs it lacks.
-pub(crate) fn install_fonts(ctx: &egui::Context) {
+pub fn install_fonts(ctx: &egui::Context) {
     let done = egui::Id::new("moonglow-fonts");
     if ctx.data(|d| d.get_temp::<bool>(done)).is_some() {
         return;
@@ -3445,14 +3498,111 @@ pub(crate) fn install_fonts(ctx: &egui::Context) {
 /// A form's field label (the first column of an editor's grid: "Tag",
 /// "Name"…): in the strong text colour (white in the dark theme), to stand
 /// apart from the values beside it; not bold, which is the headings'.
-pub(crate) fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+/// (Public, with the headings, [`install_fonts`] and [`palette_color`], for
+/// Moonglow Viewer's forms to look as the toolset's.)
+pub fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
     ui.label(egui::RichText::new(text).strong())
+}
+
+/// A PLT color (0 to 175) chosen among a palette's swatches (a TGA of
+/// `pal_*`, its rows the colours): its swatch, then a list showing
+/// `current` (or `text` in place of its number) that opens on all 176,
+/// sixteen to a row, each named "`what` N". `None` for the palette (no
+/// game data) leaves the list without swatches. The colour chosen.
+pub fn palette_color(
+    ui: &mut egui::Ui,
+    id_salt: impl egui::AsIdSalt,
+    palette: Option<&mg_image::Rgba>,
+    what: &str,
+    current: u8,
+    text: Option<&str>,
+) -> Option<u8> {
+    let mut pick = None;
+    ui.horizontal(|ui| {
+        if let Some(p) = palette {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
+            swatch(ui, rect, &tones(p, current));
+        }
+        // (The arrow keys step through the colors in their order.)
+        let mut chosen = current;
+        dropdown(id_salt)
+            .selected_text(text.map_or_else(|| current.to_string(), str::to_string))
+            .width(56.0)
+            .height(11.0 * 16.0 + 24.0)
+            .show_with(
+                ui,
+                &mut chosen,
+                || (0..176).collect(),
+                |ui, chosen| {
+                    let Some(p) = palette else {
+                        ui.weak("No palette");
+                        return;
+                    };
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                    // 176 colours, 16 to a row.
+                    for row in 0..11u8 {
+                        ui.horizontal(|ui| {
+                            for i in row * 16..row * 16 + 16 {
+                                let size = egui::vec2(16.0, 14.0);
+                                let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+                                swatch(ui, rect, &tones(p, i));
+                                if i == current && text.is_none() {
+                                    let stroke = ui.visuals().selection.stroke;
+                                    ui.painter().rect_stroke(
+                                        rect,
+                                        0.0,
+                                        stroke,
+                                        egui::StrokeKind::Outside,
+                                    );
+                                }
+                                let name = format!("{what} {i}");
+                                r.widget_info(|| {
+                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                                });
+                                if r.on_hover_text(&name).clicked() {
+                                    *chosen = i;
+                                    pick = Some(i);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                },
+            );
+        if chosen != current {
+            pick = Some(chosen);
+        }
+    });
+    pick
+}
+
+/// A palette colour's tones (its row, `index` counted from the top, at four
+/// grey levels), as the colour chooser shows them.
+pub fn tones(palette: &mg_image::Rgba, index: u8) -> [egui::Color32; 4] {
+    let rows = palette.height.max(1);
+    let y = rows - 1 - u32::from(index).min(rows - 1);
+    [64u32, 128, 192, 250].map(|x| {
+        let [r, g, b, _] = palette.pixel(x.min(palette.width.saturating_sub(1)), y);
+        egui::Color32::from_rgb(r, g, b)
+    })
+}
+
+/// Paints a swatch: the tones side by side.
+pub fn swatch(ui: &egui::Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
+    let w = rect.width() / tones.len() as f32;
+    for (i, c) in tones.iter().enumerate() {
+        let r = egui::Rect::from_min_size(
+            rect.min + egui::vec2(w * i as f32, 0.0),
+            egui::vec2(w, rect.height()),
+        );
+        ui.painter().rect_filled(r, 0.0, *c);
+    }
 }
 
 /// A heading in a table's cell (a group of rows: Options › Keyboard's):
 /// as a section's, without its rule and room, which a cell has no place
 /// for.
-pub(crate) fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+pub fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
     let bold = egui::FontFamily::Name(BOLD.into());
     let size = egui::TextStyle::Body.resolve(ui.style()).size * HEADING_SCALE;
     let mut text = egui::RichText::new(text).strong().size(size);
@@ -3466,7 +3616,7 @@ pub(crate) fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui:
 /// Bold (headings alone are bold), the strong text colour, and larger than
 /// the field labels under it; under it a rule a pixel thick, three quarters
 /// as wide as the pane it is in, then a little room before what follows.
-pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+pub fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
     let heading = table_heading(ui, text);
     // (A pane with no width of its own yet: the heading's.)
     let pane = ui.available_width();
@@ -3480,7 +3630,7 @@ pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egu
 
 /// The room above a section heading that follows other content (its rule
 /// is under it; no separator above).
-pub(crate) const SECTION_GAP: f32 = 10.0;
+pub const SECTION_GAP: f32 = 10.0;
 /// How much larger than the body text a section heading is.
 const HEADING_SCALE: f32 = 1.25;
 /// How much of its pane's width a section heading's rule spans.

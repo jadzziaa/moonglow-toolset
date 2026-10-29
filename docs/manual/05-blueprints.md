@@ -149,7 +149,8 @@ The palette's buttons:
   to its category); the pictures are made a few at a time as
   they come into sight. A shield is pictured from its front (its model
   faces its bearer), and a thing made for a wall from the side that
-  shows it; the light goes round with the view.
+  shows it; the light goes round with the view. Each fills its picture
+  as it stands, a long or tall thing too (a dragon, a banner).
 - **Replace Selected with This** (a blueprint's right-click menu): the
   objects of that type selected in the area become ones of this
   blueprint, made as [Update Instances](#update-instances) makes them

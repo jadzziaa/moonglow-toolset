@@ -186,6 +186,54 @@ fn module_properties_haks() {
     shoot(&mut h, &dir, "module-properties-advanced");
 }
 
+/// The main window's fix package (`target/test-output/screens-window/`):
+/// Module Properties' window with its bar's Maximize button (🗖), the
+/// window maximized (🗗 Restore), and Custom Content of an older module
+/// that names its one hak in `Mod_Hak`. (Run on the code before the
+/// package, the same pictures show the bar without its button and the
+/// hak list saying the module has none.)
+#[test]
+#[ignore]
+fn window_bar_maximize_and_an_older_hak() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-window");
+    let user = dir.join("older-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+    std::fs::write(user.join("hak/older.hak"), empty).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_HAK, ExoString::from("older"));
+    m.set_info(&info).unwrap();
+    let path = dir.join("older.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (Opened again: in a window of its own, not the middle the module
+    // opened it in.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(8);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "window-bar-maximize");
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(mg_ui::Tab::ModuleProperties));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "window-bar-restore");
+}
+
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command
@@ -1199,7 +1247,17 @@ fn item_previews() {
         .with_size(egui::vec2(900.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    for name in ["nw_aarcl004", "nw_cloth027", "nw_arhe001", "nw_ashsw001", "x2_adrowshl001"] {
+    for name in [
+        "nw_aarcl004",
+        "nw_cloth027",
+        "nw_arhe001",
+        "nw_ashsw001",
+        "x2_adrowshl001",
+        "nw_wswls001",
+        "nw_waxbt001",
+        "nw_wbwln001",
+        "nw_wswdg001",
+    ] {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
         h.run_steps(4);
@@ -1248,6 +1306,56 @@ fn palettes() {
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     shoot(&mut h, &dir, "palettes");
+}
+
+/// The palette's Gallery of long and tall things (`gallery-framed-*`):
+/// dragons, long and winged, each in its picture as it stands; banners,
+/// statues and rugs; swords lying. The pictures are framed on the model's
+/// posed vertices as the picture sees them (the Moonglow Viewer session's
+/// proposal, 2026-10-07).
+#[test]
+#[ignore]
+fn gallery_framed() {
+    use mg_module::palette::BlueprintKind;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.palette_gallery = true;
+    app.settings.game_shaders = Some(false);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for (kind, filter) in [
+        (BlueprintKind::Creature, "dragon"),
+        (BlueprintKind::Placeable, "banner"),
+        (BlueprintKind::Placeable, "statue"),
+        (BlueprintKind::Placeable, "rug"),
+        (BlueprintKind::Item, "longsword"),
+    ] {
+        {
+            let p = &mut h.state_mut().palette;
+            p.kind = kind;
+            (p.tiles, p.custom) = (false, false);
+            p.filter = filter.into();
+        }
+        for _ in 0..600 {
+            h.run_steps(1);
+            if h.state().thumbnails.waiting() == 0 {
+                break;
+            }
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("gallery-framed-{filter}"));
+    }
 }
 
 /// An item copied into an open module folder from elsewhere, before the
@@ -3075,6 +3183,20 @@ fn hak_editor_and_attach() {
     h.state_mut().haks[0].hak.add_files(&[added]);
     h.run();
     shoot(&mut h, &dir, "hak-editor");
+    // Its resources viewed: a picture, a table (`hak-editor-view-*`).
+    for t in [mg_core::ResType::TGA, mg_core::ResType::DDS, mg_core::ResType::TWODA] {
+        let items = h.state().haks[0].hak.items().to_vec();
+        let Some(item) = items.iter().find(|i| i.key.restype == t) else { continue };
+        let name = item.key.to_string();
+        h.state_mut().haks[0].filter = name.clone();
+        h.run();
+        h.get_by_label(&name).click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run();
+        shoot(&mut h, &dir, &format!("hak-editor-view-{t}"));
+    }
+    h.state_mut().haks[0].filter.clear();
     let tab = h.state().dock.find_tab(&mg_ui::Tab::Hak(h.state().haks[0].id)).unwrap();
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();

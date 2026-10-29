@@ -285,6 +285,11 @@ impl Project {
                     "{file_name}: NWNT files aren't supported yet; use gffFormat json"
                 )));
             }
+            // (A file half written when Moonglow stopped: not the
+            // builder's, and gone once it is old.)
+            if crate::left_writing(&path) {
+                continue;
+            }
             let Some((key, json)) = resource_of(&file_name) else {
                 project.warnings.push(format!("{}: not a resource; left alone", path.display()));
                 continue;

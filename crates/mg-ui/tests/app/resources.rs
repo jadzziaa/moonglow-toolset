@@ -323,6 +323,39 @@ fn a_module_s_haks_are_layered_after_one_closed_while_its_area_was_read() {
     has_the_two_haks(h.state()).unwrap();
 }
 
+/// An older module's single hak (`Mod_Hak`, and no list) is layered, as
+/// `mg` layers it, and Module Properties says so rather than that the
+/// module has none.
+#[test]
+fn an_older_module_s_single_hak_is_layered_and_said() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-older");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let key = ResKey::parse("mg_older_hak", ResType::TWODA).unwrap();
+    hak.add(key.resref, key.restype, b"2DA V2.0\n".to_vec()).unwrap();
+    std::fs::write(user.join("hak/older.hak"), hak.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_HAK, ExoString::from("older"));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run();
+    h.get_by_label("Hak Files (0)");
+    h.get_by_label_contains("names its hak, older, in the older single field (Mod_Hak)");
+    assert!(h.query_by_label_contains("uses the game's own resources").is_none());
+}
+
 /// Module Properties › Custom Content: the module's haks in a list of
 /// their own, numbered from the one that overrides the others. Rows are
 /// chosen (Ctrl and Shift for more) and moved by the keys, the arrows
@@ -786,6 +819,82 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     assert_ne!(module_step(&h).as_deref(), Some("A table"), "the module's step undone");
 }
 
+/// The hak editor's View shows a picture as a picture, a sound with Play,
+/// a 2DA as rows and columns, and the rest as the resource browser does
+/// (a model not in the load order as its text).
+#[test]
+fn the_hak_editor_shows_pictures_sounds_and_tables() {
+    let dir = mg_testkit::scratch_dir("ui-hak-view");
+    let mut image = mg_image::Rgba::new(8, 4);
+    image.data.fill(200);
+    let samples: Vec<u8> = [0i16; 800].iter().flat_map(|s| s.to_le_bytes()).collect();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + samples.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    for n in [1u16, 1] {
+        wav.extend(n.to_le_bytes());
+    }
+    for n in [8000u32, 16000] {
+        wav.extend(n.to_le_bytes());
+    }
+    for n in [2u16, 16] {
+        wav.extend(n.to_le_bytes());
+    }
+    wav.extend(b"data");
+    wav.extend((samples.len() as u32).to_le_bytes());
+    wav.extend(samples);
+    let files = [
+        ("mg_pic.tga", mg_image::write_tga(&image)),
+        ("mg_snd.wav", wav),
+        (
+            "mg_tab.2da",
+            b"2DA V2.0\n\n   Label    Model\n0  first    mg_a\n1  second   mg_b\n".to_vec(),
+        ),
+        ("mg_note.txt", b"just a note".to_vec()),
+    ];
+    let mut hak = mg_module::hak_edit::Hak::new();
+    let sources = files
+        .iter()
+        .map(|(n, d)| {
+            let key = ResKey::from_filename(n).unwrap();
+            (key, mg_module::hak_edit::Source::Bytes(d.clone().into()))
+        })
+        .collect();
+    hak.add_sources(sources).unwrap();
+    let path = dir.join("mg_view.hak");
+    hak.save(Some(&path)).unwrap();
+    let mut h = harness(app_with(Vec::new()), 1400.0, 900.0);
+    h.run();
+    mg_ui::hak_view::open_at(h.state_mut(), &path);
+    h.run();
+    let view = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.get_by_label(name).click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run();
+        h.run();
+        let shown = h.state().haks[0].viewing().unwrap();
+        assert_eq!(shown.0.to_string(), name);
+        shown.1
+    };
+    assert_eq!(view(&mut h, "mg_pic.tga"), "picture");
+    h.get_by_label_contains("8 by 4 pixels");
+    assert_eq!(view(&mut h, "mg_snd.wav"), "sound");
+    h.get_by_label("Play").click();
+    h.run();
+    h.get_by_label("Stop");
+    assert_eq!(view(&mut h, "mg_tab.2da"), "table");
+    // (Its columns' names over its cells.)
+    h.get_by_label("Model");
+    h.get_by_label("second");
+    assert_eq!(view(&mut h, "mg_note.txt"), "plain");
+    h.get_by_label_contains("just a note");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.state().haks[0].viewing().is_none());
+}
+
 /// The hak editor's Compile Models compiles the hak's models kept as
 /// text, one step to undo; a model whose supermodel is nowhere stays as
 /// text and is named in the log, and a compiled model shows as text.
@@ -978,6 +1087,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     let mut have = names(&h);
     have.sort();
     assert_eq!(have, ["mg_ui_new.2da", "mg_ui_other.2da", "mg_ui_test.2da"]);
+    // (One step to undo, not two.)
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Update from Folder"));
     // By size, the largest is listed first.
     h.state_mut().haks[0].sort = mg_ui::hak_view::Sort::Size;
     h.run();
@@ -988,17 +1099,41 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
             .fold((f32::MAX, None), |best, row| if row.0 < best.0 { row } else { best })
     };
     assert_eq!(first(&h).1.as_deref(), Some("mg_ui_new.2da"));
-    // View (or a double click) shows a resource under the list.
-    assert!(h.query_by_label_contains("a longer one").is_none());
+    // View (or a double click) shows a resource under the list: a table
+    // as its rows and columns.
+    assert!(h.state().haks[0].viewing().is_none());
     h.get_by_label("mg_ui_new.2da").click_secondary();
     h.run();
     // (The row's View: the menu bar has a View too.)
     h.get_all_by_label("View").last().unwrap().click();
     h.run();
-    assert!(h.query_by_label_contains("a longer one").is_some(), "its text is shown");
+    h.run();
+    assert_eq!(h.state().haks[0].viewing().map(|v| v.1), Some("table"));
+    assert!(h.query_by_label("Label").is_some(), "its column is shown");
     h.get_by_label("Close").click();
     h.run();
-    assert!(h.query_by_label_contains("a longer one").is_none());
+    assert!(h.state().haks[0].viewing().is_none());
+    // A model of the hak the game reads (the module's hak, saved) is
+    // drawn in the model viewer; changed and not saved, it is its text.
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let bytes = h.state().game.as_deref().unwrap().resman.get(&model).unwrap().into_owned();
+    std::fs::write(content.join("mg_ui_box.mdl"), &bytes).unwrap();
+    h.get_by_label("Update from Folder").click();
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    let shown_as = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("mg_ui_box.mdl").click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run();
+        h.state().haks[0].viewing().map(|v| v.1)
+    };
+    assert_eq!(shown_as(&mut h), Some("model"));
+    std::fs::write(content.join("mg_ui_box.mdl"), &bytes[..bytes.len() - 1]).unwrap();
+    h.get_by_label("Update from Folder").click();
+    h.run();
+    assert_eq!(shown_as(&mut h), Some("plain"));
 }
 
 /// Export as Files and Copy to Scratch Folder: a script goes out with its

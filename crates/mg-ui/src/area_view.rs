@@ -73,6 +73,54 @@ impl Orbit {
     }
 }
 
+/// The wheel over a 3D view in a frame (the area view's, the model
+/// viewer's), as both take it.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct Wheel {
+    /// How far to zoom, in the wheel's points, up (positive) nearer: the
+    /// wheel; Shift and the wheel, which egui reports sideways; Ctrl and
+    /// the wheel, which it reports as a zoom; and a pinch on a touchpad.
+    pub zoom: f32,
+    /// Shift or Ctrl is held: the zoom is half as fast.
+    pub fine: bool,
+    /// A sideways scroll (a wheel tilted, a second wheel, two fingers
+    /// across a touchpad), not Shift and the wheel: the view pans left and
+    /// right, as the screen has it (GitHub issue 26).
+    pub sideways: f32,
+}
+
+impl Wheel {
+    pub(crate) fn read(ui: &egui::Ui) -> Wheel {
+        let zoom_speed = ui.ctx().options(|o| o.input_options.scroll_zoom_speed);
+        ui.input(|i| {
+            let d = i.smooth_scroll_delta;
+            let shift = i.modifiers.shift;
+            let mut zoom = if shift && d.y == 0.0 { d.x } else { d.y };
+            // (Ctrl and the wheel while Ctrl is held: egui goes on with
+            // the zoom over the frames after, which Ctrl let go of leaves
+            // alone. A pinch is its zoom events.)
+            let pinch: f32 = (i.events.iter())
+                .filter_map(|e| if let egui::Event::Zoom(by) = e { Some(*by) } else { None })
+                .product();
+            let factor = if i.modifiers.command { i.zoom_delta() } else { pinch };
+            if zoom == 0.0 && zoom_speed > 0.0 {
+                zoom = factor.ln() / zoom_speed;
+            }
+            Wheel {
+                zoom,
+                fine: shift || i.modifiers.command,
+                sideways: if shift { 0.0 } else { d.x },
+            }
+        })
+    }
+
+    /// `distance` zoomed by it, kept within `range`.
+    pub(crate) fn zoomed(&self, distance: f32, (near, far): (f32, f32)) -> f32 {
+        let rate = if self.fine { 0.001 } else { 0.002 };
+        (distance * (-self.zoom * rate).exp()).clamp(near, far)
+    }
+}
+
 /// Objects copied from an area (Ctrl+C), to paste in any area.
 #[derive(Debug, Clone)]
 pub struct ObjectClip {
@@ -4631,32 +4679,17 @@ fn camera_input(
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
-    // (egui turns the wheel sideways with Shift held.)
-    // (And with Ctrl held it reports the wheel as a zoom, not a scroll.)
-    let zoom_speed = ui.ctx().options(|o| o.input_options.scroll_zoom_speed);
-    let (scroll, slow) = ui.input(|i| {
-        let d = i.smooth_scroll_delta;
-        let mut scroll = if i.modifiers.shift && d.y == 0.0 { d.x } else { d.y };
-        if scroll == 0.0 && i.modifiers.command && zoom_speed > 0.0 {
-            scroll = i.zoom_delta().ln() / zoom_speed;
-        }
-        (scroll, shift || i.modifiers.command)
-    });
-    let scroll = if scaling { 0.0 } else { scroll };
+    let wheel = Wheel::read(ui);
+    let scroll = if scaling { 0.0 } else { wheel.zoom };
     if scroll != 0.0 && response.hovered() && command && shift {
         // Ctrl + Shift + wheel: up and down, finer the nearer the view.
         raise(o, scroll * 0.0006 * o.distance);
     } else if scroll != 0.0 && response.hovered() {
-        let rate = if slow { 0.001 } else { 0.002 };
-        o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
+        o.distance = wheel.zoomed(o.distance, (1.0, 2000.0));
     }
-    // A sideways scroll (a wheel tilted, a second wheel, two fingers on a
-    // touchpad) pans the view left and right, as the screen has it, the
-    // ground following as it does a drag. (Not Shift and the wheel, which
-    // egui reports sideways: that zooms finer. GitHub issue 26.)
-    let sideways = ui.input(|i| if i.modifiers.shift { 0.0 } else { i.smooth_scroll_delta.x });
-    if sideways != 0.0 && response.hovered() && !scaling {
-        pan(o, Vec2::new(-sideways, 0.0) * per_pixel);
+    // The ground following a sideways scroll as it does a drag.
+    if wheel.sideways != 0.0 && response.hovered() && !scaling {
+        pan(o, Vec2::new(-wheel.sideways, 0.0) * per_pixel);
     }
     if !active {
         return;

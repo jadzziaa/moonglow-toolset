@@ -401,6 +401,42 @@ fn menus_by_the_keyboard() {
     key(&mut h, egui::Key::Escape);
     assert!(!shown(&h, "Faction Editor"));
 
+    // Alt alone, pressed and let go: File opens; again: closed. With a
+    // key between, not.
+    let modifiers = |h: &mut Harness<'_, Moonglow>, m: egui::Modifiers| {
+        h.event(egui::Event::ModifiersChanged(m));
+        h.run();
+        h.run();
+    };
+    modifiers(&mut h, egui::Modifiers::ALT);
+    modifiers(&mut h, egui::Modifiers::NONE);
+    assert!(shown(&h, "Save As"), "Alt alone opens the first menu");
+    modifiers(&mut h, egui::Modifiers::ALT);
+    modifiers(&mut h, egui::Modifiers::NONE);
+    assert!(!shown(&h, "Save As"), "and closes them");
+    modifiers(&mut h, egui::Modifiers::ALT);
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::F7);
+    h.run();
+    modifiers(&mut h, egui::Modifiers::NONE);
+    assert!(!shown(&h, "Save As"), "Alt with a key is not Alt alone");
+
+    // A command given Alt and a menu's letter (Options › Keyboard) has
+    // the key: the menu doesn't open.
+    h.state_mut().settings.key_bindings.insert("view-log".into(), vec!["Alt+V".into()]);
+    h.run();
+    let log = h.state().settings.hide_log;
+    alt(&mut h, egui::Key::V);
+    assert!(!shown(&h, "Hide All Panels"), "the command's key, not the menu's");
+    assert_eq!(h.state().settings.hide_log, !log, "the command");
+    alt(&mut h, egui::Key::H);
+    assert!(shown(&h, "About Moonglow"), "the other menus' letters as they were");
+    key(&mut h, egui::Key::Escape);
+    // AltGr and a letter (Ctrl+Alt, as Windows gives it: a letter of
+    // another layout typed) opens no menu.
+    h.key_press_modifiers(egui::Modifiers::CTRL | egui::Modifiers::ALT, egui::Key::H);
+    h.run_steps(3);
+    assert!(!shown(&h, "About Moonglow"), "AltGr+H is not Help's");
+
     // By the mouse: with File open, the pointer over Edit opens Edit.
     h.get_by_label("File").click();
     h.run();

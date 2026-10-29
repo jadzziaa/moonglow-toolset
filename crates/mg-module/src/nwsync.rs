@@ -106,10 +106,7 @@ pub fn module_contents(
     let mut out = Vec::new();
     let mut missing = Vec::new();
     for name in m.haks().map_err(|e| e.to_string())? {
-        let file = format!("{name}.hak");
-        let Some(path) =
-            install.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
-        else {
+        let Some(path) = install.find_hak(&name) else {
             missing.push(name);
             continue;
         };

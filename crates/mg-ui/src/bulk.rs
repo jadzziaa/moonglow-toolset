@@ -202,11 +202,7 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
     let (mut ok, mut cancel) = (false, false);
     crate::widgets::dialog(ctx, "Update Instances", &mut open).collapsible(false).show(ctx, |ui| {
         let names: Vec<String> = draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
-        let shown_names = if names.len() > 6 {
-            format!("{} and {} more", names[..6].join(", "), names.len() - 6)
-        } else {
-            names.join(", ")
-        };
+        let shown_names = crate::text::some_of(&names, 7);
         ui.label(format!(
             "Makes each object placed from {shown_names} again from its blueprint, \
                  where it stands: its tag, name, scripts and variables become the blueprint's."

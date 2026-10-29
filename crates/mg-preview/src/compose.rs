@@ -475,6 +475,55 @@ impl Composed {
         sum
     }
 
+    /// How much of it a viewer in direction `towards` (from the model, in
+    /// its space) sees at rest, square meters: the drawn triangles of its
+    /// models (the base's and the parts') that face that way, each by its
+    /// area as seen from there. Unlike [`Composed::facing`] it goes by
+    /// area and takes every part: a sword's blade (a part of its own) has
+    /// as many vertices along its edges as on its flats, and from the side
+    /// of its flat shows many times what it shows edge on.
+    pub fn seen_area(&self, towards: Vec3) -> f32 {
+        let towards = towards.normalize_or_zero();
+        let mut sum = 0.0;
+        self.each_mesh_in(&self.stance(None, 0.0), &mut |mesh, places| {
+            let corner = |i: u32| places.get(i as usize).copied();
+            let faces = mesh.faces.iter().map(|f| f.vertices);
+            for [a, b, c] in faces.chain(mesh.drawn.iter().copied()) {
+                if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) {
+                    sum += ((b - a).cross(c - a).dot(towards) * 0.5).max(0.0);
+                }
+            }
+        });
+        sum
+    }
+
+    /// Where the vertices of its drawn meshes (the base's and the parts')
+    /// are as it stands in `stance`, a skin's where its bones put them:
+    /// what a picture of it is framed on, as tightly as the picture sees
+    /// it (a dragon is long and its box, corner to corner, much more).
+    pub fn points_in(&self, stance: &Stance) -> Vec<Vec3> {
+        let mut points = Vec::new();
+        self.each_mesh_in(stance, &mut |_, places| points.extend_from_slice(places));
+        points
+    }
+
+    /// Each drawn mesh of its models with its vertices where `stance`
+    /// puts them, in the preview's space.
+    fn each_mesh_in(&self, stance: &Stance, each: &mut dyn FnMut(&mg_mdl::Mesh, &[Vec3])) {
+        for (gm, nodes, to) in self.models_in(stance) {
+            for m in &gm.meshes {
+                let Some(mesh) = gm.model.nodes.get(m.node).and_then(|n| n.mesh()) else {
+                    continue;
+                };
+                let places = skinned_places(gm, m, nodes, to).unwrap_or_else(|| {
+                    let at = to * nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                    mesh.vertices.iter().map(|v| at.transform_point3(Vec3::from(*v))).collect()
+                });
+                each(mesh, &places);
+            }
+        }
+    }
+
     /// Bounds of everything in the rest pose (for framing a camera).
     pub fn bounds(&self) -> (Vec3, Vec3) {
         self.bounds_of(&self.stance(None, 0.0))
@@ -712,6 +761,37 @@ fn skinned_places(
     Some(vertices.iter().zip(weights).map(place).collect())
 }
 
+/// A camera looking at `points` from `yaw` and `pitch` (radians, as
+/// [`mg_render::Camera::orbit`] takes them), framed tightly on them: what
+/// it looks at, and how far from it, so that every point is within a view
+/// `fov_y` tall (radians) and `aspect` times as wide, as the view sees
+/// them (a long thing seen from its side fills its picture, where a ball
+/// around its box left most of the picture empty). `None` for no points.
+pub fn framed_on(
+    points: &[Vec3],
+    (yaw, pitch): (f32, f32),
+    fov_y: f32,
+    aspect: f32,
+) -> Option<(Vec3, f32)> {
+    let dir = Vec3::new(pitch.cos() * yaw.cos(), pitch.cos() * yaw.sin(), pitch.sin());
+    let right = Vec3::Z.cross(dir).normalize_or_zero();
+    let up = dir.cross(right);
+    // In the view's axes: across, up, and towards the eye.
+    let seen = |p: &Vec3| Vec3::new(p.dot(right), p.dot(up), p.dot(dir));
+    let first = seen(points.first()?);
+    let (min, max) = points.iter().map(seen).fold((first, first), |(a, b), p| (a.min(p), b.max(p)));
+    let mid = (min + max) * 0.5;
+    let target = right * mid.x + up * mid.y + dir * mid.z;
+    let ty = (fov_y * 0.5).tan();
+    let tx = ty * aspect.max(0.01);
+    // (Each point within the view's edges, from where the eye is.)
+    let distance = points.iter().fold(0.05f32, |d, p| {
+        let v = seen(p) - mid;
+        d.max(v.z + (v.x.abs() / tx).max(v.y.abs() / ty))
+    });
+    Some((target, distance))
+}
+
 /// How far along a ray (from `origin` along `dir`) it meets the box
 /// `min`..`max`, if it does: 0 from inside it (the slab test; the area
 /// view's picking takes it too).
@@ -930,5 +1010,36 @@ mod ray_tests {
         assert_eq!(name(playing("deadfnt", find)), Some("deadfnt".into()));
         assert_eq!(name(playing("CPAUSE1", find)), Some("pause1".into()));
         assert_eq!(name(playing("pause1", find)), Some("pause1".into()));
+    }
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::*;
+
+    /// A long thing (a dragon's length, 8 m by 1 by 1) seen from its side
+    /// is framed nearer than a ball around its box, and every corner of
+    /// it is in the view, one at its edge.
+    #[test]
+    fn a_long_thing_is_framed_tightly() {
+        let mut points = Vec::new();
+        for c in 0..8 {
+            let pick = |bit: i32, low: f32, high: f32| if c & bit == 0 { low } else { high };
+            points.push(Vec3::new(pick(1, -4.0, 4.0), pick(2, -0.5, 0.5), pick(4, 0.0, 1.0)));
+        }
+        let (yaw, pitch) = (-std::f32::consts::FRAC_PI_2, 20f32.to_radians());
+        let fov = mg_render::Camera::orbit(Vec3::ZERO, 1.0, yaw, pitch).fov_y;
+        let (target, distance) = framed_on(&points, (yaw, pitch), fov, 1.0).unwrap();
+        let ball = (Vec3::new(8.0, 1.0, 1.0).length() * 0.5) / (fov * 0.5).sin();
+        assert!(distance < ball, "{distance} against {ball}");
+        let camera = mg_render::Camera::orbit(target, distance, yaw, pitch);
+        let clip = camera.projection(1.0) * camera.view();
+        let edge = points.iter().fold(0.0f32, |most, p| {
+            let p = clip.project_point3(*p);
+            assert!(p.x.abs() <= 1.0 + 1e-4 && p.y.abs() <= 1.0 + 1e-4, "{p:?} in the view");
+            most.max(p.x.abs()).max(p.y.abs())
+        });
+        assert!(edge > 0.99, "one at the edge: {edge}");
+        assert_eq!(framed_on(&[], (yaw, pitch), fov, 1.0), None);
     }
 }
