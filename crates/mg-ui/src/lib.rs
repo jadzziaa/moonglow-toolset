@@ -4913,6 +4913,8 @@ impl Moonglow {
                         false => app.log.error(format!("Round trip: {}", r.summary())),
                     }
                 }
+                // (Called off: nothing to say, as Verify.)
+                Err(e) if e == "stopped" => {}
                 Err(e) => app.log.error(format!("Round trip: {e}")),
             },
         );

@@ -20,8 +20,8 @@ use mg_tlk::{FLAG_SOUND, FLAG_SOUND_LENGTH, FLAG_TEXT, Tlk, TlkEntry};
 /// Where a talk table was found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
-    /// A layer of the resource manager other than the module: a hak, by
-    /// its label.
+    /// Read-only here: a layer of the resource manager other than the
+    /// module (a hak, by its label), or a table the game ships.
     Layer(String),
     /// A resource of the module's own (`name.tlk` in it), saved with it
     /// ([`Table::save_with_module`]).
