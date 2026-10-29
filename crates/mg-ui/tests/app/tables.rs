@@ -1487,3 +1487,44 @@ fn undo_in_a_table_cell_being_typed_is_the_cell_s() {
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheese"), "the table's, once left");
 }
+
+/// Next Pane (F6) gives the middle's keys to what its tab in front has (GitHub
+/// issue 12): a table's cells, at its first cell where none is selected,
+/// then the arrows move through them; Shift+F6 goes back to the tree.
+#[test]
+fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
+    let dir = mg_testkit::scratch_dir("ui-table-next-pane");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    let at =
+        |h: &Harness<'_, Moonglow>| h.state().tables.iter().find(|d| d.id == id).unwrap().selected;
+    assert_eq!(at(&h), None);
+    let key_ = |h: &mut Harness<'_, Moonglow>, m: egui::Modifiers, k: egui::Key| {
+        h.key_press_modifiers(m, k);
+        h.run_steps(2);
+    };
+    let none = egui::Modifiers::NONE;
+    // The tree first, then the middle: the table's first cell.
+    key_(&mut h, none, egui::Key::F6);
+    assert!(h.state().tree_cursor.is_some(), "the tree has the keys");
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(at(&h), Some((0, 0)));
+    key_(&mut h, none, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some((1, 0)), "the arrows are the table's");
+    let tree = h.state().tree_cursor;
+    key_(&mut h, egui::Modifiers::SHIFT, egui::Key::F6);
+    key_(&mut h, none, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some((1, 0)), "the table's keys left");
+    assert_ne!(h.state().tree_cursor, tree, "the tree's again");
+}

@@ -1232,7 +1232,7 @@ fn shown_rows(doc: &TableDoc) -> Vec<usize> {
 
 /// Gives the keys to a table's grid: the arrows, and Undo and Redo, are
 /// that table's from then on.
-fn take_keys(ctx: &egui::Context, table: u32) {
+pub(crate) fn take_keys(ctx: &egui::Context, table: u32) {
     give_keys(ctx, Keys::Table);
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("table-keys-of"), table));
 }

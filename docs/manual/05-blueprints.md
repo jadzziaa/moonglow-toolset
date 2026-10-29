@@ -144,7 +144,9 @@ The palette's buttons:
   list of names, to choose by eye (creatures, doors, items and
   placeables, the types with a model, and waypoints by their flags).
   Whether it is on is kept between sessions. A picture is clicked, dragged and
-  right-clicked as a name is; the pictures are made a few at a time as
+  right-clicked as a name is; with the keys, Up and Down go a row of
+  pictures at a time and Left and Right a picture (Left from the first:
+  to its category); the pictures are made a few at a time as
   they come into sight. A shield is pictured from its front (its model
   faces its bearer), and a thing made for a wall from the side that
   shows it; the light goes round with the view.

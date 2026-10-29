@@ -1886,42 +1886,39 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
   23 after 1.30.2)
 - **The module tree and the palettes by the keyboard** (GitHub issue
-  12, after 1.20.0, and
-  a builder: Aurora's arrows go to the parent on Left and fold the
-  tree): after a click in a list (the module tree, a palette, Module
-  Properties' haks) the arrow keys, Page Up and Down, Home and End are
-  that list's wherever the pointer is, until it is in an area's view,
-  and a thin outline shows the pane; Right and Left open and close a
-  row and go in and out, into an area opened out too (its kinds and
-  its placed objects); Enter opens (the resource, the blueprint's
-  editor, a category), Escape hands the keys back; F2 and Delete are
-  for the row under the pointer, else the cursor's; both panes' filter
-  fields have Ctrl+F, Escape (clear, then leave) and Down. Not done:
-  - F6 and Shift+F6 give the keys to the next pane (the module tree,
-    the middle, the palettes). Not done: the log, a talk table's lines,
-    the resource browser's list and the 2DA editor's cells are not
-    among them; the palettes'
-    cursor starts at no row until an arrow is pressed; a command a
-    builder already gave F6 to is now in conflict with Next Pane
-    (Options › Keyboard lists it; the pane's wins until one is
-    changed). (S)
+  12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
+  Left and fold the tree): after a click in a list (the module tree, a
+  palette, Module Properties' haks) the arrow keys, Page Up and Down,
+  Home and End are that list's wherever the pointer is, until it is in
+  an area's view, and a thin outline shows the pane; Right and Left
+  open and close a row and go in and out, into an area opened out too;
+  Enter opens, Escape hands the keys back; F2 and Delete are for the
+  row under the pointer, else the cursor's; both panes' filter fields
+  have Ctrl+F, Escape (clear, then leave) and Down. F6 and Shift+F6 give
+  the keys to the next pane, each pane's being what its tab in front
+  has (the middle's a talk table's lines, a 2DA's cells at its first
+  cell, the resource browser's list, else an area's; a palette's cursor
+  at its first row); in the Gallery Up and Down go a row of pictures at
+  a time (done 2026-10-29). Not done:
   - F2 at a placed object does nothing: its row's menu has no Rename,
     nor has Aurora's object menu (the parity inventory); whether
     Aurora's tree edits an object's label in place on F2 (its
     `tvMainEditing` renames resources) was not watched. Delete there
-    deletes it as its menu does. (S)
-  - The resource browser has them (its Name field and its list), and
-    Open Script has Down and Up for Enter; the hak editor's, the
-    tileset editor's and the Appearance Gallery's Find fields have
-    Ctrl+F and Escape. Not done: Down from those three into their
-    lists (which have no keys of their own); the tileset's palette and
-    the Prefabs list have no arrow keys; in Open
-    Script, Escape closes the window at once (it does not clear the
-    name first). (S each)
-  - In the Gallery Up and Down go a picture at a time, not a row of
-    them; the keys repeat only as the system repeats them. (S)
+    deletes it as its menu does. Waits on the Aurora oracle (not used
+    in the fix wave of 2026-10-29). (S)
   - With the keys on a category the blueprint selected stays in hand;
-    whether Aurora keeps one in hand then was not checked. (S)
+    whether Aurora keeps one in hand then was not checked. Waits on the
+    Aurora oracle. (S)
+  - The log is not among F6's panes: it has no keys of its own (its
+    lines are text to select and copy); a command a builder already
+    gave F6 to is in conflict with Next Pane (Options › Keyboard lists
+    it; the pane's wins until one is changed). (S)
+  - Down from the hak editor's, the tileset editor's and the Appearance
+    Gallery's Find fields goes nowhere: their lists have no keys of
+    their own, nor have the tileset's palette and the Prefabs list.
+    Keys for four lists (a cursor, its outline, Enter's action, the
+    rows' order for Up and Down in each), about a day: more than the
+    wave's S. (M)
 - **The look of the two side panes, the module tree's rows** (the
   owner's notes after 1.21.0; the rest done on 2026-10-29): the module
   tree's rows are as they were, with no pictures and no "more" menu as

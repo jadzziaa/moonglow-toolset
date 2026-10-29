@@ -1729,3 +1729,25 @@ fn the_palette_s_item_pictures_are_kept_by_who_wears_them() {
     h.run_steps(30);
     assert_eq!(drawn(&h), hers, "the man's, kept");
 }
+
+/// Next Pane (F6) to the palettes puts the palette's cursor at its first
+/// row (GitHub issue 12): Right opens it there, with no arrow pressed
+/// first.
+#[test]
+fn next_pane_puts_the_palette_s_cursor_at_its_first_row() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, _)) = area_harness("palette-next-pane") else { return };
+    h.state_mut().palette.kind = BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.custom = false;
+    h.run_steps(3);
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    assert!(h.query_by_label(&tavern).is_none(), "the category closed");
+    // (The keys nowhere yet are taken as the middle's, the area's: the
+    // palettes next.)
+    h.key_press(egui::Key::F6);
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(4);
+    assert!(h.query_by_label(&tavern).is_some(), "opened from the first row");
+}
