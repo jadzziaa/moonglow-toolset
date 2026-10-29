@@ -70,14 +70,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Script intelligence (`mg lsp`, the script editor)
 
-- **A script's codepage** (GitHub issue 27) is the language's of
-  Options › Language, for every script alike; in `mg`, the game
-  client's (`mg lsp`, and the lines `mg refs` and `mg rename` show of
-  scripts). Left: the game reading the compiled strings in
-  Windows-1250 was not seen in a Polish client (the bytes were checked
-  in the compiled script): waits on the client (a scratch module's
-  `SpeakString` with a Polish letter, the sandboxed client's language
-  set to Polish, a screenshot). (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
@@ -1744,9 +1736,16 @@ contribution itself states as not done or not checked.
   one sandbox would test it; `run-client.sh` starts the client alone,
   and that harness isn't built. (M)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
-  doesn't; whether the client would use one isn't known. (S) (waits on
-  the download test above: a `dialogf.tlk` published, a woman's
-  character given its text or not)
+  doesn't. Read in single player (2026-10-29,
+  `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a
+  module's `mg_rtlk` and `mg_rtlkf` with other text, in the module and
+  in the user directory's `tlk`, the player a woman): the client draws a
+  line by StrRef (`FloatingTextStrRefOnCreature`) from the masculine
+  table for her, where the server's `GetStringByStrRef` with
+  `GENDER_FEMALE` reads the feminine one; so the client's own lookups
+  don't use it, and only scripts' would. Whether a client downloading
+  by NWSync is the same waits on the download test above (its CD key).
+  (S)
 - **No upload**: the folder is copied to the web server by hand (its
   pruning is done: Remove Unused Data and `mg nwsync-prune`, as
   `nwn_nwsync_prune`, 2026-10-29). An upload would need a way in that
