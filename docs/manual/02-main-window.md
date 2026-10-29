@@ -259,7 +259,9 @@ name beside it, in a list to choose another by name: an area's music and
 ambient sounds, a creature's race, classes, feats and spells, an item's
 base item and properties, an object's appearance, a trap's type, a loading
 screen. A creature's skills are named in their list, and a talk-table
-string's text is shown beside its number.
+string's text is shown beside its number. From a terminal, `mg gff
+--names` names the rows the same way, and `mg find --where` and `mg
+areas --set` take a row's label or name in place of its number.
 
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view

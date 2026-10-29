@@ -812,8 +812,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or object's faction (the module's `repute.fac`, not a 2DA), a
   conversation's animations, a store's categories, and fields that hold
   a talk-table number as a plain int. (S–M)
-- **Only in the window:** `mg gff`, `mg find --where` and `mg areas`
-  print and take the numbers; names aren't shown or accepted there. (S)
 
 ## Getting files out
 

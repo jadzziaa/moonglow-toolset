@@ -43,6 +43,11 @@ pub struct Query {
     /// Fields that must have these values (`*` as in tags), or exist
     /// (`None`).
     pub fields: Vec<(String, Option<String>)>,
+    /// Fields whose value depends on the object's type (a row given by
+    /// its name: `Appearance` is a placeables.2da row for a placeable, a
+    /// doortypes.2da row for a door): the label, and the value it must
+    /// have for each type. An object of a type not listed doesn't match.
+    pub typed_fields: Vec<(String, Vec<(ResType, String)>)>,
 }
 
 /// Whether `text` matches `pattern`, ignoring case and accents, `*`
@@ -141,6 +146,13 @@ fn matches(q: &Query, s: &Struct, f: &Found) -> bool {
             (None, _) => false,
             (Some(_), None) => true,
             (Some(v), Some(w)) => field_text(v).is_some_and(|t| glob(w, &t)),
+        })
+        && q.typed_fields.iter().all(|(label, wants)| {
+            let want = wants.iter().find(|(t, _)| *t == f.restype).map(|(_, w)| w);
+            match (s.get(label), want) {
+                (Some(v), Some(w)) => field_text(v).is_some_and(|t| glob(w, &t)),
+                _ => false,
+            }
         })
 }
 
@@ -289,6 +301,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(find(&m, &q).len(), 1);
+        // A value for each type: a creature's here; a type not listed
+        // doesn't match.
+        let typed = |values: Vec<(ResType, String)>| Query {
+            typed_fields: vec![("Appearance_Type".into(), values)],
+            placed: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(find(&m, &typed(vec![(ResType::UTC, "6".into())])).len(), 1);
+        assert!(find(&m, &typed(vec![(ResType::UTC, "7".into())])).is_empty());
+        assert!(find(&m, &typed(vec![(ResType::UTP, "6".into())])).is_empty());
         let q = Query { types: vec![ResType::UTP], ..Default::default() };
         assert!(find(&m, &q).is_empty());
         let i = info(&m).unwrap();

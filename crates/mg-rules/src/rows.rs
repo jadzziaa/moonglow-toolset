@@ -177,6 +177,40 @@ impl GameData {
             .or_else(|| cell(Some(crate::DISPLAY_NAME)).map(str::to_string))
             .or_else(|| cell(table.label).map(str::to_string))
     }
+
+    /// The row a text names, as a command line takes one for a field
+    /// that holds a row (`MusicDay=mus_cave`): a number is the row itself;
+    /// else the row whose label is the text (case set aside), else the one
+    /// whose name ([`row_name`](Self::row_name)) is. Two rows of that
+    /// name, or none, are an error that says so.
+    pub fn row_of(&self, table: &RowTable, text: &str) -> Result<i64, String> {
+        let text = text.trim();
+        if let Some(n) = mg_2da::parse_int(text) {
+            return Ok(i64::from(n));
+        }
+        let t = self.table(table.table).map_err(|e| format!("{}.2da: {e}", table.table))?;
+        let label = |row: usize| table.label.and_then(|c| t.get(row, c)).map(str::trim);
+        if let Some(row) =
+            (0..t.len()).find(|&r| label(r).is_some_and(|l| l.eq_ignore_ascii_case(text)))
+        {
+            return Ok(row as i64);
+        }
+        let named: Vec<usize> = (0..t.len())
+            .filter(|&r| {
+                self.row_name(table, r as i64).is_some_and(|n| n.eq_ignore_ascii_case(text))
+            })
+            .collect();
+        match named[..] {
+            [row] => Ok(row as i64),
+            [] => Err(format!("{}.2da has no row named {text:?}", table.table)),
+            ref rows => Err(format!(
+                "{}.2da has {} rows named {text:?} ({}): give its number or its label",
+                table.table,
+                rows.len(),
+                rows.iter().take(8).map(ToString::to_string).collect::<Vec<_>>().join(", ")
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -220,6 +254,13 @@ mod tests {
         // A table the game lacks.
         let feat = row_table("UTC ", &["FeatList"], "Feat").unwrap();
         assert_eq!(game.row_name(&feat, 1), None);
+        // Back from a text: a number, a label, a name.
+        assert_eq!(game.row_of(&music, "4"), Ok(4));
+        assert_eq!(game.row_of(&music, "MUS_CAVE"), Ok(2));
+        assert_eq!(game.row_of(&music, "rural day 1"), Ok(1));
+        assert_eq!(game.row_of(&music, "My Theme"), Ok(4));
+        assert!(game.row_of(&music, "Jazz").unwrap_err().contains("no row named \"Jazz\""));
+        assert!(game.row_of(&feat, "Cleave").unwrap_err().starts_with("feat.2da"));
     }
 
     #[test]
