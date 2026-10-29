@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T12:07:42Z }
 ---
 
 # Command-line tools
@@ -405,9 +405,14 @@ it reads only at its start.
   into the module.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
-  into: `--dir`, `--port`, `--env`, `--preload` and the arguments after
-  `--` are `mg serve`'s, and so is what you type. Started again, the
-  server keeps its port and its passwords.
+  into: `--dir`, `--port`, `--player-password`, `--dm-password`,
+  `--admin-password`, `--env`, `--preload` and the arguments after `--`
+  are `mg serve`'s, and so is what you type. The passwords not given are
+  random ones, and the player and DM passwords are printed when the
+  server starts (a `passwords` event with `--json`), as `mg serve`
+  prints them. Started again, the server keeps its port and its
+  passwords: a DM who has joined keeps the one they have. These options
+  are refused without `--serve`.
 - A script that does not compile is said, with its line, and nothing is
   put out for it: the server keeps the one it has. A warning of the
   compiles (a function's return type declared one way and defined

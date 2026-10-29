@@ -302,15 +302,8 @@ enum Cmd {
         /// The server's name.
         #[arg(long, default_value = "Moonglow test server")]
         name: String,
-        /// The player password (default: a random one, printed).
-        #[arg(long)]
-        player_password: Option<String>,
-        /// The DM password (default: a random one, printed).
-        #[arg(long)]
-        dm_password: Option<String>,
-        /// The admin password (default: a random one).
-        #[arg(long)]
-        admin_password: Option<String>,
+        #[command(flatten)]
+        passwords: serve::Passwords,
         /// A file of NAME=value lines added to the server's environment
         /// (NWNX's settings, say); may be given more than once.
         #[arg(long)]
@@ -532,6 +525,13 @@ enum Cmd {
     /// run in the server, which is started again, on the module built
     /// anew, when something changes that it reads only at its start (a
     /// 2DA, an area, module.ifo).
+    #[command(group(
+        clap::ArgGroup::new("serving")
+            .args(["dir", "port", "player_password", "dm_password", "admin_password", "env",
+                "preload", "server_args"])
+            .multiple(true)
+            .requires("serve")
+    ))]
     Watch {
         project: PathBuf,
         /// The development folder to write into (default with --serve:
@@ -556,6 +556,10 @@ enum Cmd {
         /// With --serve: the port (default: a free one).
         #[arg(long)]
         port: Option<u16>,
+        // (With --serve: the server's passwords, as `mg serve` takes them,
+        // kept when the server is started again.)
+        #[command(flatten)]
+        passwords: serve::Passwords,
         /// With --serve: a file of NAME=value lines for the server's
         /// environment.
         #[arg(long)]
@@ -2182,9 +2186,7 @@ fn run(cli: &Cli) -> Result<Output> {
             port,
             public,
             name,
-            player_password,
-            dm_password,
-            admin_password,
+            passwords,
             env,
             preload,
             marker,
@@ -2202,9 +2204,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 port: *port,
                 public: *public,
                 name: name.clone(),
-                player_password: player_password.clone(),
-                dm_password: dm_password.clone(),
-                admin_password: admin_password.clone(),
+                passwords: passwords.clone(),
                 env: env.clone(),
                 preload: preload.clone(),
                 restart_on_change: *restart_on_change,
@@ -2410,6 +2410,7 @@ fn run(cli: &Cli) -> Result<Output> {
             serve,
             dir,
             port,
+            passwords,
             env,
             preload,
             server_args,
@@ -2478,6 +2479,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 dir: Some(server_dir),
                 port: *port,
                 name: "Moonglow test server".into(),
+                passwords: passwords.clone(),
                 env: env.clone(),
                 preload: preload.clone(),
                 stdin: true,

@@ -25,9 +25,7 @@ pub(crate) struct Config {
     pub port: Option<u16>,
     pub public: bool,
     pub name: String,
-    pub player_password: Option<String>,
-    pub dm_password: Option<String>,
-    pub admin_password: Option<String>,
+    pub passwords: Passwords,
     /// Environment files (`NAME=value` lines).
     pub env: Vec<PathBuf>,
     /// A library loaded into the server (`LD_PRELOAD`).
@@ -42,6 +40,22 @@ pub(crate) struct Config {
     /// The nasher project `module` was built from (`mg watch`): its own
     /// talk table is made for the server, as for the project served.
     pub project: Option<PathBuf>,
+}
+
+/// The server's passwords, as `mg serve` and `mg watch --serve` take
+/// them: one not given is a random one, kept across the server's
+/// restarts within a run.
+#[derive(Debug, Clone, Default, PartialEq, Eq, clap::Args)]
+pub(crate) struct Passwords {
+    /// The player password (default: a random one, printed).
+    #[arg(long)]
+    pub player_password: Option<String>,
+    /// The DM password (default: a random one, printed).
+    #[arg(long)]
+    pub dm_password: Option<String>,
+    /// The admin password (default: a random one).
+    #[arg(long)]
+    pub admin_password: Option<String>,
 }
 
 /// What happens while a module is served.
@@ -407,8 +421,7 @@ pub(crate) fn serve(
     let mut flow = Flow::Continue;
     // (Started again, the server keeps its port and its passwords.)
     let mut port = c.port;
-    let mut passwords =
-        (c.player_password.clone(), c.dm_password.clone(), c.admin_password.clone());
+    let mut passwords = c.passwords.clone();
     loop {
         let (name, notes) = prepare(gi, &c.module, &dir, c.project.as_deref())?;
         for note in notes {
@@ -423,20 +436,20 @@ pub(crate) fn serve(
             port,
             public: c.public,
             name: c.name.clone(),
-            player_password: passwords.0.clone(),
-            dm_password: passwords.1.clone(),
-            admin_password: passwords.2.clone(),
+            player_password: passwords.player_password.clone(),
+            dm_password: passwords.dm_password.clone(),
+            admin_password: passwords.admin_password.clone(),
             console: true,
             env: env.clone(),
             args: c.args.iter().map(Into::into).collect(),
             own_group: caught,
         })?;
         port = Some(server.port);
-        passwords = (
-            Some(server.player_password.clone()),
-            Some(server.dm_password.clone()),
-            Some(server.admin_password.clone()),
-        );
+        passwords = Passwords {
+            player_password: Some(server.player_password.clone()),
+            dm_password: Some(server.dm_password.clone()),
+            admin_password: Some(server.admin_password.clone()),
+        };
         let started = Instant::now();
         let console = lines(server.console().expect("started with a console"));
         let mut log = mg_serve::Tail::new(server.log_path());

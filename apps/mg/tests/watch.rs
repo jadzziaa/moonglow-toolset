@@ -137,6 +137,31 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
     }
 }
 
+/// The server's options are for --serve: without it, refused before
+/// anything is read or written.
+#[test]
+fn the_server_s_options_want_serve() {
+    let dir = mg_testkit::scratch_dir("mg-watch-serve-options");
+    let (project, dev) = (dir.join("none"), dir.join("development"));
+    let (p, d) = (project.to_str().unwrap(), dev.to_str().unwrap());
+    for given in [
+        &["--dm-password", "x"][..],
+        &["--player-password", "x"],
+        &["--admin-password", "x"],
+        &["--dir", d],
+        &["--port", "5121"],
+        &["--env", d],
+        &["--preload", d],
+        &["--", "-maxclients", "4"],
+    ] {
+        let out = crate::mg().args(["watch", p, "--dev-dir", d]).args(given).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{given:?}: {said}");
+        assert!(said.contains("--serve"), "{given:?}: {said}");
+    }
+    assert!(!dev.exists(), "nothing made");
+}
+
 #[test]
 fn a_project_is_served_and_started_again_when_it_is_built_again() {
     use std::io::Write;
@@ -151,7 +176,9 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
     let unpack = [chess.to_str().unwrap(), project.to_str().unwrap()];
     assert!(mg(&root, &[&["unpack"][..], &unpack[..]].concat()).status().unwrap().success());
     let p = project.to_str().unwrap();
-    let mut child = mg(&root, &["watch", p, "--serve", "--dir", served.to_str().unwrap()])
+    let dm = "dm-of-the-watch";
+    let s = served.to_str().unwrap();
+    let mut child = mg(&root, &["watch", p, "--serve", "--dir", s, "--dm-password", dm])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -169,6 +196,24 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         next(&events, "watching");
         let started = next(&events, "started");
+        // The DM password given, the others random ones: printed, and
+        // what the server was started with.
+        let passwords = next(&events, "passwords");
+        assert_eq!(passwords["dm"], dm, "{passwords}");
+        let (player, admin) = (passwords["player"].as_str().unwrap(), &passwords["admin"]);
+        assert!(player.len() > 8 && player != dm, "{passwords}");
+        assert!(admin.as_str().unwrap().len() > 8, "{passwords}");
+        let carried = |pid: &Value| {
+            let Ok(args) = std::fs::read(format!("/proc/{pid}/cmdline")) else { return };
+            let args: Vec<&[u8]> = args.split(|b| *b == 0).collect();
+            let after = |flag: &str| {
+                let at = args.iter().position(|a| *a == flag.as_bytes()).unwrap();
+                String::from_utf8_lossy(args[at + 1]).into_owned()
+            };
+            assert_eq!(after("-dmpassword"), dm);
+            assert_eq!(after("-playerpassword"), player);
+        };
+        carried(&started["pid"]);
         next(&events, "ready");
         // The server's own development folder is where changes go.
         let dev = served.join("development");
@@ -195,6 +240,9 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
         let again = next(&events, "started");
         assert_eq!(again["port"], started["port"]);
         assert_ne!(again["pid"], started["pid"]);
+        // (And its passwords: a DM keeps the one they had.)
+        assert_eq!(next(&events, "passwords"), passwords);
+        carried(&again["pid"]);
         next(&events, "ready");
         assert!(!dev.join(format!("{script}.ncs")).exists(), "the module has it now");
 
