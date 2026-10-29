@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -77,15 +77,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   a Polish letter as "�". The game reading the compiled strings in
   Windows-1250 was not seen in a Polish client: the bytes were checked
   in the compiled script. (S each)
-- **The Save key in a script editor** (El Grillo's request, October
-  2026) is the script's own Save while its text has the keyboard, as its
-  Undo and Redo are; with the pointer over the editor but the keyboard
-  elsewhere (a toolbar button just clicked, the side list's Filter) it
-  saves the module, where the side editors' Undo goes by the pointer.
-  File › Save and the toolbar's 💾 are the module's always. A Save with
-  nothing unsaved in the script does nothing, as its grayed button.
-  Aurora's script editor (a window of its own there) has its own Save on
-  Ctrl+S; it was not driven to see what it writes. (S)
 - **To Scratch for a script that doesn't compile** (El Grillo's
   request): the script editor's To Scratch and the module tree's Copy to
   Scratch Folder are one rule (the source alone; the folder's
@@ -443,20 +434,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a custom caster class's spells (566) are offered by `classes.2da`'s
   `SpellCaster` and `SpellTableColumn` alone, and were not tried with a
   custom class. (S each)
-- **Number fields' limits against Aurora:** measured in Aurora
-  (v89.8193.37) by typing past them: a creature's save bonuses 250 (and,
-  it seems, no lower than 0: Moonglow keeps -100, for the penalties files
-  have), its ability scores 100, natural AC 1000 (Moonglow: 255, the
-  byte the file keeps), base hit points 10000; a placeable's and a door's
-  hardness and saves 250, hit points 10000; lock and trap DCs 250. These
-  are Moonglow's now. The other fields the forms give "spin 0…100"
-  (`aurora-ui-inventory.md`: encounters, stores, alignment and the rest)
-  were not measured: the forms' limits are only what they start with.
-  (S) (a second builder's review, October 2026)
-- **Which rows Aurora offers** as feats, spells and special abilities
-  (by `UserType`, `ALLCLASSESCANUSE` or else) was not captured: Moonglow
-  leaves out rows without a name and those labelled DELETED or Padding.
-  (S) (a second builder's review, October 2026)
+- **Number fields' limits against Aurora, what is left:** the rest were
+  measured in Aurora (2026-10-29, typed past their ends: an encounter's
+  creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,
+  a sound's interval and variation to 60 s, a trigger's highlight height
+  0 to 10, a creature's CR adjustment -125 to 125, an area's fog clip
+  distance 30 to 9999 m; weather, shadow opacity, fog amounts, a store's
+  mark up, mark down and stolen goods' mark down as Moonglow had them)
+  and are Moonglow's now. Left: an item property's Chance of Appearing
+  was not measured, and Aurora's encounter raises its maximum to a
+  minimum typed above it, which Moonglow's doesn't. (S) (a second
+  builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
@@ -464,11 +452,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   below the first) or tried in order, and Low items' most worth (levels
   1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
   would need more of Aurora's items to settle; amulets, belts, boots,
-  bracers, cloaks and rings get the armor table, where Aurora may use the
-  helmet's (they differ in Weight Reduction only); gems and gauntlets
-  aren't offered Magical (Aurora makes them unidentified with no
-  properties). (S)
-  (a second builder's review, October 2026)
+  bracers, cloaks and rings get the armor table, where Aurora may use
+  the helmet's (they differ in Weight Reduction only); gems and
+  gauntlets aren't offered Magical (Aurora makes them unidentified with
+  no properties). Fitting again takes a few hundred of Aurora's wizard
+  items, made by driving its wizard on the oracle (M, not started in the
+  sprint's verification wave). (a second builder's review, October 2026)
 - **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
   free slot, To Backpack and Open Blueprint; talk-table text in its own
@@ -522,11 +511,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow's choice, not measured in Aurora; a sound's cutoff distance
   and intervals step by ten, as Aurora's forms say. (S) (from builders'
   reports after 1.19.1)
-- **What a store sells an item for** (a builder: Aurora lists it): each
-  item of a store's pages is listed with its cost at the store's sell
-  mark up. Not compared with Aurora's list (its rounding, whether it
-  counts a stack); the buy price (mark down) is not shown. (S)
-  (GitHub issues 10 to 24, after 1.20.0)
 - **Arrow keys on lists of choices:** every dropdown is drawn by
   `widgets::dropdown` (a test reads the sources for an egui combo box
   made elsewhere) or, for a table's rows, `widgets::row_choice`, and
@@ -562,15 +546,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   palette's Gallery lie as modelled; on the ground in an area they are
   turned as baseitems.2da's `RotateOnGround` says. (S)
   (GitHub issue 7)
-- **Dropable and Pickpocketable against Aurora:** the inventory capture
-  (`inventory/after.mod`) equips items only, which Aurora writes without
-  either field; what Aurora writes for an item it puts in the backpack,
-  for its boxes ticked and cleared, and for a placed creature made a
-  blueprint (Add to Palette now keeps an equipped item's flags in the
-  blueprint's entry, as the backpack's were kept) was not captured. The
-  game's own modules and blueprints have them as 1 when set and left out
-  when not, which is what Moonglow writes. Several items selected at once
-  is Moonglow's (Aurora selects one). (S) (Sacha's report on 2.5.4)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that
@@ -659,17 +634,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     palette's hover summary has no counterpart in the Add Set menu). (S)
   - No folders inside `variable-sets`, and Add from File… takes one file
     at a time. (S)
-- **Update Instances and held items** (a builder): an item's blueprint
-  now reaches the items that placed objects hold (chests, creatures'
-  packs and equipment, stores' pages, bags in them), in the window and
-  in `mg update-instances`. A held item keeps its place, its slot, how
-  many there are (`StackSize`) and whether it drops, can be stolen or is
-  endless in a store; its charges and the rest come from the blueprint.
-  What Aurora's Update Instances does with held items was not
-  captured. Items held in other blueprints (a
-  creature blueprint's inventory) name the item's blueprint and are
-  made from it when placed, so there is nothing to update there. (S)
-  (from builders' reports after 1.19.1)
 
 ## Conversation authoring
 
@@ -698,20 +662,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Search, `mg find`) too. Not done: Cyrillic's (ё for е) and polytonic
   Greek's marks (Greek Extended) are not folded. (S)
 
-- **Palette categories against Aurora:** a module's own categories
-  (Palette › Categories…) are a skeleton kept in the module, with names
-  written out (`NAME`, and BioWare's `DELETE_ME`). That Aurora reads a
-  skeleton from the module is a builder's report (Taro49, 2026-10-05:
-  they keep their custom categories so), not a capture of ours; that it
-  shows a name written out was not captured; the game's DM palette reads the
-  `palcus.itp` built from it. (S, an Aurora capture)
 - **Palette categories, what the editor lacks:** no translated names
   (one text for every language), and Remove refuses a category in use
   rather than offer to move its blueprints. (S–M)
 - **A module's categories in its own order:** the palette and the
-  `palcus.itp` built on save keep the order a module's own skeleton has
-  (the game's are by name, as Aurora writes them). What Aurora makes of
-  a `palcus.itp` in another order wasn't captured. (S)
+  `palcus.itp` built on save keep the order a module's own skeleton has.
+  Aurora's don't (captured 2026-10-29,
+  `captures/wave1/pal2-saveas.mod`): its custom palette, Select Category
+  and Refresh Palette show every level by name whatever the files'
+  order, and its Save As writes the `palcus.itp` back in that order, so
+  a module saved in Aurora comes back in name order. Whether Moonglow's
+  own order stays (a builder's arrangement, kept until Aurora saves the
+  module) or follows Aurora is the owner's to say. (S)
 - **The Gallery:** up to 192 pictures are kept at once (more are made
   again as they come back into sight) and all are made again when a
   blueprint changes. (S) (from builders' reports after 1.10.1)
@@ -776,12 +738,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (the palette pulled with them has them); a search typed doesn't open
     the category of a blueprint that arrives after it was typed (typed
     again, it does). (S each)
-  - *A blueprint whose category the palette lacks* (a `PaletteID`
-    another module's own categories name, or none): Moonglow leaves it
-    out of the custom palette, at a save, a reload, Refresh Palette and
-    Build alike, where the game's Special › Custom 1 (ID 0, in every
-    type's palette) would show it; what Aurora's Refresh does with one
-    wasn't captured. (S, an Aurora capture)
   - *A category left with an empty `LIST`:* an entry put into a
     category that had no `LIST` field makes one, and the entry taken
     out again (a blueprint added, then deleted, before a save) leaves
@@ -792,10 +748,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     hak's skeleton changed, or a hak's blueprints changed, renamed or
     removed, don't touch the module's palette (the module's own
     skeleton changed remakes its categories, each with its entries; a
-    category taken out takes its entries, a hak's too). What Aurora
-    does with a creature whose CR or faction alone changed, and with a
-    blueprint given category 255 or one the palette lacks (Moonglow
-    takes its entry out), wasn't captured. (S, an Aurora capture)
+    category taken out takes its entries, a hak's too). Aurora's save
+    (its Save As, captured 2026-10-29, `captures/wave1/saveas.mod`)
+    gives every creature entry its blueprint's `CR` and `FACTION`,
+    stale or not, which Moonglow's doesn't; a blueprint of category
+    255 or one the palette lacks is left out by its Refresh Palette,
+    as Moonglow leaves it out. (S)
   - *An entry put in a category out of order* goes after the last entry
     whose name doesn't come after it (in order, its place); Aurora puts
     the whole category in order at its save. (S)
@@ -976,19 +934,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   selection sees a copy's tab as nothing. (S) (a builder's report on
   2.0.0)
 
-- **Export into an archive** is a checkbox, off unless ticked; a builder
-  says Aurora adds to an existing archive itself. Aurora's own behavior
-  (whether it asks) was not captured. (S)
-  (from builders' reports after 1.19.1)
 
 ## Area visibility
 
-- **What the toolbar hides, kept between runs:** the kinds hidden in the
-  area views are kept in the settings, as Lighting and Sound Ranges are,
-  so an area can open looking empty in the next run; Aurora was not
-  checked for whether it keeps them past a restart (they stay from area
-  to area there, the builder's report says). Set Start Location shows
-  the marker again in every view. (S) (Sacha's report, October 2026)
 
 - **Grass in patches:** the client's tufts gather in patches across a
   field (dark clumps, seen in `client_render.rs` grass_overrides_look);
@@ -1008,10 +956,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A grass tuft's shape:** one upright quad turned at random, a texture
   quarter, as tall as wide; the client's geometry (crossed quads, a lean,
   its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)
-- **Aurora and an area's grass:** Aurora has no grass page; whether it
-  keeps `GrassDefDisabled` and `GrassOverrides` in a GIT's
-  `AreaProperties` when it saves the area wasn't checked (a module saved
-  in Aurora may lose them). (S)
 - **Grass on placeables:** grass is grown on tiles' walkmeshes only;
   whether the game grows it on a static placeable's walkmesh (merged into
   the tiles) wasn't checked. (S)
@@ -1028,18 +972,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't tested.
   (S)
-- **Lighting off against Aurora:** the Lighting switch's working light
-  (white, even, a little from the sun's side) is Moonglow's; how Aurora
-  lights an area with its lighting off was not captured. (S)
-- **Marker models against Aurora:** stores, sounds and waypoints use
-  the game's marker models in their materials' colors, unlit; that Aurora
-  draws them so was not captured. Waypoints' flags are drawn unlit so
-  their colors tell apart in a dark area; how Aurora lights them was
-  not captured either. (S)
-- **Sound ranges:** level circles at the sound's height, not spheres; a
-  sound's random position range is a rectangle of `RandomRangeX` and
-  `RandomRangeY` each way (that the game takes them as half-widths about
-  the sound was not measured). (S)
+- **Marker models against Aurora:** stores, sounds and waypoints use the
+  game's marker models in their materials' colors, unlit, so that their
+  colors tell apart in a dark area. Aurora lights them as any model
+  (captured 2026-10-29 in the probe made always dark: a waypoint's and a
+  store's yellow arrow from 243, 216, 0 by day to 76, 100, 0, the blue
+  stem staying bright, the sound's speaker near its full white). Whether
+  Moonglow follows Aurora or keeps them unlit is the owner's to say. (S)
+- **Sound ranges:** level circles at the sound's height. Aurora draws
+  each distance as a dotted sphere about the sound, with one level
+  circle at its maximum (captured 2026-10-29, the probe's sound of
+  distances 3 and 12, from above and pitched). The random position's
+  rectangle is as Aurora's now (its ranges wide, half each way). (S: the
+  spheres, drawn as a few rings of dots)
 - **The start location in the view:** set from the menu, and its marker
   dragged (ring, shaft) and turned (arrow's tip). Aurora's palette entry
   for it isn't there; selected, it is no object, so the keys (Q and E,
@@ -1048,12 +993,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The minimap in Moonglow:** the area view has no map panel of its own,
   and Area Transition setup picks its target from a list rather than a
   map. (S–M)
-- **Fade Geometry:** Never, Object Mode Only and Always, as Aurora
-  names them; Moonglow's object mode is "not Select Tiles and no terrain
-  brush", which wasn't compared with when Aurora fades. That the meshes
-  with `tilefade` 2 (the black caps) stay while those with 1 and 4 go
-  was taken from the game's tiles and their names, not compared with
-  Aurora or the game. (S) (from builders' reports after 1.10.1)
+- **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
+  were compared with Aurora (2026-10-29): its Object Mode Only fades in
+  Select Objects and not in Select Terrain, as Moonglow's; the rural
+  tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay.
+  A mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
+  is still taken from the game's tiles and their names. (S) (from
+  builders' reports after 1.10.1)
 - **A cloak lying in an area** is the game's model of a cloak dropped
   (`gi_cloak01`, folded, its PLT texture in the cloak's colors), as
   Aurora and the game draw it; Moonglow drew the bag (the cloak's
@@ -1082,19 +1028,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Editing in the area view
 
-- **Visual transforms in Aurora's view:** xtul saw his mirror upright
-  and at full size in Aurora, which was not run on it: whether Aurora
-  draws a visual transform at all, and its rotations as the game does,
-  is unchecked (an Aurora capture would settle it). (S) (xtul's report,
-  October 2026)
-- **Static and the transform elsewhere:** ticking Static takes a placed
-  placeable's visual transform off in its Properties (with others
-  edited together) and Make Static, as Aurora does. Not so: a plugin
-  setting `Static`, `mg apply` and `mg set` (fields set as given),
-  and Update Instances, which keeps an object's transform whatever its
-  blueprint's Static (Aurora's Update Instances was captured on dynamic
-  objects only). Whether Aurora takes it off when Static is ticked on a
-  blueprint was not looked at (a blueprint has none from Aurora). (S)
 - **Lerps, animation speed and other scopes:** Adjust Location edits
   scope 0's scale, rotation and translation only; a transform's
   `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
@@ -1205,25 +1138,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   The box does not follow the animation as it plays, and a click is
   still tried against the model's triangles at rest (then against the
   box). (S) (from builders' reports after 1.19.1)
-- **Ctrl + wheel scales the selection** (a builder: Aurora's way to
-  resize a placeable, which did nothing here but zoom): the models of
-  the objects selected that take a scale, shown as the wheel turns and
-  one command when Ctrl is let go or the wheel rests. Not measured in
-  Aurora: how much a notch scales by there (here about a twentieth,
-  multiplied), and what its Ctrl + wheel does with nothing selected that
-  takes a scale (here the slow zoom it was). A static placeable takes
-  none and the status line says so. A turn under way is made a command
-  before a save; saved within a moment of the wheel's last notch, what
-  is left of its smoothed turning scales a hair more after. (S)
-  (from builders' reports after 1.19.1)
-- **Tile Properties' Defaults:** not yet compared with Aurora for a
-  lighting scheme whose colors aren't black
-  (`docs/research/notes_tilesets.md`). (S) (from the research notes)
-- **Delete takes a whole group by default,** where Aurora's Delete takes
-  the tile alone and leaves the rest standing (the option gives
-  Aurora's). Pasted tiles over a group are refused as a group is; how
-  Aurora pastes over a group wasn't checked. (S) (from Jasperre's tile
-  feedback, October 2026)
+- **Tile Properties' Defaults:** Moonglow's sets the lighting scheme's
+  first colors and every loop. Aurora's, compared on Interior Evil
+  (2026-10-29, `captures/wave1/tile-defaults.mod`), changed nothing
+  shown: a main light of 27 stayed 27, one of 0 stayed 0, the others 0
+  (the scheme's first colors are 27, 27 and 12); its OK then writes the
+  loops as the boxes show them, 0 for a tile without loops where they
+  were 1 (`tile-ok.mod`: OK alone does that too). What Aurora's Defaults
+  is for is not known; whether Moonglow's goes is the owner's to say.
+  (S) (from the research notes)
 - **Group tiles freed (the option on):** a stroke chooses terrain tiles
   for the group tiles it no longer fits; the doors such a change takes
   or leaves were not looked at in the engine. The plugin API keeps its
@@ -1257,8 +1180,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The turning ring
 
-- **Escape during a drag** drops it now (it used to put the object down
-  where it was); Aurora's behavior was not checked. (S)
+- **Escape during a drag** drops it (it used to put the object down
+  where it was). Aurora's doesn't: Escape pressed before the button is
+  let go changes nothing there, and the object is put down where it was
+  dragged (captured 2026-10-29, `captures/wave1/esc-drag.mod`). Matching
+  it is a line in `area_view.rs`'s `Held`; whether Moonglow keeps its
+  Escape (the drag's other tools, brushes and pastes, drop on Escape
+  too) is the owner's to say. (S)
 - **The scale handle** scales every way alike, as Adjust Location's
   field does; the file keeps a scale for each axis. It stands where it
   was taken while it is dragged, rather than follow the pointer. (S)
@@ -2014,16 +1942,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module with its own `pnl_loadscreen` model, or a texture that isn't
   laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
   The picture isn't in the list itself, only on hover. (S)
-- **Text in another language where the one edited has none** (English
-  first), as a builder says Aurora shows it: the palettes, the module
-  tree, conversation lines, the journal's lists, and, marked with the
-  language named, every field that edits such text: a blueprint's and an
-  area's, Module Properties' name and description, the journal's names
-  and entries, a conversation line's text. That Aurora prefers English
-  to the first language found was not captured. A token put into a line
-  shown in another language goes into that text, which then becomes the
-  line's own in the language edited. (S)
-  (from builders' reports after 1.16.1)
 - **A module's `encoding.2da`** (EE 1.87: a table of the Unicode
   character each of the 256 byte values stands for, shipped with fonts
   to match, so that a module can be in a language the game has no
@@ -2741,22 +2659,21 @@ of truth, and does each caller's difference matter.
   `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
   `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
   Which the game takes, by an engine test. (S)
-- **A palette node's name, four readers:** `palette.rs:430` (NAME, then
-  STRREF, then DELETE_ME), `:323`, `new.rs:242`, and the tile palette's
-  `mg-area terrain.rs:119` (STRREF first, no DELETE_ME, NAME as UTF-8).
-  Aurora's order, by a capture. (S)
-- **A copy's resref:** `copy_resref` (`palette_view.rs:320`, keeps
-  `nw_`) and `new_resref` (`palette_add.rs:37`, drops it and goes on
-  from the template's number), with three more generators
-  (`store_setup.rs:27`, `blueprints.rs:35`, `dialog_view.rs:1612`) and
-  two from a file's stem (`dialog_view.rs:1608`, `nui_view/images.rs:91`).
-  Aurora's Copy against its Add to Palette, by a capture. (S)
-- **The two portrait filters:** the Creature Wizard's
+- **A copy's resref, the generators left:** a blueprint's Copy is named
+  as Aurora's Edit Copy and Add to Palette name one now (`new_resref`,
+  captured 2026-10-29: `nw_w1copy007` to `w1copy008`); `copy_resref`
+  (`palette_view.rs`) stays for other resources, with three more
+  generators (`store_setup.rs:27`, `blueprints.rs:35`,
+  `dialog_view.rs:1612`) and two from a file's stem
+  (`dialog_view.rs:1608`, `nui_view/images.rs:91`). (S)
+- **The two portrait filters, the Creature Wizard's:** Select Portrait's
+  (`situated.rs`: the gender exactly, the module's portraits too, the
+  table's order) is Aurora's (captured 2026-10-29: Human and Male lists
+  Sex 0 rows alone in row order, the module's own `w1po_` among them;
+  Outsider and Male shows nothing there too). The Creature Wizard's
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
-  none, Plot rows left out, not the module's portraits) and Select
-  Portrait's (`situated.rs:228`: the gender exactly, the module's too):
-  Outsider and Male shows nothing in Select Portrait. Aurora's, by a
-  capture. (S)
+  none, Plot rows left out, not the module's portraits) was not compared
+  with Aurora's wizard. (S)
 - **The module's codepage, four ways** (`mg main.rs:2661` builds a
   ResMan for it; `mg-plugin runtime.rs:950`, `mg plugins.rs:414`,
   `mg-ui text.rs:23`; `mg-plugin terrain.rs:65`): the same on an English
@@ -2765,15 +2682,16 @@ of truth, and does each caller's difference matter.
 ### Smaller, each S
 
 - Left by the one row list (`widgets::row_choice`, 2026-10-21): it lays
-  out every row while open, where the 2DA editor's "a row of X.2da"
-  laid out only those in sight (a table of tens of thousands of rows,
-  not measured); Advanced Search's Value list goes by name past 12
-  rows, where the item editor's cost list keeps the numbers' order (+10
-  before +2 there); the Appearance and loading screen lists have no "≠"
-  mark for blueprints edited together, which the other fields' lists
-  have; and lists that had the table's order and now go by name (a
-  creature's classes, a door's generic appearance, an item property's
-  parameter, the portraits) were not held to Aurora's order.
+  out every row while open, where the 2DA editor's "a row of X.2da" laid
+  out only those in sight (a table of tens of thousands of rows, not
+  measured); Advanced Search's Value list goes by name past 12 rows,
+  where the item editor's cost list keeps the numbers' order (+10 before
+  +2 there); the Appearance and loading screen lists have no "≠" mark
+  for blueprints edited together, which the other fields' lists have;
+  and an item property's parameter list, by name now, was not held to
+  Aurora's order (a creature's classes and a door's generic appearance
+  are by name in Aurora too; its portraits are in the table's order, as
+  Select Portrait's grid: captured 2026-10-29).
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
@@ -3453,3 +3371,26 @@ is not taken for a new gap.
   writes each as a talk table of its own, and nothing pairs a line with
   its feminine line. (S) (Settled with the rest of "Tables for plugins",
   done in the deferred sprint of 2026-10-28: it is the game's format.)
+
+- **Lighting off against Aurora:** Aurora's Use Area Lighting off draws
+  the textures unshaded at full brightness (no side darker than another;
+  shadows still drawn; captured 2026-10-29, `target/test-output` shots
+  of the wave 1 probe); Moonglow's working light is white and even with
+  a little from the sun's side, so that shapes read: close enough, kept.
+
+- **Static and the transform elsewhere:** ticking Static takes a placed
+  placeable's visual transform off in its Properties and Make Static, as
+  Aurora does; `mg set`, `mg apply`, a plugin and Update Instances set
+  fields as given and keep an object's transform, and Verify warns of a
+  static object with one (`--fix static-transform`). Aurora drops a
+  visual transform from every blueprint its Edit and OK writes, static
+  or not, and from a static placed placeable at every area save
+  (captured 2026-10-29, `captures/wave1/static-bp.mod`,
+  `pal2-vtdyn.mod`, `area-saved.mod`): Moonglow keeps what files have
+  (lossless editing).
+
+- **Delete takes a whole group by default,** where Aurora's Delete takes
+  the tile alone and leaves the rest standing (the option gives
+  Aurora's). Pasted tiles over a group are refused, as Aurora refuses
+  them (captured 2026-10-29: "Pasting tiles to current area failed.
+  There was a feature or a group within the region…").

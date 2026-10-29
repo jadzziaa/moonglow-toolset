@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 ---
 
 # Modules
@@ -1472,7 +1472,9 @@ plugin reads a description with `mg.twoda.describe`
 - **File › Export…** writes chosen resources to an `.erf` archive.
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
-  creatures out of the module's own factions into the standard ones.
+  creatures out of the module's own factions into the standard ones
+  (ticked to begin with, as Aurora's Reset Factions to Parent Factions
+  is).
   Right-click a resource in the tree to export it (several, chosen with
   Ctrl and Shift, together); a placed object's **Export as Blueprint…**
   writes it as a blueprint of its own ([Areas](04-areas.md)). An area's
@@ -1483,9 +1485,11 @@ plugin reads a description with `mg.twoda.describe`
   then the rest by extension); **Kind** lists one kind alone, **Filter**
   those whose names hold what is typed, and **Select the Listed** and
   **Clear Them** tick and untick what the two leave. With **Add to the
-  file if it exists**, choosing an archive that is already there adds
-  the resources to it (those of the same names are replaced, the rest
-  and its description stay) instead of replacing the file.
+  file if it exists** (ticked to begin with: Aurora asks whether to
+  append to an archive that is there, Yes first), choosing an archive
+  that is already there adds the resources to it (those of the same
+  names are replaced, the rest and its description stay) instead of
+  replacing the file.
 - **An export says what it was made from.** After the description, the
   archive holds a stamp: the module's git commit, if the module is in a
   git checkout (a nasher project's folder, a module folder, or the

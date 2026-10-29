@@ -126,10 +126,13 @@ impl TilesetPalette {
     }
 }
 
+/// A node's label: its name as every palette's is read
+/// ([`mg_module::palette::node_name`]), a name written out as UTF-8 (the
+/// tileset palettes Moonglow and its builders write).
 fn label(s: &Struct, string: &dyn Fn(StrRef) -> String) -> String {
-    match s.integer("STRREF") {
-        Some(r) if r >= 0 && r != i64::from(u32::MAX) => string(StrRef(r as u32)),
-        _ => String::from_utf8_lossy(s.string("NAME").unwrap_or_default()).into_owned(),
+    match mg_module::palette::node_name(s) {
+        mg_module::palette::PaletteName::StrRef(r) => string(StrRef(r)),
+        mg_module::palette::PaletteName::Text(t) => String::from_utf8_lossy(&t).into_owned(),
     }
 }
 

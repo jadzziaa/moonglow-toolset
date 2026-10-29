@@ -3220,7 +3220,8 @@ fn the_start_location_is_dragged_and_turned_in_the_view() {
 
 /// What the area view's toolbar hides stays hidden in every area view,
 /// as in Aurora (a builder's report): in the other open ones, and in one
-/// opened later (from the settings, so in the next run too).
+/// opened later; not in the next run, as Aurora shows every kind again
+/// when it starts.
 #[test]
 fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     use mg_area::ObjectKind;
@@ -3250,6 +3251,10 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
     assert!(shown(&h, first, ObjectKind::Encounter), "the rest shown");
     assert_eq!(h.state().settings.hidden_in_areas, ["Triggers"]);
+    // Not kept for the next run.
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let next: mg_ui::settings::Settings = serde_json::from_str(&saved).unwrap();
+    assert!(next.hidden_in_areas.is_empty(), "the next run shows every kind");
     // An area view made anew (closed and opened again) hides them too.
     h.state_mut().area_views.remove(&first);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(first)));
@@ -3881,9 +3886,9 @@ fn a_dragon_s_box_in_an_area() {
 /// Ctrl + wheel over the view scales the selected placeable's model, as
 /// Aurora's does: shown as the wheel turns, one command when Ctrl is let
 /// go, and Undo takes it back whole (or drops it while it is under way).
-/// A static placeable takes no scale, and with nothing selected that
-/// does the wheel zooms, as it did; so does it with the pointer off the
-/// selection (a builder's report: the view moved with Ctrl + drag, the
+/// A static placeable takes no scale; with nothing selected the wheel
+/// does nothing, as Aurora's; with the pointer off the selection it
+/// zooms (a builder's report: the view moved with Ctrl + drag, the
 /// wheel turned to zoom scaled the placeable selected).
 #[test]
 fn ctrl_and_the_wheel_scale_what_is_selected() {
@@ -3938,11 +3943,11 @@ fn ctrl_and_the_wheel_scale_what_is_selected() {
     let over = screen(&h, area, pivot);
     h.hover_at(over);
     h.run_steps(2);
-    // Nothing selected: the wheel zooms, slowly.
+    // Nothing selected: the wheel does nothing, as Aurora's.
     let far = distance(&h);
     turn(&mut h, 200.0);
     let_go(&mut h);
-    assert!(distance(&h) < far, "zoomed in");
+    assert_eq!(distance(&h), far, "the view stays");
     assert_eq!(scale(&mut h), None);
     // The chest selected, the pointer off it: the wheel zooms still.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];

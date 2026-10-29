@@ -59,6 +59,17 @@ pub(crate) fn offered(table: &mg_2da::TwoDa, row: usize, name: &str, label: &str
     !gone && table.get_int(row, name).is_some()
 }
 
+/// Whether a spells.2da row is one Special Abilities offers, as Aurora's
+/// list does (captured, `docs/log.md` 2026-10-29): an [`offered`] spell
+/// (`UserType` 1) or creature ability (2), not a subradial choice of
+/// another (a `Master`: Greater Shadow Conjuration's five, Holy Aura). A
+/// feat's, an item's power and the rest are not.
+pub(crate) fn special_ability(spells: &mg_2da::TwoDa, row: usize) -> bool {
+    offered(spells, row, "Name", "Label")
+        && matches!(spells.get_int(row, "UserType"), Some(1 | 2))
+        && spells.get_int(row, "Master").is_none()
+}
+
 /// feat.2da `TOOLSCATEGORIES`: the toolset's categories of feats.
 const FEAT_CATEGORIES: [(i32, &str); 6] = [
     (1, "Combat"),
@@ -846,9 +857,8 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
-                    let offer = |row: usize| {
-                        spell_table.as_ref().is_none_or(|t| offered(t, row, "Name", "Label"))
-                    };
+                    let offer =
+                        |row: usize| spell_table.as_ref().is_none_or(|t| special_ability(t, row));
                     for c in names
                         .iter()
                         .filter(|c| needle.finds(&c.text) && in_category(c.row) && offer(c.row))
@@ -1708,6 +1718,17 @@ mod tests {
         assert_eq!(offer, [true, false, false, false, false]);
         assert_eq!(row_line(&t, "spells", 0), "spells.2da row 0: Acid_Fog, innate level 6");
         assert_eq!(row_line(&t, "feat", 4), "feat.2da row 4");
+    }
+
+    #[test]
+    fn special_abilities_are_spells_and_creature_abilities_without_a_master() {
+        let text = b"2DA V2.0\n\n  Label Name UserType Master\n0 Acid_Fog 2 1 ****\n\
+            1 AURA_BLINDING 5226 2 ****\n2 BARBARIAN_RAGE 3 3 ****\n3 ACTIVATE_ITEM 4 4 ****\n\
+            4 GR_SHADOW_CON_Acid_Arrow 6309 1 71\n5 ITEM_Teleport 83473 **** ****\n\
+            6 DELETED 9 1 ****\n";
+        let t = mg_2da::TwoDa::parse(&text[..], mg_core::Codepage::default()).unwrap();
+        let offer: Vec<bool> = (0..7).map(|r| special_ability(&t, r)).collect();
+        assert_eq!(offer, [true, true, false, false, false, false, false]);
     }
 
     #[test]

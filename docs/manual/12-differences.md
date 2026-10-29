@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 ---
 
 # Differences from Aurora
@@ -48,7 +48,8 @@ it differs, it is on purpose:
   tileset's and the area's own (Area Properties › Grass, which Aurora
   hasn't), on the tiles within 30 m of where the view looks, whatever
   its distance (the game draws it within about 24 m of its camera). Its
-  tufts are spread evenly, where the game's gather in patches.
+  tufts are spread evenly, where the game's gather in patches. Aurora
+  drops an area's own grass when it saves the area ([Areas](04-areas.md#grass)).
 - **Waypoints** are the flags of their appearance (blue, red, green,
   yellow), **sounds** the game's markers for them (a note: heard from
   where it stands, from a random position, or everywhere in the area)

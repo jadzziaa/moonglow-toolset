@@ -75,9 +75,12 @@ impl LocString {
     }
 
     /// The text to show where `language` has none: another language's,
-    /// English if it has any, else the first variant with text; and the
-    /// language it is in. (Aurora shows a builder the English text of a
-    /// name written in English alone, whatever language it edits in.)
+    /// English if it has any, else the language first by number (French,
+    /// German, Italian, Spanish, Polish), male before female, wherever it
+    /// is in the file; and the language it is in. As Aurora shows them: a
+    /// name written in German and then French shows in French (captured
+    /// 2026-10-29), one in English alone in English, whatever language it
+    /// edits in.
     pub fn elsewhere(&self, language: Language) -> Option<(Language, String)> {
         self.elsewhere_in(language, language.codepage())
     }
@@ -85,13 +88,17 @@ impl LocString {
     /// [`elsewhere`](Self::elsewhere) where `game` is the game's codepage.
     pub fn elsewhere_in(&self, language: Language, game: Codepage) -> Option<(Language, String)> {
         let text = |l: Language, bytes: &[u8]| (l, game.for_language(l).decode(bytes).into_owned());
-        let english = LocStringKey::new(Language::ENGLISH, Gender::Male);
-        let others = self.strings.iter().filter(|(k, b)| k.language() != language && !b.is_empty());
-        others
-            .clone()
-            .find(|(k, _)| *k == english)
-            .or_else(|| others.clone().next())
-            .map(|(k, b)| text(k.language(), b))
+        self.elsewhere_bytes(language).map(|(k, b)| text(k.language(), b))
+    }
+
+    /// [`elsewhere`](Self::elsewhere)'s variant, as the bytes the file has.
+    pub fn elsewhere_bytes(&self, language: Language) -> Option<(LocStringKey, &[u8])> {
+        // (English is language 0: the lowest key is English's if any.)
+        self.strings
+            .iter()
+            .filter(|(k, b)| k.language() != language && !b.is_empty())
+            .min_by_key(|(k, _)| *k)
+            .map(|(k, b)| (*k, b.as_slice()))
     }
 
     /// Sets a variant, replacing it in place if present, else appending it.
@@ -149,6 +156,16 @@ mod tests {
         assert_eq!(s.elsewhere(Language::ENGLISH), Some((Language::GERMAN, "Laden".to_string())));
         s.set(Language::ENGLISH, Gender::Male, Vec::new());
         assert_eq!(s.elsewhere(polish), Some((Language::GERMAN, "Laden".to_string())));
+        // Without English, the language first by number, not the first in
+        // the file: German then French shows French, as Aurora's palette.
+        let mut s = LocString::default();
+        s.set(Language::GERMAN, Gender::Male, b"Deutscher Name".to_vec());
+        s.set(Language::FRENCH, Gender::Male, b"Nom francais".to_vec());
+        assert_eq!(s.elsewhere(polish), Some((Language::FRENCH, "Nom francais".to_string())));
+        assert_eq!(
+            s.elsewhere(Language::FRENCH),
+            Some((Language::GERMAN, "Deutscher Name".into()))
+        );
     }
 
     #[test]

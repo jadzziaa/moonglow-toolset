@@ -291,10 +291,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui,
             |ui| {
                 crate::widgets::field_label(ui, "Interval between playing sounds (seconds)");
-                f.millis(ui, "Interval", "Interval", 0.0..=100.0, 10.0);
+                f.millis(ui, "Interval", "Interval", 0.0..=60.0, 10.0);
                 ui.end_row();
                 crate::widgets::field_label(ui, "Interval Variation (seconds)");
-                f.millis(ui, "Interval variation", "IntervalVrtn", 0.0..=100.0, 10.0);
+                f.millis(ui, "Interval variation", "IntervalVrtn", 0.0..=60.0, 10.0);
                 ui.end_row();
             },
         );

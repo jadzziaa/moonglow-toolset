@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1740,6 +1740,34 @@ sound's volume are lost.
 - **Moonglow:** `crates/mg-module/src/instances.rs` (`update`).
 - **Wiki:** says only that it updates objects "to match the blueprint".
 
+### Update Instances and held items
+
+Asked "even those inside a container (creature, placeable object,
+store)?", Aurora's Update Instances makes the items placed objects hold
+again from their blueprint too: name, charges and cost are the
+blueprint's, and so is `StackSize` (a chest's three and a creature's
+two became one); the place in the grid, `Dropable`, `Pickpocketable`
+and a store's `Infinite` stay.
+
+- **Checked:** Aurora, the captures `wave1/update-held.mod` and
+  `wave1/pal2-update.mod` (`tools/aurora/capture_wave1.py`).
+- **Moonglow:** `crates/mg-module/src/instances.rs` (`update_held`).
+- **Wiki:** missing.
+
+### What Aurora drops when it saves an area or a blueprint
+
+An area's own grass (`GrassDefDisabled`, `GrassOverrides` in the GIT's
+`AreaProperties`) is gone from an area Aurora saves; so is the visual
+transform (`VisTransformList`) of a static placed placeable, while a
+dynamic one's stays. A blueprint written by its Edit and OK has no
+`VisTransformList`, static or not (Aurora's blueprints have none).
+
+- **Checked:** Aurora, the captures `wave1/area-saved.mod` (the probe
+  `wave1/before.mod`), `wave1/static-bp.mod`, `wave1/pal2-vtdyn.mod`.
+- **Moonglow:** keeps what the files have; Verify warns of a static
+  object with a visual transform. The manual warns of the grass.
+- **Wiki:** missing.
+
 ### Add to Palette naming
 
 The new resref is the template without `nw_` and its trailing number; from
@@ -1799,6 +1827,22 @@ same name; Delete takes out the entry alone.
   where the builder changed something.
 - **Wiki:** "Toolset Palette ITP" says the toolset makes the `palcus.itp`
   from the module's blueprints at every save; Aurora 89.8193.37 doesn't.
+
+A module's own skeleton (`<type>pal.itp`) is what Select Category and
+Refresh Palette read: its new and renamed categories, a node's name its
+`STRREF` before a `NAME` written out, `DELETE_ME` where there is
+neither, written into the `palcus.itp` as `NAME` (or the `STRREF`
+alone). The custom palette shown is the `palcus.itp`'s own nodes and
+names, each level by name, whatever order the file has; Save As writes
+it back in that order, and gives every creature entry its blueprint's
+`CR` and `FACTION`, stale or not. A blueprint whose category the
+palette lacks (a `PaletteID` of 200, 255, a category the `palcus.itp`
+hasn't) is left out by Refresh Palette, and put in the first category
+(Battlefield) by Edit and OK.
+
+- **Checked:** Aurora, the captures `wave1/saveas.mod`,
+  `wave1/refresh-items.mod`, `wave1/pal2-refresh2.mod`,
+  `wave1/pal2-newcat.mod` and `wave1/pal2-saveas.mod`.
 
 ### Build › Compile › Encounters
 

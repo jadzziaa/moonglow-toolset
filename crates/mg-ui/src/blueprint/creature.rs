@@ -914,7 +914,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 // The rating is recalculated with it (`refresh_hit_points`).
                 let adjust = f.int("CRAdjust");
                 f.mark_mixed(ui, "CRAdjust");
-                if let Some(v) = spin_number(ui, adjust, -100..=100) {
+                if let Some(v) = spin_number(ui, adjust, -125..=125) {
                     let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
                     f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
                 }

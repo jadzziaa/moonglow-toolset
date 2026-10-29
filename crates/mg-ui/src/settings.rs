@@ -312,7 +312,10 @@ pub struct Settings {
     /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
     /// `Start` for the start location's marker; `Merchants`, as 1.35 and
     /// earlier wrote it, is read as `Stores`): every area view, the open
-    /// ones and those opened from now on, hides them, as in Aurora.
+    /// ones and those opened from now on, hides them, as in Aurora. For
+    /// this run only, as Aurora's (it shows every kind again when it
+    /// starts: captured 2026-10-29), so an area never opens looking empty.
+    #[serde(skip)]
     pub hidden_in_areas: Vec<String>,
     /// Options › Verify: the groups Verify Module leaves out of its report
     /// (by [`mg_module::doctor::Group::id`]).

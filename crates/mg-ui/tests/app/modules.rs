@@ -307,6 +307,11 @@ fn export_lists_a_kind() {
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
     h.run();
+    // As Aurora's Export begins: an archive that is there is added to
+    // (Aurora asks, Yes to append first), creatures go to the standard
+    // factions (its Reset Factions to Parent Factions, ticked).
+    let draft = h.state().export.clone().unwrap();
+    assert!(draft.add && draft.reset_factions && draft.dependencies);
     // Every kind, each under its heading, the tree's kinds first.
     assert!(h.query_by_label("Areas (.are)").is_some());
     assert!(h.query_by_label("Scripts (.nss)").is_some());
