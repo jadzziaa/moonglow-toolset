@@ -110,3 +110,65 @@ fn reading_feminine_talk_table() {
         print_log(&dir);
     }
 }
+
+/// The blueprint `resref` (`ty`) placed at `at` facing `facing`
+/// (degrees) in the reading's GIT list `list`, with `fields` set.
+fn put(
+    r: &mut Reading,
+    ty: ResType,
+    resref: &str,
+    list: &str,
+    at: [f32; 3],
+    facing: f32,
+    fields: &[(&str, Value)],
+) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let bp = Gff::read(&r.game.resman.get_named(resref, ty).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &r.game, item: &none };
+    let at = Placement { position: at, rotation: facing.to_radians() };
+    let mut p = instance(&placing, ty, &bp.root, at, &[]).unwrap();
+    for (label, v) in fields {
+        p.set(label, v.clone());
+    }
+    let mut items = r.git.root.list(list).map(<[_]>::to_vec).unwrap_or_default();
+    items.push(p);
+    r.git.root.set(list, Value::List(items));
+}
+
+/// The sun's shadows of what the shadows entry asks about, in the client
+/// beside Moonglow's area view (ttr01 by day, Sun Shadows on at 100,
+/// the client's environment shadows on, the sun towards (4000, 4500,
+/// 7000)): north of the player, west to east, a door (`nw_door_ttr_01`)
+/// standing free, a longsword lying on the ground (made by the entry
+/// script), and three armoires raised 0, 1.5 and 3 m above the ground;
+/// then the same from a low camera (`MG_LOW=1`: pitch 85, distance 5),
+/// below the raised armoires' tops.
+#[test]
+#[ignore]
+fn reading_shadows_of_doors_items_and_heights() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let low = std::env::var_os("MG_LOW").is_some();
+    let name = if low { "shadow_heights_low" } else { "shadow_heights" };
+    let mut r = Reading::new(name, "ttr01", light, &[]);
+    for (label, v) in [("SunShadows", 1u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+        r.are.root.set(label, Value::Byte(v));
+    }
+    put(&mut r, ResType::UTD, "nw_door_ttr_01", "Door List", [15.5, 24.0, 0.0], 0.0, &[]);
+    for (i, z) in [0.0f32, 1.5, 3.0].into_iter().enumerate() {
+        let x = 21.0 + 2.5 * i as f32;
+        put(&mut r, ResType::UTP, "plc_armoire", "Placeable List", [x, 24.0, z], 180.0, &[]);
+    }
+    let body = format!(
+        "{INVISIBLE}
+    CreateObject(OBJECT_TYPE_ITEM, \"nw_wswls001\", Location(area, Vector(18.5, 23.5, 0.0), 30.0));"
+    );
+    let settings = super::shadows::settings();
+    if low {
+        let (dir, _) = r.shoot(&enter(&body, (90.0, 5.0, 85.0)), &settings);
+        print_log(&dir);
+    } else {
+        let (dir, _) = r.shoot_beside(&body, &settings, &|v| v.shadows = true);
+        print_log(&dir);
+    }
+}

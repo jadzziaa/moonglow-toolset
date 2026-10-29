@@ -1149,19 +1149,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     themselves);
   - with Fade Geometry on, the faded roofs and upper walls cast no
     shadow, where the game's still do (S);
-  - doors cast as placeables do and items on the ground cast none (the
-    game since 8193.35: "non-character models cast shadows only if
-    opaque") (S) (waits on a client reading: a door and an item on the
-    ground in the sun);
-  - the shadow's fade with the height between plane and caster
-    (8193.31's "shadow alpha by vertical distance") and sun shadows
-    never above the camera's height are not drawn (S) (waits on a
-    client reading: a caster raised over the ground in steps, and a tall
-    one seen from below its top). Seen with a sun low in the west (a
-    GIT's direction, `reading_git_sun_direction`): the client leaves a
-    city street lit but for thin spikes, where Moonglow lays the
-    buildings' long shadows over all of it, light showing through in
-    thin lines;
+  - a sun low in the west (a GIT's direction,
+    `reading_git_sun_direction`): the client leaves a city street lit
+    but for thin spikes, where Moonglow lays the buildings' long shadows
+    over all of it, light showing through in thin lines. (The fade with
+    the height between plane and caster that 8193.31 names is not seen:
+    armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
+    and casters above the camera still cast, as in Moonglow:
+    `reading_shadows_of_doors_items_and_heights`, 2026-10-29);
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
