@@ -2571,6 +2571,7 @@ name = "mg-image"
 version = "0.0.0"
 dependencies = [
  "mg-core",
+ "png",
  "thiserror 2.0.21",
 ]
 

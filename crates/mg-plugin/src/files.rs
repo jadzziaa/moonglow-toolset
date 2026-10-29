@@ -338,29 +338,11 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
         }
         return Ok((rgba.width, rgba.height, rgba.data));
     }
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let (width, height) = (reader.info().width, reader.info().height);
-    if u64::from(width) * u64::from(height) > MAX_PIXELS {
-        return Err("the picture is too large".into());
-    }
-    let size = reader.output_buffer_size().ok_or("the picture is too large")?;
-    let mut buf = vec![0; size];
-    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    let data = &buf[..info.buffer_size()];
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => {
-            data.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
-        }
-        png::ColorType::Rgb => {
-            data.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect()
-        }
-        png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Indexed => return Err("the picture's palette was not unpacked".into()),
-    };
-    Ok((width, height, rgba))
+    let rgba = mg_image::png::read_picture(bytes, MAX_PIXELS).map_err(|e| match e {
+        mg_image::ImageError::BadSize(..) => "the picture is too large".to_string(),
+        e => e.to_string(),
+    })?;
+    Ok((rgba.width, rgba.height, rgba.data))
 }
 
 /// `mg.image(bytes, kind?)`: a PNG, TGA or DDS picture decoded.

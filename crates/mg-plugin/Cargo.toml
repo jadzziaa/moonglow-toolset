@@ -21,7 +21,6 @@ mg-set.workspace = true
 mg-tiles.workspace = true
 mg-tlk.workspace = true
 fastrand.workspace = true
-png.workspace = true
 mlua.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -31,6 +30,7 @@ zip.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true
+png.workspace = true
 
 [lints]
 workspace = true

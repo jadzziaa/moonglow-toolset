@@ -529,7 +529,7 @@ An `image`, from `mg.image`:
 | | |
 | --- | --- |
 | `image.width`, `image.height` | Its size in pixels. |
-| `image:pixel(x, y)` | A pixel's red, green, blue and alpha, each 0 to 255: four values. Pixels count from 0, from the top left. A gray picture has the same red, green and blue; 16 bits a channel are read as 8. |
+| `image:pixel(x, y)` | A pixel's red, green, blue and alpha, each 0 to 255: four values. Pixels count from 0, from the top left. A gray picture has the same red, green and blue; 16 bits a channel are rounded to the nearest of 8 bits, as a NUI window's picture is read. |
 
 Where there is nobody to ask (a check; `mg plugin run`): a message is
 logged, `confirm` is false (true with `--yes`), and a form is nil in a

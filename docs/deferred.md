@@ -2498,10 +2498,6 @@ of truth, and does each caller's difference matter.
   now but are still two (the edits wanted by the area view against the
   module's mutations). (Making placeables static is one since
   2026-10-22: `areas::static_plan` and `static_fields`.)
-- The plugin's PNG reading differs from the NUI skin's (16-bit samples
-  cut against rounded, limits by pixels against bytes and sides:
-  `mg-plugin files.rs`, `nui_view/skin.rs:342`); the TGA's are one
-  since 2026-10-21.
 
 ## A project's rules (the builders' proposal, C1 to C5)
 
