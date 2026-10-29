@@ -561,21 +561,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Names in order, accents aside** (Sacha's report, October 2026):
-  the Category lists (Options › General), the module tree, the lists of
-  a table's rows and the palettes' own order (Windows' word sort) fold
-  case and the accents of Latin letters (Latin-1, Extended-A and B,
-  Extended Additional: Vietnamese) and Greek's tonos (`mg_core::text`),
-  so `Árboles` stands beside `arboles`; every Filter and Find of names
-  (`mg_core::text::Needle`: the module tree, the palettes, the lists of
-  rows, the resource browser, the 2DA editor, the script side list, the
-  wizards, Edit Areas Together, `mg`'s area and object filters) finds
-  `Árbol` for `arbol`, and the searches of text (Find and Replace Text,
-  a script's Find, the conversation Search) set accents aside only
-  without Match case; tags and `*` patterns (Find Instance, Advanced
-  Search, `mg find`) too. Not done: Cyrillic's (ё for е) and polytonic
-  Greek's marks (Greek Extended) are not folded. (S)
-
 - **Palette categories, what the editor lacks:** no translated names
   (one text for every language), and Remove refuses a category in use
   rather than offer to move its blueprints. (S–M)
@@ -2462,10 +2447,6 @@ of truth, and does each caller's difference matter.
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
   none, Plot rows left out, not the module's portraits) was not compared
   with Aurora's wizard. (S)
-- **The module's codepage, four ways** (`mg main.rs:2661` builds a
-  ResMan for it; `mg-plugin runtime.rs:950`, `mg plugins.rs:414`,
-  `mg-ui text.rs:23`; `mg-plugin terrain.rs:65`): the same on an English
-  game; with a partial `encoding.2da` on another, to be checked. (S)
 
 ### Smaller, each S
 

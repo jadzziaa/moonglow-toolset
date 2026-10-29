@@ -167,8 +167,9 @@ wheel, or the scroll bar under it), as Aurora's does.
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
 blueprints are listed by their names instead (in the names' order,
-case and accents aside, so `Árboles` stands beside `arboles`; one
-without a name keeps its ResRef), areas' tabs are titled by name, the
+case and accents aside, so `Árboles` stands beside `arboles`, as
+polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка` beside
+`елка`; one without a name keeps its ResRef), areas' tabs are titled by name, the
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.

@@ -3592,16 +3592,21 @@ fn run(cli: &Cli) -> Result<Output> {
     Ok(out)
 }
 
-/// The codepage of a module's text: Windows-1252, or the table of an
-/// `encoding.2da` in its haks (which takes the game install to find them:
-/// without one, Windows-1252).
+/// The codepage of a module's text ([`mg_rules::text_codepage`]):
+/// Windows-1252, or the table of an `encoding.2da` in its haks (which
+/// takes the game install to find them: without one, Windows-1252).
 fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let own = Codepage::WINDOWS_1252;
     let haks = m.haks().unwrap_or_default();
     let Ok(gi) = install(cli) else { return own };
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
     let _ = rm.add_haks(&gi, &haks);
-    mg_rules::encoding_of(&rm, own)
+    mg_rules::text_codepage(&rm, game_language(&gi))
+}
+
+/// The install's language (English where its code is none the game has).
+fn game_language(gi: &GameInstall) -> mg_core::Language {
+    mg_core::Language::from_short_code(&gi.language).unwrap_or(mg_core::Language::ENGLISH)
 }
 
 /// The plugins that look at what `mg set` or `mg apply` saves (those
@@ -3791,7 +3796,7 @@ fn verify(
     let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
-    let codepage = mg_rules::encoding_of(&rm, Codepage::WINDOWS_1252);
+    let codepage = mg_rules::text_codepage(&rm, game_language(&gi));
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {

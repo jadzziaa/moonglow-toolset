@@ -58,14 +58,23 @@ void Probe()
 }
 "#;
 
-/// Runs the probe with an `encoding.2da` in a hak of the module's, in the
-/// module file itself, or without one.
-fn probe(
-    root: &std::path::Path,
-    name: &str,
-    in_hak: Option<&str>,
-    in_module: Option<&str>,
-) -> (String, Vec<String>) {
+/// Where the probe's `encoding.2da` lies, and the game's language.
+#[derive(Default, Clone, Copy)]
+struct Setup<'a> {
+    /// In a hak of the module's.
+    hak: Option<&'a str>,
+    /// In the module file itself.
+    module: Option<&'a str>,
+    /// In the user directory's `override`.
+    overridden: Option<&'a str>,
+    /// The game's language (`settings.tml`'s `game.language.override`):
+    /// English without.
+    language: Option<&'a str>,
+}
+
+/// Runs the probe as `setup` has it.
+fn probe(root: &std::path::Path, name: &str, setup: Setup<'_>) -> (String, Vec<String>) {
+    let Setup { hak: in_hak, module: in_module, overridden, language } = setup;
     let gd = GameData::open(&GameInstall::new(root, None, "en")).unwrap();
     let data = gd.resman.get(&ResKey::parse("nw_chicken", ResType::UTC).unwrap()).unwrap();
     let mut utc = Gff::read(&data).unwrap();
@@ -89,6 +98,14 @@ fn probe(
         std::fs::create_dir_all(dir.join("hak")).unwrap();
         std::fs::write(dir.join("hak/mg_encoding.hak"), hak.to_bytes().unwrap()).unwrap();
         haks.push("mg_encoding");
+    }
+    if let Some(t) = overridden {
+        std::fs::create_dir_all(dir.join("override")).unwrap();
+        std::fs::write(dir.join("override/encoding.2da"), t).unwrap();
+    }
+    if let Some(l) = language {
+        let settings = format!("[game.language]\noverride = \"{l}\"\n");
+        std::fs::write(dir.join("settings.tml"), settings).unwrap();
     }
     probe_module(root, &dir, name, PROBE, &haks, &extra);
     let run = run_server(root, &dir, name, "MG_DONE", Duration::from_secs(60)).unwrap();
@@ -129,7 +146,7 @@ fn the_game_reads_its_text_as_windows_1252_without_a_table() {
     let _ = oracle_tool!("nwn_script_comp");
     // (Bytes 0x81, 0x8D, 0x8F, 0x90 and 0x9D, which Windows-1252 leaves
     // out, are the control characters of their numbers, as here.)
-    assert_eq!(probe(&root, "mg_enc_none", None, None), moonglow(Codepage::WINDOWS_1252));
+    assert_eq!(probe(&root, "mg_enc_none", Setup::default()), moonglow(Codepage::WINDOWS_1252));
 }
 
 #[test]
@@ -162,7 +179,62 @@ fn the_game_reads_its_text_by_a_hak_s_encoding_table() {
     let codepage = mg_rules::encoding_table(&table, Codepage::WINDOWS_1252).unwrap();
     let (text, at) = moonglow(codepage);
     assert_eq!(text.chars().nth(0xF0 - 0x20), Some('ğ'));
-    assert_eq!(probe(&root, "mg_enc_table", Some(&t), None), (text, at));
+    assert_eq!(
+        probe(&root, "mg_enc_table", Setup { hak: Some(&t), ..Setup::default() }),
+        (text, at)
+    );
     // The same table in the module file alone is not read.
-    assert_eq!(probe(&root, "mg_enc_in_mod", None, Some(&t)), moonglow(Codepage::WINDOWS_1252));
+    assert_eq!(
+        probe(&root, "mg_enc_in_mod", Setup { module: Some(&t), ..Setup::default() }),
+        moonglow(Codepage::WINDOWS_1252)
+    );
+}
+
+/// A table that moves byte 0xF0 to `ğ` and has no rows past it.
+fn partial_table() -> String {
+    let mut t = String::from("2DA V2.0\n\n     Codepoint\n");
+    for b in 0..=0xF0usize {
+        let cell = if b == 0xF0 { "0x11f".to_string() } else { format!("0x{b:x}") };
+        t.push_str(&format!("{b} {cell}\n"));
+    }
+    t
+}
+
+#[test]
+fn the_game_reads_an_encoding_table_from_override() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let t = partial_table();
+    let table = mg_2da::TwoDa::parse(t.as_bytes(), Codepage::WINDOWS_1252).unwrap();
+    let codepage = mg_rules::encoding_table(&table, Codepage::WINDOWS_1252).unwrap();
+    let got = probe(&root, "mg_enc_override", Setup { overridden: Some(&t), ..Setup::default() });
+    assert_eq!(got, moonglow(codepage));
+}
+
+#[test]
+fn a_polish_game_keeps_its_own_letters_where_a_table_has_no_row() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let polish = Setup { language: Some("pl"), ..Setup::default() };
+    // The language taken: without a table, its text is Windows-1250. (Of
+    // the characters asked, the game writes `ð`, which Windows-1250
+    // lacks, as 0xF0, its `đ`, where Moonglow writes a "?".)
+    let none = probe(&root, "mg_enc_pl_none", polish);
+    assert_eq!(none.0, moonglow(Codepage::WINDOWS_1250).0);
+    assert_eq!(none.1, ["31 208 31 138 31 201 31"]);
+    // A table's missing rows keep Windows-1250's letters, not
+    // Windows-1252's: the table stands on the game's own codepage.
+    let t = partial_table();
+    let got = probe(&root, "mg_enc_pl_table", Setup { hak: Some(&t), ..polish });
+    let table = mg_2da::TwoDa::parse(t.as_bytes(), Codepage::WINDOWS_1250).unwrap();
+    let codepage = mg_rules::encoding_table(&table, Codepage::WINDOWS_1250).unwrap();
+    assert_eq!(got, moonglow(codepage));
 }

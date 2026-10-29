@@ -1330,8 +1330,8 @@ fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
 }
 
 fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
-    let game = input.game.as_deref().map_or(CODEPAGE, |g| g.codepage());
-    GAME_CODEPAGE.with(|c| c.set(game.for_language(mg_core::Language::ENGLISH)));
+    let game = input.game.as_deref().map_or(CODEPAGE, |g| g.text_codepage());
+    GAME_CODEPAGE.with(|c| c.set(game));
     let deadline = input.budget.map(|b| std::time::Instant::now() + b);
     Rc::new(Shared {
         budget: input.budget,
