@@ -19,7 +19,7 @@ Each button shows an icon and its name. With **Tools › Options ›
 General › Toolbar buttons: Icons only** the buttons that have an icon
 show it alone, and the toolbar takes about half the rows it took: rest
 the pointer on an icon and its tip names it (and gives its key, as
-Select Tiles' and Paint's do). All, None, Together, To Scratch and the
+Select Tiles' and Paint's do). All, None, Together, Onto Objects, To Scratch and the
 dropdowns keep their words.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of

@@ -88,7 +88,7 @@ the module is opened again from its file.
   icons alone, as Aurora's toolbars are, to save room: the area view's
   toolbar takes about half the rows it took. Rest the pointer on an
   icon and its tip names it, with its key and what it does. Buttons
-  without an icon (All, None, Together, To Scratch) and the dropdowns
+  without an icon (All, None, Together, Onto Objects, To Scratch) and the dropdowns
   (Fade Geometry, Snap, Turn) keep their words. It takes effect at once,
   when you choose OK.
 - **Graphics backend** (Automatic): what the window, the area view and
