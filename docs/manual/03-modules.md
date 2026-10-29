@@ -1182,12 +1182,14 @@ hak to it too.
 
 **Add Haks and Talk Table…** (Custom Content) attaches downloaded content
 in one step. Choose the haks and a talk table wherever they are, or the
-`.zip` they were downloaded as (its haks and talk table are taken from
-it, wherever in it they are; there is no need to unpack it first), and put
-the haks in order (highest priority first). Moonglow copies them into the
-user folder's `hak` and `tlk` (asking before replacing different files of
-the same names), lists the haks at the top of the module's list and names
-the talk table. Undo takes back the module's changes; the copies stay.
+archive they were downloaded as, a `.zip`, `.7z` or `.rar` (RAR 4 or 5):
+its haks and talk table are taken from it, wherever in it they are, and
+there is no need to unpack it first. An archive with a password, or one
+volume of a set (`name.part1.rar`), is unpacked first: Moonglow says
+so. Put the haks in order (highest priority first). Moonglow copies
+them into the user folder's `hak` and `tlk` (asking before replacing
+different files of the same names), lists the haks at the top of the
+module's list and names the talk table. Undo takes back the module's changes; the copies stay.
 `mg attach` does the same from the command line.
 
 A custom talk table (`.tlk`) gives the strings numbered from 16,777,216

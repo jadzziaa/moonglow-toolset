@@ -606,6 +606,96 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     assert_eq!(haks(&mut h), ["charlie", "alpha", "gone"]);
 }
 
+/// Add Haks and Talk Table takes content as it was downloaded, a 7z or a
+/// RAR archive (mg-module's fixtures): its haks and talk table are listed
+/// from it, put in order, copied into the user folder and attached; the
+/// same content in another archive is already there; one with a password
+/// is refused, said why.
+#[test]
+fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-attach-archives");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let fixture = |name: &str| {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mg-module/tests/fixtures/archives")
+            .join(name)
+    };
+    let path = sample_module(&dir);
+    let dialogs = NoDialogs {
+        // (The last first.)
+        open_many: vec![
+            vec![fixture("locked.rar")],
+            vec![fixture("content-rar4.rar")],
+            vec![fixture("content.7z")],
+        ],
+        ..Default::default()
+    };
+    let mut app = game_app_with(&root, Some(user.clone()), dialogs);
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&info).unwrap().root.clone();
+        root.items(&ifo::MOD_HAK_LIST)
+            .iter()
+            .map(|i| {
+                String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into_owned()
+            })
+            .collect()
+    };
+    let log = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().map(|e| e.1.clone()).collect::<Vec<_>>()
+    };
+    let add = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Add Haks and Talk Table…").click();
+        h.run();
+    };
+    h.get_by_label("Custom Content").click();
+    h.run();
+
+    // The 7z: listed from it, the second hak moved up, attached.
+    add(&mut h);
+    assert!(h.state().attach.is_some(), "{:?}", log(&h));
+    for file in ["z_one.hak", "z_text.tlk", "z_two.hak"] {
+        h.get_by_label(file);
+    }
+    assert_eq!(h.query_all_by_label_contains("copied to your").count(), 3);
+    h.get_all_by_label("Move Up").last().unwrap().click();
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().attach.is_none());
+    assert_eq!(haks(&mut h), ["z_two", "z_one"]);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let tlk = ws.doc(&info).unwrap().root.read(&ifo::MOD_CUSTOM_TLK);
+    assert_eq!(tlk.as_bytes(), b"z_text");
+    let one = std::fs::read_to_string(user.join("hak/z_one.hak")).unwrap();
+    assert!(one.starts_with("one line 0: Moonglow's archive fixture"), "{one}");
+    assert!(user.join("hak/z_two.HAK").is_file() && user.join("tlk/z_text.tlk").is_file());
+
+    // The RAR (RAR 4) holds the same: already there, nothing copied.
+    add(&mut h);
+    assert_eq!(h.query_all_by_label_contains("already in your").count(), 3, "{:?}", log(&h));
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(log(&h).iter().any(|m| m.contains("Copied 0 files")), "{:?}", log(&h));
+
+    // One with a password: refused, said why.
+    add(&mut h);
+    assert!(h.state().attach.is_none());
+    assert!(
+        log(&h).iter().any(|m| m.contains("locked.rar") && m.contains("password")),
+        "{:?}",
+        log(&h)
+    );
+}
+
 /// Module Properties' Add hak… by the keys (GitHub issue 7): once its box
 /// is clicked, Down opens it at its first hak, Down and Up move along
 /// them, Enter adds the one there and closes the list.

@@ -2,8 +2,12 @@
 //! and NWN Installer Tools): haks and a talk table, wherever they were
 //! downloaded to, are copied into the user's `hak` and `tlk` folders, where
 //! the game looks for them, and the module lists the haks (at the top, in
-//! the order given) and names the talk table.
+//! the order given) and names the talk table. Content downloaded as an
+//! archive (zip, 7z or RAR) is taken from it as it is, not unpacked first.
 
+mod archive;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -24,10 +28,10 @@ pub enum There {
 /// A hak or talk table and where it goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
-    /// The file, or the zip archive it is in.
+    /// The file, or the archive (zip, 7z or RAR) it is in.
     pub from: PathBuf,
-    /// Its name in the zip archive `from` (content downloaded as an
-    /// archive is taken as it is, not unpacked first).
+    /// Its name in the archive `from` (content downloaded as an archive
+    /// is taken as it is, not unpacked first).
     pub entry: Option<String>,
     pub to: PathBuf,
     pub there: There,
@@ -36,52 +40,33 @@ pub struct Placement {
     pub is_tlk: bool,
 }
 
-/// The haks and talk tables in the zip archive at `path`: each entry's
-/// name in it and its file's name (without the folders it is in). Those
-/// whose names would lead out of a folder are left out; an archive with
-/// neither is an error.
-fn zip_entries(path: &Path) -> Result<Vec<(String, String)>, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let zip = zip::ZipArchive::new(std::io::BufReader::new(file))
-        .map_err(|e| format!("{}: not a zip archive that can be read ({e})", path.display()))?;
-    let mut out = Vec::new();
-    for name in zip.file_names() {
-        // (A name that climbs out of its folder, or names one: none of
-        // ours.)
-        if name.ends_with('/') || name.split(['/', '\\']).any(|part| part == "..") {
-            continue;
-        }
-        let Some(file) = name.rsplit(['/', '\\']).next().filter(|f| !f.is_empty()) else {
-            continue;
-        };
-        let ext = Path::new(file).extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
-        if matches!(ext.as_deref(), Some("hak" | "tlk")) {
-            out.push((name.to_string(), file.to_string()));
-        }
+/// The file's name of an archive's entry `name` (without the folders it
+/// is in) when it is a hak or a talk table; `None` for the rest, and for
+/// a name that would lead out of a folder (none of ours).
+fn content_file(name: &str) -> Option<&str> {
+    if name.ends_with(['/', '\\']) || name.split(['/', '\\']).any(|part| part == "..") {
+        return None;
     }
+    let file = name.rsplit(['/', '\\']).next().filter(|f| !f.is_empty())?;
+    let ext = Path::new(file).extension()?.to_string_lossy().to_ascii_lowercase();
+    matches!(ext.as_str(), "hak" | "tlk").then_some(file)
+}
+
+/// The haks and talk tables in the archive at `path`: each entry's name
+/// in it, its file's name and its size. An archive with neither is an
+/// error, as is one that can't be read without a password.
+fn archive_entries(kind: archive::Kind, path: &Path) -> Result<Vec<(String, String, u64)>, String> {
+    let listed = archive::list(kind, path, &|name| content_file(name).is_some())?;
+    let mut out: Vec<(String, String, u64)> = listed
+        .into_iter()
+        .filter_map(|l| Some((content_file(&l.name)?.to_string(), l)))
+        .map(|(file, l)| (l.name, file, l.size))
+        .collect();
     out.sort();
     if out.is_empty() {
         return Err(format!("{}: has no hak or talk table in it", path.display()));
     }
     Ok(out)
-}
-
-/// The bytes of entry `entry` of the zip archive at `path`, streamed into
-/// `to`.
-fn unzip(path: &Path, entry: &str, to: &mut dyn std::io::Write) -> Result<u64, String> {
-    let at = |e: &dyn std::fmt::Display| format!("{} ({entry}): {e}", path.display());
-    let file = std::fs::File::open(path).map_err(|e| at(&e))?;
-    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| at(&e))?;
-    let mut f = zip.by_name(entry).map_err(|e| at(&e))?;
-    std::io::copy(&mut f, to).map_err(|e| at(&e))
-}
-
-/// Whether entry `entry` of the zip archive `zip` has the bytes of file
-/// `b`.
-fn same_entry(zip: &Path, entry: &str, b: &Path) -> bool {
-    let Ok(theirs) = std::fs::read(b) else { return false };
-    let mut ours = Vec::with_capacity(theirs.len());
-    unzip(zip, entry, &mut ours).is_ok() && ours == theirs
 }
 
 /// Whether two files have the same bytes.
@@ -108,28 +93,61 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Which of `placed` (taken from the archive `from`, each with its size
+/// there) have the bytes of the file in their place: those of the same
+/// size are read from the archive, in one pass, and compared.
+fn same_in_archive(
+    kind: archive::Kind,
+    from: &Path,
+    placed: &[(&Placement, u64)],
+) -> Result<BTreeSet<String>, String> {
+    let alike: BTreeMap<String, &Path> = placed
+        .iter()
+        .filter(|(p, size)| std::fs::metadata(&p.to).is_ok_and(|m| m.is_file() && m.len() == *size))
+        .filter_map(|(p, _)| Some((p.entry.clone()?, p.to.as_path())))
+        .collect();
+    let mut flags = Vec::new();
+    let wanted: BTreeSet<String> = alike.keys().cloned().collect();
+    archive::extract(kind, from, &wanted, &mut |name| {
+        let to = alike[name];
+        let (compare, same) =
+            archive::Compare::new(to).map_err(|e| format!("{}: {e}", to.display()))?;
+        flags.push((name.to_string(), same));
+        Ok(Box::new(compare))
+    })?;
+    Ok(flags.into_iter().filter(|(_, same)| same.get()).map(|(name, _)| name).collect())
+}
+
 /// Where each file goes in the user folder `user_dir`: `.hak` files to
-/// `hak`, `.tlk` files to `tlk`; a `.zip` archive's haks and talk table
-/// alike, from the archive (wherever in it they are). An error names a
-/// file that's none of these, an archive with neither in it, or a second
-/// talk table (a module has one).
+/// `hak`, `.tlk` files to `tlk`; a `.zip`, `.7z` or `.rar` archive's haks
+/// and talk table alike, from the archive (wherever in it they are). An
+/// error names a file that's none of these, an archive with neither in
+/// it (or that can't be read: one protected by a password, one volume of
+/// a set), or a second talk table (a module has one).
 pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, String> {
     let mut out: Vec<Placement> = Vec::new();
     for from in files {
         let ext = from.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
-        let found = match ext.as_deref() {
-            Some("zip") => zip_entries(from)?.into_iter().map(|(e, f)| (Some(e), f)).collect(),
-            Some("hak" | "tlk") => {
-                vec![(None, from.file_name().unwrap_or_default().to_string_lossy().into_owned())]
+        let kind = archive::Kind::of(from);
+        let found: Vec<(Option<String>, String, u64)> = match (kind, ext.as_deref()) {
+            (Some(kind), _) => archive_entries(kind, from)?
+                .into_iter()
+                .map(|(entry, file, size)| (Some(entry), file, size))
+                .collect(),
+            (None, Some("hak" | "tlk")) => {
+                let file = from.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                vec![(None, file, 0)]
             }
             _ => {
                 return Err(format!(
-                    "{}: not a hak, a talk table or a zip of them",
+                    "{}: not a hak, a talk table or an archive of them (zip, 7z or RAR)",
                     from.display()
                 ));
             }
         };
-        for (entry, file) in found {
+        let first = out.len();
+        let mut sizes = Vec::new();
+        for (entry, file, size) in found {
             let file_path = Path::new(&file);
             let name = file_path.file_stem().map(|n| n.to_string_lossy().into_owned());
             let name = name.unwrap_or_default();
@@ -146,12 +164,7 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
                 && std::fs::canonicalize(from)
                     .ok()
                     .is_some_and(|f| std::fs::canonicalize(&to).ok().is_some_and(|t| t == f));
-            let same = to.is_file()
-                && match &entry {
-                    None => same_bytes(from, &to),
-                    Some(e) => same_entry(from, e, &to),
-                };
-            let there = if same_file || same {
+            let there = if same_file || (entry.is_none() && to.is_file() && same_bytes(from, &to)) {
                 There::Same
             } else if to.exists() {
                 There::Different
@@ -159,6 +172,39 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
                 There::Nothing
             };
             out.push(Placement { from: from.clone(), entry, to, there, name, is_tlk });
+            sizes.push(size);
+        }
+        // (An archive's files are compared with those in their places once
+        // all of them are known: one pass over it.)
+        if let Some(kind) = kind {
+            let placed: Vec<(&Placement, u64)> = out[first..].iter().zip(sizes).collect();
+            let same = same_in_archive(kind, from, &placed)?;
+            for p in &mut out[first..] {
+                if p.entry.as_ref().is_some_and(|e| same.contains(e)) {
+                    p.there = There::Same;
+                }
+            }
+        }
+    }
+    // Two of one name would go to one place.
+    let source = |p: &Placement| match &p.entry {
+        Some(entry) => format!("{entry} in {}", p.from.display()),
+        None => p.from.display().to_string(),
+    };
+    for (i, p) in out.iter().enumerate() {
+        let file = p.to.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        let twin = out[..i].iter().find(|q| {
+            q.is_tlk == p.is_tlk
+                && q.to
+                    .file_name()
+                    .is_some_and(|f| f.to_string_lossy().to_ascii_lowercase() == file)
+        });
+        if let Some(q) = twin {
+            return Err(format!(
+                "two files are named {file} ({} and {}): choose one",
+                source(q),
+                source(p)
+            ));
         }
     }
     Ok(out)
@@ -166,35 +212,68 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
 
 /// Copies the files that need copying (those that differ only with
 /// `replace`); returns how many were copied. Each is written beside its
-/// place and moved there, so a failed copy leaves nothing half-written.
+/// place and moved there, so a failed copy leaves nothing half-written;
+/// an archive's are read from it in one pass.
 pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
-    let mut n = 0;
-    for p in placements {
-        let go = match p.there {
+    let go: Vec<&Placement> = placements
+        .iter()
+        .filter(|p| match p.there {
             There::Nothing => true,
             There::Different => replace,
             There::Same => false,
-        };
-        if !go {
-            continue;
-        }
+        })
+        .collect();
+    let part = |p: &Placement| p.to.with_extension("part");
+    for p in &go {
         let dir = p.to.parent().expect("in a folder");
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let part = p.to.with_extension("part");
-        let written = match &p.entry {
-            None => std::fs::copy(&p.from, &part).map_err(|e| format!("{}: {e}", p.to.display())),
-            Some(entry) => std::fs::File::create(&part)
-                .map_err(|e| format!("{}: {e}", part.display()))
-                .and_then(|mut f| unzip(&p.from, entry, &mut f)),
-        };
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&part);
-            return Err(e);
-        }
-        std::fs::rename(&part, &p.to).map_err(|e| format!("{}: {e}", p.to.display()))?;
-        n += 1;
     }
-    Ok(n)
+    let mut written = Ok(());
+    // Files as they are, then each archive's.
+    for p in go.iter().filter(|p| p.entry.is_none()) {
+        written = std::fs::copy(&p.from, part(p))
+            .map(|_| ())
+            .map_err(|e| format!("{}: {e}", p.to.display()));
+        if written.is_err() {
+            break;
+        }
+    }
+    let mut archives: BTreeMap<&Path, BTreeMap<String, PathBuf>> = BTreeMap::new();
+    for p in &go {
+        if let Some(entry) = &p.entry {
+            archives.entry(&p.from).or_default().insert(entry.clone(), part(p));
+        }
+    }
+    for (from, parts) in &archives {
+        if written.is_err() {
+            break;
+        }
+        let Some(kind) = archive::Kind::of(from) else {
+            written = Err(format!("{}: not an archive Moonglow reads", from.display()));
+            break;
+        };
+        let wanted: BTreeSet<String> = parts.keys().cloned().collect();
+        written = archive::extract(kind, from, &wanted, &mut |name| {
+            let to = &parts[name];
+            let f = std::fs::File::create(to).map_err(|e| format!("{}: {e}", to.display()))?;
+            Ok(Box::new(f))
+        });
+    }
+    if let Err(e) = written {
+        for p in &go {
+            let _ = std::fs::remove_file(part(p));
+        }
+        return Err(e);
+    }
+    for (i, p) in go.iter().enumerate() {
+        if let Err(e) = std::fs::rename(part(p), &p.to) {
+            for q in &go[i..] {
+                let _ = std::fs::remove_file(part(q));
+            }
+            return Err(format!("{}: {e}", p.to.display()));
+        }
+    }
+    Ok(go.len())
 }
 
 /// The module's hak list with `haks` at the top, in order (one already
@@ -265,6 +344,168 @@ mod tests {
         assert!(placements(&user, &[empty]).unwrap_err().contains("no hak or talk table"));
         std::fs::write(dir.join("bad.zip"), b"not a zip").unwrap();
         assert!(placements(&user, &[dir.join("bad.zip")]).is_err());
+        // Two files of one name, in it and beside it, would go to one place.
+        std::fs::write(dir.join("z_one.hak"), "one beside").unwrap();
+        let twice = placements(&user, &[zipped.clone(), dir.join("z_one.hak")]).unwrap_err();
+        assert!(twice.contains("two files are named z_one.hak"), "{twice}");
+        // Packed in a way this build doesn't read (BZip2, method 12): said
+        // so, not taken for missing.
+        let odd = dir.join("odd.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&odd).unwrap());
+        let stored = options.compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("z_odd.hak", stored).unwrap();
+        zip.write_all(b"odd").unwrap();
+        zip.finish().unwrap();
+        let mut bytes = std::fs::read(&odd).unwrap();
+        let central = bytes.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        for at in [8, central + 10] {
+            bytes[at] = 12;
+        }
+        std::fs::write(&odd, bytes).unwrap();
+        let p = placements(&user, &[odd]).unwrap();
+        let e = copy(&p, false).unwrap_err();
+        assert!(e.contains("z_odd.hak") && !e.contains("has no"), "{e}");
+        assert!(!user.join("hak/z_odd.hak").exists() && !user.join("hak/z_odd.part").exists());
+    }
+
+    /// The archive fixtures (`tests/fixtures/archives`), our own text in
+    /// each: `Content/haks/z_one.hak`, `Content/z_two.HAK`,
+    /// `Content/tlk/z_text.tlk` and `Content/readme.txt`. The 7z ones were
+    /// made by 7-Zip 26 (solid LZMA2; `locked.7z` with a password,
+    /// `hidden.7z` its names hidden too), the RAR ones by rars 0.12.3
+    /// (`content-rar4.rar` in RAR 2.9's format, which WinRAR 3 and 4 write,
+    /// solid, with a comment; `content-rar5.rar` solid, with a recovery
+    /// record; `locked.rar`, `hidden.rar` and `split.part01.rar`, the first
+    /// of two volumes), each tested by the genuine UnRAR 7.30 and 7-Zip.
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/archives").join(name)
+    }
+
+    /// The fixtures' files, as they are in each.
+    fn fixture_files() -> [(&'static str, String); 3] {
+        let text = |name: &str, lines: usize| -> String {
+            (0..lines)
+                .map(|i| {
+                    format!(
+                        "{name} line {i}: Moonglow's archive fixture, {} of thirteen.\n",
+                        i * 7 % 13
+                    )
+                })
+                .collect()
+        };
+        [
+            ("hak/z_one.hak", text("one", 60)),
+            ("hak/z_two.HAK", text("two", 40)),
+            ("tlk/z_text.tlk", text("text", 30)),
+        ]
+    }
+
+    /// Content downloaded as a 7z archive, or a RAR one (RAR 4 or 5):
+    /// its haks and talk table go to the user folder as a zip's do, read
+    /// from the archive (a solid one, decoded once); compared with those
+    /// there by their bytes.
+    #[test]
+    fn a_7z_s_and_a_rar_s_haks_and_talk_table_go_to_the_user_folder() {
+        for archive in ["content.7z", "content-rar4.rar", "content-rar5.rar"] {
+            let dir = mg_testkit::scratch_dir(&format!("mg-attach-{archive}"));
+            let user = dir.join("user");
+            let from = fixture(archive);
+            let p = placements(&user, std::slice::from_ref(&from)).unwrap();
+            let names: Vec<(&str, bool)> = p.iter().map(|p| (p.name.as_str(), p.is_tlk)).collect();
+            assert_eq!(names, [("z_one", false), ("z_text", true), ("z_two", false)], "{archive}");
+            assert_eq!(p[0].entry.as_deref(), Some("Content/haks/z_one.hak"), "{archive}");
+            assert!(p.iter().all(|p| p.there == There::Nothing), "{archive}: {p:?}");
+            assert_eq!(copy(&p, false).unwrap(), 3, "{archive}");
+            for (file, text) in fixture_files() {
+                assert_eq!(std::fs::read_to_string(user.join(file)).unwrap(), text, "{archive}");
+            }
+            assert!(!user.join("hak/readme.txt").exists());
+            let again = placements(&user, std::slice::from_ref(&from)).unwrap();
+            assert!(again.iter().all(|p| p.there == There::Same), "{archive}: {again:?}");
+            // Of the same size and other bytes: different, and replaced
+            // only when asked.
+            let mut other = fixture_files()[1].1.clone().into_bytes();
+            other[0] = b'T';
+            std::fs::write(user.join("hak/z_two.HAK"), &other).unwrap();
+            let p = placements(&user, std::slice::from_ref(&from)).unwrap();
+            let there: Vec<There> = p.iter().map(|p| p.there).collect();
+            assert_eq!(there, [There::Same, There::Same, There::Different], "{archive}");
+            assert_eq!(copy(&p, false).unwrap(), 0);
+            assert_eq!(std::fs::read(user.join("hak/z_two.HAK")).unwrap(), other);
+            assert_eq!(copy(&p, true).unwrap(), 1);
+            let two = std::fs::read_to_string(user.join("hak/z_two.HAK")).unwrap();
+            assert_eq!(two, fixture_files()[1].1, "{archive}");
+            assert!(
+                std::fs::read_dir(user.join("hak"))
+                    .unwrap()
+                    .all(|f| { f.unwrap().path().extension().is_none_or(|e| e != "part") })
+            );
+        }
+    }
+
+    /// An archive Moonglow can't read whole, said so and why: one with a
+    /// password (its files' or its names too), one volume of a set.
+    #[test]
+    fn locked_and_split_archives_are_refused_and_said_why() {
+        let user = mg_testkit::scratch_dir("mg-attach-locked").join("user");
+        for archive in ["locked.7z", "hidden.7z", "locked.rar", "hidden.rar"] {
+            let e = placements(&user, &[fixture(archive)]).unwrap_err();
+            assert!(e.contains(archive) && e.contains("password"), "{archive}: {e}");
+        }
+        let e = placements(&user, &[fixture("split.part01.rar")]).unwrap_err();
+        assert!(e.contains("one volume of a set"), "{e}");
+        assert!(!user.exists(), "nothing written");
+    }
+
+    /// A cut or damaged archive (every length it can be cut at, every
+    /// byte changed in turn) is an error, or (where the change is in what
+    /// nothing checks) gives the files as they are: never a panic, never
+    /// another file's bytes or half of one in the user folder.
+    #[test]
+    fn a_cut_or_damaged_archive_is_an_error_never_a_panic() {
+        use std::io::Write as _;
+        let dir = mg_testkit::scratch_dir("mg-attach-damaged");
+        let zipped = dir.join("made.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&zipped).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        for (file, text) in fixture_files() {
+            zip.start_file(format!("Content/{}", &file[4..]), options).unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        let expected = fixture_files();
+        for archive in [
+            zipped,
+            fixture("content.7z"),
+            fixture("content-rar4.rar"),
+            fixture("content-rar5.rar"),
+        ] {
+            let bytes = std::fs::read(&archive).unwrap();
+            let name = archive.file_name().unwrap().to_string_lossy().into_owned();
+            let damaged = dir.join(&name);
+            let user = dir.join("user");
+            let check = |data: &[u8], what: &str| {
+                std::fs::write(&damaged, data).unwrap();
+                let _ = std::fs::remove_dir_all(&user);
+                let copied =
+                    placements(&user, std::slice::from_ref(&damaged)).and_then(|p| copy(&p, false));
+                let Ok(_) = copied else { return };
+                for (file, text) in &expected {
+                    let path = user.join(file);
+                    if let Ok(got) = std::fs::read(&path) {
+                        assert_eq!(got, text.as_bytes(), "{name} {what}: {file}");
+                    }
+                }
+            };
+            for len in 0..bytes.len() {
+                check(&bytes[..len], &format!("cut at {len}"));
+            }
+            for at in 0..bytes.len() {
+                let mut data = bytes.clone();
+                data[at] ^= 0x5a;
+                check(&data, &format!("byte {at} changed"));
+            }
+        }
     }
 
     #[test]

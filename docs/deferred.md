@@ -617,11 +617,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   was asked. (settle?: both proposed by the sprint on 2026-10-29, the
   owner's to say) (L; the body parts wait on the client batch)
 
-- **No 7z or rar:** content downloaded as one is unpacked first; Add
-  Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk
-  table from it since 2026-10-29. Each would be a dependency of its own
-  (7z's and rar's decoders), which is the owner's to choose or drop.
-  (S each)
 - **Viewing in the hak editor:** a model of a hak the game doesn't read
   (not one of the module's, or changed there and not saved) shows as its
   text. Drawing it wants the model viewer to read its models, supermodels
