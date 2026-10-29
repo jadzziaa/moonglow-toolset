@@ -271,10 +271,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
-- **The tiles' animations are looked up by name** every time one is
-  posed (three times a tile's model a frame: the pose, the lights, the
-  meshes), lower-casing each node's name. Bound once when the model is
-  loaded, a scene's 0.5 ms would be less. (S)
 
 ## EE fields Aurora hides
 

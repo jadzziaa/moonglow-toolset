@@ -217,6 +217,17 @@ own frames. Its times are to be taken with nothing else drawing.)
 - The area's sounds copied the area's whole GIT every frame
   (`area_audio.rs`): now only its sound properties and placed sounds.
 - The debug log's per-frame lines cost nothing measurable.
+- **A tile's animations were bound to its model by name each time it
+  was posed**, three times a frame (its pose, its lights, its meshes),
+  every node's name lower-cased. They are bound once, as the model is
+  loaded (`anim::Binding`, kept in the area's `Loaded`), and their keys
+  gathered once for the three (`anim::Playing`). The scene's making
+  (`render_area`'s `MG_TIME=400`, the median; each binary run twice in
+  turn, the machine at a load of 26 to 31 from other builds): area092
+  0.30 and 0.43 ms, now 0.13 and 0.12; area075 1.65 and 1.72, now 0.60
+  and 0.41; area074 1.45 and 1.39, now 0.59; Elmwood (its objects
+  posed too) 5.4 and 2.8, now 1.9 and 1.4. The pictures are the same,
+  every pixel.
 
 ## A dense area seen whole, and opening an area (27 October 2026)
 
