@@ -223,7 +223,12 @@ what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
 "Ezra"`). Click one to go there. A creature, placeable or store
 blueprint's inventory names its items' blueprints: an item blueprint
 found is also listed where they carry it (`chest.utp › carries
-sword.uti`). The command line has the same, one condition at a time:
+sword.uti`), through bags in bags too (`crate.utp › carries pouch.uti
+› carries sword.uti`). A creature blueprint found is also listed in
+the encounters that spawn it, an encounter blueprint's creatures and a
+placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
+CAMP_01 › spawns boss.utc`); a change made to one of those is made to
+the creature blueprint. The command line has the same, one condition at a time:
 `mg search` ([Command-line tools](11-command-line.md)).
 
 Each one found is ticked; untick those to leave out (**Tick All**,

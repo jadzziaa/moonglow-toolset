@@ -106,9 +106,10 @@ fn objects(hits: &[&Hit]) -> Vec<(Object, String)> {
             && seen.insert(o.clone())
         {
             // (Named as found: the place of what it is on.)
-            let place = match h.carried {
-                Some(r) => format!("{}.uti", r.to_lowercase()),
-                None => h.place.clone(),
+            let place = match (h.carried, h.spawned) {
+                (Some(r), _) => format!("{}.uti", r.to_lowercase()),
+                (None, Some(r)) => format!("{}.utc", r.to_lowercase()),
+                (None, None) => h.place.clone(),
             };
             out.push((o, place));
         }
@@ -121,7 +122,7 @@ fn objects(hits: &[&Hit]) -> Vec<(Object, String)> {
 fn field_found(h: &Hit) -> Option<(GffPath, String)> {
     let mut path = path_of(&h.path);
     match path.0.pop()? {
-        Step::Field(label) if h.carried.is_none() => Some((path, label)),
+        Step::Field(label) if h.carried.is_none() && h.spawned.is_none() => Some((path, label)),
         _ => None,
     }
 }

@@ -439,24 +439,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
   Edit Together and Edit Areas Together from its results; conditions
-  together, a class by its levels, number ranges and floats):
+  together, a class by its levels, number ranges and floats; an item
+  blueprint followed through bags in bags, and a creature blueprint
+  into the encounters that spawn it, since 2026-10-29):
   - Changes are a variable, a script or a field: item properties aren't
     added or removed on the items found, nor list entries (feats,
     classes, inventory) on the creatures; a field is set only where the
     object has it (none is added). Edit Together takes blueprints of one
     type and objects of one kind placed in one area; items held by
-    placed objects, and conversations, open one by one. (S–M)
+    placed objects, and conversations, open one by one. (S–M; shares
+    its design with editing lists across several blueprints)
   - No spell by the class that knows it (a spell found is any class's);
-    conditions are all ANDed (no OR, no NOT); a conversation's lines and
-    other things on no object drop out of a search with more than one
-    condition; `mg search` takes one condition at a time, without class
-    levels or ranges. (S)
+    conditions are all ANDed (no OR, no NOT: the window's conditions
+    and `Query` both, each half a day); a conversation's lines and other
+    things on no object drop out of a search with more than one
+    condition (there is no object for the others to be found on);
+    `mg search` takes one condition at a time, without class levels or
+    ranges, and its JSON names what is found through an encounter only
+    in its place (`spawned` is `mg_module::search::Hit`'s, not printed:
+    the command line is `apps/mg/src/search.rs`, another package's this
+    wave). (S each)
   - The module only: blueprints in haks and the game's own palettes
-    aren't searched. An item blueprint found is followed into the
-    inventories of the module's blueprints, one step only (a chest
-    blueprint holding a bag blueprint that holds it isn't listed); a
-    creature blueprint found isn't followed into the encounters that
-    spawn it. (S)
+    aren't searched (`Kept::search` walks `Module::keys`; the haks' and
+    palettes' blueprints read as the module's are would be a layer of
+    hits of their own, read-only, and a change offered on none of
+    them). (S–M)
   - A question asked again (Find again, or found again after a change
     made to what it found) reads only the resources changed since
     (`search::Kept`); another question reads the module again, once
@@ -467,11 +474,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     would keep every GFF read (0.6 GB more in the persistent world).
     The events Set an event's script offers still read the objects
     found anew: 0.1 s of the 0.11 s a question asked again takes with
-    8,785 found in the persistent world. (S)
+    8,785 found in the persistent world. (S; the triage proposed
+    dropping it: a record of numbers in budget, no verdict yet)
   - Appearance covers the 2DA rows a field names (creatures,
     placeables, doors, waypoints, items' base types); items' model
     parts and colors, portraits and sound sets are found through Any
-    field. (S)
+    field. (S; the triage proposed settling it as designed)
 - **Variable sets** hold int, float and string variables only, as the
   Variables window edits; object and location variables aren't kept
   (they mean nothing outside their module: the triage proposed settling
