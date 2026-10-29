@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:23:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:40:14Z }
 ---
 
 # Options
@@ -209,8 +209,12 @@ the module is opened again from its file.
   userpatch.ini's haks", "only in your override folder", "only in a
   Steam Workshop item"), and of a custom talk table found first there
   (the game reads one from there too, and a player without it can't
-  load the module). Music and ambient sounds in these haks are read as
-  any of their resources, as the game reads them.
+  load the module). Content you keep in `override` on purpose need not
+  fill Verify's report: Options › Verify's **Also leave out** takes
+  `references:override` (or `references:userpatch`,
+  `references:workshop`, all three as `references:local`), as `mg verify
+  --skip` does. Music and ambient sounds in these haks are read as any of
+  their resources, as the game reads them.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow is told by the system when they change (it checks
   every few seconds where it can't be) and rereads what changed

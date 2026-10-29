@@ -114,7 +114,7 @@ pub struct Missing {
 
 /// Content of the user's own, which a module's players have only if they
 /// put the same there themselves: what a module may not count on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Local {
     /// A hak the user's `userpatch.ini` names.
     Userpatch,
