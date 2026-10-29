@@ -409,7 +409,7 @@ impl Module {
         };
         resman.add(
             mg_resman::priority::MODULE,
-            "module",
+            mg_resman::MODULE_LABEL,
             mg_resman::LayerClass::Erf,
             self.container(),
         );
