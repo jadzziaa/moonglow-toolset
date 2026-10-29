@@ -523,10 +523,12 @@ impl ModelView {
         self.preview.as_ref()
     }
 
-    /// Fits the camera to the model's rest pose.
+    /// Fits the camera to the model as it stands in the animation it
+    /// plays (a dragon at rest lies stretched out, wings spread, far out
+    /// of the box around its pause).
     pub fn frame(&mut self) {
         if let Some(c) = &self.composed {
-            let (low, high) = c.bounds();
+            let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
             // (The box around it as it is stood.)
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for corner in 0..8 {
@@ -1333,7 +1335,7 @@ fn draw_thumbnail(
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
     let idle = composed.idle.as_deref();
-    let (mut min, mut max) = composed.bounds_in(idle, 0.0);
+    let mut points = composed.points_in(&composed.stance(idle, 0.0));
     let pitch = 20f32.to_radians();
     // From the side that shows the most of it: a thing made for a wall has
     // a face and no back, and from behind there is nothing to see.
@@ -1375,31 +1377,28 @@ fn draw_thumbnail(
         let rough = Camera::orbit(Vec3::ZERO, 10.0, yaw, pitch);
         let seconds = THUMBNAIL_STEPS as f32 * THUMBNAIL_STEP;
         particles = sim.batches(model, playing, seconds, &pose, Mat4::IDENTITY, rough.view());
-        let mut any = false;
-        for v in particles.iter().flat_map(|b| &b.vertices) {
-            let p = Vec3::from(v.pos);
-            (min, max) = if any { (min.min(p), max.max(p)) } else { (p, p) };
-            any = true;
-        }
-        if any {
-            let (low, high) = composed.bounds();
-            if (high - low).length() > 0.2 {
-                (min, max) = (min.min(low), max.max(high));
-            }
-        }
+        points.extend(particles.iter().flat_map(|b| &b.vertices).map(|v| Vec3::from(v.pos)));
     }
-    let target = (min + max) * 0.5;
-    let radius = ((max - min).length() * 0.5).max(0.1);
-    // (Nearer than the viewer stands: a picture is small, and what is in it
-    // should fill it.)
-    // … but far enough that a tall thing (a banner) keeps its top and foot.
-    let tall = (max.z - min.z) * 0.5 / 20f32.to_radians().tan() * 1.08
-        + (max - min).truncate().length() * 0.25;
-    // (A creature stands in its animation, which its bounds at rest don't
-    // quite hold: it is given the viewer's room.)
-    let near = if idle.is_some() { 1.05 } else { 0.85 };
-    let distance = (radius / 20f32.to_radians().sin() * near).max(tall);
-    let camera = Camera::orbit(target, distance, yaw, pitch);
+    // Framed tightly on what it shows, as the picture sees it: a dragon,
+    // long and winged, filled a corner of its picture framed by a ball
+    // around its box. (A creature stands in its animation, which moves it
+    // from where it stands at its start: it is given more room.)
+    let room = if idle.is_some() { 1.15 } else { 1.06 };
+    let fov = Camera::orbit(Vec3::ZERO, 1.0, yaw, pitch).fov_y;
+    let corners = || {
+        let (min, max) = composed.bounds_in(idle, 0.0);
+        (0..8).map(move |c| {
+            let pick = |bit: i32, axis: usize| if c & bit == 0 { min[axis] } else { max[axis] };
+            Vec3::new(pick(1, 0), pick(2, 1), pick(4, 2))
+        })
+    };
+    // (Nothing drawn, an emitter that has thrown nothing yet: its box.)
+    if points.is_empty() {
+        points.extend(corners());
+    }
+    let (target, distance) =
+        mg_preview::compose::framed_on(&points, (yaw, pitch), fov, 1.0).expect("some points");
+    let camera = Camera::orbit(target, (distance * room).max(0.1), yaw, pitch);
     // The sun goes round with the view: a thing seen from another side
     // than the usual (a shield, a banner) is lit on the side seen.
     let mut area = AreaLight::default();

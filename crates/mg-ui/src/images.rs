@@ -502,29 +502,6 @@ pub(crate) fn cropped(ui: &mut egui::Ui, p: &Picture, most: f32, alt: &str) -> e
     response
 }
 
-/// A palette colour's tones (its row, `index` counted from the top, at four
-/// grey levels), as the colour chooser shows them.
-pub(crate) fn tones(palette: &mg_image::Rgba, index: u8) -> [egui::Color32; 4] {
-    let rows = palette.height.max(1);
-    let y = rows - 1 - u32::from(index).min(rows - 1);
-    [64u32, 128, 192, 250].map(|x| {
-        let [r, g, b, _] = palette.pixel(x.min(palette.width.saturating_sub(1)), y);
-        egui::Color32::from_rgb(r, g, b)
-    })
-}
-
-/// Paints a swatch: the tones side by side.
-pub(crate) fn swatch(ui: &Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
-    let w = rect.width() / tones.len() as f32;
-    for (i, c) in tones.iter().enumerate() {
-        let r = egui::Rect::from_min_size(
-            rect.min + egui::vec2(w * i as f32, 0.0),
-            egui::vec2(w, rect.height()),
-        );
-        ui.painter().rect_filled(r, 0.0, *c);
-    }
-}
-
 /// The part of an image that isn't transparent, in texture coordinates
 /// (rows top first); all of it when none is.
 fn drawn(rgba: &mg_image::Rgba) -> egui::Rect {

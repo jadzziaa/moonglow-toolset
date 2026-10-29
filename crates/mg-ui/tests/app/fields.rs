@@ -1719,3 +1719,40 @@ fn escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field() {
     h.run();
     assert!(!open(&h));
 }
+
+/// The form widgets are the crate's to share (Moonglow Viewer's forms
+/// held copies of them): a field label, a section heading and the PLT
+/// color chooser, used from outside the crate, a color chosen by its
+/// swatch's name.
+#[test]
+fn the_form_widgets_and_the_color_chooser_are_exported() {
+    // A palette of 176 rows, each its own grey.
+    let mut data = Vec::new();
+    for row in 0..176u32 {
+        for _ in 0..256 {
+            data.extend_from_slice(&[row as u8, row as u8, row as u8, 255]);
+        }
+    }
+    let palette = mg_image::Rgba { width: 256, height: 176, data };
+    let mut h = Harness::new_ui_state(
+        |ui, color: &mut u8| {
+            mg_ui::widgets::install_fonts(ui.ctx());
+            mg_ui::widgets::section_heading(ui, "Colors");
+            mg_ui::widgets::field_label(ui, "Cloth 1");
+            if let Some(c) =
+                mg_ui::widgets::palette_color(ui, "cloth1", Some(&palette), "Cloth 1", *color, None)
+            {
+                *color = c;
+            }
+        },
+        3u8,
+    );
+    h.run();
+    h.get_by_label("Colors");
+    let combo = egui::accesskit::Role::ComboBox;
+    (h.get_all_by_value("3").find(|n| n.accesskit_node().role() == combo)).unwrap().click();
+    h.run();
+    h.get_by_label("Cloth 1 42").click();
+    h.run();
+    assert_eq!(*h.state(), 42);
+}

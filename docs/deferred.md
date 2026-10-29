@@ -1550,13 +1550,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
-- **Smaller:** `mg-ui`'s form widgets and palette chooser exported for
-  the viewer to use (it keeps copies); a camera framed tightly on posed
-  vertices, so that `mg-preview`'s pictures of long models (dragons)
-  fill their frame. (S each)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
 - **A model that fails while it is drawn:** a model that breaks what
   builds or poses it is left out and the module stays open
   (`mg_render::guard`: tiles, objects, the model viewer, thumbnails). A
