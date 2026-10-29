@@ -341,6 +341,7 @@ fn widgets_keys_searches_and_arrows() {
         fixed: 0,
         fixed_shaped: 0,
         uneven: 0,
+        start: false,
     });
     h.run_steps(3);
     shoot(&mut h, &dir, "adjust-location-arrows");
