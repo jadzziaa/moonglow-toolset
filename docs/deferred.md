@@ -2522,9 +2522,6 @@ unless it says so.
   results (copied twice), the thumbnails' lists for the Appearance
   Gallery and the Creature Wizard, the module tree's rows for the
   keyboard (each group's resources copied). (S each)
-- **Written more than once, in the tests:** some corpus tests still
-  stack the game, a module's haks and the module by hand, where
-  `Module::stack_onto` does it for mg and the window. (S)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same

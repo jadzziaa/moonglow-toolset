@@ -5,7 +5,7 @@ use std::path::Path;
 
 use mg_core::ResType;
 use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResMan, priority};
+use mg_resman::{GameInstall, ResMan};
 use mg_testkit::{bundled_modules, sweep};
 
 /// One set of scripts and the resources they compile against.
@@ -38,9 +38,9 @@ pub(crate) fn each_script_set(root: &Path, mut each: impl FnMut(&Set<'_>)) {
             continue;
         }
         let mut rm = ResMan::for_game(&install).unwrap();
+        let (_, wrong) = m.stack_onto(&mut rm, &install);
+        assert!(wrong.is_none(), "{}: {wrong:?}", path.display());
         let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         let label = path.file_name().unwrap().to_string_lossy().into_owned();
         each(&Set { label, rm: &rm, names: &names, module: Some((&m, &haks, i)) });
     }

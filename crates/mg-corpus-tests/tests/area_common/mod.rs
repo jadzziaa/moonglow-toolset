@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, priority};
+use mg_resman::GameInstall;
 use mg_rules::GameData;
 use mg_testkit::{bundled_modules, sweep};
 
@@ -29,8 +29,8 @@ pub(crate) fn each_module(root: &Path, mut each: impl FnMut(&Opened)) {
         let module = Module::open(&path).unwrap();
         let mut game = GameData::open(&install).unwrap();
         let haks = module.haks().unwrap();
-        let missing_haks = game.resman.add_haks(&install, &haks).unwrap();
-        game.resman.add(priority::MODULE, "module", LayerClass::Erf, module.container());
+        let (missing_haks, wrong) = module.stack_onto(&mut game.resman, &install);
+        assert!(wrong.is_none(), "{}: {wrong:?}", path.display());
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
         each(&Opened { name, path, module, game, haks, missing_haks });
     }

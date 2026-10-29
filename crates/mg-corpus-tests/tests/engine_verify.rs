@@ -10,7 +10,7 @@ use mg_core::{ResRef, ResType};
 use mg_module::refs::RefKind;
 use mg_module::verify::{missing, module_references};
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_schema::{StructExt, ifo};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
@@ -51,9 +51,8 @@ fn missing_references_agree_with_engine() {
     for (i, path) in modules.iter().enumerate() {
         let m = Module::open(path).unwrap();
         let mut rm = ResMan::for_game(&install).unwrap();
-        let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        let (missing_haks, wrong) = m.stack_onto(&mut rm, &install);
+        assert!(missing_haks.is_empty() && wrong.is_none(), "{missing_haks:?} {wrong:?}");
 
         let missing_set: BTreeSet<(RefKind, ResRef)> = missing(&m, &rm)
             .into_iter()

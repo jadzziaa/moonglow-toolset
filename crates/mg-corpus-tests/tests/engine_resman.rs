@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use mg_core::{ResRef, ResType};
 use mg_erf::ErfWriter;
-use mg_resman::{ErfContainer, GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_module::Module;
+use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
@@ -18,7 +19,7 @@ fn alias_for(label: &str, module: &str) -> Option<String> {
         "development" => "DEVELOPMENT:".to_string(),
         "override" => "OVERRIDE:".to_string(),
         l if l.starts_with("key:") => format!("HD0INSTALL:data/{}", &l[4..]),
-        l if l == format!("module:{module}") => format!("CURRENTGAME:{module}"),
+        "module" => format!("CURRENTGAME:{module}"),
         _ => return None,
     })
 }
@@ -77,10 +78,12 @@ fn resolution_matches_engine() {
         for l in ["portraits", "user portraits", "ambient", "music", "user ambient", "user music"] {
             rm.remove(l);
         }
-        assert!(rm.add_haks(&install, &haks).unwrap().is_empty());
-        let modfile = dir.join(format!("modules/{module}.mod"));
-        let module_layer = ErfContainer::open(&modfile).unwrap();
-        rm.add(priority::MODULE, format!("module:{module}"), LayerClass::Erf, module_layer);
+        // The module over its haks as mg and the window put it (its own
+        // list of haks, read from its module.ifo).
+        let m = Module::open(&dir.join(format!("modules/{module}.mod"))).unwrap();
+        assert_eq!(m.haks().unwrap(), haks);
+        let (missing, wrong) = m.stack_onto(&mut rm, &install);
+        assert!(missing.is_empty() && wrong.is_none(), "{missing:?} {wrong:?}");
         rm
     };
     let rm = build();
@@ -89,7 +92,7 @@ fn resolution_matches_engine() {
     assert_eq!(origin("random_hostile", ResType::TWODA), "development");
     assert_eq!(origin("random_neutral", ResType::TWODA), format!("hak:{user_hak}"));
     assert_eq!(origin("random_lines", ResType::TWODA), format!("hak:{install_hak}"));
-    assert_eq!(origin("repute", ResType::TWODA), format!("module:{module}"));
+    assert_eq!(origin("repute", ResType::TWODA), "module");
     assert_eq!(origin("classes", ResType::TWODA), "override");
     assert_eq!(origin("nw_chicken", ResType::UTC), "override");
 

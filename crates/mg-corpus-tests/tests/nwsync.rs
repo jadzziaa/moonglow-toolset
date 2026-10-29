@@ -20,7 +20,7 @@ use mg_core::sha1::hex;
 use mg_gff::{Gff, Value};
 use mg_module::Module;
 use mg_module::nwsync::{Options, module_contents, read_manifest, write};
-use mg_resman::{GameInstall, LayerClass, ResMan, priority};
+use mg_resman::{GameInstall, ResMan};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
 const UUID: &str = "6f2b3c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e";
@@ -73,8 +73,8 @@ fn published_as_nwn_nwsync_write_publishes() {
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     let m = Module::open(&path).unwrap();
     let mut rm = ResMan::for_game(&install).unwrap();
-    rm.add_haks(&install, &haks).unwrap();
-    rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    let (missing, wrong) = m.stack_onto(&mut rm, &install);
+    assert!(missing.is_empty() && wrong.is_none(), "{missing:?} {wrong:?}");
 
     for with_module in [false, true] {
         let label = if with_module { "with the module" } else { "haks and talk table" };
