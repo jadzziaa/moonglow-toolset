@@ -102,7 +102,7 @@ impl Map {
 
     /// The point of the area under `pos` on the map drawn in `rect`
     /// (within the area).
-    pub(crate) fn from_map(&self, rect: Rect, pos: Pos2) -> Vec2 {
+    pub(crate) fn point_under(&self, rect: Rect, pos: Pos2) -> Vec2 {
         let m = self.metres();
         let x = (pos.x - rect.left()) / rect.width().max(1.0) * m.x;
         let y = (rect.bottom() - pos.y) / rect.height().max(1.0) * m.y;
@@ -138,9 +138,9 @@ mod tests {
         assert_eq!(map.to_map(rect, Vec2::ZERO), rect.left_bottom());
         assert_eq!(map.to_map(rect, Vec2::new(40.0, 20.0)), rect.right_top());
         let p = Vec2::new(12.5, 7.5);
-        assert!((map.from_map(rect, map.to_map(rect, p)) - p).length() < 1e-4);
+        assert!((map.point_under(rect, map.to_map(rect, p)) - p).length() < 1e-4);
         // (Off the map: the area's edge.)
-        assert_eq!(map.from_map(rect, Pos2::new(0.0, 500.0)), Vec2::ZERO);
+        assert_eq!(map.point_under(rect, Pos2::new(0.0, 500.0)), Vec2::ZERO);
     }
 
     #[test]

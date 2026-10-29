@@ -3212,7 +3212,8 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             let fill = Color32::from_rgba_unmultiplied(255, 255, 255, 50);
             let edge = Stroke::new(1.0, Color32::from_gray(230));
             let wedge = vec![at, wing(0.5), tip, wing(-0.5)];
-            map_painter.add(egui::Shape::convex_polygon(wedge, fill, edge));
+            map_painter.add(egui::Shape::convex_polygon(wedge.clone(), fill, Stroke::NONE));
+            outline(&map_painter, &wedge, edge);
         }
         map_painter.circle_filled(at, 3.5, Color32::WHITE);
         map_painter.circle_stroke(at, 3.5, Stroke::new(1.0, Color32::BLACK));
@@ -3224,7 +3225,7 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         && let Some(p) = r.interact_pointer_pos()
         && let Some(o) = view.orbit.as_mut()
     {
-        let to = map.from_map(rect, p);
+        let to = map.point_under(rect, p);
         let z = o.target.z;
         let ground = view.ground.as_ref().and_then(|g| g.height(to, z));
         o.target = to.extend(ground.unwrap_or(z));
