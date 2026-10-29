@@ -453,10 +453,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   no saved lighting either). Saved lighting is listed, not renamed or
   deleted in the toolset (its files are). (S–M) (dansen9191's ask,
   October 2026)
-- **Find and Replace beyond strings players read:** tags, resrefs,
-  variables and other plain fields are found (Advanced Search, `mg
-  search`) but not replaced, and neither has regular expressions (`*`
-  only). (S–M)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
@@ -2321,11 +2317,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **Duplicate tags are said after a paste and an area's Copy… only:**
-  not when a tag is typed in Properties, an object is placed from the
-  palette (its blueprint's tag), Create Set names waypoints, Find and
-  Replace or `mg` edits change tags, nor for a blueprint copied with its
-  tag. (M)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

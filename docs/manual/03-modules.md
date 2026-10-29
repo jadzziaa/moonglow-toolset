@@ -162,10 +162,27 @@ back:
 
 **Edit › Find and Replace Text…** (Ctrl+H) finds text players read: the
 module's names, descriptions, conversation lines, the journal and the rest
-(map notes and such), in every language each string has.
+(map notes and such), in every language each string has. Ticked on the
+second row, it looks in the fields builders and scripts read too:
+**Tags** (objects' and areas'), **ResRefs** (the fields that name a
+script, a blueprint, a conversation: not a resource's own name, which
+**Rename…** changes with all that names it), **Variables** (their names
+and string values) and **Other fields** (the other text fields: a
+door's Linked To, a key's tag, comments).
 - **What's searched:** choose the kinds, whether case matters and whether
   only whole words count. Without Match case, accents are set aside as
   case is: `arbol` finds `Árbol`.
+- **Regular expression:** Find what is a regular expression
+  (`kz_\d+`, `^wp_(gate|well)_1$`, `(inn|tavern)`), and Replace with
+  may name what its groups found (`WP_${1}_EXIT`, `$2`). Without Match
+  case, the letters A to Z match in either case (accents aren't set
+  aside). One that isn't a regular expression is said, and not looked
+  for.
+- **What a field holds:** a ResRef is left as it is where the new text
+  isn't a resource's name (more than 16 letters, digits and `_`), a tag
+  where it would be longer than 32, and said in the log; a tag made
+  another object's is said as a paste's is ([Duplicate
+  tags](04-areas.md#duplicate-tags)).
 - **What's found** is listed by place, as in Find References. Click one to
   go there; untick any to leave alone.
 - **Replace** changes the ticked strings as one step that **Undo** takes
@@ -173,8 +190,10 @@ module's names, descriptions, conversation lines, the journal and the rest
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
-have their own **Find in Files**; tags, variables and the rest are found
-by **Advanced Search** (below).
+have their own **Find in Files**; objects by what they hold (a number,
+an item property, a class) are found by **Advanced Search** (below).
+`mg replace` does the same from the command line (`--only tags,resrefs`,
+`--regex`).
 
 ## Advanced Search
 
@@ -214,7 +233,11 @@ after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
 
 **Look at** keeps the search to one kind of object (Items include
 those in inventories, equipment and stores) and to blueprints or placed
-objects. The lists come from the game's 2DAs and the module's haks; with
+objects. **Regular expressions** makes the names and texts asked for (a
+variable's name and value, a script's name, a field's label and text)
+regular expressions in place of `*` patterns: found anywhere in the
+name unless anchored (`^tdod_(rent|own)`, `^Tag$`), the letters A to Z
+in either case. The lists come from the game's 2DAs and the module's haks; with
 no game data loaded, choose rows by number.
 
 What's found is listed by place, as in Find References: `keep ›
