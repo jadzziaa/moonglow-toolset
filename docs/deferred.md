@@ -1693,9 +1693,6 @@ contribution itself states as not done or not checked.
 
 ## Tileset authoring
 
-- **Rules and doors:** primary and secondary painting rules and a tile's
-  door hooks (`[TILEnDOORm]`) aren't on the editor's pages; they stay as
-  the file has them (edit the text for now). (M)
 - **A tileset with holes** (a builder's report: a big old tileset,
   merged by hand, drew no tiles at all) is read tile by tile, as the
   game reads it: a tile without its section or a model draws nothing,

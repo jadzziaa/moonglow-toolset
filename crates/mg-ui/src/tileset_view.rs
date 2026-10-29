@@ -1,6 +1,7 @@
 //! The tileset editor (Tools › Tilesets): a `.set` file on disk, edited in
 //! place line by line (`mg_set::edit`), with undo: its general settings,
-//! terrains and crossers, tiles and groups. It also makes the tileset's
+//! terrains and crossers, painting rules, tiles (and their door hooks) and
+//! groups. It also makes the tileset's
 //! palette beside it and checks it with the content doctor.
 
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ pub enum Page {
     #[default]
     General,
     Terrain,
+    Rules,
     Tiles,
     Groups,
 }
@@ -266,6 +268,7 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         for (page, name) in [
             (Page::General, "General"),
             (Page::Terrain, "Terrains and Crossers"),
+            (Page::Rules, "Painting Rules"),
             (Page::Tiles, "Tiles"),
             (Page::Groups, "Groups"),
         ] {
@@ -337,6 +340,7 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         Page::General => general(app, ui, d),
         Page::Terrain => terrain(ui, d),
         Page::Tiles => tiles(app, ui, d),
+        Page::Rules => rules(ui, d),
         Page::Groups => groups(app, ui, d),
     }
 }
@@ -572,6 +576,132 @@ fn rename_refused(t: &Tileset, crosser: bool, index: usize, typed: &str) -> Opti
     }
 }
 
+/// The painting rules, primary and secondary: what the area view's
+/// terrain brush changes beside the corners it paints.
+fn rules(ui: &mut Ui, d: &mut TilesetDoc) {
+    // (Scrolled: a game tileset's are a hundred or more.)
+    egui::ScrollArea::vertical()
+        .id_salt(("set-rules", d.id))
+        .auto_shrink([false, false])
+        .show(ui, |ui| rules_in(ui, d));
+}
+
+fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
+    let Ok(t) = d.set.clone() else { return };
+    let terrains: Vec<String> = t.terrains.iter().map(|x| x.name.clone()).collect();
+    let note = "Painting a corner Placed beside one Adjacent turns that one into Changed, each at \
+                its height. The terrain brush follows the primary rules.";
+    ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
+    for secondary in [false, true] {
+        let (_, each) = edit::rule_sections(secondary);
+        let list = if secondary { &t.secondary_rules } else { &t.primary_rules };
+        ui.add_space(crate::widgets::SECTION_GAP);
+        crate::widgets::section_heading(
+            ui,
+            if secondary { "Secondary rules" } else { "Primary rules" },
+        );
+        egui::Grid::new(("set-rules", d.id, secondary)).num_columns(7).spacing([10.0, 4.0]).show(
+            ui,
+            |ui| {
+                for head in ["", "Placed", "height", "Adjacent", "height", "Changed", "height"] {
+                    crate::widgets::field_label(ui, head);
+                }
+                ui.end_row();
+                for i in 0..list.len() {
+                    let section = format!("{each}{i}");
+                    ui.monospace(format!("{i:>3}"));
+                    for key in ["Placed", "Adjacent", "Changed"] {
+                        name_key(ui, d, &section, key, &terrains, false);
+                        int_key(ui, d, &section, &format!("{key}Height"), -1..=4);
+                    }
+                    ui.end_row();
+                }
+            },
+        );
+        if list.is_empty() {
+            ui.weak("None.");
+        }
+        ui.horizontal(|ui| {
+            let first = terrains.first().cloned().unwrap_or_default();
+            if ui
+                .add_enabled(!terrains.is_empty(), egui::Button::new("Add Rule"))
+                .on_hover_text("A rule at the end, each terrain the first, at height 0")
+                .on_disabled_hover_text("The tileset has no terrains to name")
+                .clicked()
+            {
+                d.change(|f| {
+                    edit::add_rule(f, secondary, &first, &first, &first);
+                });
+            }
+            if ui.add_enabled(!list.is_empty(), egui::Button::new("Remove Last Rule")).clicked() {
+                d.change(|f| {
+                    edit::remove_last_rule(f, secondary);
+                });
+            }
+        });
+    }
+}
+
+/// The chosen tile's door hooks: where a door placed on the tile stands,
+/// of which `doortypes.2da` row.
+fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
+    crate::widgets::section_heading(ui, "Doors");
+    let doors = d.file.doors(i);
+    let types = app.game.as_deref().and_then(|g| g.table("doortypes").ok());
+    egui::Grid::new(("set-doors", d.id, i)).num_columns(7).spacing([10.0, 4.0]).show(ui, |ui| {
+        for head in ["", "Type", "", "X", "Y", "Z", "Orientation (°)"] {
+            crate::widgets::field_label(ui, head);
+        }
+        ui.end_row();
+        for (n, section) in &doors {
+            ui.monospace(format!("{n:>3}"));
+            int_key(ui, d, section, "Type", 0..=i32::MAX);
+            // (Its row's label, where the game data has the table.)
+            let row = d.file.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
+            let label = row.zip(types.as_ref()).and_then(|(r, t)| t.get(r, "Label"));
+            ui.weak(label.unwrap_or_default());
+            for key in ["X", "Y", "Z", "Orientation"] {
+                float_key(ui, d, section, key);
+            }
+            ui.end_row();
+        }
+    });
+    if doors.is_empty() {
+        ui.weak("None: a door can't be placed on this tile.");
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .button("Add Door")
+            .on_hover_text("A door hook at the tile's middle, doortypes.2da row 0: move it below")
+            .clicked()
+        {
+            d.change(|f| {
+                edit::add_door(f, i, 0);
+            });
+        }
+        if ui.add_enabled(!doors.is_empty(), egui::Button::new("Remove Last Door")).clicked() {
+            d.change(|f| {
+                edit::remove_last_door(f, i);
+            });
+        }
+    });
+}
+
+/// A number with a fraction (meters, degrees), committed when it changes
+/// (a drag: when released), written as the game's files write one
+/// (`5.0`).
+fn float_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str) {
+    let current =
+        d.file.get(section, key).and_then(|v| v.trim().parse::<f32>().ok()).unwrap_or(0.0);
+    if let Some(v) = crate::widgets::commit_number(ui, current, -10_000.0..=10_000.0) {
+        let mut text = v.to_string();
+        if !text.contains('.') {
+            text.push_str(".0");
+        }
+        d.change(|f| f.set(section, key, &text));
+    }
+}
+
 fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     let Ok(t) = d.set.clone() else { return };
     ui.horizontal(|ui| {
@@ -697,7 +827,7 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
             text_key(app, ui, d, &section, key, 160.0);
             ui.end_row();
         }
-        ui.label("Orientation");
+        crate::widgets::field_label(ui, "Orientation");
         // Degrees, a quarter turn at a time.
         let current = d
             .file
@@ -712,16 +842,15 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
             d.change(|f| f.set(&section, "Orientation", &chosen.to_string()));
         }
         ui.end_row();
-        for (n, corner) in CORNERS.iter().enumerate() {
-            ui.label(*corner);
+        for corner in CORNERS {
+            crate::widgets::field_label(ui, corner);
             name_key(ui, d, &section, corner, &terrains, false);
             ui.label("height");
             int_key(ui, d, &section, &format!("{corner}Height"), -1..=4);
             ui.end_row();
-            let _ = n;
         }
         for edge in EDGES {
-            ui.label(format!("{edge} edge"));
+            crate::widgets::field_label(ui, &format!("{edge} edge"));
             name_key(ui, d, &section, edge, &crossers, true);
             ui.end_row();
         }
@@ -739,6 +868,8 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
             flag_key(ui, d, &section, key, key);
         }
     });
+    ui.add_space(crate::widgets::SECTION_GAP);
+    door_hooks(app, ui, d, i);
     ui.separator();
     // What the tile's model draws, as the game data has it (as Preview
     // shows it).

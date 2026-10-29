@@ -339,6 +339,85 @@ fn a_tileset_group_s_name_is_typed() {
     assert_eq!(group(&h).name, "Bridge");
 }
 
+/// The painting rules and a tile's door hooks are on the editor's pages:
+/// a rule added, its terrain chosen, taken away; a door added to the
+/// chosen tile, moved, taken away; each a step to undo, saved as the
+/// game reads it.
+#[test]
+fn a_tileset_s_rules_and_doors_are_edited() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-rules");
+    let set_path = dir.join("zzz03.set");
+    let dialogs = NoDialogs { save: vec![set_path.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&sample_module(&dir));
+    app.open_palette = false;
+    let mut h = harness(app, 1300.0, 900.0);
+    h.run();
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run();
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    for name in ["Grass", "Water"] {
+        h.state_mut().tilesets[0].new_type = name.into();
+        h.run();
+        h.get_by_label("Add Terrain").click();
+        h.run();
+    }
+    let set = |h: &Harness<'_, Moonglow>| h.state().tilesets[0].tileset().unwrap().clone();
+
+    h.get_by_label("Painting Rules").click();
+    h.run();
+    h.get_all_by_label("Add Rule").next().expect("the primary rules' Add Rule").click();
+    h.run();
+    let rule = set(&h).primary_rules[0].clone();
+    assert_eq!((rule.placed.as_str(), rule.adjacent.as_str()), ("Grass", "Grass"));
+    assert!(set(&h).secondary_rules.is_empty());
+    // Its Changed chosen from the tileset's terrains.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let grass = |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Grass");
+    assert_eq!(h.query_all(combo.clone()).filter(grass).count(), 3, "Placed, Adjacent, Changed");
+    h.query_all(combo).filter(grass).nth(2).expect("the rule's Changed").click();
+    h.run();
+    h.get_by_label("Water").click();
+    h.run();
+    assert_eq!(set(&h).primary_rules[0].changed, "Water");
+    h.get_all_by_label("Add Rule").nth(1).expect("the secondary rules' Add Rule").click();
+    h.run();
+    assert_eq!(set(&h).secondary_rules.len(), 1);
+    h.get_all_by_label("Remove Last Rule").nth(1).unwrap().click();
+    h.run();
+    assert!(set(&h).secondary_rules.is_empty());
+
+    h.get_by_label("Tiles").click();
+    h.run();
+    h.get_by_label("Add Tile").click();
+    h.run();
+    h.get_by_label("Add Door").click();
+    h.run();
+    let doors = |h: &Harness<'_, Moonglow>| set(h).tiles[0].doors.clone();
+    assert_eq!(doors(&h).len(), 1);
+    // Moved: its X typed.
+    let doc = &mut h.state_mut().tilesets[0];
+    doc.change(|f| f.set("TILE0DOOR0", "X", "5.0"));
+    h.run();
+    assert_eq!(doors(&h)[0].position[0], 5.0);
+    h.get_by_label("Add Door").click();
+    h.run();
+    assert_eq!(doors(&h).len(), 2);
+    h.get_by_label("Remove Last Door").click();
+    h.run();
+    assert_eq!(doors(&h).len(), 1);
+    h.state_mut().tilesets[0].undo();
+    assert_eq!(doors(&h).len(), 2, "taking it away is a step to undo");
+
+    h.state_mut().tilesets[0].save().unwrap();
+    let saved = std::fs::read(&set_path).unwrap();
+    let t = mg_set::Tileset::parse(&saved, mg_core::Codepage::default()).unwrap();
+    assert!(t.warnings.is_empty(), "{:?}", t.warnings);
+    assert_eq!((t.primary_rules.len(), t.tiles[0].doors.len()), (1, 2));
+    assert_eq!(t.primary_rules[0].changed, "Water");
+}
+
 #[test]
 fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
     use glam::Vec3;
