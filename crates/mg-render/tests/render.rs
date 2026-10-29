@@ -4217,6 +4217,8 @@ fn the_lit_check_draws_a_lit_mesh_both_ways() {
     assert_eq!(lit.own, Ok(()), "{lit}");
     assert_eq!(lit.game, Some(Ok(())), "{lit}");
     assert!(!lit.game_fails());
+    assert!(lit.own_color.is_some() && lit.game_color.is_some(), "{lit}");
+    assert!(lit.overridden.is_empty(), "{lit}");
     // The game's program drawing black: the game's part fails.
     let mut black = TestAssets::default();
     authored_lit_pair(&mut black);
@@ -4228,6 +4230,8 @@ fn the_lit_check_draws_a_lit_mesh_both_ways() {
     assert_eq!(wrong.own, Ok(()));
     assert!(matches!(&wrong.game, Some(Err(e)) if e.contains("not red")), "{wrong}");
     assert!(wrong.game_fails());
+    assert!(mg_render::probe::Lit::drew_nothing(wrong.game_color), "{wrong}");
+    assert!(!mg_render::probe::Lit::drew_nothing(wrong.own_color), "{wrong}");
     let _unfail = Unfail;
     // Its pipeline refused: Moonglow's own draws the mesh.
     mg_render::guard::fail_program(Some("fslit"));

@@ -82,17 +82,28 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
 }
 
 /// What the lit check found, into the app: the debug log; a notice where
-/// Moonglow's own shader draws nothing of a lit mesh (as the startup
-/// check's, with Restart with …); and where the game's programs alone
-/// draw nothing, Moonglow's own shader for the rest of the run.
+/// Moonglow's own shader draws a lit mesh wrong (as the startup check's,
+/// with Restart with …); and where the game's programs alone draw it
+/// wrong, Moonglow's own shader for the rest of the run. Each notice says
+/// whether nothing of the mesh was drawn or it was drawn in the wrong
+/// colors (where an area is drawn all the same).
 pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
     crate::trace::note(format!("graphics: the lit check: {lit}"));
     let check = &mut app.renderer_check;
     let drawing = check.drawing();
+    // (What was drawn of the mesh: nothing, or the mesh in the wrong
+    // colors. An area may well be drawn where the colors are wrong.)
+    let drew = |color, verb: &str| {
+        if mg_render::probe::Lit::drew_nothing(color) {
+            format!("{verb} nothing of its lit, textured test mesh")
+        } else {
+            format!("{verb} its lit, textured test mesh in the wrong colors")
+        }
+    };
     if let Err(why) = &lit.own {
         let said = format!(
-            "Moonglow's check of lit drawing found that {drawing} draws nothing of a lit, \
-             textured mesh ({why})."
+            "Moonglow's check of lit drawing found that {drawing} {} ({why}).",
+            drew(lit.own_color, "draws")
         );
         app.log.warn(format!("Graphics: {said}"));
         check.trouble =
@@ -103,9 +114,11 @@ pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
             _ => String::new(),
         };
         let said = format!(
-            "The game's shaders draw nothing right through {drawing} ({why}): Moonglow draws \
-             with its own shaders for the rest of this run (the Shaders button turns the game's \
-             on again)."
+            "Moonglow's check of lit drawing found that the game's shaders {} through \
+             {drawing} ({why}), where Moonglow's own shaders draw it right: Moonglow draws with \
+             its own shaders for the rest of this run (the Shaders button turns the game's on \
+             again).",
+            drew(lit.game_color, "draw")
         );
         app.log.warn(format!("Graphics: {said}"));
         check.game_shaders_off = Some(why.clone());

@@ -63,6 +63,14 @@ impl mg_render::Assets for GameAssets {
     fn shader(&self, name: &str) -> Option<String> {
         mg_render::Assets::shader(&self.0.resman, name)
     }
+
+    fn game_shader(&self, name: &str) -> Option<String> {
+        mg_render::Assets::game_shader(&self.0.resman, name)
+    }
+
+    fn shader_origin(&self, name: &str) -> Option<String> {
+        mg_render::Assets::shader_origin(&self.0.resman, name)
+    }
 }
 
 impl std::fmt::Debug for Viewport3d {

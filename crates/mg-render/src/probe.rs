@@ -321,6 +321,19 @@ pub struct Lit {
     /// cache) and drawing with it.
     pub own_time: Duration,
     pub game_time: Duration,
+    /// What each drew (48 pixels a side): Moonglow's own, and the game's
+    /// programs' where they drew; and the color of the mesh's middle in
+    /// each.
+    pub own_picture: Option<mg_image::Rgba>,
+    pub game_picture: Option<mg_image::Rgba>,
+    pub own_color: Option<[u8; 3]>,
+    pub game_color: Option<[u8; 3]>,
+    /// The program files the check read whose copy in the load order isn't
+    /// the game's own, and where that copy is (`inc_lighting.shd
+    /// (override)`): the check drew the game's own all the same
+    /// ([`Assets::game_shader`]), as what they draw is known; the area
+    /// view draws the load order's.
+    pub overridden: Vec<String>,
 }
 
 impl Lit {
@@ -328,6 +341,14 @@ impl Lit {
     /// draws right: Moonglow's own should draw instead.
     pub fn game_fails(&self) -> bool {
         self.own.is_ok() && matches!(self.game, Some(Err(_)))
+    }
+
+    /// Whether the mesh's middle is the background's (black) in a picture
+    /// of the check's (its color, [`Lit::own_color`] or
+    /// [`Lit::game_color`]): nothing of the mesh drawn there, rather than
+    /// drawn in the wrong colors. `false` where there is no picture.
+    pub fn drew_nothing(color: Option<[u8; 3]>) -> bool {
+        color.is_some_and(|c| c.iter().all(|&v| v <= BACKGROUND_MAX))
     }
 }
 
@@ -338,26 +359,37 @@ impl fmt::Display for Lit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ms = |d: Duration| d.as_secs_f64() * 1000.0;
         write!(f, "{} ({}): ", crate::backend::backend_name(self.backend), self.adapter)?;
+        let color = |c: Option<[u8; 3]>| c.map(|c| format!(" ({c:?})")).unwrap_or_default();
         match &self.own {
-            Ok(()) => write!(f, "Moonglow's own shader drew right")?,
+            Ok(()) => write!(f, "Moonglow's own shader drew right{}", color(self.own_color))?,
             Err(why) => write!(f, "Moonglow's own shader drew wrong ({why})")?,
         }
         write!(f, " in {:.0} ms; the game's vslit/fslit ", ms(self.own_time))?;
         match (&self.game, &self.fell_back) {
-            (Some(Ok(())), _) => write!(f, "drew right")?,
+            (Some(Ok(())), _) => write!(f, "drew right{}", color(self.game_color))?,
             (Some(Err(why)), _) => write!(f, "drew wrong ({why})")?,
             (None, Some(why)) => write!(f, "couldn't be made ({why})")?,
             (None, None) => write!(f, "weren't drawn")?,
         }
-        write!(f, " in {:.0} ms", ms(self.game_time))
+        write!(f, " in {:.0} ms", ms(self.game_time))?;
+        if !self.overridden.is_empty() {
+            write!(
+                f,
+                " (the game's own files drawn; the load order has {})",
+                self.overridden.join(", ")
+            )?;
+        }
+        Ok(())
     }
 }
 
 /// The lit check's texture (a 4 by 4 block of red, compressed as BC1 as
-/// the game's DDS textures are) over the game's assets (`game`: its
-/// programs, `.shd`).
+/// the game's DDS textures are) over the game's assets (`game`: its own
+/// programs, `.shd`, whatever the load order puts over them); and the
+/// program files read whose load order's copy isn't the game's.
 struct LitAssets<'a> {
     game: &'a dyn Assets,
+    overridden: Mutex<Vec<String>>,
 }
 
 /// The lit check's texture's name: none of the game's.
@@ -381,15 +413,26 @@ impl Assets for LitAssets<'_> {
     }
 
     fn shader(&self, name: &str) -> Option<String> {
-        self.game.shader(name)
+        if let Some(layer) = self.game.shader_origin(name)
+            && let Ok(mut overridden) = self.overridden.lock()
+        {
+            let file = format!("{name}.shd ({layer})");
+            if !overridden.contains(&file) {
+                overridden.push(file);
+            }
+        }
+        self.game.game_shader(name)
     }
 }
 
 /// Checks that `gpu` (the window's) draws a lit, textured mesh as the area
 /// view draws a tile: a quad lit by the area's light, its texture BC1
 /// where the GPU reads BC, drawn by Moonglow's own shader and then by the
-/// game's programs from `game` (`vslit`/`fslit`, made in the shader cache
-/// `cache` where there is one), four samples a pixel, offscreen. Never
+/// game's programs from `game` (`vslit`/`fslit` and their includes, the
+/// game's own copies: a builder's `inc_lighting` in `override/` draws
+/// otherwise, and a check of the GPU must know what it should draw; made
+/// in the shader cache `cache` where there is one), four samples a pixel,
+/// offscreen. Never
 /// panics. Run where the game's data is read (its programs are in it),
 /// apart from the window's thread.
 pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>) -> Lit {
@@ -402,26 +445,45 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
         fell_back: None,
         own_time: Duration::ZERO,
         game_time: Duration::ZERO,
+        own_picture: None,
+        game_picture: None,
+        own_color: None,
+        game_color: None,
+        overridden: Vec::new(),
     };
-    let assets = LitAssets { game };
+    let assets = LitAssets { game, overridden: Mutex::default() };
     let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let start = Instant::now();
         let mut renderer = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         renderer.set_shader_cache(cache);
         let targets = Targets::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4, SIDE, SIDE);
         let (scene, camera) = lit_scene(gpu);
-        let draw = |r: &mut Renderer| {
+        let (mx, my) = pixel(&camera, [0.0, 0.0], 0.0);
+        let draw = |r: &mut Renderer, picture: &mut Option<mg_image::Rgba>| {
             r.render_targets(gpu, &assets, &scene, &camera, &targets);
-            gpu.try_read_rgba(&targets.color).and_then(|img| lit_compare(&img, &camera))
+            let image = gpu.try_read_rgba(&targets.color)?;
+            let compared = lit_compare(&image, &camera);
+            *picture = Some(image);
+            compared
         };
-        lit.own = draw(&mut renderer);
+        let middle = |p: &Option<mg_image::Rgba>| {
+            p.as_ref().map(|p| {
+                let c = p.pixel(mx, my);
+                [c[0], c[1], c[2]]
+            })
+        };
+        lit.own = draw(&mut renderer, &mut lit.own_picture);
+        lit.own_color = middle(&lit.own_picture);
         lit.own_time = start.elapsed();
         let start = Instant::now();
         renderer.game_shaders = true;
-        let drawn = draw(&mut renderer);
+        let mut picture = None;
+        let drawn = draw(&mut renderer, &mut picture);
         lit.game_time = start.elapsed();
         if renderer.drawn.game > 0 {
             lit.game = Some(drawn);
+            lit.game_color = middle(&picture);
+            lit.game_picture = picture;
         } else {
             let failures = renderer.game_shader_failures();
             lit.fell_back = Some(match failures.first() {
@@ -435,6 +497,7 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
             });
         }
     }));
+    lit.overridden = assets.overridden.into_inner().unwrap_or_default();
     if let Err(payload) = checked {
         let why = payload
             .downcast_ref::<&str>()
@@ -469,6 +532,9 @@ fn lit_scene(gpu: &Gpu) -> (Scene, Camera) {
     (scene, camera)
 }
 
+/// The most a channel of the lit check's background (black) is read as.
+const BACKGROUND_MAX: u8 = 50;
+
 /// The lit picture against what it must be: the quad's middle red (lit,
 /// its texture's colour), the corner the background's.
 fn lit_compare(image: &mg_image::Rgba, camera: &Camera) -> Result<(), String> {
@@ -481,7 +547,7 @@ fn lit_compare(image: &mg_image::Rgba, camera: &Camera) -> Result<(), String> {
     }
     let (cx, cy) = pixel(camera, [5.0, -5.0], 0.0);
     let c = image.pixel(cx, cy);
-    if c[..3].iter().any(|&v| v > 50) {
+    if c[..3].iter().any(|&v| v > BACKGROUND_MAX) {
         wrong.push(format!("the background is {:?} at ({cx}, {cy})", &c[..3]));
     }
     if wrong.is_empty() { Ok(()) } else { Err(wrong.join("; ")) }
