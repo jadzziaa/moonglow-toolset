@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:43:10Z }
 ---
 
 # Options
@@ -241,15 +241,21 @@ the module is opened again from its file.
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the
-  module tree opens there as well; what it saves comes back into
-  Moonglow's editor. In a nasher project the external editor gets the
-  project's own file (see [Scripts](07-scripts.md)).
+  module tree opens there as well, and so does one opened by the script
+  editor's Open…, made by New Script or Save As, opened by the Script
+  Wizard or by the NUI Creator's handlers and opener script, or by Edit
+  beside a script's name; what it saves comes back into Moonglow's
+  editor. Going to a line (a compiler message, Definition, References,
+  a search result) stays in Moonglow's editor. In a nasher project the
+  external editor gets the project's own file (see
+  [Scripts](07-scripts.md)).
 - **…and not in Moonglow's editor**: with the option above, only the
   external editor opens, for a script kept as a file of its own (a
   nasher project's, a module folder's): what it saves is read as files
   changed outside are (General). A script in a `.mod` file still opens
   in Moonglow's editor too, which is how the external editor's saves
-  come back; so does one Moonglow holds unsaved text of.
+  come back; so does one Moonglow holds unsaved text of, and a new one
+  (New Script, Save As) until File › Save writes its file.
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and
   Aurora's own). Compile in the script editor, Compile All Scripts, the

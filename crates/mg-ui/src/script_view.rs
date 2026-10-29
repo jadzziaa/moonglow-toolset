@@ -1569,8 +1569,14 @@ pub(crate) fn open_only_external(app: &mut Moonglow, key: ResKey) -> bool {
     else {
         return false;
     };
-    // (Open here with something the file lacks: Moonglow's editor has it.)
+    // (Open here with something the file lacks: Moonglow's editor has it.
+    // So does a script only the module has as yet, made by New Script or
+    // Save As and not written by File › Save.)
     if app.scripts.contains_key(&key) && project_file(app, key).is_none() {
+        return false;
+    }
+    let module = app.ws.as_ref().and_then(|ws| ws.module.get(&key));
+    if !app.scripts.contains_key(&key) && module != std::fs::read(&path).ok().as_deref() {
         return false;
     }
     match std::process::Command::new(&editor).arg(&path).spawn() {
@@ -2313,7 +2319,9 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
         });
     for (key, from) in &chosen {
         app.actions.push(match from {
-            ScriptFrom::Module => Action::OpenTab(Tab::Script(*key)),
+            // (As from the module tree: in the external editor too, where
+            // Options has scripts open there.)
+            ScriptFrom::Module => Action::OpenResource(*key),
             // (Not the module's to change: read as the resource browser
             // shows it.)
             _ => Action::OpenTab(Tab::Resource(*key)),
@@ -2472,7 +2480,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 if let Some(w) = warning {
                     app.log.warn(w);
                 }
-                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                app.actions.push(Action::OpenResource(k));
                 None
             }
         };
@@ -2498,7 +2506,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     format!("New script {k}"),
                     vec![Edit::SetResource { key: k, data }],
                 )));
-                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                app.actions.push(Action::OpenResource(k));
                 None
             }
         };

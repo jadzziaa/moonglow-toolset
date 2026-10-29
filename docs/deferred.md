@@ -2797,10 +2797,6 @@ of truth, and does each caller's difference matter.
   `hak_dir` and `hak_folder` the same (`hak_view.rs:194`,
   `nui_view/images.rs:44`); a hak's file found by hand five times
   (`install.rs:299` and four `hak_dirs().find`).
-- Scripts opened past Options' external editor: Open Script, Save As,
-  New Script and the NUI Creator's openers push the tab themselves
-  (`script_view.rs:1695`, `:1852`, `:1877`, `nui_view.rs:743`,
-  `nui_view/events.rs:144`); whether they mean to, to be asked.
 - Compile Models' report twice (`hak_view.rs:650`, `lib.rs:3195`), the
   "Files Already in…" window twice (`hak_view.rs:710`,
   `model_view.rs:264`), "A, B and N more" by hand five times beside

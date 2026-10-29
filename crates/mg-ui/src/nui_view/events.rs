@@ -153,7 +153,7 @@ pub(super) fn open_script(app: &mut Moonglow, name: &str, ask: EventScript) -> O
     } else {
         let jump = ask.handler.as_deref().and_then(|h| mg_nui::handler_offset(&text, h));
         app.script_tools.jump = Some((key, jump.unwrap_or(0)));
-        app.actions.push(Action::OpenTab(Tab::Script(key)));
+        app.actions.push(Action::OpenResource(key));
     }
     if current.as_deref() == Some(text.as_str()) {
         return None;

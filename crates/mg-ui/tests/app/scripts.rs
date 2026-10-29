@@ -1188,6 +1188,58 @@ fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
     assert_eq!(said(&h), 1, "{:?}", h.state().log.entries.last());
 }
 
+/// Open Script, Save As and New Script open a script as the module tree
+/// does: in the external editor too, where Options has scripts open there.
+#[cfg(unix)]
+#[test]
+fn the_script_editor_s_openers_go_to_the_external_editor_too() {
+    let Some((mut h, _)) = area_harness("script-external-openers") else { return };
+    h.state_mut().settings.tree_stays = true;
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let edits = [nss("hello"), nss("other_one")]
+        .map(|key| mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) })
+        .to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    let Some(editor) = true_program() else { return };
+    h.state_mut().settings.external_editor = Some(editor.clone().into());
+    h.state_mut().settings.scripts_external = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("hello"))));
+    h.run_steps(4);
+    let said = |h: &Harness<'_, Moonglow>, name: &str| {
+        let line = format!("{name}.nss: editing in {editor}");
+        h.state().log.entries.iter().filter(|e| e.1 == line).count()
+    };
+    assert_eq!(said(&h, "hello"), 0, "a tab opened by itself: Moonglow's editor alone");
+    // Open Script.
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    let at = h.get_by_label("other_one").rect().center();
+    double_click_now(&mut h, at);
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("other_one"))).is_some());
+    assert_eq!(said(&h, "other_one"), 1, "{:?}", h.state().log.entries);
+    // New Script.
+    h.state_mut().new_script = Some("fresh".into());
+    h.run_steps(2);
+    h.get_by_label("Create").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("fresh"))).is_some());
+    assert_eq!(said(&h, "fresh"), 1, "{:?}", h.state().log.entries);
+    // Save As, from the script in front.
+    h.get_by_label("Save As…").click();
+    h.run_steps(2);
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let w = h.get_all_by_label("Save Script As").find(window).expect("the window");
+    w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("fresh_copy");
+    h.run_steps(1);
+    let w = h.get_all_by_label("Save Script As").find(window).unwrap();
+    w.get_by_label("Save").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("fresh_copy"))).is_some());
+    assert_eq!(said(&h, "fresh_copy"), 1, "{:?}", h.state().log.entries);
+}
+
 #[test]
 fn script_navigation_definition_references_rename_and_live_errors() {
     let Some(root) = mg_testkit::nwn_root() else { return };

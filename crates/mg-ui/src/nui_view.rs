@@ -814,7 +814,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                     if let Some(k) = ResKey::parse(&format!("{name}_o"), ResType::NSS)
                         && ui.add_enabled(there(&k), egui::Button::new("Opener script")).clicked()
                     {
-                        app.actions.push(Action::OpenTab(Tab::Script(k)));
+                        app.actions.push(Action::OpenResource(k));
                         ui.close();
                     }
                 });
