@@ -242,7 +242,9 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
 }
 
 /// The Find and Replace Text window (Edit › Find and Replace Text…): the
-/// module's player-facing strings (`mg_module::text`).
+/// module's player-facing strings, and where ticked its tags, resrefs,
+/// variables and other text fields (`mg_module::text`), found as typed or
+/// by a regular expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextReplace {
     pub find: String,
@@ -263,7 +265,7 @@ impl Default for TextReplace {
             find: String::new(),
             with: String::new(),
             options: Default::default(),
-            kinds: mg_module::text::TextKind::ALL.to_vec(),
+            kinds: mg_module::text::TextKind::PLAYERS.to_vec(),
             hits: Vec::new(),
             searched: None,
             refind: false,
@@ -308,18 +310,17 @@ impl Moonglow {
                     .collect(),
             );
             let Ok(doc) = ws.doc(&hit.key) else { continue };
-            let Some(ls) = path.get(&doc.root).and_then(|s| s.locstring(&hit.label)).cloned()
-            else {
+            let Some(v) = path.get(&doc.root).and_then(|s| s.get(&hit.label)).cloned() else {
                 continue;
             };
-            match mg_module::text::replace_locstring(&ls, &find, &draft.with, options) {
-                Ok(new) if new != ls => {
+            match mg_module::text::replaced(&v, hit, &find, &draft.with, options) {
+                Ok(Some(new)) if new != v => {
                     total += hit.count;
                     edits.push(Edit::SetField {
                         key: hit.key,
                         path,
                         label: hit.label.clone(),
-                        value: Some(mg_gff::Value::LocString(new)),
+                        value: Some(new),
                     });
                 }
                 Ok(_) => {}
@@ -352,7 +353,8 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
         |ui| {
             ui.weak(
                 "The module's names, descriptions, conversation lines and journal, in every \
-                 language they're written in (not the game's talk table).",
+                 language they're written in (not the game's talk table); and, ticked, its \
+                 tags, resrefs, variables and other text fields.",
             );
             egui::Grid::new("text-replace").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Find what");
@@ -367,19 +369,61 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut draft.options.match_case, "Match case");
                 ui.checkbox(&mut draft.options.whole_word, "Whole words");
+                ui.checkbox(&mut draft.options.regex, "Regular expression").on_hover_text(
+                    "Find what is a regular expression (kz_\\d+, ^wp_(.*)$, (inn|tavern)); \
+                     Replace with may name what its groups found ($1, ${name}). Without \
+                     Match case, letters A to Z in either case",
+                );
             });
-            ui.horizontal_wrapped(|ui| {
-                for k in TextKind::ALL {
-                    let mut on = draft.kinds.contains(&k);
-                    if ui.checkbox(&mut on, k.label()).changed() {
-                        draft.kinds.retain(|x| *x != k);
-                        if on {
-                            draft.kinds.push(k);
-                        }
+            let mut tick = |ui: &mut egui::Ui, k: TextKind, hover: Option<&str>| {
+                let mut on = draft.kinds.contains(&k);
+                let r = ui.checkbox(&mut on, k.label());
+                let r = match hover {
+                    Some(h) => r.on_hover_text(h),
+                    None => r,
+                };
+                if r.changed() {
+                    draft.kinds.retain(|x| *x != k);
+                    if on {
+                        draft.kinds.push(k);
                     }
                 }
+            };
+            ui.horizontal_wrapped(|ui| {
+                for k in TextKind::PLAYERS {
+                    tick(ui, k, None);
+                }
             });
-            find |= ui.add_enabled(!draft.find.is_empty(), egui::Button::new("Find")).clicked();
+            ui.horizontal_wrapped(|ui| {
+                for k in TextKind::ALL.into_iter().filter(|k| !k.players()) {
+                    let hover = match k {
+                        TextKind::Tag => {
+                            "Objects' and areas' tags: a tag made another's is \
+                                         said, as a paste's is"
+                        }
+                        TextKind::ResRef => {
+                            "Fields that name a script, a blueprint, a \
+                                            conversation…: the resource itself isn't renamed \
+                                            (Rename… does that, and what names it)"
+                        }
+                        TextKind::Variable => "Local variables' names and string values",
+                        _ => "The other text fields (a door's Linked To, a key's tag, comments)",
+                    };
+                    tick(ui, k, Some(hover));
+                }
+            });
+            let bad = (draft.options.regex && !draft.find.is_empty())
+                .then(|| mg_module::text::Finder::new(&draft.find, draft.options).err())
+                .flatten();
+            if let Some(e) = &bad {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!("Not a regular expression: {e}"),
+                );
+            }
+            let can = !draft.find.is_empty() && bad.is_none();
+            find &= can;
+            find |= ui.add_enabled(can, egui::Button::new("Find")).clicked();
             // What was found, if it's still what's asked for.
             let current = draft.searched.as_ref() == Some(&(draft.find.clone(), draft.options));
             if current {

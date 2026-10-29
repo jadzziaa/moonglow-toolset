@@ -260,4 +260,36 @@ fn a_tag_set_twice_is_warned_of() {
     let (ok, out) = mg(&["areas", m, "inn", "--set", "Tag=WP_DOOR", "--dry-run"]);
     assert!(ok, "{out}");
     assert_eq!(warnings(&out), [twice("WP_DOOR")], "{out}");
+    // And by mg replace in tags, by a regular expression, of a dry run.
+    let (ok, out) =
+        mg(&["replace", m, "^WP_(STAGE)$", "WP_DOOR", "--regex", "--only", "tags", "--dry-run"]);
+    assert!(ok, "{out}");
+    assert_eq!(out["strings"].as_array().unwrap().len(), 1, "{out}");
+    assert_eq!(warnings(&out), [twice("WP_DOOR")], "{out}");
+}
+
+/// `mg replace --only` takes the plain fields (tags, resrefs, variables,
+/// fields, or all) beside the players' text, which is what it looks in
+/// without; `--regex` replaces by a regular expression and its groups,
+/// and one that isn't one is an error.
+#[test]
+fn replace_takes_plain_fields_and_regular_expressions() {
+    let dir = mg_testkit::scratch_dir("mg-replace-fields");
+    let path = module(&dir);
+    let m = path.to_str().unwrap();
+    let (ok, out) = mg(&["replace", m, "guard", "warden", "--dry-run"]);
+    assert!(ok, "{out}");
+    assert!(out["strings"].as_array().unwrap().is_empty(), "the tag isn't players' text: {out}");
+    let (ok, out) = mg(&["replace", m, "^(g)uard$", "${1}ate", "--regex", "--only", "tags"]);
+    assert!(ok, "{out}");
+    assert_eq!(out["replaced"], json!(1), "{out}");
+    assert_eq!(guard(&path).get("Tag"), Some(&Value::String(b"gate".to_vec())));
+    let (ok, out) = mg(&["replace", m, "dr(aft", "x", "--regex", "--only", "all"]);
+    assert!(!ok);
+    assert!(out["error"].as_str().unwrap().contains("dr(aft"), "{out}");
+    let (ok, out) = mg(&["replace", m, "draft", "final", "--only", "fields"]);
+    assert!(ok, "{out}");
+    assert_eq!(guard(&path).get("Comment"), Some(&Value::String(b"final".to_vec())));
+    let (ok, out) = mg(&["replace", m, "x", "y", "--only", "tag"]);
+    assert!(!ok && out["error"].as_str().unwrap().contains("tag: not names"), "{out}");
 }

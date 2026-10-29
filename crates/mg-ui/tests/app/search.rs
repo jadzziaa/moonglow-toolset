@@ -201,6 +201,82 @@ fn find_and_replace_text_across_the_module() {
     assert_eq!(name(&mut h, &keys[0]), "Orc camp");
 }
 
+/// Find and Replace in the tags, by a regular expression: ticked beside
+/// the players' text, its groups in what replaces it; a tag it makes
+/// another object's is said as a paste's is (the Duplicate Tags window,
+/// with the option on); an expression that isn't one is said, and not
+/// looked for.
+#[test]
+fn find_and_replace_in_tags_by_a_regular_expression() {
+    use mg_edit::{Command, Edit};
+    use mg_module::text::TextKind;
+    let dir = mg_testkit::scratch_dir("ui-replace-tags");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.settings.warn_duplicate_tags = true;
+    let key = ResKey::parse("start", ResType::GIT).unwrap();
+    let mut g = Gff::new(*b"GIT ");
+    let waypoint = |tag: &str| {
+        let mut w = mg_gff::Struct::new(5);
+        w.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        w
+    };
+    let list = vec![waypoint("WP_GATE_1"), waypoint("WP_WELL_1"), waypoint("WP_INN")];
+    g.root.set("WaypointList", mg_gff::Value::List(list));
+    let edit = Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![edit])).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run();
+    {
+        let d = h.state_mut().text_replace.as_mut().unwrap();
+        assert_eq!(d.kinds, TextKind::PLAYERS, "the players' text, unless ticked");
+        d.find = "^wp_(gate|well)_1$".into();
+        d.with = "WP_${1}_EXIT".into();
+    }
+    h.run();
+    h.get_by_label("Regular expression").click();
+    h.get_by_label("Tags").click();
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 string(s), 2 time(s)");
+    h.get_by_label("Replace in 2").click();
+    h.run();
+    let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&key).unwrap();
+        let list = g.root.list("WaypointList").unwrap();
+        list.iter().map(|w| String::from_utf8_lossy(w.string("Tag").unwrap()).into()).collect()
+    };
+    assert_eq!(tags(&mut h), ["WP_GATE_EXIT", "WP_WELL_EXIT", "WP_INN"], "case kept, as typed");
+    assert!(h.state().tag_clash.is_none(), "each its own");
+    // One made another's: said.
+    {
+        let d = h.state_mut().text_replace.as_mut().unwrap();
+        d.find = "_(gate|well)_EXIT$".into();
+        d.with = "_INN".into();
+    }
+    h.run();
+    // (By its action: the window, centered, moves as its list shrinks.)
+    h.get_by_label("Find").click_accesskit();
+    h.run();
+    h.get_by_label("Replace in 2").click_accesskit();
+    h.run();
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    let said: Vec<String> = clash.clashes.iter().map(|c| c.sentence()).collect();
+    assert_eq!(said, ["WP_INN is now on three objects"]);
+    assert!(clash.what.starts_with("“Replace"), "{}", clash.what);
+    h.get_by_label("Keep Tags").click();
+    h.run();
+    // Not a regular expression: said, and Find can't be clicked.
+    h.state_mut().text_replace.as_mut().unwrap().find = "wp_(".into();
+    h.run();
+    assert!(h.query_by_label_contains("Not a regular expression").is_some());
+}
+
 /// Advanced Search with conditions together (fighters with a feat, a
 /// class by its levels), then what it found changed in one step (a
 /// variable set on the ticked ones, undone as one), opened in Edit

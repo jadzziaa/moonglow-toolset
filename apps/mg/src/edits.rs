@@ -222,20 +222,42 @@ fn made_twice(
 /// `areas`' own tag (a builder's), weighed as [`made_twice`] weighs a
 /// command's, in the module as it is after.
 pub(crate) fn areas_made_twice(m: &Module, areas: &[mg_core::ResRef]) -> Vec<String> {
+    let areas: Vec<(ResKey, Vec<mg_module::text::Step>)> =
+        areas.iter().map(|&a| (ResKey::new(a, mg_core::ResType::ARE), Vec::new())).collect();
+    objects_made_twice(m, &areas)
+}
+
+/// What the tags a command set put on more than one object (`objects`:
+/// an area's ARE and its root, or its GIT and the path of an object
+/// placed in it), each a builder's, weighed as [`made_twice`] weighs a
+/// command's, in the module as it is after (`mg areas`, `mg replace`).
+pub(crate) fn objects_made_twice(
+    m: &Module,
+    objects: &[(ResKey, Vec<mg_module::text::Step>)],
+) -> Vec<String> {
+    use mg_module::text::Step;
     let rules = &m.project_file.tags;
     let warning = rules.paste_warning_or(true);
-    if areas.is_empty() || warning == mg_module::project_file::PasteWarning::Off {
+    if objects.is_empty() || warning == mg_module::project_file::PasteWarning::Off {
         return Vec::new();
     }
-    let tags: Vec<(mg_core::ResRef, Vec<u8>)> = areas
+    let tags: Vec<(mg_core::ResRef, Vec<u8>, bool)> = objects
         .iter()
-        .filter_map(|&a| {
-            let are = m.gff(&ResKey::new(a, mg_core::ResType::ARE))?.ok()?;
-            Some((a, are.root.string("Tag")?.to_vec()))
+        .filter_map(|(key, path)| {
+            let mut g = m.gff(key)?.ok()?;
+            let s = mg_module::text::struct_at(&mut g.root, path)?;
+            let placeable = matches!(path.as_slice(), [Step::Item(l, _)] if l == "Placeable List");
+            let is_static = placeable && s.integer("Static").unwrap_or(0) != 0;
+            Some((key.resref, s.string("Tag")?.to_vec(), is_static))
         })
         .collect();
     let made: Vec<mg_module::tags::MadeTag> = (tags.iter())
-        .map(|(a, t)| mg_module::tags::MadeTag { tag: t, area: *a, custom: true, is_static: false })
+        .map(|(a, t, is_static)| mg_module::tags::MadeTag {
+            tag: t,
+            area: *a,
+            custom: true,
+            is_static: *is_static,
+        })
         .collect();
     let index = mg_module::tags::TagIndex::of_module(m);
     said_twice(&mg_module::tags::clashes(&index, &made, rules, warning))

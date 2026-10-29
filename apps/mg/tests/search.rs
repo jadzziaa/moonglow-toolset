@@ -100,6 +100,10 @@ fn search_a_module_without_the_game() {
     assert!(found(&["--appearance", "103", "--of", "placeable"]).is_empty());
     assert_eq!(found(&["--field", "tag", "--text", "GUA"]).len(), 1);
     assert_eq!(found(&["--text", "ezra", "--type", "utc"]).len(), 0);
+    // By regular expressions: anywhere unless anchored, case ignored.
+    assert_eq!(found(&["--var", "^sdeidad$", "--value", "^e.ra$", "--regex"]).len(), 2);
+    assert!(found(&["--var", "^sdeidad$"]).is_empty(), "a * pattern, not an expression");
+    assert_eq!(found(&["--field", "^tag$", "--text", "^gua", "--regex"]).len(), 1);
     // What it can't do.
     let fails = |args: &[&str]| {
         let mut all = vec![p];
@@ -113,6 +117,7 @@ fn search_a_module_without_the_game() {
     assert!(fails(&["--class", "fighter"]).contains("row number"));
     assert!(fails(&["--var", "x", "--var-type", "dog"]).contains("not a variable type"));
     assert!(fails(&["--var", "x", "--type", "nss"]).contains("not a kind of object"));
+    assert!(fails(&["--var", "dei(dad", "--regex"]).contains("dei(dad"));
 }
 
 #[test]

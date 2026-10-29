@@ -5681,6 +5681,43 @@ fn advanced_search() {
     shoot(&mut h, &dir, "advanced-search-and");
 }
 
+/// Edit › Find and Replace Text… over Chapter 1: "Aribeth" found, the
+/// tags ticked too (where the window has them).
+#[test]
+#[ignore]
+fn find_and_replace_text() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-find-replace");
+    let path = scratch.join("chapter1.mod");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run_steps(2);
+    {
+        let d = h.state_mut().text_replace.as_mut().unwrap();
+        d.find = "Aribeth".into();
+        d.with = "Aribeth de Tylmarande".into();
+    }
+    h.run();
+    if let Some(tags) = h.query_by_label("Tags") {
+        tags.click_accesskit();
+    }
+    h.run();
+    h.get_by_label("Find").click_accesskit();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "find-and-replace");
+}
+
 /// Right-click menus, Properties last in each (Aurora's order): a
 /// placed waypoint's in the area view, and the area's row in the module
 /// tree.

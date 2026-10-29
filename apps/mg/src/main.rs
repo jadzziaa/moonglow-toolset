@@ -695,18 +695,29 @@ enum Cmd {
     },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
-    /// each string changed.
+    /// each string changed. With `--only`, in its tags, resrefs,
+    /// variables and other text fields too.
     Replace {
         module: PathBuf,
         find: String,
+        /// What it becomes: with `--regex`, `$1` (or `${name}`) is what a
+        /// group found.
         with: String,
         #[arg(long)]
         match_case: bool,
         /// Only where it isn't part of a longer word.
         #[arg(long)]
         whole_word: bool,
-        /// Only these kinds: names, descriptions, conversations, journal,
-        /// other (comma-separated).
+        /// FIND is a regular expression (`^kz_(\w+)$`; without
+        /// `--match-case`, A to Z in either case).
+        #[arg(long)]
+        regex: bool,
+        /// Only these kinds (comma-separated): names, descriptions,
+        /// conversations, journal, other (the text players read, which is
+        /// all of them where none is given); tags, resrefs (fields that
+        /// name a resource: a resource isn't renamed, `mg rename` does
+        /// that), variables (names and string values), fields (the other
+        /// text fields); all.
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
         /// List what would change; change nothing.
@@ -2903,27 +2914,31 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("{key}: {lines} lines"));
             out
         }
-        Cmd::Replace { module, find, with, match_case, whole_word, only, dry_run } => {
-            use mg_module::text::{Options, TextKind};
-            let kinds: Vec<TextKind> = if only.is_empty() {
-                TextKind::ALL.to_vec()
-            } else {
-                only.iter()
-                    .map(|o| {
-                        TextKind::ALL
-                            .into_iter()
-                            .find(|k| k.label().to_lowercase().starts_with(&o.to_lowercase()))
-                            .with_context(|| {
-                                format!(
-                                    "{o}: not names, descriptions, conversations, journal or other"
-                                )
-                            })
-                    })
-                    .collect::<Result<_>>()?
-            };
+        Cmd::Replace { module, find, with, match_case, whole_word, regex, only, dry_run } => {
+            use mg_module::text::{Finder, Options, TextKind};
+            let mut kinds: Vec<TextKind> = Vec::new();
+            for o in only {
+                let o = o.trim().to_lowercase();
+                if o == "all" {
+                    kinds.extend(TextKind::ALL);
+                    continue;
+                }
+                let k = (TextKind::ALL.into_iter()).find(|k| k.name() == o).with_context(|| {
+                    format!(
+                        "{o}: not names, descriptions, conversations, journal, other, tags, \
+                         resrefs, variables, fields or all"
+                    )
+                })?;
+                kinds.push(k);
+            }
+            if kinds.is_empty() {
+                kinds = TextKind::PLAYERS.to_vec();
+            }
             let mut m = crate::open_module(module)?;
             let game = Some(module_codepage(cli, &m));
-            let o = Options { match_case: *match_case, whole_word: *whole_word, game };
+            let o =
+                Options { match_case: *match_case, whole_word: *whole_word, regex: *regex, game };
+            Finder::new(find, o).map_err(|e| anyhow::anyhow!("{find}: {e}"))?;
             let hits = mg_module::text::find(&m, find, o, &kinds);
             let mut out = Output::default();
             for h in &hits {
@@ -2931,12 +2946,31 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let times: usize = hits.iter().map(|h| h.count).sum();
             let mut replaced = 0;
+            // (A tag given another object's: said, as `mg set` says it; of
+            // a dry run, as the replace would leave the module.)
+            let tags: Vec<(ResKey, Vec<mg_module::text::Step>)> = (hits.iter())
+                .filter(|h| h.kind == TextKind::Tag)
+                .map(|h| (h.key, h.path.clone()))
+                .collect();
             if *dry_run || hits.is_empty() {
                 out.note(format!("{} strings, {times} times", hits.len()));
+                if !hits.is_empty() {
+                    let mut after = m.clone();
+                    let (_, errors) = mg_module::text::replace(&mut after, &hits, find, with, o);
+                    for e in &errors {
+                        out.note(format!("warning: {e}"));
+                    }
+                    for w in edits::objects_made_twice(&after, &tags) {
+                        out.note(w);
+                    }
+                }
             } else {
                 let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
                 for e in &errors {
                     out.note(format!("warning: {e}"));
+                }
+                for w in edits::objects_made_twice(&m, &tags) {
+                    out.note(w);
                 }
                 m.save()?;
                 replaced = n;

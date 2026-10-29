@@ -23,7 +23,7 @@ use mg_rules::{Choice, ChoiceColumns, GameData, ItemProperty, ObjectKind};
 use rayon::prelude::*;
 
 use crate::Module;
-use crate::query::glob;
+use crate::query::like;
 use crate::refs::{RefKind, Reference, gff_references};
 pub use crate::vars::VarType;
 
@@ -217,11 +217,42 @@ pub struct Query {
     pub types: Vec<ResType>,
     /// Only placed objects (`Some(true)`), only blueprints (`Some(false)`).
     pub placed: Option<bool>,
+    /// Its names and texts (a variable's name and value, a script's
+    /// name, a field's label and text) are regular expressions, found
+    /// anywhere unless anchored (`^…$`), not `*` patterns.
+    pub regex: bool,
 }
 
 impl Query {
     pub fn new(search: Search) -> Query {
-        Query { search, and: Vec::new(), types: Vec::new(), placed: None }
+        Query { search, and: Vec::new(), types: Vec::new(), placed: None, regex: false }
+    }
+
+    /// Why one of its regular expressions isn't one (with `regex`).
+    pub fn check(&self) -> Result<(), String> {
+        if !self.regex {
+            return Ok(());
+        }
+        for s in self.searches() {
+            let texts: Vec<&str> = match s {
+                Search::Variable { name, value, .. } => {
+                    std::iter::once(name.as_str()).chain(value.as_deref()).collect()
+                }
+                Search::Script(name) => vec![name],
+                Search::Field { label, value } => {
+                    let text = match value {
+                        Some(FieldValue::Text(t)) => Some(t.as_str()),
+                        _ => None,
+                    };
+                    label.as_deref().into_iter().chain(text).collect()
+                }
+                _ => Vec::new(),
+            };
+            for t in texts {
+                crate::query::check_regex(t)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -511,9 +542,13 @@ fn in_range(v: &Value, min: Option<f64>, max: Option<f64>) -> bool {
     min.is_none_or(|m| n >= end(m)) && max.is_none_or(|m| n <= end(m))
 }
 
-/// Whether `text` contains `pattern`, ignoring case, `*` matching any run.
-fn contains(pattern: &str, text: &str) -> bool {
-    glob(&format!("*{pattern}*"), text)
+/// Whether `text` contains `pattern`, ignoring case, `*` matching any run
+/// (with `regex`, a regular expression found anywhere in it).
+fn contains(pattern: &str, text: &str, regex: bool) -> bool {
+    match regex {
+        true => like(pattern, text, true),
+        false => like(&format!("*{pattern}*"), text, false),
+    }
 }
 
 /// An event's name, for people: `ScriptSpawn` is `OnSpawn`.
@@ -536,7 +571,9 @@ fn field_hit(
     f: &FieldAt<'_>,
     game: Option<&GameData>,
     cp: Codepage,
+    regex: bool,
 ) -> Option<(String, String)> {
+    let glob = |p: &str, t: &str| like(p, t, regex);
     // The path of the struct the field is in.
     let owner = || f.path.rsplit_once('/').map_or("", |(p, _)| p).to_string();
     match search {
@@ -640,7 +677,9 @@ fn field_hit(
             let hit = match value {
                 None => true,
                 Some(FieldValue::Number(n)) => f.value.as_integer() == Some(*n),
-                Some(FieldValue::Text(t)) => texts(f.value, cp).iter().any(|s| contains(t, s)),
+                Some(FieldValue::Text(t)) => {
+                    texts(f.value, cp).iter().any(|s| contains(t, s, regex))
+                }
                 Some(FieldValue::Range { min, max }) => in_range(f.value, *min, *max),
             };
             if !hit || (label.is_none() && value.is_none()) {
@@ -659,6 +698,7 @@ fn resource_hits(
     searches: &[&Search],
     game: Option<&GameData>,
     cp: Codepage,
+    regex: bool,
 ) -> Vec<Vec<Hit>> {
     let Read { key, gff, refs } = *read;
     let file_type = gff.file_type_str();
@@ -666,7 +706,7 @@ fn resource_hits(
     for (s, found) in searches.iter().zip(&mut found) {
         let Search::Script(pattern) = s else { continue };
         for r in refs {
-            if r.kind == RefKind::Script && glob(pattern, &r.target.to_string()) {
+            if r.kind == RefKind::Script && like(pattern, &r.target.to_string(), regex) {
                 let label = r.path.rsplit('/').next().unwrap_or_default();
                 let script = r.target.to_lowercase();
                 found.push((r.path.clone(), format!("{}: {script}", event(label))));
@@ -676,7 +716,7 @@ fn resource_hits(
     if searches.iter().any(|s| !matches!(s, Search::Script(_))) {
         gff.root.walk_fields(&mut |f| {
             for (s, found) in searches.iter().zip(&mut found) {
-                if let Some(hit) = field_hit(s, &file_type, f, game, cp) {
+                if let Some(hit) = field_hit(s, &file_type, f, game, cp, regex) {
                     found.push(hit);
                 }
             }
@@ -764,6 +804,8 @@ pub fn search(m: &Module, q: &Query, game: Option<&GameData>, cp: Codepage) -> V
 pub struct Kept {
     /// The conditions asked.
     searches: Vec<Search>,
+    /// Whether they were asked as regular expressions.
+    regex: bool,
     /// Each GFF resource, as read, and what they found in it (none: it
     /// doesn't read).
     found: HashMap<ResKey, KeptOne>,
@@ -785,8 +827,9 @@ impl Kept {
         cp: Codepage,
     ) -> Vec<Hit> {
         let searches = q.searches();
-        if !self.searches.iter().eq(searches.iter().copied()) {
+        if !self.searches.iter().eq(searches.iter().copied()) || self.regex != q.regex {
             self.searches = searches.iter().map(|s| (*s).clone()).collect();
+            self.regex = q.regex;
             self.found.clear();
         }
         self.found.retain(|k, _| m.contains(k));
@@ -815,7 +858,8 @@ impl Kept {
                         true => gff_references(key, &gff),
                         false => Vec::new(),
                     };
-                    Found::of(&Read { key, gff: &gff, refs: &refs }, &searches, game, cp)
+                    let read = Read { key, gff: &gff, refs: &refs };
+                    Found::of(&read, &searches, game, cp, q.regex)
                 });
                 (key, (data.clone(), found))
             })
@@ -879,8 +923,14 @@ struct Found {
 }
 
 impl Found {
-    fn of(read: &Read<'_>, searches: &[&Search], game: Option<&GameData>, cp: Codepage) -> Found {
-        let hits = resource_hits(read, searches, game, cp);
+    fn of(
+        read: &Read<'_>,
+        searches: &[&Search],
+        game: Option<&GameData>,
+        cp: Codepage,
+        regex: bool,
+    ) -> Found {
+        let hits = resource_hits(read, searches, game, cp, regex);
         let key = read.key;
         let mut carries = Vec::new();
         if ObjectKind::from_restype(key.restype).is_some() && searches.iter().any(|s| carrying(s)) {
@@ -1170,6 +1220,41 @@ mod tests {
         assert_eq!(search(&m, &placed, None, Codepage::WINDOWS_1252).len(), 1);
         let blueprints = Query { placed: Some(false), ..items };
         assert_eq!(search(&m, &blueprints, None, Codepage::WINDOWS_1252).len(), 2);
+    }
+
+    /// With `regex`, a name or text is a regular expression, found
+    /// anywhere unless anchored; one that isn't is said by `check`, and a
+    /// search asked again as one is read again (`Kept`).
+    #[test]
+    fn names_and_texts_by_a_regular_expression() {
+        let m = module();
+        let regex = |s: Search| Query { regex: true, ..Query::new(s) };
+        let v = |name: &str, value: Option<&str>| Search::Variable {
+            name: name.into(),
+            kind: None,
+            value: value.map(str::to_string),
+        };
+        let all = |q: &Query| search(&m, q, None, Codepage::WINDOWS_1252);
+        assert_eq!(all(&regex(v("deidad", None))).len(), 5, "anywhere in the name");
+        let exact = all(&Query::new(v("sdeidad", None)));
+        assert_eq!(all(&regex(v("^sdeidad$", None))), exact, "case ignored, as a pattern does");
+        assert!(all(&regex(v("^deidad", None))).is_empty());
+        assert_eq!(all(&regex(v("deidad", Some("^(ezra|103)$")))).len(), 3);
+        // As a * pattern, the same text finds nothing.
+        assert!(all(&Query::new(v("^sdeidad$", None))).is_empty());
+        let text = Search::Field { label: None, value: Some(FieldValue::Text("ez.a".into())) };
+        assert!(!all(&regex(text.clone())).is_empty());
+        assert!(all(&Query::new(text)).is_empty());
+        // Not one: said.
+        let bad = regex(v("dei(dad", None));
+        assert!(bad.check().unwrap_err().contains("dei(dad"));
+        assert!(Query::new(v("dei(dad", None)).check().is_ok());
+        // Kept: asked as a pattern, then as an expression, read again.
+        let mut kept = Kept::default();
+        let q = Query::new(v("^sdeidad$", None));
+        assert!(kept.search(&m, &q, None, Codepage::WINDOWS_1252).is_empty());
+        let q = Query { regex: true, ..q };
+        assert_eq!(kept.search(&m, &q, None, Codepage::WINDOWS_1252), exact);
     }
 
     #[test]
