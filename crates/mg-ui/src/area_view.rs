@@ -96,8 +96,15 @@ impl Wheel {
             let d = i.smooth_scroll_delta;
             let shift = i.modifiers.shift;
             let mut zoom = if shift && d.y == 0.0 { d.x } else { d.y };
+            // (Ctrl and the wheel while Ctrl is held: egui goes on with
+            // the zoom over the frames after, which Ctrl let go of leaves
+            // alone. A pinch is its zoom events.)
+            let pinch: f32 = (i.events.iter())
+                .filter_map(|e| if let egui::Event::Zoom(by) = e { Some(*by) } else { None })
+                .product();
+            let factor = if i.modifiers.command { i.zoom_delta() } else { pinch };
             if zoom == 0.0 && zoom_speed > 0.0 {
-                zoom = i.zoom_delta().ln() / zoom_speed;
+                zoom = factor.ln() / zoom_speed;
             }
             Wheel {
                 zoom,

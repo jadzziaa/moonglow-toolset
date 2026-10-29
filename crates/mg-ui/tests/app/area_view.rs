@@ -102,6 +102,11 @@ fn a_sideways_scroll_pans_the_area_view() {
     let shifted = orbit(&h);
     assert!(shifted.distance < before.distance - 0.1, "zoomed: {}", shifted.distance);
     assert!((shifted.target - before.target).length() < 0.05, "not panned");
+    // A pinch on a touchpad zooms, no Ctrl held.
+    h.event(egui::Event::Zoom(1.25));
+    h.run_steps(3);
+    let pinched = orbit(&h);
+    assert!(pinched.distance < shifted.distance - 0.1, "pinched: {}", pinched.distance);
 }
 
 /// A middle click on the area view, with `modifiers` held.
