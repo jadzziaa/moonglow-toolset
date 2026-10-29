@@ -1137,7 +1137,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     // Two objects selected: the toolbar offers to save them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
     h.run_steps(2);
-    h.get_by_label("Save 2 as Prefab…").click();
+    h.get_by_label("🗐 Save 2 as Prefab…").click();
     h.run_steps(2);
     let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
     assert_eq!(clip.objects.len(), 2);
@@ -1447,7 +1447,7 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     assert!(!h.state().settings.palette_gallery);
     let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
     assert!(row.y < 30.0, "a row of the list: {row:?}");
-    h.get_by_label("⊞").click();
+    h.get_by_label("🖼").click();
     h.run_steps(3);
     assert!(h.state().settings.palette_gallery);
 }

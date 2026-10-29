@@ -1416,13 +1416,13 @@ fn an_area_goes_to_the_scratch_folder() {
         return;
     };
     // No scratch folder yet, and none chosen when asked: nothing is copied.
-    h.get_by_label("To Scratch").click();
+    h.get_by_label("📤 To Scratch").click();
     h.run_steps(2);
     assert_eq!(h.state().settings.scratch_dir, None);
     let scratch = mg_testkit::scratch_dir("ui-area-scratch").join("scratch");
     h.state_mut().settings.scratch_dir = Some(scratch.clone());
     h.run_steps(2);
-    h.get_by_label("To Scratch").click();
+    h.get_by_label("📤 To Scratch").click();
     h.run_steps(3);
     let mut names: Vec<String> = std::fs::read_dir(&scratch)
         .unwrap()

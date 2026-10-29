@@ -84,13 +84,18 @@ the module is opened again from its file.
   of its usual size.
 - **Light theme**: dark text on light, rather than the dark theme.
 - **Toolbar buttons** (Icons and text): **Icons only** shows the
-  buttons of the main toolbar and of the area view's toolbar as their
-  icons alone, as Aurora's toolbars are, to save room: the area view's
-  toolbar takes about half the rows it took. Rest the pointer on an
-  icon and its tip names it, with its key and what it does. Buttons
-  without an icon (All, None, Together, To Scratch) and the dropdowns
-  (Fade Geometry, Snap, Turn) keep their words. It takes effect at once,
-  when you choose OK.
+  buttons of the main toolbar, of the area view's toolbar and of the
+  editors' toolbars (the script editor's, the conversation editor's, a
+  model's view and the NUI Creator's) as their icons alone, as Aurora's
+  toolbars are, to save room: the area view's toolbar takes about half
+  the rows it took. Rest the pointer on an icon and its tip names it,
+  with its key and what it does; a screen reader reads the button's
+  name, not its icon. The area view's dropdowns show an icon for what
+  they set (🏠 Fade Geometry, 📐 Snap, ↻ Turn) before their choice. The
+  editors' buttons show their words alone with Icons and text, as they
+  always have; the palette's tile tools (Select Tiles, Eraser, Refine
+  Tile…) are rows of its list, named as in Aurora's palette, and keep
+  their names. It takes effect at once, when you choose OK.
 - **Graphics backend** (Automatic): what the window, the area view and
   the previews draw with. **Automatic** is the graphics library's
   (wgpu's) choice, except that an AMD GPU on Windows draws through

@@ -31,9 +31,12 @@ fn alt_and_a_drag_off_the_selection_moves_the_camera() {
     };
     let (before, changed) = (orbit(&h), revision(&h));
     // Nothing selected, on bare ground: the ground follows the pointer.
-    drag(&mut h, Vec3::new(10.0, 10.0, 0.0), Vec3::new(14.0, 10.0, 0.0));
+    // (Six steps of more than egui's drag threshold, 6 points, each: a
+    // first step under it is no drag yet, and is lost. Four meters were
+    // about 6 points a step, and passed or not as the toolbar wrapped.)
+    drag(&mut h, Vec3::new(10.0, 10.0, 0.0), Vec3::new(16.0, 10.0, 0.0));
     let moved = orbit(&h).target - before.target;
-    assert!((moved.x + 4.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
+    assert!((moved.x + 6.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
     assert_eq!(revision(&h), changed, "nothing in the area moved");
     // A waypoint selected, the drag begun off it: the camera again, and
     // the waypoint stays.
@@ -3328,7 +3331,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     h.run_steps(3);
     assert!(!shown(&h, first, ObjectKind::Trigger));
     // Show All: everywhere, and nothing kept hidden.
-    h.get_by_label("All").click();
+    h.get_by_label("☑ All").click();
     h.run_steps(2);
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
     assert!(h.state().settings.hidden_in_areas.is_empty());

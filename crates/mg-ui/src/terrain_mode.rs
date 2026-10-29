@@ -1537,7 +1537,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             app.settings.palette_gallery = false;
         }
         if ui
-            .selectable_label(gallery, "⊞")
+            .selectable_label(gallery, crate::icons::GALLERY)
             .on_hover_text(
                 "Gallery: each terrain's and crosser's tiles as pictures under it, to choose \
                  one by eye",

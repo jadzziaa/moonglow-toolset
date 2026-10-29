@@ -960,7 +960,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let add_hint =
         keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
 
-    // Toolbar.
+    // Toolbar. (With Icons only, each glyph alone, its name in its tip.)
+    let tools = crate::icons::Tools::of(&app.settings);
+    use crate::icons::editor as glyph;
+    let button = |ui: &mut Ui, enabled: bool, g: &str, name: &str, tip: &str| {
+        let r = ui.add_enabled(enabled, egui::Button::new(tools.word(g, name)));
+        tools.named(r, name, tip, None)
+    };
     ui.horizontal_wrapped(|ui| {
         let sel = view.selected;
         let add_parent = match sel {
@@ -971,11 +977,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             Some(_) => None,
         };
-        if (ui
-            .add_enabled(add_parent.is_some(), egui::Button::new("Add"))
-            .on_hover_text(add_hint)
-            .clicked()
-            || key_add)
+        if (button(ui, add_parent.is_some(), glyph::ADD, "Add", &add_hint).clicked() || key_add)
             && let Some(p) = add_parent
         {
             if popup {
@@ -998,7 +1000,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 target: target_of(r),
             })
         };
-        if ui.add_enabled(sel.is_some(), egui::Button::new("Copy")).clicked()
+        if button(ui, sel.is_some(), glyph::COPY, "Copy", "").clicked()
             || (key_copy && sel.is_some())
         {
             app.dialog_clip = sel.and_then(copy);
@@ -1007,8 +1009,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         let mut delete = false;
-        if (ui.add_enabled(sel.is_some(), egui::Button::new("Cut")).clicked() || key_cut)
-            && sel.is_some()
+        if (button(ui, sel.is_some(), glyph::CUT, "Cut", "").clicked() || key_cut) && sel.is_some()
         {
             app.dialog_clip = sel.and_then(copy);
             if app.dialog_clip.is_some() {
@@ -1020,7 +1021,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let clip = app.dialog_clip.as_ref();
         let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
         let can_paste = paste_parent.is_some_and(fits);
-        if (ui.add_enabled(can_paste, egui::Button::new("Paste")).clicked() || key_paste)
+        if (button(ui, can_paste, glyph::PASTE, "Paste", "").clicked() || key_paste)
             && can_paste
             && let (Some(p), Some(c)) = (paste_parent, clip)
         {
@@ -1042,7 +1043,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             _ => None,
         };
-        if (ui.add_enabled(pair.is_some(), egui::Button::new("Paste As Link")).clicked()
+        if (button(ui, pair.is_some(), glyph::PASTE_LINK, "Paste As Link", "").clicked()
             || asked == Some(Asked::PasteLink))
             && let Some((from, to)) = pair
         {
@@ -1051,7 +1052,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 actions.push(replace(key, "Paste as link", &ng));
             }
         }
-        if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).clicked() || key_delete {
+        if button(ui, sel.is_some(), glyph::DELETE, "Delete", "").clicked() || key_delete {
             delete = true;
         }
         if delete && let Some(r) = sel {
@@ -1095,10 +1096,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         ui.separator();
-        if ui.button("Expand All").clicked() {
+        if button(ui, true, glyph::EXPAND_ALL, "Expand All", "").clicked() {
             view.collapsed.clear();
         }
-        if ui.button("Collapse All").clicked() {
+        if button(ui, true, glyph::COLLAPSE_ALL, "Collapse All", "").clicked() {
             for k in [Kind::Entry, Kind::Reply] {
                 for i in 0..mg_module::dialog::nodes(&g, k).len() as u32 {
                     view.collapsed.insert((k, i));
@@ -1106,16 +1107,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         ui.separator();
-        for (i, label) in
-            ["Comments", "Actions", "Quests", "Animations", "Sounds"].iter().enumerate()
+        for (i, (g, label)) in [
+            (glyph::COMMENTS, "Comments"),
+            (glyph::ACTIONS, "Actions"),
+            (glyph::QUESTS, "Quests"),
+            (glyph::ANIMATIONS, "Animations"),
+            (glyph::SOUNDS, "Sounds"),
+        ]
+        .into_iter()
+        .enumerate()
         {
-            ui.toggle_value(&mut view.highlight[i], *label)
-                .on_hover_text(format!("Highlight lines with {}", label.to_lowercase()));
+            let tip = format!("Highlight lines with {}", label.to_lowercase());
+            tools.toggle_word(ui, &mut view.highlight[i], g, label, &tip);
         }
         ui.separator();
         // Export and import (dialog_io): the lines back by CSV.
         let mut export = None;
-        ui.menu_button("Export", |ui| {
+        let menu = ui.menu_button(tools.word(glyph::EXPORT, "Export"), |ui| {
             for f in mg_module::dialog_io::Format::ALL {
                 if ui.button(format!("{}…", f.name())).clicked() {
                     export = Some(f);
@@ -1123,6 +1131,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 }
             }
         });
+        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink", None);
         if let Some(f) = export {
             let suggested =
                 std::path::PathBuf::from(format!("{}.{}", key.resref, f.extensions()[0]));
@@ -1137,10 +1146,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 }
             }
         }
-        if ui
-            .button("Import Lines…")
-            .on_hover_text("Read back the text, speakers and comments of a CSV export")
-            .clicked()
+        if button(
+            ui,
+            true,
+            glyph::IMPORT,
+            "Import Lines…",
+            "Read back the text, speakers and comments of a CSV export",
+        )
+        .clicked()
             && let Some(path) = app.dialogs.open_file(
                 crate::dialogs::FileKind::Conversation(mg_module::dialog_io::Format::Csv),
                 None,
@@ -1160,11 +1173,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         ui.separator();
         let mut scripts = !app.settings.dialog_hide_scripts;
-        if ui
-            .toggle_value(&mut scripts, "Scripts")
-            .on_hover_text("Show each line's condition, action, journal update and sound")
-            .changed()
-        {
+        let tip = "Show each line's condition, action, journal update and sound";
+        if tools.toggle_word(ui, &mut scripts, glyph::SCRIPTS, "Scripts", tip).changed() {
             app.settings.dialog_hide_scripts = !scripts;
         }
     });

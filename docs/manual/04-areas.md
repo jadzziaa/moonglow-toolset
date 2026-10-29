@@ -19,8 +19,10 @@ Each button shows an icon and its name. With **Tools › Options ›
 General › Toolbar buttons: Icons only** the buttons that have an icon
 show it alone, and the toolbar takes about half the rows it took: rest
 the pointer on an icon and its tip names it (and gives its key, as
-Select Tiles' and Paint's do). All, None, Together, To Scratch and the
-dropdowns keep their words.
+Select Tiles' and Paint's do). All (☑), None (☐), Together (🔗), To
+Scratch (📤) and Save as Prefab… (🗐) have icons too, and the dropdowns
+show 🏠 (Fade Geometry), 📐 (Snap) and ↻ (Turn) before their choice. A
+palette's Gallery is 🖼, the Grid ⊞.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**. What you
@@ -725,7 +727,7 @@ as Aurora's Terrain tab does:
   brush's name, or a tile's model: a group or feature is found by the
   models of its tiles too, and shows as itself, one picture in the
   Gallery), **Expand All** and **Collapse All**,
-  how many there are, and **List** (☰) or **Gallery** (⊞), the same switch
+  how many there are, and **List** (☰) or **Gallery** (🖼), the same switch
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and
   closes, with every tile it can make under it as pictures: each variant,

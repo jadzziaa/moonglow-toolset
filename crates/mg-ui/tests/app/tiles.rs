@@ -2497,7 +2497,7 @@ fn an_exact_tile_goes_in_alone() {
     // Not shown with the List and no tile chosen; beside the Gallery's
     // switch with it.
     assert!(h.query_by_label("📌 Exact tile").is_none());
-    h.get_by_label("⊞").click();
+    h.get_by_label("🖼").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles, "off at first");
     h.get_by_label("📌 Exact tile").click();

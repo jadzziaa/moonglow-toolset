@@ -653,17 +653,26 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let dirty = app.scripts[&key].is_dirty();
     // Wrapping: a narrow pane keeps its width (the row would widen the
     // editor past the pane, side lists and all).
+    // (With Icons only, each glyph alone, its name in its tip.)
+    let tools = crate::icons::Tools::of(&app.settings);
+    use crate::icons::editor as glyph;
+    let button = |ui: &mut Ui, enabled: bool, g: &str, name: &str, tip: &str| {
+        let r = ui.add_enabled(enabled, egui::Button::new(tools.word(g, name)));
+        tools.named(r, name, tip, None)
+    };
     ui.horizontal_wrapped(|ui| {
-        save = ui
-            .add_enabled(dirty, egui::Button::new("Save"))
-            .on_hover_text("Save the script into the module")
-            .clicked();
-        compile = ui
-            .button("Compile")
-            .on_hover_text("Save and compile (F7 compiles all scripts)")
-            .clicked();
-        save_as = ui.button("Save As…").clicked();
-        if ui.button("Print…").on_hover_text("Print the script (through the web browser)").clicked()
+        save = button(ui, dirty, glyph::SAVE, "Save", "Save the script into the module").clicked();
+        compile = button(
+            ui,
+            true,
+            glyph::COMPILE,
+            "Compile",
+            "Save and compile (F7 compiles all scripts)",
+        )
+        .clicked();
+        save_as = button(ui, true, glyph::SAVE_AS, "Save As…", "").clicked();
+        if button(ui, true, glyph::PRINT, "Print…", "Print the script (through the web browser)")
+            .clicked()
         {
             let text = app.scripts[&key].text.clone();
             let html =
@@ -675,21 +684,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 Err(e) => app.log.error(format!("Print: {e}")),
             }
         }
-        if ui
-            .button("Open…")
-            .on_hover_text(
-                "Open another script: the module's, its haks' or the game's, found by name",
-            )
-            .clicked()
+        if button(
+            ui,
+            true,
+            glyph::OPEN,
+            "Open…",
+            "Open another script: the module's, its haks' or the game's, found by name",
+        )
+        .clicked()
         {
             open_script_window(app);
         }
         let editor = app.settings.external_editor.clone();
-        if ui
-            .add_enabled(editor.is_some(), egui::Button::new("External Editor"))
-            .on_hover_text("Edit in the external script editor (Options › Script Editor)")
-            .on_disabled_hover_text("Choose an external script editor in Options › Script Editor")
-            .clicked()
+        let tip = match editor {
+            Some(_) => "Edit in the external script editor (Options › Script Editor)",
+            None => "Choose an external script editor in Options › Script Editor",
+        };
+        if button(ui, editor.is_some(), glyph::EXTERNAL, "External Editor", tip).clicked()
             && let Some(editor) = editor
         {
             open_external(app, key, &editor);
@@ -698,45 +709,38 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             app.settings.scratch_dir.as_deref(),
             "the script, saved and compiled, with its compiled script if it compiles",
         );
-        to_scratch = ui.button("To Scratch").on_hover_text(tip).clicked();
+        to_scratch = button(ui, true, crate::icons::TO_SCRATCH, "To Scratch", &tip).clicked();
         ui.separator();
         use crate::keys::Cmd;
         let keymap = &app.keymap;
         let ctx = ui.ctx().clone();
         let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
         let find_tip = format!("{}; {}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
-        open_find |= ui.button("Find…").on_hover_text(find_tip).clicked();
-        open_replace |= ui.button("Replace…").on_hover_text(tip("Replace", Cmd::Replace)).clicked();
-        toggle_bookmark |= ui
-            .button("Bookmark")
-            .on_hover_text(tip("Toggle a bookmark on the cursor's line", Cmd::Bookmark))
-            .clicked();
+        open_find |= button(ui, true, glyph::FIND, "Find…", &find_tip).clicked();
+        let replace_tip = tip("Replace", Cmd::Replace);
+        open_replace |= button(ui, true, glyph::REPLACE, "Replace…", &replace_tip).clicked();
+        let bookmark_tip = tip("Toggle a bookmark on the cursor's line", Cmd::Bookmark);
+        toggle_bookmark |= button(ui, true, glyph::BOOKMARK, "Bookmark", &bookmark_tip).clicked();
         ui.separator();
-        definition |= ui
-            .button("Definition")
-            .on_hover_text(format!(
-                "{}, or Ctrl+click",
-                tip("Go to the definition of the name at the cursor", Cmd::Definition)
-            ))
-            .clicked();
-        references |= ui
-            .button("References")
-            .on_hover_text(tip(
-                "Where the name at the cursor is used in the module's scripts",
-                Cmd::References,
-            ))
-            .clicked();
-        rename |= ui
-            .button("Rename Symbol…")
-            .on_hover_text(tip(
-                "Rename the name at the cursor everywhere it's used",
-                Cmd::RenameSymbol,
-            ))
-            .clicked();
-        if ui
-            .button("Used By")
-            .on_hover_text("Where the module runs or includes this script")
-            .clicked()
+        let definition_tip = format!(
+            "{}, or Ctrl+click",
+            tip("Go to the definition of the name at the cursor", Cmd::Definition)
+        );
+        definition |= button(ui, true, glyph::DEFINITION, "Definition", &definition_tip).clicked();
+        let references_tip =
+            tip("Where the name at the cursor is used in the module's scripts", Cmd::References);
+        references |= button(ui, true, glyph::REFERENCES, "References", &references_tip).clicked();
+        let rename_tip =
+            tip("Rename the name at the cursor everywhere it's used", Cmd::RenameSymbol);
+        rename |= button(ui, true, glyph::RENAME, "Rename Symbol…", &rename_tip).clicked();
+        if button(
+            ui,
+            true,
+            glyph::USED_BY,
+            "Used By",
+            "Where the module runs or includes this script",
+        )
+        .clicked()
         {
             app.actions.push(Action::FindReferences(key));
         }

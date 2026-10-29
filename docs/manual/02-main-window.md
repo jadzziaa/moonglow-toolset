@@ -19,8 +19,10 @@ The toolbar's buttons (New, Open, Save, Undo, Redo, Properties, New
 Area, Start, Resources, Palettes, Preview, Compile, Verify) each show an
 icon and a word. To save room, **Tools › Options › General › Toolbar
 buttons: Icons only** shows the icons alone, as Aurora's toolbar does
-(the area view's toolbar too): rest the pointer on one and its tip names
-it, with its key.
+(the area view's and the editors' toolbars too): rest the pointer on one
+and its tip names it, with its key. Each icon is one command's: ℹ is
+Module Properties, the area view's Area Properties is 🔧, and 🏃 Start
+is the area view's Go to Start Location too (the same command).
 
 ## Menus
 

@@ -3470,16 +3470,41 @@ fn toolbar_icons_only() {
         let low = |n: &egui_kittest::Node<'_>| n.rect().top();
         h.get_all_by_label(label).max_by(|a, b| low(a).total_cmp(&low(b))).unwrap().rect().center()
     };
-    h.hover_at(center(&h, "🎨"));
+    // (Named by their names, not their glyphs, with Icons only; before
+    // that, by their glyphs.)
+    let named = |h: &Harness<'_, Moonglow>, name: &str, glyph: &str| {
+        if h.query_all_by_label(name).next().is_some() { center(h, name) } else { center(h, glyph) }
+    };
+    h.hover_at(named(&h, "Shaders", "🎨"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-tip");
-    h.hover_at(center(&h, "📦"));
+    h.hover_at(named(&h, "Palettes", "📦"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
     h.set_size(egui::vec2(1000.0, 700.0));
     h.hover_at(egui::pos2(500.0, 500.0));
     h.run_steps(10);
     shoot(&mut h, &dir, "toolbar-icons-only-narrow");
+    // The editors' toolbars: a script's, a conversation's, a model's.
+    h.set_size(egui::vec2(1400.0, 700.0));
+    let ws = h.state().ws.as_ref().unwrap();
+    let script = *ws.module.keys_of(ResType::NSS).next().expect("a script");
+    let talk = *ws.module.keys_of(ResType::DLG).next().expect("a conversation");
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    for (tab, name) in [
+        (mg_ui::Tab::Script(script), "script"),
+        (mg_ui::Tab::Dialog(talk), "conversation"),
+        (mg_ui::Tab::Model(model), "model"),
+    ] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(10);
+        for icons in [false, true] {
+            h.state_mut().settings.toolbar_icons_only = icons;
+            h.run_steps(5);
+            let how = if icons { "icons-only" } else { "icons-and-text" };
+            shoot(&mut h, &dir, &format!("toolbar-{name}-{how}"));
+        }
+    }
 }
 
 #[test]

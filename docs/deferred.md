@@ -1935,20 +1935,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is); Expand All and Collapse All have no keys, and an area opened out
   to its objects, and the kinds under it, keep their own state. (S
   each) (from builders' reports and the owner's notes after 1.21.0)
-- **Toolbar buttons: Icons only** (Options › General,
-  `icons::Tools`): the main toolbar and the area view's toolbar only.
-  Not done: the palette's tile tools (Select Tiles, Eraser, Refine
-  Tile…), the script editor's, the conversation editor's, the NUI
-  Creator's and the model view's toolbars keep their words (S each);
-  All, None, Together, To Scratch and Save as Prefab… have no icon and
-  keep their words, the Fade Geometry, Snap and Turn dropdowns their
-  text (S, if fitting glyphs are found in egui's fonts); one icon
-  means two buttons in places: ℹ is the main toolbar's Module
-  Properties and the area's Area Properties, 🏃 Start and Go to Start
-  Location (nearly one command), ⊞ the area's Grid and the palette's
-  pictures (S); with Icons only a screen reader reads the glyph as the
-  button's name, the name being in its tip (S). (ShadowM's request,
-  Discord, October 2026)
 - **A long dropdown that grew to the window's edge, not seen growing
   here:** the open list of a dropdown with a Filter field (Area
   Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds

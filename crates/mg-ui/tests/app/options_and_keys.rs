@@ -529,16 +529,18 @@ fn the_toolbar_shows_icons_only_when_asked() {
     h.run();
     // The glyphs alone.
     assert!(h.query_by_label("💾 Save").is_none() && h.query_by_label("📦 Palettes").is_none());
-    let narrow = width(&h, "🗋", "✔");
+    // (Named by their names for a screen reader, not by their glyphs.)
+    assert!(h.query_by_label("💾").is_none() && h.query_by_label("📦").is_none());
+    let narrow = width(&h, "New", "Verify");
     assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
     // A tip named for the button: first where it doesn't begin so.
-    let palettes = h.get_by_label("📦").rect().center();
+    let palettes = h.get_by_label("Palettes").rect().center();
     h.hover_at(palettes);
     // (A tooltip waits a moment.)
     h.run_steps(60);
     h.get_by_label("Palettes\nBlueprint palettes");
     // Save (disabled without a module): its tip too, with its key.
-    let save = h.get_by_label("💾").rect().center();
+    let save = h.get_by_label("Save").rect().center();
     h.hover_at(save);
     h.run_steps(60);
     let tip = h.get_by_label_contains("Save module").accesskit_node();
@@ -548,7 +550,7 @@ fn the_toolbar_shows_icons_only_when_asked() {
     h.state_mut().settings.toolbar_icons_only = false;
     h.run();
     h.get_by_label("💾 Save");
-    assert!(h.query_by_label("💾").is_none());
+    assert!(h.query_by_label("Save").is_none());
 }
 
 /// Options › General › Light theme.
@@ -800,4 +802,61 @@ fn the_update_check_asks_on_its_own_thread() {
         h.run_steps(1);
     }
     assert_eq!(asked.load(Ordering::SeqCst), 2);
+}
+
+/// Options › General › Toolbar buttons, Icons only, in the editors'
+/// toolbars too (ShadowM's request): the script editor's and the
+/// conversation editor's buttons show their glyphs alone and take less
+/// room, each named in its tip and by its name for a screen reader; with
+/// Icons and text, their words alone, as before.
+#[test]
+fn the_editors_toolbars_show_icons_only_when_asked() {
+    let dir = mg_testkit::scratch_dir("ui-editor-icons-only");
+    let path = sample_module(&dir);
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(script, b"void main() { }\n".to_vec());
+    m.set_gff(ResKey::parse("talk", ResType::DLG).unwrap(), &mg_module::dialog::new_dialog())
+        .unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1600.0, 800.0);
+    h.run();
+    // (The buttons' widths together: a toolbar wraps.)
+    let width = |h: &Harness<'_, Moonglow>, names: &[&str]| -> f32 {
+        names.iter().map(|n| h.get_by_label(n).rect().width()).sum()
+    };
+    let scripts = ["Save As…", "Print…", "Open…", "Find…", "Replace…", "Definition", "Used By"];
+    let lines = ["Add", "Copy", "Cut", "Paste", "Paste As Link", "Expand All", "Scripts"];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
+    h.run_steps(3);
+    let words = width(&h, &scripts);
+    h.state_mut().settings.toolbar_icons_only = true;
+    h.run_steps(3);
+    let glyphs = width(&h, &scripts);
+    assert!(glyphs < words * 0.6, "the script's toolbar narrower: {glyphs} of {words}");
+    h.get_by_label("Used By").hover();
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    h.get_by_label("Used By\nWhere the module runs or includes this script");
+    h.hover_at(egui::pos2(5.0, 790.0));
+    h.state_mut().settings.toolbar_icons_only = false;
+    h.run_steps(3);
+    let tab = h.state().dock.find_tab(&Tab::Script(script)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    let talk = ResKey::parse("talk", ResType::DLG).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(talk)));
+    h.run_steps(3);
+    let words = width(&h, &lines);
+    h.state_mut().settings.toolbar_icons_only = true;
+    h.run_steps(3);
+    let glyphs = width(&h, &lines);
+    assert!(glyphs < words * 0.6, "the conversation's toolbar narrower: {glyphs} of {words}");
+    // The toggles still toggle, said to be on or off.
+    h.get_by_label("Comments").click();
+    h.run_steps(2);
+    let toggled = h.get_by_label("Comments").accesskit_node().toggled();
+    assert_eq!(toggled, Some(egui::accesskit::Toggled::True));
 }

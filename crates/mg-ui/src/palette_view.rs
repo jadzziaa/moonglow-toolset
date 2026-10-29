@@ -824,7 +824,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
         ui.add_enabled_ui(pictures, |ui| {
             if ui
-                .selectable_label(shown, "⊞")
+                .selectable_label(shown, crate::icons::GALLERY)
                 .on_hover_text("Gallery: the blueprints as pictures, to choose by eye")
                 .on_disabled_hover_text(
                     "Gallery: creatures, doors, items, placeables and waypoints have pictures",

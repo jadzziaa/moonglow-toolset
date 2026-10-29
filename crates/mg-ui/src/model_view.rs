@@ -662,18 +662,32 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         if view.animation != was {
             view.time = 0.0;
         }
-        if ui.button(if view.playing { "Pause" } else { "Play" }).clicked() {
+        // (With Icons only, each glyph alone, its name in its tip.)
+        let tools = crate::icons::Tools::of(&app.settings);
+        use crate::icons::editor as glyph;
+        let button = |ui: &mut egui::Ui, g: &str, name: &str, tip: &str| {
+            let r = ui.button(tools.word(g, name));
+            tools.named(r, name, tip, None)
+        };
+        let (g, name) = match view.playing {
+            true => (glyph::PAUSE, "Pause"),
+            false => (glyph::PLAY, "Play"),
+        };
+        if button(ui, g, name, "").clicked() {
             view.playing = !view.playing;
         }
-        if ui.button("Frame").on_hover_text("Fit the model in the view").clicked() {
+        if button(ui, glyph::FRAME, "Frame", "Fit the model in the view").clicked() {
             view.frame();
         }
-        ui.checkbox(&mut view.model_lights, "Lights")
-            .on_hover_text("Light the model with its own light nodes");
+        let tip = "Light the model with its own light nodes";
+        tools.checkbox_word(ui, &mut view.model_lights, glyph::LIGHTS, "Lights", tip);
         let mut shaders = app.game_shaders();
-        if ui
-            .checkbox(&mut shaders, "Shaders")
-            .on_hover_text(
+        if tools
+            .checkbox_word(
+                ui,
+                &mut shaders,
+                crate::icons::SHADERS,
+                "Shaders",
                 "Draw with the game's own shaders, compiled from the game and the module's haks: \
                  a material's custom shaders (swaying grass and leaves, flowing water) and the \
                  game's lit shaders; off, with Moonglow's own (in every 3D view)",
@@ -683,17 +697,18 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             app.set_game_shaders(shaders);
         }
         if embedded {
-            pop_out =
-                ui.button("Pop Out").on_hover_text("Show it in a window of its own").clicked();
+            let tip = "Show it in a window of its own";
+            pop_out = button(ui, glyph::POP_OUT, "Pop Out", tip).clicked();
         }
-        export = ui
-            .button("Export Files…")
-            .on_hover_text(
-                "Write the files the game draws this with into a folder: its models, their \
-                 walkmeshes, textures and materials, from the haks and wherever else they are \
-                 (the game's own are left out, unless all of it is the game's)",
-            )
-            .clicked();
+        export = button(
+            ui,
+            glyph::EXPORT,
+            "Export Files…",
+            "Write the files the game draws this with into a folder: its models, their \
+             walkmeshes, textures and materials, from the haks and wherever else they are \
+             (the game's own are left out, unless all of it is the game's)",
+        )
+        .clicked();
     });
     if export {
         export_files(app, &source);

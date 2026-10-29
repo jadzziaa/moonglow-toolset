@@ -2199,11 +2199,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "Show the start location's marker (a blue ring with a red arrow). To set it: \
              right-click the ground, Set Start Location Here",
         );
-        if ui.button("All").on_hover_text("Show All").clicked() {
+        if tools.button(ui, icons::SHOW_ALL, "All", "Show All").clicked() {
             view.show = [true; 9];
             view.show_start = true;
         }
-        if ui.button("None").on_hover_text("Show None").clicked() {
+        if tools.button(ui, icons::SHOW_NONE, "None", "Show None").clicked() {
             view.show = [false; 9];
             view.show_start = false;
         }
@@ -2237,17 +2237,22 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
         let before = view.fade;
-        let fits =
-            Fits::before(ui, "fade-geometry", &format!("Fade Geometry: {}", view.fade.name()));
+        // (With Icons only, a glyph for what the list is: its tip says.)
+        let fade = match tools.icons_only {
+            true => format!("{} {}", icons::FADE, view.fade.name()),
+            false => format!("Fade Geometry: {}", view.fade.name()),
+        };
+        let fits = Fits::before(ui, "fade-geometry", &fade);
         // (The arrow keys step through it once it is clicked, as through
         // every list of choices.)
         let r = crate::widgets::dropdown("fade-geometry")
-            .selected_text(format!("Fade Geometry: {}", view.fade.name()))
+            .selected_text(fade)
             .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
             .on_hover_text(
-                "Tiles without the parts that fade in the game to show a character behind them \
-                 (roofs, upper walls), to see and place what is under them: never, while \
-                 working on objects (not with Select Tiles or a terrain brush), or always",
+                "Fade Geometry: tiles without the parts that fade in the game to show a \
+                 character behind them (roofs, upper walls), to see and place what is under \
+                 them: never, while working on objects (not with Select Tiles or a terrain \
+                 brush), or always",
             );
         fits.after(ui, &r);
         if view.fade != before {
@@ -2325,17 +2330,19 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let music = &mut app.settings.ambient_music;
         tools.toggle(ui, music, icons::MUSIC, "Music", "Play ambient music in area");
         ui.separator();
+        let snap = if tools.icons_only { icons::SNAP } else { "Snap:" };
         let grid = |v: Option<u16>| {
-            v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
+            v.map_or(format!("{snap} off"), |cm| format!("{snap} {} m", f32::from(cm) / 100.0))
         };
         let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
         let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
         let r = crate::widgets::dropdown("snap-grid")
             .selected_text(grid(app.settings.snap_grid))
             .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
-            .on_hover_text("Moved and placed objects snap to this grid");
+            .on_hover_text("Snap: moved and placed objects snap to this grid");
         fits.after(ui, &r);
-        let angle = |v: Option<u16>| v.map_or("Turn: free".to_string(), |a| format!("Turn: {a}°"));
+        let turn = if tools.icons_only { icons::TURN } else { "Turn:" };
+        let angle = |v: Option<u16>| v.map_or(format!("{turn} free"), |a| format!("{turn} {a}°"));
         let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
         let angles = [None, Some(5), Some(15), Some(45), Some(90)];
         let r = crate::widgets::dropdown("snap-angle")
@@ -2359,9 +2366,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                     });
                 },
             )
-            .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
+            .on_hover_text(
+                "Turn: turned objects snap to this angle; Q and E turn by it (15° when free)",
+            );
         fits.after(ui, &r);
-        ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
+        tools.toggle(
+            ui,
+            &mut app.settings.turn_together,
+            icons::TOGETHER,
+            "Together",
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
         );
@@ -2392,7 +2405,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             view.tile_mode = false;
             app.palette.tile_brush = None;
         }
-        if tools.button(ui, icons::PROPERTIES, "Area Properties", "").clicked() {
+        if tools.button(ui, icons::AREA_PROPERTIES, "Area Properties", "").clicked() {
             app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
         }
         if tools.button(ui, icons::CAMERA, "Reorient Camera", "").clicked()
@@ -2411,7 +2424,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "the area as it is now (its .are, .git and .gic), with the module's blueprints, \
              scripts and conversations it uses",
         );
-        if ui.button("To Scratch").on_hover_text(tip).clicked() {
+        if tools.button(ui, icons::TO_SCRATCH, "To Scratch", &tip).clicked() {
             app.actions.push(Action::ExportFiles {
                 keys: vec![ResKey::new(view.area, ResType::ARE)],
                 dependencies: true,
@@ -2420,10 +2433,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         // Several objects chosen: they can be kept as a group to place
         // again (the palette's Prefabs has them).
+        let prefab = format!("Save {} as Prefab…", view.selection.len());
         if view.selection.len() > 1
-            && ui
-                .button(format!("Save {} as Prefab…", view.selection.len()))
-                .on_hover_text(
+            && tools
+                .button(
+                    ui,
+                    icons::PREFABS,
+                    &prefab,
                     "Keep the selected objects as a group, under a name, to place again in any \
                      area or module (the palette's Prefabs, or Edit › Prefabs)",
                 )
