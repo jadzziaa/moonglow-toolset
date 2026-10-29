@@ -193,6 +193,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         .default_size(230.0f32.min(most))
         .max_size(most);
     fields.show(ui, |ui| {
+        // As tall as it was dragged to, whatever is in it: a panel is as
+        // tall as its content, so the pane couldn't be dragged taller
+        // than the fields chosen and went back to one line for Root.
+        ui.set_min_height(ui.max_rect().height());
         // A node added this frame appears once the command has run.
         match view.selected.filter(valid) {
             Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c], &mut actions),

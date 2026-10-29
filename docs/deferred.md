@@ -32,13 +32,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   edited module once more, as the test is about that. (M)
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
   split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
-  81 harnesses at kittest's default size (`Harness::new_ui_state`), 26
+  86 harnesses at kittest's default size (`Harness::new_ui_state`), 27
   installs made apart from the application (read before it, in another
   language, or by a test's own helper), 14 scratch user folders, each
-  with its own subfolders, and 6 harnesses with a step of their own;
-  and nothing fails when a file in `tests/app/` is not named in
-  `main.rs` (its tests would not run), as the corpus groups' check does.
-  (S)
+  with its own subfolders, and 6 harnesses with a step of their own.
+  They are in 17 of the folder's 21 files, the scripts', the area
+  view's and the lists' among them, which the deferred sprint's other
+  packages of 2026-10-29 change: folded after those merge, not beside
+  them. (A file not named in `main.rs` fails
+  `every_test_file_is_a_module` since 2026-10-29.) (M)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:
@@ -1775,16 +1777,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
   start area; Aurora removes it (after asking twice) and then refuses
   to save: "A module must have a starting location to be valid." (S)
-- **Panes' sizes at start:** the module tree is held to two fifths of
-  the window and the log to half its height, whatever egui remembered
-  (a builder's module opened with the tree over the whole window: a
-  long name widened it, and it could not be dragged back); a name too
-  long for the tree scrolls sideways into view since 2.8.0. Docked
-  panes' splits are held between 12% and 88% (the palettes'), and the
-  lower halves of the script, conversation and journal editors to a
-  share of their editor, and the talk table editor's to seven tenths.
-  The limits on the script, conversation and journal editors' lower
-  halves aren't under test (the talk table's are). (S)
 - **Windows' sizes and Maximize:** a window's size is remembered by the
   kind of editor, not its place on screen; Maximize is a double click on
   the tab or its menu, with no button in the window's bar (egui_dock

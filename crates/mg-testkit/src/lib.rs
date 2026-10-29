@@ -153,6 +153,24 @@ pub fn ungrouped_tests(manifest_dir: &str) -> Vec<String> {
         .collect()
 }
 
+/// The files of a test binary kept as a folder (`tests/<name>/main.rs`
+/// and a module per file beside it) that its `main.rs` doesn't name as a
+/// module (`mod <file>;`): such a file is not compiled, and its tests
+/// would pass by not running.
+pub fn unlisted_modules(dir: &Path) -> Vec<String> {
+    let main = std::fs::read_to_string(dir.join("main.rs")).unwrap_or_default();
+    let named: std::collections::HashSet<&str> = main
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("mod ")?.strip_suffix(';'))
+        .map(str::trim)
+        .collect();
+    files_with_ext(dir, "rs")
+        .iter()
+        .filter_map(|p| Some(p.file_stem()?.to_str()?.to_string()))
+        .filter(|stem| stem != "main" && !named.contains(stem.as_str()))
+        .collect()
+}
+
 /// A fresh, empty scratch directory for a test under `target/test-output/`.
 pub fn scratch_dir(name: &str) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
@@ -254,6 +272,17 @@ mod tests {
         let root = corpus!();
         assert!(mg_resman::GameInstall::is_install(&root));
         assert!(!bundled_modules(&root).is_empty());
+    }
+
+    #[test]
+    fn a_folder_s_files_left_out_of_its_main_are_named() {
+        let d = scratch_dir("mg-testkit-unlisted");
+        let main = "//! A binary.\n\nmod common;\n\n#[cfg(unix)]\nmod listed;\n// mod commented;\n";
+        std::fs::write(d.join("main.rs"), main).unwrap();
+        for f in ["common.rs", "listed.rs", "commented.rs", "left_out.rs", "notes.txt"] {
+            std::fs::write(d.join(f), b"").unwrap();
+        }
+        assert_eq!(unlisted_modules(&d), ["commented", "left_out"]);
     }
 
     #[test]
