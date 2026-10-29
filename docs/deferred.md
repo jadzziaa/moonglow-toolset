@@ -840,8 +840,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   selection and Alt + middle drag moves the camera (they were Shift's,
   which now leaves the camera alone while the handles show). Aurora
   turns the selection with Shift + right drag; and some desktops take
-  Alt + drag to move the window. Not in Options › Keyboard. (S)
-  (from builders' reports after 1.10.1)
+  Alt + drag to move the window. Read again on 2026-10-29: their being
+  out of Options › Keyboard is the Settled "Not every key" (mouse
+  bindings are fixed); on a desktop that takes Alt + drag, the camera
+  moves by Ctrl + drag, the selection is raised by Shift + drag of its
+  blue arrow and turned by its ring or Q and E, so what has no other
+  way is Alt + middle click (the camera's focus on the ground clicked)
+  and turning by a right drag. Left, Moonglow's own design: whether
+  Shift + right drag turns the selection too, as Aurora's does (today
+  it turns the camera, the handles shown), and a key for the focus
+  (`area_view::camera_input` and the `Drag::Turn` start, in the area
+  view's code). (S) (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say) (from builders' reports after 1.10.1)
 - **Painting placeables** (the area view's Paint, from builders'
   reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
   on a grid Q and E turn, each piece by its own size, a builder's ask
