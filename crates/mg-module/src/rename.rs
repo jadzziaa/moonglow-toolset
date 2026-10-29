@@ -344,6 +344,22 @@ impl UsageIndex {
         out
     }
 
+    /// The module's blueprints whose own tag (their root's `Tag`) is
+    /// `tag`, in order: what is placed from any of them has it. From what
+    /// [`refresh`](Self::refresh) read.
+    pub fn blueprints_tagged(&self, tag: &[u8]) -> Vec<ResKey> {
+        if tag.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<ResKey> = (self.seen.iter())
+            .filter(|(k, _)| ObjectKind::from_restype(k.restype).is_some())
+            .filter(|(_, r)| r.tags.iter().any(|(path, t)| path == "/Tag" && t == tag))
+            .map(|(k, _)| *k)
+            .collect();
+        out.sort();
+        out
+    }
+
     /// [`tag_usages`] of `tag`, from what [`refresh`](Self::refresh) read.
     pub fn tag_usages(&self, tag: &str) -> Vec<Usage> {
         if tag.is_empty() {

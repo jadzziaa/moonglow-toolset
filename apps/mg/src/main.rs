@@ -3154,6 +3154,12 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let done = areas::apply(&mut m, &resrefs, &changes, codepage, seed)
                 .map_err(anyhow::Error::msg)?;
+            // (An area given a tag another object has: said, as `mg set`.)
+            let retagged: Vec<mg_core::ResRef> =
+                done.iter().filter(|c| c.what == "Tag").map(|c| c.area).collect();
+            for w in edits::areas_made_twice(&m, &retagged) {
+                out.note(w);
+            }
             if scheme && !done.is_empty() {
                 out.note(format!(
                     "the tiles' lights were picked with --seed {seed} (the same with it again)"

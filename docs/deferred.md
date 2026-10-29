@@ -2326,9 +2326,6 @@ and duplicate tags on paste. What is left:
   palette (its blueprint's tag), Create Set names waypoints, Find and
   Replace or `mg` edits change tags, nor for a blueprint copied with its
   tag. (M)
-- **Retag changes the copies' tags only:** what names the old tag (a
-  copied area's doors' `LinkedTo`, scripts) still names the original's;
-  an area's copy's other duplicated tags are counted, not retagged. (M)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

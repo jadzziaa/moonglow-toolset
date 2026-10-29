@@ -267,12 +267,6 @@ pub enum Action {
     /// with the edits the plugins' handlers of what it makes add to it
     /// (`plugin_events`): one command.
     ApplyMade(Command, plugin_events::Made),
-    /// After a paste (`what`): whether the objects made put tags on more
-    /// than one object, said in the Duplicate Tags window.
-    CheckTags {
-        what: String,
-        made: Vec<tag_clash::Made>,
-    },
     /// Creates a NUI window with this name and opens it in the NUI Creator.
     NewNui(String),
     /// Builds a NUI window's opener include and event script (Build &
@@ -3415,7 +3409,6 @@ impl Moonglow {
             }
             Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
             Action::ApplyFix(line) => self.apply_fix(line),
-            Action::CheckTags { what, made } => tag_clash::check(self, &what, made, false),
             Action::NewNui(name) => nui_view::create(self, &name),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
@@ -3762,9 +3755,11 @@ impl Moonglow {
             |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"),
         );
         let derived = blueprint::derived_of(&cmd);
+        let tagged = (tag_clash::made_by(ws, &cmd.edits), format!("“{}”", cmd.label));
         ws.apply(cmd)?;
         blueprint::follow::retarget(self, followed);
         blueprint::after_apply(self, derived);
+        tag_clash::check(self, &tagged.1, tagged.0, false);
         if custom_tlk && self.ws.as_mut().is_some_and(|ws| ws.flush().is_ok()) {
             self.load_custom_tlk();
         }

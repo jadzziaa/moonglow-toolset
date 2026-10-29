@@ -5829,8 +5829,10 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                 unique: unique.map(str::to_string),
                 area: None,
             };
+            // (An area's copy: the tags only counted, Retag All for them;
+            // a script that spells one.)
             h.state_mut().tag_clash = Some(mg_ui::tag_clash::TagClash {
-                what: "The paste".into(),
+                what: "The copy of market".into(),
                 clashes: vec![
                     clash("TDOD_START_KREZK", 2, Some("TDOD_START_*")),
                     clash("KREZK_RENTAL_DOOR", 3, None),
@@ -5839,7 +5841,10 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                     (made(1), "TDOD_START_KREZK".into()),
                     (made(2), "KREZK_RENTAL_DOOR".into()),
                 ],
-                others: 0,
+                others: 2,
+                more: vec![(made(3), "WP_MARKET".into()), (made(4), "WP_WELL".into())],
+                made: (1..5).map(made).collect(),
+                scripts: vec!["kz_rental.nss line 14".into()],
                 from_option: true,
             });
             shoot(&mut h, &dir, "duplicate-tags");
