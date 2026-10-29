@@ -257,15 +257,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's lights chosen and its values written. Fewer, larger chunks, and
   values kept from frame to frame for what doesn't move, would cut it.
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
-- **An area filling in as it opens:** read on a thread and its textures
-  apart (no frame holds it: TDoD's woods held the window 3.8 s), its
-  picture is drawn again as textures arrive, each such frame costing what
-  the view costs drawn whole (13 to 22 ms for the woods); and the frame it
-  is first shown in looks its materials (MTRs) up on the window's thread
-  (19 to 30 ms for the woods, 23 for a water area of 160 fires: not taken
-  apart). Its models show all at once, once the area is read, not one by
-  one. Edits, Reload Resources and tests still read in the
-  frame. (S–M)
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)

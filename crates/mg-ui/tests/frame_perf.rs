@@ -385,8 +385,12 @@ fn areas(app: &mut Moonglow) -> Vec<(ResRef, i64)> {
 }
 
 fn harness<'a>(app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
+    // (A step a 144th of a second, as the window's frames go: with the
+    // harness's quarter of a second, every frame of an area's opening
+    // was an animation step's, the picture drawn again in each.)
     Harness::builder()
         .with_size(SCREEN)
+        .with_step_dt((1.0 / FPS) as f32)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
 }
@@ -465,6 +469,32 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             let each: Vec<String> = opening.iter().map(|d| format!("{:.1}", ms(*d))).collect();
             println!("      frames: {}", each.join(" "));
         }
+    }
+    // An edit of it (its Comments: nothing drawn changes), and its Undo:
+    // the frame each is seen in (the one after it is made), the area read
+    // again and drawn there (against what it costs drawn alone: the
+    // overview's frames below).
+    if !r.shots {
+        let are = ResKey::new(area, ResType::ARE);
+        let comment = mg_gff::Value::String(b"timed".to_vec());
+        let edit = mg_edit::Edit::SetField {
+            key: are,
+            path: mg_edit::GffPath::root(),
+            label: "Comments".into(),
+            value: Some(comment),
+        };
+        let mut took = Vec::new();
+        for action in [Action::Apply(mg_edit::Command::new("Timed", vec![edit])), Action::Undo] {
+            h.state_mut().actions.push(action);
+            h.run_steps(1);
+            let t = Instant::now();
+            h.run_steps(1);
+            took.push(ms(t.elapsed()));
+        }
+        println!(
+            "  area {area}{label}: an edit's frame {:.1} ms, its Undo's {:.1} ms",
+            took[0], took[1]
+        );
     }
     let objects = h
         .state()

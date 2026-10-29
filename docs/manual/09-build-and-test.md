@@ -344,7 +344,10 @@ these changes without a restart:
 It checks every few seconds (Options › General, on by default), or when
 you choose **Tools › Reload Resources**. Palettes, previews and open areas are
 redrawn from the new files, keeping the camera, and the log says what
-was reloaded.
+was reloaded. An open area's models and textures are read again as it
+was first opened, apart from the window (which stays at hand, the area
+saying "Reading area…" meanwhile), and its textures fill in as they are
+read.
 
 ## Area Statistics
 
