@@ -18,7 +18,8 @@ use mg_core::{Codepage, ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_resman::{Layer, LayerClass, ResKey, ResMan, priority};
 use mg_set::Tileset;
-use mg_shader::{Preamble, Stage, assemble, compile, compile_assembled, program_stage};
+pub use mg_shader::ProgramCache;
+use mg_shader::{Assembled, Preamble, Stage, assemble, program_stage};
 use rayon::prelude::*;
 
 use crate::Module;
@@ -430,6 +431,13 @@ impl TalkTables {
     pub const UNCOUNTED: usize = usize::MAX;
 }
 
+/// Where Verify keeps the shader programs that compiled: the user's cache
+/// folder's `shaders`, which the window's views keep theirs in too
+/// ([`crate::build::cache_dir`]).
+pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
+    crate::build::cache_dir().map(|d| d.join("shaders"))
+}
+
 /// Whether a layer holds custom content (the user's or the module's).
 fn is_custom(layer: &Layer) -> bool {
     matches!(
@@ -446,6 +454,8 @@ fn is_custom(layer: &Layer) -> bool {
 struct Doctor<'a> {
     rm: &'a ResMan,
     tlk: TalkTables,
+    /// Where shader programs that compiled are kept between runs.
+    shaders: Option<&'a ProgramCache>,
     out: Vec<Finding>,
     tables: HashMap<String, Option<TwoDa>>,
 }
@@ -493,7 +503,7 @@ impl<'a> Doctor<'a> {
 /// Examines the module's custom content. `resman` has the module and its
 /// haks layered in, as Verify and the game see them.
 pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding> {
-    examine_groups(module, resman, tlk, &[], &mut Timings::default())
+    examine_groups(module, resman, tlk, &[], &mut Timings::default(), None)
 }
 
 /// [`examine`], leaving out the checks of the groups in `skip` (they are
@@ -502,15 +512,19 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
 ///
 /// The checks of each custom tileset, 2DA, material and model run in
 /// parallel; the findings are in the order one after another would make.
+/// With `shaders` (a folder in the user's cache: `mg verify`'s and the
+/// window's, [`shader_cache_dir`]) the shader programs that compiled are
+/// kept, and not compiled again by the next run.
 pub fn examine_groups(
     module: &Module,
     resman: &ResMan,
     tlk: TalkTables,
     skip: &[Group],
     timings: &mut Timings,
+    shaders: Option<&ProgramCache>,
 ) -> Vec<Finding> {
     let runs = |g: Group| !skip.contains(&g);
-    let mut d = Doctor { rm: resman, tlk, out: Vec::new(), tables: HashMap::new() };
+    let mut d = Doctor { rm: resman, tlk, shaders, out: Vec::new(), tables: HashMap::new() };
     // The winning copy of every custom resource, by type.
     let layers = resman.layers();
     // (Looked up in parallel: a module with a hundred haks has hundreds of
@@ -553,7 +567,13 @@ pub fn examine_groups(
         .par_iter()
         .map_init(HashMap::new, |tables, &(key, layer)| {
             let started = Instant::now();
-            let mut d = Doctor { rm: resman, tlk, out: Vec::new(), tables: std::mem::take(tables) };
+            let mut d = Doctor {
+                rm: resman,
+                tlk,
+                shaders,
+                out: Vec::new(),
+                tables: std::mem::take(tables),
+            };
             let source = &layers[layer].label;
             match key.restype {
                 ResType::SET => tileset(&mut d, source, *key),
@@ -585,7 +605,7 @@ pub fn examine_groups(
         timings.add(format!("  {name}: {n}, added up (the longest {key}, {longest:.3} s)"), took);
     }
     if runs(Group::Models) {
-        timings.time("shaders", || shaders(&mut d, &custom));
+        timings.time("shaders", || self::shaders(&mut d, &custom));
     }
     if runs(Group::Objects) {
         timings.time("objects' rows", || objects(&mut d, module));
@@ -718,8 +738,13 @@ fn tileset(d: &mut Doctor, source: &str, key: ResKey) {
 /// A tileset being made (in the tileset editor, not yet in a hak): its
 /// problems, its models looked for in `resman`.
 pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding> {
-    let mut d =
-        Doctor { rm: resman, tlk: TalkTables::default(), out: Vec::new(), tables: HashMap::new() };
+    let mut d = Doctor {
+        rm: resman,
+        tlk: TalkTables::default(),
+        shaders: None,
+        out: Vec::new(),
+        tables: HashMap::new(),
+    };
     tileset_data(&mut d, "tileset", key, data);
     d.out
 }
@@ -832,7 +857,13 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     let examined: Vec<Vec<Finding>> = firsts
         .par_iter()
         .map(|&(i, exists)| {
-            let mut m = Doctor { rm, tlk: d.tlk, out: Vec::new(), tables: HashMap::new() };
+            let mut m = Doctor {
+                rm,
+                tlk: d.tlk,
+                shaders: d.shaders,
+                out: Vec::new(),
+                tables: HashMap::new(),
+            };
             if exists {
                 tile_model(&mut m, &set.tiles[i].model);
             }
@@ -1086,9 +1117,13 @@ fn material(d: &mut Doctor, source: &str, key: ResKey) {
 /// materials name (`customshaderVS`, `customshaderFS`), its `.shd` files
 /// that are programs, and, where it replaces a stock file (an include:
 /// `tdod_shaders.hak`'s `inc_lighting`), the stock programs that include
-/// it. Compiled as the game at its highest settings has them
-/// ([`Preamble::default`]). A program's first error is reported; one found
-/// in many programs is one finding.
+/// it. Compiled as the game's players have them ([`settings`]): at the
+/// game's highest settings first, then at each setting that changes what
+/// the program is given; a program is reported at the first it fails at,
+/// with its first error, and one error found in many programs is one
+/// finding. glslang alone judges, as the game's driver does
+/// ([`mg_shader::check_assembled`]); with a cache, what compiled before is
+/// not compiled again ([`ProgramCache::check`]).
 fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
     let layers = d.rm.layers();
     // A program, and where it was asked for: source, resource, field.
@@ -1161,7 +1196,6 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
         }
     }
     let custom_layer = |label: &str| layers.iter().any(|l| l.label == label && is_custom(l));
-    let pre = Preamble::default();
     // (source, resource, at, message) -> the programs it was found in.
     let mut found: BTreeMap<(String, ResKey, String, String), Vec<String>> = BTreeMap::new();
     // A program's first error: glslang's later ones mostly follow from it.
@@ -1180,13 +1214,13 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
         }
     };
     // (Compiled in parallel, recorded in the programs' order.)
-    let rm = d.rm;
-    let compiled: Vec<Option<mg_shader::ShaderError>> = (wanted.par_iter())
-        .map(|((name, stage), _)| compile(name, *stage, &pre, rm).err())
+    let (rm, cache) = (d.rm, d.shaders);
+    let compiled: Vec<Option<(mg_shader::ShaderError, &str)>> = (wanted.par_iter())
+        .map(|((name, stage), _)| first_failure(cache, |pre| assemble(name, *stage, pre, rm)))
         .collect();
     for (((name, stage), (source, key, field)), error) in wanted.iter().zip(compiled) {
-        if let Some(e) = error {
-            record(e, format!("{name} ({stage})"), (source, *key, field));
+        if let Some((e, setting)) = error {
+            record(e, program_label(name, *stage, setting), (source, *key, field));
         }
     }
     if replaces_stock {
@@ -1204,14 +1238,20 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
         }
         stock.sort();
         stock.dedup();
-        for (name, stage, key) in stock {
-            let Ok(a) = assemble(&name, stage, &pre, d.rm) else { continue };
-            if !a.uses_origin(custom_layer) {
-                continue;
-            }
-            if let Err(e) = compile_assembled(&a) {
+        let stock: Vec<_> = stock
+            .into_iter()
+            .filter(|(name, stage, _)| {
+                assemble(name, *stage, &Preamble::default(), rm)
+                    .is_ok_and(|a| a.uses_origin(custom_layer))
+            })
+            .collect();
+        let compiled: Vec<_> = (stock.par_iter())
+            .map(|(name, stage, _)| first_failure(cache, |pre| assemble(name, *stage, pre, rm)))
+            .collect();
+        for ((name, stage, key), error) in stock.into_iter().zip(compiled) {
+            if let Some((e, setting)) = error {
                 let source = d.rm.origin(&key).unwrap_or_default().to_string();
-                record(e, format!("{name} ({stage})"), (&source, key, ""));
+                record(e, program_label(&name, stage, setting), (&source, key, ""));
             }
         }
     }
@@ -1251,6 +1291,62 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
             at,
             format!("{message}: {which}"),
         );
+    }
+}
+
+/// The settings Verify compiles a program at, with how a finding names
+/// each: the game at its highest settings (enhanced lighting, High
+/// Quality, 32 lights, keyholing on, a material that may discard:
+/// [`Preamble::default`]), then one setting changed at a time, each
+/// changing what the program is given (`notes_shaders.md` §A.5, §D.7):
+/// Performance, the game's own default quality; Low, where the lighting is
+/// per vertex; enhanced lighting off; an opaque material (`NO_DISCARD 1`,
+/// `discard` defined away); and the fewest lights the client takes (3: an
+/// array indexed past them fails).
+pub(crate) fn settings() -> [(Preamble, &'static str); 6] {
+    let high = Preamble::default();
+    [
+        (high.clone(), ""),
+        (Preamble { quality: 1, ..high.clone() }, "at Performance shader quality"),
+        (
+            Preamble { quality: 0, fragment_lighting: false, ..high.clone() },
+            "at Low shader quality",
+        ),
+        (
+            Preamble { gamma_correction: false, fragment_lighting: false, ..high.clone() },
+            "with enhanced lighting off",
+        ),
+        (Preamble { no_discard: true, ..high.clone() }, "for an opaque material"),
+        (Preamble { max_lights: 3, ..high }, "with 3 lights"),
+    ]
+}
+
+/// A program at each of [`settings`] in turn, assembled by `assemble`:
+/// the first error and the setting it was found at, or `None` where it
+/// compiles at all of them. (A missing include fails at the first.)
+fn first_failure(
+    cache: Option<&ProgramCache>,
+    assemble: impl Fn(&Preamble) -> Result<Assembled, mg_shader::ShaderError>,
+) -> Option<(mg_shader::ShaderError, &'static str)> {
+    for (pre, setting) in settings() {
+        let checked = assemble(&pre).and_then(|a| match cache {
+            Some(c) => c.check(&a).map(|_| ()),
+            None => mg_shader::check_assembled(&a),
+        });
+        if let Err(e) = checked {
+            return Some((e, setting));
+        }
+    }
+    None
+}
+
+/// How a finding names a program: `fs_mine (fragment)`, `fs_mine
+/// (fragment, at Low shader quality)`.
+fn program_label(name: &str, stage: Stage, setting: &str) -> String {
+    if setting.is_empty() {
+        format!("{name} ({stage})")
+    } else {
+        format!("{name} ({stage}, {setting})")
     }
 }
 
@@ -2325,6 +2421,83 @@ mod tests {
         f.iter().map(|f| (f.check.as_ref(), f.at.clone())).collect()
     }
 
+    /// A program that compiles at the game's highest settings and not at
+    /// another its players may have is reported at that one, once (the
+    /// first it fails at); one that fails at all of them is reported as
+    /// before. With a cache, a second run compiles only what failed, and
+    /// says the same.
+    #[test]
+    fn shader_programs_are_compiled_at_the_players_settings() {
+        let shd = |t: &str| t.as_bytes().to_vec();
+        let mut hak = MemContainer::new();
+        // Each a fragment program, broken under one setting.
+        let programs = [
+            ("fs_low", "#if SHADER_QUALITY_MODE == 0\nx = 1;\n#endif"),
+            ("fs_perf", "#if SHADER_QUALITY_MODE == 1\nx = 1;\n#endif"),
+            ("fs_vertex", "#if GAMMA_CORRECTION == 0\nx = 1;\n#endif"),
+            ("fs_opaque", "#if NO_DISCARD\nx = 1;\n#endif"),
+            ("fs_lights", "uniform vec4 l[MAX_NUM_LIGHTS];\nvec4 L() { return l[4]; }"),
+            ("fs_always", "x = 1;"),
+            ("fs_fine", ""),
+        ];
+        for (name, body) in programs {
+            hak.insert(
+                key(name, ResType::SHD),
+                shd(&format!(
+                    "#define SHADER_TYPE 2\n{body}\nvoid main() {{ gl_FragColor = vec4(1.0); }}\n"
+                )),
+            );
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let dir = std::env::temp_dir().join(format!("mg-doctor-shaders-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = ProgramCache::new(&dir);
+        let run = |cache: Option<&ProgramCache>| {
+            let f = examine_groups(
+                &Module::new(),
+                &rm,
+                TalkTables::default(),
+                &[],
+                &mut Timings::default(),
+                cache,
+            );
+            let mut got: Vec<(String, String)> = (f.iter())
+                .filter(|f| f.check == "shader-compile")
+                .map(|f| (f.resource.to_string(), f.message.clone()))
+                .collect();
+            got.sort();
+            got
+        };
+        let got = run(None);
+        let says = |name: &str| {
+            got.iter()
+                .find(|(r, _)| *r == format!("{name}.shd"))
+                .map(|(_, m)| m.as_str())
+                .unwrap_or_else(|| panic!("{name}: {got:#?}"))
+        };
+        assert_eq!(got.len(), 6, "{got:#?}");
+        assert!(says("fs_low").contains("fs_low (fragment, at Low shader quality) doesn't"));
+        assert!(says("fs_perf").contains("(fragment, at Performance shader quality)"));
+        assert!(says("fs_vertex").contains("(fragment, with enhanced lighting off)"));
+        assert!(says("fs_opaque").contains("(fragment, for an opaque material)"));
+        assert!(says("fs_lights").contains("(fragment, with 3 lights)"), "{}", says("fs_lights"));
+        assert!(
+            says("fs_always").contains("fs_always (fragment) doesn't"),
+            "{}",
+            says("fs_always")
+        );
+        // Kept: each that compiled at a setting; a second run says the same.
+        assert_eq!(run(Some(&cache)), got);
+        let kept = std::fs::read_dir(&dir).unwrap().count();
+        // (fs_fine at all six, fs_always at none, each other at the
+        // settings before the one it fails at.)
+        assert_eq!(kept, 6 + 2 + 1 + 3 + 4 + 5, "{kept}");
+        assert_eq!(run(Some(&cache)), got);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), kept);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn shader_programs_that_do_not_compile() {
         let mut game = MemContainer::new();
@@ -2544,6 +2717,7 @@ endmodelgeom fx\ndonemodel fx\n";
                 TalkTables::default(),
                 skip,
                 &mut Timings::default(),
+                None,
             );
             let mut types: Vec<ResType> = read.lock().unwrap().iter().map(|k| k.restype).collect();
             types.sort();

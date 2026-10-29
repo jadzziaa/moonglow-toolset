@@ -1041,7 +1041,7 @@ fn run_builtin(b: &Builtins, module: &Module, fixture: &Fixture) -> Vec<Found> {
     let skip: Vec<Group> =
         (Group::ALL.into_iter()).filter(|g| !b.checks.iter().any(|c| c.group() == *g)).collect();
     let findings: Vec<mg_module::doctor::Finding> =
-        examine_groups(module, &g.resman, tlk, &skip, &mut Timings::default())
+        examine_groups(module, &g.resman, tlk, &skip, &mut Timings::default(), None)
             .into_iter()
             .filter(|f| b.checks.iter().any(|c| f.check == c.id()))
             .collect();

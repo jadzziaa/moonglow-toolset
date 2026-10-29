@@ -379,8 +379,7 @@ impl CompiledBack {
             && !skinned
             && sorted.iter().enumerate().all(|(i, n)| *n == i as i32)
         {
-            self.in_tree_order
-                .add(numbers.numbers.iter().enumerate().all(|(i, n)| *n == i as i32));
+            self.in_tree_order.add(numbers.numbers.iter().enumerate().all(|(i, n)| *n == i as i32));
             let alone = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).ok()?;
             let parts = PartNumbers::read(&alone.binary).unwrap();
             self.fresh.add(by_name(&Model::read(&alone.binary).ok()?, &parts) == theirs);

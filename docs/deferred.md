@@ -1093,21 +1093,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
-  Verify's `shader-compile` check leave out. (from M0, 2026-10-21)
-  - Verify compiles each program once, as the game at its highest
-    settings has it (`Preamble::default`: quality 2, enhanced lighting,
-    32 lights, keyholing on, `NO_DISCARD 0`). A program that fails only
-    at low or medium quality, with enhanced lighting off
-    (`FRAGMENT_LIGHTING 0`), for an opaque material (`NO_DISCARD 1`) or
-    with another light count isn't reported. Nor is it compiled again
-    per Verify run cheaply: each run compiles every custom program (TDoD
-    with its shader haks: about a second). (S)
-  - Arrays of samplers are refused (not split), and `customShaderGS`
-    (a geometry shader) is not read; no shader seen has either. (S)
+  Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
+  compiles each program at six settings since 2026-10-29, and keeps what
+  compiled, `doctor::settings`)
+  - Arrays of samplers are refused (not split) where a view draws the
+    program (Verify, which asks glslang alone, takes them), and
+    `customShaderGS` (a geometry shader) is not read; no shader seen has
+    either. (S)
   - What the engine does is assumed in three places, none checked in the
     client: an indented `#include` is spliced (14 of the stock ones
     are), a missing include fails the program, and splicing stops 16
-    deep. (S)
+    deep (`mg_shader::assemble`, `MAX_DEPTH`). (S) (waits on a session
+    that runs the client: three programs put in a scratch user
+    directory's `override`, as `light_uniforms_match_the_client` puts
+    its, one with an indented include, one naming an include that isn't
+    there and one at the end of a chain 17 deep, each drawn magenta or
+    not)
   - A uniform that is a struct is described as `Other`, without its
     members (none in the stock blocks). (Locations, which glslang numbers
     in the order a stage first uses them, are settled in M1: vertex
