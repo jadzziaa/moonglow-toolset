@@ -1600,11 +1600,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   character, which the editor has none of. (S) (waits on Aurora: whether
   it ever shows the feminine table's text, a line by StrRef in its
   conversation editor say; if never, this is settled)
-- **Loading screen pictures** are put together as the game's stock
-  `pnl_loadscreen` model maps them (two halves of a square texture); a
-  module with its own `pnl_loadscreen` model, or a texture that isn't
-  laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
-  The picture isn't in the list itself, only on hover. (S)
 - **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
   table of the Unicode character each byte of the game's text stands
   for; a builder who knows the engine pointed it out, after 1.19.1):

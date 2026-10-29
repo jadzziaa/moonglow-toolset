@@ -1191,7 +1191,12 @@ ticked, shown as the first of them:
   keeps its tiles' own.
 - **Loading Screen** (Advanced, and a door's or trigger's Area
   Transition page) shows the chosen screen's picture under the list, and
-  each screen's when the pointer rests on its name in the list.
+  each screen's when the pointer rests on its name in the list. The
+  picture is put together as the game's loading screen panel
+  (`pnl_loadscreen`) lays the texture out: a hak's own panel, laid out
+  otherwise (a wide texture in three parts, say), is followed. A screen
+  whose texture isn't found shows the small preview Aurora shows
+  (`NAMEs`), where there is one.
 - Interior, natural, underground and the shader flags change alone: each
   area keeps its other flags.
 - **Variables**: the variables you add or change are set on each area,
