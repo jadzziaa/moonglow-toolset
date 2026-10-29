@@ -256,8 +256,9 @@ pub(crate) fn rename(
     {
         out.note(format!("warning: what was compiled is not remembered: {e}"));
     }
+    let codepage = crate::scripts_codepage(cli, &ws.module);
     for name in &made.spelled {
-        for x in mg_module::rename::mentions(&ws.module, name, true) {
+        for x in mg_module::rename::mentions(&ws.module, name, true, codepage) {
             out.note(format!(
                 "warning: {} line {} still spells {name}: {}",
                 x.script, x.line, x.text

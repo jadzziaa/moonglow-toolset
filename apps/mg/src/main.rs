@@ -1559,6 +1559,31 @@ fn install(cli: &Cli) -> Result<GameInstall> {
     Ok(gi)
 }
 
+/// The codepage the game client reads text in, as the user directory's
+/// `settings.tml` sets it ([`client_codepage`]); the user directory as
+/// `mg` finds it, without the game too.
+fn user_codepage(cli: &Cli) -> Option<Codepage> {
+    (cli.user_dir.clone())
+        .or_else(GameInstall::detect_user_dir)
+        .filter(|_| !cli.no_user_dir)
+        .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
+        .and_then(|t| client_codepage(&t))
+}
+
+/// The codepage a module's scripts are read in for the lines `mg refs`
+/// and `mg rename` show of them (their bytes are never changed): a table
+/// of the module's own (an `encoding.2da` in its haks), else the game
+/// client's as `mg lsp` reads scripts in ([`user_codepage`]: Windows-1250
+/// for a Polish game), else Windows-1252. NWScript has none of its own:
+/// the game reads a script's strings in its language's.
+pub(crate) fn scripts_codepage(cli: &Cli, m: &Module) -> Codepage {
+    let table = module_codepage(cli, m);
+    match table == Codepage::WINDOWS_1252 {
+        true => user_codepage(cli).unwrap_or(table),
+        false => table,
+    }
+}
+
 /// The codepage the game client reads text in, as its `settings.tml`
 /// (the user directory's) sets it: `game.language.codepage`, else the
 /// codepage of `game.language.override`'s language. `None` where neither
@@ -2533,12 +2558,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     .with_context(|| format!("{name:?} isn't a codepage (cp1252, cp1250…)"))?,
                 // (The user directory as `mg` finds it, without the game
                 // too: the language server works without one.)
-                None => (cli.user_dir.clone())
-                    .or_else(GameInstall::detect_user_dir)
-                    .filter(|_| !cli.no_user_dir)
-                    .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
-                    .and_then(|t| client_codepage(&t))
-                    .unwrap_or(Codepage::WINDOWS_1252),
+                None => user_codepage(cli).unwrap_or(Codepage::WINDOWS_1252),
             };
             // The game's scripts and nwscript.nss, if there is a game.
             let game = match install(cli) {
@@ -2554,10 +2574,11 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Refs { module, name, tag } => {
             let m = crate::open_module(module)?;
             let mut out = Output::default();
+            let codepage = scripts_codepage(cli, &m);
             let (usages, mentions, run) = if *tag {
                 (
                     mg_module::rename::tag_usages(&m, name),
-                    mg_module::rename::mentions(&m, name, false),
+                    mg_module::rename::mentions(&m, name, false, codepage),
                     Vec::new(),
                 )
             } else {
@@ -2581,7 +2602,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 };
                 (
                     mg_module::rename::usages(&m, key),
-                    mg_module::rename::mentions(&m, &key.resref.to_string(), true),
+                    mg_module::rename::mentions(&m, &key.resref.to_string(), true, codepage),
                     run,
                 )
             };
@@ -2635,7 +2656,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 compile = compiled(&mut out, &results);
             }
             m.save()?;
-            let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true);
+            let codepage = scripts_codepage(cli, &m);
+            let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true, codepage);
             for x in &left {
                 out.note(format!(
                     "warning: {} line {} still spells {}: {}",

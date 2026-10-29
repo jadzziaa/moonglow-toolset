@@ -740,6 +740,9 @@ impl Id {
             Id::CompileAll => Action::CompileScripts,
             Id::CompileModels => Action::CompileModels,
             Id::Verify => Action::Verify,
+            // (The games running looked at before the save writes the
+            // module under one.)
+            Id::TestModule | Id::TestChoose if !app.test_may_start() => return,
             Id::TestModule => Action::SaveThen(Box::new(Action::TestModule)),
             Id::TestChoose => Action::SaveThen(Box::new(Action::TestModuleChoose)),
             Id::PackTarget => Action::PackTarget,
@@ -778,7 +781,11 @@ impl Id {
             }
             Id::IndentToTabs | Id::IndentToSpaces => {
                 let tabs = self == Id::IndentToTabs;
-                app.script_tools.convert_indent = script_in_front(app).map(|k| (k, tabs));
+                // (The lines selected, where the script had the keys as the
+                // menu was opened: the selection was there to see.)
+                let keys = app.undo_script;
+                app.script_tools.convert_indent =
+                    script_in_front(app).map(|k| (k, tabs, keys == Some(k)));
                 return;
             }
             Id::CreatureWizard => {

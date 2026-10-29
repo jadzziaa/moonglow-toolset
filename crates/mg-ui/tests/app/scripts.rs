@@ -770,6 +770,43 @@ fn tab_indents_as_the_script_does() {
     assert_eq!(h.state().script_text(key).unwrap(), converted);
     // Tab indents with a tab from then on.
     assert_eq!(tab_at_start(&mut h), "\t");
+    // Taken back with the editor's Undo, Tab indents as before it (two
+    // spaces), not as converted.
+    let mut h = open(two);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Tabs").click();
+    h.run_steps(3);
+    h.state_mut().script_tools.jump = Some((key, 3));
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), two);
+    assert_eq!(tab_at_start(&mut h), "  ", "as before the conversion");
+
+    // With lines selected (the editor's context menu): those lines alone.
+    let mut h = open(two);
+    let id = egui::Id::new(("script", key));
+    let (from, to) = (two.find("  if").unwrap(), two.find("    n++").unwrap() + 2);
+    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+    let range =
+        egui::text::CCursorRange::two(egui::text::CCursor::new(from), egui::text::CCursor::new(to));
+    state.cursor.set_char_range(Some(range));
+    state.store(&h.ctx, id);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("void main")))
+        .expect("the script's text")
+        .click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Tabs").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().script_text(key).unwrap(),
+        "void main()\n{\n  int n;\n\tif (n)\n\t\tn++;\n}\n",
+        "the line before the selection as it was"
+    );
 
     // From the editor's context menu: to spaces, Options' four.
     let mut h = open(tabbed);
@@ -1056,6 +1093,34 @@ fn the_external_script_editor_s_saves_come_back() {
     assert_eq!(h.state().script_text(key).unwrap(), "void main() { int n; }\n");
 }
 
+/// Find References' script strings show their lines in the scripts'
+/// codepage (Options › Language: Windows-1250 for Polish, where 0xB9 is
+/// "ą"; GitHub issue 27), read again when the language changes.
+#[test]
+fn references_show_a_script_s_line_in_the_scripts_codepage() {
+    use mg_core::Language;
+    use mg_ui::references::Query;
+    let dir = mg_testkit::scratch_dir("ui-references-codepage");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let source = b"void main() { SpeakString(\"Id\xb9\"); ExecuteScript(\"next_one\"); }\n";
+    m.set(ResKey::parse("polish", ResType::NSS).unwrap(), source.to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.find_references(Query::Resource(ResKey::parse("next_one", ResType::NSS).unwrap()));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let line = |h: &mut Harness<'_, Moonglow>, language: Language| {
+        mg_ui::set_edit_language(language);
+        h.run_steps(2);
+        h.state().references.mentions.first().map(|x| x.text.clone()).unwrap_or_default()
+    };
+    let polish = line(&mut h, Language::POLISH);
+    let western = line(&mut h, Language::ENGLISH);
+    assert_eq!(polish, "void main() { SpeakString(\"Idą\"); ExecuteScript(\"next_one\"); }");
+    assert_eq!(western, "void main() { SpeakString(\"Id¹\"); ExecuteScript(\"next_one\"); }");
+}
+
 #[test]
 fn a_script_named_as_the_game_s_own_is_warned_about() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -1186,6 +1251,109 @@ fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
     open(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some());
     assert_eq!(said(&h), 1, "{:?}", h.state().log.entries.last());
+}
+
+/// Open Script, Save As and New Script open a script as the module tree
+/// does: in the external editor too, where Options has scripts open there.
+#[cfg(unix)]
+#[test]
+fn the_script_editor_s_openers_go_to_the_external_editor_too() {
+    let Some((mut h, _)) = area_harness("script-external-openers") else { return };
+    h.state_mut().settings.tree_stays = true;
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let edits = [nss("hello"), nss("other_one")]
+        .map(|key| mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) })
+        .to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    let Some(editor) = true_program() else { return };
+    h.state_mut().settings.external_editor = Some(editor.clone().into());
+    h.state_mut().settings.scripts_external = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("hello"))));
+    h.run_steps(4);
+    let said = |h: &Harness<'_, Moonglow>, name: &str| {
+        let line = format!("{name}.nss: editing in {editor}");
+        h.state().log.entries.iter().filter(|e| e.1 == line).count()
+    };
+    assert_eq!(said(&h, "hello"), 0, "a tab opened by itself: Moonglow's editor alone");
+    // Open Script.
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    let at = h.get_by_label("other_one").rect().center();
+    double_click_now(&mut h, at);
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("other_one"))).is_some());
+    assert_eq!(said(&h, "other_one"), 1, "{:?}", h.state().log.entries);
+    // New Script.
+    h.state_mut().new_script = Some("fresh".into());
+    h.run_steps(2);
+    h.get_by_label("Create").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("fresh"))).is_some());
+    assert_eq!(said(&h, "fresh"), 1, "{:?}", h.state().log.entries);
+    // Save As, from the script in front.
+    h.get_by_label("Save As…").click();
+    h.run_steps(2);
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let w = h.get_all_by_label("Save Script As").find(window).expect("the window");
+    w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("fresh_copy");
+    h.run_steps(1);
+    let w = h.get_all_by_label("Save Script As").find(window).unwrap();
+    w.get_by_label("Save").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(nss("fresh_copy"))).is_some());
+    assert_eq!(said(&h, "fresh_copy"), 1, "{:?}", h.state().log.entries);
+}
+
+/// Compile and the check as you type read an include alike: as the module
+/// has it, not its editor's unsaved text (the compiled script goes into
+/// the module beside its sources); Compile says the include's changes
+/// were left out.
+#[test]
+fn compile_and_the_live_check_read_an_include_as_saved() {
+    let Some((mut h, _)) = area_harness("include-as-saved") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let edits = vec![
+        mg_edit::Edit::SetResource {
+            key: nss("inc_n"),
+            data: Some(b"int N() { return 1; }\n".into()),
+        },
+        mg_edit::Edit::SetResource {
+            key: nss("uses_n"),
+            data: Some(b"#include \"inc_n\"\nvoid main() { int n = N(); }\n".into()),
+        },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    // The include changed in its editor, not saved: N gone, P new.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("inc_n"))));
+    h.run_steps(3);
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int P() { return 1; }\n");
+    h.run_steps(1);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("uses_n"))));
+    h.run_steps(3);
+    let checked = |h: &mut Harness<'_, Moonglow>| {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        h.run_steps(2);
+        h.state().script_error_for_test(nss("uses_n"))
+    };
+    let compiled = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Compile").click();
+        h.run_steps(3);
+        let messages = &h.state().script_tools.messages;
+        !messages.iter().any(|m| m.script == nss("uses_n") && m.error)
+    };
+    // N, as saved: both pass, and Compile says the include's changes were
+    // left out.
+    assert_eq!(checked(&mut h), None);
+    assert!(compiled(&mut h), "{:?}", h.state().script_tools.messages);
+    let left_out = "uses_n.nss: inc_n read as saved, not with the changes in its editor (save to compile with them)";
+    assert!(h.state().script_tools.messages.iter().any(|m| m.text == left_out));
+    // P, not saved: both fail.
+    h.state_mut()
+        .scripts_mut_for_test(nss("uses_n"), "#include \"inc_n\"\nvoid main() { int n = P(); }\n");
+    h.run_steps(1);
+    assert!(checked(&mut h).is_some(), "the check as you type fails");
+    assert!(!compiled(&mut h), "and so does Compile");
 }
 
 #[test]
@@ -1806,6 +1974,64 @@ fn open_script_opens_the_scripts_selected_together() {
     h.run_steps(4);
     assert_eq!(open_now(&h), ["s1", "s2", "s3", "s6"]);
     assert!(h.state().script_tools.open_script.is_none());
+
+    // Home and End: to the first and the last listed (Shift widens);
+    // Ctrl+A selects every one listed.
+    let all = ["hello", "s1", "s2", "s3", "s4", "s5", "s6"];
+    window(&mut h);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s6"]);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Home);
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    h.get_by_label("s2").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    // While a name is typed in its field, they are the field's: Ctrl+A
+    // selects its text, not the scripts.
+    (h.get_all_by_role(egui::accesskit::Role::TextInput))
+        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
+        .expect("the name field")
+        .click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("s".into()));
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "a name typed starts over");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "the field's keys: {:?}", selected(&h));
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter.clear();
+    h.run_steps(2);
+    // Scripts selected and then hidden by what is shown are selected no
+    // more (Open would not open them).
+    h.get_by_label("s1").click();
+    h.run_steps(2);
+    h.get_by_label("Hak Pak Resources Only").click();
+    h.run_steps(2);
+    h.get_by_label("Module Resources Only").click();
+    h.run_steps(2);
+    assert!(selected(&h).is_empty(), "{:?}", selected(&h));
+    // A right click on a script: it alone selected, and a menu.
+    h.get_by_label("s4").click_secondary();
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s4"]);
+    h.get_by_label("Select All Listed").click();
+    h.run_steps(2);
+    assert_eq!(selected(&h), all);
+    h.get_by_label("s5").click();
+    h.run_steps(2);
+    h.get_by_label("s6").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(30);
+    h.get_by_label("s6").click_secondary();
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s5", "s6"], "a script selected keeps the selection");
+    h.get_by_label("Open 2 Selected").click();
+    h.run_steps(4);
+    assert_eq!(open_now(&h), ["s1", "s2", "s3", "s5", "s6"]);
 }
 
 /// Enter in the script editor begins the new line as far in as the line

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:49:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:28:20Z }
 ---
 
 # Build, verify and test
@@ -278,6 +278,17 @@ as nwn.wiki recommends, to avoid the problems it lists for Aurora's F9:
 lagging combat, AI that overflows its time, and modules damaged when the
 game crashes. The module is always saved before
 the game starts, and Test From Here plays a copy.
+
+A test looks for a game already running first (Test Module before it
+saves), for it would write the module under one that has it open (the
+game then says the module is damaged). While the game Moonglow started for the last test runs, a
+test asks you to close it first. So it does for a game Moonglow did not
+start (one you started, or one left from an earlier session) that was
+started on the same module (`+TestNewModule moonglow-test`, as a test
+starts it); another game running is named in the log as a warning, and
+the test goes on: close it first if it has the module open. On Windows
+Moonglow can't see what a game was started on, so every game running
+is a warning. A game is never closed for you.
 
 `mg serve` runs a module in the game's headless server from a terminal,
 and `mg test` runs a module's test scripts there and reports what they

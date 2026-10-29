@@ -16,7 +16,7 @@ use mg_module::script_wizard::{
 };
 use mg_resman::ResKey;
 
-use crate::{Moonglow, Tab};
+use crate::Moonglow;
 
 /// The condition pages: the first page's checkbox and the page's question.
 const CONDITION_PAGES: [(&str, &str); 11] = [
@@ -1006,7 +1006,7 @@ fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
     app.actions.push(crate::Action::Apply(Command::new(format!("Script Wizard: {name}"), edits)));
     app.log.info(format!("Script Wizard: wrote {nss}"));
     if w.open_editor {
-        app.actions.push(crate::Action::OpenTab(Tab::Script(nss)));
+        app.actions.push(crate::Action::OpenResource(nss));
     }
 }
 

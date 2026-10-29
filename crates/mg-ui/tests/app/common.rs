@@ -428,6 +428,17 @@ pub(crate) fn press(
     h.event_modifiers(egui::Event::PointerButton { pos, button, pressed, modifiers }, modifiers);
 }
 
+/// The text field holding `value`, of a window that asks for a name.
+pub(crate) fn typed_name<'h>(
+    h: &'h Harness<'_, Moonglow>,
+    value: &'h str,
+) -> egui_kittest::Node<'h> {
+    let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+    };
+    h.get(egui_kittest::kittest::by().predicate(field))
+}
+
 /// A `true` program to stand in for an external editor: the first on
 /// `PATH` (NixOS has no `/bin/true`).
 pub(crate) fn true_program() -> Option<String> {

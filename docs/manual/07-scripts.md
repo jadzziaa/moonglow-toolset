@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T17:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:18:47Z }
 ---
 
 # Scripts
@@ -104,11 +104,17 @@ them with the game's (Aurora's Resources to Show). A click selects a
 script; Ctrl+click adds one or takes it away, Shift+click selects the
 ones between it and the one clicked before, and Down and Up (Page
 Down, Page Up) move the selection, with Shift widening it, while the
-name is typed too. **Open** (or Enter) opens every script selected,
-each in its tab; with none selected, Enter opens the first listed
-(typing in the name clears the selection). A double click opens that
-script alone. The game's and a hak's open to
-be read. In **Find Text**, Enter finds the next match, again and again;
+name is typed too. Home and End go to the first and the last script
+listed (Shift widens to it), and Ctrl+A selects every one listed; while
+a name is typed in its field, those three are the field's own (to the
+start or end of the name, all of it). **Open** (or Enter) opens every
+script selected, each in its tab; with none selected, Enter opens the
+first listed (typing in the name clears the selection). A double click
+opens that script alone. A right click on a script selects it (unless
+it is selected already) and has **Open** (**Open N Selected**),
+**Select All Listed** and **Copy Name**. Only scripts listed stay
+selected: choosing other resources to show takes away those it hides.
+The game's and a hak's open to be read. In **Find Text**, Enter finds the next match, again and again;
 without Match case, accents are set aside as case is (`arbol` finds
 `Árbol` in a comment or a string).
 **Find In Currently Open Scripts** lists every match in the scripts open
@@ -119,7 +125,8 @@ compiler's messages, say).
 **Used By** (on the toolbar) lists where the module runs or includes the
 script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines, and strings in scripts that spell its name
-(`ExecuteScript("name", …)`).
+(`ExecuteScript("name", …)`), each with its line in the scripts'
+codepage (below).
 
 A script is read and saved in the codepage of the language chosen in
 **Options › Language**: Windows-1250 with Polish, Windows-1252 with
@@ -164,7 +171,8 @@ With that:
   refused. Compiled scripts stay valid, since names aren't in them.
 
 **Errors as you type**: half a second after you stop typing, Moonglow
-compiles the script (an include file needs no `main`). The first error
+compiles the script (an include file needs no `main`), with its
+includes as Compile reads them: as saved. The first error
 shows under the toolbar and its line is underlined. That line under the
 toolbar is kept whether or not there is an error, so the text doesn't
 move as errors come and go; a long message is cut to fit (hover over it
@@ -189,7 +197,10 @@ The buttons:
   on Ctrl+S as well. A script tab with text not yet saved into the
   module says so; Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler
-  messages and the log. With **Automatically Compile Scripts on Save**
+  messages and the log. The scripts it includes are compiled as the
+  module has them: an include open in another editor with changes not
+  yet saved is compiled as saved, and the Compiler messages say so
+  (save the include first to compile with its changes). With **Automatically Compile Scripts on Save**
   (Options › Script Editor), Save compiles too, and so does saving the
   module (File › Save) for the scripts whose text it saves. The scripts
   that include a script compiled or saved so are compiled again with it
@@ -213,14 +224,18 @@ The buttons:
 - **To Scratch**: save and compile the script, then copy it into the
   scratch folder: a folder you choose the first time (Tools › Options ›
   Folders changes it), such as the game's or a server's `development`
-  folder, for a quick fix. Its compiled script (and debug file) goes
-  with it when it compiled just now. A script that doesn't compile, an
+  folder, for a quick fix. Its compiled script goes with it when it
+  compiled just now, and its debug file when that compile made one
+  (Options › Script Editor › Generate Debug Information When Compiling
+  Scripts). A script that doesn't compile, an
   include file (no `main` or `StartingConditional`) or one with an
   error, is copied alone: the Compiler tab says it is an include file,
   or gives the compiler's error, then what was copied ("not compiled").
-  A compiled script of that name (and its debug file) that an earlier
-  copy left in the folder is removed, for the game would still run it,
-  and the Compiler tab and the log name what was removed. A compiled
+  A compiled script or debug file of that name that the copy did not
+  write is removed from the folder, whatever its spelling (`HELLO.NCS`
+  as well as `hello.ncs`): one an earlier copy left, which the game
+  would still run, or the debug file of an older compile; the Compiler
+  tab and the log name what was removed. A compiled
   script the module has from before is not copied with a script that no
   longer compiles. The module tree's Copy to Scratch Folder follows the
   same rule (see [Modules](03-modules.md), also for exporting files
@@ -236,10 +251,16 @@ with no indented line goes by Options › Script Editor › Indent with.
 editor's right-click menu) make every line of the script in front so:
 as far in as it was, a tab for each step (what is left of a step, a
 column lined up, stays spaces), or spaces for each tab (to the next
-multiple of Options' Indent width). It is one step for the editor's
-Undo (Ctrl+Z with the editor's keyboard), and Tab indents so from then
-on. Enter still begins a new line with the spaces and tabs the line it
-is started from has.
+multiple of Options' Indent width). With text selected in the editor
+(a right click keeps the selection; from the Edit menu, with the
+editor's keyboard as the menu opens), only the lines it touches are
+converted. It is one step for the editor's Undo (Ctrl+Z with the
+editor's keyboard), and Tab indents so from then on (after a
+selection's, as the script is then indented); taken back with Undo,
+Tab indents as before it again. The guess is made when the script is
+read, not as you type, and not kept from one session to the next.
+Enter still begins a new line with the spaces and tabs the line it is
+started from has.
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
   In a nasher project it is the project's own file that opens, in place

@@ -223,19 +223,11 @@ impl Moonglow {
         let error = {
             let module = self.ws.as_ref().map(|w| &w.module);
             let resman = self.game.as_deref().map(|g| &g.resman);
-            let scripts = &self.scripts;
-            let mut c = Compiler::new(|n: &str, t: ResType| {
-                let k = mg_resman::ResKey::parse(n, t)?;
-                if t == ResType::NSS
-                    && let Some(b) = scripts.get(&k)
-                {
-                    return Some(b.bytes());
-                }
-                module
-                    .and_then(|m| m.get(&k))
-                    .map(<[u8]>::to_vec)
-                    .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
-            });
+            // (Its includes as Compile reads them: the module's, not their
+            // editors' unsaved text.)
+            let source = self.scripts.get(&key).map(ScriptBuffer::bytes).unwrap_or_default();
+            let mut c =
+                Compiler::new(crate::script_view::sources(module, resman, &name, &source, None));
             c.set_require_entry_point(false);
             c.compile(&name).err()
         };

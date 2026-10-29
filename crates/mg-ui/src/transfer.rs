@@ -78,37 +78,76 @@ pub(crate) fn listed(names: &[String]) -> String {
     }
 }
 
-/// The rule for a script that doesn't compile, copied into the scratch
-/// folder (a script editor's To Scratch, the module tree's Copy to Scratch
-/// Folder): it goes as its source alone, and the compiled script (and its
-/// debug file) of each of `scripts` that an earlier copy left in `dir` is
-/// removed, for the game would still run it (El Grillo's request). What
-/// was removed, by file name, and what could not be.
+/// The rule for a script copied into the scratch folder (a script
+/// editor's To Scratch, the module tree's Copy to Scratch Folder): the
+/// compiled scripts and debug files of `scripts` in `dir` that this copy
+/// did not write (`written`) are removed, under any spelling (a
+/// `HELLO.NCS` another program wrote on a file system that tells cases
+/// apart). So one that doesn't compile goes as its source alone, without
+/// the compiled script an earlier copy left, which the game would still
+/// run (El Grillo's request); and one compiled without debug information
+/// goes without the debug file of an older compile. What was removed, by
+/// file name, and what could not be.
 pub(crate) fn remove_stale_compiled(
     dir: &std::path::Path,
     scripts: &[mg_core::ResRef],
+    written: &[std::path::PathBuf],
 ) -> (Vec<String>, Vec<String>) {
     let (mut removed, mut failed) = (Vec::new(), Vec::new());
-    for resref in scripts {
-        for kind in [ResType::NCS, ResType::NDB] {
-            let name = ResKey::new(*resref, kind).to_string();
-            let path = dir.join(&name);
-            if !path.is_file() {
-                continue;
-            }
-            match std::fs::remove_file(&path) {
-                Ok(()) => removed.push(name),
-                Err(e) => failed.push(format!("{}: {e}", path.display())),
-            }
+    let names: Vec<String> = (scripts.iter())
+        .flat_map(|r| [ResType::NCS, ResType::NDB].map(|t| ResKey::new(*r, t).to_string()))
+        .map(|n| n.to_ascii_lowercase())
+        .collect();
+    let Ok(entries) = std::fs::read_dir(dir) else { return (removed, failed) };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
+        if !names.contains(&name.to_ascii_lowercase())
+            || !entry.file_type().is_ok_and(|t| t.is_file())
+        {
+            continue;
+        }
+        let path = entry.path();
+        if written.iter().any(|w| same_file(w, &path)) {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(name),
+            Err(e) => failed.push(format!("{}: {e}", path.display())),
         }
     }
+    removed.sort();
     (removed, failed)
 }
 
-/// What the log says of the compiled scripts [`remove_stale_compiled`]
-/// removed from the scratch folder.
+/// Whether two paths of one folder are one file: by the file system's own
+/// identity where there is one to ask (Linux and macOS, whose file systems
+/// may or may not tell cases apart), else by the name, case aside (Windows
+/// file systems don't tell cases apart).
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let name = |p: &std::path::Path| p.file_name().map(|n| n.to_string_lossy().to_lowercase());
+        name(a) == name(b)
+    }
+}
+
+/// What the log says of the compiled scripts and debug files
+/// [`remove_stale_compiled`] removed from the scratch folder.
 pub(crate) fn removed_said(removed: &[String]) -> String {
-    format!("removed {}, left by an earlier copy (the game would still run it)", listed(removed))
+    let compiled = removed.iter().any(|n| !n.to_ascii_lowercase().ends_with(".ndb"));
+    let why = match compiled {
+        true => "the game would still run it",
+        false => "made by an older compile",
+    };
+    format!("removed {}, left by an earlier copy ({why})", listed(removed))
 }
 
 impl Moonglow {
@@ -310,9 +349,11 @@ impl Moonglow {
                     ));
                 }
                 if scratch {
-                    let alone: Vec<mg_core::ResRef> =
-                        (broken.iter().chain(&uncompiled)).filter_map(|n| n.parse().ok()).collect();
-                    let (removed, failed) = remove_stale_compiled(&dir, &alone);
+                    let copied: Vec<mg_core::ResRef> = (resources.iter())
+                        .filter(|k| k.restype == ResType::NSS)
+                        .map(|k| k.resref)
+                        .collect();
+                    let (removed, failed) = remove_stale_compiled(&dir, &copied, &written);
                     if !removed.is_empty() {
                         self.log.info(format!("Scratch folder: {}", removed_said(&removed)));
                     }

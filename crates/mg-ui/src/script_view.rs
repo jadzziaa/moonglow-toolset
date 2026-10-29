@@ -57,6 +57,11 @@ pub(crate) struct ScriptBuffer {
     /// ([`tools::Indent::guess`]) or set by converting it: what Tab puts
     /// in (`None`: as Options › Script Editor says).
     pub(crate) indent: Option<tools::Guess>,
+    /// The last Convert Indentation: the text's hash before it and how it
+    /// was indented then, and after it and how then. The editor's Undo
+    /// taking the conversion back (or Redo making it again) gives Tab that
+    /// text's indentation again ([`ScriptBuffer::follow_conversion`]).
+    pub(crate) conversion: Option<[(u64, Option<tools::Guess>); 2]>,
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
@@ -161,6 +166,16 @@ impl ScriptBuffer {
             codepage,
             seen: None,
             indent,
+            conversion: None,
+        }
+    }
+
+    /// After the editor's Undo or Redo: where the text (`hash`) is as it
+    /// was before or after the last Convert Indentation, Tab indents as it
+    /// did then.
+    pub(crate) fn follow_conversion(&mut self, hash: u64) {
+        if let Some(&(_, then)) = self.conversion.iter().flatten().find(|(h, _)| *h == hash) {
+            self.indent = then;
         }
     }
 
@@ -169,6 +184,7 @@ impl ScriptBuffer {
     fn follow(&mut self, raw: String) {
         let text = crate::text::to_editor(&raw).0;
         self.indent = tools::Indent::guess(&text);
+        self.conversion = None;
         self.text = text.clone();
         self.saved = text;
         self.raw = raw;
@@ -466,23 +482,36 @@ const INDENT_CONVERSIONS: [(bool, &str); 2] =
 
 /// Convert Indentation to Tabs (`tabs`) or to Spaces: every line's
 /// indentation made so ([`tools::convert_indentation`], a step `width`
-/// columns), one step for the editor's Undo; Tab indents so from then on.
+/// columns), or with text `selected` the lines it touches; one step for the
+/// editor's Undo. Tab indents so from then on (a selection's: as the
+/// script now is, guessed again), and as before once Undo takes it back.
 /// The cursor stays on its line, at its start.
 fn convert_indentation(
     buf: &mut ScriptBuffer,
     ctx: &egui::Context,
     key: ResKey,
     tabs: bool,
+    selected: bool,
     width: usize,
 ) {
-    buf.indent = Some(if tabs { tools::Guess::Tabs } else { tools::Guess::Spaces(width) });
-    let converted = tools::convert_indentation(&buf.text, tabs, width);
-    if converted == buf.text {
-        return;
-    }
     let id = editor_id(key);
     let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     let before = state.cursor.char_range().unwrap_or_default();
+    let (a, b) = match selected {
+        true => (before.primary.index.into(), before.secondary.index.into()),
+        false => (0, 0),
+    };
+    let converted = tools::convert_indentation_in(&buf.text, tabs, width, a, b);
+    let made = match a == b {
+        true => Some(if tabs { tools::Guess::Tabs } else { tools::Guess::Spaces(width) }),
+        false => tools::Indent::guess(&converted),
+    };
+    if converted == buf.text {
+        buf.indent = made;
+        return;
+    }
+    buf.conversion = Some([(tools::hash(&buf.text), buf.indent), (tools::hash(&converted), made)]);
+    buf.indent = made;
     let line = buf.text.chars().take(before.primary.index.into()).filter(|c| *c == '\n').count();
     let at = egui::text::CCursorRange::one(egui::text::CCursor::new(tools::line_start(
         &converted, line,
@@ -555,6 +584,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // (The text's hash, once a frame: the symbols and the live check
     // go by it too, and a script may be some 600 KB.)
     let h = tools::hash(&app.scripts[&key].text);
+    // (A conversion taken back by the editor's Undo: Tab as before it.)
+    app.scripts.get_mut(&key).expect("just inserted").follow_conversion(h);
     {
         let revision = app.ws.as_ref().map_or(0, |w| w.revision());
         let t = &mut app.script_tools;
@@ -1077,8 +1108,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Tab indents as the script is indented (Jasperre's report), else as
     // Options › Script Editor says.
     let mut indent = tools::Indent::of_script(buf.indent, style_indent);
-    if let Some((_, tabs)) = script_tools.convert_indent.take_if(|(k, _)| *k == key) {
-        convert_indentation(buf, &ctx, key, tabs, indent.width);
+    if let Some((_, tabs, selected)) = script_tools.convert_indent.take_if(|(k, ..)| *k == key) {
+        convert_indentation(buf, &ctx, key, tabs, selected, indent.width);
         indent = tools::Indent::of_script(buf.indent, style_indent);
     }
     // Edit › Undo or Redo, or the toolbar's: the editor's step, and the
@@ -1287,7 +1318,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 &mut ui.visuals_mut().selection.bg_fill,
                 egui::Color32::TRANSPARENT,
             );
-            let out = egui::TextEdit::multiline(&mut buf.text)
+            // (A right click keeps the text selected, for the context
+            // menu's Convert Indentation of its lines: the field takes any
+            // button's press as a click that moves the cursor.)
+            let selection = egui::text_edit::TextEditState::load(&ctx, editor_id(key))
+                .and_then(|s| s.cursor.char_range())
+                .filter(|r| r.primary != r.secondary);
+            let mut out = egui::TextEdit::multiline(&mut buf.text)
                 .code_editor()
                 .desired_width(f32::INFINITY)
                 .desired_rows(1)
@@ -1296,6 +1333,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .background_color(egui::Color32::TRANSPARENT)
                 .layouter(&mut layouter)
                 .show(ui);
+            if let Some(range) = selection
+                && out.response.response.hovered()
+                && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+            {
+                out.state.cursor.set_char_range(Some(range));
+                out.state.clone().store(&ctx, editor_id(key));
+                out.cursor_range = Some(range);
+            }
             cursor_now = out.state.cursor.char_range();
             ui.visuals_mut().selection.bg_fill = selected;
             out.response.response.context_menu(|ui| {
@@ -1355,7 +1400,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }
     if let Some(tabs) = convert {
-        script_tools.convert_indent = Some((key, tabs));
+        script_tools.convert_indent = Some((key, tabs, true));
         ctx.request_repaint();
     }
 
@@ -1474,9 +1519,12 @@ pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
                 app.log.warn(w);
             }
         }
-        // Options > Script Editor: saving compiles too.
-        let compiled =
-            (compile || to_scratch || app.settings.auto_compile) && compile_one(app, key, &text);
+        // Options > Script Editor: saving compiles too. (Whether it
+        // compiled, and made a debug file.)
+        let made = match compile || to_scratch || app.settings.auto_compile {
+            true => compile_one(app, key, &text),
+            false => None,
+        };
         // (After the text is the module's: the scripts that include it.)
         if compile || app.settings.auto_compile {
             app.actions.push(Action::CompileIncluders(key));
@@ -1485,7 +1533,8 @@ pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
         // file, one with an error, El Grillo's request), its compiled
         // script only if it compiled just now (after the edits above).
         if to_scratch {
-            app.actions.push(Action::ScriptToScratch { key, compiled });
+            let (compiled, debug) = (made.is_some(), made == Some(true));
+            app.actions.push(Action::ScriptToScratch { key, compiled, debug });
         }
     }
 }
@@ -1496,14 +1545,21 @@ impl Moonglow {
     /// script and debug file if it `compiled` just now; else not (a
     /// compiled script the module has from before is older than the
     /// source). The Compiler tab and the log say what was copied.
-    pub(crate) fn script_to_scratch(&mut self, key: ResKey, compiled: bool) {
+    pub(crate) fn script_to_scratch(&mut self, key: ResKey, compiled: bool, debug: bool) {
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
             return;
         }
-        let files: Vec<ResKey> =
-            if compiled { mg_module::transfer::file_set(&ws.module, &key) } else { vec![key] };
+        // (A debug file only if this compile made one: not the module's
+        // from an older compile with debug information.)
+        let mut files = vec![key];
+        if compiled {
+            files.push(ResKey::new(key.resref, ResType::NCS));
+            if debug {
+                files.push(ResKey::new(key.resref, ResType::NDB));
+            }
+        }
         let Some(dir) = self.scratch_folder() else { return };
         let Some(ws) = &self.ws else { return };
         let (text, error) = match mg_module::transfer::export_files(&ws.module, &files, &dir) {
@@ -1517,15 +1573,15 @@ impl Moonglow {
                 let mut error = false;
                 if !compiled {
                     said.push_str(", not compiled (no compiled script copied)");
-                    let (removed, failed) =
-                        crate::transfer::remove_stale_compiled(&dir, &[key.resref]);
-                    if !removed.is_empty() {
-                        said.push_str(&format!("; {}", crate::transfer::removed_said(&removed)));
-                    }
-                    if !failed.is_empty() {
-                        said.push_str(&format!("; could not remove {}", failed.join(", ")));
-                        error = true;
-                    }
+                }
+                let (removed, failed) =
+                    crate::transfer::remove_stale_compiled(&dir, &[key.resref], &written);
+                if !removed.is_empty() {
+                    said.push_str(&format!("; {}", crate::transfer::removed_said(&removed)));
+                }
+                if !failed.is_empty() {
+                    said.push_str(&format!("; could not remove {}", failed.join(", ")));
+                    error = true;
                 }
                 (said, error)
             }
@@ -1569,8 +1625,14 @@ pub(crate) fn open_only_external(app: &mut Moonglow, key: ResKey) -> bool {
     else {
         return false;
     };
-    // (Open here with something the file lacks: Moonglow's editor has it.)
+    // (Open here with something the file lacks: Moonglow's editor has it.
+    // So does a script only the module has as yet, made by New Script or
+    // Save As and not written by File › Save.)
     if app.scripts.contains_key(&key) && project_file(app, key).is_none() {
+        return false;
+    }
+    let module = app.ws.as_ref().and_then(|ws| ws.module.get(&key));
+    if !app.scripts.contains_key(&key) && module != std::fs::read(&path).ok().as_deref() {
         return false;
     }
     match std::process::Command::new(&editor).arg(&path).spawn() {
@@ -1706,6 +1768,18 @@ fn compile_with_debug(
     debug: bool,
     external: Option<&mg_module::external_compiler::ExternalCompiler>,
 ) -> Result<Made, mg_script::compiler::CompileError> {
+    compile_reading(app, key, text, debug, external).0
+}
+
+/// [`compile_with_debug`], and the module's other scripts the compile read
+/// (its includes, however indirectly; [`sources`]).
+fn compile_reading(
+    app: &Moonglow,
+    key: ResKey,
+    text: &str,
+    debug: bool,
+    external: Option<&mg_module::external_compiler::ExternalCompiler>,
+) -> (Result<Made, mg_script::compiler::CompileError>, Vec<ResKey>) {
     // (An editor's text in the codepage it was read in; other text in the
     // script codepage. A string's bytes go into the compiled script as
     // they are.)
@@ -1724,30 +1798,60 @@ fn compile_with_debug(
         let game = resman.unwrap_or(&no_game);
         let sources =
             mg_module::build::external_sources(module, game, &[key], Some((key, &source)));
+        let read = (sources.iter())
+            .filter_map(|(n, _)| ResKey::parse(n, ResType::NSS))
+            .filter(|k| *k != key)
+            .collect();
         let failed = |message: String| mg_script::compiler::CompileError { code: -1, message };
-        let made = external
-            .compile(&sources, std::slice::from_ref(&name))
-            .map_err(|e| failed(format!("External compiler: {e}")))?;
-        let Some(made) = made.into_iter().next() else {
-            return Err(failed(format!("{name}.nss: the external compiler made nothing")));
+        let made = match external.compile(&sources, std::slice::from_ref(&name)) {
+            Ok(made) => made,
+            Err(e) => return (Err(failed(format!("External compiler: {e}"))), read),
         };
-        return match made.ncs {
+        let Some(made) = made.into_iter().next() else {
+            return (Err(failed(format!("{name}.nss: the external compiler made nothing"))), read);
+        };
+        let made = match made.ncs {
             Some(ncs) => Ok((ncs, made.ndb.filter(|_| debug), Vec::new())),
             None => Err(failed(made.message)),
         };
+        return (made, read);
     }
-    let mut c = Compiler::new(|n: &str, t: ResType| {
-        if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {
-            return Some(source.clone());
+    let read = std::cell::RefCell::new(Vec::new());
+    let mut c = Compiler::new(sources(module, resman, &name, &source, Some(&read)));
+    c.set_debug_output(debug);
+    let made = c.compile(&name).map(|out| (out.ncs, out.ndb, out.warnings));
+    drop(c);
+    (made, read.into_inner())
+}
+
+/// What a compile reads (the built-in compiler's resolver): the script
+/// compiled, `name`, as `source` (its editor's text, or the module's), and
+/// every other script it includes as the module has it, else the game.
+/// Never an open editor's unsaved text: the compiled script goes into the
+/// module beside the sources it was made from, which the build, an export
+/// and the test loop compile again from (as Aurora reads an include
+/// saved). Compile and the check as you type alike. The module's scripts
+/// read go into `read`.
+pub(crate) fn sources<'a>(
+    module: Option<&'a mg_module::Module>,
+    resman: Option<&'a mg_resman::ResMan>,
+    name: &'a str,
+    source: &'a [u8],
+    read: Option<&'a std::cell::RefCell<Vec<ResKey>>>,
+) -> impl FnMut(&str, ResType) -> Option<Vec<u8>> + 'a {
+    move |n: &str, t: ResType| {
+        if t == ResType::NSS && n.eq_ignore_ascii_case(name) {
+            return Some(source.to_vec());
         }
         let k = ResKey::parse(n, t)?;
-        module
-            .and_then(|m| m.get(&k))
-            .map(<[u8]>::to_vec)
-            .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
-    });
-    c.set_debug_output(debug);
-    c.compile(&name).map(|out| (out.ncs, out.ndb, out.warnings))
+        if let Some(own) = module.and_then(|m| m.get(&k)) {
+            if let Some(read) = read {
+                read.borrow_mut().push(k);
+            }
+            return Some(own.to_vec());
+        }
+        resman?.get(&k).ok().map(|d| d.into_owned())
+    }
 }
 
 /// Compiles again, into the module, those of `scripts` whose compiled
@@ -1915,11 +2019,9 @@ impl Moonglow {
 }
 
 /// Compiles one script (its text as in the editor) into the module;
-/// whether it compiled.
-fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
-    if app.ws.is_none() {
-        return false;
-    }
+/// whether it compiled (`Some`), and made a debug file (`Some(true)`).
+fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> Option<bool> {
+    app.ws.as_ref()?;
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
     // An include file (no `main`, no `StartingConditional`) isn't compiled
@@ -1929,15 +2031,32 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
         let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
         app.log.info(said.clone());
         app.script_tools.messages.push(Message::new(key, said, None, false));
-        return false;
+        return None;
     }
     let external = app.external_compiler();
-    let result = compile_with_debug(app, key, text, app.settings.debug_info, external.as_ref());
+    let (result, read) =
+        compile_reading(app, key, text, app.settings.debug_info, external.as_ref());
+    // Its includes as the module has them: one open with changes not saved
+    // is said, or the check as you type and Compile seem to disagree.
+    let unsaved: Vec<String> = (read.iter())
+        .filter(|k| app.scripts.get(k).is_some_and(ScriptBuffer::is_dirty))
+        .map(|k| k.resref.to_string())
+        .collect();
+    if !unsaved.is_empty() {
+        let said = format!(
+            "{key}: {} read as saved, not with the changes in {} (save to compile with them)",
+            crate::transfer::listed(&unsaved),
+            if unsaved.len() == 1 { "its editor" } else { "their editors" },
+        );
+        app.log.info(said.clone());
+        app.script_tools.messages.push(Message::new(key, said, None, false));
+    }
     match result {
         Ok((out, ndb, warnings)) => {
             let ncs = ResKey::new(key.resref, ResType::NCS);
             let made = vec![(key, out.clone())];
             let mut edits = vec![Edit::SetResource { key: ncs, data: Some(out) }];
+            let debug = ndb.is_some();
             if let Some(ndb) = ndb {
                 edits.push(Edit::SetResource {
                     key: ResKey::new(key.resref, ResType::NDB),
@@ -1955,13 +2074,13 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
                 let location = Some((w.file, w.line));
                 app.script_tools.messages.push(Message::new(key, w.message, location, false));
             }
-            true
+            Some(debug)
         }
         Err(e) => {
             app.log.error(e.message.clone());
             let location = e.location();
             app.script_tools.messages.push(Message::new(key, e.message, location, true));
-            false
+            None
         }
     }
 }
@@ -2152,10 +2271,13 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
 /// The Open Script window: a name to find, which scripts to show (as
 /// Aurora's Resources to Show), and the list. A click selects a script,
 /// Ctrl+click adds one or takes it away, Shift+click selects those
-/// between, the arrows move the selection (with Shift, widen it); Enter or
-/// Open opens every one selected, each in its tab (with none selected,
-/// Enter opens the first listed), and a double click opens that one (El
-/// Grillo's request). The game's and a hak's open to be read only.
+/// between, the arrows, Page Down and Up, Home and End move the selection
+/// (with Shift, widen it), Ctrl+A selects every one listed; Enter or Open
+/// opens every one selected, each in its tab (with none selected, Enter
+/// opens the first listed), and a double click opens that one (El
+/// Grillo's request); a right click has a menu. Home, End and Ctrl+A are
+/// the name's own while a name is typed in it. Only scripts listed stay
+/// selected. The game's and a hak's open to be read only.
 fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::script_tools::{ScriptFrom, ScriptsShown};
     let Some(mut w) = app.script_tools.open_script.take() else { return };
@@ -2167,24 +2289,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
         .show(ctx, |ui| {
             // Down and Up (Page Down and Up) move the selection among the
             // scripts listed, while the name is typed too; with Shift,
-            // they widen it.
+            // they widen it. Home and End too, and Ctrl+A selects all,
+            // unless the name has the keyboard with a name in it (they
+            // are its own then: to its start and end, all its text).
+            let name_id = ui.make_persistent_id("open_script_name");
+            let typing = !w.filter.is_empty() && ui.memory(|m| m.has_focus(name_id));
             let (mut moved, mut widen): (isize, bool) = (0, false);
-            for (key, by) in [
+            let far = isize::MAX / 4;
+            let mut keys = vec![
                 (egui::Key::ArrowDown, 1),
                 (egui::Key::ArrowUp, -1),
                 (egui::Key::PageDown, 10),
-                (egui::Key::PageUp, -10),
-            ] {
+            ];
+            keys.push((egui::Key::PageUp, -10));
+            if !typing {
+                keys.extend([(egui::Key::End, far), (egui::Key::Home, -far)]);
+            }
+            for (key, by) in keys {
                 // (Shift first: a key without it matches one with it.)
                 if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, key)) {
-                    moved += by;
+                    moved = moved.saturating_add(by);
                     widen = true;
                 } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
-                    moved += by;
+                    moved = moved.saturating_add(by);
                 }
             }
+            let mut select_all =
+                !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A));
             let field = ui.add(
                 egui::TextEdit::singleline(&mut w.filter)
+                    .id(name_id)
                     .hint_text("Find by name")
                     .desired_width(f32::INFINITY),
             );
@@ -2222,6 +2356,12 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .copied()
                 .collect();
             let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();
+            // (Scripts hidden by what is shown, or by the name, are no
+            // longer selected: Open would not open them.)
+            w.selected.retain(|k| names.contains(k));
+            if w.anchor.is_some_and(|a| !names.contains(&a)) {
+                w.anchor = None;
+            }
             let last = listed.len().saturating_sub(1) as isize;
             let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
             w.cursor = cursor;
@@ -2292,9 +2432,48 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                         if r.double_clicked() {
                             chosen = vec![(key, from)];
                         }
+                        // A right click: on a script not selected, that
+                        // one alone first, as a click.
+                        if r.secondary_clicked() && !w.selected.contains(&key) {
+                            crate::widgets::select_in_list(
+                                &mut w.selected,
+                                &mut w.anchor,
+                                &names,
+                                key,
+                                false,
+                                false,
+                            );
+                            w.cursor = at;
+                        }
+                        r.context_menu(|ui| {
+                            let several = w.selected.len() > 1;
+                            let label = match several {
+                                true => format!("Open {} Selected", w.selected.len()),
+                                false => "Open".to_string(),
+                            };
+                            if ui.button(label).clicked() {
+                                chosen = (listed.iter())
+                                    .filter(|(k, _)| w.selected.contains(k) || *k == key)
+                                    .copied()
+                                    .collect();
+                                ui.close();
+                            }
+                            if ui.button("Select All Listed").clicked() {
+                                select_all = true;
+                                ui.close();
+                            }
+                            if ui.button("Copy Name").clicked() {
+                                ui.ctx().copy_text(key.resref.to_string());
+                                ui.close();
+                            }
+                        });
                     });
                 }
             });
+            if select_all {
+                w.selected = names.iter().copied().collect();
+                w.anchor = names.first().copied();
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 let button = egui::Button::new(match picked.len() {
@@ -2313,7 +2492,9 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
         });
     for (key, from) in &chosen {
         app.actions.push(match from {
-            ScriptFrom::Module => Action::OpenTab(Tab::Script(*key)),
+            // (As from the module tree: in the external editor too, where
+            // Options has scripts open there.)
+            ScriptFrom::Module => Action::OpenResource(*key),
             // (Not the module's to change: read as the resource browser
             // shows it.)
             _ => Action::OpenTab(Tab::Resource(*key)),
@@ -2472,7 +2653,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 if let Some(w) = warning {
                     app.log.warn(w);
                 }
-                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                app.actions.push(Action::OpenResource(k));
                 None
             }
         };
@@ -2498,7 +2679,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     format!("New script {k}"),
                     vec![Edit::SetResource { key: k, data }],
                 )));
-                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                app.actions.push(Action::OpenResource(k));
                 None
             }
         };

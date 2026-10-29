@@ -995,6 +995,20 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
             .count();
         assert_eq!(said, 1, "{:?}", h.state().log.entries);
         assert_eq!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), tab_opens, "{module:?}");
+        if tab_opens {
+            continue;
+        }
+        // A new script has no file yet (File › Save writes it): it opens
+        // in Moonglow's editor, and the external editor gets a copy.
+        h.state_mut().new_script = Some("fresh".into());
+        h.run_steps(2);
+        h.get_by_label("Create").click();
+        h.run_steps(4);
+        let fresh = ResKey::parse("fresh", ResType::NSS).unwrap();
+        assert!(h.state().dock.find_tab(&Tab::Script(fresh)).is_some());
+        let copy = format!("fresh.nss: editing in {editor}");
+        let log = &h.state().log.entries;
+        assert!(log.iter().any(|(_, m)| *m == copy), "{log:?}");
     }
 }
 
@@ -1088,14 +1102,6 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     let user = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
     assert_eq!(user, "# mine\n[builder]\n");
     assert_eq!(h.state().ws.as_ref().unwrap().module.project_file.naming(), Default::default());
-}
-
-/// The text field holding `value`, of a window that asks for a name.
-fn typed_name<'h>(h: &'h Harness<'_, Moonglow>, value: &'h str) -> egui_kittest::Node<'h> {
-    let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
-    };
-    h.get(egui_kittest::kittest::by().predicate(field))
 }
 
 /// The builder code where a new resource's name is typed (The Domains of

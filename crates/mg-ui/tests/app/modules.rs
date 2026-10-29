@@ -1285,6 +1285,35 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     };
     let said = texts(&h);
     assert!(said.iter().any(|t| t.contains("copied hello.nss, hello.ncs to")), "{said:?}");
+    // Compiled without debug information: the debug file of an older
+    // compile is removed, and another program's spelling of the compiled
+    // script too (where the file system tells cases apart, a file of its
+    // own the game could read in its place).
+    std::fs::write(scratch.join("hello.ndb"), b"NDB older").unwrap();
+    let other_spelling = scratch.join("HELLO.NCS");
+    let apart = !other_spelling.exists();
+    if apart {
+        std::fs::write(&other_spelling, b"NCS V1.0 older").unwrap();
+    }
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert!(std::fs::read(scratch.join("hello.ncs")).unwrap().starts_with(b"NCS V1.0"));
+    assert!(!scratch.join("hello.ndb").exists(), "no debug file of an older compile");
+    let said = texts(&h);
+    let removed = match apart {
+        true => "removed HELLO.NCS, hello.ndb, left by an earlier copy (the game would still run",
+        false => "removed hello.ndb, left by an earlier copy (made by an older compile)",
+    };
+    assert!(said.iter().any(|t| t.contains(removed)), "{said:?}");
+    if apart {
+        assert!(!other_spelling.exists());
+    }
+    // With debug information: the debug file made goes with it.
+    h.state_mut().settings.debug_info = true;
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert!(scratch.join("hello.ndb").exists(), "{:?}", texts(&h));
+    h.state_mut().settings.debug_info = false;
     // A script with an error: its source copied, and the compiler's error
     // said; the compiled script the module has from before is not.
     let broken_path = sample_module(&dir.join("broken"));
@@ -1395,6 +1424,37 @@ fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
     h.run_steps(3);
     assert_eq!(std::fs::read(chosen.join("hello.ncs")).unwrap(), written);
     assert!(said(&h, "No longer compiles (the .ncs written is older than the script): hello"));
+}
+
+/// Without the game's data nothing can be compiled: a script goes out
+/// with the compiled script the module has, and the log says it may be
+/// older than its source.
+#[test]
+fn without_game_data_a_script_goes_out_with_the_module_s_compiled_script() {
+    let dir = mg_testkit::scratch_dir("ui-no-game-export");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::new(key.resref, ResType::NCS), b"NCS V1.0 old".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let scratch = dir.join("scratch");
+    app.settings.scratch_dir = Some(scratch.clone());
+    app.actions.push(mg_ui::Action::ExportFiles {
+        keys: vec![key],
+        dependencies: false,
+        scratch: true,
+    });
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(scratch.join("hello.ncs")).unwrap(), b"NCS V1.0 old");
+    let log = &h.state().log.entries;
+    let warned = "No game data to compile with: the scripts go out with the compiled scripts";
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning && m.starts_with(warned)),
+        "{log:?}"
+    );
 }
 
 /// The area view's To Scratch: the area as it is now (its .are, .git and
@@ -1554,4 +1614,88 @@ fn closing_the_window_asks_first() {
     h.state_mut().actions.push(mg_ui::Action::Quit);
     h.run_steps(3);
     assert!(h.state().quit_requested);
+}
+
+/// Test Module and a game running that Moonglow did not start (GitHub
+/// issue 6): one started on the module stops the test (the module would be
+/// written under it), as one Moonglow started does; another is warned of
+/// and the test goes on. Never stopped. (Stand-ins named as the client: a
+/// shell for the game running, `true` for the client the test starts.)
+#[cfg(target_os = "linux")]
+#[test]
+fn a_game_moonglow_did_not_start_is_known_before_a_test() {
+    let dir = mg_testkit::scratch_dir("ui-other-game");
+    let (root, user, elsewhere) = (dir.join("root"), dir.join("user"), dir.join("elsewhere"));
+    let client = root.join("bin/linux-x86/nwmain-linux");
+    for d in [client.parent().unwrap(), &user.join("modules"), &elsewhere] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let (Some(sh), Some(truth)) = (which("sh"), true_program()) else { return };
+    std::fs::copy(&truth, &client).unwrap();
+    let running = elsewhere.join("nwmain-linux");
+    std::fs::copy(&sh, &running).unwrap();
+    let path = sample_module(&dir);
+    std::fs::copy(&path, user.join("modules/mgtest.mod")).unwrap();
+    let game = |module: &str| {
+        std::process::Command::new(&running)
+            .args(["-c", "sleep 30; true", "nwmain-linux", "+TestNewModule", module])
+            .spawn()
+            .unwrap()
+    };
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.open_module(&user.join("modules/mgtest.mod"));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(2);
+    let test = |h: &mut Harness<'_, Moonglow>| {
+        let from = h.state().log.entries.len();
+        h.state_mut().actions.push(mg_ui::Action::TestModule);
+        h.run_steps(3);
+        h.state().log.entries[from..].iter().map(|(_, m)| m.clone()).collect::<Vec<_>>()
+    };
+    // On the module: no test.
+    let mut on_it = game("mgtest");
+    let said = test(&mut h);
+    on_it.kill().unwrap();
+    on_it.wait().unwrap();
+    let refused =
+        format!("A game is running on mgtest (process {}), not started by Moonglow", on_it.id());
+    assert!(said.iter().any(|m| m.starts_with(&refused)), "{said:?}");
+    assert!(!said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+    // F9 looks before Test Module's save: the module's file is not
+    // written under that game.
+    let file = user.join("modules/mgtest.mod");
+    let before = std::fs::read(&file).unwrap();
+    let edit = mg_edit::Edit::SetResource {
+        key: ResKey::parse("added", ResType::NSS).unwrap(),
+        data: Some(b"void main() { }\n".to_vec()),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+    h.run_steps(2);
+    let mut on_it = game("mgtest");
+    h.key_press(egui::Key::F9);
+    h.run_steps(3);
+    on_it.kill().unwrap();
+    on_it.wait().unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), before, "not saved under the game");
+    assert!(h.state().has_unsaved_work());
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains(&format!("(process {})", on_it.id()))), "{log:?}");
+    // On another: warned of, and the test goes on.
+    let mut other = game("elsewhere");
+    let said = test(&mut h);
+    other.kill().unwrap();
+    other.wait().unwrap();
+    let warned = "A game is running that Moonglow did not start (process ";
+    assert!(
+        said.iter().any(|m| m.starts_with(warned) && m.contains(&other.id().to_string())),
+        "{said:?}"
+    );
+    assert!(said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+}
+
+/// A program on `PATH`.
+#[cfg(target_os = "linux")]
+fn which(name: &str) -> Option<std::path::PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
 }

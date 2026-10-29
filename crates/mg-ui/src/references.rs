@@ -36,6 +36,8 @@ pub struct References {
     pub marked: Option<String>,
     /// The workspace revision the results are for.
     revision: Option<u64>,
+    /// The codepage the scripts' lines were read in (Options › Language).
+    codepage: Option<mg_core::Codepage>,
     /// The Find field.
     pub input: String,
     /// The module's references, kept between questions.
@@ -123,7 +125,9 @@ impl Moonglow {
         }
         self.references.index.refresh(&ws.module);
         let usages = self.references.index.usages(key).len();
-        let mentions = self.references.index.mentions(&key.resref.to_string(), true).len();
+        let codepage = crate::text::script_codepage();
+        let mentions =
+            self.references.index.mentions(&key.resref.to_string(), true, codepage).len();
         self.rename = Some(RenameDraft {
             from: key,
             to: key.resref.to_string(),
@@ -242,7 +246,7 @@ impl Moonglow {
     /// name a rename just took away.
     fn warn_still_spelled(&mut self, name: &str) {
         let Some(ws) = &self.ws else { return };
-        let left = rename::mentions(&ws.module, name, true);
+        let left = rename::mentions(&ws.module, name, true, crate::text::script_codepage());
         if !left.is_empty() {
             self.log.warn(format!(
                 "{} still spelled “{}” in scripts ({}); the game won't find it by that name. \
@@ -694,7 +698,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.weak("Choose Find References on a script, area, conversation or blueprint, or type a name or tag above.");
         return;
     };
-    if app.references.revision != Some(ws.revision()) {
+    // (The scripts' lines read again in another language's codepage.)
+    let codepage = crate::text::script_codepage();
+    if app.references.revision != Some(ws.revision()) || app.references.codepage != Some(codepage) {
         if ws.flush().is_err() {
             return;
         }
@@ -703,8 +709,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let index = &mut app.references.index;
         index.refresh(&ws.module);
         let (usages, mentions) = match &query {
-            Query::Resource(k) => (index.usages(*k), index.mentions(&k.resref.to_string(), true)),
-            Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false)),
+            Query::Resource(k) => {
+                (index.usages(*k), index.mentions(&k.resref.to_string(), true, codepage))
+            }
+            Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false, codepage)),
             Query::StrRef(n) => (index.strref_usages(*n), Vec::new()),
         };
         app.references.usages = usages;
@@ -728,6 +736,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             _ => None,
         };
         app.references.revision = Some(ws.revision());
+        app.references.codepage = Some(codepage);
     }
     ui.separator();
     let mut go = None;

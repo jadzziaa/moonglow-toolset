@@ -65,15 +65,18 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Script intelligence (`mg lsp`, the script editor)
 
 - **A script's codepage** (GitHub issue 27) is the language's of
-  Options › Language, for every script alike; there is no choosing
-  another for one script (reading one again in another, saving one in
-  another), and a script kept in UTF-8 is read as that codepage's
-  letters. `mg` other than `mg lsp` has no language: scripts' bytes pass
-  through it untouched, but the lines it shows of them (`mg refs`'
-  strings that spell a name, the toolset's Used By) read them as UTF-8,
-  a Polish letter as "�". The game reading the compiled strings in
-  Windows-1250 was not seen in a Polish client: the bytes were checked
-  in the compiled script. (S each)
+  Options › Language, for every script alike; in `mg`, the game
+  client's (`mg lsp`, and the lines `mg refs` and `mg rename` show of
+  scripts). Left: choosing another for one script (reading one again in
+  another, saving one in another; a script kept in UTF-8 is read as that
+  codepage's letters), which nobody asked for (issue 27 asked for Polish
+  scripts read right, which the language does) and Aurora has none of:
+  over-implementing until a builder asks (the triage proposed dropping
+  it; the owner's word). And the game reading the compiled strings in
+  Windows-1250 was not seen in a Polish client (the bytes were checked
+  in the compiled script): waits on the client (a scratch module's
+  `SpeakString` with a Polish letter, the sandboxed client's language
+  set to Polish, a screenshot). (S each)
 - **The Save key in a script editor** (El Grillo's request, October
   2026) is the script's own Save while its text has the keyboard, as its
   Undo and Redo are; with the pointer over the editor but the keyboard
@@ -83,24 +86,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   nothing unsaved in the script does nothing, as its grayed button.
   Aurora's script editor (a window of its own there) has its own Save on
   Ctrl+S; it was not driven to see what it writes. (S)
-- **To Scratch for a script that doesn't compile** (El Grillo's
-  request): the script editor's To Scratch and the module tree's Copy to
-  Scratch Folder are one rule (the source alone; the folder's
-  `name.ncs` and `name.ndb` from an earlier copy removed, and said).
-  Not done: Export as Files to a folder chosen still sends a script that
-  no longer compiles with the module's older compiled script, with a
-  warning (nothing is removed from a folder the builder picks); with no
-  game data nothing is compiled, so scripts go out with the compiled
-  scripts the module has; only those exact lower-case names are
-  removed (a `HELLO.NCS` another program wrote on a case-sensitive file
-  system stays); a debug file left by an earlier copy of a script that
-  now compiles without debug information stays. (S)
-- **Open Script's list** takes a click, Ctrl+click, Shift+click, the
-  arrows (Shift to widen), Page Down and Up, Enter and a double click;
-  not Home and End, Ctrl+A, or a right-click menu. Typing in the name
-  clears the selection (Enter then opens the first listed, as before);
-  scripts selected and then hidden by choosing other resources to show
-  stay selected but aren't opened. (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
@@ -114,19 +99,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (its bytecode is the built-in compiler's, byte for byte). (S) (waits
   on a copy of nwnsc: none is on the development machine) (from
   builders' reports after 1.14.1)
-- **Indentation by file:** a script's indentation is guessed when its
-  text is read (opened, read again from the module, a Save of it
-  included, or from outside), from its indented lines (tabs or spaces as
-  most are; the step most often taken), and kept until it is read again
-  or converted: not as it is typed, and not remembered from one session
-  to the next. A conversion taken back with the editor's Ctrl+Z gives
-  the text back but not the guess: Tab indents as converted until the
-  script is next saved or read. Enter copies the line's own leading
-  spaces and tabs as they are. Convert Indentation is the whole
-  script's, not a selection's; from the Edit menu it is the script in
-  front, which for scripts in windows of their own (the tab in front
-  not a script) is the one whose editor had the keyboard last. (S)
-  (Jasperre's report, 2026-10-21)
 - **Edit › Undo and the toolbar's Undo in a script** are the script's
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
@@ -269,9 +241,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Steam hidden. With Steam running, the test then shows in Steam as the
   game being played. (needs a builder's word)
   (from builders' reports after 1.14.1)
-- **A running game** is known only if Moonglow started it for a test:
-  one started otherwise still has the test module written under it. (S)
-  (GitHub issue 6)
 
 ## Persistent-world scale
 
@@ -2744,10 +2713,6 @@ of truth, and does each caller's difference matter.
   `hak_dir` and `hak_folder` the same (`hak_view.rs:194`,
   `nui_view/images.rs:44`); a hak's file found by hand five times
   (`install.rs:299` and four `hak_dirs().find`).
-- Scripts opened past Options' external editor: Open Script, Save As,
-  New Script and the NUI Creator's openers push the tab themselves
-  (`script_view.rs:1695`, `:1852`, `:1877`, `nui_view.rs:743`,
-  `nui_view/events.rs:144`); whether they mean to, to be asked.
 - Compile Models' report twice (`hak_view.rs:650`, `lib.rs:3195`), the
   "Files Already in…" window twice (`hak_view.rs:710`,
   `model_view.rs:264`), "A, B and N more" by hand five times beside
@@ -2755,9 +2720,6 @@ of truth, and does each caller's difference matter.
   kind of their own (`FileKind::Any`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
-- Compile reads an include's module copy, the live check the open
-  editor's (`script_view.rs:1295`, `script_nav.rs:230`): an include
-  with unsaved changes passes one and fails the other.
 - `DialogSearch` keeps its own match options and rebuilds
   `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
 - The wizards' "choices of a table, none without a game" six times,

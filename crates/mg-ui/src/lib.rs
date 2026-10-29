@@ -319,6 +319,8 @@ pub enum Action {
     ScriptToScratch {
         key: ResKey,
         compiled: bool,
+        /// And made a debug file, which goes with it.
+        debug: bool,
     },
     /// Edit › Prefabs › a prefab: placed with a click in the area shown.
     PlacePrefab(String),
@@ -624,6 +626,10 @@ pub struct Moonglow {
     /// and Redo and the toolbar's are that editor's, as its keys are
     /// (`script_view::undo_target`).
     pub(crate) undo_script: Option<ResKey>,
+    /// The module Test Module looked for running games on before its save
+    /// ([`Moonglow::test_may_start`]): not looked for, and warned of, again
+    /// once saved.
+    test_checked: Option<String>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
@@ -1027,6 +1033,7 @@ impl Moonglow {
             undo_under_pointer: None,
             undo_keys: None,
             undo_script: None,
+            test_checked: None,
             model_views: HashMap::new(),
             palette_categories: None,
             area_names: Default::default(),
@@ -3443,7 +3450,9 @@ impl Moonglow {
             Action::SaveScript(key) => {
                 script_view::save_script(self, key, script_view::ScriptSave::Save);
             }
-            Action::ScriptToScratch { key, compiled } => self.script_to_scratch(key, compiled),
+            Action::ScriptToScratch { key, compiled, debug } => {
+                self.script_to_scratch(key, compiled, debug)
+            }
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }
@@ -4206,6 +4215,55 @@ impl Moonglow {
         );
     }
 
+    /// Whether a test may write the module `name` and start the game on
+    /// it, as to games running that Moonglow did not start (GitHub issue
+    /// 6): not under one started on that module (closed first, as one
+    /// Moonglow started); under any other, with a warning (one started
+    /// from the game's own menu may have it open). Read only: a game is
+    /// never stopped.
+    fn other_game_allows(&mut self, name: &str) -> bool {
+        let others = test_module::other_games();
+        if let Some(game) = others.iter().find(|g| g.plays(name) == Some(true)) {
+            self.log.warn(format!(
+                "A game is running on {name} (process {}), not started by Moonglow: close it, then                  test again (the test would write the module under it)",
+                game.pid
+            ));
+            return false;
+        }
+        if !others.is_empty() {
+            let pids: Vec<String> = others.iter().map(|g| g.pid.to_string()).collect();
+            self.log.warn(format!(
+                "A game is running that Moonglow did not start (process {}): if it has {name}                  open, close it and test again, for the module is written under it",
+                pids.join(", ")
+            ));
+        }
+        true
+    }
+
+    /// Before Test Module's save, which writes the module where the game
+    /// reads it: whether a test may go on, as to the games running (one
+    /// Moonglow started for a test, one started otherwise on this module).
+    /// A nasher project's packed module is looked at once packed, before
+    /// it is copied there.
+    pub(crate) fn test_may_start(&mut self) -> bool {
+        if test_module::game_running() {
+            self.log.warn(
+                "The game started for the last test is still running: close it, then test \
+                 again (a second test would write the module under it)",
+            );
+            return false;
+        }
+        if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
+            return true;
+        }
+        let user = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
+        let name = user.zip(self.module_path()).and_then(|(u, p)| test_module::module_name(&u, &p));
+        let Some(name) = name else { return true };
+        let allowed = self.other_game_allows(&name);
+        self.test_checked = allowed.then_some(name);
+        allowed
+    }
+
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
         if test_module::game_running() {
@@ -4257,6 +4315,10 @@ impl Moonglow {
         if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
             let Some(packed) = self.pack_target() else { return };
             let Some(file) = packed.file_name() else { return };
+            let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            if !self.other_game_allows(&name) {
+                return;
+            }
             let dest = user.join("modules").join(file);
             let copied = std::fs::create_dir_all(user.join("modules"))
                 .and_then(|()| std::fs::copy(&packed, &dest).map(|_| ()));
@@ -4265,7 +4327,6 @@ impl Moonglow {
                 return;
             }
             self.log.info(format!("Installed {}", dest.display()));
-            let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
             self.launch_test(&client, user, &name, choose);
             return;
         }
@@ -4280,6 +4341,12 @@ impl Moonglow {
             ));
             return;
         };
+        // (Looked at before Test Module's save; else now.)
+        if self.test_checked.take().as_deref() != Some(name.as_str())
+            && !self.other_game_allows(&name)
+        {
+            return;
+        }
         self.launch_test(&client, user, &name, choose);
     }
 
@@ -4304,6 +4371,9 @@ impl Moonglow {
             self.log.error("Test From Here: no game client, or no user folder (Options › Folders)");
             return;
         };
+        if !self.other_game_allows(test_module::FROM_HERE) {
+            return;
+        }
         let bytes = self.test_from_here_archive(area, at, facing);
         let dest = user.join("modules").join(format!("{}.mod", test_module::FROM_HERE));
         let written = bytes.and_then(|b| {
