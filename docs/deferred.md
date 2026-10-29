@@ -1489,21 +1489,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   faces after a deletion (SHOULD); a body part's bones named from its
   skeleton when decompiled (not checked). The suite could run in the
   corpus tests (its probes and goldens are CC0). (S–M)
-- **Export Files of a model** (a builder: exporting a bugged placeable
-  to whoever mends it meant digging through the haks for its files).
-  The model viewer, in an editor's page and in its own window, writes
-  what the game loads to draw the thing into a folder
-  (`mg_preview::files`): models, `.pwk` and `.dwk`, textures as the game
-  picks them (and a PLT of the name), MTRs with their textures and
-  shaders, TXIs and the textures they name, emitters' chunk models,
-  light flares, supermodels. The game's own files are left out unless
-  every file is the game's. Not done: the blueprint itself and its
-  `placeables.2da` row are not written; a tile's or an area's files are
-  not offered this way; a texture named and found nowhere is not
-  reported. (S each) It asks before writing over files of the same
-  names in the folder, and `mg model-files` does the same from a
-  terminal (`--force` to write over).
-  (from builders' reports after 1.19.1)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5).

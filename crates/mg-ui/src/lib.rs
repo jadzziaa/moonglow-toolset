@@ -186,6 +186,9 @@ pub enum Action {
         dependencies: bool,
         scratch: bool,
     },
+    /// Export Model Files… of an area: what the game draws it with, into a
+    /// folder asked for (`model_view::export_area_files`).
+    ExportAreaFiles(mg_core::ResRef),
     /// Export as Blueprint…: a placed object written into an archive as a
     /// blueprint of its own (`transfer::run_export_object`).
     ExportObject {
@@ -3198,6 +3201,7 @@ impl Moonglow {
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);
             }
+            Action::ExportAreaFiles(area) => model_view::export_area_files(self, area),
             Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),

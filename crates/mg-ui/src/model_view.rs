@@ -12,7 +12,7 @@ use glam::{Mat4, Vec3};
 use mg_core::ResRef;
 use mg_core::ResType;
 use mg_edit::{GffPath, Workspace};
-use mg_gff::Gff;
+use mg_gff::{Gff, Struct};
 use mg_mdl::Model;
 use mg_preview::Preview;
 use mg_preview::compose::Composed;
@@ -214,20 +214,20 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     preview_on(app, source, app.settings.armor_on_woman)
 }
 
-/// [`preview_of`], armor and cloaks on a woman where `female`.
-fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
-    let game = app.game.as_deref().ok_or("No game data.")?;
-    let data = |k: &ResKey| {
-        app.ws
-            .as_ref()
-            .and_then(|w| w.module.get(k).map(<[u8]>::to_vec))
-            .or_else(|| game.resman.get(k).ok().map(|d| d.into_owned()))
-    };
-    let read = |k: &ResKey| data(k).and_then(|d| Gff::read(&d).ok());
-    let (restype, object) = match source {
-        Source::Resource(key) if key.restype == ResType::MDL => {
-            return Ok(Preview::model(&key.resref.to_string()));
-        }
+/// A resource as the module has it (its editors' copies as last written
+/// into it), else as the game's load order does.
+fn resource_data(app: &Moonglow, key: &ResKey) -> Option<Vec<u8>> {
+    let module = app.ws.as_ref().and_then(|w| w.module.get(key).map(<[u8]>::to_vec));
+    module.or_else(|| app.game.as_deref()?.resman.get(key).ok().map(|d| d.into_owned()))
+}
+
+/// What a source is of: a blueprint's fields, or a placed object's (its
+/// entry in the area's GIT), with the blueprint type it is of; `None` for
+/// a model.
+fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Struct)>, String> {
+    let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
+    Ok(Some(match source {
+        Source::Resource(key) if key.restype == ResType::MDL => return Ok(None),
         Source::Resource(key) => {
             let gff = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
             (key.restype, gff.root)
@@ -241,7 +241,17 @@ fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, 
             let object = path.get(&git.root).cloned().ok_or_else(|| format!("{source}: gone"))?;
             (restype, object)
         }
+    }))
+}
+
+/// [`preview_of`], armor and cloaks on a woman where `female`.
+fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
+    let game = app.game.as_deref().ok_or("No game data.")?;
+    let Some((restype, object)) = source_object(app, source)? else {
+        let Source::Resource(key) = source else { unreachable!("a model is a resource") };
+        return Ok(Preview::model(&key.resref.to_string()));
     };
+    let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
     let preview = match restype {
         ResType::UTC => mg_preview::creature(game, &object, &items),
@@ -264,27 +274,131 @@ pub struct ModelExport {
     what: String,
     dir: std::path::PathBuf,
     /// The files to write, each with where it comes from.
-    files: Vec<(ResKey, String)>,
-    /// Those the folder has already.
-    pub existing: Vec<ResKey>,
+    files: Vec<ExportFile>,
+    /// The names of those the folder has already.
+    pub existing: Vec<String>,
     /// The game's own files left out.
     left_out: usize,
+    /// The models and textures named and found nowhere.
+    pub missing: Vec<String>,
+}
+
+/// One file of an Export Files.
+#[derive(Debug, Clone)]
+struct ExportFile {
+    /// Its name in the folder.
+    name: String,
+    /// Where it comes from (`hak:name`, `the module`…).
+    origin: String,
+    what: Exported,
+}
+
+#[derive(Debug, Clone)]
+enum Exported {
+    /// A resource, as the module has it, else the game's load order.
+    Resource(ResKey),
+    /// Made for the export (a table's row).
+    Text(String),
 }
 
 /// Export Files: what the game loads to draw `source` (its models, their
-/// walkmeshes, textures and materials), written as `name.ext` into a
-/// folder the user chooses. The game's own files are left out, unless
-/// every one of them is the game's. Where the folder has files of those
-/// names already, it asks first ([`export_window`]).
+/// walkmeshes, textures and materials), with a blueprint's file (a placed
+/// object's: the blueprint it was placed from) and its row of the table
+/// its look is chosen by ([`mg_preview::files::look_row`]), written into
+/// a folder the user chooses. The game's own models and textures are left
+/// out, unless every one of them is the game's. Where the folder has files
+/// of those names already, it asks first ([`export_window`]). What the
+/// model names and the load order lacks is said in the log.
 pub fn export_files(app: &mut Moonglow, source: &Source) {
-    let preview = match preview_of(app, source) {
-        Ok(p) => p,
+    // (The editors' copies, which the files are read from.)
+    if let Some(ws) = app.ws.as_mut() {
+        let _ = ws.flush();
+    }
+    let (preview, object) = match preview_of(app, source).and_then(|p| {
+        let object = source_object(app, source)?;
+        Ok((p, object))
+    }) {
+        Ok(found) => found,
         Err(e) => return app.log.error(e),
     };
     let Some(game) = app.game.clone() else { return };
-    let files = mg_preview::files::files(&game, &preview);
+    let mut gather = mg_preview::files::Gatherer::new(&game.resman);
+    gather.preview(&preview);
+    let mut out = Vec::new();
+    if let Some((restype, object)) = &object {
+        // The blueprint itself (a placed object's: the one it was placed
+        // from, where it is found).
+        let key = match source {
+            Source::Resource(key) => Some(*key),
+            Source::Instance { .. } => {
+                object.resref("TemplateResRef").map(|r| ResKey::new(r, *restype))
+            }
+        };
+        let in_module = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
+        if let Some(key) = key.filter(|k| in_module(k) || game.resman.contains(k)) {
+            let origin = if in_module(&key) {
+                "the module".to_string()
+            } else {
+                game.resman.origin(&key).unwrap_or_default().to_string()
+            };
+            out.push(ExportFile { name: key.to_string(), origin, what: Exported::Resource(key) });
+        }
+        let kind = mg_rules::ObjectKind::from_restype(*restype);
+        if let Some(row) = kind.and_then(|k| mg_preview::files::look_row(&game, k, object)) {
+            let (name, origin) = (row.file_name(), format!("{}.2da of {}", row.table, row.origin));
+            out.push(ExportFile { name, origin, what: Exported::Text(row.text) });
+        }
+    }
+    export_gathered(app, source.to_string(), out, gather);
+}
+
+/// Export Model Files… of an area (the module tree's menu): what the game
+/// draws it with ([`mg_preview::files::Gatherer::area`]: its tileset, its
+/// tiles' models, walkmeshes and minimap pictures, its skybox, and what is
+/// placed in it), with its own `.are` and `.git`, as [`export_files`]
+/// writes a blueprint's.
+pub fn export_area_files(app: &mut Moonglow, area: ResRef) {
+    if let Some(ws) = app.ws.as_mut() {
+        let _ = ws.flush();
+    }
+    let Some(game) = app.game.clone() else { return };
+    let read = |t: ResType| {
+        let key = ResKey::new(area, t);
+        resource_data(app, &key).and_then(|d| Gff::read(&d).ok()).map(|g| (key, g.root))
+    };
+    let Some((are_key, are)) = read(ResType::ARE) else {
+        return app.log.error(format!("{area}.are: not found or not readable"));
+    };
+    let git = read(ResType::GIT);
+    let mut gather = mg_preview::files::Gatherer::new(&game.resman);
+    gather.area(&game, &are, None, git.as_ref().map(|(_, s)| s));
+    let own = [Some(are_key), git.map(|(k, _)| k)];
+    let out = own
+        .into_iter()
+        .flatten()
+        .map(|key| ExportFile {
+            name: key.to_string(),
+            origin: "the module".into(),
+            what: Exported::Resource(key),
+        })
+        .collect();
+    export_gathered(app, format!("area {area}"), out, gather);
+}
+
+/// What an Export Files writes, after its own files (`out`: a blueprint
+/// and its row, an area's ARE and GIT): the files `gather` found, the
+/// game's own left out unless every one is the game's, into a folder the
+/// user chooses; asked about first where the folder has some of them.
+fn export_gathered(
+    app: &mut Moonglow,
+    what: String,
+    mut out: Vec<ExportFile>,
+    gather: mg_preview::files::Gatherer<'_>,
+) {
+    let missing = gather.missing().to_vec();
+    let files = gather.into_files();
     if files.is_empty() {
-        return app.log.warn(format!("{source}: no model found to export"));
+        return app.log.warn(format!("{what}: no model found to export"));
     }
     let stock = files.iter().filter(|f| f.stock).count();
     let all = stock == files.len();
@@ -292,16 +406,20 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
     else {
         return;
     };
-    let files: Vec<(ResKey, String)> =
-        files.into_iter().filter(|f| all || !f.stock).map(|f| (f.key, f.origin)).collect();
-    let existing: Vec<ResKey> =
-        files.iter().map(|(k, _)| *k).filter(|k| dir.join(k.to_string()).exists()).collect();
+    out.extend(files.into_iter().filter(|f| all || !f.stock).map(|f| ExportFile {
+        name: f.key.to_string(),
+        origin: f.origin,
+        what: Exported::Resource(f.key),
+    }));
+    let existing: Vec<String> =
+        out.iter().map(|f| f.name.clone()).filter(|n| dir.join(n).exists()).collect();
     let export = ModelExport {
-        what: source.to_string(),
+        what,
         dir,
-        files,
+        files: out,
         existing,
         left_out: if all { 0 } else { stock },
+        missing,
     };
     if export.existing.is_empty() {
         write_export(app, &export, true);
@@ -313,18 +431,21 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
 /// Writes an export's files: all of them, or (`replace` off) those the
 /// folder did not have.
 fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
-    let Some(game) = app.game.clone() else { return };
     let dir = &export.dir;
     let mut written = Vec::new();
-    for (key, origin) in &export.files {
-        if !replace && export.existing.contains(key) {
+    for f in &export.files {
+        if !replace && export.existing.contains(&f.name) {
             continue;
         }
-        let Ok(data) = game.resman.get(key) else { continue };
-        if let Err(e) = key.path_in(dir).and_then(|path| std::fs::write(path, &data)) {
+        let (path, data) = match &f.what {
+            Exported::Resource(key) => (key.path_in(dir), resource_data(app, key)),
+            Exported::Text(text) => (Ok(dir.join(&f.name)), Some(text.clone().into_bytes())),
+        };
+        let Some(data) = data else { continue };
+        if let Err(e) = path.and_then(|path| std::fs::write(path, &data)) {
             return app.log.error(format!("Could not write to {}: {e}", dir.display()));
         }
-        written.push(format!("{key} ({origin})"));
+        written.push(format!("{} ({})", f.name, f.origin));
     }
     let mut notes = String::new();
     if export.left_out > 0 {
@@ -340,6 +461,13 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
         dir.display(),
         written.join(", ")
     ));
+    if !export.missing.is_empty() {
+        app.log.warn(format!(
+            "{} names what is found nowhere (the game draws it without them): {}",
+            export.what,
+            export.missing.join(", ")
+        ));
+    }
     app.export_dir = Some(dir.clone());
 }
 
@@ -927,7 +1055,7 @@ pub struct Thumbnails {
     female: bool,
     /// The items pictured by their looks ([`Pictured::Item`]), and whether
     /// on a woman: those asked for and kept.
-    items: HashMap<u64, (mg_gff::Struct, bool)>,
+    items: HashMap<u64, (Struct, bool)>,
     /// The revision at which the editors' working copies were last written
     /// into the module for the blueprints' looks (once a revision: it
     /// writes every document the workspace has read).
@@ -1042,7 +1170,7 @@ impl Thumbnails {
 
     /// What pictures `item` (an item's fields: as it would be with another
     /// model or part), on a woman where `female` (armor and cloaks).
-    pub(crate) fn item(&mut self, item: &mg_gff::Struct, female: bool) -> Pictured {
+    pub(crate) fn item(&mut self, item: &Struct, female: bool) -> Pictured {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         // (Its fields as written out: a struct has no hash of its own.)

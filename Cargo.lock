@@ -2677,6 +2677,7 @@ dependencies = [
  "mg-render",
  "mg-resman",
  "mg-rules",
+ "mg-set",
  "mg-testkit",
  "mg-tlk",
  "png",

@@ -70,6 +70,15 @@ fn a_placeable_s_model_files_are_exported() {
     let has = |ext: &str| names.iter().any(|n| n.ends_with(ext));
     assert!(has(".mdl") && has(".pwk"), "{names:?}");
     assert!(has(".dds") || has(".tga"), "{names:?}");
+    // The blueprint itself, and its row of placeables.2da, numbered as it
+    // is there, naming the model written beside it.
+    assert!(names.contains(&format!("{key}")), "{names:?}");
+    let row = names.iter().find(|n| n.starts_with("placeables.2da-row-")).expect("its row");
+    let text = std::fs::read_to_string(dir.join(row)).unwrap();
+    let model = names.iter().find(|n| n.ends_with(".mdl")).unwrap().trim_end_matches(".mdl");
+    let number = row.trim_start_matches("placeables.2da-row-").trim_end_matches(".txt");
+    let line = text.lines().last().unwrap().to_ascii_lowercase();
+    assert!(line.starts_with(&format!("{number} ")) && line.contains(model), "{text}");
     let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
     let said = log.iter().find(|m| m.starts_with("Exported ")).expect("said in the log");
     assert!(said.contains(&format!("{} files", names.len())) && said.contains(".mdl ("), "{said}");
@@ -104,6 +113,38 @@ fn a_placeable_s_model_files_are_exported() {
         assert!(h.state().model_export.is_none());
         assert_eq!(std::fs::read(dir.join(model)).unwrap() != b"mine", replaced, "{button}");
     }
+}
+
+/// Export Model Files… of an area (the module tree's menu): its own .are
+/// and .git, then what the game draws it with, its tileset and its tiles'
+/// models and walkmeshes, and the models of what is placed in it; the log
+/// lists them.
+#[test]
+fn an_area_s_model_files_are_exported() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-export-area-files");
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let out = dir.join("files");
+    std::fs::create_dir_all(&out).unwrap();
+    let dialogs = NoDialogs { folders: vec![out.clone()], ..Default::default() };
+    let mut app = game_app_with(&root, None, dialogs);
+    app.settings.no_last_area = true;
+    app.open_module(&chess);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let area = ResRef::from_str("chess").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::ExportAreaFiles(area));
+    h.run();
+    let names: Vec<String> = (std::fs::read_dir(&out).unwrap().flatten())
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    let has = |ext: &str| names.iter().any(|n| n.ends_with(ext));
+    assert!(names.contains(&"chess.are".into()) && names.contains(&"chess.git".into()));
+    assert!(has(".set") && has(".wok") && has(".mdl"), "{names:?}");
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    let said = log.iter().find(|m| m.starts_with("Exported ")).expect("said in the log");
+    assert!(said.contains("area chess") && said.contains("chess.are (the module)"), "{said}");
 }
 
 #[test]
