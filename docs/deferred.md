@@ -398,17 +398,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **Pictures in the Appearance list, what is left:** a creature's (a
-  plain male body of the appearance), a placeable's, a door's (Appearance
-  Type and Generic Appearance) and an item's (its model's, a weapon's
-  parts' shapes and colors, an armor's parts: the item as it would be
-  with each, its icon beside) show beside the row the pointer rests on.
-  A tileset door type's row **Use Generic Appearance** shows "(no
-  picture)", not the generic door chosen. A ring or an amulet, which
-  has no model of its own, shows the bag the game drops it as (its icon
-  tells the rows apart). The pictures are made on the UI thread after
-  the frame, 2 ms of a frame at most, as every gallery's are. (S)
-  (GitHub issue 7)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that

@@ -219,7 +219,8 @@ The palette's buttons:
   leaves it open for the next). Escape closes a list and gives up the
   keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
   door's Appearance Type and Generic Appearance, show each appearance's
-  picture beside the row the pointer rests on, and the chosen one's with
+  picture beside the row the pointer rests on (Appearance Type's **Use
+  Generic Appearance**: the generic door chosen), and the chosen one's with
   the pointer resting on the list's box: leave it there and the picture
   follows the arrow keys. An item's lists of its model and parts (a
   model, a weapon's parts' shapes and colors, an armor's parts) show the

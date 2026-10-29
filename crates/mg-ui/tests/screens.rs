@@ -1852,6 +1852,11 @@ fn appearance_hover_pictures() {
     h.run_steps(4);
     hover_list_row(&mut h, &in_types, &in_types, 4);
     shoot(&mut h, &dir, "appearance-hover-door-type");
+    // The type that is the generic door: the generic door chosen.
+    let mut h = pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
+    h.run_steps(4);
+    hover_list_row(&mut h, &in_types, &|v: &str| v == "Use Generic Appearance", 0);
+    shoot(&mut h, &dir, "appearance-hover-door-type-generic");
     let number = |v: &str| v.parse::<u32>().is_ok();
     for (name, value, rows, row, woman) in [
         (
