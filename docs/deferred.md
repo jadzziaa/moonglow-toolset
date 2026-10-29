@@ -1659,9 +1659,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tree no longer deletes the resource (it is a cut, which the tree does
   not take). (S) (Sacha's report on 2.5.4) (waits on the keys pressed
   in the running program: the owner's on Linux, Sacha's on his system)
-- **Sharing key sets:** Options › Keyboard › Export… and Import… write
-  and take the keys chosen as a file; the dialogs themselves weren't
-  driven.
 - **Undo's name for a side editor's step:** with the pointer over a
   hak's, a 2DA's, a tileset's or the talk table's editor, or the keys in
   a 2DA's grid, Edit › Undo and Redo (and the toolbar's) are that

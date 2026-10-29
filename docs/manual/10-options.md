@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:13:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:23:58Z }
 ---
 
 # Options
@@ -367,7 +367,8 @@ what you type (a command's name, or its group's).
   it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.
-- **Export…** writes the keys you chose as a file, to keep or to hand to
+- **Export…** writes the keys you chose as a file (a `.json`, named
+  `moonglow-keys.json` unless you name it otherwise), to keep or to hand to
   someone; **Import…** takes such a file's keys in place of yours (every
   command the file doesn't name goes back to Moonglow's keys). As with
   the rest of Options, OK keeps them.

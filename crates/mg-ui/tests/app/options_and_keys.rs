@@ -296,6 +296,61 @@ fn keys_remapped_in_options_and_used() {
     assert_eq!(starts(&mut h), 1);
 }
 
+/// Options › Keyboard › Export… and Import…, through their dialogs: the
+/// keys chosen go to the file the save dialog names, and come back from
+/// the one the open dialog names in place of others, kept by OK; a dialog
+/// canceled does nothing.
+#[test]
+fn key_sets_are_exported_and_imported_through_their_dialogs() {
+    use mg_ui::keys::Cmd;
+    let dir = mg_testkit::scratch_dir("ui-key-sets");
+    let file = dir.join("my-keys.json");
+    let _ = std::fs::remove_file(&file);
+    let dialogs =
+        NoDialogs { save: vec![file.clone()], open: vec![file.clone()], ..Default::default() };
+    let app = Moonglow::new(None, Box::new(dialogs));
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    let ctrl_m = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::M);
+    h.state_mut().options.as_mut().unwrap().keymap.set(Cmd::Manual, vec![ctrl_m]);
+    h.run();
+    let logged = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(what))
+    };
+    h.get_by_label("Export…").click();
+    h.run();
+    let written = std::fs::read_to_string(&file).expect("written where the dialog said");
+    assert_eq!(written, h.state().options.as_ref().unwrap().keymap.to_file());
+    assert!(written.contains("Ctrl+M"), "{written}");
+    assert!(logged(&h, "Keys written to"), "{:?}", h.state().log.entries);
+    // Reset, then taken back from the file.
+    h.get_by_label("Reset All").click();
+    h.run();
+    let manual = |h: &Harness<'_, Moonglow>| {
+        h.state().options.as_ref().unwrap().keymap.keys(Cmd::Manual)
+    };
+    assert_ne!(manual(&h), [ctrl_m]);
+    h.get_by_label("Import…").click();
+    h.run();
+    assert_eq!(manual(&h), [ctrl_m]);
+    assert!(logged(&h, "taken from"), "{:?}", h.state().log.entries);
+    // Canceled (the dialogs have no more answers): nothing changes.
+    let entries = h.state().log.entries.len();
+    h.get_by_label("Export…").click();
+    h.run();
+    h.get_by_label("Import…").click();
+    h.run();
+    assert_eq!(h.state().log.entries.len(), entries);
+    h.get_by_label("OK").click();
+    h.run();
+    let chosen = &h.state().settings.key_bindings;
+    assert_eq!(chosen.get("manual"), Some(&vec!["Ctrl+M".to_string()]), "{chosen:?}");
+}
+
 /// GitHub issue 9: the menus by the keyboard. F10 opens the first (and
 /// closes them), Left and Right go from menu to menu, Up and Down from row
 /// to row past those that can't be chosen, Enter chooses, Right opens a
