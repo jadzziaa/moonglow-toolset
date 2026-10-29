@@ -183,9 +183,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's lights chosen and its values written. Fewer, larger chunks, and
   values kept from frame to frame for what doesn't move, would cut it.
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
-- **A slow picture in a gallery** (a model with large textures) takes a
-  frame of 7 to 9 ms: a picture's models and textures are read on the
-  window's thread. Read on another. (M)
 
 ## EE fields Aurora hides
 
@@ -1192,38 +1189,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Beamdog's HD bodies, drawn whole since 1.34.1.) (S–M)
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
-  after 1.34.4's changes its suite passes 46 of 46 compiles and 45 of 46
-  decompiles. Left: an animated mesh's frames over vertices split by their
-  UVs are decompiled over the welded vertices (read back the same in the
-  game); a node whose `parent` line is missing or in capitals hangs from
-  the root where the game leaves it out (no game model but `c_quiver`'s
-  malformed lines); a skin vertex with no valid bone keeps its rest pose
-  where the game collapses it (`c_wings2`); face records over the source
-  faces after a deletion (SHOULD); a body part's bones named from its
-  skeleton when decompiled (not checked). The suite could run in the
-  corpus tests (its probes and goldens are CC0). (S–M)
+  its suite passes every probe since 2026-10-29, in Moonglow's tests
+  (`the_model_spec_suite_passes`). Left: a skin vertex with no valid bone
+  keeps its rest pose in Moonglow (`vs_skinned` in `mg-render`'s
+  `shader.wgsl`, its `total <= 0.0` branch), where the game collapses it
+  to clip-space 0 (MDL-SKIN-030; the stock `c_wings2` has 102 such
+  vertices, drawn whole in Moonglow). Waits on the client batch: a
+  creature wearing `c_wings2` in the client, to see what the game draws of
+  them (a collapse to w = 0 is not drawn alike by every GPU), then the
+  shader matched. (S once seen)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
-  1.20.5).
-  Not done: `mg pack` compiles only when
-  asked (the game reads text, and a pack's bytes should not change
-  unasked: on by default later?); Compile Models is a job (off the window's
-  thread, on every core, with its progress and Cancel, which leaves
-  the hak as it was; one step, named in Undo); a compiled model is not
-  compared with the game's own compiler's here (the viewer's `engine.rs`
-  does that); Build › Compile Models compiles a module's own
-  (a job, one step to undo); nothing compiles a nasher project's on
-  Pack Target, whose sources stay text; the linter's notes (Info) are not shown;
-  the viewer keeps its copy until its pin
-  moves past the release that has these, and keeps the tests that need
-  its `nwnmdlcomp` wrapper, the game's compiler and the client
-  (`nwnmdlcomp.rs`, `engine.rs`, `client.rs`); `PartNumbers::read`
-  still reads a file's part numbers a second time, where the reader
-  now keeps them on each node (`Node::part`), but not the header's
-  node count. (M for the uses)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
+  1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
+  file's `[pack] compile_models`) compiles models only when asked, as
+  the game reads text and a pack's bytes should not change unasked: on
+  by default later? (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say: kept off by default)
 - **Animations bind by part number, not by name:** done (by name
   where either is from text, and for a worn cloak or robe).
   Seen in the viewer session's client pictures (a

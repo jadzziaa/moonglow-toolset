@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: nwn-mdl-spec against Moonglow's model code and notes
-description: Where the shared NWN:EE model specification (nwn-mdl-spec, read on engine build 89.8193.37-17) and its conformance suite disagreed with mg-mdl's reader, compiler and decompiler, with the preview's skin binding and with notes_models.md - each finding, the part of Moonglow it touched, what was changed (the suite from 27 to 46 of 46 compiles) and what is left.
+description: Where the shared NWN:EE model specification (nwn-mdl-spec, read on engine build 89.8193.37-17) and its conformance suite disagreed with mg-mdl's reader, compiler and decompiler, with the preview's skin binding and with notes_models.md - each finding, the part of Moonglow it touched, what was changed (the suite from 27 to 46 of 46 compiles, then every probe in Moonglow's own tests) and what is left.
 tags: [models, mdl, conformance, compiler, skins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:39:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:54:29Z }
 stale_after: 2027-01-19T00:00:00Z
 sources:
   - id: spec
@@ -16,6 +16,9 @@ sources:
   - id: client
     resource: placeables_look in crates/mg-corpus-tests/tests/client_render.rs, with MG_OVERRIDE
     title: The game client, on a panel lit by setfillumcolor and by selfillumcolor
+  - id: suite-test
+    resource: the_model_spec_suite_passes in apps/mg/tests/models.rs, the suite at commit e627c9f, 2026-10-29
+    title: The suite in Moonglow's tests, through mg model compile and decompile
 ---
 
 # nwn-mdl-spec against Moonglow's model code and notes
@@ -35,11 +38,23 @@ and [notes_models.md](notes_models.md).
 | --- | --- | --- | --- |
 | 1.34.2 (as the spec's published report, `e0ed4c4`) | 27 of 46 | 44 of 46 | 13 of 14 |
 | After the changes below | **46 of 46** | **45 of 46** | **14 of 14** |
+| 2026-10-29, the suite at `e627c9f` (46 probes with goldens) | **46 of 46** | **46 of 46** | **14 of 14** |
 
 Run with the spec's runner and adapter;[^run] two of the compiles need the
 probe's `.mtr` files, which the adapter passes once it calls
 `compile_named_with` (the spec's adapter calls `compile_named`, which looks
 up no materials).
+
+**In Moonglow's tests** since 2026-10-29:[^suite-test]
+`the_model_spec_suite_passes` (`apps/mg/tests/models.rs`) runs the
+suite's own runner (`runner/mdlconf.py`, standard-library Python) with `mg
+model compile` and `mg model decompile` as the implementation, over every
+probe and, with a game install, the stock models; it also holds the
+SHOULDs fixed below (face records, bounds, a node left out). The suite is
+read from a checkout, as the game is, and not committed:
+`git clone https://github.com/plenarius/nwn-mdl-spec
+~/.local/share/moonglow-oracle/nwn-mdl-spec` (or `NWN_MDL_SPEC`); without
+one the test skips.
 
 ## How Moonglow uses each part
 
@@ -102,16 +117,43 @@ up no materials).
 
 - An emitter's bare `detonate` is written (MDL-CTRL-012).
 
+### 2026-10-29
+
+- **An animated mesh's frames** are decompiled over its compiled
+  vertices (MDL-MESH-062): a vertex split by its UVs stays two vertices,
+  each with its frames (`zspec_animtv`), and the animation node repeats
+  the mesh's `verts`, `tverts` and `faces`. Without them the game divides
+  by zero and crashes (the spec's E54): Moonglow's decompiles of animated
+  meshes had none. The linter calls frames without them an error; none of
+  the game's own ASCII models has it.
+- **A node with no `parent` line** (or `PARENT`, which is not read) is
+  left out of the model with the nodes under it, as the game leaves it
+  out (MDL-ASCII-031), and still takes its part number (MDL-NODE-010): the
+  reader notes it, the compiler numbers past it. In the game's models only
+  `c_quiver`'s malformed `node pos=[…]` lines are such nodes.
+- **Face records and bounds** of a mesh compiled from text are the game
+  compiler's (MDL-MESH-021, -022, -050): each record's plane is the source
+  face's of its number (a degenerate one's normal +X), neighbours are
+  found by the text's vertex numbers among the faces kept, and the box,
+  average and radius count every vertex of the text (`degen`, `negzero`,
+  `zspec_aabbdeg`). Before, the faces kept and their places once each.
+- **A body part's skin bound to the skeleton** it is worn on (bones past
+  its own nodes: Beamdog's HD parts) is decompiled with its bones named
+  from the skeleton, found by the part's name (`pmh0` for
+  `pmh0_neck001`), as MDL-SKIN-040 asks: `mg model decompile`, `mg cat
+  --text` and the resource browser's text. Before, the part's own nodes
+  named them, wrongly. No HD part was on this machine to try; the rule is
+  held by a test (`a_bound_body_part_s_bones_are_named_from_its_skeleton`).
+
 ## What is left
 
 | Finding | Rule | Moonglow |
 | --- | --- | --- |
-| an animated mesh's frames over vertices split by their UVs (`zspec_animtv`) | MDL-MESH-062 | written over the welded vertices: the game reads them back to the same frames, the suite compares the text |
-| a node whose `parent` line is missing or not read is in no tree | MDL-ASCII-031 | hangs from the root (only `c_quiver`'s malformed `node pos=[…]` lines in the game's models) |
-| a vertex with no valid bone collapses to clip-space 0 | MDL-SKIN-030 | kept in its rest pose (the stock `c_wings2` has 102) |
-| face records' normals and adjacency over the source faces after a deletion | MDL-MESH-021, -022 | from the faces kept (SHOULD; nothing seen in game) |
-| a body part's skin bones named from its skeleton when decompiled | MDL-SKIN-040 | not checked |
-| the suite in our own tests | | its probes and goldens are CC0 and could run in the corpus tests |
+| a vertex with no valid bone collapses to clip-space 0 | MDL-SKIN-030 | kept in its rest pose (the stock `c_wings2` has 102, drawn whole in Moonglow); what the client shows of them is to be seen first (the deferred list) |
+| a controller's column byte: a quaternion bezier (`cmbez01`), a `detonate` key (`zspec_animfx`), `position` with one value (`zspec_numbers`) | MDL-CTRL-022, -012 | other bytes than the golden's (SHOULD) |
+| tangents of a mesh whose hint comes from its material, decompiled (`cmtan01`, `zspec_mtrbmp`), and across a mirror seam (`zspec_tanmirror`) | MDL-BIN-048, MDL-MESH-043 | not written, or of the other handedness (SHOULD; the text compiles back to the game's) |
+| children of see-through meshes, decompiled (`zspec_tsort24` …) | MDL-NODE-012 | written in the order of their numbers, not the sorted tree's (SHOULD; compiled again, the game sorts them the same) |
+| an AABB walkmesh's vertex order (`zspec_aabbdeg`) | MDL-MESH-012 | the same triangles, numbered otherwise (SHOULD) |
 
 ## Where it agreed with us from the start
 
@@ -124,3 +166,4 @@ and the Viewer's in-game checks.
 [^spec]: nwn-mdl-spec: NWN:EE model format (MDL), an evidenced specification and conformance suite (commit ac87e10; text CC-BY 4.0, data CC0)
 [^run]: The conformance suite run on Moonglow
 [^client]: The game client, on a panel lit by setfillumcolor and by selfillumcolor
+[^suite-test]: The suite in Moonglow's tests, through mg model compile and decompile

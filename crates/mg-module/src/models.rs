@@ -8,6 +8,23 @@ use mg_resman::ResKey;
 /// (from 1; 0: none).
 pub type Notes = Vec<(usize, String)>;
 
+/// The linter's notes on a model's text (`mg_mdl::lint`'s `Info`: what
+/// the game or nwnmdlcomp does not read, a name longer than a resource's,
+/// a second node of a name animations find the first of), by line from 1:
+/// said with the compiler's, as Verify says the linter's warnings and
+/// errors.
+pub fn linter_notes(text: &str) -> Notes {
+    notes_of(&mg_mdl::lint::check(text))
+}
+
+/// [`linter_notes`] of what the linter found.
+fn notes_of(found: &[mg_mdl::lint::Diagnostic]) -> Notes {
+    (found.iter())
+        .filter(|d| d.severity == mg_mdl::lint::Severity::Info)
+        .map(|d| (d.line + 1, d.message.clone()))
+        .collect()
+}
+
 /// What became of one model kept as text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Compiled {
@@ -65,8 +82,8 @@ pub fn compile_models_each(
         // crash on, and what holds no model, is not compiled into
         // something that looks sound.)
         let text = String::from_utf8_lossy(data);
-        let errors = mg_mdl::lint::check(&text)
-            .into_iter()
+        let found = mg_mdl::lint::check(&text);
+        let errors = (found.iter())
             .filter(|d| d.severity == mg_mdl::lint::Severity::Error)
             .map(|d| format!("line {}: {}", d.line + 1, d.message))
             .collect::<Vec<_>>();
@@ -88,7 +105,11 @@ pub fn compile_models_each(
         let before = |n: &str| lookup(n, ResType::MDL).filter(|d| mg_mdl::is_binary(d));
         let c = mg_mdl::compile::compile_named_with(data, &name, &find, &before, &material)
             .map_err(|e| e.to_string())?;
-        Ok((c.binary, c.notes))
+        let mut notes = c.notes;
+        notes.extend(notes_of(&found));
+        notes.sort();
+        notes.dedup();
+        Ok((c.binary, notes))
     };
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(texts.len());
     let mut out: Vec<Option<Compiled>> = vec![None; texts.len()];
@@ -174,6 +195,25 @@ doneanim wave base\ndonemodel base\n";
         };
         let out = compile_models(&files[2..3], &outside);
         assert!(out[0].result.is_ok(), "{:?}", out[0].result);
+    }
+
+    /// The linter's notes on a text come with the compiler's: what the
+    /// game does not read (`setfillumcolor`, nwn-mdl-spec MDL-ASCII-070),
+    /// by its line.
+    #[test]
+    fn the_linter_s_notes_are_said_with_the_compiler_s() {
+        let text = BASE.replace(
+            "node dummy arm\n  parent base\nendnode\n",
+            "node dummy arm\n  parent base\n  setfillumcolor 1 0 0\nendnode\n",
+        );
+        let out = compile_models(&[(key("base", ResType::MDL), text.as_bytes())], &|_, _| None);
+        let (_, notes) = out[0].result.clone().unwrap();
+        let line = text.lines().position(|l| l.contains("setfillumcolor")).unwrap() + 1;
+        assert!(
+            notes.iter().any(|(l, n)| *l == line && n.contains("reads selfillumcolor")),
+            "{notes:?}"
+        );
+        assert_eq!(linter_notes(&text).len(), 1);
     }
 
     /// A mesh with no render hint takes its material's (nwn-mdl-spec

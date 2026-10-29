@@ -1741,6 +1741,51 @@ fn a_gallery_s_pictures_are_made_once_and_kept_while_in_sight() {
     );
 }
 
+/// Where the window keeps going (`background_jobs`, as the desktop app
+/// runs), a gallery's pictures have their models and textures read apart
+/// from the window and are drawn in a later frame, each once: the gallery
+/// looks as it does with them made in the frame (a picture of a model with
+/// large textures took a frame of 7 to 9 ms so).
+#[test]
+fn a_gallery_s_pictures_are_read_apart_and_look_the_same() {
+    let gallery = |apart: bool| {
+        let (mut h, _area) = area_harness(if apart { "gallery-apart" } else { "gallery-here" })?;
+        {
+            let app = h.state_mut();
+            app.background_jobs = apart;
+            app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+            (app.palette.tiles, app.palette.custom) = (false, false);
+            app.palette.filter = "chest".into();
+            app.settings.palette_gallery = true;
+        }
+        let mut read_apart = 0;
+        for _ in 0..2000 {
+            h.run_steps(1);
+            let t = &h.state().thumbnails;
+            read_apart = read_apart.max(t.reading());
+            if t.waiting() == 0 && t.reading() == 0 && t.kept() > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        h.run_steps(2);
+        let t = &h.state().thumbnails;
+        assert_eq!((t.waiting(), t.reading()), (0, 0), "every picture in sight made");
+        assert_eq!(t.drawn, t.kept() as u64, "each drawn once");
+        assert_eq!(read_apart > 0, apart, "read apart only where the window keeps going");
+        // The palette's pictures, as drawn (the area view and the log
+        // left out).
+        let rect = h.get_all_by_label("Placeables").next().expect("the palette").rect();
+        let image = h.render().expect("render");
+        let x = ((rect.min.x * h.ctx.pixels_per_point()) as u32).min(image.width());
+        Some(image::imageops::crop_imm(&image, x, 0, image.width() - x, image.height()).to_image())
+    };
+    let Some(apart) = gallery(true) else { return };
+    let here = gallery(false).unwrap();
+    let differ = apart.pixels().zip(here.pixels()).filter(|(a, b)| a != b).count();
+    assert!(differ < 50, "{differ} pixels differ");
+}
+
 /// Replace Selected with This, on a blueprint in the palette: the selected
 /// object of its type becomes one of that blueprint, where it stands; the
 /// others stay; one undo.

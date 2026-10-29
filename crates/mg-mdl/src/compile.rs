@@ -35,7 +35,8 @@ pub enum CompileError {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Sources<'a> {
     /// Its supermodel and that one's part numbers
-    /// ([`PartNumbers::read`] of its compiled file, where it has one).
+    /// ([`PartNumbers::of`] a compiled one, [`PartNumbers::read`] of its
+    /// file).
     pub supermodel: Option<(&'a Model, &'a PartNumbers)>,
     /// The compiled model of its own name, where it was compiled before:
     /// its nodes keep the numbers they have there.
@@ -465,11 +466,21 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
     let was = in_tree_order(&mut model);
 
     // Numbered in the order of the text.
-    let mut order: Vec<usize> = (0..model.nodes.len()).collect();
-    order.sort_by_key(|&i| (line(was[i]) == 0, line(was[i]), was[i]));
+    // (Those of its nodes left out of the tree among them: each takes a
+    // number, past the model's nodes in `order`.)
+    let count = model.nodes.len();
+    let mut order: Vec<usize> = (0..count + map.left_out.len()).collect();
+    let line_of = |i: usize| match i.checked_sub(count) {
+        Some(k) => map.left_out[k].start,
+        None => line(was[i]),
+    };
+    order.sort_by_key(|&i| (line_of(i) == 0, line_of(i), i));
     let parts = binary::number_nodes(&model, &order, sources.supermodel, sources.existing);
     notes.sort();
-    Ok(Compiled { binary: binary::write(&model, &parts)?, notes })
+    // (Each mesh's bounds and face records from its text's vertices and
+    // faces, as the game's compiler computes them.)
+    let meshes: Vec<_> = was.iter().map(|&w| map.meshes.get(w).and_then(Option::as_ref)).collect();
+    Ok(Compiled { binary: binary::write_from(&model, &parts, &meshes)?, notes })
 }
 
 /// Puts a model's nodes in the order of a depth-first walk of its tree,
@@ -518,6 +529,13 @@ fn in_tree_order(model: &mut Model) -> Vec<usize> {
     order
 }
 
+/// A compiled model and its part numbers, read once.
+fn with_numbers(data: &[u8]) -> Option<(Model, PartNumbers)> {
+    let model = Model::read(data).ok()?;
+    let parts = PartNumbers::of(&model)?;
+    Some((model, parts))
+}
+
 /// A model by name as a compiler needs it: the model and its part numbers.
 /// A compiled one's are read from it; a text is compiled first (or, where
 /// that fails, numbered in its tree's order).
@@ -529,13 +547,13 @@ fn numbered(
     let data = lookup(name)?;
     if !crate::is_binary(&data) && depth < 16 {
         if let Ok(c) = compile_named_at(&data, name, lookup, &|_| None, None, depth + 1) {
-            return Some((Model::read(&c.binary).ok()?, PartNumbers::read(&c.binary)?));
+            return with_numbers(&c.binary);
         }
         let model = Model::read(&data).ok()?;
         let parts = binary::part_numbers(&model, None);
         return Some((model, parts));
     }
-    Some((Model::read(&data).ok()?, PartNumbers::read(&data)?))
+    with_numbers(&data)
 }
 
 fn compile_named_at(
@@ -553,9 +571,8 @@ fn compile_named_at(
         .supermodel
         .filter(|s| !s.eq_ignore_ascii_case(name))
         .and_then(|s| numbered(&s, lookup, depth));
-    let existing = compiled_before(name)
-        .filter(|d| crate::is_binary(d))
-        .and_then(|d| Some((Model::read(&d).ok()?, PartNumbers::read(&d)?)));
+    let existing =
+        compiled_before(name).filter(|d| crate::is_binary(d)).and_then(|d| with_numbers(&d));
     let sources = Sources {
         supermodel: supermodel.as_ref().map(|(m, p)| (m, p)),
         existing: existing.as_ref().map(|(m, p)| (m, p)),
@@ -712,6 +729,29 @@ endmodelgeom m\ndonemodel m\n";
             assert_eq!(of(name), old_of(name), "{name}");
         }
         assert_eq!(parts.count, 12);
+    }
+
+    /// A node with no `parent` line is in no tree: the game's compiler
+    /// leaves it out, and its number goes unused (nwn-mdl-spec
+    /// MDL-ASCII-031, MDL-NODE-010; zspec_numbers' `n_caps`).
+    #[test]
+    fn a_node_left_out_keeps_its_number() {
+        let text = MODEL.replace(
+            "node dummy a\n  parent m\nendnode\n",
+            "node dummy loose\n  PARENT m\nendnode\nnode dummy a\n  parent m\nendnode\n",
+        );
+        let out = compile(text.as_bytes(), &Sources::default()).unwrap();
+        let back = Model::read(&out.binary).unwrap();
+        assert_eq!(back.node("loose"), None);
+        let parts = PartNumbers::read(&out.binary).unwrap();
+        let alone = compile(MODEL.as_bytes(), &Sources::default()).unwrap();
+        let before = PartNumbers::read(&alone.binary).unwrap();
+        assert_eq!(parts.count, before.count + 1);
+        let numbered = |m: &Model, p: &PartNumbers, name: &str| p.numbers[m.node(name).unwrap()];
+        let first = Model::read(&alone.binary).unwrap();
+        // (`a` came after it in the text: one past where it was.)
+        assert_eq!(numbered(&back, &parts, "a"), numbered(&first, &before, "a") + 1);
+        assert!(out.notes.iter().any(|(_, n)| n.contains("loose: has no parent line")));
     }
 
     #[test]

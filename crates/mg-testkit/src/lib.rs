@@ -237,6 +237,21 @@ macro_rules! oracle_tool {
     };
 }
 
+/// A checkout of nwn-mdl-spec (<https://github.com/plenarius/nwn-mdl-spec>:
+/// its probes and the engine's compiles of them, CC0, and its runner):
+/// `$NWN_MDL_SPEC`, else `nwn-mdl-spec` in the oracle's state directory
+/// (`$MOONGLOW_ORACLE`, default `~/.local/share/moonglow-oracle`). Like the
+/// game, it is read where it is and not committed.
+pub fn mdl_spec() -> Option<PathBuf> {
+    let dir = env::var_os("NWN_MDL_SPEC").map(PathBuf::from).or_else(|| {
+        let base = env::var_os("MOONGLOW_ORACLE").map(PathBuf::from).or_else(|| {
+            env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/moonglow-oracle"))
+        })?;
+        Some(base.join("nwn-mdl-spec"))
+    })?;
+    dir.join("runner/mdlconf.py").is_file().then_some(dir)
+}
+
 /// A file captured from Aurora under Wine (`tools/aurora/`), kept in the
 /// oracle's state directory (`$MOONGLOW_ORACLE`, default
 /// `~/.local/share/moonglow-oracle`) under `captures/`.

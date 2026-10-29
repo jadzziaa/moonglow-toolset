@@ -187,28 +187,6 @@ fn bound_to_skeleton(skin: &mg_mdl::Skin, part: &Model, skeleton: &Model) -> boo
         && skin.bones.iter().all(|&b| b < nodes)
 }
 
-/// A model's nodes in the order of a depth-first walk of its tree from its
-/// first root, children in their order: where the engine binds a skin's
-/// bones (nwn-mdl-spec MDL-SKIN-011). A binary model's nodes are read in
-/// this order; one read from text keeps the file's. Nodes outside the tree
-/// follow, in their order.
-fn tree_order(model: &Model) -> Vec<usize> {
-    let mut out = Vec::with_capacity(model.nodes.len());
-    let mut seen = vec![false; model.nodes.len()];
-    let root = model.nodes.iter().position(|n| n.parent.is_none());
-    let mut stack: Vec<usize> = root.into_iter().collect();
-    while let Some(i) = stack.pop() {
-        if std::mem::replace(&mut seen[i], true) {
-            continue;
-        }
-        out.push(i);
-        let children = model.nodes[i].children.iter().rev();
-        stack.extend(children.filter(|&&c| c < model.nodes.len() && !seen[c]));
-    }
-    out.extend((0..model.nodes.len()).filter(|&i| !seen[i]));
-    out
-}
-
 /// Where a body part's stand-ins for the skeleton's nodes start, and the
 /// base's node each stands for.
 #[derive(Debug)]
@@ -236,7 +214,7 @@ fn on_skeleton(model: &Model, skeleton: &Model) -> Option<(Arc<Model>, Skeleton)
     // A compiled skin's bone is the skeleton's node at that place in a
     // depth-first walk of its tree (nwn-mdl-spec MDL-SKIN-011: not its part
     // number, which a skeleton on a supermodel takes from that one's).
-    let nodes = tree_order(skeleton);
+    let nodes = skeleton.tree_order();
     let mut on = model.clone();
     for (n, was) in on.nodes.iter_mut().zip(&model.nodes) {
         if !bound(was) {
@@ -937,7 +915,7 @@ mod ray_tests {
             node dummy hand\n  parent arm\nendnode\n\
             endmodelgeom s\ndonemodel s\n";
         let m = Model::read(text.as_bytes()).unwrap();
-        let names: Vec<&str> = tree_order(&m).iter().map(|&i| m.nodes[i].name.as_str()).collect();
+        let names: Vec<&str> = m.tree_order().iter().map(|&i| m.nodes[i].name.as_str()).collect();
         assert_eq!(names, ["s", "arm", "hand", "head"]);
     }
 

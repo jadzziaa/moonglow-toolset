@@ -17,6 +17,12 @@
 //! - **Texture vertices are welded across all four UV sets together**, and
 //!   faces' texture indices serve every set, as the game's ASCII reader and
 //!   Neverblender apply them; `texindices1..3` repeat them for nwnmdlcomp.
+//! - **An animated mesh's frames** (`animverts`, `animtverts`) are written
+//!   over its `verts` and `tverts` (nwn-mdl-spec MDL-MESH-062), its
+//!   vertices split by their UVs kept apart, so that each of the compiled
+//!   model's vertices has its frames; and its animation node repeats the
+//!   mesh's `verts`, `tverts` and `faces`, which the game divides the
+//!   frames' counts by (without them it crashes, the spec's E54).
 //! - Numbers are the shortest text that reads back as the same `f32`.
 //! - Self-illumination is written twice: `setfillumcolor`, the spelling
 //!   nwnmdlcomp compiles (and 2,387 of the game's own ASCII models use),
@@ -58,9 +64,45 @@ pub fn to_ascii(model: &Model, opts: &Options) -> String {
 /// Compilers number a model's nodes in the order of its text, and the game
 /// finds a supermodel's animations by those numbers.
 pub fn to_ascii_in_order(model: &Model, opts: &Options, order: &[usize]) -> String {
-    let mut w = Writer { out: String::new(), opts: *opts };
+    to_ascii_on(model, opts, order, None)
+}
+
+/// [`to_ascii_in_order`] of a body part, whose skins may be bound to the
+/// creature's skeleton it is worn on (`skeleton`; nwn-mdl-spec
+/// MDL-SKIN-012): their bones are the skeleton's nodes, named from it
+/// (MDL-SKIN-040). Without the skeleton such bones are left unnamed
+/// (`invalidnodeindex`, as nwnmdlcomp writes a bone it cannot name), and
+/// a comment says so.
+pub fn to_ascii_on(
+    model: &Model,
+    opts: &Options,
+    order: &[usize],
+    skeleton: Option<&Model>,
+) -> String {
+    let skeleton =
+        skeleton.map(|s| s.tree_order().into_iter().map(|i| s.nodes[i].name.clone()).collect());
+    let mut w = Writer { out: String::new(), opts: *opts, skeleton };
     w.model(model, order);
     w.out
+}
+
+/// Whether a skin of `model` is bound to a skeleton it is worn on, not to
+/// its own tree: a bone lies past the model's last node (nwn-mdl-spec
+/// MDL-SKIN-040; Beamdog's HD `pmh0_neck001` has three nodes and bones on
+/// the skeleton's positions 2, 4 and 5).
+pub fn bound_elsewhere(model: &Model, skin: &crate::Skin) -> bool {
+    skin.bones.iter().any(|&b| b >= model.nodes.len())
+}
+
+/// The skeleton a body part is worn on, by the part's name: `pmh0` for
+/// `pmh0_neck001` (`p<gender><race><phenotype>_<part><number>`).
+pub fn skeleton_of(part: &str) -> Option<&str> {
+    let (skeleton, rest) = part.split_once('_')?;
+    let is = skeleton.len() == 4
+        && skeleton.starts_with(['p', 'P'])
+        && skeleton[3..].bytes().all(|b| b.is_ascii_digit())
+        && !rest.is_empty();
+    is.then_some(skeleton)
 }
 
 /// The order to write a compiled model's nodes in so that a compiler
@@ -188,6 +230,9 @@ pub fn axis_angle(q: Quat) -> [f32; 4] {
 struct Writer {
     out: String,
     opts: Options,
+    /// The names of the skeleton's nodes by tree position, for skins bound
+    /// to it ([`to_ascii_on`]).
+    skeleton: Option<Vec<String>>,
 }
 
 /// How a mesh's corners map to written vertices and texture vertices.
@@ -244,8 +289,20 @@ fn weld(m: &Mesh, anim: &AnimSets<'_>, use_normals: bool) -> Welded {
         }
     }
     order.extend((0..n).filter(|&v| !seen[v]));
+    // An animated mesh's sets are read over its `verts` (nwn-mdl-spec
+    // MDL-MESH-062), and a vertex the game split by its UVs carries its
+    // sets twice: such vertices stay apart, so that the sets are written
+    // once for each of the compiled model's vertices, as it holds them.
+    let animated = !anim.verts.is_empty() || !anim.uvs.is_empty();
     for v in order {
         let mut key: Vec<u32> = bits3(m.vertices[v]).to_vec();
+        if animated {
+            for uv in &m.uvs {
+                if let Some(t) = uv.get(v) {
+                    key.extend(t.map(f32::to_bits));
+                }
+            }
+        }
         if use_normals && let Some(nv) = m.normals.get(v) {
             key.extend(bits3(*nv));
         }
@@ -369,7 +426,7 @@ impl Writer {
     fn model(&mut self, m: &Model, order: &[usize]) {
         self.line("#MAXMODEL ASCII");
         if self.opts.banner {
-            self.line(&format!("# model: {} (decompiled by Moonglow Viewer)", m.name));
+            self.line(&format!("# model: {} (decompiled by Moonglow)", m.name));
         }
         self.line(&format!("filedependancy {}.max", m.name));
         self.line(&format!("newmodel {}", m.name));
@@ -559,6 +616,46 @@ impl Writer {
         }
     }
 
+    /// A mesh's `verts`, as welded.
+    fn verts(&mut self, m: &Mesh, w: &Welded) {
+        self.line(&format!("  verts {}", w.verts.len()));
+        for &v in &w.verts {
+            self.line(&format!("    {}", vec(&m.vertices[v])));
+        }
+    }
+
+    /// A mesh's texture vertices of a UV set (`tverts`, `tverts1`…).
+    fn tverts(&mut self, m: &Mesh, w: &Welded, set: usize) {
+        let key = if set == 0 { "tverts".to_string() } else { format!("tverts{set}") };
+        self.line(&format!("  {key} {}", w.tverts.len()));
+        for &v in &w.tverts {
+            let [u, t] = m.uvs[set][v];
+            self.line(&format!("    {} {} 0", num(u), num(t)));
+        }
+    }
+
+    /// A mesh's `faces`: corners, smoothing group, texture vertices (where
+    /// `uv0`: it has UVs) and material.
+    fn faces(&mut self, m: &Mesh, w: &Welded, uv0: bool) {
+        if m.faces.is_empty() {
+            return;
+        }
+        self.line(&format!("  faces {}", m.faces.len()));
+        for (fi, f) in m.faces.iter().enumerate() {
+            let v = f.vertices.map(|v| w.vert_of.get(v as usize).copied().unwrap_or(0));
+            let t = if uv0 {
+                f.vertices.map(|v| w.tvert_of.get(v as usize).copied().unwrap_or(0))
+            } else {
+                [0; 3]
+            };
+            let _ = writeln!(
+                self.out,
+                "    {} {} {} {} {} {} {} {}",
+                v[0], v[1], v[2], w.smoothing[fi], t[0], t[1], t[2], f.material
+            );
+        }
+    }
+
     fn mesh(&mut self, model: &Model, m: &Mesh, w: &Welded) {
         let walkmesh = matches!(m.extra, MeshExtra::Aabb(_));
         self.line(&format!("  ambient {}", vec(&m.ambient)));
@@ -598,10 +695,7 @@ impl Writer {
             self.line(&format!("  renderhint {}", renderhint(h)));
         }
         if !w.verts.is_empty() {
-            self.line(&format!("  verts {}", w.verts.len()));
-            for &v in &w.verts {
-                self.line(&format!("    {}", vec(&m.vertices[v])));
-            }
+            self.verts(m, w);
             if self.opts.normals && m.normals.len() >= m.vertices.len() {
                 self.line(&format!("  normals {}", w.verts.len()));
                 for &v in &w.verts {
@@ -616,14 +710,9 @@ impl Writer {
                 }
             }
         }
-        let has_uvs: Vec<usize> = (0..4).filter(|&i| m.uvs[i].len() >= m.vertices.len()).collect();
+        let has_uvs = uv_sets(m);
         for &set in &has_uvs {
-            let key = if set == 0 { "tverts".to_string() } else { format!("tverts{set}") };
-            self.line(&format!("  {key} {}", w.tverts.len()));
-            for &v in &w.tverts {
-                let [u, t] = m.uvs[set][v];
-                self.line(&format!("    {} {} 0", num(u), num(t)));
-            }
+            self.tverts(m, w, set);
         }
         if m.colors.len() >= m.vertices.len()
             && m.colors.iter().any(|c| c[..3] != [255, 255, 255])
@@ -644,34 +733,33 @@ impl Writer {
                 self.line(&format!("    {} {} {}", t[0], t[1], t[2]));
             }
         }
-        if !m.faces.is_empty() {
-            self.line(&format!("  faces {}", m.faces.len()));
-            for (fi, f) in m.faces.iter().enumerate() {
-                let v = f.vertices.map(|v| w.vert_of.get(v as usize).copied().unwrap_or(0));
-                let t = if uv0 {
-                    f.vertices.map(|v| w.tvert_of.get(v as usize).copied().unwrap_or(0))
-                } else {
-                    [0; 3]
-                };
-                let _ = writeln!(
-                    self.out,
-                    "    {} {} {} {} {} {} {} {}",
-                    v[0], v[1], v[2], w.smoothing[fi], t[0], t[1], t[2], f.material
-                );
-            }
-        }
+        self.faces(m, w, uv0);
         match &m.extra {
             MeshExtra::Skin(s) => {
+                // (Bound to the skeleton it is worn on: its bones are the
+                // skeleton's tree positions, named from it where it is
+                // given.)
+                let skeleton = bound_elsewhere(model, s).then_some(self.skeleton.as_ref());
+                let names: Vec<Option<String>> = (s.bones.iter())
+                    .map(|&n| match skeleton {
+                        Some(on) => on.and_then(|on| on.get(n).cloned()),
+                        None => model.nodes.get(n).map(|n| n.name.clone()),
+                    })
+                    .collect();
+                if skeleton == Some(None) {
+                    self.line(
+                        "  # a body part's skin bound to the skeleton it is worn on, which was \
+                         not found: its bones are not named",
+                    );
+                }
                 self.line(&format!("  weights {}", w.verts.len()));
                 for &v in &w.verts {
                     let mut line = String::from("   ");
                     if let Some(ws) = s.weights.get(v) {
                         for &(bone, weight) in ws.iter().filter(|(_, w)| *w != 0.0) {
-                            let name = s
-                                .bones
-                                .get(bone as usize)
-                                .and_then(|&n| model.nodes.get(n))
-                                .map_or("invalidnodeindex", |n| n.name.as_str());
+                            let name = (names.get(bone as usize))
+                                .and_then(Option::as_deref)
+                                .unwrap_or("invalidnodeindex");
                             let _ = write!(line, " {name} {}", num(weight));
                         }
                     }
@@ -806,6 +894,17 @@ impl Writer {
         }
         if let (Some(am), Some(w)) = (&n.anim_mesh, welded) {
             self.line(&format!("  sampleperiod {}", num(am.sample_period)));
+            // The mesh's vertices and faces again: the game divides the
+            // sets' counts by the animation node's own `verts` and
+            // `tverts`, and without them it crashes (nwn-mdl-spec E54).
+            if let Some(mesh) = geometry.and_then(|g| m.nodes[g].mesh()) {
+                self.verts(mesh, w);
+                let uv0 = uv_sets(mesh).contains(&0);
+                if uv0 {
+                    self.tverts(mesh, w, 0);
+                }
+                self.faces(mesh, w, uv0);
+            }
             let vsets: Vec<&Vec<crate::Vec3>> =
                 am.vertex_sets.iter().filter(|s| !s.is_empty()).collect();
             if !vsets.is_empty() {
@@ -831,6 +930,11 @@ impl Writer {
         }
         self.line("endnode");
     }
+}
+
+/// The UV sets a mesh has for every vertex.
+fn uv_sets(m: &Mesh) -> Vec<usize> {
+    (0..4).filter(|&i| m.uvs[i].len() >= m.vertices.len()).collect()
 }
 
 /// A header integer as nwnmdlcomp writes it (signed: EE-compiled models
@@ -901,6 +1005,82 @@ endmodelgeom m\ndonemodel m\n";
         assert_eq!(Model::read(out.as_bytes()).unwrap().nodes.len(), 5);
     }
 
+    /// An animated mesh with a vertex split by its UVs (nwn-mdl-spec's
+    /// zspec_animtv): decompiled, each of the compiled vertices has its
+    /// frames, and the animation node gives the `verts`, `tverts` and
+    /// `faces` the game divides them by (E54); compiled again, the same.
+    #[test]
+    fn an_animated_mesh_keeps_its_frames_per_vertex() {
+        let text = "newmodel w\nsetsupermodel w NULL\nclassification tile\nbeginmodelgeom w\n\
+            node dummy w\n  parent NULL\nendnode\n\
+            node animmesh water\n  parent w\n  verts 4\n    -1 -1 0\n    1 -1 0\n    1 1 0\n    -1 1 0\n\
+            tverts 5\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n    0.5 0.5 0\n\
+            faces 2\n    0 1 2 1 0 1 4 0\n    0 2 3 1 0 2 3 0\nendnode\nendmodelgeom w\n\
+            newanim loop w\n  length 1\n  animroot w\n  node dummy w\n    parent NULL\n  endnode\n\
+            node animmesh water\n  parent w\n  sampleperiod 0.5\n\
+            verts 4\n    -1 -1 0\n    1 -1 0\n    1 1 0\n    -1 1 0\n\
+            tverts 5\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n    0.5 0.5 0\n\
+            faces 2\n    0 1 2 1 0 1 4 0\n    0 2 3 1 0 2 3 0\n\
+            animverts 8\n    -1 -1 0\n    1 -1 0.1\n    1 1 0.2\n    -1 1 0.3\n\
+            -1 -1 1\n    1 -1 1.1\n    1 1 1.2\n    -1 1 1.3\n  endnode\ndoneanim loop w\ndonemodel w\n";
+        let compiled = crate::compile::compile(text.as_bytes(), &Default::default()).unwrap();
+        let out = crate::decompile(&compiled.binary).unwrap();
+        let anim = &out[out.find("newanim").unwrap()..];
+        // (Five vertices: the one split by its UVs twice.)
+        assert!(anim.contains("  verts 5\n") && anim.contains("  faces 2\n"), "{anim}");
+        assert!(anim.contains("  animverts 10\n"), "{anim}");
+        let frames = |data: &[u8]| {
+            let m = Model::read(data).unwrap();
+            let am = m.animations[0].nodes[1].anim_mesh.clone().unwrap();
+            let mesh = m.nodes[1].mesh().unwrap().clone();
+            // Each corner's place in each frame.
+            (am.vertex_sets.iter())
+                .map(|s| {
+                    let at = |v: u32| s.get(v as usize).copied().unwrap_or_default();
+                    mesh.faces.iter().flat_map(|f| f.vertices.map(at)).collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let again = crate::compile::compile(out.as_bytes(), &Default::default()).unwrap();
+        assert_eq!(frames(&again.binary), frames(&compiled.binary));
+    }
+
+    /// A body part's skin bound to the skeleton it is worn on (as Beamdog's
+    /// HD `pmh0_neck001`): its bones are the skeleton's tree positions,
+    /// named from the skeleton, not from the part's own nodes; without the
+    /// skeleton they are left unnamed and the text says so (nwn-mdl-spec
+    /// MDL-SKIN-040).
+    #[test]
+    fn a_bound_body_part_s_bones_are_named_from_its_skeleton() {
+        let skeleton = "newmodel pmh0\nbeginmodelgeom pmh0\nnode dummy pmh0\n  parent NULL\nendnode\n\
+            node dummy pelvis_g\n  parent pmh0\nendnode\nnode dummy torso_g\n  parent pelvis_g\n\
+            endnode\nendmodelgeom pmh0\ndonemodel pmh0\n";
+        let skeleton = Model::read(skeleton.as_bytes()).unwrap();
+        let part = "newmodel pmh0_neck001\nbeginmodelgeom pmh0_neck001\n\
+            node dummy pmh0_neck001\n  parent NULL\nendnode\n\
+            node skin neck\n  parent pmh0_neck001\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            faces 1\n    0 1 2 1 0 0 0 0\n  weights 3\n    neck 1\n    neck 1\n    neck 1\n\
+            endnode\nendmodelgeom pmh0_neck001\ndonemodel pmh0_neck001\n";
+        let mut part = Model::read(part.as_bytes()).unwrap();
+        // (As compiled against the skeleton: its bone is tree position 2.)
+        let NodeKind::Mesh(m) = &mut part.nodes[1].kind else { panic!("a mesh") };
+        let MeshExtra::Skin(s) = &mut m.extra else { panic!("a skin") };
+        s.bones = vec![2];
+        let s = s.clone();
+        assert!(bound_elsewhere(&part, &s));
+        let order = [0, 1];
+        let opts = Options::default();
+        let named = to_ascii_on(&part, &opts, &order, Some(&skeleton));
+        assert!(named.contains("    torso_g 1\n"), "{named}");
+        let unnamed = to_ascii_on(&part, &opts, &order, None);
+        assert!(unnamed.contains("    invalidnodeindex 1\n"), "{unnamed}");
+        assert!(unnamed.contains("not found: its bones are not named"));
+        assert_eq!(skeleton_of("pmh0_neck001"), Some("pmh0"));
+        assert_eq!(skeleton_of("PFE2_robe003"), Some("PFE2"));
+        assert_eq!(skeleton_of("plc_a01"), None);
+        assert_eq!(skeleton_of("pmh0"), None);
+    }
+
     #[test]
     fn numbers_read_back_exactly() {
         for v in [0.0f32, 1.0, -1.5, 0.1, 1.0 / 3.0, 1e-5, 3.5e-30, 123456.79, 2e9, -0.0] {
@@ -930,7 +1110,7 @@ endmodelgeom m\ndonemodel m\n";
     fn aabb_depths() {
         let e = |face| AabbEntry { min: [0.0; 3], max: [1.0; 3], face };
         let tree = [e(-1), e(-1), e(0), e(1), e(2)];
-        let mut w = Writer { out: String::new(), opts: Options::default() };
+        let mut w = Writer { out: String::new(), opts: Options::default(), skeleton: None };
         w.aabb(&tree);
         let indents: Vec<usize> = w.out.lines().map(|l| l.len() - l.trim_start().len()).collect();
         assert!(w.out.starts_with("  aabb 0 0 0 1 1 1 -1"));

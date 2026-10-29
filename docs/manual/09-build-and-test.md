@@ -272,8 +272,12 @@ text, each against its supermodel from the module, its haks or the
 game, in the background and as one step to undo. A model with errors,
 with no nodes, or whose supermodel isn't found stays as text, and the
 log says why; the compiler's notes on a model compiled (three of each)
-are in the log too. (The hak editor's Compile Models does the same for a
-hak, `mg pack --compile-models` for a folder.)
+are in the log too, with the linter's notes on its text, which Verify
+Module leaves out (what the game or nwnmdlcomp does not read, such as
+`setfillumcolor`; a name longer than a resource's). (The hak editor's
+Compile Models does the same for a hak, `mg pack --compile-models` for a
+folder, a nasher project's Pack where its project file asks, and `mg
+model compile` for one file.)
 
 ## Round-Trip Check
 

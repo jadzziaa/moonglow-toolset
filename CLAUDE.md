@@ -37,7 +37,9 @@ subject in `crates/mg-ui/tests/app/` (a new file is named in its
 Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default
 `~/.local/opt/neverwinter/bin`), plus nwnmdlcomp for models (also found in
-`~/Projects/neverblender/tools/bin`) and Pillow (`python3`) for textures.
+`~/Projects/neverblender/tools/bin`), nwn-mdl-spec's conformance suite for the
+model compiler (`NWN_MDL_SPEC`, default `~/.local/share/moonglow-oracle/nwn-mdl-spec`)
+and Pillow (`python3`) for textures.
 `MOONGLOW_REQUIRE_CORPUS=1` turns skips into failures. `MOONGLOW_HAKS`
 (folders, separated as `PATH` is) adds a builder's haks to those the
 tests take as installed: the shader test's baseline is 102 of 102 with
