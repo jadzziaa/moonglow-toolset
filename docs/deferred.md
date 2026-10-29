@@ -2188,11 +2188,6 @@ of truth, and does each caller's difference matter.
   empty undo step when a drag ends where it began, neither keeps typing
   as `hold_text` does; the "…" button for every language seven times.
   (M)
-- **The game data for a module, three times in `mg`**
-  (`search.rs:98`, `plugins.rs:34`, `main.rs:2671`, with the custom
-  talk table found three more ways: `main.rs:2713`, `nwsync.rs:122`,
-  `mg-ui lib.rs:2184`), each warning differently. A
-  `Module::game_data`. (M)
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)

@@ -2956,28 +2956,30 @@ impl Moonglow {
             return;
         };
         let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
-        // (A nasher project's own, kept as JSON, before the tlk folder's.)
+        // (A nasher project's own, kept as JSON, before the tlk folder's:
+        // found as `mg` finds it.)
+        use mg_module::talk::Custom;
         let found =
-            mg_module::talk::find_for(&ws.module, &game.resman, &dirs, &name, Some(game.language));
-        let file = found.as_ref().ok().and_then(Option::as_ref).and_then(|f| f.source.file());
+            mg_module::talk::of_module(&ws.module, &game.resman, &dirs, Some(game.language));
+        let file = match &found {
+            Custom::Found { found, .. } => found.source.file(),
+            _ => None,
+        };
         let stamp = file.and_then(|path| {
             let t = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
             Some((path.to_path_buf(), t))
         });
         self.tlk_stamp = stamp;
-        match found.map(|f| f.map(|f| f.tlk())).unwrap_or_else(|e| Some(Err(e))) {
-            Some(Ok(tlk)) => {
-                game.set_custom_tlk(Some(tlk));
-                self.log.info(format!("Custom talk table {name} loaded"));
-            }
-            Some(Err(e)) => {
-                game.set_custom_tlk(None);
-                self.log.error(format!("Custom talk table {name}: {e}"));
-            }
-            None => {
-                game.set_custom_tlk(None);
-                self.log.warn(format!("Custom talk table {name} not found"));
-            }
+        let (found, tlk) = found.read();
+        let loaded = tlk.is_some();
+        game.set_custom_tlk(tlk);
+        // (Said as `mg` says it, with a capital.)
+        let problem = found.problem().map(|p| format!("C{}", p.strip_prefix('c').unwrap_or(&p)));
+        match (&found, problem) {
+            _ if loaded => self.log.info(format!("Custom talk table {name} loaded")),
+            (Custom::NotFound { .. }, Some(p)) => self.log.warn(p),
+            (_, Some(p)) => self.log.error(p),
+            (_, None) => {}
         }
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));

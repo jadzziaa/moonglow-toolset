@@ -148,16 +148,88 @@ pub fn find_for(
     Ok(find(rm, tlk_dirs, name))
 }
 
-/// [`find_for`] for those that ask only whether there is one: an error is
-/// taken as none.
-pub fn find_any(
+/// A module's custom talk table, looked for as the game looks
+/// ([`of_module`]).
+#[derive(Debug, Clone)]
+pub enum Custom {
+    /// The module names none.
+    None,
+    Found {
+        name: String,
+        found: Found,
+    },
+    /// Named, and found nowhere the game looks.
+    NotFound {
+        name: String,
+    },
+    /// Named, and what was found can't be read (a project's table that
+    /// can't be, a file that is no talk table).
+    Unreadable {
+        name: String,
+        error: String,
+    },
+}
+
+impl Custom {
+    /// The table's name, where the module names one.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Custom::None => None,
+            Custom::Found { name, .. }
+            | Custom::NotFound { name }
+            | Custom::Unreadable { name, .. } => Some(name),
+        }
+    }
+
+    /// What is wrong, as every tool says it (`mg` after `warning: `, the
+    /// window's log with a capital): `None` where nothing is.
+    pub fn problem(&self) -> Option<String> {
+        match self {
+            Custom::None | Custom::Found { .. } => None,
+            Custom::NotFound { name } => Some(format!(
+                "custom talk table {name} not found (the haks, the module, its project and the \
+                 tlk folders were looked in)"
+            )),
+            Custom::Unreadable { name, error } => {
+                Some(format!("custom talk table {name}: {error}"))
+            }
+        }
+    }
+
+    /// The table read, where it was found; an `Unreadable` one where it
+    /// can't be parsed.
+    pub fn read(self) -> (Custom, Option<Tlk>) {
+        match self {
+            Custom::Found { name, found } => match found.tlk() {
+                Ok(tlk) => (Custom::Found { name, found }, Some(tlk)),
+                Err(error) => (Custom::Unreadable { name, error }, None),
+            },
+            other => (other, None),
+        }
+    }
+}
+
+/// The module's custom talk table (`Mod_CustomTlk`), found as [`find_for`]
+/// finds it: in `rm` (the module's haks above the module), its nasher
+/// project's own (in `language`: the language of the game's `dialog.tlk`,
+/// where the project keeps one a language), then in `tlk_dirs` (the
+/// install's [`GameInstall::tlk_dirs`](mg_resman::GameInstall::tlk_dirs);
+/// none for a test's fixture, which reaches no user folder). Every tool
+/// finds it so.
+pub fn of_module(
     module: &crate::Module,
     rm: &ResMan,
     tlk_dirs: &[PathBuf],
-    name: &str,
     language: Option<Language>,
-) -> Option<Found> {
-    find_for(module, rm, tlk_dirs, name, language).ok().flatten()
+) -> Custom {
+    let Some(name) = module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty()) else {
+        return Custom::None;
+    };
+    match find_for(module, rm, tlk_dirs, &name, language) {
+        Ok(Some(found)) => Custom::Found { name, found },
+        Ok(None) => Custom::NotFound { name },
+        Err(error) => Custom::Unreadable { name, error },
+    }
 }
 
 /// Why the game can't find a table of this name, beyond its not being

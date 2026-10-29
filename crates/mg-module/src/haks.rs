@@ -62,12 +62,8 @@ impl HakReport {
 
 /// Analyses the given haks (in `Mod_HakList` order) against the base game.
 pub fn hak_report(install: &GameInstall, names: &[String]) -> Result<HakReport, ModuleError> {
-    let base =
-        ResMan::for_game(&GameInstall { user_dir: None, workshop: false, ..install.clone() })
-            .map_err(|e| ModuleError::Archive {
-                path: install.root.clone(),
-                message: e.to_string(),
-            })?;
+    let base = ResMan::for_game(&install.as_player())
+        .map_err(|e| ModuleError::Archive { path: install.root.clone(), message: e.to_string() })?;
     let mut report = HakReport::default();
     for name in names {
         let path = install.find_hak(name);

@@ -3135,7 +3135,7 @@ fn run(cli: &Cli) -> Result<Output> {
             // module's haks' over it): before the fields `--set` sets.
             if let Some(text) = lighting_scheme {
                 install(cli).context("--lighting-scheme reads the game's environment.2da")?;
-                let game = search::game_data(cli, &m, &mut out)
+                let game = game_data(cli, &m, &mut out)
                     .context("--lighting-scheme: the game's data can't be read")?;
                 let row = mg_module::new::Scheme::find(&game, text)
                     .map_err(|e| anyhow::anyhow!("--lighting-scheme {e}"))?;
@@ -3194,7 +3194,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let music_row = music.as_deref().filter(|m| mg_2da::parse_int(m.trim()).is_none());
             if named || music_row.is_some() {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let game = search::game_data(cli, &m, &mut out)
+                let game = game_data(cli, &m, &mut out)
                     .context("the game's data can't be read for a row's name")?;
                 for h in &mut filter.has {
                     let areas::Has::Field { label, value: Some(v) } = h else { continue };
@@ -3267,11 +3267,11 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let game = if changes.iter().any(named_row) {
                 install(cli).context("a row named, not numbered, reads the game's 2DAs")?;
-                let g = search::game_data(cli, &m, &mut out)
+                let g = game_data(cli, &m, &mut out)
                     .context("the game's data can't be read for a row's name")?;
                 Some(g)
             } else if *names && !changes.is_empty() {
-                install(cli).ok().and_then(|_| search::game_data(cli, &m, &mut out))
+                game_data_if_any(cli, &m, &mut out)
             } else {
                 None
             };
@@ -3407,8 +3407,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             let mut out = Output::default();
-            let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table())?)?;
-            let game = mg_rules::GameData::new(module_resman(&gi, &m, &mut out)?, tlk);
+            let game = game_data_in(&gi, &m, &mut out)?;
             let only = area
                 .as_deref()
                 .map(mg_core::ResRef::from_str)
@@ -3707,9 +3706,7 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             if q.fields.iter().any(named) {
                 let mut notes = Output::default();
-                let game = install(cli)
-                    .ok()
-                    .and_then(|_| search::game_data(cli, &m, &mut notes))
+                let game = game_data(cli, &m, &mut notes)
                     .context("a row named, not numbered, reads the game's 2DAs")?;
                 let (rows, plain): (Vec<_>, Vec<_>) = q.fields.drain(..).partition(named);
                 q.fields = plain;
@@ -4014,6 +4011,51 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
     })
 }
 
+/// The game's data for a module ([`Module::game_data`]: the game, the
+/// module's haks and the module, its custom talk table), what it lacks
+/// said as warnings. Stops where the game, the module's hak list or one of
+/// its haks can't be read.
+pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Result<mg_rules::GameData> {
+    game_data_in(&install(cli)?, m, out)
+}
+
+/// [`game_data`] with the install found.
+pub(crate) fn game_data_in(
+    gi: &GameInstall,
+    m: &Module,
+    out: &mut Output,
+) -> Result<mg_rules::GameData> {
+    said(m.game_data(gi)?, out)
+}
+
+/// [`game_data`] for a command that does without: none without a game
+/// install, and what else stops it said as a warning.
+pub(crate) fn game_data_if_any(
+    cli: &Cli,
+    m: &Module,
+    out: &mut Output,
+) -> Option<mg_rules::GameData> {
+    let gi = install(cli).ok()?;
+    game_data_in(&gi, m, out)
+        .map_err(|e| out.note(format!("warning: the game's data can't be read: {e:#}")))
+        .ok()
+}
+
+/// The game's data put together for a module, with what it lacks said as
+/// every command says it; a hak that can't be opened stops the command.
+pub(crate) fn said(
+    found: mg_module::game_data::ForModule,
+    out: &mut Output,
+) -> Result<mg_rules::GameData> {
+    if let Some(e) = found.wrong_haks {
+        return Err(e.into());
+    }
+    for w in found.warnings() {
+        out.note(format!("warning: {w}"));
+    }
+    Ok(found.game)
+}
+
 /// The resman for a module: the game, the module's haks and the module.
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
@@ -4150,12 +4192,11 @@ fn verify(
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let (base, custom) = times.time("the talk tables", || {
         let base = std::fs::read(gi.talk_table()).ok().and_then(count).unwrap_or(0);
-        let custom = m.custom_tlk().ok().flatten().and_then(|name| {
-            let language = mg_core::Language::from_short_code(&gi.language);
-            mg_module::talk::find_any(&m, &rm, &gi.tlk_dirs(), &name, language)
-                .and_then(|f| f.tlk_bytes().ok())
-                .and_then(count)
-        });
+        let language = mg_core::Language::from_short_code(&gi.language);
+        let custom = match mg_module::talk::of_module(&m, &rm, &gi.tlk_dirs(), language) {
+            mg_module::talk::Custom::Found { found, .. } => found.tlk_bytes().ok().and_then(count),
+            _ => None,
+        };
         (base, custom)
     });
     let tlk = mg_module::doctor::TalkTables { base, custom };
