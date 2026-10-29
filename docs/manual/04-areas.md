@@ -1055,8 +1055,18 @@ In a project that keeps a [claims table](03-modules.md#claimed-areas),
 an area another builder claimed says so above its view (and its
 Properties), with who and since when: its changes are either refused
 (the project keeps others' areas read-only) or asked about before a save
-writes them. An unclaimed one says so too where the project warns of
-those, with **Claim This Area** beside it. The area's tab menu and its
+writes them. A read-only one is there to look at: you move about it,
+select its objects and open their Properties, but its tools are off. A
+drag selects or moves the camera and moves no object; there are no
+rings, arrows or scale handle; Delete, Q, E and G do nothing; Paint and
+Select Tiles are grayed, and the palette's blueprints, tiles and pastes
+aren't placed (one dropped on it says so in the log); its menu has
+Preview and Properties. Its Properties and its objects' are gray, with
+**Close** for OK and Cancel: what you type in them is dropped, and their
+Variables… button is off. (The module's start location may still be
+moved there: it is the module's, not the area's.) An unclaimed one says
+so too where the project warns of those, with **Claim This Area**
+beside it. The area's tab menu and its
 menu in the module tree have **Claim This Area** or **Release Claim**,
 which write the table. A merged (or protected) area says its Tag and
 ResRef are kept; changing either, or deleting it, is

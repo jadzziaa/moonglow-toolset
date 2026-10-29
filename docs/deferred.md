@@ -2295,10 +2295,6 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **A read-only area still takes the pointer:** its objects can be
-  selected and dragged, its Properties typed in; each change is then
-  refused with a line in the log (the area view doesn't turn its tools
-  off, nor does a form go gray). (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)

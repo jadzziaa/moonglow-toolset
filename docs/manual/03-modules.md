@@ -884,7 +884,9 @@ log by line, as the project file's are.
   (`unclaimed = "warn"`), with **Claim This Area** beside it;
 - where the project keeps others' areas read-only (`others =
   "read-only"`), no change to one is taken (from any window, a rename
-  elsewhere that would change it, or a plugin): the log says why;
+  elsewhere that would change it, or a plugin): its view's tools are
+  off and its forms gray ([Areas](04-areas.md#claimed-and-protected-areas)),
+  and a change made another way is refused, the log saying why;
 - where it warns (the default), you may change it, and a save that
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed

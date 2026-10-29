@@ -34,10 +34,39 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
     let targets: Vec<(ResKey, GffPath)> = areas()
         .flat_map(|a| [ResType::ARE, ResType::GIT].map(|t| (ResKey::new(a, t), GffPath::root())))
         .collect();
-    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    // (An area another builder holds, in a project that keeps those
+    // read-only: its Properties are looked at, gray.)
+    let held = areas().find_map(|a| crate::claims::read_only(app, a));
+    let viewed = held.is_some();
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], viewed));
     let pending = app.actions.len();
     crate::claims::banner(app, ui, area);
-    pages(app, ui, area, others);
+    let refused_id = egui::Id::new(("area-refused", area));
+    if let Some(why) = &held {
+        let now = ui.input(|i| i.time);
+        let refused = ui
+            .data(|d| d.get_temp::<f64>(refused_id))
+            .is_some_and(|at| now - at < crate::blueprint::VIEW_REFUSED_SHOWN);
+        let text = if refused {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            egui::RichText::new(format!(
+                "Not changed: {why}, and the project keeps others' areas read-only."
+            ))
+            .strong()
+        } else {
+            egui::RichText::new(format!("{why}: read-only here, shown to look at."))
+        };
+        ui.colored_label(ui.visuals().warn_fg_color, text);
+    }
+    let shown = pages(app, ui, area, others, viewed);
+    if let Some(shown) = shown.filter(|_| viewed) {
+        let keys: Vec<ResKey> = targets.iter().map(|(k, _)| *k).collect();
+        if crate::blueprint::look_only(app, ui, shown, pending, &|k| keys.contains(k)) {
+            let now = ui.input(|i| i.time);
+            ui.data_mut(|d| d.insert_temp(refused_id, now));
+            ui.ctx().request_repaint();
+        }
+    }
     let tab = match others {
         [] => crate::Tab::AreaProperties(area),
         _ => crate::Tab::AreasProperties(areas().collect()),
@@ -45,11 +74,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
     crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
 }
 
-fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
+/// The window's pages (only looked at, `viewed`): where they were drawn.
+fn pages(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    area: ResRef,
+    others: &[ResRef],
+    viewed: bool,
+) -> Option<egui::Rect> {
     let are = ResKey::new(area, ResType::ARE);
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
-        return;
+        return None;
     };
     // (The area's fields without its tiles, which no page shows: copied
     // each frame, a large area's thousand tiles were most of the copy.)
@@ -63,7 +99,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
         },
         Err(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e.to_string());
-            return;
+            return None;
         }
     };
     // (Areas deleted since are left out.)
@@ -113,7 +149,10 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
         // What the page shows is the first area's, and only what is changed
         // is set on the others: this gives them the rest of it too.
         if ui
-            .button(format!("Give Every Area This Page's {page} Settings"))
+            .add_enabled(
+                !viewed,
+                egui::Button::new(format!("Give Every Area This Page's {page} Settings")),
+            )
             .on_hover_text(format!(
                 "Sets what this page shows ({}'s) on each of the other areas, changed here or not",
                 names[0]
@@ -125,7 +164,10 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
     }
     let also: Vec<(ResKey, GffPath)> =
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let shown = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        if viewed {
+            crate::blueprint::read_only_look(ui);
+        }
         if page == "Audio" {
             audio(app, ui, area, others);
             return;
@@ -143,6 +185,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
             _ => f.memo(ui, "Comments", "Comments"),
         }
     });
+    Some(shown.inner_rect)
 }
 
 /// The fields of a page shared by several areas: in the area (`false`),
@@ -838,7 +881,7 @@ fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
         .map(|(area, git, are)| (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty()))
         .collect();
     let shown = &moved[0].1;
-    if !crate::widgets::variables_button(ui, shown.len()) {
+    if !crate::claims::variables_button(f.app, ui, &f.key, shown.len()) {
         return;
     }
     let mut edits = Vec::new();

@@ -402,6 +402,45 @@ pub(crate) fn area_app(
     Some((app, rs, area))
 }
 
+/// [`area_harness`]'s area with a chest at 12, 20, in a project folder
+/// whose claims table says `cd` holds the area and whose moonglow.toml
+/// keeps others' areas read-only, the builder `ab`: an area read-only
+/// here.
+pub(crate) fn read_only_area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let chest = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![item]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let (mut app, rs, area) = area_app(name, "ttr01", None, 4, None, &chest)?;
+    // The same module as a project folder that names a claims table.
+    let mut m = app.ws.as_ref()?.module.clone();
+    let dir = mg_testkit::scratch_dir(&format!("ui-area-{name}-project"));
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let rules = "[claims]\nfile = \"claims.2da\"\nothers = \"read-only\"\n";
+    std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
+    let table = format!(
+        "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
+         0   {:<16} cd       claimed  2026-10-20  ****\n",
+        area.to_string()
+    );
+    std::fs::write(dir.join("claims.2da"), table).unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    app.open_module(&dir);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(3);
+    Some((h, area))
+}
+
 /// A waypoint's position in the workspace's GIT.
 pub(crate) fn waypoint(
     h: &mut Harness<'_, Moonglow>,

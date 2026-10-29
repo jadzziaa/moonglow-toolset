@@ -463,6 +463,10 @@ pub struct AreaView {
     pub(crate) held: Held,
     /// Options › Area: the turning ring shows around the selection.
     pub turn_ring: bool,
+    /// Why the area is read-only here, where it is (another builder's, in
+    /// a project that keeps those read-only: `claims::access`): it is
+    /// looked at and selected in, its tools off, its forms gray.
+    pub(crate) read_only: Option<String>,
     /// The outline being drawn for a trigger or encounter.
     pub outline: Vec<Vec3>,
     /// Alt was pressed with the outline's first corner set: the next click
@@ -898,6 +902,7 @@ impl AreaView {
             drag: None,
             held: Held::default(),
             turn_ring: true,
+            read_only: None,
             outline: Vec::new(),
             rectangle: false,
             alt_held: None,
@@ -1527,6 +1532,7 @@ impl AreaView {
                 o.kind == ObjectKind::Encounter
                     && self.selected(*i)
                     && !o.locked
+                    && self.read_only.is_none()
                     && self.show[o.kind.index()]
             })
             .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, o, k, *p)))
@@ -1550,6 +1556,7 @@ impl AreaView {
                 o.kind == ObjectKind::Encounter
                     && self.selected(*i)
                     && !o.locked
+                    && self.read_only.is_none()
                     && self.show[o.kind.index()]
             })
             .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, k, *p)))
@@ -2280,6 +2287,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         app.start_focus = None;
         look_at_start(app, &mut view);
     }
+    // Another builder's, kept read-only: what would change it is off.
+    view.read_only = crate::claims::read_only(app, area);
+    if view.read_only.is_some() {
+        view.tile_mode = false;
+        view.pasting = false;
+        view.redraw = None;
+        view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. } | Drag::Pan));
+    }
     toolbar(app, ui, &mut view);
     // Whose the area is, where it isn't the builder's (the claims table).
     crate::claims::banner(app, ui, area);
@@ -2546,10 +2561,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             crate::keys::Cmd::SelectTiles,
             ui.ctx(),
         );
-        if tools
-            .toggle(ui, &mut view.tile_mode, icons::SELECT_TILES, "Select Tiles", &tip)
-            .changed()
-        {
+        // (Off on a read-only area: its tiles and placeables aren't
+        // changed.)
+        let editable = view.read_only.is_none();
+        let off = |ui: &mut egui::Ui, f: &mut dyn FnMut(&mut egui::Ui) -> egui::Response| {
+            if editable { f(ui) } else { ui.add_enabled_ui(false, |ui| f(ui)).inner }
+        };
+        let r = off(ui, &mut |ui| {
+            tools.toggle(ui, &mut view.tile_mode, icons::SELECT_TILES, "Select Tiles", &tip)
+        });
+        if r.changed() {
             view.selection.clear();
             view.tile_selection.clear();
             // (A tile brush would sit on top of tile mode.)
@@ -2563,7 +2584,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             crate::keys::Cmd::PaintPlaceables,
             ui.ctx(),
         );
-        if tools.toggle(ui, &mut app.paint, icons::PAINT, "Paint", &tip).changed() && app.paint {
+        let mut painting = app.paint && editable;
+        let r = off(ui, &mut |ui| tools.toggle(ui, &mut painting, icons::PAINT, "Paint", &tip));
+        if r.changed() {
+            app.paint = painting;
+        }
+        if r.changed() && app.paint {
             view.tile_mode = false;
             app.palette.tile_brush = None;
         }
@@ -2780,7 +2806,8 @@ fn viewport(
     view: &mut AreaView,
     start: Option<(Vec3, f32)>,
 ) {
-    view.turn_ring = !app.settings.no_turn_ring;
+    // (None of the handles that change it on a read-only area.)
+    view.turn_ring = !app.settings.no_turn_ring && view.read_only.is_none();
     if let Some(scene) = view.scene.as_mut() {
         scene.merchant_signs = app.settings.merchant_signs;
         scene.spawn_markers = !app.settings.no_spawn_markers;
@@ -2885,7 +2912,11 @@ fn viewport(
     view.pasted_shown = pasted.len();
     // What the placeable brush has painted in the stroke going on, and the
     // dab it would lay next.
-    let painted = crate::paint_mode::ghosts(app, ui, view);
+    let painted = if view.read_only.is_none() {
+        crate::paint_mode::ghosts(app, ui, view)
+    } else {
+        Vec::new()
+    };
     if let (Some(scene), Some(vp), Some(game)) =
         (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
     {
@@ -3097,7 +3128,9 @@ fn viewport(
     walkmesh_overlay(app, ui, view);
     object_walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
-    crate::paint_mode::overlay(app, ui, view);
+    if view.read_only.is_none() {
+        crate::paint_mode::overlay(app, ui, view);
+    }
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     crate::tile_select::refused_overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen, when their
@@ -3958,6 +3991,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
     }
+    // A read-only area (another builder's): looked at, selected in and
+    // its objects' Properties opened (gray), nothing changed. What would
+    // change it is off: what is dropped on it is not placed, and the
+    // brushes, pastes and handles do nothing. (The start location is the
+    // module's, not the area's: it still moves.)
+    let read_only = view.read_only.clone();
+    let refused = |app: &mut Moonglow, why: &str| {
+        app.log.warn(format!("Not placed: {why}, and the project keeps others' areas read-only"));
+    };
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)
     type Blueprint = crate::palette_view::Dragged;
@@ -3965,13 +4007,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if egui::DragAndDrop::has_payload_of_type::<Blueprint>(ui.ctx())
         && let Some(dragged) = response.dnd_release_payload::<Blueprint>()
     {
-        drop_blueprint(app, view, response, dragged.0);
+        match &read_only {
+            Some(why) => refused(app, why),
+            None => drop_blueprint(app, view, response, dragged.0),
+        }
         return;
     }
     if egui::DragAndDrop::has_payload_of_type::<Appearance>(ui.ctx())
         && let Some(dragged) = response.dnd_release_payload::<Appearance>()
     {
-        drop_appearance(app, view, response, &dragged);
+        match &read_only {
+            Some(why) => refused(app, why),
+            None => drop_appearance(app, view, response, &dragged),
+        }
         return;
     }
     // A tile from the tiles palette's Gallery: placed where it is dropped.
@@ -3979,9 +4027,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if egui::DragAndDrop::has_payload_of_type::<Tile>(ui.ctx())
         && let Some(dragged) = response.dnd_release_payload::<Tile>()
     {
-        crate::terrain_mode::drop_tile(app, view, response, &dragged);
+        match &read_only {
+            Some(why) => refused(app, why),
+            None => crate::terrain_mode::drop_tile(app, view, response, &dragged),
+        }
         return;
     }
+    let read_only = read_only.is_some();
     // Q and E turn a blueprint about to be placed (dragged, or chosen in
     // the palette), as they turn a selection; doors face as their hooks do.
     let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some()
@@ -3996,6 +4048,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // B, the toolbar's Paint: the placeable brush on or off.
     let typing = ui.ctx().memory(|m| m.focused().is_some());
     if !typing
+        && !read_only
         && response.hovered()
         && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::PaintPlaceables))
     {
@@ -4007,7 +4060,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     // The tile tools' keys: on the tiles selected, or the tool chosen.
     // (Not while a tree goes to its lines by letters, as the camera's.)
-    if !typing && response.hovered() && !app.paint && !crate::palette_view::letters_taken(ui.ctx())
+    if !typing
+        && !read_only
+        && response.hovered()
+        && !app.paint
+        && !crate::palette_view::letters_taken(ui.ctx())
     {
         crate::terrain_mode::tool_keys(app, ui, view);
     }
@@ -4027,13 +4084,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         return;
     }
-    if crate::paint_mode::input(app, ui, view, response) {
+    if !read_only && crate::paint_mode::input(app, ui, view, response) {
         return;
     }
-    if crate::tile_select::paste_input(app, ui, view, response) {
+    if !read_only && crate::tile_select::paste_input(app, ui, view, response) {
         return;
     }
-    if crate::tile_select::input(app, ui, view, response) {
+    if !read_only && crate::tile_select::input(app, ui, view, response) {
         if response.secondary_clicked() {
             view.tile_menu_at = response.interact_pointer_pos();
         }
@@ -4056,11 +4113,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 let what = if n == 1 { "1 object".to_string() } else { format!("{n} objects") };
                 crate::widgets::mark_clipboard(ui.ctx(), &what);
             }
-            if cut {
+            if cut && !read_only {
                 delete(app, view);
             }
         }
-        if pasted && app.object_clip.is_some() {
+        if pasted && !read_only && app.object_clip.is_some() {
             view.pasting = true;
         }
     }
@@ -4135,7 +4192,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
 
     // Placing the palette's blueprint.
-    if let Some(key) = brush(app) {
+    if let Some(key) = brush(app).filter(|_| !read_only) {
         let cancel = cancelled(ui, response);
         if cancel {
             app.palette.selected = None;
@@ -4264,6 +4321,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let (kind, index) = (o.kind, o.index);
         open_properties(app, view, kind, index);
     } else if response.double_clicked()
+        && !read_only
         && view.drag.is_none()
         && !view.pasting
         && brush(app).is_none()
@@ -4351,13 +4409,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             // camera moves (GitHub issue 25: Alt + drag anywhere raised
             // the selection, and did nothing with none).
             let on_selection = hit.is_some_and(|i| view.selected(i));
-            Some(if on_selection { Drag::Lift { by: 0.0 } } else { Drag::Pan })
+            Some(if on_selection && !read_only { Drag::Lift { by: 0.0 } } else { Drag::Pan })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
                 view.selection = vec![(o.kind, o.index)];
             }
-            view.ground_at(pos, o.position.z).map(|from| Drag::Move { from, offset: Vec2::ZERO })
+            // (Read-only: picked, and not moved.)
+            let from = view.ground_at(pos, o.position.z).filter(|_| !read_only);
+            from.map(|from| Drag::Move { from, offset: Vec2::ZERO })
         } else if let Some((was, turn)) = start_on_ground(app, view)
             .filter(|_| !shift && !alt)
             .and_then(|s| Some((s, view.start_grab(s, pos)?)))
@@ -4374,6 +4434,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     if response.drag_started_by(egui::PointerButton::Secondary)
         && view.drag.is_none()
+        && !read_only
         && alt
         && !command
         && !view.selection.is_empty()
@@ -4568,7 +4629,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // Q and E (Options › Keyboard) turn the selection by the snapping angle
     // (15° when free), Shift + Q and E by 90°; G drops it to the ground.
     // (While placing, they turn what is being placed instead.)
-    if hovered && !typing && !placing && !view.selection.is_empty() {
+    if hovered && !typing && !placing && !read_only && !view.selection.is_empty() {
         use crate::keys::Cmd;
         // (Which were pressed first: what they do changes the app, not
         // the keys.)
@@ -4600,6 +4661,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // it deleted the selection under the pointer too.)
     if hovered
         && !typing
+        && !read_only
         && !view.selection.is_empty()
         && ui.input(|i| i.key_pressed(egui::Key::Delete))
     {
@@ -5023,6 +5085,10 @@ pub(crate) fn template(app: &mut Moonglow, key: ResKey) -> Option<mg_area::AreaO
 /// Snapped to the grid, a door on the nearest hook; not for triggers and
 /// encounters (drawn point by point).
 fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_area::AreaObject> {
+    // (Nothing is placed in a read-only area.)
+    if view.read_only.is_some() {
+        return None;
+    }
     let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
     // An appearance dragged from the Placeable Gallery: the placeable it
     // would place (kept under a name of its own, no blueprint's).
@@ -5648,18 +5714,54 @@ fn set_locked(
 /// location and tests from here; last, as in Aurora, Variables and
 /// Properties.
 fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
-    // Opened on a tile, no object there: the tile's items first.
-    if let Some(t) = view.menu_tile {
-        crate::tile_select::ground_items(app, view, ui, t);
-    }
     let single = match view.selection.as_slice() {
         [one] => Some(*one),
         _ => None,
     };
     let same_kind =
         view.selection.len() > 1 && view.selection.iter().all(|(k, _)| *k == view.selection[0].0);
-    // The object in the model viewer, as it is placed (as its Properties'
-    // Preview shows it).
+    // A read-only area's: what looks at it, nothing that changes it.
+    match view.read_only.clone() {
+        Some(why) => {
+            ui.weak(format!("{why}: read-only here"));
+            preview_item(app, view, ui, single);
+        }
+        None => editing_items(app, view, ui, single),
+    }
+    // Variables, then Properties: the menu's last, as in Aurora.
+    ui.separator();
+    if let Some((kind, index)) = single
+        && view.read_only.is_none()
+        && ui.button("Variables…").clicked()
+    {
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        crate::widgets::open_variables(app, view.git(), path);
+        ui.close();
+    }
+    if ui.add_enabled(single.is_some() || same_kind, egui::Button::new("Properties")).clicked() {
+        match single {
+            Some((kind, index)) => open_properties(app, view, kind, index),
+            None => {
+                let paths = view
+                    .selection
+                    .iter()
+                    .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
+                    .collect();
+                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
+            }
+        }
+        ui.close();
+    }
+}
+
+/// The context menu's Preview: the object selected in the model viewer,
+/// as it is placed (as its Properties' Preview shows it).
+fn preview_item(
+    app: &mut Moonglow,
+    view: &AreaView,
+    ui: &mut egui::Ui,
+    single: Option<(ObjectKind, usize)>,
+) {
     let preview = single.filter(|(kind, _)| crate::tree::previewable(*kind));
     if ui
         .add_enabled(preview.is_some(), egui::Button::new("Preview"))
@@ -5671,6 +5773,21 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         app.actions.push(Action::OpenTab(crate::Tab::InstanceModel { area: view.area, path }));
         ui.close();
     }
+}
+
+/// The context menu's items of an area that may be changed, Properties
+/// aside: the tile's, the selection's, where it was opened, the plugins'.
+fn editing_items(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    ui: &mut egui::Ui,
+    single: Option<(ObjectKind, usize)>,
+) {
+    // Opened on a tile, no object there: the tile's items first.
+    if let Some(t) = view.menu_tile {
+        crate::tile_select::ground_items(app, view, ui, t);
+    }
+    preview_item(app, view, ui, single);
     let any = !view.selection.is_empty();
     let start = view.start_is_selected().then(|| start_location(app, view.area)).flatten();
     if ui.add_enabled(any || start.is_some(), egui::Button::new("Adjust Location…")).clicked() {
@@ -6067,29 +6184,6 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         if let Some(i) = crate::plugins::menu_commands(ui, &commands, &kinds) {
             app.actions.push(crate::plugins::run_on(&commands[i], selected));
         }
-    }
-    // Variables, then Properties: the menu's last, as in Aurora.
-    ui.separator();
-    if let Some((kind, index)) = single
-        && ui.button("Variables…").clicked()
-    {
-        let path = mg_edit::GffPath::root().item(kind.list(), index);
-        crate::widgets::open_variables(app, view.git(), path);
-        ui.close();
-    }
-    if ui.add_enabled(single.is_some() || same_kind, egui::Button::new("Properties")).clicked() {
-        match single {
-            Some((kind, index)) => open_properties(app, view, kind, index),
-            None => {
-                let paths = view
-                    .selection
-                    .iter()
-                    .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
-                    .collect();
-                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
-            }
-        }
-        ui.close();
     }
 }
 
