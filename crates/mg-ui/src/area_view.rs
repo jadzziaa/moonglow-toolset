@@ -1182,8 +1182,12 @@ impl AreaView {
         if !self.onto_objects {
             return Some(self.snapped(ground));
         }
-        let ray = self.ray(pos)?;
-        let (model, scene) = (self.model.as_ref()?, self.scene.as_ref()?);
+        // (No models to stand on yet: the ground.)
+        let (Some(ray), Some(model), Some(scene)) =
+            (self.ray(pos), self.model.as_ref(), self.scene.as_ref())
+        else {
+            return Some(self.snapped(ground));
+        };
         let along = (ground - ray.origin).length() / ray.dir.length().max(1e-6);
         // The nearest placeable or door the ray meets before the ground,
         // low enough to stand on.
@@ -2587,6 +2591,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .to_string()
     } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
+    } else if app.palette.placing_start {
+        "Placing the start location: click to put it here, facing the way the view looks \
+         (Shift + click: and again); right click or Escape: stop"
+            .to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {

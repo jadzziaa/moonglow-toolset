@@ -323,23 +323,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   posed (three times a tile's model a frame: the pose, the lights, the
   meshes), lower-casing each node's name. Bound once when the model is
   loaded, a scene's 0.5 ms would be less. (S)
-- **Pictures that differ from run to run, with the game's shaders:**
-  with Moonglow's own shader an area's picture is the same from run to
-  run (`render_area` twice, in two processes: all 140 of Tyrants of the
-  Moonsea's areas and the 118 of Prelude and Chapter 1, 2026-10-29).
-  With the game's (`MG_SHADERS=1`, the app's default), 8 of Tyrants'
-  140 differ, by 1 to 366 pixels and 2 to 15 of 255 (area085,
+- **Pictures that differ from run to run:** only with the game's
+  shaders. With Moonglow's own shader an area's picture is the same from
+  run to run (`render_area` twice, in two processes: all 140 of Tyrants
+  of the Moonsea's areas and the 118 of Prelude and Chapter 1,
+  2026-10-29). With the game's (`MG_SHADERS=1`, the app's default), 8 of
+  Tyrants' 140 differ, by 1 to 366 pixels and 2 to 15 of 255 (area085,
   aquarium001, area083, area091, dm_thentnpc1 to 3, ir_roadtovoonlar):
-  single pixels scattered over dark ground, a different few each run.
-  In one process the same scene drawn again, by the same renderer or a
-  new one, is the same to the bit; across runs the scene's lights are
-  the same, and so are every pipeline's naga modules and bind group
-  layouts. So something set once a process in the game shaders' draw
-  path changes the values drawn by a hair (a `std` HashMap's order, the
-  likeliest: `game.rs`'s `pipelines` and `value_ids`, its worker's
-  `programs`; or the order the worker finishes pipelines in). Fixed, the
-  game shaders' picture tests could compare to the bit. In `mg-render`:
-  the renderer's CI branch. (S-M)
+  single pixels scattered over dark ground, a different few each run. In
+  one process the same scene drawn again, by the same renderer or a new
+  one, is the same to the bit; across runs the scene's lights are the
+  same, and so are every pipeline's naga modules and bind group layouts.
+  So something set once a process in the game shaders' draw path changes
+  the values drawn by a hair (a `std` HashMap's order, the likeliest:
+  `game.rs`'s `pipelines` and `value_ids`, its worker's `programs`; or
+  the order the worker finishes pipelines in). Fixed, the game shaders'
+  picture tests could compare to the bit. In `mg-render`: the renderer's
+  CI branch. (S–M)
 - **The frame test only times:** `frame_perf.rs` names the views over
   the budget and fails nothing. With budgets it would keep them. (S)
 
@@ -1246,18 +1246,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file) (from builders' reports after 1.10.1)
-- **Emitters against the client:** an emitter new to the view, an
-  object's or a tile's, is run twenty seconds ahead so that it shows as
-  it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the nearest
-  256 objects and 128 tiles with emitters are simulated while Animations
-  is on (`nearest`). Not compared with the client: that a wide fog
-  (eight slow particles a second) is as dense from above as the game's,
-  and Magic Sparks, which show faintly from above. A tile's emitters take
-  their keys from the animations playing on it as one animation as long
-  as the longest (the game's tiles' keys are constant; one that changed
-  over a shorter loop would run slow). (S) (waits on the client batch:
-  the fog placeable and Magic Sparks seen from above in the client and
-  in the area view, side by side) (from builders' reports after 1.14.1)
+- **Emitters start as they look once going:** left, the client's
+  comparisons. An emitter new to the view, an object's or a tile's, is
+  run twenty seconds ahead so that it shows as it does once going
+  (`scene.rs`, `PARTICLES_AHEAD`), and the nearest 256 objects and 128
+  tiles with emitters are simulated while Animations is on (`nearest`).
+  Not compared with the client: that a wide fog (eight slow particles a
+  second) is as dense from above as the game's, and Magic Sparks, which
+  show faintly from above. A tile's emitters take their keys from the
+  animations playing on it as one animation as long as the longest (the
+  game's tiles' keys are constant; one that changed over a shorter loop
+  would run slow). (S) (waits on the client batch: the fog placeable and
+  Magic Sparks seen from above in the client and in the area view, side
+  by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21)
