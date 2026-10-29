@@ -812,9 +812,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **No zip, 7z or rar:** content downloaded as an archive is unpacked
   first; Add Haks and Talk Table takes the haks and talk table. (S; `zip`
   is a dependency already, 7z and rar would each be a new one)
-- **Viewing in the hak editor** shows fields, text, a compiled model as
-  its text, or the first bytes: no pictures or sounds, a model not as a
-  picture, and a 2DA as its text. (S)
+- **Viewing in the hak editor:** a model of a hak the game doesn't read
+  (not one of the module's, or changed there and not saved) shows as its
+  text. Drawing it wants the model viewer to read its models, supermodels
+  and textures from the hak over the load order: a source of its own
+  (`model_view::Source`, keyed in `model_views`), `compose`'s loader and
+  the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
+  2DAs and a model the game reads from the hak are shown (2026-10-29).
+  (M)
 
 ## Raw fields
 

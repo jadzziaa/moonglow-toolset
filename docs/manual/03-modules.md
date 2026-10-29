@@ -1211,8 +1211,12 @@ folder's files, subfolders included, to look over and save.
   **Rename…**, **Extract…** and **Remove**. The list is by name, by type
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the
-  list: a GFF's fields, a text file's text, a compiled model as the
-  text it compiles from, else its first bytes.
+  list: a picture (a TGA or DDS; a PLT in each layer's first color), a
+  sound with **Play**, a 2DA's rows and columns as the resource browser
+  shows them, a GFF's fields, a text file's text, else its first bytes.
+  A model is drawn in the model viewer where the game reads this hak's
+  copy (the hak is one of the module's, saved as it is); otherwise it
+  shows as the text it compiles from.
 - **Compile Models** compiles the hak's models kept as text (ASCII),
   each against its supermodel from this hak, the open module's haks or
   the game, as one step to undo (a hak of many models takes a while:

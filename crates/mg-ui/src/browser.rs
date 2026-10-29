@@ -786,7 +786,7 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
 /// editor, the column names stay in sight over the rows and the rows'
 /// numbers beside them, and a column is as wide as the edge of its name
 /// was dragged to (here or there: the widths are the table's).
-fn two_da(
+pub(crate) fn two_da(
     app: &mut Moonglow,
     ui: &mut Ui,
     key: ResKey,

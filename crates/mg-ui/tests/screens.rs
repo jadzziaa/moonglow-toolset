@@ -3135,6 +3135,21 @@ fn hak_editor_and_attach() {
     h.state_mut().haks[0].hak.add_files(&[added]);
     h.run();
     shoot(&mut h, &dir, "hak-editor");
+    // Its resources viewed: a picture, a table (`hak-editor-view-*`).
+    use egui_kittest::kittest::Queryable as _;
+    for t in [mg_core::ResType::TGA, mg_core::ResType::DDS, mg_core::ResType::TWODA] {
+        let items = h.state().haks[0].hak.items().to_vec();
+        let Some(item) = items.iter().find(|i| i.key.restype == t) else { continue };
+        let name = item.key.to_string();
+        h.state_mut().haks[0].filter = name.clone();
+        h.run();
+        h.get_by_label(&name).click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run();
+        shoot(&mut h, &dir, &format!("hak-editor-view-{t}"));
+    }
+    h.state_mut().haks[0].filter.clear();
     let tab = h.state().dock.find_tab(&mg_ui::Tab::Hak(h.state().haks[0].id)).unwrap();
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();
