@@ -534,6 +534,71 @@ fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
     assert!(script_has_keys(&h, key));
 }
 
+/// Undo and Redo's keys of Options › Keyboard are the script's in its
+/// editor, as Ctrl+Z is (they did nothing there, a builder's report on
+/// 1.25.1): its own step, not the module's.
+#[test]
+fn a_rebound_undo_key_is_the_script_s_in_its_editor() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-script-undo-key", false);
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    h.state_mut().settings.key_bindings.insert("undo".into(), vec!["Ctrl+Alt+U".into()]);
+    h.state_mut().settings.key_bindings.insert("redo".into(), vec!["Ctrl+Alt+R".into()]);
+    h.run();
+    assert!(script_has_keys(&h, key));
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::U);
+    h.run_steps(2);
+    assert_eq!(script(&h), text, "the script's step taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's");
+    assert!(script_has_keys(&h, key), "the keys still in the editor");
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::R);
+    h.run_steps(2);
+    assert_eq!(script(&h), edited, "and given again");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // The menu names the new key, and its Undo is the script's still.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Alt+U");
+}
+
+/// A menu opened from a script's editor and closed with nothing chosen
+/// gives the keys back to the editor: Ctrl+Z after it is the script's,
+/// where it was the module's (the keys were nowhere).
+#[test]
+fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-script-menu-closed", false);
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    // Closed by Escape.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert!(!script_has_keys(&h, key), "the click on the menu took the keys");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(script_has_keys(&h, key), "the keys back in the editor");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(script(&h), text, "the script's step");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's");
+    // Closed by a click on its name again.
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    assert!(script_has_keys(&h, key), "the keys back again");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(script(&h), edited);
+    // Closed by a click outside the editor (the module tree): nowhere.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Areas (1)").click();
+    h.run_steps(2);
+    assert!(!script_has_keys(&h, key), "a click outside the editor");
+}
+
 #[test]
 fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
     let Some(root) = mg_testkit::nwn_root() else {

@@ -1024,8 +1024,9 @@ submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for 
 A command is its text, or a table of `run` (or `windows` and `unix`,
 each for its systems), `label` (its name in the menu; else its name in
 the file, `run_tests` as Run tests), `key` (the keys it asks for, as
-Options › Keyboard writes them) and `writes = false` (it writes none of
-the module's files, as a submit: the haks stay open while it runs). The
+Options › Keyboard writes them), `writes = false` (it writes none of
+the module's files, as a submit: the haks stay open while it runs) and
+`input = true` (it reads what you type: see step 4 below). The
 commands are in the **Command Palette** too, under Project, and in
 **Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
@@ -1057,11 +1058,31 @@ Choosing one:
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
    folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
    Its output comes into the log as it is written (its errors in the
-   warning color), its last line in the window that shows while it
-   runs; **Cancel** stops it, and what it started (a `git` it runs, the
+   warning color), and into the window that shows while it runs, which
+   keeps to its last line as more comes; a line it has begun and not
+   ended (a question, `Continue? [y/N] `) shows there at once.
+   **Cancel** stops it, and what it started (a `git` it runs, the
    shell's process group on Linux and macOS, asked to end and then made
    to after two seconds; the shell's tree of processes on Windows). The
-   log says how it ended: done, or its exit code.
+   log says how it ended: done, or its exit code. **File › Project ›
+   Command Output** shows the last command's output afterwards, all of
+   it (its last 20,000 lines; the log keeps the rest), how it ended,
+   and **Copy**.
+
+   **What is typed.** A command whose table says `input = true`
+   reads what you type: a line under its output takes it, and Enter or
+   **Send** gives it to the command, as a terminal does (the question's
+   line ends there, and what you sent shows after it, grayed, `> y`;
+   it isn't put in the log). **Hide** shows dots for a password and
+   keeps it out of the output. **End Input** closes the command's input,
+   for one that reads to the end of it. Any other command has its input
+   closed: a question it asks of its input gets an empty answer at once
+   rather than waiting. A program that asks on the terminal itself
+   (`ssh`'s passphrase, `sudo`) can't be answered from Moonglow, and
+   git is told not to ask there (`GIT_TERMINAL_PROMPT=0`, unless you set
+   it yourself), so that it says it can't rather than wait until
+   canceled; a password program it is given (`GIT_ASKPASS`, a
+   credential helper) is asked as before.
 5. **Reads the project's files again**: the haks are opened again (where
    they were closed), and
    what the command changed is read as any [change made

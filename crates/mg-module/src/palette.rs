@@ -145,6 +145,22 @@ pub fn add_group(
     Ok(path)
 }
 
+/// Names the group or category at `path` by a talk-table string
+/// (`STRREF`, as the game's own categories are named), in place of a name
+/// written out: shown in each player's language, as the talk table has it
+/// (a module's own table's line, 16777216 and up, from its `.tlk` in that
+/// language).
+pub fn name_by_strref(skeleton: &mut Gff, path: &[usize], strref: u32) -> Result<(), String> {
+    if strref == u32::MAX {
+        return Err("a category needs a name: that is no talk-table string".into());
+    }
+    let node = skeleton_node(skeleton, path).ok_or("there is no such category")?;
+    node.remove("NAME");
+    node.remove("DELETE_ME");
+    node.set("STRREF", Value::Dword(strref));
+    Ok(())
+}
+
 /// Renames the group or category at `path`.
 pub fn rename_category(
     skeleton: &mut Gff,
@@ -244,12 +260,24 @@ pub fn sort_by_name(skeleton: &mut Gff, name: &dyn Fn(u32) -> String) {
 /// How many of the module's blueprints of `kind` are in each of the
 /// categories `ids`.
 pub fn blueprints_in(module: &Module, kind: BlueprintKind, ids: &[u8]) -> usize {
+    blueprints_of(module, kind, ids).len()
+}
+
+/// The module's blueprints of `kind` in the categories `ids`, each with
+/// the one it is in.
+pub fn blueprints_of(
+    module: &Module,
+    kind: BlueprintKind,
+    ids: &[u8],
+) -> Vec<(mg_resman::ResKey, u8)> {
     module
         .keys_of(kind.restype())
-        .filter_map(|key| module.gff(key)?.ok())
-        .filter_map(|g| g.root.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok()))
-        .filter(|id| ids.contains(id))
-        .count()
+        .filter_map(|key| {
+            let g = module.gff(key)?.ok()?;
+            let id = g.root.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok())?;
+            ids.contains(&id).then_some((*key, id))
+        })
+        .collect()
 }
 
 /// A category's or blueprint's name in a palette.

@@ -97,20 +97,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
   and give the keys back to the editor; the module's history was not
-  given the script's typing. Left: they are not grayed with nothing in
-  the script's history (reading egui's history copies all of it, each
-  frame); a menu opened from a script and closed with nothing chosen
-  leaves the keyboard nowhere, so Ctrl+Z is the module's then, as
-  after any click outside the editor; a key given to Undo or Redo in
-  Options, other than Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, does nothing in
-  a script (read from the code, not tried); the Command Palette's Undo
-  is the module's (its field has the keys). Seen meanwhile: the
-  toolbar's Undo clicked after the pointer was over a hak's editor
-  took back the module's step, not the hak's (the pointer has left the
-  editor by then), so Edit › Undo and the toolbar's are the module's
-  for a side editor; its own Undo is Ctrl+Z with the pointer over it,
-  or with the keys in a 2DA's grid. (S each) (a builder's report on
-  1.25.1)
+  given the script's typing; a menu closed with nothing chosen gives
+  the keys back to the editor, and Undo's and Redo's keys of Options ›
+  Keyboard are the script's there (2026-10-29). Left: they are not
+  grayed with nothing in the script's history (egui's `TextEditState`
+  hands its history out only as a copy of all of it, each frame) (drop?:
+  proposed by the sprint on 2026-10-29, the owner's to say); the Command
+  Palette's Undo is the module's (its field has the keys) (settle?:
+  proposed by the sprint on 2026-10-29, the owner's to say). (S each) (a
+  builder's report on 1.25.1)
 
 ## nasher projects
 
@@ -441,9 +436,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories, what the editor lacks:** no translated names
-  (one text for every language), and Remove refuses a category in use
-  rather than offer to move its blueprints. (S–M)
+- **Palette categories by a talk-table line, in the game:** since
+  2026-10-29 Palette › Categories… names a category by a StrRef (Name
+  by StrRef, or Move Name to Talk Table into the module's own table),
+  as the game's own categories are named, and the `palcus.itp` built
+  on save keeps it. Not seen: the DM Creator showing a module's own
+  talk table's line (16777216 and up) as a category's name, in each
+  language. (S) (waits on the client batch: a module with a custom
+  `.tlk` and a category named by its line, the Creator's palette
+  looked at)
 - **A module's categories in its own order:** the palette and the
   `palcus.itp` built on save keep the order a module's own skeleton has.
   Aurora's don't (captured 2026-10-29,
@@ -682,14 +683,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2DAs and a model the game reads from the hak are shown (2026-10-29).
   (M)
 
-## Raw fields
-
-- **Rows the fields view doesn't name yet:** an item property's subtype,
-  cost and parameter (their table depends on the property), a creature's
-  or object's faction (the module's `repute.fac`, not a 2DA), a
-  conversation's animations, a store's categories, and fields that hold
-  a talk-table number as a plain int. (S–M)
-
 ## Getting files out
 
 - **Overridden copies in the resource browser** open read-only as their
@@ -783,8 +776,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   selection and Alt + middle drag moves the camera (they were Shift's,
   which now leaves the camera alone while the handles show). Aurora
   turns the selection with Shift + right drag; and some desktops take
-  Alt + drag to move the window. Not in Options › Keyboard. (S)
-  (from builders' reports after 1.10.1)
+  Alt + drag to move the window. Read again on 2026-10-29: their being
+  out of Options › Keyboard is the Settled "Not every key" (mouse
+  bindings are fixed); on a desktop that takes Alt + drag, the camera
+  moves by Ctrl + drag, the selection is raised by Shift + drag of its
+  blue arrow and turned by its ring or Q and E, so what has no other
+  way is Alt + middle click (the camera's focus on the ground clicked)
+  and turning by a right drag. Left, Moonglow's own design: whether
+  Shift + right drag turns the selection too, as Aurora's does (today
+  it turns the camera, the handles shown), and a key for the focus
+  (`area_view::camera_input` and the `Drag::Turn` start, in the area
+  view's code). (S) (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say) (from builders' reports after 1.10.1)
 - **Painting placeables** (the area view's Paint, from builders'
   reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
   on a grid Q and E turn, each piece by its own size, a builder's ask
@@ -2032,11 +2035,6 @@ What the [audit](docs-audit.md) of 2026-10-12 could not put right with a
 few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
-- **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so a table wider than the page is shown there as a
-  list (`manual::fitted`; it was cut off at the page's edge before, and
-  the text after it too). Tables with wrapped cells would read better.
-  (S–M) (from the research notes)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
@@ -2223,9 +2221,6 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **A project's command's output is in the log only:** no window of its
-  own to read a long output in, and no input (a command that asks for
-  a password waits until canceled; its stdin is closed). (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

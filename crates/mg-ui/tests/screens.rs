@@ -1122,6 +1122,64 @@ fn project_commands_and_team_prefix() {
     shoot(&mut h, &dir, "team-prefix-builder-code");
 }
 
+/// A project's command running, its output in the job's window and the
+/// line it reads what is typed from (`input = true`); and after, File ›
+/// Project › Command Output (`project-command-running`,
+/// `project-command-output`).
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn project_command_output() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-command-output");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    let update = "echo 'Fetching origin'; echo 'warning: no upstream for builder/krezk' 1>&2; \
+                  for i in 1 2 3 4 5 6 7 8; do echo \"Updating area_$i.are\"; done; \
+                  printf 'Merge the others into your areas? [y/N] '; read answer; \
+                  echo \"answered $answer\"; echo 'Up to date.'";
+    std::fs::write(
+        project.join("moonglow.toml"),
+        format!("[commands]\nupdate = {{ run = {update:?}, input = true }}\n"),
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let key = std::fs::canonicalize(&project).unwrap().display().to_string();
+    app.settings.allowed_commands.push((key, "update".into(), update.into()));
+    app.open_module(&project);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    let started = std::time::Instant::now();
+    while h.query_by_label("Merge the others into your areas? [y/N] ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.event(egui::Event::Text("y".into()));
+    shoot(&mut h, &dir, "project-command-running");
+    h.key_press(egui::Key::Enter);
+    while h.state().busy() {
+        assert!(started.elapsed().as_secs() < 20, "the command never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("Project").click();
+    h.run_steps(2);
+    h.get_by_label("Command Output").click();
+    shoot(&mut h, &dir, "project-command-output");
+}
+
 #[test]
 #[ignore]
 fn model_viewer() {
@@ -2691,6 +2749,9 @@ fn user_manual() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-areas");
+    // A table wider than the page, its cells wrapped.
+    h.get_by_label("The camera").scroll_to_me();
+    shoot(&mut h, &dir, "manual-areas-camera");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
     // (The menu bar has a Plugins too: the chapter is the later one.)
@@ -4029,6 +4090,121 @@ fn raw_fields_of_the_pc_faction() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
     shoot(&mut h, &dir, "raw-fields-pc-faction");
+}
+
+/// Palette › Categories… with a category the module's blueprints are in
+/// chosen, before and after Remove (`palette-categories`,
+/// `palette-categories-remove`).
+#[test]
+#[ignore]
+fn palette_categories_window() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-palette-categories");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let chest = game.resman.get_named("plc_chest1", ResType::UTP).unwrap().into_owned();
+    let mut chest = mg_gff::Gff::read(&chest).unwrap();
+    let id = chest.root.integer("PaletteID").unwrap();
+    for name in ["mg_chest_a", "mg_chest_b"] {
+        chest
+            .root
+            .set("TemplateResRef", mg_gff::Value::resref(mg_core::ResRef::from_str(name).unwrap()));
+        m.set_gff(ResKey::parse(name, ResType::UTP).unwrap(), &chest).unwrap();
+    }
+    let path = scratch.join("palette.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("More").click();
+    h.run();
+    h.get_by_label("Categories…").click();
+    h.run();
+    // The chests' category chosen.
+    {
+        fn find(list: &[mg_gff::Struct], id: i64, at: &mut Vec<usize>) -> bool {
+            for (i, n) in list.iter().enumerate() {
+                at.push(i);
+                if n.integer("ID") == Some(id) || n.list("LIST").is_some_and(|l| find(l, id, at)) {
+                    return true;
+                }
+                at.pop();
+            }
+            false
+        }
+        let w = h.state_mut().palette_categories.as_mut().unwrap();
+        let mut at = Vec::new();
+        assert!(find(w.skeleton.root.list("MAIN").unwrap(), id, &mut at), "the chests' category");
+        w.selected = Some(at);
+    }
+    shoot(&mut h, &dir, "palette-categories");
+    h.get_by_label("Remove").click();
+    shoot(&mut h, &dir, "palette-categories-remove");
+}
+
+#[test]
+#[ignore]
+fn raw_fields_of_item_properties() {
+    // An item's properties in the raw fields view: each part named by
+    // the table its other fields name (`raw-fields-item-properties`).
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-raw-item-properties");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut ring = mg_gff::Gff::new(*b"UTI ");
+    ring.root.set("BaseItem", mg_gff::Value::Int(52));
+    let property = |name: u16, subtype: u16, cost: (u8, u16), param: (u8, u8)| {
+        let mut p = mg_gff::Struct::new(0);
+        p.set("PropertyName", mg_gff::Value::Word(name));
+        p.set("Subtype", mg_gff::Value::Word(subtype));
+        p.set("CostTable", mg_gff::Value::Byte(cost.0));
+        p.set("CostValue", mg_gff::Value::Word(cost.1));
+        p.set("Param1", mg_gff::Value::Byte(param.0));
+        p.set("Param1Value", mg_gff::Value::Byte(param.1));
+        p
+    };
+    let properties = vec![property(0, 0, (1, 2), (255, 0)), property(44, 0, (18, 2), (9, 3))];
+    ring.root.set("PropertiesList", mg_gff::Value::List(properties));
+    let key = ResKey::parse("ring", ResType::UTI).unwrap();
+    m.set_gff(key, &ring).unwrap();
+    let path = scratch.join("ring.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Gff(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 560.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    h.get_all_by_label_contains(" items").next().unwrap().click();
+    h.run_steps(3);
+    for i in 0..2 {
+        h.get_all_by_label_contains(&format!("[{i}] struct")).next().unwrap().click();
+        h.run_steps(3);
+    }
+    shoot(&mut h, &dir, "raw-fields-item-properties");
 }
 
 #[test]

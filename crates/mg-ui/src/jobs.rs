@@ -221,12 +221,17 @@ impl Moonglow {
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(job) = &app.job else { return };
     let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
+    let command = crate::project_commands::running(app);
     egui::Modal::new(egui::Id::new("job")).show(ctx, |ui| {
-        ui.set_width(320.0);
+        ui.set_width(if command { 640.0 } else { 320.0 });
         ui.heading(&title);
         // A plugin waiting on the user shows its question here.
         if crate::plugins::question_ui(app, ui) {
             return;
+        }
+        // A project's command, its output as it comes (and its input).
+        if command {
+            crate::project_commands::job_ui(app, ui);
         }
         let (done, total) =
             (progress.done.load(Ordering::Relaxed), progress.total.load(Ordering::Relaxed));
