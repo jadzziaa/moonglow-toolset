@@ -1621,6 +1621,85 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     assert!((placed.rotation - turned).abs() < 1e-3, "placed at {}", placed.rotation.to_degrees());
 }
 
+/// Sound Ranges draw a sound's random range as Aurora does: a rectangle
+/// its `RandomRangeX` wide and `RandomRangeY` deep, about the sound (half
+/// each way). Aurora's capture of 2026-10-29: a sound of ranges 6 and 2,
+/// distances 3 and 12, had a rectangle 6.2 by 2.1 m about it. The picture
+/// goes to `target/test-output/sound-range/` (`MG_SHOT` names it).
+#[test]
+fn a_sound_s_random_range_is_drawn_its_ranges_wide() {
+    use glam::Vec3;
+    use mg_module::instances::{Placement, Placing, instance};
+    let at = Vec3::new(20.0, 20.0, 1.5);
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::parse("animalcriesday", ResType::UTS).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let place = Placement { position: [at.x, at.y, at.z], rotation: 0.0 };
+        let mut sound = instance(&placing, ResType::UTS, &bp.root, place, &[]).unwrap();
+        for (label, v) in [
+            ("RandomRangeX", 6.0),
+            ("RandomRangeY", 2.0),
+            ("MinDistance", 3.0),
+            ("MaxDistance", 12.0),
+        ] {
+            sound.set(label, mg_gff::Value::Float(v));
+        }
+        sound.set("RandomPosition", mg_gff::Value::Byte(1));
+        sound.set("Positional", mg_gff::Value::Byte(1));
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("SoundList", mg_gff::Value::List(vec![sound]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("sound-range", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.sound_ranges = true;
+        if let Some(o) = &mut view.orbit {
+            o.target = Vec3::new(at.x, at.y, 0.0);
+            (o.pitch, o.yaw, o.distance) = (89f32.to_radians(), -90f32.to_radians(), 34.0);
+        }
+    }
+    h.run_steps(4);
+    let image = h.render().expect("render");
+    let name = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    image.save(mg_testkit::output_dir("sound-range").join(format!("{name}.png"))).unwrap();
+    // The rectangle's orange (240, 150, 60, over the ground) near a point.
+    let ppp = h.ctx.pixels_per_point();
+    let orange_near = |p: Vec3| {
+        let s = screen(&h, area, p);
+        let (cx, cy) = ((s.x * ppp) as i64, (s.y * ppp) as i64);
+        (-3..=3).any(|dy| {
+            (-3..=3).any(|dx| {
+                let (x, y) = (cx + dx, cy + dy);
+                (0..i64::from(image.width())).contains(&x)
+                    && (0..i64::from(image.height())).contains(&y)
+                    && {
+                        let px = image.get_pixel(x as u32, y as u32);
+                        let [r, g, b] = [px[0], px[1], px[2]].map(i32::from);
+                        r > 150 && r - g > 35 && r - b > 80
+                    }
+            })
+        })
+    };
+    // On its long edges, between the sound's marker and its inner circle.
+    for side in [1.0, -1.0] {
+        let edge = at + Vec3::new(1.5, side, 0.0);
+        assert!(orange_near(edge), "the rectangle 2 m deep: an edge 1 m {side} of the sound");
+        let twice = at + Vec3::new(1.5, 2.0 * side, 0.0);
+        assert!(!orange_near(twice), "not twice as deep ({side})");
+    }
+    for side in [3.0, -3.0] {
+        let wide = at + Vec3::new(2.0 * side, 0.0, 0.0);
+        assert!(!orange_near(wide), "not twice as wide ({side})");
+    }
+}
+
 #[test]
 fn a_blueprint_about_to_be_placed_shows_in_the_views_picture() {
     // A dark stone statue, see-through over the ground, shows in the
