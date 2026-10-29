@@ -54,8 +54,8 @@ fn tileset_grass(app: &Moonglow, ctx: &egui::Context, tileset: ResRef) -> Option
     if let Some(known) = ctx.data(|d| d.get_temp::<Option<GrassLook>>(id)) {
         return known;
     }
-    let game = app.game.as_deref()?;
-    let look = mg_area::tileset(game, tileset).ok().and_then(|t| GrassLook::of_tileset(&t));
+    app.game.as_ref()?;
+    let look = app.tileset(tileset).and_then(|t| GrassLook::of_tileset(&t));
     ctx.data_mut(|d| d.insert_temp(id, look.clone()));
     look
 }
@@ -266,8 +266,8 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         .response
         .on_hover_text("Grass of the area's own on a surface material: the tileset's, as a start");
         if let Some(m) = pick {
-            let set = app.game.as_deref().and_then(|g| mg_area::tileset(g, tileset).ok());
-            let o = GrassOverride::new(m, set.as_ref());
+            let set = app.tileset(tileset);
+            let o = GrassOverride::new(m, set.as_deref());
             apply(app, &gits, "Add grass", |k, root| grass::add_override(k, root, &o));
         }
     });

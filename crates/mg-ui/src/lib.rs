@@ -5048,6 +5048,22 @@ pub(crate) use mg_module::build::user_content;
 const RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Moonglow {
+    /// An open area view's terrain tools on `tileset`: the tileset as the
+    /// view read it, its tiles' index and rules.
+    pub(crate) fn open_tileset(&self, tileset: mg_core::ResRef) -> Option<&terrain_mode::Tools> {
+        (self.area_views.values().filter_map(|v| v.terrain.as_ref())).find(|t| t.tileset == tileset)
+    }
+
+    /// Tileset `tileset`: as an open area's view has it, else read from
+    /// the game (`None`: there is none, or it can't be read).
+    pub fn tileset(&self, tileset: mg_core::ResRef) -> Option<Arc<mg_set::Tileset>> {
+        if let Some(open) = self.open_tileset(tileset) {
+            return Some(open.set.clone());
+        }
+        let game = self.game.as_deref()?;
+        mg_area::tileset(game, tileset).ok().map(Arc::new)
+    }
+
     /// Has what reads the game data apart from the window let go of it, so
     /// that it can be changed ([`exclusive`], called after this): the 3D
     /// views' texture readers (taken again when an area view next draws);

@@ -1392,15 +1392,10 @@ fn draw_group_thumbnail(
     tileset: mg_core::ResRef,
     group: u32,
 ) -> Option<(wgpu::Texture, egui::TextureId)> {
-    let tools = (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
-        .find(|t| t.tileset == tileset)
-        .map(|t| (t.set.clone(), Some(t.index.clone())));
-    let (set, index) = tools.or_else(|| {
-        let game = app.game.as_deref()?;
-        mg_area::tileset(game, tileset).ok().map(|set| (Arc::new(set), None))
-    })?;
+    let set = app.tileset(tileset)?;
     let g = set.groups.get(group as usize)?;
-    let index = index.unwrap_or_else(|| mg_tiles::TileIndex::new(&set));
+    let index = (app.open_tileset(tileset).map(|t| t.index.clone()))
+        .unwrap_or_else(|| mg_tiles::TileIndex::new(&set));
     // The tiles and their places: as placed (the group's first tile at
     // the origin), else the group's own tiles alone.
     let placed: Vec<((i64, i64), mg_tiles::Placement)> =

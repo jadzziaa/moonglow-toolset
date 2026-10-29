@@ -5,8 +5,6 @@
 //! to. Read only: a tileset of the game's is not the module's to change
 //! (the tileset editor edits one on disk).
 
-use std::sync::Arc;
-
 use mg_core::{ResRef, ResType};
 use mg_resman::ResKey;
 use mg_set::{CORNERS, EDGES, Tileset};
@@ -15,19 +13,9 @@ use crate::Moonglow;
 use crate::model_view::Source;
 use crate::widgets::{field_label, section_heading};
 
-/// Tileset `tileset`, as an open area has it, else read from the game.
-fn tileset_of(app: &Moonglow, tileset: ResRef) -> Option<Arc<Tileset>> {
-    (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
-        .find(|t| t.tileset == tileset)
-        .map(|t| t.set.clone())
-        .or_else(|| {
-            app.game.as_deref().and_then(|g| mg_area::tileset(g, tileset).ok()).map(Arc::new)
-        })
-}
-
 /// The view of tile `tile` of `tileset`.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, tileset: ResRef, tile: u32) {
-    let Some(set) = tileset_of(app, tileset) else {
+    let Some(set) = app.tileset(tileset) else {
         ui.label(format!("The tileset {tileset} could not be read."));
         return;
     };
