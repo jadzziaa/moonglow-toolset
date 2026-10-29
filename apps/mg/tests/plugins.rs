@@ -24,6 +24,7 @@ fn module(dir: &Path) -> PathBuf {
     m.set_info(&Gff::new(*b"IFO ")).unwrap();
     let mut guard = Gff::new(*b"UTC ");
     guard.root.set("Tag", Value::String(b"gate_guard".to_vec()));
+    guard.root.set("FactionID", Value::Word(1));
     m.set_gff(key("guard.utc"), &guard).unwrap();
     let path = dir.join("keep.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();

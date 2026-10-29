@@ -2264,7 +2264,13 @@ fn walk_objects(
     let object = kind.and_then(mg_rules::ObjectKind::from_restype);
     if let Some(at) = object.and_then(|k| mg_rules::appearance::AppearanceRow::of(k, s)) {
         let rm = d.rm;
-        if let Err(e) = at.model(d.table(at.table), rm) {
+        let table = d.table(at.table);
+        // (A waypoint's flag is the toolset's alone: judged only where
+        // there is a waypoint.2da to judge it by, a game.)
+        let unjudged = object == Some(mg_rules::ObjectKind::Waypoint) && table.is_none();
+        if let Err(e) = at.model(table, rm)
+            && !unjudged
+        {
             out.push((format!("{path}/{}", at.field), e.to_string()));
         }
     }
@@ -3431,10 +3437,12 @@ endmodelgeom fx\ndonemodel fx\n";
         let mut m = Module::new();
         let mut utp = Gff::new(*b"UTP ");
         utp.root.set("Appearance", Value::Dword(9));
+        utp.root.set("Faction", Value::Dword(1));
         m.set_gff(key("box", ResType::UTP), &utp).unwrap();
         let mut git = Gff::new(*b"GIT ");
         let mut p = Struct::new(9);
         p.set("Appearance", Value::Dword(0));
+        p.set("Faction", Value::Dword(1));
         p.set("Tag", Value::String(b"CHAIR".to_vec()));
         git.root.set("Placeable List", Value::List(vec![p]));
         m.set_gff(key("area", ResType::GIT), &git).unwrap();
