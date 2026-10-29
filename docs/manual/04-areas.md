@@ -1099,12 +1099,18 @@ it goes; each change is one step to undo).
 
 - **Grow the tileset's grass on Grass faces**: off, the tileset's grass
   is gone (`SetAreaDefaultGrassDisabled(oArea, TRUE)`). Under it, what
-  the tileset grows. A tileset without grass (an interior) says so.
+  the tileset grows, its texture's picture beside it. A tileset without
+  grass (an interior) says so.
 - **The Area's Own Grass**: a box for each material with grass of the
   area's own, and **Add Grass to…** for another (it starts as the
-  tileset's grass). In each: the **Surface Material** (one already
+  tileset's grass). Its list has the materials the area's tiles have
+  first, the most of the ground first (rest the pointer on one for how
+  many square meters of the tiles' walkmesh faces are of it), then the
+  others, dimmed: grass on a material no tile has grows nothing, and its
+  box says so. In each: the **Surface Material** (one already
   growing the area's grass isn't offered twice), the **Texture** (a
-  ResRef; the game's are four tufts, two by two: `grass`, `ttz_grass`),
+  ResRef, its picture beside it; the game's are four tufts, two by two:
+  `grass`, `ttz_grass`),
   the **Density** (tufts to a square meter of the faces), the **Height**
   (meters), the **Ambient Color** and **Diffuse Color** (the light they
   take, as the tileset's are), and **Remove**.

@@ -983,9 +983,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Grass on placeables:** grass is grown on tiles' walkmeshes only;
   whether the game grows it on a static placeable's walkmesh (merged into
   the tiles) wasn't checked. (S)
-- **Add Grass to… lists every surfacemat.2da row:** which materials the
-  area's tiles have isn't shown, nor a texture's picture beside its name;
-  any texture is taken as four tufts, two by two, as the game's are. (S)
 - **The sun's and moon's directions in an area's GIT:** the server reads
   a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
   `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the

@@ -215,6 +215,37 @@ pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Op
     Some(Model { name: format!("{name}_grass"), nodes, animation_scale: 1.0, ..Model::default() })
 }
 
+/// How much of the walkmesh of an area's tiles is of each surface
+/// material (surfacemat.2da row: square meters), by the ARE's
+/// `Tile_List` and the tileset's tiles: where grass of the area's own on
+/// a material can grow. A material no tile has grows nothing.
+pub fn materials_of(
+    game: &mg_rules::GameData,
+    tileset: &mg_set::Tileset,
+    are: &Struct,
+) -> std::collections::BTreeMap<u32, f32> {
+    let mut out = std::collections::BTreeMap::new();
+    // (A tile model's faces, read once: an area has few models.)
+    let mut by_model: std::collections::HashMap<&str, Vec<(u32, f32)>> =
+        std::collections::HashMap::new();
+    for t in are.list("Tile_List").unwrap_or_default() {
+        let id = t.integer("Tile_ID").and_then(|i| usize::try_from(i).ok());
+        let Some(tile) = id.and_then(|i| tileset.tiles.get(i)) else { continue };
+        if tile.model.is_empty() {
+            continue;
+        }
+        let faces = by_model.entry(tile.model.as_str()).or_insert_with(|| {
+            let walk = crate::walk::Walkmesh::of_tile(game, &tile.model);
+            walk.map(|w| w.faces.iter().map(|f| (f.material, area(f))).collect())
+                .unwrap_or_default()
+        });
+        for &(material, a) in faces.iter() {
+            *out.entry(material).or_insert(0.0) += a;
+        }
+    }
+    out
+}
+
 fn area(f: &WalkFace) -> f32 {
     let [a, b, c] = f.corners;
     (b - a).cross(c - a).length() / 2.0

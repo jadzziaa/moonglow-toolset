@@ -1208,8 +1208,30 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     // Grass of the area's own on dirt: the tileset's, as a start.
     h.get_by_label("Add Grass to…").click();
     h.run_steps(2);
+    // The materials the area's tiles have first (ttr01's field: grass,
+    // stone, and its edges' nonwalk), the others after, below the line
+    // (no dirt or lava in this field). Picture:
+    // `target/test-output/ui-area-grass/add-grass-to.png`.
+    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
+    let line = y(&h, "Not on this area's tiles (nothing grows until a tile has it)");
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-grass").join("add-grass-to.png"))
+        .unwrap();
+    assert!(y(&h, "Grass (3)") < line && y(&h, "Stone (4)") < line);
+    assert!(y(&h, "Grass (3)") < y(&h, "Stone (4)"), "the most of the ground first");
+    assert!(y(&h, "Dirt (1)") > line && y(&h, "Lava (15)") > line);
     h.get_by_label("Dirt (1)").click();
     h.run_steps(3);
+    // Grass on dirt, which no tile has: said so.
+    assert!(
+        h.query_by_label("No face of this area's tiles is of this material: nothing grows here.")
+            .is_some()
+    );
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-grass").join("own-grass.png"))
+        .unwrap();
     let now = stored(&mut h);
     assert_eq!(now.overrides.len(), 1);
     assert_eq!(now.overrides[0].material, 1);
