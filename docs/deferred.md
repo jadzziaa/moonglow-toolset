@@ -986,10 +986,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   it is a line in `area_view.rs`'s `Held`; whether Moonglow keeps its
   Escape (the drag's other tools, brushes and pastes, drop on Escape
   too) is the owner's to say. (S)
-- **The scale handle** scales every way alike, as Adjust Location's
-  field does; the file keeps a scale for each axis. It stands where it
-  was taken while it is dragged, rather than follow the pointer. (S)
-  (from builders' reports after 1.10.1)
 
 ## Rendering: creatures, particles, water and shaders
 

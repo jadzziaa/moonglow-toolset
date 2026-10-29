@@ -304,10 +304,14 @@ led along its line.
 **The scale handle**: with **Shift** held, a white square stands on a
 stalk up and to the right of the selected object. Pull it away from the
 object to make the model larger and push it toward the object to make it
-smaller: twice as far from the object's feet, twice the size. The size
-shows beside the pointer as you drag; with **Snap** on it goes in steps
-of 0.05. The model grows from its feet, so it stays on the ground, and
-every way alike (Adjust Location's Scale is the same number). Like the
+smaller: twice as far from the object's feet, twice the size. The
+square follows the pointer as you drag (the other selected objects'
+handles move out or in along their stalks as far), and the size shows
+beside it; with **Snap** on it goes in steps of 0.05. The model grows
+from its feet, so it stays on the ground, and every way alike, as the
+game draws it: the game scales a model by one number (`ScaleX`), the
+same every way, whatever its file's `ScaleY` and `ScaleZ` say, and
+Adjust Location's Scale is that number. Like the
 tilt, it is the model that changes, for the objects a tilt works on;
 several selected objects each scale about their own feet. Escape drops
 the drag.

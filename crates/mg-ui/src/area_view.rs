@@ -1396,6 +1396,22 @@ impl AreaView {
         handles.iter().find(near).map(|h| h.0)
     }
 
+    /// Where the scale handle of the object at `pivot` (its stalk's end
+    /// at `handle`) is drawn on screen: while a scale drag is under way it
+    /// follows the pointer, the one taken under it and the others' out
+    /// along their stalks by as much.
+    fn scale_handle_drawn(&self, pivot: Vec3, handle: Vec3, pointer: Option<Pos2>) -> Option<Pos2> {
+        let at = self.screen_pos(handle)?;
+        let Some(Drag::Scale { pivot: taken, factor, .. }) = self.drag else { return Some(at) };
+        if taken == pivot
+            && let Some(p) = pointer
+        {
+            return Some(p);
+        }
+        let foot = self.screen_pos(pivot)?;
+        Some(foot + (at - foot) * factor)
+    }
+
     /// How much a scale drag from `from` to `pos` scales by: the
     /// pointer's distance from the object on screen, against what it was.
     fn scale_factor(&self, pivot: Vec3, from: Pos2, pos: Pos2) -> Option<f32> {
@@ -3658,7 +3674,8 @@ fn overlays(
         None => ui.input(|i| i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt),
     };
     // With them, the handle for scaling its model: a square on a stalk
-    // from its feet, pulled away to grow it and pushed in to shrink it.
+    // from its feet, pulled away to grow it and pushed in to shrink it
+    // (and following the pointer as it is).
     let scaling = matches!(view.drag, Some(Drag::Scale { .. }));
     if scaling || (tilting && view.drag.is_none()) {
         let over = ui
@@ -3666,12 +3683,19 @@ fn overlays(
             .pointer_hover_pos()
             .filter(|_| view.drag.is_none())
             .and_then(|p| view.scale_handle_at(p));
+        let pointer = ui.ctx().pointer_latest_pos();
         let white = Color32::from_rgb(240, 240, 240);
         for (pivot, handle) in view.scale_handles(shown) {
             let lit = scaling || over == Some(pivot);
             let color = if lit { white } else { white.gamma_multiply(0.75) };
-            line(pivot, handle, Stroke::new(1.0, color));
-            if let Some(c) = at(handle) {
+            let drawn = view.scale_handle_drawn(pivot, handle, pointer);
+            match (scaling, drawn, at(pivot)) {
+                (true, Some(c), Some(foot)) => {
+                    painter.line_segment([foot, c], Stroke::new(1.0, color));
+                }
+                _ => line(pivot, handle, Stroke::new(1.0, color)),
+            }
+            if let Some(c) = drawn {
                 let half = if lit { SCALE_HANDLE + 1.0 } else { SCALE_HANDLE };
                 let square = Rect::from_center_size(c, egui::Vec2::splat(half * 2.0));
                 painter.rect_filled(square, 1.0, color);

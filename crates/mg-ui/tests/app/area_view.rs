@@ -4038,7 +4038,8 @@ fn a_light_is_added_from_the_area_s_menu_and_recolored() {
 
 /// With Shift held, a selected placeable has a handle that scales its
 /// model about its feet: pulled twice as far from the object, twice the
-/// size, in one undoable step; Escape drops the drag.
+/// size, in one undoable step, the handle following the pointer; Escape
+/// drops the drag.
 #[test]
 fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     use glam::Vec3;
@@ -4106,6 +4107,22 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
         if shot {
             let img = h.render().expect("render");
             img.save(mg_testkit::scratch_dir("ui-area-scale").join("scale_handle.png")).unwrap();
+            // The handle follows the pointer: its white square is drawn
+            // where the pointer is (left of the pointer's arrow), not
+            // where it was taken.
+            let ppp = img.width() as f32 / h.ctx.content_rect().width();
+            let white = |at: egui::Pos2, dx: std::ops::RangeInclusive<i32>| {
+                let mut n = 0;
+                for x in dx {
+                    for y in 1..=4 {
+                        let (px, py) = ((at.x + x as f32) * ppp, (at.y + y as f32) * ppp);
+                        let p = img.get_pixel(px as u32, py as u32);
+                        n += usize::from(p[0] > 225 && p[1] > 225 && p[2] > 225);
+                    }
+                }
+                n
+            };
+            assert!(white(to, -5..=-2) >= 12, "the handle's square at the pointer");
         }
         if escape {
             h.key_press(egui::Key::Escape);
