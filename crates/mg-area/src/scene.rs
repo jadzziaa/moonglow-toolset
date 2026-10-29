@@ -1059,7 +1059,7 @@ impl AreaScene {
         Scene {
             instances,
             lights,
-            area: area_light(sky, view.lit),
+            area: area_light(sky, l.direction(view.night), view.lit),
             fog,
             background,
             particles: Vec::new(),
@@ -1164,8 +1164,14 @@ impl AreaScene {
                 });
             }
         }
-        // The model's `replace_tex`, drawn with the tile's replacement.
-        let textures = tile.replace_texture.as_ref().map(|t| {
+        // The model's `replace_tex`, drawn with the tile's replacement
+        // (where the model has one: every tile without the field takes
+        // row 0, and the game's models but one have none).
+        let replaced = loaded.gpu.model.nodes.iter().any(|n| {
+            matches!(&n.kind, mg_mdl::NodeKind::Mesh(m)
+                if m.textures[0].as_deref().is_some_and(|t| t.eq_ignore_ascii_case("replace_tex")))
+        });
+        let textures = tile.replace_texture.as_ref().filter(|_| replaced).map(|t| {
             Arc::new(std::collections::HashMap::from([("replace_tex".to_string(), t.clone())]))
         });
         instances.push(Instance {
@@ -1267,10 +1273,11 @@ fn light_colors(game: &GameData) -> Vec<Vec3> {
         .collect()
 }
 
-/// The sun's or moon's light, or with the lighting off the working light.
-fn area_light(sky: crate::Sky, lit: bool) -> AreaLight {
+/// The sun's or moon's light (towards `direction`, else the game's own
+/// direction), or with the lighting off the working light.
+fn area_light(sky: crate::Sky, direction: Option<Vec3>, lit: bool) -> AreaLight {
     if lit {
-        AreaLight::from_are(sky.ambient, sky.diffuse, sun_direction())
+        AreaLight::from_are(sky.ambient, sky.diffuse, direction.unwrap_or_else(sun_direction))
     } else {
         working_light()
     }
@@ -1356,12 +1363,12 @@ mod tests {
     fn with_the_lighting_off_a_dark_area_is_evenly_lit() {
         // A black night.
         let night = crate::Sky::default();
-        let lit = area_light(night, true);
+        let lit = area_light(night, None, true);
         assert_eq!((lit.ambient, lit.diffuse), (Vec3::ZERO, Vec3::ZERO));
         // Off: bright and white, whatever the area's colours.
         let red = crate::Sky { ambient: 0x0000_00FF, diffuse: 0x0000_0040, ..night };
-        let off = area_light(night, false);
-        assert_eq!(off, area_light(red, false));
+        let off = area_light(night, None, false);
+        assert_eq!(off, area_light(red, Some(Vec3::X), false));
         assert!(off.ambient.min_element() > 0.5 && off.ambient.x == off.ambient.z);
         assert!(off.diffuse.min_element() > 0.0);
     }
@@ -1383,6 +1390,8 @@ mod tests {
             shadow_opacity: 30,
             flags: 0,
             wind_power: 0,
+            sun_direction: None,
+            moon_direction: None,
         };
         let day = View {
             time: 0.0,

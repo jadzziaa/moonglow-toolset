@@ -86,8 +86,8 @@ pub struct AreaTile {
     pub source_lights: [u8; 2],
     /// Whether animation loops `animloop01`..`03` play.
     pub anim_loops: [bool; 3],
-    /// The texture the model's `replace_tex` is drawn with
-    /// (`Tile_ReplaceTex`, a `replacetexture.2da` row; lower case).
+    /// The texture the model's `replace_tex` is drawn with (lower case):
+    /// see [`replacement_row`].
     pub replace_texture: Option<String>,
     /// The centre of the tile's floor.
     pub position: Vec3,
@@ -519,9 +519,42 @@ pub struct Lighting {
     /// (`areaFlags`, `areaGlobalWind`: wind-swayed grass and leaves).
     pub flags: u32,
     pub wind_power: i64,
+    /// The directions towards the sun and the moon its GIT gives
+    /// (`AreaProperties` `SunDirectionX/Y/Z`, `MoonDirectionX/Y/Z`), which
+    /// the client lights the area and casts its shadows by (seen:
+    /// `reading_git_sun_direction` in `client_render.rs`); `None`: the
+    /// game's own.
+    pub sun_direction: Option<Vec3>,
+    pub moon_direction: Option<Vec3>,
 }
 
 impl Lighting {
+    /// [`Lighting::read`], with the directions of the sun and moon the
+    /// GIT whose root is `git` gives.
+    pub fn read_with(are: &Struct, git: &Struct, tileset: Option<&Tileset>) -> Lighting {
+        let props = match git.get("AreaProperties") {
+            Some(mg_gff::Value::Struct(p)) => Some(p),
+            _ => None,
+        };
+        let direction = |prefix: &str| {
+            let props = props?;
+            let c = |axis: &str| props.float(&format!("{prefix}Direction{axis}"));
+            let d = Vec3::new(c("X")?, c("Y")?, c("Z")?);
+            (d.is_finite() && d.length_squared() > 1e-12).then(|| d.normalize())
+        };
+        Lighting {
+            sun_direction: direction("Sun"),
+            moon_direction: direction("Moon"),
+            ..Lighting::read(are, tileset)
+        }
+    }
+
+    /// The direction towards the sun, or the moon at night: the GIT's,
+    /// else the game's own.
+    pub fn direction(&self, night: bool) -> Option<Vec3> {
+        if night { self.moon_direction } else { self.sun_direction }
+    }
+
     pub fn read(are: &Struct, tileset: Option<&Tileset>) -> Lighting {
         Lighting {
             sun: Sky::read(are, "Sun"),
@@ -537,6 +570,8 @@ impl Lighting {
             shadow_opacity: are.integer("ShadowOpacity").unwrap_or(0).clamp(0, 100) as u8,
             flags: are.integer("Flags").unwrap_or(0).clamp(0, i64::from(u32::MAX)) as u32,
             wind_power: are.integer("WindPower").unwrap_or(0),
+            sun_direction: None,
+            moon_direction: None,
         }
     }
 
@@ -582,6 +617,21 @@ pub struct AreaModel {
     pub grass: Vec<(u32, grass::GrassLook)>,
     /// What could not be read: a missing tileset, unknown tiles.
     pub problems: Vec<String>,
+}
+
+/// The `replacetexture.2da` row a tile's `Tile_ReplaceTex` draws its
+/// model's `replace_tex` texture with, as the client draws it (read with
+/// the one model that has one, `tms01_c08_01`, as every tile of an area,
+/// 89.8193.37: `reading_tile_replacement_texture` in `client_render.rs`):
+/// the row before the value's (1 is row 0, 2 row 1), row 0 for a tile
+/// without the field. None for 0, and for a value past the table, which
+/// the client crashes on (in `CNWCTile::SetReplaceTexture`) as it loads
+/// the area.
+pub fn replacement_row(value: Option<i64>) -> Option<usize> {
+    match value {
+        None => Some(0),
+        Some(v) => usize::try_from(v).ok()?.checked_sub(1),
+    }
 }
 
 impl AreaModel {
@@ -632,12 +682,8 @@ impl AreaModel {
                     main_lights: [byte("Tile_MainLight1"), byte("Tile_MainLight2")],
                     source_lights: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
                     anim_loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
-                    replace_texture: t
-                        .integer("Tile_ReplaceTex")
-                        .and_then(|row| {
-                            let t = replacements.as_ref()?;
-                            t.get(usize::try_from(row).ok()?, "TEXTURENAME")
-                        })
+                    replace_texture: replacement_row(t.integer("Tile_ReplaceTex"))
+                        .and_then(|row| replacements.as_ref()?.get(row, "TEXTURENAME"))
                         .map(str::to_ascii_lowercase),
                     position: Vec3::new(
                         (column as f32 + 0.5) * TILE_SIZE,
@@ -680,7 +726,7 @@ impl AreaModel {
             tiles,
             objects,
             hooks,
-            lighting: Lighting::read(are, tileset),
+            lighting: Lighting::read_with(are, git, tileset),
             grass: grass::AreaGrass::read(git).growing(tileset),
             problems,
         }
@@ -856,6 +902,26 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         assert!(close(x.x, 0.0) && close(x.y, 1.0));
     }
 
+    /// The sun's and the moon's directions are the GIT's where it gives
+    /// them (as the client lights the area), normalized; none where it
+    /// doesn't or gives no direction.
+    #[test]
+    fn the_sun_and_moon_take_the_git_s_directions() {
+        let mut props = Struct::new(100);
+        for (axis, v) in [("X", -2.0f32), ("Y", 0.0), ("Z", 0.5)] {
+            props.set(&format!("SunDirection{axis}"), Value::Float(v));
+            props.set(&format!("MoonDirection{axis}"), Value::Float(0.0));
+        }
+        let mut git = Struct::new(0xFFFF_FFFF);
+        git.set("AreaProperties", Value::Struct(props));
+        let l = Lighting::read_with(&Struct::new(0), &git, None);
+        let sun = l.direction(false).unwrap();
+        assert!((sun - Vec3::new(-2.0, 0.0, 0.5).normalize()).length() < 1e-6);
+        assert_eq!(l.direction(true), None, "a zero direction is none");
+        let l = Lighting::read_with(&Struct::new(0), &Struct::new(0xFFFF_FFFF), None);
+        assert_eq!((l.direction(false), l.direction(true)), (None, None));
+    }
+
     #[test]
     fn tiles_take_their_replacement_texture() {
         let mut rm = mg_resman::ResMan::new();
@@ -869,11 +935,22 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         let mut are = Struct::new(0);
         are.set("Width", Value::Int(2));
         are.set("Height", Value::Int(1));
-        let mut replaced = Struct::new(1);
-        replaced.set("Tile_ReplaceTex", Value::Byte(1));
-        are.set("Tile_List", Value::List(vec![replaced, Struct::new(1)]));
+        are.set("Width", Value::Int(5));
+        // (As the client draws them: the value is one past the row; a tile
+        // without the field takes row 0; 0 and a value past the table are
+        // no row, which the client crashes on.)
+        let tile = |v: Option<u8>| {
+            let mut t = Struct::new(1);
+            if let Some(v) = v {
+                t.set("Tile_ReplaceTex", Value::Byte(v));
+            }
+            t
+        };
+        let values = [Some(2), Some(1), None, Some(0), Some(3)];
+        are.set("Tile_List", Value::List(values.into_iter().map(tile).collect()));
         let area = AreaModel::read(&game, &are, &Struct::new(0xFFFF_FFFF), None);
-        assert_eq!(area.tiles[0].replace_texture.as_deref(), Some("t_flag03"));
-        assert_eq!(area.tiles[1].replace_texture, None);
+        let drawn: Vec<Option<&str>> =
+            area.tiles.iter().map(|t| t.replace_texture.as_deref()).collect();
+        assert_eq!(drawn, [Some("t_flag03"), Some("t_flag02"), Some("t_flag02"), None, None]);
     }
 }

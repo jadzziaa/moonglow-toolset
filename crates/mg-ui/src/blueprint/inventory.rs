@@ -36,13 +36,26 @@ pub(super) fn entry_resref(entry: &Struct) -> ResRef {
 }
 
 impl Form<'_> {
-    /// An entry's inventory icon: a whole item's own, else its blueprint's.
+    /// An entry's inventory icon: a whole item's own, else its blueprint's;
+    /// a woman's where armor is shown on one (Options › General).
     pub(super) fn entry_icon(&mut self, ctx: &egui::Context, entry: &Struct) -> Vec<Picture> {
+        let female = self.app.settings.armor_on_woman;
+        self.entry_icon_of(ctx, entry, female)
+    }
+
+    /// [`Form::entry_icon`] as a woman's inventory shows it where `female`,
+    /// else as a man's: in a creature's own inventory, by its Gender.
+    pub(super) fn entry_icon_of(
+        &mut self,
+        ctx: &egui::Context,
+        entry: &Struct,
+        female: bool,
+    ) -> Vec<Picture> {
         if entry.integer("BaseItem").is_some() {
-            return self.app.item_icon(ctx, entry);
+            return self.app.item_icon_of(ctx, entry, female);
         }
         match self.kept_blueprint(BlueprintKind::Item, entry_resref(entry)) {
-            Some(item) => self.app.item_icon(ctx, &item),
+            Some(item) => self.app.item_icon_of(ctx, &item, female),
             None => Vec::new(),
         }
     }

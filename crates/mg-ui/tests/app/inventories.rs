@@ -1211,3 +1211,45 @@ fn an_item_dropped_on_a_taken_slot_sends_its_item_to_the_backpack() {
     h.run_steps(4);
     assert_eq!(creature_items(&mut h, area, &bandit), before, "undone whole");
 }
+
+/// A creature's own Inventory page shows its armor with the icons of its
+/// Gender, as the game's inventory does (a woman's `ipf_`, seen in the
+/// client: `reading_inventory_icons`), whatever Options › General's Show
+/// armor on a woman says.
+#[test]
+fn a_creature_s_inventory_shows_the_icons_of_its_gender() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_gender", ResType::UTC)
+    else {
+        return;
+    };
+    let drawn = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let mut names: Vec<String> = h
+            .ctx
+            .tex_manager()
+            .read()
+            .allocated()
+            .map(|(_, meta)| meta.name.clone())
+            .filter(|n| n.starts_with("ipm_") || n.starts_with("ipf_"))
+            .collect();
+        names.sort();
+        names
+    };
+    assert!(!h.state().settings.armor_on_woman, "on a man, by default");
+    h.run();
+    h.get_by_label("Inventory").click();
+    h.run_steps(4);
+    let his = drawn(&mut h);
+    assert!(!his.is_empty() && his.iter().all(|n| n.starts_with("ipm_")), "{his:?}");
+    // Made a woman: her armor's icons are a woman's.
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Gender".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("woman", vec![edit])));
+    h.run_steps(4);
+    let hers: Vec<String> = drawn(&mut h).into_iter().filter(|n| n.starts_with("ipf_")).collect();
+    assert_eq!(hers.len(), his.len(), "{hers:?} against {his:?}");
+    assert!(!h.state().settings.armor_on_woman, "the setting as it was");
+}

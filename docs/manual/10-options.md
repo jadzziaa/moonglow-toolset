@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:43:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
 ---
 
 # Options
@@ -183,7 +183,8 @@ the module is opened again from its file.
   shows it (`ipf_` parts; a cloak's is the man's, the game having no
   other), in inventories, a store's pages, the palette's pictures and
   Preview and the item's Properties, whose Appearance page's **Shown
-  on** changes it too. Off by default: a man's.
+  on** changes it too. Off by default: a man's. A creature's own
+  Inventory page shows the icons of its Gender, as the game does.
 - **Read Steam Workshop content**: off by default, as in Aurora: an item
   you subscribed to for play is not your module's, and a module that
   needs it works only for players who have it too. On, the Steam

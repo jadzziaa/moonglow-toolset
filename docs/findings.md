@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1762,6 +1762,26 @@ and a store's `Infinite` stay.
   `wave1/pal2-update.mod` (`tools/aurora/capture_wave1.py`).
 - **Moonglow:** `crates/mg-module/src/instances.rs` (`update_held`).
 - **Wiki:** missing.
+
+### A tile's replacement texture, and the value that crashes the client
+
+A tile's `Tile_ReplaceTex` draws its model's `replace_tex` texture with a
+`replacetexture.2da` row: the row before the value's (1 draws row 0, 2
+row 1), row 0 for a tile without the field. A value of 0, or one past the
+table (3, 255 with the game's two rows), crashes the client as it loads
+the area, in `CNWCTile::SetReplaceTexture` (`AurTextureReplaceTileReferences`),
+on a tile whose model has a `replace_tex` texture: the game's one such
+model is `tms01_c08_01`, which no tileset uses, and neither `replace_tex`
+nor the table's `T_Flag02` is in the game.
+
+- **Checked:** the client, `reading_tile_replacement_texture` in
+  `crates/mg-corpus-tests/tests/client_render/readings.rs` (an area's
+  tiles made `tms01_c08_01`, the textures and rows given colors of their
+  own; the crash report in the scratch user directory).
+- **Moonglow:** the area view draws the rows so
+  (`mg_area::replacement_row`); Tile Properties has no field for it.
+- **Wiki:** BioWare's unused functionality ("Replacing Simple
+  Textures"); the rule and the crash are missing.
 
 ### What Aurora drops when it saves an area or a blueprint
 

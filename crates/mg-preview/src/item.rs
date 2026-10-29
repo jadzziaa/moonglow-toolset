@@ -33,9 +33,10 @@ pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, P
 
 /// An item as it lies in an area, as Aurora draws it there. Armour,
 /// which is its wearer's body parts, is the game's model of armour
-/// dropped (`gi_armor01`…`04`, by its weight); a cloak, which hangs from
-/// shoulders, is the game's model of a cloak dropped (`gi_cloak01`, folded,
-/// in the cloak's colors); every other item is its own model, as [`item`]
+/// dropped (`gi_armor01`…`04`, by its weight); the game's cloak, which
+/// hangs from shoulders, is the game's model of a cloak dropped
+/// (`gi_cloak01`, folded, in the cloak's colors), a cloak of a base item
+/// of a module's own its `DefaultModel`; every other item is its own model, as [`item`]
 /// shows it. Where the game's model is not there, the base item's
 /// `DefaultModel`, then the bag the game drops things as (`it_bag`). How
 /// each is turned there: [`ground_turn`].
@@ -88,10 +89,21 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
         }
     }
     if !armor {
-        let model = std::iter::once(CLOAK.to_string()).chain(default).find(|m| lk.has_model(m));
+        // The game's cloak (base item 80) lies as its model of a cloak
+        // dropped; a base item of cloaks of a module's own as its
+        // `DefaultModel` (seen in the client: one naming a torch lay as
+        // the torch, one naming the bag as the bag:
+        // `reading_custom_cloak_base_item` in `client_render.rs`).
+        let game_s = (base == CLOAK_BASE).then(|| CLOAK.to_string());
+        let model = game_s.into_iter().chain(default).find(|m| lk.has_model(m));
         if let Some(model) = model {
-            let row = mg_rules::items::part_number(uti, "ModelPart1").unwrap_or(0).max(0) as usize;
-            let env = game.table("cloakmodel").ok().and_then(|t| env_map(cell(&t, row, "ENVMAP")));
+            let env = if model == CLOAK {
+                let row =
+                    mg_rules::items::part_number(uti, "ModelPart1").unwrap_or(0).max(0) as usize;
+                game.table("cloakmodel").ok().and_then(|t| env_map(cell(&t, row, "ENVMAP")))
+            } else {
+                None
+            };
             return Ok(one(Part::new(model), env));
         }
     }
@@ -116,6 +128,10 @@ const BAG: &str = "it_bag";
 
 /// The game's model of a cloak lying on the ground.
 const CLOAK: &str = "gi_cloak01";
+
+/// The game's base item of cloaks (baseitems.2da), which alone lies as
+/// [`CLOAK`].
+const CLOAK_BASE: i64 = 80;
 
 /// The models of an item, at its origin (held items hang all of them from
 /// the hand). Colours for layered items start from `colors` (the wearer's

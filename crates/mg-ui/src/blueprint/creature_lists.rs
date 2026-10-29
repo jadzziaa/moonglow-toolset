@@ -1325,6 +1325,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     }
     let equipped: Vec<Struct> = f.root.list("Equip_ItemList").unwrap_or(&[]).to_vec();
     let backpack: Vec<Struct> = f.root.list("ItemList").unwrap_or(&[]).to_vec();
+    // (The icons as the creature's own inventory shows them in the game:
+    // a woman's armor with her icons, whatever Options › General says.)
+    let female = f.root.integer("Gender") == Some(1);
     let names = f.blueprint_names(BlueprintKind::Item);
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let (mut add, mut chosen, mut equip) = (None, None, None);
@@ -1390,7 +1393,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         super::side_panel(ui, egui::Id::new(("utc-inventory", key)), |ui| {
             {
                 crate::widgets::section_heading(ui, "Equipment");
-                let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
+                let icons: Vec<_> =
+                    equipped.iter().map(|e| f.entry_icon_of(ui.ctx(), e, female)).collect();
                 let layout = SlotLayout::new(ui);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -1477,8 +1481,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     selected.items.iter().filter(|c| c.0 == "ItemList").map(|c| c.1).collect();
                 let copied = f.app.item_clip.len();
                 let ctx = ui.ctx().clone();
-                let mut row =
-                    |_: usize, it: &Struct| (f.entry_icon(&ctx, it), f.entry_name(it, &names));
+                let mut row = |_: usize, it: &Struct| {
+                    (f.entry_icon_of(&ctx, it, female), f.entry_name(it, &names))
+                };
                 let look = inventory::ItemLook {
                     row: &mut row,
                     infinite: false,

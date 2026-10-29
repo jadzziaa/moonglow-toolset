@@ -3546,6 +3546,48 @@ fn an_item_s_appearance_lists_show_the_item_with_each() {
     }
 }
 
+/// An armor's inventory icon draws each part's layer in the part's own
+/// colors where it has them, as the game's inventory does (seen in the
+/// client: `reading_inventory_icons`), the other layers in the armor's.
+#[test]
+fn an_armor_s_icon_takes_its_parts_own_colors() {
+    let Some((mut h, _)) = blueprint_harness("nw_aarcl001", "part_colors_icon", ResType::UTI)
+    else {
+        return;
+    };
+    h.run_steps(2);
+    let game = h.state().game.clone().unwrap();
+    let armor =
+        Gff::read(&game.resman.get(&ResKey::parse("nw_aarcl001", ResType::UTI).unwrap()).unwrap())
+            .unwrap()
+            .root;
+    let torso =
+        mg_rules::items::ARMOR_PARTS.iter().position(|(f, _)| *f == "ArmorPart_Torso").unwrap();
+    let mut parted = armor.clone();
+    mg_rules::items::set_armor_part_color(
+        &mut parted,
+        torso,
+        mg_rules::items::ArmorChannel::Cloth1,
+        Some(44),
+    );
+    let names = |h: &mut Harness<'_, Moonglow>, item: &mg_gff::Struct| {
+        let ctx = h.ctx.clone();
+        let layers = h.state_mut().item_icon(&ctx, item);
+        layers.iter().map(|p| p.texture.name()).collect::<Vec<_>>()
+    };
+    let (plain, own) = (names(&mut h, &armor), names(&mut h, &parted));
+    assert_eq!(plain.len(), own.len());
+    assert!(plain.len() > 1, "{plain:?}");
+    for (a, b) in plain.iter().zip(&own) {
+        // (A layer's picture is named by its texture and its colors.)
+        if a.starts_with("ipm_chest") {
+            assert_ne!(a, b, "the chest in the torso's own colors");
+        } else {
+            assert_eq!(a, b, "the other parts in the armor's");
+        }
+    }
+}
+
 /// Shown on (the item's Appearance page) is Options › General's Show armor
 /// and cloaks on a woman, kept in the settings, and the inventory icons of
 /// armor are a woman's while it is on (the game has none of a cloak's: a

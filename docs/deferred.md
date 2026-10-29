@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -225,8 +225,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
   again at its port after a build, `/quit`). (M, S, S, M, S)
-- **Choose Character:** Test Module, Choose Character uses the game's
-  `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
 - **Test Module and Steam:** the game started for a test is told which
   Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
   Steam and loads the Workshop's content, as when started from Steam;
@@ -274,27 +272,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **An armor's part colors:** edited and previewed, and the game reads
-  them (`engine_armor_colors.rs`) and draws them: a worn armor with a
-  torso of its own colors looks the same in the client and in Moonglow
-  (`creatures_look` in `client_render.rs`, by eye). The inventory icon is
-  drawn in the armor's own colors; whether the game's icon shows a
-  part's isn't known. (S)
 - **What a creature can't wear:** the game leaves out an equipped item
   the creature may not use when it loads the area (a stock cloak with
   its item properties came out of a commoner's cloak slot, and
   `ActionEquipItem` was refused too; without the properties it was
   worn). Moonglow draws whatever the file has equipped. Which
   properties keep an item off wasn't looked into. (S–M)
-- **A placeable's illumination, what's left:** **Illuminated** off now
-  leaves out the appearance's light in the area view and the preview
-  (read from the client: `model_light_uniforms`), and the box can be set
-  whatever the appearance. Not looked at: the glow that goes with the
-  light (a lamp's self-illuminated flame, which is the model's own
-  animation state, the separate Initial State), and whether Aurora shows
-  or keeps the field. Which `LightColor` the engine counts as a light
-  (Moonglow: a row above 0) was checked on rows 1 and 25. (S) (Jasperre's
-  reports, October 2026)
 - **The PC faction, what's left** (waits on an Aurora capture and the
   client): Moonglow keeps objects out of faction 0 and says so where it
   is written (the faction lists, the Store Wizard, `mg set`, the raw
@@ -327,16 +310,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's `replacetexture.2da` has two rows, both `T_Flag02`; the one
   model with a `replace_tex` texture, `tms01_c08_01`, is in no tileset
   (not in `tms01.set`); none of BioWare's 20 campaign modules
-  (`data/nwm`) writes the field. Not known: whether the client draws
-  it. To settle it: a scratch user directory whose `override` has a
-  copy of `tms01.set` with a tile's model made `tms01_c08_01` (its
-  `.wok` checked), an area of that tile with and without the field,
-  screenshotted with `tools/nwclient/run-client.sh` (two client runs;
-  the pictures differing is the answer). One in a file is kept, shown
-  and editable in the raw fields, and the area view still draws it
-  (`mg-area` `scene.rs`), unverified. If the client draws it, the
-  field can come back with that test. (S to M)
-  (from a builder's tile feedback, October 2026)
+  (`data/nwm`) writes the field. The client draws it (2026-10-29,
+  `reading_tile_replacement_texture`, an area's tiles made
+  `tms01_c08_01`): a value is the row after the one drawn (1 draws row
+  0, 2 row 1), a tile without the field draws row 0, and 0 or a value
+  past the table crashes the client as it loads the area
+  (`CNWCTile::SetReplaceTexture`); the area view now draws as the
+  client does (`mg_area::replacement_row`). Left: the field back in
+  Tile Properties with that rule (a row chosen written as its number
+  plus one, 0 never written), and Verify warning of a tile whose model
+  has `replace_tex` and whose value the client crashes on. (S) (from a
+  builder's tile feedback, October 2026)
 
 ## Blueprint editors and inventories
 
@@ -425,15 +409,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **Armor and cloaks shown on a woman, what it doesn't follow:** the
-  choice (Options › General, or Shown on in the item's Appearance page)
-  is kept, and the item's page, inventories, a store's pages and the
-  palette's pictures and Preview follow it. A creature's own Inventory
-  page follows the choice too, not the creature's Gender, and whether
-  the game shows a woman's inventory with `ipf_` icons (as nwn.wiki's
-  icon names say) was not looked at in the client. The game has no
-  woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
-  man's either way. (S) (from builders' reports after 1.10.1)
 - **Pictures in the Appearance list, what is left:** a creature's (a
   plain male body of the appearance), a placeable's, a door's (Appearance
   Type and Generic Appearance) and an item's (its model's, a weapon's
@@ -578,7 +553,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's bytes there and in the module's own category lists (a test
   spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
   builds it). Not seen in the game's DM client here (the bytes are
-  tested; the client was not run as a DM). Issue 13's other half: with
+  tested; the client was not run as a DM): the DM client joins a
+  server, so it waits on the harness the NWSync download test needs
+  (`nwserver` and the client started in one sandbox, whose loopback
+  works). Issue 13's other half: with
   Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
@@ -760,9 +738,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in the columns known to hold StrRefs. Not done: the haks' 2DAs are
   not looked in (they are not the module's), nor fields that hold a
   StrRef as a plain number, nor scripts (`GetStringByStrRef`). (S each)
-- **The client and custom talk tables:** the engine test runs the server;
-  whether the client also reads a table from the module (not only from
-  haks and the `tlk` folder) for 2DA text isn't tested. (S)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -827,21 +802,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow scatters them evenly by face area and density. The mean color
   near the camera matches; how the engine places them (per face, by a
   noise) isn't known. (S–M) (Bee AI's ask, October 2026)
-- **A grass tuft's shape:** one upright quad turned at random, a texture
-  quarter, as tall as wide; the client's geometry (crossed quads, a lean,
-  its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)
-- **Grass on placeables:** grass is grown on tiles' walkmeshes only;
-  whether the game grows it on a static placeable's walkmesh (merged into
-  the tiles) wasn't checked. (S)
-- **The sun's and moon's directions in an area's GIT:** the server reads
-  a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
-  `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the
-  area's `GetName`), not the root's `CurrentWeather`
-  (`engine_git_runtime.rs`). Whether the client lights the area by those
-  directions, and so whether the area view should, isn't known. (S)
-  (waits on the client batch: an outdoor area at noon whose GIT's
-  `SunDirection` is low from one side, against the same area without,
-  its walls' lit sides and the shadows compared)
+- **A grass tuft's sway:** a tuft is one upright quad turned at random,
+  a texture quarter, as tall as wide, as the client's are (seen with
+  white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
+  client's sway in the wind, tops moving and feet still (`reading_grass_sway`:
+  6% of the field's pixels changed in a second and a half at `WindPower`
+  2); Moonglow's stand still with either shader: the game's `vsgrass`
+  reads no wind, so the engine moves the vertices itself, and the area
+  view would have to as well. (M)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -879,26 +847,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
   is still taken from the game's tiles and their names. (S) (from
   builders' reports after 1.10.1)
-- **A cloak lying in an area** is the game's model of a cloak dropped
-  (`gi_cloak01`, folded, its PLT texture in the cloak's colors), as
-  Aurora and the game draw it; Moonglow drew the bag (the cloak's
-  `DefaultModel`, which neither uses for it). Compared with the game
-  client (`items_look` with three of the game's cloaks: the same model
-  and colors, lying the same way). Where the model is missing: the
-  `DefaultModel`, then the bag. Whether a custom base item of cloaks
-  that names a model of its own should lie as that instead was not
-  measured (the game's own names the bag, which it does not use). (S)
-  (from builders' reports after 1.19.1) It has the environment map it
-  has worn (its cloakmodel.2da row's; dropped armor the items' one):
-  without one a shiny color's palette alpha was drawn see-through, the
-  floor showing through (a builder's report after 1.32.1, solid and
-  shiny in Aurora; seen in `area_items` before and after), and a color
-  whose alpha is 0 (61) not drawn at all. Compared with Aurora from
-  above (`area_dropped_cloaks`, and Aurora's own view of the same probe
-  module, `captures/items/`: the game's cloak, colors 0, 56 to 59 and
-  61): the same shapes, colors and solid shine. Aurora's reflection is
-  a little bluer and brighter (both `chrome1`, cloakmodel.2da's
-  `default`); not compared with the client. (S)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture: not looked into. The model is chosen by the
   torso's parts_chest.2da `ACBONUS` (measured with the game's own
@@ -977,11 +925,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `renderhint`; a model that names `texture1` itself without a hint,
   and a compiled one, under a custom pair, weren't tried, nor the black
   of a normal map without tangents on Windows and macOS (the stock
-  include normalizing a zero vector). (S) (Heed's report, October 2026)
+  include normalizing a zero vector; that half waits on a Windows and a
+  Mac client, or the renderer's CI branch). (S) (Heed's report, October
+  2026)
 - **A texture's `envmaptexture default` on a placeable whose
   `Reflection` is `default` too:** Moonglow takes the placeable's map
-  (`chrome1`) for both; the client wasn't asked (the armoire, read, has
-  no `Reflection`). (S)
+  (`chrome1`) for both; the client reflects the area's (the tileset's
+  `EnvMap`, `tcn01__ref01`), read back (2026-10-29,
+  `program_choice_in_the_client` with `MG_LYING_ENVD=1
+  MG_REFLECTION=default`: the lying square's `texUnitEnv` the floor's,
+  not `chrome1`'s; with `MG_REFLECTION=plc_g_env` it is `plc_g_env`'s).
+  So a texture's `default` takes the placeable's named map, else the
+  area's, while a placeable's `default` alone is `chrome1` (notes
+  §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
+  the renderer can tell the two apart, so the fix is in `mg-render`'s
+  map choice too. (S)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).
@@ -1007,25 +965,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   were 1 (`tile-ok.mod`: OK alone does that too). What Aurora's Defaults
   is for is not known; whether Moonglow's goes is the owner's to say.
   (S) (from the research notes)
-- **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
-  tiles, not a group's pieces, so a piece of a group goes in alone only
-  through Tile Properties' All tiles (the Features and Groups pictures,
-  in the same Gallery as the switch, are placed whole whatever it says:
-  its tip and the manual say so, the pictures don't); an exact tile takes the height of
-  the tile it replaces (no height to choose in the palette: Tile
-  Properties' Height after). Where an exact tile and its neighbor
-  disagree about a shared corner, the brushes read the corner as the
-  tile to the north or east has it (`Lattice::from_tiles`), so a stroke
-  beside it may choose it again. How the client draws the seams was
-  looked at in Moonglow's view only. (S) (issue #29)
-- **Tile Height and what stands on a tile:** an object goes up or down
-  with a tile whose square its position is over (doors on its hooks,
-  placeables, creatures, waypoints, a trigger's or encounter's position
-  with its outline), whatever its height above the tile; Raise/Lower's
-  corner strokes still move nothing. Heights below 0 and far above were
-  stood on in the server (`a_tile_s_own_height_stands_where_the_engine_puts_it`),
-  not looked at in the game client; the control's ±1024 is Moonglow's
-  reading bound, not the engine's. (S) (issue #29)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
@@ -1048,15 +987,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **A placeable without its state's animation, in the client:** a
-  placeable whose model (and supermodels) lack the animation of its
-  state (`default`, `open`…) is drawn in its rest pose, as a corpse
-  placeable of CEP's on a creature's supermodel (`plc_orc2`) lies in its
-  Properties and, by every account, in the game. Not yet seen in the
-  client (`client_render.rs`) with the hak; the wiki doesn't say. A
-  creature's idle renamed by AnimationReplace to one its model lacks
-  stands in its rest pose too now, where it stood in `pause1`. (S)
-  (from builders' reports on 1.31.0)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the
@@ -1079,7 +1009,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   show faintly from above. A tile's emitters take their keys from the
   animations playing on it as one animation as long as the longest (the
   game's tiles' keys are constant; one that changed over a shorter loop
-  would run slow). (S) (waits on the client batch: the fog placeable and
+  would run slow). (S) (waits on a client reading: the fog placeable and
   Magic Sparks seen from above in the client and in the area view, side
   by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
@@ -1127,15 +1057,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (S)
   - `worldtimerTimeOfDay` counts real milliseconds and
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
-    starts both at 0 when the scene's time does. The client's timer has
-    an origin that follows the module's minutes an hour (about 424,800
-    a few seconds in at 2 minutes an hour, 3,304,900 at 10) and neither
-    its hour nor its day: not worked out. It is the phase of the
-    falling water's flow and the grass's sway, which are not compared
-    with the client frame by frame until it is. (S) (waits on the client
-    batch: the timer read back in the first shot, as
-    `time_uniforms_in_the_client` reads it, at three or four minutes an
-    hour and start hours, for the rule)
+    starts both at 0 when the scene's time does. The client's timer is a
+    count taken within the module's day (24 × its minutes an hour ×
+    60,000 ms), whatever the module's start hour, day or dawn, but the
+    count moves: about 17,697,400 as the player entered an area in 16
+    runs until after 12:09 on 2026-10-29 (and on 2026-10-21), two hours
+    more by 13:11 (`time_uniforms_in_the_client`). It is the phase of
+    the falling water's flow and the grass's sway, which are not
+    compared with the client frame by frame until it is known. (S: the
+    timer read back at a few hours of the day, for what moves it)
   - The game's programs draw on CI's Metal and Direct3D 12 (the
     renderer's CI branch, 2026-10-29: three draws, no failures), but a
     discarding one's depth is not tested there: naga's `discard` from
@@ -1154,26 +1084,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     flow MTRs; their programs read no copy) is read and not drawn late,
     after the shadows, as the engine draws it (S); whether the client
     copies again after the water (a see-through mesh or a particle over
-    water sees the solid meshes only) wasn't read (S) (waits on the
-    client batch: a see-through mesh reading `texFBColor` over water,
+    water sees the solid meshes only) wasn't read (S) (waits on a
+    client reading: a see-through mesh reading `texFBColor` over water,
     whether the water shows in its copy).
   - The tangents the renderer makes (a mesh with a render hint and none
     of its own) are summed per face (`made_tangents`), where the game's
     compiler copies a vertex whose handedness flips (`engine_tangents`,
     MDL-MESH-043): whether the client makes an ASCII model's so at load
-    is not known, and a seam may shade otherwise. (S) (waits on the
-    client batch: an ASCII mesh with a mirrored UV seam under a render
+    is not known, and a seam may shade otherwise. (S) (waits on a
+    client reading: an ASCII mesh with a mirrored UV seam under a render
     hint, its tangents written as colour through a patched include,
     beside the same model compiled)
-  - `areaGlobalWind`'s direction is taken from TDoD's shader comments
-    ((0.707, 0.707, 0) for a medium wind), not read from the client. (S)
-    (waits on the client batch: `areaGlobalWind` read back in an
-    outdoor area at `WindPower` 1 and 2)
   - Verify's `shader-pair` reports a material naming one program alone;
     whether the engine also ignores a lone `customshaderGS`, and what it
     does with a geometry program at all, is not checked (no content has
     one; Moonglow fails one, reported, and draws its own). (S) (waits on
-    the client batch: an MTR naming `customshaderGS` alone, and one
+    a client reading: an MTR naming `customshaderGS` alone, and one
     naming it beside a pair, on a card)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
@@ -1226,23 +1152,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     one `NO_DISCARD` in the client (the plain and transparency-hint cards
     of a static copy were alpha-tested beside an `alpha 0.5` card of the
     same texture): the game bakes static geometry into buckets (.37).
-    Moonglow decides it per mesh. Not worked out: which meshes share a
-    bucket, whether tiles' do (they are baked too). (S) (waits on the
-    client batch: the cards as a static and a dynamic placeable, and on
-    a tile)
+    Moonglow decides it per mesh. The cards read as a static and a
+    dynamic placeable (2026-10-29, `program_choice_in_the_client` with
+    and without `MG_STATIC=1`): three of 36 differ, each one whose
+    texture and pair another card shares (`mesh alpha 0.5` and `decal
+    red alpha 0.5` alpha-tested static, blended dynamic; `envmap` the
+    other way, beside `envmap+mesh alpha`); which mesh of a bucket
+    gives its value isn't plain from these (the first of `mgp_plain`'s
+    and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
   - A BioWare DDS's alpha is taken from its header's alpha mean (below
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
-    drawn solid. (S) (waits on the client batch: one of the 22 on a card
+    drawn solid. (S) (waits on a client reading: one of the 22 on a card
     with a transparency hint, cut or solid)
   - Not read in the client: which map an item on the ground reflects (it
     draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
-    it), what `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
-    (waits on the client batch: both through a patched include)
+    it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
+    with the player there, in four runs on 2026-10-29: what Moonglow
+    uploads, its camera's target.) (S) (waits on a client reading: a
+    patched include painting `texUnitEnv` on an item's own fragments)
   - Moonglow's own shader draws as the client does since M4 (Settled),
     not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
     with their transparent texels black, and its 21 materials naming
-    maps without a render hint. (S) (waits on the client batch: a TDoD
+    maps without a render hint. (S) (waits on a client reading: a TDoD
     area with both, beside the client's picture)
   - `program_choice_in_the_client` reads the cards by where they should
     be on the client's picture, so a card behind something reads as
@@ -1252,12 +1184,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
-    camera is a fraction of a pixel off. (S) (waits on the client batch:
+    camera is a fraction of a pixel off. (S) (waits on a client reading:
     the room with the camera fitted to that wall)
-  - `time_uniforms_in_the_client` fails now and then: the client's
-    window, screenshot every three seconds, gave a picture it had shown
-    before (the same frame count), leaving two of five. Alone it passes.
-    Shooting until three distinct frames would hold it. (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
@@ -1275,29 +1203,32 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client gives lightning and `Linked` emitters wasn't read (Moonglow
     gives lightning none); a Lighten particle's foot fades a little more
     than the client's (6.2 of 255 away over its last rows). Moonglow's
-    own particle shader (the switch off) doesn't fade. (S) (waits on the
-    client batch: `particleSoftness` read through the marked
+    own particle shader (the switch off) doesn't fade. (S) (waits on a
+    client reading: `particleSoftness` read through the marked
     `fsparticle` for a lightning and a `Linked` emitter)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
-    `vsvt`/`fst`. (S) (waits on the client batch)
+    `vsvt`/`fst`. (S) (waits on a client reading)
   - **How the engine blends an additive mesh** (one and one, or by its
     alpha) is not read: Moonglow adds its colour whole by either path;
     the same for an opaque texture. A Lighten particle is added by its
-    alpha. (S) (waits on the client batch: an additive card whose
+    alpha. (S) (waits on a client reading: an additive card whose
     texture's alpha runs 0 to 1, over a gray ground)
   - **Particles' size and turn:** a still emitter's square particles
     are drawn upright, as in the client, 28 pixels a side against the
     client's 30 in `surfaces_in_the_client` (the fitted camera's error,
     or the size: not told apart). A spinning particle's starting angle
-    wasn't read. (S) (waits on the client batch)
+    wasn't read. (S) (waits on a client reading)
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
     17.0). How the engine fades its grass in, and the material colours
-    it uploads (`.set` [GRASS]'s), are not read. (S) (waits on the client
-    batch: both through a patched `vsgrass`)
+    it uploads (`.set` [GRASS]'s), are not read through a patched
+    `vsgrass`; seen in a picture (`reading_grass_tufts`, white opaque
+    tufts of an area override): the client's are half see-through near
+    the camera and end some 15 to 20 m out, where Moonglow's stay opaque
+    to the area's edge. (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough
@@ -1361,8 +1292,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blue-white patches round plants and along shores at a slant, in a
   base-game tileset: a plant's soft edge drawn before the ground behind
   it kept the ground from showing, and the water under it showed. Shown
-  in a renderer test; not confirmed on the reporter's area, nor compared
-  with the client.) Two see-through surfaces crossing each other still
+  in a renderer test; not confirmed on the reporter's area, which isn't
+  here; compared with the client on a rural shore, ttr01's tile 7 and
+  its water (`reading_shore`, 2026-10-29): no patches in either, the
+  water as the client's with the Shaders switch on.) Two see-through surfaces crossing each other still
   sort by their middles. Each see-through mesh costs two draws. On
   macOS the solid part's discarded fragments wrote their depth (the
   plant's edge hid the ground again) until the shader stopped at each
@@ -1396,13 +1329,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - the lights' shadows' darkness was measured at one distance from one
     lamp: the opacity times the plane's fade there, which a fall-off with
     the distance from the light (`shadowradius`) would look alike to (S)
-    (waits on the client batch: a creature's light shadow at two more
+    (waits on a client reading: a creature's light shadow at two more
     distances from the lamp);
   - which light of two equally near the client takes (Moonglow: the
     first), how many creatures cast the lights' shadows at once
     (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
-    PC's own light at night (Moonglow places no PC) (S) (waits on the
-    client batch);
+    PC's own light at night (Moonglow places no PC) (S) (waits on a
+    client reading);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -1415,13 +1348,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shadow, where the game's still do (S);
   - doors cast as placeables do and items on the ground cast none (the
     game since 8193.35: "non-character models cast shadows only if
-    opaque") (S) (waits on the client batch: a door and an item on the
+    opaque") (S) (waits on a client reading: a door and an item on the
     ground in the sun);
   - the shadow's fade with the height between plane and caster
     (8193.31's "shadow alpha by vertical distance") and sun shadows
-    never above the camera's height are not drawn (S) (waits on the
-    client batch: a caster raised over the ground in steps, and a tall
-    one seen from below its top);
+    never above the camera's height are not drawn (S) (waits on a
+    client reading: a caster raised over the ground in steps, and a tall
+    one seen from below its top). Seen with a sun low in the west (a
+    GIT's direction, `reading_git_sun_direction`): the client leaves a
+    city street lit but for thin spikes, where Moonglow lays the
+    buildings' long shadows over all of it, light showing through in
+    thin lines;
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
@@ -1524,8 +1461,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's index list where it has more triangles than the face list
   (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
   files (the list reaches every vertex, the faces are its first
-  triangles, drawing it closes the holes), not by a client screenshot
-  (`client_render.rs`). (S) (from the research notes)
+  triangles, drawing it closes the holes). A client screenshot puts it
+  in doubt (2026-10-29, `reading_facelift_cliffs` with `MG_MAGENTA=1`,
+  ttf02's tiles 0 to 3): the client shows the sky through the cliff
+  tiles in places where Moonglow draws black meshes (both leave the
+  same band open below them). To settle it: Moonglow's picture of the
+  same tiles with the face lists alone beside it (`mg-mdl`, the models
+  package's). (S) (from the research notes)
 
 ## The main window and its panes
 
@@ -2012,10 +1954,16 @@ contribution itself states as not done or not checked.
 ## NWSync publishing
 
 - **No download tested:** the repository matches neverwinter.nim's, but a
-  game client fetching it from a server isn't run (the test sandbox has
-  no network). (M)
+  game client fetching it from a server isn't run. The client's sandbox
+  has no network but a loopback of its own (`bwrap --unshare-net` brings
+  `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
+  web server, `nwserver` naming it and the client started together in
+  one sandbox would test it; `run-client.sh` starts the client alone,
+  and that harness isn't built. (M)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
-  doesn't; whether the client would use one isn't known. (S)
+  doesn't; whether the client would use one isn't known. (S) (waits on
+  the download test above: a `dialogf.tlk` published, a woman's
+  character given its text or not)
 - **No pruning** of old manifests' data (`nwn_nwsync_prune` does it), and
   no upload: the folder is copied to the web server by hand. (S)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
@@ -3027,3 +2975,23 @@ is not taken for a new gap.
   Aurora's). Pasted tiles over a group are refused, as Aurora refuses
   them (captured 2026-10-29: "Pasting tiles to current area failed.
   There was a feature or a group within the region…").
+- **Exact tile's reach** (issue #29): the Gallery offers a terrain's
+  and a crosser's tiles, not a group's pieces (one goes in alone through
+  Tile Properties' All tiles; the Features and Groups pictures are
+  placed whole, as their tip and the manual say); an exact tile takes
+  the replaced tile's height; a corner it disagrees on with a neighbor
+  is read as the tile to the north or east has it
+  (`Lattice::from_tiles`). The client draws such a seam as the area view
+  does: each tile's model as it is, a gap open to the sky
+  (`reading_exact_tile_seams`, 2026-10-29).
+- **Tile Height and what stands on a tile** (issue #29): an object goes
+  up or down with a tile whose square its position is over (doors on
+  its hooks, placeables, creatures, waypoints, a trigger's or
+  encounter's position with its outline), whatever its height above the
+  tile; Raise/Lower's corner strokes move none; the control's ±1024 is
+  Moonglow's reading bound, not the engine's. Heights below 0 and far
+  above stand in the server where Moonglow puts them
+  (`a_tile_s_own_height_stands_where_the_engine_puts_it`) and the client
+  draws them so: tiles at −2 and 20 (−10 m, 100 m) with an armoire on
+  each, the player entering on either, alike in the client and the area
+  view (`reading_tile_heights`, 2026-10-29).
