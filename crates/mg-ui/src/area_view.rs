@@ -1423,6 +1423,23 @@ impl AreaView {
             })
     }
 
+    /// Whether `pos` is over the view itself: in it, and not over a window
+    /// in front of it (a tooltip lets it through). What follows the
+    /// pointer (the coordinates, a brush, a see-through copy, an outline
+    /// of what is to be pasted) shows only so: the ground under a window
+    /// is not where the pointer is. `ui` is the view's own.
+    pub(crate) fn is_over(&self, ui: &egui::Ui, pos: Pos2) -> bool {
+        let layer = ui.ctx().layer_id_at(pos);
+        self.rect.contains(pos)
+            && !layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
+    }
+
+    /// Where the pointer is over the view ([`AreaView::is_over`]), if it
+    /// is.
+    pub(crate) fn pointer_over(&self, ui: &egui::Ui) -> Option<Pos2> {
+        ui.ctx().pointer_hover_pos().filter(|p| self.is_over(ui, *p))
+    }
+
     /// Whether the start location's marker is what is selected.
     fn start_is_selected(&self) -> bool {
         self.start_selected && self.selection.is_empty()
@@ -2676,15 +2693,8 @@ fn viewport(
     let mut ghost_instances = ghost_instances;
     let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
         (Some(clip), true) => {
-            // Over the view, not over a window in front of it.
-            let over = |p: &Pos2| {
-                let layer = ui.ctx().layer_id_at(*p);
-                let behind =
-                    layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip);
-                view.rect.contains(*p) && !behind
-            };
-            let at = ui.ctx().pointer_hover_pos().filter(over);
-            let at = at.and_then(|p| view.ground_at(p, 0.0)).map(|at| view.snapped(at));
+            let at = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
+            let at = at.map(|at| view.snapped(at));
             at.map_or_else(Vec::new, |at| {
                 let places = pasted_positions(view, clip, at);
                 let placed = clip.objects.iter().zip(places).map(|((o, _, _), p)| {
@@ -2885,11 +2895,7 @@ fn viewport(
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     sound_range_overlay(app, ui, view, &shown);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
-    view.pointer = ui
-        .ctx()
-        .pointer_hover_pos()
-        .filter(|p| view.rect.contains(*p))
-        .and_then(|p| view.ground_at(p, 0.0));
+    view.pointer = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
     if let Some(p) = view.pointer {
         let painter = ui.painter_at(view.rect);
         let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
@@ -3866,8 +3872,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
     }
     if view.pasting {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             view.pasting = false;
         } else if response.clicked()
@@ -3882,8 +3887,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Drawing a trigger's or encounter's outline anew.
     if let Some((kind, index)) = view.redraw {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             view.redraw = None;
             view.outline.clear();
@@ -3914,8 +3918,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Placing the palette's blueprint.
     if let Some(key) = brush(app) {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             app.palette.selected = None;
             view.outline.clear();
@@ -4366,15 +4369,26 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // first): nothing selected.
     let idle = !in_hand && view.drag.is_none() && !view.pasting && brush(app).is_none();
     if idle
-        && hovered
         && !view.held.on
-        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+        && escaped(ui, response)
         && crate::terrain_mode::active(app, view).is_none()
     {
         view.selection.clear();
         view.tile_selection.clear();
         view.start_selected = false;
     }
+}
+
+/// Escape pressed over the view (not where a window in front of it, or
+/// a field elsewhere, takes it): what is in hand is put down.
+pub(crate) fn escaped(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape))
+}
+
+/// Escape over the view ([`escaped`]) or a right click on it: the brush,
+/// a paste, an outline being drawn, a stroke, put down.
+pub(crate) fn cancelled(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.secondary_clicked() || escaped(ui, response)
 }
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
@@ -4795,15 +4809,7 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
         return None;
     };
     let kind = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline())?;
-    // Over the view, not over a window in front of it.
-    let pos = ui.ctx().pointer_hover_pos().filter(|p| view.rect.contains(*p))?;
-    if ui
-        .ctx()
-        .layer_id_at(pos)
-        .is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
-    {
-        return None;
-    }
+    let pos = view.pointer_over(ui)?;
     let at = view.ground_at(pos, 0.0)?;
     let (at, rotation) = if kind == ObjectKind::Door {
         let hook = view.model.as_ref()?.hook_near(at, DOOR_REACH)?;
@@ -4902,7 +4908,7 @@ fn wheel_scales(
     let now = ui.input(|i| i.time);
     if let Some(wheel) = &view.wheel_scale {
         let rest = WHEEL_REST - (now - wheel.at);
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if escaped(ui, response) {
             view.wheel_scale = None;
         } else if rest <= 0.0 || !command || wheel.selection != view.selection {
             let scaled = view.scaled_by(&wheel.selection, wheel.factor);

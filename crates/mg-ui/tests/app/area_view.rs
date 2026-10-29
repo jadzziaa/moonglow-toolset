@@ -4370,3 +4370,73 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     h.run();
     assert_eq!(kinds(&h), [true, false, false]);
 }
+
+/// What follows the pointer over the view (the coordinates in its corner,
+/// the outline of tiles about to be pasted) is not drawn while the
+/// pointer is over a window in front of the view: the ground under the
+/// window is not where the pointer is. Pictures in
+/// `target/test-output/ui-area-under-window/`.
+#[test]
+fn what_follows_the_pointer_stops_under_a_window() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
+    // The palette in a window of its own, out of the way for now (the
+    // view as wide as it will be).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    let size = egui::vec2(300.0, 260.0);
+    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    h.run();
+    // A tile copied and about to be pasted.
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(1);
+    assert!(h.state().area_views[&area].tile_pasting);
+    // The pasted tile's gold outline: how much of it is in a picture.
+    let gold = |img: &image::RgbaImage| {
+        img.pixels()
+            .filter(|p| {
+                let [r, g, b, _] = p.0;
+                r.abs_diff(240) < 24 && g.abs_diff(200) < 24 && b.abs_diff(60) < 40
+            })
+            .count()
+    };
+    let dir = mg_testkit::output_dir("ui-area-under-window");
+    // Over the bare view: the outline and the coordinates follow.
+    let centre = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(3);
+    let img = h.render().expect("render");
+    img.save(dir.join("over-the-view.png")).unwrap();
+    assert!(gold(&img) > 50, "the outline over the view");
+    assert!(h.state().area_views[&area].pointer.is_some(), "the coordinates over the view");
+    // The window moved over the view, the pointer on it near its left
+    // edge: the tile under the pointer lies partly outside the window.
+    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    h.run();
+    h.hover_at(centre + egui::vec2(10.0, 0.0));
+    h.run_steps(3);
+    h.run();
+    let img = h.render().expect("render");
+    img.save(dir.join("under-a-window.png")).unwrap();
+    assert!(h.state().area_views[&area].pointer.is_none(), "no coordinates under a window");
+    // (A few of the start location's marker's pixels are near gold.)
+    let left = gold(&img);
+    assert!(left < 20, "no outline under a window: {left} pixels of it");
+    // Escape over the window is not the view's; over the view it puts
+    // the paste down (`area_view::cancelled`, as a right click does).
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].tile_pasting, "Escape over the window");
+    h.hover_at(centre - egui::vec2(60.0, 0.0));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_pasting, "Escape over the view");
+}

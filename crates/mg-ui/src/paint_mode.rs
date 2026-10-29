@@ -377,11 +377,9 @@ fn row_to(app: &Moonglow, view: &AreaView, keys: &[ResKey], to: Vec3) -> Vec<Pai
 /// The ground under the pointer, if it is over the view (not over a
 /// window in front of it).
 fn pointer(ui: &egui::Ui, view: &AreaView) -> Option<Vec3> {
-    let pos = ui.ctx().pointer_latest_pos().filter(|p| view.rect.contains(*p))?;
-    let layer = ui.ctx().layer_id_at(pos);
-    if layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip) {
-        return None;
-    }
+    // (The latest position: a stroke goes on to where the pointer was
+    // last.)
+    let pos = ui.ctx().pointer_latest_pos().filter(|p| view.is_over(ui, *p))?;
     view.ground_at(pos, 0.0)
 }
 
@@ -480,8 +478,7 @@ pub(crate) fn input(
         view.paint.row_from = None;
         // Paint on with nothing chosen to place: Escape or a right click
         // puts it away, as the status line says.
-        let stop = response.secondary_clicked()
-            || (response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let stop = crate::area_view::cancelled(ui, response);
         if app.paint && app.palette.selected.is_none() && stop {
             app.paint = false;
             return true;
@@ -492,8 +489,7 @@ pub(crate) fn input(
     let hovered = response.hovered();
     // Escape or a right click: the stroke going on is dropped, else Paint
     // goes off (the placeables stay chosen).
-    let stop =
-        response.secondary_clicked() || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+    let stop = crate::area_view::cancelled(ui, response);
     if stop {
         if view.paint.painting {
             view.paint.pending.clear();

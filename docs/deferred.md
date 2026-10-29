@@ -2724,14 +2724,6 @@ of truth, and does each caller's difference matter.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
-- "The pointer over the view, not under a window" three times
-  (`paint_mode.rs:379`, `area_view.rs:2043`, `:3993`), missing at the
-  tile paste outline (`tile_select.rs:765`), the paste outline
-  (`area_view.rs:2703`) and the coordinates (`:2215`): to be seen in a
-  picture before it is changed.
-- Escape or a right click to cancel, six times (`paint_mode.rs:483`,
-  `:495`, `tile_select.rs:217`, `area_view.rs:3107`, `:3123`, `:3155`;
-  `:4093` without `hovered`).
 - A tileset read by hand where it is open: `tile_view.rs:19`,
   `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
   `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.
