@@ -7610,3 +7610,112 @@ fn setup_store_project_blueprint_far_down() {
     h.run();
     shoot(&mut h, &dir, "setup-store-project-blueprint");
 }
+
+/// The dialogs, one at a time over the main window
+/// (`target/test-output/screens-dialogs/`): About, New Script's name,
+/// Add Faction, Levelup, Select Portrait, Setup Area Transition, the
+/// export's question, String Edit and Add Haks and Talk Table. Each is
+/// a `widgets::modal` (answered by its buttons) or a `widgets::dialog`
+/// (closed by its × too), placed in the middle of the window.
+#[test]
+#[ignore]
+fn dialog_windows() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-dialogs");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Dialogs", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let door = ResKey::parse("nw_door_ttr_01", ResType::UTD).unwrap();
+    let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    for key in [chest, door, bandit] {
+        m.set(key, game.resman.get(&key).unwrap().to_vec());
+    }
+    let scratch = mg_testkit::scratch_dir("screens-dialogs");
+    let folder = scratch.join("dialogs");
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    // (A user folder: Add Haks and Talk Table needs one.)
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let install = GameInstall::new(&root, Some(user), "en");
+    // (What Add Haks and Talk Table is given to add.)
+    let tlk = scratch.join("mg_text.tlk");
+    std::fs::write(&tlk, mg_tlk::Tlk::new(mg_core::Language::ENGLISH).to_bytes().unwrap()).unwrap();
+    let dialogs = NoDialogs { open_many: vec![vec![tlk]], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&folder);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(4);
+    };
+    let close = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(tab));
+        h.run_steps(4);
+    };
+    close(&mut h, mg_ui::Tab::ModuleProperties);
+    h.state_mut().about = true;
+    shoot(&mut h, &dir, "about");
+    h.state_mut().about = false;
+    h.state_mut().new_script = Some(String::new());
+    shoot(&mut h, &dir, "new-script");
+    h.state_mut().new_script = None;
+    open(&mut h, mg_ui::Tab::Factions);
+    h.get_by_label("Add Faction…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "add-faction");
+    h.state_mut().faction_view.adding = None;
+    close(&mut h, mg_ui::Tab::Factions);
+    let creature = mg_gff::Gff::read(&game.resman.get(&bandit).unwrap()).unwrap().root;
+    h.state_mut().levelup =
+        Some(mg_ui::levelup_view::LevelupWizard::new(bandit, GffPath::root(), &creature));
+    shoot(&mut h, &dir, "levelup");
+    h.state_mut().levelup = None;
+    open(&mut h, mg_ui::Tab::Blueprint(chest));
+    h.get_by_label("Advanced").click();
+    h.run_steps(3);
+    h.get_by_label("Portraits…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "select-portrait");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "select-portrait-escaped");
+    close(&mut h, mg_ui::Tab::Blueprint(chest));
+    open(&mut h, mg_ui::Tab::Blueprint(door));
+    h.get_by_label("Area Transition").click();
+    h.run_steps(3);
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-transition");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    close(&mut h, mg_ui::Tab::Blueprint(door));
+    open(&mut h, mg_ui::Tab::ModuleProperties);
+    h.get_all_by_label("…").next().unwrap().click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "string-edit");
+    h.state_mut().loc_edit = None;
+    h.run_steps(2);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    h.get_by_label("Add Haks and Talk Table…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "attach");
+}

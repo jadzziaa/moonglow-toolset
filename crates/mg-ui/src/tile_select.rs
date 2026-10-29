@@ -1268,7 +1268,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         Cancel,
     }
     let mut answer = None;
-    crate::widgets::window("Unsaved Changes").id(egui::Id::new("tile-props-closing")).show(
+    crate::widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("tile-props-closing")).show(
         ctx,
         |ui| {
             ui.label("Save changes to Tile Properties?");

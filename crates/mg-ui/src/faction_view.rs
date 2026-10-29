@@ -254,60 +254,50 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     if let Some(mut add) = view.adding.clone() {
         let mut close = false;
-        egui::Window::new("Add Faction")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .show(&ctx, |ui| {
-                crate::widgets::field_label(ui, "Name");
-                let field = ui.text_edit_singleline(&mut add.name);
-                crate::widgets::autofocus(ui, &field);
-                ui.checkbox(&mut add.global, "Global Effect");
-                crate::widgets::field_label(ui, "Parent (its reputations are copied)");
-                for p in 1..STANDARD.len() as u32 {
-                    ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
+        crate::widgets::modal(&ctx, "Add Faction").show(&ctx, |ui| {
+            crate::widgets::field_label(ui, "Name");
+            let field = ui.text_edit_singleline(&mut add.name);
+            crate::widgets::autofocus(ui, &field);
+            ui.checkbox(&mut add.global, "Global Effect");
+            crate::widgets::field_label(ui, "Parent (its reputations are copied)");
+            for p in 1..STANDARD.len() as u32 {
+                ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
+            }
+            ui.horizontal(|ui| {
+                let ok = !add.name.trim().is_empty();
+                if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
+                    || (ok && crate::widgets::enter(ui))
+                {
+                    let id = f.add(add.name.trim(), add.global, add.parent);
+                    view.selected = id;
+                    changed = Some(format!("Add faction {}", add.name.trim()));
+                    close = true;
                 }
-                ui.horizontal(|ui| {
-                    let ok = !add.name.trim().is_empty();
-                    if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
-                        || (ok && crate::widgets::enter(ui))
-                    {
-                        let id = f.add(add.name.trim(), add.global, add.parent);
-                        view.selected = id;
-                        changed = Some(format!("Add faction {}", add.name.trim()));
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
+                if crate::widgets::cancel(ui) {
+                    close = true;
+                }
             });
+        });
         view.adding = if close { None } else { Some(add) };
     }
     if let Some((id, mut name)) = view.renaming.clone() {
         let mut close = false;
-        egui::Window::new("Change Faction Name")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .show(&ctx, |ui| {
-                let field = ui.text_edit_singleline(&mut name);
-                crate::widgets::autofocus(ui, &field);
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
-                        || (!name.trim().is_empty() && crate::widgets::enter(ui))
-                    {
-                        f.factions[id as usize].name = name.trim().to_string();
-                        changed = Some("Rename faction".into());
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
+        crate::widgets::modal(&ctx, "Change Faction Name").show(&ctx, |ui| {
+            let field = ui.text_edit_singleline(&mut name);
+            crate::widgets::autofocus(ui, &field);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
+                    || (!name.trim().is_empty() && crate::widgets::enter(ui))
+                {
+                    f.factions[id as usize].name = name.trim().to_string();
+                    changed = Some("Rename faction".into());
+                    close = true;
+                }
+                if crate::widgets::cancel(ui) {
+                    close = true;
+                }
             });
+        });
         view.renaming = if close { None } else { Some((id, name)) };
     }
 

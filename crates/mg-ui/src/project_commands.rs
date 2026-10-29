@@ -625,31 +625,26 @@ fn output_window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut copy, mut close) = (false, false);
     let title = "Command Output";
     let partial = output.lock().unwrap_or_else(|e| e.into_inner()).begun();
-    egui::Window::new(title)
-        .open(crate::widgets::open_unless_escape(ctx, title, &mut open))
-        .default_size([640.0, 420.0])
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                crate::widgets::section_heading(ui, &last.label);
-                match &last.ended {
-                    Some(said) => ui.label(said),
-                    None => ui.weak("Running…"),
-                };
-            });
-            if last.dropped > 0 {
-                ui.weak(format!("({} lines before these are in the log only)", last.dropped));
-            }
-            let height = (ui.available_height() - 40.0).max(120.0);
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                output_lines(ui, last, &partial, height, "command-output");
-            });
-            ui.horizontal(|ui| {
-                copy = ui.button("Copy").on_hover_text("Copies the output, a line each").clicked();
-                close = ui.button("Close").clicked();
-            });
+    crate::widgets::dialog(ctx, title, &mut open).default_size([640.0, 420.0]).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            crate::widgets::section_heading(ui, &last.label);
+            match &last.ended {
+                Some(said) => ui.label(said),
+                None => ui.weak("Running…"),
+            };
         });
+        if last.dropped > 0 {
+            ui.weak(format!("({} lines before these are in the log only)", last.dropped));
+        }
+        let height = (ui.available_height() - 40.0).max(120.0);
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            output_lines(ui, last, &partial, height, "command-output");
+        });
+        ui.horizontal(|ui| {
+            copy = ui.button("Copy").on_hover_text("Copies the output, a line each").clicked();
+            close = ui.button("Close").clicked();
+        });
+    });
     if copy {
         let text: Vec<&str> = last.lines.iter().map(|(_, l)| l.as_str()).collect();
         ctx.copy_text(text.join("\n"));

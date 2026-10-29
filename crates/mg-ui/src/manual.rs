@@ -387,11 +387,9 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let mut open = true;
     let mut check = false;
-    egui::Window::new("About Moonglow Toolset")
-        .open(crate::widgets::open_unless_escape(ctx, "About Moonglow Toolset", &mut open))
+    crate::widgets::dialog(ctx, "About Moonglow Toolset", &mut open)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.heading("Moonglow Toolset");

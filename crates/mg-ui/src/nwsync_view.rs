@@ -193,11 +193,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut go = false;
     let mut prune = false;
     let mut browse = false;
-    egui::Window::new("Publish to NWSync")
-        .open(crate::widgets::open_unless_escape(ctx, "Publish to NWSync", &mut open))
+    crate::widgets::dialog(ctx, "Publish to NWSync", &mut open)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(
                 "Players' games download the module's haks and talk table from a web server \

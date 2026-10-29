@@ -2607,13 +2607,9 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut f3 = false;
         let keys = &app.keymap;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
-        egui::Window::new(title)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .open(crate::widgets::open_unless_escape(&ctx, title, &mut s.open))
-            .show(&ctx, |ui| {
+        crate::widgets::dialog(&ctx, title, &mut s.open).collapsible(false).resizable(false).show(
+            &ctx,
+            |ui| {
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
@@ -2670,7 +2666,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                         replace_all = ui.button("Replace All").clicked();
                     }
                 });
-            });
+            },
+        );
         app.script_tools.search = s.clone();
         app.script_tools.search.results = results;
         let target = s.script.filter(|k| app.scripts.contains_key(k));

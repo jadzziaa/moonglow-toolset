@@ -121,10 +121,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     let mut open = true;
     let mut cancel = false;
     let mut done = None;
-    egui::Window::new("Adjust Location")
-        .open(crate::widgets::open_unless_escape(ui.ctx(), "Adjust Location", &mut open))
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
+    crate::widgets::dialog(ui.ctx(), "Adjust Location", &mut open)
         .resizable(false)
         .collapsible(false)
         .show(ui.ctx(), |ui| {

@@ -252,14 +252,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut done = None;
     let title = format!("Palette Categories: {}", w.kind.label());
-    // In the middle of the window, to begin with.
-    let middle = ctx.content_rect().center();
-    let window = egui::Window::new(title.clone())
-        .open(crate::widgets::open_unless_escape(ctx, &title, &mut open))
-        .default_width(420.0)
-        .collapsible(false)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(middle);
+    let window =
+        crate::widgets::dialog(ctx, &title, &mut open).default_width(420.0).collapsible(false);
     window.show(ctx, |ui| {
         ui.label(if w.own {
             "This module's own categories, kept in the module."

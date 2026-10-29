@@ -2904,6 +2904,13 @@ fn portraits_are_chosen_from_their_pictures() {
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
     }
+    // Escape is the picker's Cancel, no more: the Properties window it was
+    // opened from stays open (an `egui::Modal`, the picker let the window
+    // under it take the Escape too, as its own Cancel, and closed it).
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("Select Portrait").is_none(), "the picker is closed");
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its window is not");
 }
 
 #[test]

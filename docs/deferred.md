@@ -2094,15 +2094,6 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **Dialog windows built by hand:** `widgets::window` and
-  `widgets::dialog` exist; `script_wizard.rs:916`, `module_props.rs:690`,
-  `palette_categories.rs:194`, `hak_view.rs:696`, `outside.rs:363`,
-  `references.rs:681`, `model_view.rs:270` are one of them by hand, and
-  six more (`store_wizard.rs:141`, `:348`, `levelup_view.rs:87`,
-  `faction_view.rs:257`, `:290`, `NameWindow` at `widgets.rs:1268`)
-  repeat a movable variant with no helper; `creature_wizard.rs:257`
-  and `situated.rs:247` (an `egui::Modal`) are two more styles, and
-  centering is done two ways. A `widgets::modal`. (S)
 - **A localized string's text, without the toolset's language or the
   talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
   `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside

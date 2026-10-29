@@ -325,7 +325,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         Cancel,
     }
     let mut answer = None;
-    widgets::window("Unsaved Changes").id(egui::Id::new("side-doc-closing")).show(ctx, |ui| {
+    widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("side-doc-closing")).show(ctx, |ui| {
         ui.label(format!("Save changes to {title}?"));
         if more > 0 {
             ui.weak(format!(

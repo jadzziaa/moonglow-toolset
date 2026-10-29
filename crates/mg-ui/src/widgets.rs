@@ -858,13 +858,6 @@ pub(crate) fn open_folder(ctx: &egui::Context, dir: &std::path::Path, log: &mut 
     ctx.open_url(egui::OpenUrl::new_tab(crate::script_view::file_url(dir)));
 }
 
-pub(crate) fn window(title: &str) -> egui::Window<'_> {
-    egui::Window::new(title)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-}
-
 const GENDERS: [(Gender, &str); 2] = [(Gender::Male, "Male"), (Gender::Female, "Female")];
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -879,7 +872,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let tlk = tlk_text(app, &edit.strref);
         let movable = crate::talk_view::can_add(app);
-        window(&format!("String Edit: {}", edit.title)).show(&ctx, |ui| {
+        modal(&ctx, format!("String Edit: {}", edit.title)).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("String Ref");
                 ui.add(
@@ -1028,11 +1021,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         // A window to size as the list needs: its edges are dragged, and the
         // name and value fields take the width there is.
         let room = ctx.content_rect();
-        egui::Window::new("Variables")
-            .collapsible(false)
+        modal(&ctx, "Variables")
             .resizable(true)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(room.center())
             .default_size([
                 (room.width() * 0.5).clamp(620.0, 900.0),
                 (room.height() * 0.5).max(320.0),
@@ -1382,7 +1372,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(mut p) = app.picker.take() {
         let mut close = false;
-        window(&p.title).show(&ctx, |ui| {
+        modal(&ctx, &p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
                 let field = SearchField::new(
@@ -2514,62 +2504,82 @@ impl NameWindow<'_> {
         name: &mut String,
     ) -> Named {
         let mut out = Named::Open;
-        egui::Window::new(self.title)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.label(self.label);
-                let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
-                // (Where the name goes: after `ab_`, before a code that goes after
-                // it, `{name}_ab`.)
-                if self.new
-                    && first_shown(ui, &field)
-                    && let Some(m) = module
+        modal(ctx, self.title).show(ctx, |ui| {
+            ui.label(self.label);
+            let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
+            // (Where the name goes: after `ab_`, before a code that goes after
+            // it, `{name}_ab`.)
+            if self.new
+                && first_shown(ui, &field)
+                && let Some(m) = module
+            {
+                let naming = m.project_file.naming_for(self.restype);
+                if !naming.is_plain() && *name == naming.fit("", "") {
+                    place_cursor(ui, &field, naming.before().chars().count());
+                }
+            }
+            autofocus(ui, &field);
+            let key = mg_core::ResRef::from_str(name.trim())
+                .ok()
+                .filter(|r| !r.is_empty())
+                .map(|r| ResKey::new(r, self.restype));
+            let exists = key.is_some_and(|k| module.is_some_and(|m| m.contains(&k)));
+            if exists {
+                let color = match self.replaces {
+                    true => ui.visuals().warn_fg_color,
+                    false => ui.visuals().error_fg_color,
+                };
+                ui.colored_label(color, self.taken);
+            }
+            let may = key.is_some() && (self.replaces || !exists);
+            ui.horizontal(|ui| {
+                if (ui.add_enabled(may, egui::Button::new(self.button)).clicked()
+                    || (may && enter(ui)))
+                    && let Some(k) = key
                 {
-                    let naming = m.project_file.naming_for(self.restype);
-                    if !naming.is_plain() && *name == naming.fit("", "") {
-                        place_cursor(ui, &field, naming.before().chars().count());
-                    }
+                    out = Named::Chosen(k);
                 }
-                autofocus(ui, &field);
-                let key = mg_core::ResRef::from_str(name.trim())
-                    .ok()
-                    .filter(|r| !r.is_empty())
-                    .map(|r| ResKey::new(r, self.restype));
-                let exists = key.is_some_and(|k| module.is_some_and(|m| m.contains(&k)));
-                if exists {
-                    let color = match self.replaces {
-                        true => ui.visuals().warn_fg_color,
-                        false => ui.visuals().error_fg_color,
-                    };
-                    ui.colored_label(color, self.taken);
+                if cancel(ui) {
+                    out = Named::Cancelled;
                 }
-                let may = key.is_some() && (self.replaces || !exists);
-                ui.horizontal(|ui| {
-                    if (ui.add_enabled(may, egui::Button::new(self.button)).clicked()
-                        || (may && enter(ui)))
-                        && let Some(k) = key
-                    {
-                        out = Named::Chosen(k);
-                    }
-                    if cancel(ui) {
-                        out = Named::Cancelled;
-                    }
-                });
             });
+        });
         out
     }
 }
 
-/// A dialog: a window in the middle of the application's, which its
-/// close button or Escape closes (`open`).
-pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {
+/// A window of its own over the application's, in the middle of it as it
+/// opens (by its middle: a window that grows, a wizard's next page,
+/// grows about it), and moved by its title. Every dialog is one, as
+/// [`modal`] or [`dialog`] make it.
+fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
     egui::Window::new(title)
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
-        .open(open_unless_escape(ctx, title, open))
+}
+
+/// A dialog that its own buttons answer (OK and Cancel, Yes and No, a
+/// wizard's Finish), with no close button: [`centered`], not folded or
+/// resized (a caller that wants it resized says so). Escape is its
+/// Cancel button's ([`cancel`]), or, for one whose answer is drawn some
+/// other way, what [`escape_here`] says inside it. (Aurora's message
+/// boxes, pickers and wizards. An `egui::Modal`, the rest of the window
+/// dimmed and out of reach, is kept for what stops the work until it is
+/// answered: a job's progress, a plugin's question, a save a plugin
+/// refuses, the Command Palette. Opened over a Properties window, it
+/// took its Escape too: Escape in Select Portrait closed the blueprint's
+/// window, as its Cancel.)
+pub(crate) fn modal<'a>(
+    ctx: &egui::Context,
+    title: impl Into<egui::WidgetText>,
+) -> egui::Window<'a> {
+    centered(ctx, title).collapsible(false).resizable(false)
+}
+
+/// A dialog that its close button or Escape closes (`open`), as well as
+/// what it has to answer it: [`centered`].
+pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {
+    centered(ctx, title).open(open_unless_escape(ctx, title, open))
 }
 
 /// Escape was pressed with no dialog open (for a window of the dock to
@@ -2601,33 +2611,29 @@ pub(crate) fn files_already(
     [replace, skip]: [&str; 2],
 ) -> Option<Already> {
     let mut answer = None;
-    egui::Window::new(format!("Files Already in the {place}"))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(said);
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for (name, about) in files {
-                    let r = ui.label(egui::RichText::new(name).monospace());
-                    if let Some(about) = about {
-                        r.on_hover_text(about);
-                    }
+    modal(ctx, format!("Files Already in the {place}")).show(ctx, |ui| {
+        ui.label(said);
+        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+            for (name, about) in files {
+                let r = ui.label(egui::RichText::new(name).monospace());
+                if let Some(about) = about {
+                    r.on_hover_text(about);
                 }
-            });
-            ui.horizontal(|ui| {
-                let n = files.len();
-                if ui.button(format!("Replace {n}")).on_hover_text(replace).clicked() {
-                    answer = Some(Already::Replace);
-                }
-                if ui.button("Skip Those").on_hover_text(skip).clicked() {
-                    answer = Some(Already::Skip);
-                }
-                if cancel(ui) {
-                    answer = Some(Already::Cancel);
-                }
-            });
+            }
         });
+        ui.horizontal(|ui| {
+            let n = files.len();
+            if ui.button(format!("Replace {n}")).on_hover_text(replace).clicked() {
+                answer = Some(Already::Replace);
+            }
+            if ui.button("Skip Those").on_hover_text(skip).clicked() {
+                answer = Some(Already::Skip);
+            }
+            if cancel(ui) {
+                answer = Some(Already::Cancel);
+            }
+        });
+    });
     answer
 }
 

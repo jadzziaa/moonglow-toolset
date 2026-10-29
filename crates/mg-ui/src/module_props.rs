@@ -774,74 +774,67 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
     use mg_module::attach::There;
     let Some(mut draft) = app.attach.take() else { return };
     let mut done = None;
-    egui::Window::new("Add Haks and Talk Table")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label("Haks go at the top of the module's list, highest priority first:");
-            let n = draft.placements.len();
-            let mut swap = None;
-            for (i, p) in draft.placements.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.monospace(if p.is_tlk {
-                        format!("{}.tlk", p.name)
-                    } else {
-                        format!("{}.hak", p.name)
-                    });
-                    let folder = if p.is_tlk { "tlk" } else { "hak" };
-                    let what = match p.there {
-                        There::Nothing => format!("copied to your {folder} folder"),
-                        There::Same => format!("already in your {folder} folder"),
-                        There::Different => format!("a different one is in your {folder} folder"),
-                    };
-                    let from = match &p.entry {
-                        Some(entry) => format!("{entry} in {}", p.from.display()),
-                        None => p.from.display().to_string(),
-                    };
-                    ui.weak(what).on_hover_text(format!(
-                        "{from}
-→ {}",
-                        p.to.display()
-                    ));
-                    if !p.is_tlk {
-                        let next_hak = (i + 1..n).find(|&j| !draft.placements[j].is_tlk);
-                        let prev_hak = (0..i).rev().find(|&j| !draft.placements[j].is_tlk);
-                        if ui
-                            .add_enabled(prev_hak.is_some(), egui::Button::new("Move Up").small())
-                            .clicked()
-                        {
-                            swap = prev_hak.map(|j| (i, j));
-                        }
-                        if ui
-                            .add_enabled(next_hak.is_some(), egui::Button::new("Move Down").small())
-                            .clicked()
-                        {
-                            swap = next_hak.map(|j| (i, j));
-                        }
-                    } else {
-                        ui.weak("(the module's talk table)");
-                    }
-                });
-            }
-            if let Some((a, b)) = swap {
-                draft.placements.swap(a, b);
-            }
-            if draft.placements.iter().any(|p| p.there == There::Different) {
-                ui.checkbox(
-                    &mut draft.replace,
-                    "Replace the files of the same names that are there",
-                );
-            }
+    crate::widgets::modal(ctx, "Add Haks and Talk Table").show(ctx, |ui| {
+        ui.label("Haks go at the top of the module's list, highest priority first:");
+        let n = draft.placements.len();
+        let mut swap = None;
+        for (i, p) in draft.placements.iter().enumerate() {
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
-                    done = Some(true);
-                }
-                if crate::widgets::cancel(ui) {
-                    done = Some(false);
+                ui.monospace(if p.is_tlk {
+                    format!("{}.tlk", p.name)
+                } else {
+                    format!("{}.hak", p.name)
+                });
+                let folder = if p.is_tlk { "tlk" } else { "hak" };
+                let what = match p.there {
+                    There::Nothing => format!("copied to your {folder} folder"),
+                    There::Same => format!("already in your {folder} folder"),
+                    There::Different => format!("a different one is in your {folder} folder"),
+                };
+                let from = match &p.entry {
+                    Some(entry) => format!("{entry} in {}", p.from.display()),
+                    None => p.from.display().to_string(),
+                };
+                ui.weak(what).on_hover_text(format!(
+                    "{from}
+→ {}",
+                    p.to.display()
+                ));
+                if !p.is_tlk {
+                    let next_hak = (i + 1..n).find(|&j| !draft.placements[j].is_tlk);
+                    let prev_hak = (0..i).rev().find(|&j| !draft.placements[j].is_tlk);
+                    if ui
+                        .add_enabled(prev_hak.is_some(), egui::Button::new("Move Up").small())
+                        .clicked()
+                    {
+                        swap = prev_hak.map(|j| (i, j));
+                    }
+                    if ui
+                        .add_enabled(next_hak.is_some(), egui::Button::new("Move Down").small())
+                        .clicked()
+                    {
+                        swap = next_hak.map(|j| (i, j));
+                    }
+                } else {
+                    ui.weak("(the module's talk table)");
                 }
             });
+        }
+        if let Some((a, b)) = swap {
+            draft.placements.swap(a, b);
+        }
+        if draft.placements.iter().any(|p| p.there == There::Different) {
+            ui.checkbox(&mut draft.replace, "Replace the files of the same names that are there");
+        }
+        ui.horizontal(|ui| {
+            if ui.button("OK").clicked() {
+                done = Some(true);
+            }
+            if crate::widgets::cancel(ui) {
+                done = Some(false);
+            }
         });
+    });
     match done {
         None => app.attach = Some(draft),
         Some(false) => {}

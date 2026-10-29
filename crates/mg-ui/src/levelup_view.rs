@@ -74,11 +74,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         crate::widgets::table_choices(app.game.as_deref(), "classes", Some("Name"), Some("Label"));
     let name = |class: u32| mg_rules::choice_text(&names, i64::from(class));
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new("Creature Levelup Wizard")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center()).collapsible(false).resizable(false).show(ctx, |ui| {
+    crate::widgets::modal(ctx, "Creature Levelup Wizard").show(ctx, |ui| {
         ui.heading("Add Classes and Levels");
-        ui.label("Please choose 1 to 8 classes for this creature and select the level for each class.");
+        ui.label(
+            "Please choose 1 to 8 classes for this creature and select the level for each class.",
+        );
         ui.label(
             "The class determines the skills and feats the creature has as well as how the \
              creature's abilities differ from the default values.",
@@ -91,25 +91,30 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             // A list down the left (a scroll area takes the layout of the
             // row it is in: classes side by side, drawn over each other).
             ui.vertical(|ui| {
-            ui.set_width(160.0);
-            egui::ScrollArea::vertical().max_height(220.0).id_salt("levelup-classes").show(ui, |ui| {
                 ui.set_width(160.0);
-                for c in names.iter() {
-                    let class = c.row as u32;
-                    if w.slots.iter().any(|(k, _, _)| *k == class) {
-                        continue;
-                    }
-                    let picked = w.chosen == Some(class);
-                    let r = ui.selectable_label(picked, &c.text).on_hover_text("Select a Class to add");
-                    if r.clicked() {
-                        w.chosen = Some(class);
-                    }
-                    if r.double_clicked() && w.slots.len() < 8 {
-                        w.slots.push((class, 1, 0));
-                        w.chosen = None;
-                    }
-                }
-            });
+                egui::ScrollArea::vertical().max_height(220.0).id_salt("levelup-classes").show(
+                    ui,
+                    |ui| {
+                        ui.set_width(160.0);
+                        for c in names.iter() {
+                            let class = c.row as u32;
+                            if w.slots.iter().any(|(k, _, _)| *k == class) {
+                                continue;
+                            }
+                            let picked = w.chosen == Some(class);
+                            let r = ui
+                                .selectable_label(picked, &c.text)
+                                .on_hover_text("Select a Class to add");
+                            if r.clicked() {
+                                w.chosen = Some(class);
+                            }
+                            if r.double_clicked() && w.slots.len() < 8 {
+                                w.slots.push((class, 1, 0));
+                                w.chosen = None;
+                            }
+                        }
+                    },
+                );
             });
             ui.vertical(|ui| {
                 let can_add = w.chosen.is_some() && w.slots.len() < 8;
@@ -131,7 +136,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         crate::widgets::spin_draft(ui, level, (*had).max(1)..=60, 1.0, |d| d)
                             .on_hover_text("Adjust the Level of this Class");
                         // Classes the creature has stay.
-                        if *had == 0 && ui.small_button("✖").on_hover_text("Remove this Class").clicked() {
+                        if *had == 0
+                            && ui.small_button("✖").on_hover_text("Remove this Class").clicked()
+                        {
                             remove = Some(i);
                         }
                         ui.end_row();
@@ -144,7 +151,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
         ui.separator();
         ui.horizontal(|ui| {
-            ok = ui.button("OK").on_hover_text("Accept changes").clicked() || crate::widgets::enter(ui);
+            ok = ui.button("OK").on_hover_text("Accept changes").clicked()
+                || crate::widgets::enter(ui);
             cancel = crate::widgets::cancel_discard(ui);
         });
     });
