@@ -310,20 +310,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or keeps the field. Which `LightColor` the engine counts as a light
   (Moonglow: a row above 0) was checked on rows 1 and 25. (S) (Jasperre's
   reports, October 2026)
-- **The PC faction, what's left:** the faction lists, the Store Wizard
-  and Verify (`pc-faction`) keep objects out of faction 0. Not done:
-  `mg set` and the raw fields view still write 0 if told to (Verify
-  reports it after); Verify
-  doesn't report an object with no faction field (the engine's reading of
-  a missing one wasn't measured); Aurora's own faction lists were not
-  captured (whether they offer PC is not known), and Aurora writes
-  faction 0 for a trigger whose blueprint has none (`instances.rs`
-  `TRIGGER`), which Moonglow copies when placing; so Verify leaves
-  triggers out of `pc-faction` (the owner's decision), and such a
-  trigger's faction field shows "PC (not for objects)". How an object of faction
-  0 regards a player, or a player it, was not measured (no player joins
-  a headless server); an encounter's creatures were not looked at. (S)
-  (Jasperre's report, October 2026)
+- **The PC faction, what's left** (waits on an Aurora capture and the
+  client): Moonglow keeps objects out of faction 0 and says so where it
+  is written (the faction lists, the Store Wizard, `mg set`, the raw
+  fields view, Verify's `pc-faction`, an object with no faction too,
+  which the server reads as 0: `engine_factions.rs`). Not known:
+  whether Aurora's own faction lists offer PC (not captured; Aurora
+  writes faction 0 for a trigger whose blueprint has none, which is why
+  triggers are left out, the owner's decision); how an object of
+  faction 0 regards a player, or a player it (no player joins a
+  headless server); and what an encounter of faction 0, or of none,
+  gives the creatures it spawns (a player's entering spawns them). An
+  Aurora capture of a faction list and a client run with a player
+  entering an encounter settle it. (S) (Jasperre's report, October
+  2026)
 - **The Visuals page's texture and animation pickers, what's left:**
   waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment

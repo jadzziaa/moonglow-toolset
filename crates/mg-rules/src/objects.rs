@@ -228,11 +228,68 @@ impl ObjectKind {
 /// an object (Jasperre's report). In the game a creature of it is put in
 /// faction 1, Hostile, as it loads; a placeable, door or trigger keeps it,
 /// and creatures regard it as they regard players (`engine_factions.rs`).
+/// An object with no faction field is of it too.
 pub const PC_FACTION: i64 = 0;
+
+/// Whether an object of `kind` (a blueprint's or a placed object's
+/// fields) is of the PC faction, as Verify warns of it (`pc-faction`) and
+/// `mg set` and the raw fields view warn as it is set: its faction field
+/// (returned) holds 0, or it has none, which the game reads as 0, placed or
+/// created from its blueprint (`engine_factions.rs`). `None` for a
+/// trigger (the owner's decision: Aurora writes 0 for one whose blueprint
+/// has no faction, so the warning would fall on ordinary triggers), an
+/// encounter without the field (what the game makes of one was not
+/// measured: a player's entering spawns its creatures) and the kinds of no
+/// faction.
+pub fn pc_faction(kind: ObjectKind, object: &mg_gff::Struct) -> Option<&'static str> {
+    if kind == ObjectKind::Trigger {
+        return None;
+    }
+    let field = kind.faction_field()?;
+    match object.get(field) {
+        Some(v) => (v.as_integer() == Some(PC_FACTION)).then_some(field),
+        None => (kind != ObjectKind::Encounter).then_some(field),
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pc_faction_is_0_or_no_faction_at_all() {
+        use mg_gff::{Struct, Value};
+        let with = |label: &str, v: Option<Value>| {
+            let mut s = Struct::new(0);
+            s.set("Tag", Value::String(b"T".to_vec()));
+            if let Some(v) = v {
+                s.set(label, v);
+            }
+            s
+        };
+        let pc = |kind, s: &Struct| pc_faction(kind, s);
+        assert_eq!(
+            pc(ObjectKind::Creature, &with("FactionID", Some(Value::Word(0)))),
+            Some("FactionID")
+        );
+        assert_eq!(pc(ObjectKind::Creature, &with("FactionID", Some(Value::Word(2)))), None);
+        assert_eq!(pc(ObjectKind::Creature, &with("FactionID", None)), Some("FactionID"));
+        for kind in [ObjectKind::Placeable, ObjectKind::Door] {
+            assert_eq!(pc(kind, &with("Faction", Some(Value::Dword(0)))), Some("Faction"));
+            assert_eq!(pc(kind, &with("Faction", None)), Some("Faction"), "{kind:?}");
+            assert_eq!(pc(kind, &with("Faction", Some(Value::Dword(1)))), None);
+        }
+        // An encounter of 0, not one without; never a trigger; nor what
+        // has no faction.
+        assert_eq!(
+            pc(ObjectKind::Encounter, &with("Faction", Some(Value::Dword(0)))),
+            Some("Faction")
+        );
+        assert_eq!(pc(ObjectKind::Encounter, &with("Faction", None)), None);
+        assert_eq!(pc(ObjectKind::Trigger, &with("Faction", Some(Value::Dword(0)))), None);
+        assert_eq!(pc(ObjectKind::Trigger, &with("Faction", None)), None);
+        assert_eq!(pc(ObjectKind::Waypoint, &with("Faction", None)), None);
+    }
 
     #[test]
     fn each_kind_is_found_again_by_its_type_and_its_list() {

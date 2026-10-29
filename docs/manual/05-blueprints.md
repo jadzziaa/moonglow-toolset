@@ -698,8 +698,10 @@ The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the
 players' alone, and the game puts a creature of it in Hostile. An object
 that already has it keeps it, shown as "PC (not for objects)", until
-another is picked; Verify Module warns of it (of a trigger's, no:
-Aurora writes faction 0 for a trigger whose blueprint has none).
+another is picked; Verify Module warns of it, and of an object with no
+faction at all, which the game reads as the PC faction (of a
+trigger's, no: Aurora writes faction 0 for a trigger whose blueprint
+has none).
 
 ### Triggers and encounters
 

@@ -155,6 +155,10 @@ mg set mymodule.mod guard.utc Tag=GATE_GUARD '/ClassList[0]/ClassLevel=5'
 - Text set on a name or description becomes its English text; its
   talk-table reference and other languages stay.
 - `--remove FIELD` takes a field away.
+- A creature's, placeable's, door's or encounter's faction set to 0, or
+  taken away (which the game reads as 0), is set, and warned of: the PC
+  faction is the players' alone, and Verify warns of it after
+  (`pc-faction`; a trigger's, no).
 - `--dry-run` prints each field as it was and would be; with `--json`,
   the change under `"command"` is an edit file.
 

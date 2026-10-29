@@ -126,9 +126,15 @@ void main()
     Log("MG_PC0 " + I(GetIsObjectValid(a)) + "|" + I(GetFactionEqual(a, b)) + "|" + I(GetFactionEqual(a, h))
         + "|" + I(GetFactionEqual(a, c)) + "|" + I(GetReputation(a, c)) + "|" + I(GetReputation(c, a))
         + "|" + I(GetIsEnemy(c, a)) + "|" + Field(a, "FactionID"));
-    // Placed objects of faction 0.
-    // Placed objects of faction 0, and of faction 2 to compare.
-    string sTags = "MG_CRE0 MG_CRE2 MG_PLC0 MG_PLC2 MG_DOOR0 MG_DOOR2 MG_TRIG0 MG_TRIG2";
+    // Created from blueprints with no faction field: a creature and a
+    // placeable.
+    object bx = CreateObject(OBJECT_TYPE_CREATURE, "mg_facx", l);
+    object px = CreateObject(OBJECT_TYPE_PLACEABLE, "mg_plcx", l);
+    Log("MG_BPX " + I(GetIsObjectValid(bx)) + "|" + I(GetFactionEqual(bx, h)) + "|" + Field(bx, "FactionID")
+        + "|" + I(GetIsObjectValid(px)) + "|" + I(GetReputation(c, px)) + "|" + Field(px, "Faction"));
+    // Placed objects of faction 0, of faction 2 to compare, and with no
+    // faction field.
+    string sTags = "MG_CRE0 MG_CRE2 MG_CREX MG_PLC0 MG_PLC2 MG_PLCX MG_DOOR0 MG_DOOR2 MG_DOORX MG_TRIG0 MG_TRIG2 MG_TRIGX";
     int n = 0;
     while (n < GetStringLength(sTags))
     {
@@ -152,8 +158,11 @@ void main()
 /// Objects of faction 0 ("PC", which Moonglow does not offer objects;
 /// Jasperre's report): the game puts a creature of it in faction 1,
 /// Hostile; placeables, doors and triggers keep it, and creatures regard
-/// them as they regard the PC faction. (No player can join a headless
-/// server, so how one regards a player is not measured.)
+/// them as they regard the PC faction. An object with no faction field is
+/// read as one of faction 0, placed or created from its blueprint. (No
+/// player can join a headless server, so how one regards a player is not
+/// measured, nor an encounter's creatures, which a player's entering
+/// spawns.)
 #[test]
 fn objects_of_the_pc_faction_in_the_engine() {
     let root = corpus!();
@@ -186,6 +195,18 @@ fn objects_of_the_pc_faction_in_the_engine() {
         m.set_gff(ResKey::parse(&name, ResType::UTC).unwrap(), &c).unwrap();
     }
 
+    // Blueprints with no faction field.
+    let mut c = Gff::new(*b"UTC ");
+    c.root = commoner.clone();
+    c.root.remove("FactionID");
+    c.root.write(&utc::TEMPLATE_RES_REF, ResRef::from_str("mg_facx").unwrap());
+    m.set_gff(ResKey::parse("mg_facx", ResType::UTC).unwrap(), &c).unwrap();
+    let mut p = Gff::new(*b"UTP ");
+    p.root = blueprint("plc_chest1", ResType::UTP);
+    p.root.remove("Faction");
+    p.root.set("TemplateResRef", Value::ResRef(b"mg_plcx".to_vec()));
+    m.set_gff(ResKey::parse("mg_plcx", ResType::UTP).unwrap(), &p).unwrap();
+
     // One placed object of each kind with a faction, of faction 0 and of
     // faction 2.
     let first = |t: ResType| blueprint(&game.resman.list(t)[0].to_string(), t);
@@ -202,24 +223,36 @@ fn objects_of_the_pc_faction_in_the_engine() {
         (ResType::UTT, first(ResType::UTT), "MG_TRIG", "Faction"),
     ];
     for (i, (t, s, tag, field)) in kinds.into_iter().enumerate() {
-        for faction in [0u16, 2] {
+        // Of faction 0, of faction 2, and with no faction field ("X").
+        for faction in [Some(0u16), Some(2), None] {
             let mut s = s.clone();
-            s.set("Tag", Value::String(format!("{tag}{faction}").into_bytes()));
-            let v = if t == ResType::UTC {
-                Value::Word(faction)
-            } else {
-                Value::Dword(u32::from(faction))
+            let name = faction.map_or("X".to_string(), |f| f.to_string());
+            s.set("Tag", Value::String(format!("{tag}{name}").into_bytes()));
+            let v = |faction: u16| {
+                if t == ResType::UTC {
+                    Value::Word(faction)
+                } else {
+                    Value::Dword(u32::from(faction))
+                }
             };
-            s.set(field, v);
+            match faction {
+                Some(f) => s.set(field, v(f)),
+                None => {
+                    s.remove(field);
+                }
+            }
             let x = 4.0 + 4.0 * i as f32;
-            let y = 20.0 + 4.0 * f32::from(faction);
+            let y = 20.0 + 4.0 * f32::from(faction.unwrap_or(4));
             let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
             let outline: Vec<[f32; 3]> = if t == ResType::UTT {
                 vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]]
             } else {
                 vec![]
             };
-            let placed = instance(&placing, t, &s, at, &outline).unwrap();
+            let mut placed = instance(&placing, t, &s, at, &outline).unwrap();
+            if faction.is_none() {
+                placed.remove(field);
+            }
             let (list, _) = git_list(t).unwrap();
             let mut objects = git.root.list(list).unwrap_or(&[]).to_vec();
             objects.push(placed);
@@ -248,13 +281,18 @@ fn objects_of_the_pc_faction_in_the_engine() {
     let rep = |by: u32, of: u32| f.reputation(by, of).unwrap();
     let (commoner_pc, hostile_pc) = (rep(2, 0), rep(1, 0));
     let dword = |v: u32| format!("{{\"type\":\"dword\",\"value\":{v}}}");
+    // An object with no faction field is of faction 0 (a creature, put in
+    // Hostile as one of 0 is), placed or made from a blueprint so.
     let mut want = vec![
         format!("MG_CRE0|1|1|0|0|100|{}", word(1)),
         format!("MG_CRE2|1|0|1|100|0|{}", word(2)),
+        format!("MG_CREX|1|1|0|0|100|{}", word(1)),
     ];
     for tag in ["MG_PLC", "MG_DOOR", "MG_TRIG"] {
         want.push(format!("{tag}0|1|0|0|{commoner_pc}|{hostile_pc}|{}", dword(0)));
         want.push(format!("{tag}2|1|0|1|100|0|{}", dword(2)));
+        want.push(format!("{tag}X|1|0|0|{commoner_pc}|{hostile_pc}|{}", dword(0)));
     }
     assert_eq!(run.values("MG_PLACED"), want);
+    assert_eq!(run.values("MG_BPX"), [format!("1|1|{}|1|{commoner_pc}|{}", word(1), dword(0))]);
 }

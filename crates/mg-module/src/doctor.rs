@@ -1902,18 +1902,15 @@ fn objects(d: &mut Doctor, module: &Module) {
 /// faction 0, the PC faction: the players' alone (Jasperre's report). The
 /// game puts a creature of it in Hostile as it loads; a placeable or door
 /// keeps it, and creatures regard it as they regard players
-/// (`engine_factions.rs`). Triggers are left out (the owner's decision):
-/// Aurora writes 0 for a trigger whose blueprint has no faction, so the
-/// warning would fall on ordinary triggers. A field the object lacks is
-/// not reported.
+/// (`engine_factions.rs`). An object with no faction field is of it too
+/// (the game reads none as 0), but for an encounter, whose reading was not
+/// measured. Triggers are left out (the owner's decision): Aurora writes
+/// 0 for a trigger whose blueprint has no faction, so the warning would
+/// fall on ordinary triggers. The rule is `mg_rules::objects::pc_faction`.
 fn pc_faction(d: &mut Doctor, module: &Module) {
     use mg_rules::ObjectKind;
-    let of_pc = |kind: ObjectKind, s: &Struct| -> Option<&'static str> {
-        if kind == ObjectKind::Trigger {
-            return None;
-        }
-        let field = kind.faction_field()?;
-        (s.integer(field) == Some(mg_rules::objects::PC_FACTION)).then_some(field)
+    let of_pc = |kind: ObjectKind, s: &Struct| {
+        mg_rules::objects::pc_faction(kind, s).map(|field| (field, s.get(field).is_none()))
     };
     let mut keys: Vec<ResKey> = module
         .keys()
@@ -1937,27 +1934,29 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
                     continue;
                 };
                 for (i, s) in objects.iter().enumerate() {
-                    if let Some(field) = of_pc(kind, s) {
-                        found.push((kind, format!("/{label}[{i}]/{field}")));
+                    if let Some((field, none)) = of_pc(kind, s) {
+                        found.push((kind, format!("/{label}[{i}]/{field}"), none));
                     }
                 }
             }
         } else if let Some(kind) = ObjectKind::from_restype(key.restype)
-            && let Some(field) = of_pc(kind, &gff.root)
+            && let Some((field, none)) = of_pc(kind, &gff.root)
         {
-            found.push((kind, format!("/{field}")));
+            found.push((kind, format!("/{field}"), none));
         }
-        for (kind, path) in found {
+        for (kind, path, none) in found {
             let place = crate::rename::describe(key, Some(&gff), &path);
             let what = match kind {
                 ObjectKind::Creature => "the game puts a creature of it in Hostile",
                 ObjectKind::Encounter => "an encounter's own faction",
                 _ => "creatures regard it as they regard players",
             };
-            let message = format!(
-                "of the PC faction (0), which is the players' alone ({what}): give it another \
-                 faction"
-            );
+            let of = match none {
+                true => "has no faction, which the game reads as the PC faction (0)",
+                false => "of the PC faction (0)",
+            };
+            let message =
+                format!("{of}, which is the players' alone ({what}): give it another faction");
             d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
         }
     }
@@ -3439,9 +3438,10 @@ endmodelgeom fx\ndonemodel fx\n";
         );
     }
 
-    /// An object of the PC faction is warned of, blueprint or placed; one
-    /// of another faction, with no faction field, or a trigger (Aurora
-    /// writes 0 for one whose blueprint has none), is not.
+    /// An object of the PC faction is warned of, blueprint or placed, and
+    /// one with no faction field (which the game reads as 0); one of
+    /// another faction, or a trigger (Aurora writes 0 for one whose
+    /// blueprint has none), is not.
     #[test]
     fn objects_of_the_pc_faction_are_warned_of() {
         let mut m = Module::new();
@@ -3462,17 +3462,28 @@ endmodelgeom fx\ndonemodel fx\n";
             .set("Placeable List", Value::List(vec![placed("Faction", Value::Dword(0), "BOX")]));
         git.root.set(
             "Door List",
-            Value::List(vec![placed("Faction", Value::Dword(2), "DOOR"), Struct::new(8)]),
+            Value::List(vec![
+                placed("Faction", Value::Dword(2), "DOOR"),
+                placed("Unused", Value::Dword(0), "GATE"),
+            ]),
         );
         git.root.set("TriggerList", Value::List(vec![placed("Faction", Value::Dword(0), "TRAP")]));
         m.set_gff(key("area", ResType::GIT), &git).unwrap();
         let f = examine(&m, &resman(&[]), TalkTables::default());
         let found: Vec<_> = f.iter().filter(|f| f.check == "pc-faction").collect();
         let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
-        assert_eq!(at, ["area › placeable BOX › Faction", "guard.utc › FactionID"]);
+        assert_eq!(
+            at,
+            [
+                "area › placeable BOX › Faction",
+                "area › door GATE › Faction",
+                "guard.utc › FactionID"
+            ]
+        );
         assert!(found.iter().all(|f| f.severity == Severity::Warning));
         assert!(found[0].message.contains("regard players"), "{found:?}");
-        assert!(found[1].message.contains("puts a creature of it in Hostile"), "{found:?}");
+        assert!(found[1].message.starts_with("has no faction"), "{found:?}");
+        assert!(found[2].message.contains("puts a creature of it in Hostile"), "{found:?}");
         assert_eq!(Check::PcFaction.group(), Group::Objects);
     }
 
