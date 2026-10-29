@@ -184,6 +184,145 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     h.get_by_label_contains("1 of ");
 }
 
+/// Whether `app`'s game data has the two haks of [`module_with_two_tables`]
+/// layered, the higher read first, without the log saying that they could
+/// not be.
+fn has_the_two_haks(app: &Moonglow) -> Result<(), String> {
+    let game = app.game.as_deref().ok_or("no game data")?;
+    let labels: Vec<&str> = game.resman.layers().iter().map(|l| l.label.as_str()).collect();
+    let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
+    let origin = game.resman.origin(&key);
+    let refused = app.log.entries.iter().any(|(_, m)| m.contains("could not be added"));
+    let both = labels.contains(&"hak:mg_top") && labels.contains(&"hak:mg_low");
+    if !both || origin != Some("hak:mg_top") || refused {
+        return Err(format!(
+            "layers {labels:?}, portraits.2da from {origin:?}; log {:?}",
+            app.log.entries
+        ));
+    }
+    Ok(())
+}
+
+/// The game data's layers of a module: its haks and itself.
+fn module_layers(app: &Moonglow) -> Vec<String> {
+    let game = app.game.as_deref().expect("the game data");
+    (game.resman.layers().iter())
+        .filter(|l| l.priority == mg_resman::priority::MODULE || l.label.starts_with("hak:"))
+        .map(|l| l.label.clone())
+        .collect()
+}
+
+/// A module's haks are layered into the game data when it is opened as the
+/// lit check starts (`moonglow path/to/module.mod` opens it in the window's
+/// first frame, the check's), and again once the check is done: a
+/// builder's report on 2.13.1, where every module opened said its haks
+/// "could not be added to the game data (it is in use)", closed and opened
+/// again or not (the 3D views kept the game data the check had read).
+#[test]
+fn a_module_s_haks_are_layered_with_the_lit_check() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-haks-lit-check");
+    let user = dir.join("user");
+    let path = module_with_two_tables(&dir, &user);
+    let mut app = game_app(&root, Some(user));
+    app.set_render_state(rs.clone());
+    // (As in the desktop app, where the check runs.)
+    app.background_jobs = true;
+    app.settings.no_last_area = true;
+    app.actions.push(mg_ui::Action::OpenModule(path.clone()));
+    let mut h = gpu_harness(app, rs, 1000.0, 800.0);
+    h.step();
+    has_the_two_haks(h.state()).unwrap();
+    let started = std::time::Instant::now();
+    while h.state().lit_check.found.is_none() {
+        assert!(started.elapsed().as_secs() < 60, "the lit check never ended");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    // Closed, and opened again.
+    h.state_mut().close();
+    assert_eq!(module_layers(h.state()), Vec::<String>::new());
+    h.state_mut().open_module(&path);
+    has_the_two_haks(h.state()).unwrap();
+}
+
+/// After an area has been drawn, its textures read apart from the window
+/// (as in the desktop app): Reload Resources looks at the game data's
+/// folders, Close takes the module's layers out of the game data, and the
+/// next module opened has its haks layered (in 2.13.0 too, the second
+/// module opened after an area had been viewed had none).
+#[test]
+fn a_module_s_haks_are_layered_after_an_area_was_drawn() {
+    let dir = mg_testkit::scratch_dir("ui-haks-after-area");
+    let user = dir.join("user");
+    let path = module_with_two_tables(&dir, &user);
+    let Some((mut app, rs, area)) =
+        area_app("haks-after-area", "ttr01", None, 4, Some(user), &|_, _, _| {})
+    else {
+        return;
+    };
+    app.background_jobs = true;
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    let started = std::time::Instant::now();
+    let pictures = |app: &Moonglow| app.area_views.get(&area).map_or(0, |v| v.pictures);
+    let pending = |app: &Moonglow| app.viewport.as_ref().unwrap().renderer.drawn.textures_pending;
+    let reading = |app: &Moonglow| app.viewport.as_ref().unwrap().renderer.textures_read() > 0;
+    // (The first picture, its textures read apart: some still to come,
+    // as like as not.)
+    while pictures(h.state()) == 0 || !reading(h.state()) {
+        assert!(started.elapsed().as_secs() < 60, "the area was never drawn");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.step();
+    }
+    let (was, waiting) = (pictures(h.state()), pending(h.state()));
+    eprintln!("textures still to come as Reload Resources ran: {waiting}");
+    h.state_mut().reload_resources(true);
+    let entries = &h.state().log.entries;
+    assert!(entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"), "{entries:?}");
+    // The view draws on, with every texture: those asked for when the
+    // views let go of the game data are asked for again.
+    while pending(h.state()) > 0 || pictures(h.state()) == was {
+        assert!(started.elapsed().as_secs() < 60, "textures never read: {}", pending(h.state()));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    // Closed: the area module's layer is gone.
+    h.state_mut().close();
+    assert_eq!(module_layers(h.state()), Vec::<String>::new());
+    h.state_mut().settings.no_last_area = true;
+    h.state_mut().open_module(&path);
+    has_the_two_haks(h.state()).unwrap();
+    // (And the area view of the next module draws as before.)
+    h.run_steps(2);
+}
+
+/// A module closed while its area is still read on a thread of its own:
+/// the window waits for the reading to let go of the game data, and the
+/// next module's haks are layered.
+#[test]
+fn a_module_s_haks_are_layered_after_one_closed_while_its_area_was_read() {
+    let dir = mg_testkit::scratch_dir("ui-haks-area-read");
+    let user = dir.join("user");
+    let path = module_with_two_tables(&dir, &user);
+    let Some((mut app, rs, area)) =
+        area_app("haks-area-read", "ttr01", None, 4, Some(user), &|_, _, _| {})
+    else {
+        return;
+    };
+    app.background_jobs = true;
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    // (The tab opened, then the reading started.)
+    h.run_steps(2);
+    let read = h.state().area_views.get(&area).is_some_and(|v| v.pictures > 0);
+    eprintln!("the area read before it was closed: {read}");
+    h.state_mut().close();
+    assert_eq!(module_layers(h.state()), Vec::<String>::new());
+    h.state_mut().settings.no_last_area = true;
+    h.state_mut().open_module(&path);
+    has_the_two_haks(h.state()).unwrap();
+}
+
 /// Module Properties › Custom Content: the module's haks in a list of
 /// their own, numbered from the one that overrides the others. Rows are
 /// chosen (Ctrl and Shift for more) and moved by the keys, the arrows

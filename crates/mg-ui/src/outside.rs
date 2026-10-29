@@ -404,8 +404,9 @@ impl Moonglow {
             let every = std::time::Duration::from_secs(3);
             self.outside.content = Some(Watch::start(paths, false, every));
         }
-        // (Held by something else, a job: looked at once it is free.)
-        if crate::exclusive(&mut self.game).is_none() {
+        // (Held by something else, a job: looked at once it is free. Not
+        // let go of by the 3D views here: only when something changed.)
+        if self.game_data_held() {
             crate::trace::changed("content", || "the game data is held: not looked at".into());
             return;
         }

@@ -60,7 +60,18 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
             return;
         }
         app.lit_check.started = true;
-        let (gpu, assets) = (vp.gpu.clone(), vp.textures_from(&game));
+        // (The game's programs read out of the game data first: holding it
+        // while the check runs, a module opened meanwhile, as one given on
+        // the command line is, could not layer its haks into it.)
+        let read = std::time::Instant::now();
+        let assets = GameShaders::of(&game.resman);
+        crate::trace::note(format!(
+            "graphics: the lit check: {} of the game's programs read in {:.0?}",
+            assets.0.len(),
+            read.elapsed()
+        ));
+        drop(game);
+        let gpu = vp.gpu.clone();
         // (No shader cache: the window's worker may be writing the same
         // programs to it, and its files are written apart by process, not
         // by thread. Compiled each run, 40 ms on the development machine.)
@@ -68,7 +79,7 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
         let (tx, rx) = std::sync::mpsc::channel();
         let spawned =
             std::thread::Builder::new().name("moonglow lit check".into()).spawn(move || {
-                let _ = tx.send(mg_render::probe::probe_lit(&gpu, assets.as_ref(), cache));
+                let _ = tx.send(mg_render::probe::probe_lit(&gpu, &assets, cache));
             });
         if spawned.is_ok() {
             app.lit_check.pending = Some(rx);
@@ -79,6 +90,31 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
     let Ok(lit) = rx.try_recv() else { return };
     app.lit_check.pending = None;
     lit_found(app, lit);
+}
+
+/// The game's programs (`.shd`), as the lit check reads them: out of the
+/// game data, which it does not hold.
+struct GameShaders(std::collections::HashMap<mg_core::ResRef, String>);
+
+impl GameShaders {
+    fn of(resman: &mg_resman::ResMan) -> GameShaders {
+        let shd = mg_core::ResType::SHD;
+        let read = |r: mg_core::ResRef| {
+            let data = resman.get(&mg_resman::ResKey::new(r, shd)).ok()?;
+            Some((r, String::from_utf8_lossy(&data).into_owned()))
+        };
+        GameShaders(resman.list(shd).into_iter().filter_map(read).collect())
+    }
+}
+
+impl mg_render::Assets for GameShaders {
+    fn texture(&self, _: &str) -> Option<mg_render::LoadedTexture> {
+        None
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        self.0.get(&mg_core::ResRef::cut(name)?).cloned()
+    }
 }
 
 /// What the lit check found, into the app: the debug log; a notice where

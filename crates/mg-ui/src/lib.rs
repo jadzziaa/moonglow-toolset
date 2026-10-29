@@ -2694,6 +2694,7 @@ impl Moonglow {
             self.game.as_ref().map_or(0, |g| Arc::strong_count(g) - 1),
             if self.install.is_some() { "known" } else { "none" },
         ));
+        self.release_game_data();
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
             for h in missing {
@@ -2752,6 +2753,7 @@ impl Moonglow {
     /// the user's `tlk/` folder, as the game looks) when the module names
     /// another one than is loaded.
     fn load_custom_tlk(&mut self) {
+        self.release_game_data();
         let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
         if name == self.custom_tlk {
@@ -2933,6 +2935,7 @@ impl Moonglow {
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
         self.search_kept = Default::default();
+        self.release_game_data();
         if let Some(game) = exclusive(&mut self.game) {
             let module_layers: Vec<String> = game
                 .resman
@@ -2951,6 +2954,7 @@ impl Moonglow {
 
     /// Refreshes the module layer of the game data after edits.
     pub(crate) fn refresh_module_layer(&mut self) {
+        self.release_game_data();
         let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
@@ -2968,6 +2972,7 @@ impl Moonglow {
     /// ([`crate::outside`]). The game data's tables are forgotten only
     /// where a 2DA is among them.
     pub(crate) fn update_module_layer(&mut self, keys: &[ResKey]) {
+        self.release_game_data();
         let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
@@ -4346,6 +4351,7 @@ impl Moonglow {
     /// refreshes what was shown from them. Asked for (Tools › Reload
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
+        self.release_game_data();
         let Some(game) = exclusive(&mut self.game) else { return };
         let mut changed = match game.resman.reload_changed(user_content) {
             Ok(c) => c,
@@ -4376,6 +4382,7 @@ impl Moonglow {
 
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
+        self.release_game_data();
         if let Some(game) = exclusive(&mut self.game) {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
@@ -4559,6 +4566,7 @@ impl Moonglow {
         if self.haks_layered.is_empty() {
             return false;
         }
+        self.release_game_data();
         let Some(game) = exclusive(&mut self.game) else { return false };
         let haks: Vec<String> = (game.resman.layers().iter())
             .filter(|l| l.label.starts_with("hak:"))
@@ -4577,6 +4585,7 @@ impl Moonglow {
         if listed == self.haks_layered {
             return;
         }
+        self.release_game_data();
         let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
         let old: Vec<String> = game
             .resman
@@ -4919,10 +4928,58 @@ impl Moonglow {
     }
 }
 
-/// The game data to change (its layers, its talk table): only while no job
-/// is reading it, which is whenever the window takes input.
 pub(crate) use mg_module::build::user_content;
 
+/// How long the window waits for what reads the game data on a thread of
+/// its own to let go of it, before its layers are changed
+/// ([`Moonglow::release_game_data`]).
+const RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+impl Moonglow {
+    /// Has what reads the game data apart from the window let go of it, so
+    /// that it can be changed ([`exclusive`], called after this): the 3D
+    /// views' texture readers (taken again when an area view next draws);
+    /// and, ten seconds at most, what still reads it on a thread (an area
+    /// of a module just closed, read on). Not a job: the window waits for
+    /// none while one runs (its game data is changed once it is done).
+    pub(crate) fn release_game_data(&mut self) {
+        let Some(game) = &self.game else { return };
+        if Arc::strong_count(game) == 1 {
+            return;
+        }
+        if let Some(vp) = &mut self.viewport {
+            vp.release_game_data();
+        }
+        if self.busy() {
+            return;
+        }
+        let started = std::time::Instant::now();
+        while Arc::strong_count(game) > 1 && started.elapsed() < RELEASE_WAIT {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        // (Said where it was waited for: the views let go at every edit.)
+        let (others, waited) = (Arc::strong_count(game) - 1, started.elapsed());
+        if others > 0 || waited.as_millis() >= 10 {
+            let still =
+                if others > 0 { format!(", still shared by {others} other(s)") } else { "".into() };
+            trace::note(format!("game data released in {waited:.0?}{still}"));
+        }
+    }
+
+    /// Whether something other than the window reads the game data (a job,
+    /// an area read on a thread): not the 3D views, which let go of it to
+    /// have it changed ([`Moonglow::release_game_data`]).
+    pub(crate) fn game_data_held(&self) -> bool {
+        let Some(game) = &self.game else { return false };
+        let views = self.viewport.as_ref().is_some_and(|vp| vp.holds(game));
+        Arc::strong_count(game) - 1 > usize::from(views)
+    }
+}
+
+/// The game data to change (its layers, its talk table): only while
+/// nothing else reads it, which is whenever the window takes input once
+/// what reads it apart has let go of it ([`Moonglow::release_game_data`],
+/// called first).
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
 }
