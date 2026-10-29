@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.13.3" date="2026-10-29">
+      <description>
+        <p>A model with several textured meshes is drawn as soon as its
+        textures are read, not one mesh's textures at a time. mg watch
+        takes the server's player, DM and admin passwords with --serve.</p>
+      </description>
+    </release>
     <release version="2.13.2" date="2026-10-29">
       <description>
         <p>A module's haks are loaded again: 2.13.1 opened every module
