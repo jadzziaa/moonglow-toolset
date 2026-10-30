@@ -943,7 +943,10 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 |ui| {
                     let mut found = 0;
                     for t in &available {
-                        let mut subtypes = game.property_subtypes(t, base);
+                        // A kind's choices by name, as Aurora's tree has
+                        // them (Specific Alignment's Chaotic Evil first,
+                        // where its table begins with Lawful Good).
+                        let mut subtypes = mg_rules::by_name(game.property_subtypes(t, base));
                         // (A kind found by its own name shows all of its
                         // choices; else those found.)
                         if !needle.is_empty() && !has(&t.name) {
@@ -1110,9 +1113,11 @@ fn property_editor(
                 ui.end_row();
             }
             if p.param1 != 255 {
+                // In the table's order, as Aurora lists them (iprp_damagetype's
+                // Bludgeoning to Sonic: captured 2026-10-30).
                 let params = game.property_params(p.param1);
                 crate::widgets::field_label(ui, "Parameter 1");
-                if let Some(v) = super::situated::pick(
+                if let Some(v) = super::situated::pick_ordered(
                     ui,
                     f.key,
                     "prop-param",

@@ -83,10 +83,11 @@ pub struct View {
     /// else they hold still, as at their start. Tiles animate either way.
     pub animate: bool,
     /// Tiles are drawn without the parts that fade in the game to show a
-    /// character behind them (roofs, upper walls: meshes with `tilefade`
-    /// 1, and 4, which fade with a neighbouring tile's; those with 2, the
-    /// black caps under them, stay), as Aurora's Environment › Fade
-    /// Geometry leaves them out. (The game's tiles have 0, 1, 2 and 4.)
+    /// character behind them (roofs, upper walls, trees' crowns: meshes
+    /// with `tilefade` 1), as Aurora's Environment › Fade Geometry leaves
+    /// them out; those with 2 and 4, the black caps and strips under and
+    /// beside them, stay, as Aurora keeps them (seen on `ttr01_b06_01`'s
+    /// `Object654`, 2026-10-30). (The game's tiles have 0, 1, 2 and 4.)
     pub fade: bool,
     /// Grass is drawn wherever this camera sees it ([`Sight`]); `None`:
     /// none.
@@ -1122,7 +1123,7 @@ impl AreaScene {
         if view.fade {
             let fades = |m: &mg_render::model::GpuMesh| {
                 matches!(&model.nodes[m.node].kind,
-                    mg_mdl::NodeKind::Mesh(mesh) if matches!(mesh.tilefade, 1 | 4))
+                    mg_mdl::NodeKind::Mesh(mesh) if mesh.tilefade == 1)
             };
             if loaded.gpu.meshes.iter().any(fades) {
                 let s = state.get_or_insert_with(|| mg_render::scene::MeshState::new(&loaded.gpu));
