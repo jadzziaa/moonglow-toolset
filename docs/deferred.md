@@ -1698,12 +1698,13 @@ contribution itself states as not done or not checked.
   and macOS) (Sacha's report, 2026-10-25)
 
 - **Steam Workshop content** is read (Options › General): each item's
-  `override` folder as a layer under the user's own, its `hak` and `tlk`
-  folders searched. Which of two items' overrides wins in the game isn't
-  known (the lower number here), and that the game puts them under the
-  user's override is from how it is described, not measured: the client
-  runs here with Steam hidden. An item's other folders (portraits,
-  modules, music) aren't read. (S) (from builders' reports after 1.14.1)
+  `override` folder as a layer under the user's own, its `portraits`,
+  `ambient` and `music` under the user's and over the game's, its `hak`
+  and `tlk` folders searched. Which of two items' wins in the game isn't
+  known (the lower number here), and where the game puts them against
+  the user's own folders is from how it is described, not measured: the
+  client runs here with Steam hidden, never started, so it waits on a
+  builder's reading with Steam. (S) (from builders' reports after 1.14.1)
 - **Finding the game:** Steam's libraries are read from its
   `libraryfolders.vdf` (a game on a second drive), GOG's usual folders
   tried, Steam's own folder read from Windows' registry (`reg query`

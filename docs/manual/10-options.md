@@ -206,8 +206,11 @@ the module is opened again from its file.
   needs it works only for players who have it too. On, the Steam
   Workshop items you are subscribed to are read with the game's data, as
   the game started through Steam reads them: each item's `override`
-  under your own, its haks and talk tables found by name. Changing it
-  reads the game's data again. `mg --workshop` reads them too.
+  under your own, its haks and talk tables found by name, its
+  `portraits`, `ambient` and `music` under your own and over the
+  game's (an item's module is opened as any module, by File › Open).
+  Changing it reads the game's data again. `mg --workshop` reads them
+  too.
 - **Read userpatch.ini's haks**: off by default, as in Aurora, for the
   same reason. On, the haks your
   `userpatch.ini` names (`PatchFile000=…` and on, the highest number
