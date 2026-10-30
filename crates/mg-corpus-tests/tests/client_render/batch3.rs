@@ -36,7 +36,7 @@ fn count(byte: u8) -> u32 {
 /// The light counts on `img` and how many pixels show each (red, blue).
 fn counts(img: &Rgba) -> std::collections::BTreeMap<(u32, u32), usize> {
     let mut out = std::collections::BTreeMap::new();
-    for (i, p) in img.data.chunks_exact(4).enumerate() {
+    for (i, p) in img.data.as_chunks::<4>().0.iter().enumerate() {
         if i % img.width as usize % 8 >= 4 && p[1] == 0 && (p[0] > 0 || p[2] > 0) {
             *out.entry((count(p[0]), count(p[2]))).or_default() += 1;
         }
@@ -58,7 +58,7 @@ fn count_at(img: &Rgba, x: f32, y: f32) -> (u32, u32, [u8; 3]) {
 fn count_picture(img: &Rgba) -> Rgba {
     let mut out = img.clone();
     let w = out.width as usize;
-    for (i, p) in out.data.chunks_exact_mut(4).enumerate() {
+    for (i, p) in out.data.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         if i % w % 8 >= 4 && p[1] == 0 && p[0] > 0 {
             let n = count(p[0]);
             let c: [u8; 3] = match n {
@@ -269,8 +269,8 @@ fn reading_light_shadows() {
         let (best, off) = (&pictures[0].1, &pictures[1].1);
         // The difference, for looking at: where Best is darker, white.
         let mut diff = best.clone();
-        let pairs = best.data.chunks_exact(4).zip(off.data.chunks_exact(4));
-        for (d, (b, o)) in diff.data.chunks_exact_mut(4).zip(pairs) {
+        let pairs = best.data.as_chunks::<4>().0.iter().zip(off.data.as_chunks::<4>().0);
+        for (d, (b, o)) in diff.data.as_chunks_mut::<4>().0.iter_mut().zip(pairs) {
             let sum = |p: &[u8]| p[0] as f32 + p[1] as f32 + p[2] as f32;
             let v = ((sum(o) - sum(b)).max(0.0) * 2.0).min(255.0) as u8;
             d[..3].copy_from_slice(&[v, v, v]);
