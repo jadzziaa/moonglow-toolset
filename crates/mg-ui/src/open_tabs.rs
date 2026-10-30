@@ -4,9 +4,10 @@
 //! closed open again with it, in their order and their places (the
 //! middle, the palettes' pane, a pane split off the middle, a window of
 //! their own where it was, split as it was), each pane's tab in front in
-//! front, and each view as it was left: an area's camera, a script's
-//! scroll and cursor, a conversation's selected line, bookmarks and
-//! folded branches, a Properties window's page.
+//! front, and each view as it was left: an area's camera, a model view's,
+//! a script's scroll and cursor, a conversation's selected line,
+//! bookmarks and folded branches, a Properties window's page, a hak's
+//! selected resources, a 2DA's selected cell, a tileset's page and tile.
 //!
 //! They are kept in Moonglow's data folder, never in the module: a small
 //! JSON file a module (`open-tabs/<name>-<hash>.json`, by its canonical
@@ -109,8 +110,8 @@ impl Split {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct View {
-    /// An area's camera: the point it looks at, then its yaw, pitch and
-    /// distance; and whether the view showed the night.
+    /// An area's camera (or a model view's): the point it looks at, then
+    /// its yaw, pitch and distance; and whether the view showed the night.
     #[serde(skip_serializing_if = "Option::is_none")]
     camera: Option<[f32; 6]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,6 +145,20 @@ pub(crate) struct View {
     bookmarks: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     folded: Vec<String>,
+    /// A hak's selected resources (`name.ext`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    chosen: Vec<String>,
+    /// A 2DA's selected cell: its row and column.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cell: Option<[usize; 2]>,
+    /// A tileset's chosen tile and group (its page is `page`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tile: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group: Option<usize>,
+    /// Advanced Search's question.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search: Option<crate::search::KeptSearch>,
 }
 
 /// A placed object, as it is found again: its tag, its blueprint and
@@ -927,6 +942,35 @@ impl Moonglow {
                 let page = crate::options::PAGES.iter().find(|p| p.0 == now);
                 Some(View { page: Some(page?.1.to_string()), ..Default::default() })
             }
+            Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => {
+                let o = self.model_views.get(&crate::model_view::Source::of_tab(tab)?)?.orbit;
+                let [x, y, z] = o.target.to_array();
+                Some(View {
+                    camera: Some([x, y, z, o.yaw, o.pitch, o.distance]),
+                    ..Default::default()
+                })
+            }
+            Tab::AdvancedSearch => {
+                Some(View { search: Some(self.advanced_search.kept()?), ..Default::default() })
+            }
+            Tab::Hak(id) => {
+                let d = self.haks.iter().find(|d| d.id == *id)?;
+                let chosen: Vec<String> = d.selected.iter().map(key_text).collect();
+                (!chosen.is_empty()).then(|| View { chosen, ..Default::default() })
+            }
+            Tab::Table(id) => {
+                let (row, column) = self.tables.iter().find(|d| d.id == *id)?.selected?;
+                Some(View { cell: Some([row, column]), ..Default::default() })
+            }
+            Tab::Tileset(id) => {
+                let d = self.tilesets.iter().find(|d| d.id == *id)?;
+                Some(View {
+                    page: Some(crate::tileset_view::page_name(d.page).to_string()),
+                    tile: d.tile,
+                    group: d.group,
+                    ..Default::default()
+                })
+            }
             _ => None,
         }
     }
@@ -1310,6 +1354,34 @@ impl Moonglow {
                     let page = crate::options::PAGES.iter().find(|p| view.page == Some(p.1.into()));
                     if let (Some(page), Some(draft)) = (page, &mut self.options) {
                         draft.page = page.0;
+                    }
+                }
+                Tab::AdvancedSearch => {
+                    if let Some(k) = &view.search {
+                        self.advanced_search.ask_again(k);
+                    }
+                }
+                // The side editors are open now: what they showed is set.
+                Tab::Hak(id) => {
+                    if let Some(d) = self.haks.iter_mut().find(|d| d.id == *id) {
+                        let have = |k: &ResKey| d.hak.items().iter().any(|e| e.key == *k);
+                        let keys = view.chosen.iter().filter_map(|t| parse_key(t));
+                        d.selected = keys.filter(|k| have(k)).collect();
+                    }
+                }
+                Tab::Table(id) => {
+                    if let (Some(d), Some([row, column])) =
+                        (self.tables.iter_mut().find(|d| d.id == *id), view.cell)
+                    {
+                        let t = d.edit.table();
+                        if row < t.len() && column < t.columns().len() {
+                            d.go_to(row, column);
+                        }
+                    }
+                }
+                Tab::Tileset(id) => {
+                    if let Some(d) = self.tilesets.iter_mut().find(|d| d.id == *id) {
+                        d.show(view.page.as_deref(), view.tile, view.group);
                     }
                 }
                 tab => _ = self.open_tabs.views.insert(tab.clone(), view),

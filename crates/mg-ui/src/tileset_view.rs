@@ -75,6 +75,22 @@ impl TilesetDoc {
         }
     }
 
+    /// Shows the page named `page` (as [`page_name`] names it), the tile
+    /// and the group, as a session kept them (those past the file's end
+    /// left out).
+    pub(crate) fn show(&mut self, page: Option<&str>, tile: Option<usize>, group: Option<usize>) {
+        let pages = [Page::General, Page::Terrain, Page::Rules, Page::Tiles, Page::Groups];
+        if let Some(p) = pages.into_iter().find(|p| Some(page_name(*p)) == page) {
+            self.page = p;
+        }
+        let (tiles, groups) = match &self.set {
+            Ok(t) => (t.tiles.len(), t.groups.len()),
+            Err(_) => (0, 0),
+        };
+        self.tile = tile.filter(|&t| t < tiles);
+        self.group = group.filter(|&g| g < groups);
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.saved != Some(self.undo.len())
     }
@@ -467,6 +483,17 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             ui.end_row();
         }
     });
+}
+
+/// A page's name, as its tab shows it (and a session keeps it).
+pub(crate) fn page_name(page: Page) -> &'static str {
+    match page {
+        Page::General => "General",
+        Page::Terrain => "Terrains and Crossers",
+        Page::Rules => "Painting Rules",
+        Page::Tiles => "Tiles",
+        Page::Groups => "Groups",
+    }
 }
 
 /// Why tile `i` is a hole, as the game reads the tileset (it draws such a

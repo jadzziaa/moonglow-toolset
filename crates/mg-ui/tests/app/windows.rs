@@ -1522,6 +1522,94 @@ fn side_editors_and_tools_open_again_with_the_module() {
     assert_eq!(after.len(), before.len() - 1, "{before:?} {after:?}");
 }
 
+/// What the side editors, a model view and Advanced Search showed opens
+/// again with them: a hak's selected resources, a 2DA's selected cell, a
+/// tileset's page and tile, a model view's camera, Advanced Search's
+/// conditions (two, of two kinds, kept to placeables).
+#[test]
+fn what_side_editors_a_model_and_a_search_showed_opens_again() {
+    use mg_module::hak_edit::{Hak, Source};
+    let (path, app, kept) = tabs_app("ui-open-tabs-views-more");
+    let dir = path.parent().unwrap().to_path_buf();
+    let hak_path = dir.join("stuff.hak");
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let other = ResKey::parse("other", ResType::TWODA).unwrap();
+    let mut hak = Hak::new();
+    let bytes = || Source::Bytes(SMALL_TABLE.to_vec().into());
+    hak.add_sources(vec![(key, bytes()), (other, bytes())]).unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let table_path = dir.join("loose.2da");
+    std::fs::write(&table_path, SMALL_TABLE).unwrap();
+    let set_path = dir.join("zzz01.set");
+    std::fs::write(&set_path, mg_set::edit::skeleton("zzz01").text()).unwrap();
+    let model = ResKey::parse("mg_box", ResType::MDL).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(model, b"not a model".to_vec());
+    m.save().unwrap();
+    let mut h = harness(app, 1400.0, 900.0);
+    h.state_mut().open_module(&path);
+    h.run_steps(2);
+    {
+        let app = h.state_mut();
+        let hak = mg_ui::hak_view::open_at(app, &hak_path).unwrap();
+        app.haks.iter_mut().find(|d| d.id == hak).unwrap().selected = [other].into();
+        let table = mg_ui::table_view::open_path(app, &table_path).unwrap();
+        app.tables.iter_mut().find(|d| d.id == table).unwrap().go_to(1, 1);
+        mg_ui::tileset_view::open_path(app, set_path.clone());
+        let set = app.tilesets.last_mut().unwrap();
+        set.change(|f| _ = mg_set::edit::add_tile(f, "zzz01_a01_01", ""));
+        set.change(|f| _ = mg_set::edit::add_tile(f, "zzz01_a02_01", ""));
+        set.save().unwrap();
+        set.page = mg_ui::tileset_view::Page::Tiles;
+        set.tile = Some(1);
+        let s = &mut app.advanced_search;
+        s.first.name = "mg_quest*".into();
+        s.and.push(mg_ui::search::Condition {
+            kind: mg_ui::search::Kind::Class,
+            row: Some(4),
+            levels: (3, 5),
+            ..Default::default()
+        });
+        s.object = Some(ResType::UTP);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Model(model)));
+    }
+    h.run_steps(4);
+    let orbit = mg_ui::area_view::Orbit {
+        target: glam::Vec3::new(1.0, 2.0, 3.0),
+        yaw: 0.5,
+        pitch: 0.25,
+        distance: 7.0,
+    };
+    let source = mg_ui::model_view::Source::Resource(model);
+    h.state_mut().model_views.get_mut(&source).expect("the model's view").orbit = orbit;
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let mut h = tabs_session(&path, &kept);
+    let app = h.state();
+    let hak = app.haks.iter().find(|d| d.hak.path.as_deref() == Some(&hak_path)).unwrap();
+    assert_eq!(hak.selected.iter().copied().collect::<Vec<_>>(), [other]);
+    let table =
+        app.tables.iter().find(|d| d.home == mg_ui::table_view::Home::File(table_path.clone()));
+    assert_eq!(table.unwrap().selected, Some((1, 1)));
+    let set = app.tilesets.iter().find(|d| d.path == set_path).unwrap();
+    assert_eq!((set.page, set.tile), (mg_ui::tileset_view::Page::Tiles, Some(1)));
+    let s = &app.advanced_search;
+    assert_eq!(s.first.name, "mg_quest*");
+    assert_eq!(s.and.len(), 1);
+    assert_eq!(
+        (s.and[0].kind, s.and[0].row, s.and[0].levels),
+        (mg_ui::search::Kind::Class, Some(4), (3, 5))
+    );
+    assert_eq!(s.object, Some(ResType::UTP));
+    // The model's camera, once its tab is drawn.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(model)));
+    h.run_steps(3);
+    let view = h.state().model_views.get(&source).expect("the model's view again");
+    assert_eq!(view.orbit, orbit);
+}
+
 /// A sample module with a long script and a conversation: an NPC's line
 /// with two replies, the first of them with an NPC's line under it.
 fn views_module(name: &str) -> (std::path::PathBuf, std::path::PathBuf, ResKey, ResKey) {

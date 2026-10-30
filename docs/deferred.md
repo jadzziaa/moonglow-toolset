@@ -1196,18 +1196,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
-- **What a module's tabs open again without:** a module opens again with
-  its tabs, side editors and tools, split windows and views as they were
-  (Options › General, `crates/mg-ui/src/open_tabs.rs`), a script's
-  bookmarks, the talk table's line and a Tile Properties still waiting
-  for its area's view among them. Not kept, each an optional field of
-  `open_tabs::View` written by `view_of` and taken at the view's first
-  draw (S each): what a side editor's view showed (a hak's selection, a
-  2DA's cell, a tileset's page) and a model view's camera. Advanced
-  Search's question (the next session's tab is empty) wants its
-  conditions kept as text, nine kinds with their rows, parts and ranges
-  (`search::Condition` has no serde form) (S–M). What is kept as it is
-  by design is Settled. (a builder's report, October 2026)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays

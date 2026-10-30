@@ -143,9 +143,10 @@ the module is opened again from its file.
   (a hak, a 2DA, a tileset) and tools open when a module was closed open
   again with it, in their order and places (windows split and where
   they were), the one in front in front, each view as it was left (an
-  area's camera, a script's scroll, cursor and bookmarks, a
-  conversation's selection, bookmarks and folds, the talk table's line,
-  a Properties window's page); kept in
+  area's camera, a model view's, a script's scroll, cursor and
+  bookmarks, a conversation's selection, bookmarks and folds, the talk
+  table's line, a Properties window's page, a hak's selection, a 2DA's
+  cell, a tileset's page and tile, Advanced Search's conditions); kept in
   Moonglow's data folder, not in the module (see
   [Modules](03-modules.md)). With none kept, the module opens
   on the area opened last, as above. Off, a module's tabs are neither

@@ -33,7 +33,10 @@ a directory), nasher projects (see below) and the game's campaign files
   its selected line, bookmarks and folded
   branches (if the conversation is as it was: changed since, outside
   Moonglow, they would be on other lines, and are let go), a Properties
-  window (and the Options) its page. A placed object's Properties are
+  window (and the Options) its page, a model view its camera, a hak its
+  selected resources, a 2DA its selected cell, a tileset its page, tile
+  and group, Advanced Search its conditions (what they found is not
+  searched for again: press **Search**). A placed object's Properties are
   found again by the object (its tag, its blueprint and where it
   stands), so that an area changed outside Moonglow since gives the
   same object's, or none; Tile Properties opens once its area's view
