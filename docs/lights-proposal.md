@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'Lights placed on the fly: a proposal'
-description: Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and two questions not yet measured.
+description: Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and the two questions measured in the client for way B's defaults.
 tags: [proposal, lights, placeables, areas, custom-content]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T01:34:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T01:56:06Z }
 sources:
   - id: request
     resource: human:august, relaying the builder dafena (Discord, 2026-10-07)
@@ -25,7 +25,7 @@ chosen first on 2026-10-07 and is built and measured: see
 reach, by generated content) is built too, on 2026-10-29, behind an option
 that is off by default: see [Way B](#way-b-lights-moonglow-generates). Way
 C (scripted effects) is not recommended. Two questions about the game's
-lights are [not measured yet](#not-measured-yet).
+lights are [measured](#measured-for-way-b) (2026-10-29).
 
 | Way | What the builder gets | What the module needs | State |
 | --- | --- | --- | --- |
@@ -97,16 +97,22 @@ nothing. This is what Moonglow already assumed for its own view, so its
 view was right; the ring in the area view is drawn at where the light
 ends.
 
-### Not measured yet
+### Measured for way B
 
-In the game client, with the oracle the renderer uses:
+In the game client (`reading_lights_on_creatures_and_placeables` in
+`client_render.rs`'s `batch3.rs`, 2026-10-29, 89.8193.37: the game's
+`inc_standard` painting each lit fragment with the number of lights its
+draw was handed, in a dark tic01 room):
 
-- whether a placeable's `LightColor` light and a model's light node light
-  creatures and placeables or only tiles;
-- how many dynamic lights the game draws at one place before dropping
-  some.
-
-Both bear on the defaults of way B.
+- a placeable's `LightColor` light ("Light, White") and a model's light
+  node (a box with one white node of radius 5) each light a creature (a
+  commoner) and a placeable (an armoire) beside them as they light the
+  floor: one light in each draw, none without them;
+- a draw takes as many lights as the client's Max Lights
+  (`graphics.lighting.max-lights`, 32 by default, 3 to 128), the most
+  important first: 40 "Light, White" in a ring 2 m across gave the floor
+  and the walls 32 lights each at the default and 40 at Max Lights 64.
+  So way B's lights are not dropped at one place before that setting.
 
 ## Way B: lights Moonglow generates
 
@@ -189,7 +195,9 @@ features.
 
 ## Order of what is left
 
-1. Measure the two questions above (the next client batch).
+Both questions are measured (2026-10-30, the third client batch) and way B is built,
+behind an option that is off by default (the owner's word, 2026-10-30); nothing
+of this proposal is left to do but the flicker, which the deferred list keeps.
 
 ## Decisions wanted
 

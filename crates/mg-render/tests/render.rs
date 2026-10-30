@@ -2067,6 +2067,57 @@ fn coplanar_meshes_of_one_material_keep_the_scene_s_order() {
     );
 }
 
+/// The authored include and pair of
+/// [`an_authored_glsl_pair_draws_on_this_platform_s_gpu`], written as the
+/// engine's shaders are.
+const PLATFORM_INC: &str = r#"
+#ifndef INC_PLATFORM
+#define INC_PLATFORM
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform mat4 m_texture;
+uniform vec4 screenParams;
+uniform vec4 materialFrontDiffuse;
+uniform int texture0Bound;
+uniform int numLights;
+uniform vec4 lightColor[MAX_NUM_LIGHTS];
+varying vec2 vUv;
+varying vec4 vTint;
+#endif
+"#;
+const PLATFORM_VS: &str = r#"
+#define SHADER_TYPE 1
+#include "inc_platform"
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+// (The engine's baked light: Moonglow has none, its zeros.)
+attribute vec4 vColor;
+void main ()
+{
+    vUv = mat2(m_texture) * vTcIn;
+    vTint = materialFrontDiffuse + vColor;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+const PLATFORM_FS: &str = r#"
+#define SHADER_TYPE 2
+#include "inc_platform"
+uniform sampler2D texUnit0;
+vec3 Sample(sampler2D tex, vec2 uv)
+{
+    return texture2D(tex, uv).rgb * float(texture0Bound);
+}
+void main ()
+{
+    vec3 c = Sample(texUnit0, vUv) * vTint.rgb;
+    for (int i = 0; i < numLights; i++)
+        c += lightColor[i].rgb;
+    // (The frame's block: the picture's width, 64 pixels.)
+    c.b += screenParams.x / 64.0;
+    gl_FragColor = vec4(c, 1.0);
+}
+"#;
+
 /// The game path on whatever GPU the platform has (CI's Windows runner
 /// draws it with Direct3D 12, its macOS one with Metal, as no game install
 /// is there for the stock programs): an authored pair written as the
@@ -2087,53 +2138,7 @@ fn an_authored_glsl_pair_draws_on_this_platform_s_gpu() {
     let info = gpu.device.adapter_info();
     let mut assets = TestAssets::default();
     assets.opaque("red", [255, 0, 0]);
-    let inc = r#"
-#ifndef INC_PLATFORM
-#define INC_PLATFORM
-uniform mat4 m_mv;
-uniform mat4 m_proj;
-uniform mat4 m_texture;
-uniform vec4 screenParams;
-uniform vec4 materialFrontDiffuse;
-uniform int texture0Bound;
-uniform int numLights;
-uniform vec4 lightColor[MAX_NUM_LIGHTS];
-varying vec2 vUv;
-varying vec4 vTint;
-#endif
-"#;
-    let vs = r#"
-#define SHADER_TYPE 1
-#include "inc_platform"
-attribute vec4 vPos;
-attribute vec2 vTcIn;
-// (The engine's baked light: Moonglow has none, its zeros.)
-attribute vec4 vColor;
-void main ()
-{
-    vUv = mat2(m_texture) * vTcIn;
-    vTint = materialFrontDiffuse + vColor;
-    gl_Position = m_proj * (m_mv * vPos);
-}
-"#;
-    let fs = r#"
-#define SHADER_TYPE 2
-#include "inc_platform"
-uniform sampler2D texUnit0;
-vec3 Sample(sampler2D tex, vec2 uv)
-{
-    return texture2D(tex, uv).rgb * float(texture0Bound);
-}
-void main ()
-{
-    vec3 c = Sample(texUnit0, vUv) * vTint.rgb;
-    for (int i = 0; i < numLights; i++)
-        c += lightColor[i].rgb;
-    // (The frame's block: the picture's width, 64 pixels.)
-    c.b += screenParams.x / 64.0;
-    gl_FragColor = vec4(c, 1.0);
-}
-"#;
+    let (inc, vs, fs) = (PLATFORM_INC, PLATFORM_VS, PLATFORM_FS);
     assets.shaders.insert("inc_platform".into(), inc.into());
     assets.shaders.insert("vslit".into(), vs.into());
     assets.shaders.insert("fslit".into(), fs.into());
@@ -5020,4 +5025,50 @@ fn fxc_refuses_the_loop_and_dxc_compiles_it() {
             eprintln!("DXC not run: MOONGLOW_DXC names no folder of dxc.exe and dxcompiler.dll")
         }
     }
+}
+
+/// A material naming a geometry program alone (`customshaderGS`, no
+/// `customshaderVS` and `FS`) is drawn as if it named none, by the stock
+/// pair, as the client draws it (`program_choice_in_the_client`'s "mtr gs
+/// alone", 2026-10-29); beside a pair the client runs it (one that emits
+/// nothing hid its card there), which wgpu has no stage for: reported, and
+/// drawn with Moonglow's own shader.
+#[test]
+fn a_geometry_program_named_alone_is_ignored_as_the_client_ignores_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.opaque("red", [255, 0, 0]);
+    assets.shaders.insert("inc_platform".into(), PLATFORM_INC.into());
+    for name in ["vslit", "vsmine"] {
+        assets.shaders.insert(name.into(), PLATFORM_VS.into());
+    }
+    for name in ["fslit", "fsmine"] {
+        assets.shaders.insert(name.into(), PLATFORM_FS.into());
+    }
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let mut draw = |mtr_text: &str| {
+        assets.materials.insert("red".into(), mg_image::mtr::Mtr::parse(mtr_text.as_bytes()));
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        (r.drawn.game, r.game_shader_failures().to_vec())
+    };
+    let (game, failures) = draw("texture0 red\ncustomshaderGS gsnothing\n");
+    assert_eq!((game, failures), (1, vec![]), "alone: the stock pair");
+    let (game, failures) = draw(
+        "texture0 red\ncustomshaderVS vsmine\ncustomshaderFS fsmine\ncustomshaderGS gsnothing\n",
+    );
+    assert_eq!(game, 0, "beside a pair: Moonglow's own shader");
+    assert!(failures.iter().any(|(what, _)| what == "gsnothing"), "{failures:?}");
 }

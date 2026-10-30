@@ -367,40 +367,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories by a talk-table line, in the game:** since
-  2026-10-29 Palette › Categories… names a category by a StrRef (Name
-  by StrRef, or Move Name to Talk Table into the module's own table),
-  as the game's own categories are named, and the `palcus.itp` built
-  on save keeps it. Not seen: the DM Creator showing a module's own
-  talk table's line (16777216 and up) as a category's name, in each
-  language. (S) (waits on a CD key for the sandboxed client, to join as
-  a DM: `joined_dm_creator_palette`, `MG_CLIENT_CDKEY`)
-- **A custom palette's names in the game** (a builder: after a save in
-  Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
-  colors wrong; Aurora's Custom palette showed the same, reading the
-  same files): the custom palettes (`<type>palcus.itp`) carried their
-  blueprints' and factions' names as UTF-8, and so did categories named
-  in Moonglow; the game reads them as its text: Windows-1252 for English
-  and the western languages, the language's codepage otherwise
-  (Windows-1250 for Polish). They now carry the
-  names' bytes as the module has them (not read and written again: a
-  color token keeps every byte), and a category is written in the
-  codepage of the game's language, refused where that cannot hold it.
-  Read back, names show in that codepage (a Polish module's in
-  Windows-1250, which also answers the palette half of GitHub issue
-  13), UTF-8 ones from before still as they were meant. A module is put
-  right by Build › Palettes (after 2.5.0 a save changes only the
-  entries of blueprints changed: a name left in UTF-8 stays so until its
-  blueprint changes), and categories left in UTF-8 are written in the
-  game's bytes there and in the module's own category lists (a test
-  spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
-  builds it). Not seen in the game's DM client here (the bytes are
-  tested; the client was not run as a DM): the DM client joins a
-  server; the harness is built (`mg_testkit::joined`, the server and the
-  client in one sandbox, `joined_dm_creator_palette`), and the sandboxed
-  client has no CD key to join with, so it waits on one
-  (`MG_CLIENT_CDKEY`, the owner's to give). Issue 13's other half: with
-  Polish the editing language, String Edit read and wrote a string's
+- **A custom palette's names in the game, issue 13's other half** (a
+  builder's "HipÃ³lito" in the DM's Creator, after a save in Moonglow, is
+  fixed and seen right in the DM client: the deferred sprint's log,
+  2026-10-29). With Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
   reads and writes the Windows-1252 languages' text as Windows-1250
@@ -468,8 +438,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     module's (a hak's, the override folder's, one there is no more);
     Build takes out those of the override folder and the ones there
     are no more, and keeps a hak's. (S)
-  - Not seen in the game's DM Creator (the files are compared with
-    Aurora's). (S)
   (El Grillo's and Jasperre's report, October 2026)
 
 ## Custom content data (2DAs and talk tables)
@@ -750,26 +718,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   include normalizing a zero vector; that half waits on a Windows and a
   Mac client, or the renderer's CI branch). (S) (Heed's report, October
   2026)
-- **Lights placed on the fly, what the client should read** ([the
-  proposal](lights-proposal.md)): way B is built behind its option
-  (Custom Light…, `mg_module::lights`; the server reads the hak, finds
-  the model in it and places the row: `engine_custom_light.rs`). The
-  client batch should read, as `placeable_light_uniforms` in
-  `client_render.rs` reads a light (the uniforms the client hands its
-  shader), a Custom Light's model in a scratch module's hak: whether it
-  lights a creature and a placeable beside it or only the tiles (its
-  node's `affectdynamic` 1, the window's "Lights creatures and
-  placeables too"; and with it 0), and how many such lights the game
-  draws at one place (one to forty within 10 m of the camera, of
-  priorities 1 to 5), which says what the window's Priority should
-  start at. Either answer changes a default of `LightSpec`, not what is
-  written. Not built, waiting on the same reading: a flicker (the
-  node's color or multiplier keyed in the model's `default` animation,
-  which the client may or may not play on a static placeable). Rows
-  and models no light uses any more stay in the hak, as a row's number
-  is what placed lights know it by (settle?: proposed by the sprint on
-  2026-10-29, the owner's to say). (S, waits on the client batch)
-  (from builders' reports after 1.16.2)
+- **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
+  way B is built behind its option (Custom Light…, `mg_module::lights`;
+  the server reads the hak, finds the model in it and places the row:
+  `engine_custom_light.rs`), and the client answered the proposal's two
+  questions (2026-10-29, the third client batch): a `LightColor` light
+  and a model's light node light creatures and placeables as they light
+  tiles, so the window's "Lights creatures and placeables too" starts
+  ticked; a draw takes as many lights as the client's Max Lights (32 by
+  default). Not built: a flicker (the node's color or multiplier keyed in
+  the model's `default` animation), which waits on reading whether the
+  client plays that animation on a static placeable. Rows and models no
+  light uses any more stay in the hak, as a row's number is what placed
+  lights know it by (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say). (S, waits on a client reading) (from builders'
+  reports after 1.16.2)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
@@ -893,12 +856,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client reading: an ASCII mesh with a mirrored UV seam under a render
     hint, its tangents written as colour through a patched include,
     beside the same model compiled)
-  - Verify's `shader-pair` reports a material naming one program alone;
-    whether the engine also ignores a lone `customshaderGS`, and what it
-    does with a geometry program at all, is not checked (no content has
-    one; Moonglow fails one, reported, and draws its own). (S) (waits on
-    a client reading: an MTR naming `customshaderGS` alone, and one
-    naming it beside a pair, on a card)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
     until they are asked for anew: `set_game_shaders` changes the
@@ -958,11 +915,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     other way, beside `envmap+mesh alpha`); which mesh of a bucket
     gives its value isn't plain from these (the first of `mgp_plain`'s
     and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
-  - A BioWare DDS's alpha is taken from its header's alpha mean (below
-    1: alpha), not read from the client: 22 of the game's 3,717
-    four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
-    drawn solid. (S) (waits on a client reading: one of the 22 on a card
-    with a transparency hint, cut or solid)
   - Not read in the client: which map an item on the ground reflects (it
     draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
     it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
@@ -974,11 +926,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     with their transparent texels black, and its 21 materials naming
     maps without a render hint. (S) (waits on a client reading: a TDoD
     area with both, beside the client's picture)
-  - `program_choice_in_the_client` reads the cards by where they should
-    be on the client's picture, so a card behind something reads as
-    that: the cards stand clear of the tcn01 tile's tree, and one
-    straddling its cut (DXT5 alpha) isn't read. (S) (waits on the client
-    batch: that card moved clear and read)
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
@@ -1130,13 +1077,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in `shadows_look`; [the research note](research/notes_shaders.md) §G),
   and creatures' and lights' shadows (the Shadows button's menu, done
   2026-10-28). Left:
-  - the lights' shadows' darkness was measured at one distance from one
-    lamp: the opacity times the plane's fade there, which a fall-off with
-    the distance from the light (`shadowradius`) would look alike to (S)
-    (waits on a client reading: a creature's light shadow at two more
-    distances from the lamp);
-  - which light of two equally near the client takes (Moonglow: the
-    first), how many creatures cast the lights' shadows at once
+  - the lights' shadows fall off with the lamp's distance, where
+    Moonglow's darkness is the opacity times the plane's fade alone: an
+    ogre's shadow from a lamp post (row 73) 1.5, 3 and 5 m north of it
+    darkens the floor just south of its feet (the same place on the
+    screen) by 0.50, 0.53 and 0.38 (medians; `reading_light_shadows` in
+    `client_render.rs`'s `batch3.rs`, 2026-10-29), and grows longer as
+    the lamp goes further (the rule, `shadowradius` or the light's reach,
+    not fitted: S);
+  - which light of two equally near the client takes isn't the first of
+    the area's (Moonglow's): with two lamp posts 2.5 m west and east of
+    the ogre, in either order in the area's file, it cast from the west
+    one, and of two north and south, from the south one (the ogre facing
+    south; the server places all three where they were put, so it likely
+    measures from the creature's model, not its feet: not read further);
+    how many creatures cast the lights' shadows at once
     (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
     PC's own light at night (Moonglow places no PC) (S) (waits on a
     client reading);
@@ -1483,14 +1438,6 @@ contribution itself states as not done or not checked.
     pulse's period is not measured either. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: a still preview shows the
     pulse's peak.)
-  - *Two readings of a tie in a number's text disagree*: the second
-    client batch read 0.5 and 2.5 at no places as 0 and 2 (ties to even,
-    which the preview does now); the contributor's reading of 2026-10-08
-    (`preview/tests/native.rs`, its window not kept) had 42.125 and
-    -42.125 at 2 places as 42.13 and -42.13 (away from zero), which ties
-    to even makes 42.12. For the next client batch, in
-    `nui_readings_in_the_client`'s numbers window: 42.125, -42.125 and
-    0.125 at 2 places, and 0.5 at 0; read the text drawn. (S)
   - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
     places neighbors apart: it finds none but where the game would lay the
     window out otherwise, which it can't know. (settle?: proposed by the
@@ -1711,18 +1658,6 @@ contribution itself states as not done or not checked.
 
 ## NWSync publishing
 
-- **No download tested:** the repository matches neverwinter.nim's, but a
-  game client fetching it from a server isn't run. The client's sandbox
-  has no network but a loopback of its own (`bwrap --unshare-net` brings
-  `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
-  web server, `nwserver` naming it and the client started together in
-  one sandbox test it: built on 2026-10-29 (`mg_testkit::joined`,
-  `tools/nwclient/run-server-and-client.sh`; `joined_nwsync_download`
-  publishes Chess with a hak and a talk table and joins). The sandboxed
-  client has no CD key (no Steam: Multiplayer asks for one, `+connect`
-  ends in "Your CD Key is unauthorized"), so the test skips until
-  `MG_CLIENT_CDKEY` names one. (S, waits on the owner: a `cdkey.ini` for
-  the sandbox, or Steam's API let through in that mode)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
   doesn't. Read in single player (2026-10-29,
   `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a
@@ -1732,8 +1667,13 @@ contribution itself states as not done or not checked.
   table for her, where the server's `GetStringByStrRef` with
   `GENDER_FEMALE` reads the feminine one; so the client's own lookups
   don't use it, and only scripts' would. Whether a client downloading
-  by NWSync is the same waits on the download test above (its CD key).
-  (S)
+  by NWSync is the same isn't read: the download is (2026-10-29,
+  `joined_nwsync_download`), but the client then ends itself ("We
+  disconnected you from the server while NWSync is running", exit 0,
+  its own restart not seen in the sandbox), and started again it finds
+  the server, shows the character list and ends again; a player in
+  the game after a download waits on that restart in
+  `tools/nwclient/run-server-and-client.sh`. (S)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
   so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
@@ -2083,6 +2023,12 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A geometry program beside a material's pair** (`customshaderGS` with
+  `customshaderVS` and `FS`): the client runs it (one that emits nothing
+  hid its card, `program_choice_in_the_client`, 2026-10-29); wgpu has no
+  geometry stage, so Moonglow draws its own shader there and reports it.
+  (Named alone, the client ignores it, and so does Moonglow since then.)
 
 - **A creature's Equipment in a narrow window** (about 480 points, as
   a placed creature's Properties open beside the area) shows each slot's

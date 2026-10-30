@@ -39,7 +39,7 @@ const fn card(name: &'static str, bitmap: &'static str, extra: &'static str) -> 
 }
 
 /// The cards, west to east, in rows of twelve from the ground up.
-const CARDS: [Card; 36] = [
+const CARDS: [Card; 40] = [
     card("plain", "mgp_plain", ""),
     card("alpha", "mgp_alpha", ""),
     card("opaque32", "mgp_opq32", ""),
@@ -76,7 +76,23 @@ const CARDS: [Card; 36] = [
     card("dds dxt1 cut", "mgp_d1c", ""),
     card("dds dxt5 opaque", "mgp_d5o", ""),
     card("dds dxt5 alpha", "mgp_d5a", ""),
+    // (The third client batch's: a BioWare DDS whose header's alpha mean
+    // is 1 though its west half is see-through, with and without a
+    // transparency hint; a material naming a geometry program that draws
+    // nothing, alone and beside a pair.)
+    card("bioware dds mean 1", "mgp_bw1", ""),
+    card("bioware dds mean 1+hint", "mgp_bw1", "  transparencyhint 1\n"),
+    card("mtr gs alone", "mgp_plain", "  materialname mgp_gs1\n"),
+    card("mtr gs+pair", "mgp_plain", "  materialname mgp_gs2\n"),
 ];
+
+/// Where a card is read on the client's picture, from its west edge: its
+/// middle, or for a texture see-through in its west half, the middle of
+/// its east half (the card straddling its own cut read the board behind
+/// it).
+fn read_at(c: &Card) -> f32 {
+    if matches!(c.bitmap, "mgp_d1c" | "mgp_d5a" | "mgp_bw1") { 0.6 } else { 0.4 }
+}
 
 /// The cards without texture coordinates are a model of their own
 /// (`mg_notv`), so that the rest show if the client refuses it.
@@ -157,7 +173,7 @@ fn cards_model(name: &str, which: &dyn Fn(&Card) -> bool, board: bool) -> String
         quads.push(Quad {
             name: "board".into(),
             at: [-6.0, 0.05, 0.0],
-            corners: [[0.0, 0.0, 0.0], [12.0, 0.0, 0.0], [12.0, 0.0, 3.1], [0.0, 0.0, 3.1]],
+            corners: [[0.0, 0.0, 0.0], [12.0, 0.0, 0.0], [12.0, 0.0, 4.1], [0.0, 0.0, 4.1]],
             bitmap: "mgp_decal",
             extra: "",
             tverts: true,
@@ -273,6 +289,21 @@ fn dds(fourcc: &[u8; 4], block: impl Fn(u32, u32) -> Vec<u8>) -> Vec<u8> {
     h
 }
 
+/// A BioWare DDS (no magic: width, height, 4 channels, the first level's
+/// size and the alpha mean, then DXT5 levels) of 64 by 64 of `block`s.
+fn bioware_dds(alpha_mean: f32, block: impl Fn(u32, u32) -> Vec<u8>) -> Vec<u8> {
+    let standard = dds(b"DXT5", block);
+    // (The standard file's levels, after its 128 bytes of header.)
+    let levels = &standard[128..];
+    let mut h = Vec::new();
+    for v in [64u32, 64, 4, 64 * 64] {
+        h.extend(v.to_le_bytes());
+    }
+    h.extend(alpha_mean.to_le_bytes());
+    h.extend(levels);
+    h
+}
+
 /// A DXT1 block: red, opaque (four colors); or wholly see-through (three
 /// colors and transparent, every texel the transparent one).
 fn dxt1(see_through: bool) -> Vec<u8> {
@@ -303,6 +334,7 @@ fn write_textures(over: &Path) {
     w("mgp_d1c.dds", dds(b"DXT1", |x, of| dxt1(x * 2 < of)));
     w("mgp_d5o.dds", dds(b"DXT5", |_, _| dxt5(255)));
     w("mgp_d5a.dds", dds(b"DXT5", |x, of| dxt5(if x * 2 < of { 0 } else { 255 })));
+    w("mgp_bw1.dds", bioware_dds(1.0, |x, of| dxt5(if x * 2 < of { 0 } else { 255 })));
     for name in ["mgp_alpha", "mgp_punch", "mgp_enva", "mgp_bumpa", "mgp_decala"] {
         w(&format!("{name}.tga"), disc_tga());
     }
@@ -328,9 +360,22 @@ fn write_textures(over: &Path) {
         ("mgp_mh", "renderhint NormalAndSpecMapped\ntexture0 mgp_plain\n"),
         ("mgp_mt", "texture0 mgp_plain\ntransparency 1\n"),
         ("mgp_ms", "texture0 mgp_plain\ntexture2 mgp_plain\n"),
+        ("mgp_gs1", "texture0 mgp_plain\ncustomshaderGS mgp_gs\n"),
+        (
+            "mgp_gs2",
+            "texture0 mgp_plain\ncustomshaderVS vslit\ncustomshaderFS fslit\n\
+             customshaderGS mgp_gs\n",
+        ),
     ] {
         w(&format!("{name}.mtr"), mtr.as_bytes().to_vec());
     }
+    // A geometry program that emits nothing: a mesh drawn through it is
+    // not seen.
+    w(
+        "mgp_gs.shd",
+        b"layout(triangles) in;\nlayout(triangle_strip, max_vertices = 3) out;\nvoid main()\n{\n}\n"
+            .to_vec(),
+    );
 }
 
 /// The programs marked, vertex and fragment, by name (their numbers are
@@ -735,7 +780,7 @@ fn program_choice_in_the_client() {
     let mut seen: Vec<(String, Mark)> = Vec::new();
     for (i, c) in CARDS.iter().enumerate() {
         let (x, z) = card_corner(i);
-        let (sx, sy) = screen(Vec3::new(x0 + x + 0.4, y0, z + 0.4));
+        let (sx, sy) = screen(Vec3::new(x0 + x + read_at(c), y0, z + 0.4));
         spot(sx, sy);
         let marks = marks_at(&client, sx, sy, 4);
         if let Some((m, share)) = marks.first().filter(|(_, share)| *share > 0.9) {
@@ -898,6 +943,12 @@ fn program_choice_in_the_client() {
     let mut wrong = Vec::new();
     for (node, m) in &seen {
         let card = &CARDS[node[1..].parse::<usize>().unwrap()];
+        if card.name == "mtr gs+pair" {
+            // (The client runs the geometry program, which emits nothing:
+            // the board behind shows. wgpu has no geometry stage, so
+            // Moonglow draws its own shader there: settled.)
+            continue;
+        }
         let theirs = (
             vs.get(usize::from(m.vs) - 1).cloned().unwrap_or_default(),
             fs.get(usize::from(m.fs) - 1).cloned().unwrap_or_default(),

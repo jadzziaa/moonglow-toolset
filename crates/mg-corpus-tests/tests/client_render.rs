@@ -54,6 +54,8 @@ use common::{SETTINGS, client_capture, client_screenshot, compile, save_png};
 mod armourer;
 #[path = "client_render/batch2.rs"]
 mod batch2;
+#[path = "client_render/batch3.rs"]
+mod batch3;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]

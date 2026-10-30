@@ -234,8 +234,9 @@ struct Slots {
     /// drawn with it where the game's shaders are on
     /// ([`Renderer::game_shaders`]).
     custom: Option<(String, String)>,
-    /// The MTR names a geometry program (`customshaderGS`), which wgpu has
-    /// no stage for: drawn with Moonglow's own shader.
+    /// The MTR names a geometry program (`customshaderGS`) beside its pair,
+    /// which wgpu has no stage for: drawn with Moonglow's own shader. (One
+    /// named alone is ignored, as the client ignores it.)
     geometry: Option<String>,
     /// The MTR's `twosided`: its faces are drawn from behind too. Nothing
     /// else shows a face's back in the game: not a cut-out texture
@@ -1302,11 +1303,13 @@ impl Renderer {
             out.params = mtr.params.clone();
             out.custom =
                 crate::game::custom_pair(mtr.shader_vs.as_deref(), mtr.shader_fs.as_deref());
+            // (Named alone, without a pair, the client ignores it and draws
+            // the stock programs: `program_choice_in_the_client`.)
             out.geometry = mtr
                 .shader_gs
                 .as_deref()
                 .map(|g| g.trim().to_ascii_lowercase())
-                .filter(|g| !g.is_empty() && g != "null");
+                .filter(|g| !g.is_empty() && g != "null" && out.custom.is_some());
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
