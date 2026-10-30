@@ -58,6 +58,8 @@ mod batch2;
 mod batch3;
 #[path = "client_render/batch4.rs"]
 mod batch4;
+#[path = "client_render/batch5.rs"]
+mod batch5;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]

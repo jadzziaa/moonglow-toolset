@@ -622,15 +622,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   copy the load order puts over them, with each shader's color: that
   line from the next release says which of the two it was. (S) (Heed's
   reports, October 2026)
-- **A custom shader's tangents, not every case read:** the client's
-  rule (tangents from the model or a render hint, else zeros) was read
-  with an ASCII model without tangents, with and without an MTR
-  `renderhint`; a model that names `texture1` itself without a hint,
-  and a compiled one, under a custom pair, weren't tried, nor the black
-  of a normal map without tangents on Windows and macOS (the stock
-  include normalizing a zero vector; that half waits on a Windows and a
-  Mac client, or the renderer's CI branch). (S) (Heed's report, October
-  2026)
+- **A custom shader's tangents, the black on Windows and macOS:** the
+  client's rule (tangents from the model or a render hint,
+  `NormalAndSpecMapped` or `NormalTangents`, the model's or its MTR's,
+  else zeros) is read for every case on Linux (`reading_tangents`,
+  2026-10-30: `texture1` named in the model alone gives none, nor a
+  model compiled by nwnmdlcomp with its hint, which it doesn't keep);
+  the black of a normal map without tangents (the stock include
+  normalizing a zero vector) was not seen on Windows or macOS (waits on
+  a Windows and a Mac client, or the renderer's CI branch). (S) (Heed's
+  report, October 2026)
 - **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
   way B is built behind its option (Custom Light…, `mg_module::lights`;
   the server reads the hak, finds the model in it and places the row:
@@ -740,19 +741,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     framebuffer proposal](framebuffer-proposal.md)) are made after the
     solid meshes only. A material's `sample_framebuffer` (TDoD's two
     flow MTRs; their programs read no copy) is read and not drawn late,
-    after the shadows, as the engine draws it (S); whether the client
-    copies again after the water (a see-through mesh or a particle over
-    water sees the solid meshes only) wasn't read (S) (waits on a
-    client reading: a see-through mesh reading `texFBColor` over water,
-    whether the water shows in its copy).
+    after the shadows, as the engine draws it (S). Over water (read
+    2026-10-30, `reading_framebuffer_copy_over_water`: cards painting
+    the copy above them): a `sample_framebuffer` mesh's copy holds no
+    water in the client, as Moonglow's; a solid or `transparency 1`
+    mesh's holds the water in the client (likely the frame before's last
+    copy: the camera was still), where Moonglow gives it the solid
+    meshes' copy. Giving those the frame before's picture (the area
+    view keeps none; a picture drawn once has no frame before) (S–M).
   - The tangents the renderer makes (a mesh with a render hint and none
-    of its own) are summed per face (`made_tangents`), where the game's
-    compiler copies a vertex whose handedness flips (`engine_tangents`,
-    MDL-MESH-043): whether the client makes an ASCII model's so at load
-    is not known, and a seam may shade otherwise. (S) (waits on a
-    client reading: an ASCII mesh with a mirrored UV seam under a render
-    hint, its tangents written as colour through a patched include,
-    beside the same model compiled)
+    of its own) are summed per face (`made_tangents`): across a
+    mirrored UV seam they run smoothly where the client splits the seam
+    at load as the game's compiler does (a vertex whose handedness flips
+    copied, `engine_tangents`, MDL-MESH-043: read 2026-10-30,
+    `reading_tangents`, an ASCII card with a mirrored seam under a
+    custom pair painting its tangent and handedness, sharp in the
+    client). Copying the vertices in the renderer touches every reader
+    of a mesh's vertices by the model's numbering (skins, dangly meshes,
+    vertex animation). (S–M)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
     until they are asked for anew: `set_game_shaders` changes the
@@ -846,13 +852,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   meshes and particles, read in the client (`surfaces_in_the_client`)
   and drawn with the game's programs or kept Moonglow's. (from M5,
   2026-10-21)
-  - **Shiny water is the game's** (`vswater`/`fswater` with the
-    framebuffer's copies) with the Shaders switch on: a rural area's far
-    water 10.9 of 255 from the client against Moonglow's own 12.6,
-    TDoD's fountain 10.6 against 11.7, a standing card 14.6 against
-    57.1. Still 10.9 away: not looked into. (S) (waits on the client
-    batch: the far water's pixels against Moonglow's, by part: the
-    reflection, the refraction's copy, the fog)
   - **Soft particles** fade as the client's with the Shaders switch on
     (`particleSoftness` 10 over the emitter's larger size, a `Linked`
     emitter's and a lightning bolt's too: read on 2026-10-30,
@@ -860,10 +859,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     made soft); a Lighten particle's foot fades a little more than the
     client's (6.2 of 255 away over its last rows). Moonglow's own
     particle shader (the switch off) doesn't fade. (S)
-  - **The sky's fade** (the horizon's band in the fog's colour) stays
-    Moonglow's: what the engine draws it with and gives it
-    (`globalColor`, its blending) wasn't read; the skybox is the game's
-    `vsvt`/`fst`. (S) (waits on a client reading)
   - **Particles' size:** a still emitter's square particles are drawn
     upright, as in the client, 28 pixels a side against the client's 30
     in `surfaces_in_the_client` (the fitted camera's error, or the size:

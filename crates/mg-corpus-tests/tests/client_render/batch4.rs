@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 /// A placeable's model `name` of a root dummy and `nodes` (ASCII nodes
 /// whose parent is the root).
-fn probe_model(name: &str, nodes: &[String]) -> String {
+pub(super) fn probe_model(name: &str, nodes: &[String]) -> String {
     format!(
         "newmodel {name}\nsetsupermodel {name} NULL\nclassification Character\n\
          setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\n\
@@ -30,7 +30,7 @@ fn probe_model(name: &str, nodes: &[String]) -> String {
 /// [`TURNED_DISTANCE`] and [`TURNED_PITCH`] were fitted for (f, 12, 45):
 /// 0.92 of the distance, a degree less pitch; not fitted for these):
 /// `moonglow.png`, `moonglow_on.png`.
-fn shoot_close(
+pub(super) fn shoot_close(
     r: Reading,
     body: &str,
     settings: &str,
@@ -78,14 +78,14 @@ fn shoot_close(
 
 /// An emitter of [`probe_model`] `model` at (x, y, z): 12 cm white squares
 /// rising 1 m/s for 3 s unless `extra` says otherwise (later keywords win).
-fn emitter(model: &str, name: &str, at: [f32; 3], extra: &str) -> String {
+pub(super) fn emitter(model: &str, name: &str, at: [f32; 3], extra: &str) -> String {
     probe_emitter(name, at, extra).replace("parent plc_a01", &format!("parent {model}"))
 }
 
 /// The bounding box (x0, y0, x1, y1) of the pixels of `img` within the
 /// rectangle `r` (fractions, top-left origin) that `keep` keeps, and how
 /// many there are.
-fn extent(img: &Rgba, r: [f32; 4], keep: &dyn Fn([u8; 3]) -> bool) -> ([u32; 4], usize) {
+pub(super) fn extent(img: &Rgba, r: [f32; 4], keep: &dyn Fn([u8; 3]) -> bool) -> ([u32; 4], usize) {
     let (w, h) = (img.width as f32, img.height as f32);
     let mut b = [u32::MAX, u32::MAX, 0, 0];
     let mut n = 0;
@@ -299,7 +299,7 @@ fn reading_motion_blur_single() {
 }
 
 /// `ascii` (a model named `name`) compiled by nwnmdlcomp in `dir`.
-fn nwnmdlcomp(dir: &Path, name: &str, ascii: &str) -> Vec<u8> {
+pub(super) fn nwnmdlcomp(dir: &Path, name: &str, ascii: &str) -> Vec<u8> {
     let tool = mg_testkit::nwn_tool("nwnmdlcomp").expect("nwnmdlcomp");
     let work = dir.join(format!("compile_{name}"));
     std::fs::create_dir_all(&work).unwrap();
