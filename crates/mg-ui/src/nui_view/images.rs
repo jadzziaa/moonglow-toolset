@@ -61,13 +61,8 @@ fn from_file(
     };
     let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
     let restype = ResType::from_extension(&ext).ok_or(why)?;
-    let stem: String = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
-        .collect();
+    let stem = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+    let stem = mg_core::ResRef::name_of(&stem);
     let stem = if stem.trim_matches('_').is_empty() { "picture".to_owned() } else { stem };
     for n in 1..10_000 {
         let suffix = if n == 1 { String::new() } else { format!("_{n}") };

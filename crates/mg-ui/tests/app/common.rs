@@ -62,6 +62,29 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
 }
 
+/// The game's data at `root`, in English, with no user folder: read
+/// before an application is (to make a module for it).
+pub(crate) fn game_data(root: &std::path::Path) -> mg_rules::GameData {
+    mg_rules::GameData::open(&mg_resman::GameInstall::new(root, None, "en")).unwrap()
+}
+
+/// [`harness`] at kittest's own size, 800 by 600 points: the window as
+/// most of its tests draw it.
+pub(crate) fn window_harness(app: Moonglow) -> Harness<'static, Moonglow> {
+    harness(app, 800.0, 600.0)
+}
+
+/// A scratch user folder for the game: `dir`'s `user`, with `subfolders`
+/// (`hak`, `override`, `tlk`...) made in it.
+pub(crate) fn user_folder(dir: &std::path::Path, subfolders: &[&str]) -> std::path::PathBuf {
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    for sub in subfolders {
+        std::fs::create_dir_all(user.join(sub)).unwrap();
+    }
+    user
+}
+
 /// The GPU for a test that draws (the area view, a model view, a
 /// preview): takes it for the rest of the test (`mg_testkit::gpu::hold`,
 /// a few devices open at a time in this binary) and makes a render state

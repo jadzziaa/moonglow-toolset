@@ -163,6 +163,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     // row without one is `DELETED`, `INVALID_RACE`, CEP's `CEP_RESERVED`.)
     let races = f.choices("racialtypes", Some("Name"), None);
     let appearances = f.choices("appearance", Some("STRING_REF"), Some("LABEL"));
+    let appearances = f.appearance_rows(mg_rules::ObjectKind::Creature, &appearances);
     let phenotypes = f.choices("phenotype", Some("Name"), Some("Label"));
     let genders = f.choices("gender", Some("NAME"), Some("GENDER"));
     egui::Grid::new(("utc-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {

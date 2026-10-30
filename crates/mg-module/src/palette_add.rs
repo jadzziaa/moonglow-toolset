@@ -66,7 +66,7 @@ pub fn new_resref_named(
     while n < 999 && used(n) {
         n += 1;
     }
-    (n + 1..1000).map(named).find(|name| !taken(name)).and_then(|name| ResRef::from_str(&name).ok())
+    naming.numbered(stem, n + 1, taken)
 }
 
 /// A resref for a blueprint's Edit Copy, as Aurora's offers one (captured
@@ -86,10 +86,7 @@ pub fn copy_resref_named(
     let n: u32 = base[stem.len()..].parse().unwrap_or(0);
     let stem = &stem[..stem.len().min(13)];
     let stem = if stem.is_empty() { "blueprint" } else { stem };
-    (n + 1..1000)
-        .map(|n| naming.fit(stem, &format!("{n:03}")))
-        .find(|name| !taken(name))
-        .and_then(|name| ResRef::from_str(&name).ok())
+    naming.numbered(stem, n + 1, taken)
 }
 
 /// The fields a placed object has and its blueprint does not: where it

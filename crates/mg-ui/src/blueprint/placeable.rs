@@ -67,6 +67,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.choices("placeables", Some("StrRef"), Some("Label"));
+    let appearances = f.appearance_rows(mg_rules::ObjectKind::Placeable, &appearances);
     egui::Grid::new(("utp-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");

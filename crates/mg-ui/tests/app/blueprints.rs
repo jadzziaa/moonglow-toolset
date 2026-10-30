@@ -303,8 +303,14 @@ fn an_item_property_s_spells_have_a_filter() {
         .find(|y| *y > top)
         .expect("the chosen spell's row");
     assert!(row - top < 260.0, "the chosen spell is {} under the Filter field", row - top);
-    // (A potion's spells: those iprp_spells allows on a potion.)
+    // (A potion's spells: those iprp_spells allows on a potion. Only the
+    // rows in sight are laid out: Barkskin, far above, is found by the
+    // filter; Escape clears it.)
+    assert_eq!(h.query_all_by_label_contains("Barkskin").count(), 0, "out of sight");
+    type_into_hint(&mut h, "Filter", "barks");
     assert!(h.query_all_by_label_contains("Barkskin").count() > 0, "the list is whole");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
     type_into_hint(&mut h, "Filter", "bull's");
     assert!(h.query_all_by_label_contains("Bull's Strength").count() > 0, "the list is narrowed");
     assert!(h.query_all_by_label_contains("Barkskin").count() == 0, "to the spells that match");
@@ -613,9 +619,9 @@ fn door_editor_sets_appearance_lock_and_transition() {
     assert_eq!(field(&mut h, &key).integer("Appearance"), Some(0));
     h.get_by_value(&generic[0].text).click();
     h.run();
-    // (A long list, by name: the row scrolled to.)
-    h.get_by_label(&generic[1].text).scroll_to_me();
-    h.run();
+    // (A long list, by name, laid out where in sight: the row found by
+    // the filter.)
+    type_into_hint(&mut h, "Filter", &generic[1].text);
     h.get_by_label(&generic[1].text).click();
     h.run();
     let s = field(&mut h, &key);
@@ -706,7 +712,10 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
     h.run_steps(2);
-    let choice = h.get_by_label("Missing_Thing").rect().center();
+    // The list marks the row with no model (dansen9191's report).
+    h.render().expect("render").save(shots.join("list.png")).unwrap();
+    let marked = format!("Missing_Thing{}", mg_rules::appearance::NO_MODEL);
+    let choice = h.get_by_label(&marked).rect().center();
     h.hover_at(choice);
     press(&h, choice, true, egui::Modifiers::NONE);
     press(&h, choice, false, egui::Modifiers::NONE);

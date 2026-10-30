@@ -5072,3 +5072,46 @@ fn a_geometry_program_named_alone_is_ignored_as_the_client_ignores_it() {
     assert_eq!(game, 0, "beside a pair: Moonglow's own shader");
     assert!(failures.iter().any(|(what, _)| what == "gsnothing"), "{failures:?}");
 }
+
+/// A cut-out (`blending punchthrough`) whose mesh's alpha is under 1 is
+/// drawn solid and cut, not blended, as the client draws one
+/// (`client_render.rs`'s `reading_see_through_cut_out`: a disc of `alpha
+/// 0.5` opaque, the floor not showing through), whichever shader draws
+/// it; an instance drawn see-through still is.
+#[test]
+fn a_cut_out_s_mesh_alpha_does_not_blend_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("cut", [200, 200, 200, 255]);
+    assets.txis.insert("cut".into(), mg_image::txi::Txi::parse(b"blending punchthrough\n"));
+    let area = AreaLight { ambient: Vec3::splat(0.5), diffuse: Vec3::ZERO, ..Default::default() };
+    for game in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game;
+        let mut shot = |alpha: f32, opacity: f32| {
+            let mut m = quad();
+            let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+            mesh.textures[0] = Some("cut".into());
+            m.nodes[1].controllers.push(mg_mdl::Controller::constant("alpha", &[alpha]));
+            let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+            let camera = Camera {
+                eye: Vec3::new(0.0, -0.5, 4.0),
+                target: Vec3::ZERO,
+                fov_y: 0.8,
+                near: 0.1,
+                far: 100.0,
+            };
+            let instance = Instance { opacity, ..Instance::new(model, Mat4::IDENTITY) };
+            let scene = Scene {
+                instances: vec![instance],
+                area,
+                background: [1.0, 0.0, 0.0],
+                ..Default::default()
+            };
+            r.render_image(&gpu, &assets, &scene, &camera, 32, 32).pixel(16, 16)
+        };
+        let solid = shot(1.0, 1.0);
+        assert_eq!(shot(0.5, 1.0), solid, "mesh alpha 0.5: solid (game's programs: {game})");
+        assert_ne!(shot(1.0, 0.5), solid, "an instance at half opacity is blended ({game})");
+    }
+}

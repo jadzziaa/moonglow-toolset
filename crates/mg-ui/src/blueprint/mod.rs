@@ -576,6 +576,20 @@ impl Form<'_> {
         crate::widgets::table_choices(self.app.game.as_deref(), table, name, label)
     }
 
+    /// An Appearance list's rows (`choices`, of an object of `kind`), each
+    /// with no model to draw marked so after its name
+    /// ([`mg_rules::GameData::appearance_choices`]).
+    pub(crate) fn appearance_rows(
+        &self,
+        kind: mg_rules::ObjectKind,
+        choices: &[Choice],
+    ) -> std::sync::Arc<Vec<Choice>> {
+        match self.app.game.as_deref() {
+            Some(game) => game.appearance_choices(kind, choices),
+            None => std::sync::Arc::new(choices.to_vec()),
+        }
+    }
+
     /// A text field of a localized string, in the talk table's color where
     /// that is where its text is from, with the StrRef beside it.
     fn loc_text(

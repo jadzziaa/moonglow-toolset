@@ -842,8 +842,7 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
     let Some(root) = mg_testkit::nwn_root() else { return };
     let dir = mg_testkit::scratch_dir("ui-plugin-outside");
     let path = sample_module(&dir);
-    let (user, export) = (dir.join("user"), dir.join("export"));
-    std::fs::create_dir_all(&user).unwrap();
+    let (user, export) = (user_folder(&dir, &[]), dir.join("export"));
     std::fs::create_dir_all(&export).unwrap();
     std::fs::write(export.join("note.txt"), "from the folder").unwrap();
     let dialogs = NoDialogs { folders: vec![export], ..Default::default() };

@@ -584,6 +584,19 @@ struct Drawn {
     follows: bool,
     /// The Shaders switch.
     shaders: bool,
+    /// The placed sounds' ranges drawn (Sound Ranges).
+    sound_ranges: Vec<SoundRange>,
+}
+
+/// A positional sound's distances as Sound Ranges draws them in the
+/// picture ([`sound_range_lines`]): its place in the GIT's list, its
+/// `MinDistance` and `MaxDistance`, and whether it is selected.
+#[derive(Debug, Clone, PartialEq)]
+struct SoundRange {
+    index: usize,
+    min: f32,
+    max: f32,
+    chosen: bool,
 }
 
 /// How long the area's picture is kept while nothing but its animations
@@ -2990,6 +3003,7 @@ fn viewport(
     let clock = module_clock(app);
     let background = app.background_jobs;
     let shaders = app.game_shaders();
+    let sound_ranges = sound_ranges_of(app, view);
     let game_arc = app.game.clone();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
@@ -3018,6 +3032,7 @@ fn viewport(
         spawn_markers: scene.spawn_markers,
         follows,
         shaders,
+        sound_ranges: sound_ranges.clone(),
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
@@ -3087,6 +3102,12 @@ fn viewport(
         if view.grid {
             frame.lines = grid_lines(view, &shown);
         }
+        let placed: Vec<(usize, Vec3)> = (shown.objects.iter())
+            .filter(|o| o.kind == ObjectKind::Sound)
+            .map(|o| (o.index, o.position))
+            .collect();
+        let size = (w as f32, h as f32);
+        frame.lines.extend(sound_range_lines(&placed, &sound_ranges, &orbit.camera(), size));
         // Options › Area: the background colour, if chosen (gamma space).
         if let Some([r, g, b]) = app.settings.area_background {
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
@@ -3298,11 +3319,11 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
 
-/// Where the placed sounds are heard (the Sound Ranges switch): around
-/// each positional sound, level at its height, a circle of its
-/// `MinDistance` (full volume inside) and one of its `MaxDistance` (silent
-/// outside); the selection's brighter. A sound heard everywhere in the
-/// area has none.
+/// Where a placed sound may play from (the Sound Ranges switch), if its
+/// place is random: a rectangle about where it stands, its ranges wide,
+/// as Aurora draws it; the selection's brighter. Its distances are drawn
+/// in the picture, hidden by what stands in front of them
+/// ([`sound_range_lines`]).
 fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown: &AreaModel) {
     if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
         return;
@@ -3320,8 +3341,6 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
             continue;
         }
         let alpha = if chosen.contains(&(o.kind, o.index)) { 255 } else { 150 };
-        // Where it may play from, if its place is random: a rectangle
-        // about where it stands, its ranges wide, as Aurora draws it.
         if let Some(reach) = list.get(o.index).and_then(random_reach) {
             let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(240, 150, 60, alpha));
             let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
@@ -3332,19 +3351,97 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
                 }
             }
         }
-        for (radius, width) in [(sound.min_distance, 2.0), (sound.max_distance, 1.0)] {
+    }
+}
+
+/// The positional sounds whose distances Sound Ranges draws (none while
+/// it is off or the sounds are hidden), read from the area's GIT.
+fn sound_ranges_of(app: &mut Moonglow, view: &AreaView) -> Vec<SoundRange> {
+    if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
+        return Vec::new();
+    }
+    let chosen = view.selected_set();
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let Ok(doc) = ws.doc(&view.git()) else { return Vec::new() };
+    let list = doc.root.list(ObjectKind::Sound.list()).unwrap_or(&[]);
+    (list.iter().enumerate())
+        .map(|(index, s)| (index, crate::area_audio::PlacedSound::from_git(s)))
+        .filter(|(_, s)| s.positional)
+        .map(|(index, s)| SoundRange {
+            index,
+            min: s.min_distance,
+            max: s.max_distance,
+            chosen: chosen.contains(&(ObjectKind::Sound, index)),
+        })
+        .collect()
+}
+
+/// Sound Ranges in the picture, as Aurora draws them (captured
+/// 2026-10-29: a sound of distances 3 and 12, from above and pitched):
+/// about each positional sound a dotted sphere of its `MinDistance` (full
+/// volume inside) and one of its `MaxDistance` (silent outside), and a
+/// level circle at its height of the `MaxDistance`; the selection's
+/// brighter. Lines of the scene, so the ground and what stands in front
+/// hide them (the spheres' lower halves go under the floor), drawn in one
+/// batch; each sphere's rings have as many dots as its size on the
+/// picture calls for (the picture's size in pixels), and those wholly out
+/// of the picture are left out, so an area of hundreds of sounds draws
+/// few.
+fn sound_range_lines(
+    placed: &[(usize, Vec3)],
+    ranges: &[SoundRange],
+    camera: &mg_render::Camera,
+    (width, height): (f32, f32),
+) -> Vec<mg_render::Line> {
+    let mut out = Vec::new();
+    if ranges.is_empty() {
+        return out;
+    }
+    // (Pixels a metre is across at a metre from the eye.)
+    let tan_y = (camera.fov_y / 2.0).tan();
+    let tan_x = tan_y * width / height.max(1.0);
+    let per_metre = height / 2.0 / tan_y;
+    let view = camera.view();
+    // Whether a sphere is out of the picture (wholly beside, above, below
+    // or behind it): none of it drawn.
+    let out_of_sight = |centre: Vec3, radius: f32| {
+        let p = view.transform_point3(centre);
+        let depth = -p.z;
+        let beside =
+            |along: f32, tan: f32| along.abs() > depth * tan + radius * (1.0 + tan * tan).sqrt();
+        depth < -radius || beside(p.x, tan_x) || beside(p.y, tan_y)
+    };
+    for &(index, position) in placed {
+        let Some(range) = ranges.iter().find(|r| r.index == index) else { continue };
+        if out_of_sight(position, range.min.max(range.max)) {
+            continue;
+        }
+        let alpha = if range.chosen { 1.0 } else { 0.8 };
+        let color = [240.0 / 255.0, 220.0 / 255.0, 80.0 / 255.0, alpha];
+        // A ring's length on the picture, in pixels, at its nearest.
+        let across = |radius: f32| {
+            let far = (position.distance(camera.eye) - radius).max(0.5);
+            std::f32::consts::TAU * radius * per_metre / far
+        };
+        for radius in [range.min, range.max] {
             if radius <= 0.0 {
                 continue;
             }
-            let stroke = Stroke::new(width, Color32::from_rgba_unmultiplied(240, 220, 80, alpha));
-            let points = sound_circle(o.position, radius);
+            let dots = ((across(radius) / 18.0) as usize).clamp(8, 32);
+            for [from, to] in sound_sphere(position, radius, dots) {
+                out.push(mg_render::Line { from, to, color });
+            }
+        }
+        if range.max > 0.0 {
+            let steps = ((across(range.max) / 10.0) as usize).clamp(16, 64);
+            let points = sound_circle(position, range.max, steps);
             for k in 0..points.len() {
-                if let Some(line) = view.screen_segment(points[k], points[(k + 1) % points.len()]) {
-                    painter.line_segment(line, stroke);
-                }
+                let (from, to) = (points[k], points[(k + 1) % points.len()]);
+                out.push(mg_render::Line { from, to, color });
             }
         }
     }
+    out
 }
 
 /// How far east or west and north or south of itself a placed sound may
@@ -3361,12 +3458,36 @@ fn random_reach(sound: &mg_gff::Struct) -> Option<glam::Vec2> {
         .then_some(reach)
 }
 
-/// The points of a level circle around `centre`.
-fn sound_circle(centre: Vec3, radius: f32) -> Vec<Vec3> {
-    const POINTS: usize = 64;
-    (0..POINTS)
+/// The dots of a sphere of `radius` about `centre`, as Sound Ranges draws
+/// a distance, each a short dash along its ring: rings at three heights
+/// (its middle and 45° above and below) and through its poles four
+/// ways, `dots` a ring.
+pub(crate) fn sound_sphere(centre: Vec3, radius: f32, dots: usize) -> Vec<[Vec3; 2]> {
+    use std::f32::consts::{PI, TAU};
+    let step = TAU / dots.max(1) as f32;
+    // (A dash a third of the way to the next dot.)
+    let dash = step / 3.0;
+    let mut out = Vec::new();
+    for latitude in [-45f32, 0.0, 45.0] {
+        let (z, r) = (latitude.to_radians().sin() * radius, latitude.to_radians().cos() * radius);
+        let at = |a: f32| centre + Vec3::new(a.cos() * r, a.sin() * r, z);
+        out.extend((0..dots).map(|k| k as f32 * step).map(|a| [at(a), at(a + dash)]));
+    }
+    // (Each meridian a great circle through the poles.)
+    for m in 0..4 {
+        let along = m as f32 / 4.0 * PI;
+        let (cx, cy) = (along.cos(), along.sin());
+        let at = |a: f32| centre + Vec3::new(cx * a.cos(), cy * a.cos(), a.sin()) * radius;
+        out.extend((0..dots).map(|k| k as f32 * step).map(|a| [at(a), at(a + dash)]));
+    }
+    out
+}
+
+/// The `points` points of a level circle around `centre`.
+fn sound_circle(centre: Vec3, radius: f32, points: usize) -> Vec<Vec3> {
+    (0..points)
         .map(|k| {
-            let a = k as f32 / POINTS as f32 * std::f32::consts::TAU;
+            let a = k as f32 / points as f32 * std::f32::consts::TAU;
             centre + Vec3::new(a.cos(), a.sin(), 0.0) * radius
         })
         .collect()
@@ -6946,9 +7067,48 @@ mod tests {
     #[test]
     fn a_sounds_circle_is_level_around_it() {
         let centre = Vec3::new(10.0, 20.0, 1.5);
-        let circle = sound_circle(centre, 7.0);
-        assert!(circle.len() >= 32);
+        let circle = sound_circle(centre, 7.0, 64);
+        assert_eq!(circle.len(), 64);
         assert!(circle.iter().all(|p| p.z == 1.5 && ((*p - centre).length() - 7.0).abs() < 1e-4));
+    }
+
+    /// A sound's distance is a dotted sphere about it, as Aurora draws it:
+    /// every dot (a short dash) on it, above and below its height, as many
+    /// a ring as asked: three rings and four meridians.
+    #[test]
+    fn a_sound_s_distance_is_a_sphere_of_dots() {
+        let centre = Vec3::new(10.0, 20.0, 1.5);
+        for radius in [3.0, 12.0] {
+            let dashes = sound_sphere(centre, radius, 24);
+            assert_eq!(dashes.len(), 7 * 24);
+            let on = |p: Vec3| ((p - centre).length() - radius).abs() < 1e-3;
+            assert!(dashes.iter().all(|[a, b]| on(*a) && on(*b)));
+            assert!(dashes.iter().all(|[a, b]| a.distance(*b) < radius * 0.2), "short");
+            let top = dashes.iter().map(|[a, _]| a.z).fold(f32::MIN, f32::max);
+            let bottom = dashes.iter().map(|[a, _]| a.z).fold(f32::MAX, f32::min);
+            assert!((top - (1.5 + radius)).abs() < 0.05 && (bottom - (1.5 - radius)).abs() < 0.05);
+        }
+    }
+
+    /// Sound Ranges in the picture: lines of the scene (hidden by what is
+    /// in front), as many dots a ring as the sphere's size on the picture
+    /// calls for: few for one far off, more near, none while off.
+    #[test]
+    fn sound_ranges_draw_fewer_dots_far_off() {
+        let placed = [(0, Vec3::new(20.0, 20.0, 0.0))];
+        let ranges = [SoundRange { index: 0, min: 3.0, max: 12.0, chosen: false }];
+        let lines = |distance: f32| {
+            let camera = mg_render::Camera::orbit(Vec3::new(20.0, 20.0, 0.0), distance, 0.0, 0.8);
+            sound_range_lines(&placed, &ranges, &camera, (1000.0, 1000.0)).len()
+        };
+        let (near, far) = (lines(20.0), lines(400.0));
+        assert!(far < near && far >= 2 * 7 * 8 + 16, "near {near}, far {far}");
+        let camera = mg_render::Camera::orbit(Vec3::ZERO, 20.0, 0.0, 0.8);
+        assert!(sound_range_lines(&placed, &[], &camera, (1000.0, 1000.0)).is_empty());
+        // (Out of the picture, behind the eye: none.)
+        let away =
+            mg_render::Camera::orbit(Vec3::new(200.0, 20.0, 0.0), 5.0, std::f32::consts::PI, 0.0);
+        assert!(sound_range_lines(&placed, &ranges, &away, (1000.0, 1000.0)).is_empty());
     }
 
     #[test]

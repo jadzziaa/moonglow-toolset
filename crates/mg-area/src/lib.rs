@@ -36,7 +36,12 @@ pub mod terrain;
 pub mod walk;
 
 pub use grass_view::{CHUNK, GrassDraw, Grown, chunk_of, grass_chosen};
+pub use mg_rules::rows::{replacement_row, replacement_value};
 pub use scene::{AreaScene, BareLight, Sight, Usage, View, fog, overview};
+
+/// The texture a tile model's mesh is drawn with where the tile's
+/// `Tile_ReplaceTex` replaces it ([`replacement_row`]).
+pub const REPLACE_TEX: &str = "replace_tex";
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;
@@ -87,7 +92,7 @@ pub struct AreaTile {
     /// Whether animation loops `animloop01`..`03` play.
     pub anim_loops: [bool; 3],
     /// The texture the model's `replace_tex` is drawn with (lower case):
-    /// see [`replacement_row`].
+    /// see [`replacement_row`] (`mg_rules::rows`).
     pub replace_texture: Option<String>,
     /// The centre of the tile's floor.
     pub position: Vec3,
@@ -109,18 +114,20 @@ impl AreaTile {
 /// have 1 for every tile); the model does: a light node `<model>ml1` or
 /// `ml2` for a main light, a node (a dummy) `<model>sl1` or `sl2` where a
 /// source light's flame goes, and an animation `animloop01`..`03` for a
-/// loop.
+/// loop. Its replacement texture (EE's Tile Properties alone: Aurora has
+/// none) where a mesh is drawn with a texture named `replace_tex`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TileFeatures {
     pub main: [bool; 2],
     pub source: [bool; 2],
     pub loops: [bool; 3],
+    pub replace: bool,
 }
 
 impl TileFeatures {
     /// Every light and loop (what a model not found is taken to have).
     pub const ALL: TileFeatures =
-        TileFeatures { main: [true; 2], source: [true; 2], loops: [true; 3] };
+        TileFeatures { main: [true; 2], source: [true; 2], loops: [true; 3], replace: true };
 
     /// What tile model `model`, read from resource `resref`, has. A node
     /// counts named after the model's own name or the resource's (they
@@ -141,6 +148,7 @@ impl TileFeatures {
             main: [has("ml1", true), has("ml2", true)],
             source: [has("sl1", false), has("sl2", false)],
             loops: ["animloop01", "animloop02", "animloop03"].map(|a| model.animation(a).is_some()),
+            replace: model.draws_texture(REPLACE_TEX),
         }
     }
 
@@ -151,6 +159,7 @@ impl TileFeatures {
             main: [a.main[0] | b.main[0], a.main[1] | b.main[1]],
             source: [a.source[0] | b.source[0], a.source[1] | b.source[1]],
             loops: [a.loops[0] | b.loops[0], a.loops[1] | b.loops[1], a.loops[2] | b.loops[2]],
+            replace: a.replace | b.replace,
         })
     }
 }
@@ -576,21 +585,6 @@ pub struct AreaModel {
     pub problems: Vec<String>,
 }
 
-/// The `replacetexture.2da` row a tile's `Tile_ReplaceTex` draws its
-/// model's `replace_tex` texture with, as the client draws it (read with
-/// the one model that has one, `tms01_c08_01`, as every tile of an area,
-/// 89.8193.37: `reading_tile_replacement_texture` in `client_render.rs`):
-/// the row before the value's (1 is row 0, 2 row 1), row 0 for a tile
-/// without the field. None for 0, and for a value past the table, which
-/// the client crashes on (in `CNWCTile::SetReplaceTexture`) as it loads
-/// the area.
-pub fn replacement_row(value: Option<i64>) -> Option<usize> {
-    match value {
-        None => Some(0),
-        Some(v) => usize::try_from(v).ok()?.checked_sub(1),
-    }
-}
-
 impl AreaModel {
     /// Reads an area from its ARE and GIT (their root structs) with its
     /// tileset (`None` when it is missing: the tiles have no models).
@@ -639,9 +633,10 @@ impl AreaModel {
                     main_lights: [byte("Tile_MainLight1"), byte("Tile_MainLight2")],
                     source_lights: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
                     anim_loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
-                    replace_texture: replacement_row(t.integer("Tile_ReplaceTex"))
-                        .and_then(|row| replacements.as_ref()?.get(row, "TEXTURENAME"))
-                        .map(str::to_ascii_lowercase),
+                    replace_texture: replacements.as_ref().and_then(|table| {
+                        let row = replacement_row(t.integer("Tile_ReplaceTex"), table.len())?;
+                        Some(table.get(row, "TEXTURENAME")?.to_ascii_lowercase())
+                    }),
                     position: Vec3::new(
                         (column as f32 + 0.5) * TILE_SIZE,
                         (row as f32 + 0.5) * TILE_SIZE,
@@ -754,6 +749,28 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         assert_eq!(TileFeatures::union([has, none]), has);
         let other = TileFeatures { loops: [true, false, false], ..none };
         assert_eq!(TileFeatures::union([has, other]).loops, [true, true, false]);
+        assert!(!has.replace, "no mesh drawn with replace_tex");
+    }
+
+    /// A tile model has a replacement texture where a mesh's bitmap is
+    /// `replace_tex` (any case), and not where only another texture is.
+    #[test]
+    fn a_tile_s_replacement_texture_is_its_model_s() {
+        let model = |bitmap: &str| {
+            let text = format!(
+                "newmodel tst01_a01_01\nsetsupermodel tst01_a01_01 NULL\nclassification tile\n\
+beginmodelgeom tst01_a01_01\nnode dummy tst01_a01_01\n  parent NULL\nendnode\n\
+node trimesh flag\n  parent tst01_a01_01\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n    1 0 0\n\
+    0 1 0\n  faces 1\n    0 1 2 1 0 1 2 1\nendnode\nendmodelgeom tst01_a01_01\n\
+donemodel tst01_a01_01\n"
+            );
+            mg_mdl::Model::read(text.as_bytes()).unwrap()
+        };
+        assert!(TileFeatures::of(&model("Replace_Tex"), "tst01_a01_01").replace);
+        let plain = TileFeatures::of(&model("tst01_grass"), "tst01_a01_01");
+        assert!(!plain.replace);
+        let with = TileFeatures { replace: true, ..plain };
+        assert!(TileFeatures::union([plain, with]).replace, "any of them");
     }
 
     fn object(fields: &[(&str, f32)]) -> Struct {

@@ -674,7 +674,7 @@ fn tables_are_made_and_written() {
         local mg = require("@moonglow")
         local t = mg.tlk.new()
         local first = t:add("Cleave")
-        t:set(3, { text = "Hide", sound = "vs_hide", sound_length = 1.5 })
+        t:set(3, { text = "Hide", sound = "VS_Hide", sound_length = 1.5 })
         local again = mg.tlk.parse(t:write())
         return first, again.lines, again:get(0).text, again:get(1), again:get(3).sound,
             again:get(3).sound_length
@@ -682,6 +682,16 @@ fn tables_are_made_and_written() {
     run_console(code, input(), host.clone()).unwrap();
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
+    // A sound is named by the rule the talk-table editor and `mg tlk`
+    // hold one to (`ResRef::new_name`): one they refuse, a plugin can't
+    // write either.
+    let e = run_console(
+        "local mg = require('@moonglow') mg.tlk.new():set(0, { text = 'x', sound = 'a b.wav' })",
+        input(),
+        host.clone(),
+    );
+    let said = e.unwrap_err().to_string();
+    assert!(said.contains("a b.wav: a sound's name: ' '"), "{said}");
 }
 
 /// What the tables for plugins did not do (the deferred list's "Tables

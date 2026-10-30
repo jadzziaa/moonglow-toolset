@@ -2003,3 +2003,77 @@ fn next_pane_puts_the_palette_s_cursor_at_its_first_row() {
     h.run_steps(4);
     assert!(h.query_by_label(&tavern).is_some(), "opened from the first row");
 }
+
+/// The palette's Gallery marks a blueprint whose appearance has no model
+/// (dansen9191's report: such a blueprint showed an empty picture, and
+/// nothing said why): the standard chest, its placeables.2da row made to
+/// name a model no one has (the module's copy of the table), shows "No
+/// model" in a red frame; another chest, whose row is as it was, doesn't.
+/// The picture goes to `target/test-output/ui-gallery-no-model/`.
+#[test]
+fn the_palette_s_gallery_marks_a_blueprint_with_no_model() {
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, _: ResRef| {
+        let utp = Gff::read(&game.resman.get(&chest).unwrap()).unwrap();
+        let row = utp.root.integer("Appearance").unwrap();
+        let table = game.table("placeables").unwrap();
+        let model = table.get(row as usize, "ModelName").unwrap().to_ascii_lowercase();
+        let text = game.resman.get_named("placeables", ResType::TWODA).unwrap();
+        let text = String::from_utf8_lossy(&text);
+        let lines: Vec<String> = text
+            .split("\r\n")
+            .flat_map(|l| l.split('\n'))
+            .map(|line| {
+                if line.split_whitespace().next() != Some(&row.to_string()) {
+                    return line.to_string();
+                }
+                (line.split(' ').map(|w| {
+                    if w.eq_ignore_ascii_case(&model) {
+                        "plc_x99".to_string()
+                    } else {
+                        w.to_string()
+                    }
+                }))
+                .collect::<Vec<_>>()
+                .join(" ")
+            })
+            .collect();
+        m.set(
+            ResKey::parse("placeables", ResType::TWODA).unwrap(),
+            lines.join("\r\n").into_bytes(),
+        );
+    };
+    let Some((mut h, _area)) =
+        area_harness_with("gallery-no-model", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Placeable;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = "plc_chest".into();
+    }
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().settings.gallery_tile = Some(64);
+    // (A few are made a frame.)
+    h.run_steps(40);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-gallery-no-model").join("gallery.png")).unwrap();
+    assert!(h.state().thumbnails.blueprint_has_no_model(chest), "the chest is marked");
+    // (Another chest of another row is not.)
+    let game = h.state().game.clone().unwrap();
+    let row = |key: ResKey| {
+        let data = game.resman.get(&key).unwrap();
+        Gff::read(&data).unwrap().root.integer("Appearance")
+    };
+    let others = ["plc_chest2", "plc_chest3", "plc_chest4", "plc_chest5"]
+        .map(|r| ResKey::parse(r, ResType::UTP).unwrap())
+        .into_iter()
+        .filter(|k| game.resman.contains(k) && row(*k) != row(chest))
+        .collect::<Vec<_>>();
+    assert!(!others.is_empty());
+    for other in others {
+        assert!(!h.state().thumbnails.blueprint_has_no_model(other), "{other} is not marked");
+    }
+}

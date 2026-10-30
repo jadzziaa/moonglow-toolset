@@ -2339,22 +2339,18 @@ impl Moonglow {
             }
         };
         let ws = self.ws.as_mut()?;
-        let stem: String = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_ascii_lowercase())
-            .unwrap_or_default()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .take(16)
-            .collect();
+        let stem = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+        let stem: String = mg_core::ResRef::name_of(&stem).chars().take(16).collect();
         let stem = if stem.is_empty() { "conversation".to_string() } else { stem };
         let free =
             |name: &str| ResKey::parse(name, ResType::DLG).filter(|k| !ws.module.contains(k));
         // (With the builder's code, as the team's pattern puts it; never
         // twice.)
         let naming = ws.module.project_file.naming_for(ResType::DLG);
-        let key = free(&naming.fit(&stem, ""))
-            .or_else(|| (1..1000).find_map(|n| free(&naming.fit(&stem, &format!("{n:03}")))))?;
+        let key = free(&naming.fit(&stem, "")).or_else(|| {
+            let r = naming.numbered(&stem, 1, &|s| free(s).is_none())?;
+            Some(ResKey::new(r, ResType::DLG))
+        })?;
         let lines = mg_module::dialog::nodes(&g, Kind::Entry).len()
             + mg_module::dialog::nodes(&g, Kind::Reply).len();
         self.actions.push(Action::Apply(mg_edit::Command::new(

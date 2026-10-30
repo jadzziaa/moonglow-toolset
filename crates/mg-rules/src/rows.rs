@@ -26,6 +26,28 @@ pub fn generic_door_field(utd: &mg_gff::Struct) -> &'static str {
     if utd.get("GenericType_New").is_some() { "GenericType_New" } else { "GenericType" }
 }
 
+/// The `replacetexture.2da` row a tile's `Tile_ReplaceTex` draws its
+/// model's `replace_tex` texture with, as the client draws it (read with
+/// the one model that has one, `tms01_c08_01`, as every tile of an area,
+/// 89.8193.37: `reading_tile_replacement_texture` in `client_render.rs`):
+/// the row before the value's (1 is row 0, 2 row 1), row 0 for a tile
+/// without the field. None for 0, and for a value past the table (`rows`
+/// long), which the client crashes on (in `CNWCTile::SetReplaceTexture`)
+/// as it loads the area.
+pub fn replacement_row(value: Option<i64>, rows: usize) -> Option<usize> {
+    match value {
+        None => Some(0),
+        Some(v) => usize::try_from(v).ok()?.checked_sub(1),
+    }
+    .filter(|&r| r < rows)
+}
+
+/// The `Tile_ReplaceTex` value that draws `replacetexture.2da` row `row`:
+/// one past it (`None` past what the field's byte holds).
+pub fn replacement_value(row: usize) -> Option<u8> {
+    u8::try_from(row + 1).ok()
+}
+
 /// A 2DA whose rows a field names, and where a row's name is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowTable {
@@ -479,6 +501,18 @@ mod tests {
     use mg_tlk::{Tlk, TlkEntry};
 
     use super::*;
+
+    #[test]
+    fn a_tile_s_replacement_texture_is_the_row_before_its_value() {
+        // (As the client draws them: a tile without the field takes row 0;
+        // 0 and a value past the table are no row, which it crashes on.)
+        let rows = |v: Option<i64>| replacement_row(v, 2);
+        assert_eq!([None, Some(1), Some(2)].map(rows), [Some(0), Some(0), Some(1)]);
+        assert_eq!([Some(0), Some(3), Some(-1), Some(255)].map(rows), [None; 4]);
+        assert_eq!(replacement_row(None, 0), None, "no table, no row");
+        assert_eq!((replacement_value(0), replacement_value(254)), (Some(1), Some(255)));
+        assert_eq!(replacement_value(255), None, "past the field's byte");
+    }
 
     #[test]
     fn a_row_is_named_by_its_string_then_its_label() {

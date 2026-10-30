@@ -57,8 +57,20 @@ pub struct Choice {
 /// name in the table's order): long lists are found by name, not by where
 /// the table has them.
 pub fn by_name(mut choices: Vec<Choice>) -> Vec<Choice> {
-    choices.sort_by_cached_key(|c| (mg_core::text::sort_key(&c.text), c.row));
+    choices.sort_by_cached_key(name_key);
     choices
+}
+
+/// Where each of `choices` comes in [`by_name`]'s order: the indexes of
+/// `choices`, sorted (a list kept as it is, shown sorted).
+pub fn name_order(choices: &[Choice]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..choices.len()).collect();
+    order.sort_by_cached_key(|&i| name_key(&choices[i]));
+    order
+}
+
+fn name_key(c: &Choice) -> ((String, String), usize) {
+    (mg_core::text::sort_key(&c.text), c.row)
 }
 
 /// [`by_name`] for choices named by a path of groups (`Oficios / Herrero`,
@@ -98,6 +110,9 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
+/// An appearance list's kind of object, its length and first row's name.
+type MarkedKey = (ObjectKind, usize, Option<String>);
+
 /// What looking up a 2DA found, kept until [`GameData::invalidate`]. (A
 /// read that failed on I/O is not kept: it may succeed next time.)
 #[derive(Debug, Clone)]
@@ -121,6 +136,10 @@ pub struct GameData {
     /// The choice lists made so far ([`choice_list`](Self::choice_list)),
     /// by table and the two columns' places in it.
     choices: RwLock<HashMap<ChoiceKey, Arc<Vec<Choice>>>>,
+    /// Appearance lists with their rows of no model marked
+    /// ([`appearance_choices`](Self::appearance_choices)), by the kind of
+    /// object and the list they were made from.
+    marked: RwLock<HashMap<MarkedKey, Arc<Vec<Choice>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -223,6 +242,7 @@ impl GameData {
             custom_tlk: None,
             tables: RwLock::new(HashMap::new()),
             choices: RwLock::new(HashMap::new()),
+            marked: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -232,6 +252,7 @@ impl GameData {
         self.custom_tlk = tlk;
         // (The lists name rows by its strings.)
         self.choices.get_mut().expect("choice cache poisoned").clear();
+        self.marked.get_mut().expect("marked cache poisoned").clear();
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -256,6 +277,7 @@ impl GameData {
     pub fn invalidate(&self) {
         self.tables.write().expect("table cache poisoned").clear();
         self.choices.write().expect("choice cache poisoned").clear();
+        self.marked.write().expect("marked cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 
@@ -592,6 +614,9 @@ mod tests {
         let sorted =
             by_name(vec![c(0, "zarza"), c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque")]);
         assert_eq!(sorted, [c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque"), c(0, "zarza")]);
+        // The same order as indexes, the list left as it is.
+        let kept = vec![c(0, "zarza"), c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque")];
+        assert_eq!(name_order(&kept), [1, 2, 3, 0]);
     }
 
     #[test]

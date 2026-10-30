@@ -25,16 +25,21 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
-  split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
-  86 harnesses at kittest's default size (`Harness::new_ui_state`), 27
-  installs made apart from the application (read before it, in another
-  language, or by a test's own helper), 14 scratch user folders, each
-  with its own subfolders, and 6 harnesses with a step of their own.
-  They are in 17 of the folder's 21 files, the scripts', the area
-  view's and the lists' among them, which the deferred sprint's other
-  packages of 2026-10-29 change: folded after those merge, not beside
-  them. (A file not named in `main.rs` fails
-  `every_test_file_is_a_module` since 2026-10-29.) (M)
+  split by subject, with `harness`, `window_harness`, `game_app`,
+  `game_app_with`, `game_data`, `user_folder` and `gpu` in
+  `common.rs`): folded on 2026-10-30 in the files no other package of
+  the fifth wave was in (modules, windows, the tree, options and keys,
+  projects, plugins, resources: 57 harnesses, 13 installs, 15 user
+  folders); left, in the files the wave's area, models, editors and
+  bulk packages change: 40 harnesses at kittest's size
+  (`Harness::new_ui_state`: scripts 18, conversations 6, fields 6,
+  search 4, areas 3, blueprints, drawing, palettes), 18 installs made
+  apart (tables 6, tiles 3, blueprints, conversations, drawing, scripts
+  2 each, looks), 12 user folders made by hand (drawing 4, tables 4,
+  palettes 3, search) and the 6 harnesses with a step of their own.
+  (S once those packages merge: the same three folds, `window_harness`
+  for the first, `game_app_with` or `game_data` for the second,
+  `user_folder` for the third.)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:
@@ -189,28 +194,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   client screenshot of `ReplaceObjectTexture` on each settles it. (S)
   (GitHub issue 32)
 
-- **A tile's replacement texture, out of Tile Properties:** the form
-  had a Replacement Texture (`Tile_ReplaceTex`, a `replacetexture.2da`
-  row for a texture named `replace_tex` in the tile's model); a builder
-  called it untested and likely not working, and it was taken out
-  (2026-10-22). What is known: the server keeps the byte
-  (`engine_ee_fields.rs`, `ObjectToJson`); nwn.wiki calls it BioWare's
-  unused functionality ("Replacing Simple Textures", "2da Files"); the
-  game's `replacetexture.2da` has two rows, both `T_Flag02`; the one
-  model with a `replace_tex` texture, `tms01_c08_01`, is in no tileset
-  (not in `tms01.set`); none of BioWare's 20 campaign modules
-  (`data/nwm`) writes the field. The client draws it (2026-10-29,
-  `reading_tile_replacement_texture`, an area's tiles made
-  `tms01_c08_01`): a value is the row after the one drawn (1 draws row
-  0, 2 row 1), a tile without the field draws row 0, and 0 or a value
-  past the table crashes the client as it loads the area
-  (`CNWCTile::SetReplaceTexture`); the area view now draws as the
-  client does (`mg_area::replacement_row`). Left: the field back in
-  Tile Properties with that rule (a row chosen written as its number
-  plus one, 0 never written), and Verify warning of a tile whose model
-  has `replace_tex` and whose value the client crashes on. (S) (from a
-  builder's tile feedback, October 2026)
-
 ## Blueprint editors and inventories
 
 - **An appearance with no model, what the warning leaves out:** the rule
@@ -218,19 +201,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   single-model creature's and a waypoint's row and model by name (the
   waypoint's flag since 2026-10-29: Verify warns of it, the preview and
   the Properties go by it; a waypoint without the field, as 190 of
-  BioWare's blueprints are, is not judged, and what Aurora draws for
-  one was not captured), and an item's base item row.
-  Not checked by it, each S, about a day together: an item's own models
-  (its parts, `ModelPart1`… and an armor's), whose names mg-preview
-  alone makes (the naming would move down into mg-rules); a body of
-  parts' skeleton and parts, likewise; a model that is there but cannot
-  be read (a broken file is found when it is drawn; reading each
-  appearance's model in Verify was not timed on a large module); the
-  Appearance lists in the Properties don't mark the rows with no model
-  (the Appearance Gallery does, for those in sight: a mark in
-  `widgets::row_choice`, the rows checked once a revision, not each
-  frame); and the palette's own Gallery doesn't mark blueprints whose
-  appearance has none. (dansen9191's report, October 2026)
+  BioWare's blueprints are, is not judged: what Aurora draws for one
+  waits on an Aurora capture), and an item's base item row. The
+  Properties' Appearance lists mark the rows with no model and the
+  palette's Gallery the blueprints (since 2026-10-30). Not checked by
+  it, each S, about a day together: an item's own models (its parts,
+  `ModelPart1`… and an armor's), whose names mg-preview alone makes (the
+  naming would move down into mg-rules); a body of parts' skeleton and
+  parts, likewise; a model that is there but cannot be read (a broken
+  file is found when it is drawn; reading each appearance's model in
+  Verify was not timed on a large module). (dansen9191's report,
+  October 2026)
 - **Number fields' limits against Aurora, what is left:** the rest were
   measured in Aurora (2026-10-29, typed past their ends: an encounter's
   creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,
@@ -597,12 +578,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the engine ignores this mesh, or a module's copy of it, or making a
   creature doesn't see it: telling which needs a creature's path across
   each place, or the client. (M)
-- **Sound ranges:** level circles at the sound's height. Aurora draws
-  each distance as a dotted sphere about the sound, with one level
-  circle at its maximum (captured 2026-10-29, the probe's sound of
-  distances 3 and 12, from above and pitched). The random position's
-  rectangle is as Aurora's now (its ranges wide, half each way). (S: the
-  spheres, drawn as a few rings of dots)
 - **Setup Area Transition's Connection Type:** the window picks a door
   or waypoint on the target area's map or in its lists, as Aurora's
   `TdlgAreaTransition` does, but has none of its Connection Type (Both
@@ -618,35 +593,26 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay
   (a City Interior's walls of `tilefade` 1 looked the same in every mode
   at the three cameras tried, so that 1 goes rests on the trees). A
-  mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
-  is still taken from the game's tiles and their names. (S) (from
-  builders' reports after 1.10.1)
+  mesh with `tilefade` 4 wasn't in the tiles captured, and Moonglow
+  fades it as 1. Of the game's tile models (2026-10-30, every mesh
+  read), 1,877 meshes have `tilefade` 4 against 22,879 with 1 and 3,087
+  with 2, and 1,744 of those 4 are black (`tin01_black`,
+  `ttr01_black00`...), as the caps of 2 that Aurora keeps are: that 4
+  stays is as likely. Waits on Aurora (the off-screen display): Fade
+  Geometry Always and Never on `tin01_a01_01` (its `Line773`, 52 faces)
+  or `ttr01_b06_01` (`Object654`) from above; the fix is then one match
+  in `mg-area`'s `scene.rs` (`tilefade` 1 or 4). (S) (from builders'
+  reports after 1.10.1)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
-  same builder's picture: not looked into. The model is chosen by the
-  torso's parts_chest.2da `ACBONUS` (measured with the game's own
-  armors); his armor, or his content's table, may be a case that rule
-  misses. Needs the item. (S) (from builders' reports after 1.19.1)
-
+  same builder's picture. The model is chosen by the torso's
+  parts_chest.2da `ACBONUS` (`mg_preview::item::item_placed`, measured
+  with the game's own armors): a torso the table lacks, or whose
+  `ACBONUS` is blank, lies as cloth (`gi_armor01`), so plate here means
+  the table Moonglow read gives his torso 6 or more; that Aurora shows a
+  tunic says it read another table or another rule. Waits on the
+  builder's item (its torso's number) and his haks' parts_chest.2da.
+  (S) (from builders' reports after 1.19.1)
 ## Editing in the area view
-
-- **Lerps, animation speed and other scopes, how the client draws a
-  part's:** Adjust Location shows and sets a transform's animation
-  speed and shows a lerp in progress and other scopes' transforms, kept
-  as they are; the area view draws a creature's head, tail, wings and
-  cloak scopes on those parts (the engine keeps each:
-  `the_engine_keeps_part_scopes_animation_speed_and_lerps`). How the
-  client draws a part's transform is assumed, not read: the part's
-  model placed as the whole object's is (`mg_preview::visual_matrix`),
-  about the node it hangs from (`head_g`, the wings' and the tail's
-  dummies; the cloak, which hangs from none, about the creature's
-  feet). The client batch should read it as `visual_transforms_look`
-  reads the whole object's (`client_render.rs`): a part-based creature
-  (appearance 6, wings 2) with its head scaled 2, then turned 45° about
-  each axis in turn, then moved, and its wings and cloak the same; and
-  a creature of one model (the bandit, appearance 269), whose head
-  scaled Moonglow draws unchanged. An item's part scopes (255 to 251)
-  are shown and not drawn: which of its models each is wants the same
-  reading. (S, waits on the client batch) (xtul's report, October 2026)
 
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
@@ -703,12 +669,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tiles, so the window's "Lights creatures and placeables too" starts
   ticked; a draw takes as many lights as the client's Max Lights (32 by
   default). Not built: a flicker (the node's color or multiplier keyed in
-  the model's `default` animation), which waits on reading whether the
-  client plays that animation on a static placeable. Rows and models no
+  the model's `default` animation). Read for it (2026-10-30, the fourth
+  client batch, `reading_static_placeable_default_animation`): the
+  client plays a dynamic placeable's `default` (a light's color keyed
+  red, blue, red over 2 s cycled, the floor with it) and not a static
+  one's (it stayed red), so a flickering light is a dynamic placeable;
+  the area view holds a static placeable still since, but plays no light
+  node's keys, and Moonglow's lights don't take their animation at all
+  (`point_lights`): both are what building it takes. Rows and models no
   light uses any more stay in the hak, as a row's number is what placed
   lights know it by (settle?: proposed by the sprint on 2026-10-29, the
-  owner's to say). (S, waits on a client reading) (from builders'
-  reports after 1.16.2)
+  owner's to say). (S) (from builders' reports after 1.16.2)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
@@ -717,37 +688,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **Dynamic body parts from custom content (GitHub issue 5):** fixed
-  with the reporter's haks over CEP 2.71. Under armor a creature's own
-  part shows where the armor's is bare skin (part 1) or none, as the
-  game shows a pale master's arm; the rule is taken from that and from
-  the reporter's Aurora screenshot, which the previews now match, not
-  measured in the client (nor what the game does for armor part 0 over
-  a body part). A model whose appearance says full-body but whose
-  skeleton has a creature's animations stands in `cpause1` (the
-  werebat stood in its rest pose). Left: the report's werejackal wears
-  a helmet whose model (`helm_129`) is in neither download, and is
-  drawn headless; what the game draws for a missing helmet model isn't
-  known. (needs the file) (from builders' reports after 1.10.1)
 - **Emitters start as they look once going:** an emitter new to the
   view, an object's or a tile's, is run twenty seconds ahead so that it
   shows as it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the
   nearest 256 objects and 128 tiles with emitters are simulated while
-  Animations is on (`nearest`). Compared with the client on 2026-10-29
-  (`reading_emitters_from_above` in `client_render.rs`'s `batch2.rs`,
-  ttr01, the reference camera, Moonglow's view run ahead beside it): a
-  wide fog (`new:Mist`) is as dense as the game's (the ground under it
-  brightened by 18 of 255, the client's by 17). Left: Magic Sparks
-  (`plc_u03`, `render Motion_Blur`, velocity 3) are long bright streaks
-  in the client, from the side and from its steepest camera (pitch 1
-  asked, which the client clamps), where Moonglow draws each spark as a dot of its size laid along its path (the ground
-  under them brightened by 6 against the client's 13): the client
-  stretches a motion-blurred particle by its speed, by how much not yet
-  measured (a probe emitter at a few velocities, from the side). A tile's
-  emitters take their keys from the animations playing on it as one
-  animation as long as the longest (the game's tiles' keys are
-  constant; one that changed over a shorter loop would run slow).
-  (S, the streaks S–M) (from builders' reports after 1.14.1)
+  Animations is on (`nearest`); a wide fog is as dense as the game's and
+  Magic Sparks streak as the client's since 2026-10-30 (`Motion_Blur`
+  read in the fourth client batch and drawn). Left: a tile's emitters
+  take their keys from the animations playing on it as one animation as
+  long as the longest (the game's tiles' keys are constant; one that
+  changed over a shorter loop would run slow) (settle?: proposed by the
+  sprint on 2026-10-30, the owner's to say: kept so, as no tile of the
+  game's has such keys). (S) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
@@ -799,10 +751,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     60,000 ms), whatever the module's start hour, day or dawn, but the
     count moves: about 17,697,400 as the player entered an area in 16
     runs until after 12:09 on 2026-10-29 (and on 2026-10-21), two hours
-    more by 13:11 (`time_uniforms_in_the_client`). It is the phase of
-    the falling water's flow and the grass's sway, which are not
-    compared with the client frame by frame until it is known. (S: the
-    timer read back at a few hours of the day, for what moves it)
+    more by 13:11 (`time_uniforms_in_the_client`), and 17,697,400 again
+    at 23:10 that day (two runs, 30 and 2 minutes an hour: 17,704,328 at
+    the first picture, seven seconds in), so not the time of day; what
+    gave the 13:11 count is not known. It is the phase of the falling
+    water's flow and the grass's sway, which are not compared with the
+    client frame by frame until it is. (S: the timer read back over a
+    few runs an hour apart, and after a long-running client)
   - The game's programs draw on CI's Metal and Direct3D 12 (the
     renderer's CI branch, 2026-10-29: three draws, no failures), but a
     discarding one's depth is not tested there: naga's `discard` from
@@ -891,17 +846,30 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     other way, beside `envmap+mesh alpha`); which mesh of a bucket
     gives its value isn't plain from these (the first of `mgp_plain`'s
     and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
-  - Not read in the client: which map an item on the ground reflects (it
-    draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
-    it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
-    with the player there, in four runs on 2026-10-29: what Moonglow
-    uploads, its camera's target.) (S) (waits on a client reading: a
-    patched include painting `texUnitEnv` on an item's own fragments)
+  - Not read in the client: which map a reflecting item on the ground
+    takes. Read on 2026-10-30 (`reading_item_env_map`, the fourth client
+    batch, `inc_standard` painting each environment-mapped fragment with
+    its map in `tin01`): an amulet lies as `it_bag`, whose texture has no
+    alpha, and the client draws it with no map (not painted) where
+    Moonglow's game path binds `chrome1`, which shows nothing either way;
+    a longsword whose blade model was made a sphere drew no sphere in
+    either. (`cameraFocus` was read back as the player's place, (20, 20,
+    0) with the player there, in four runs on 2026-10-29: what Moonglow
+    uploads, its camera's target.) (S) (waits on a client reading: an
+    item of its own model, a texture with alpha, under the painting
+    include)
   - Moonglow's own shader draws as the client does since M4 (Settled),
     not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
     with their transparent texels black, and its 21 materials naming
-    maps without a render hint. (S) (waits on a client reading: a TDoD
-    area with both, beside the client's picture)
+    maps without a render hint. Seen on 2026-10-30
+    (`reading_rippling_glow` with `MG_B4_ZOMBIE=dds`): TDoD's
+    `dd_ce3_txburneds.dds` (a BioWare DXT1 of 512², three channels,
+    alpha mean 1, no transparent texel, its levels whole) alone in the
+    override drew the zombie a pale gray, see-through, where its TGA
+    beside it (as the hak has both) draws it charred as Moonglow draws
+    the DDS: why not read (a stock BioWare DXT1 renamed, beside it, would
+    tell the file from the format). (S) (waits on a client reading: a
+    TDoD area with both, beside the client's picture)
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
@@ -920,22 +888,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     batch: the far water's pixels against Moonglow's, by part: the
     reflection, the refraction's copy, the fog)
   - **Soft particles** fade as the client's with the Shaders switch on
-    (`particleSoftness` 10 over the emitter's larger size); what the
-    client gives lightning and `Linked` emitters wasn't read (Moonglow
-    gives lightning none); a Lighten particle's foot fades a little more
-    than the client's (6.2 of 255 away over its last rows). Moonglow's
-    own particle shader (the switch off) doesn't fade. (S) (waits on a
-    client reading: `particleSoftness` read through the marked
-    `fsparticle` for a lightning and a `Linked` emitter)
+    (`particleSoftness` 10 over the emitter's larger size, a `Linked`
+    emitter's and a lightning bolt's too: read on 2026-10-30,
+    `reading_soft_particles_of_lightning_and_linked`, and Moonglow's bolt
+    made soft); a Lighten particle's foot fades a little more than the
+    client's (6.2 of 255 away over its last rows). Moonglow's own
+    particle shader (the switch off) doesn't fade. (S)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
     `vsvt`/`fst`. (S) (waits on a client reading)
-  - **Particles' size and turn:** a still emitter's square particles
-    are drawn upright, as in the client, 28 pixels a side against the
-    client's 30 in `surfaces_in_the_client` (the fitted camera's error,
-    or the size: not told apart). A spinning particle's starting angle
-    wasn't read. (S) (waits on a client reading)
+  - **Particles' size:** a still emitter's square particles are drawn
+    upright, as in the client, 28 pixels a side against the client's 30
+    in `surfaces_in_the_client` (the fitted camera's error, or the size:
+    not told apart); a spinning one starts upright and turns by
+    `particleRot` radians a second, read and drawn on 2026-10-30. (S)
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
@@ -974,18 +941,26 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): not
   reproduced. The game's own balor, fire elemental, campfire and brazier
-  show theirs in the area view here (`look_particles_of`), so it is his
-  content, a setting (Animations off shows none) or his machine; asked
-  of him. (?) (from builders' reports after 1.16.2)
+  show theirs in the area view here (`look_particles_of`), and a static
+  brazier's fire and smoke run in the client as a dynamic one's, as in
+  the area view (`reading_static_placeable_emitters`, 2026-10-30), so it
+  is his content, a setting (Animations off shows none) or his machine;
+  asked of him. (?) (from builders' reports after 1.16.2)
 - **A `Linked` ribbon and a flip-book** (a builder's custom fog was
   drawn as bright streaks): what the client draws is in [the
   findings](findings.md) ("Particles: kept, flip-books and ribbons"),
-  and the fog shows as an even haze, as in the game. Not looked at: the
-  turn of the picture within a ribbon's piece (the client's looked
-  mirrored beside a plain particle's), and how the client orders a
-  ribbon's pieces among other see-through things. A model with no mesh
-  to draw (this fog) has no bounds of its own to frame a view by. (S)
-  (from builders' reports after 1.19.1)
+  and the fog shows as an even haze, as in the game. The picture's turn
+  within a piece is Moonglow's (read on 2026-10-30,
+  `reading_particle_turn_and_birth`: the newest piece shows the cell
+  turned half round in both, its pieces drawn newest last). Left: the
+  client's pieces each show the cell's top half for nearly all their
+  length, the next piece over the rest (a stretched, overlapping piece,
+  `reading_particle_spin_and_order`'s ribbon a metre a piece), where
+  Moonglow's show the whole cell from one particle to the next: the rule
+  not read further; how the client orders a ribbon among other
+  see-through things; and a model with no mesh to draw (this fog) has no
+  bounds of its own to frame a view by. (S) (from builders' reports
+  after 1.19.1)
 - **Client tests' scripted cameras:** the client takes a
   `SetCameraFacing` only when it is set a second after the player
   enters ([findings](findings.md), "An upright particle turns to the
@@ -1109,61 +1084,50 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Where a cut-out is cut:** at alpha 0.2 and solid where it is not
   cut; that, two-sided faces and decals as the client draws them are in
   [the findings](findings.md) ("Two-sided faces, cut-outs and decals").
-  Left: the tiles and the armoires were not
-  painted by the probe (another shader path: their value was not
-  read); a cut-out that is also see-through as a whole (a mesh's alpha
-  under 1, a transparency hint) is still blended, rim and all, which
-  was not compared. Cut-outs are no longer sorted back to front with
-  the see-through meshes: they write their depth as solid meshes do.
-  (S)
-  (asked by the Domains of Dread module session; checked in the client,
-  2026-10-09)
-- **A rippling glow (TXI `proceduretype arturo`) does not look like the
-  client's:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
+  A cut-out whose mesh's alpha is under 1 is drawn solid and cut, as the
+  client draws one, and a transparency hint changes nothing in either
+  (2026-10-30, `reading_see_through_cut_out`). Left: that disc of mesh
+  `alpha 0.5` is a quarter lighter in the client than the plain one
+  (156, 99, 40 against 126, 79, 31), not read why; the tiles and the
+  armoires were not painted by the probe (another shader path: their
+  value was not read). (S) (asked by the Domains of Dread module
+  session; checked in the client, 2026-10-09)
+- **A rippling glow (TXI `proceduretype arturo`), how far and how fast it
+  ripples:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
   `channelscale` 0 0 0 0, `channeltranslate` 1 1 1 1, `distort 1`,
   `arturowidth`/`arturoheight` 32, `distortionamplitude 10`, `speed 16`,
-  no `defaultwidth`; its TGA and DDS alike, 256 by 256, alpha 37 of 255
-  on average) shows in Moonglow as bright red and yellow patches over
-  the body, the texture as it is (`area_creatures_game_shaders` in
-  `screens.rs` with `MG_SCREEN_APPEARANCES=28518` and the module's
-  `tdod_top` and `tdod_p_ce3`, 2026-10-29), in the client as dim orange
-  veins, with either shader (a rippling texture is Moonglow's). Not
-  ported, waiting on a client reading: the procedure is the engine's
-  own, on the CPU, and the wiki says only that with `distort 1` the
-  channels' scale and translation are ignored and the amplitude is in
-  texels; Moonglow takes it as a part of `defaultwidth` (64 without one:
-  10/64 of the picture here, where 10 of its 256 texels is a quarter as
-  far). A ripple moves the picture and doesn't dim it, so the
-  difference may be the blending: Moonglow added an additive texture
-  whole (One, One) when this was seen; it weighs it by its alpha since
-  2026-10-29, as the client does (`reading_additive_blending`), which
-  may dim the zombie as the client's (not looked at again). The game's 39
-  arturo TXIs all name a scale and a translation; `distort 2` is only
-  `fxpa_globe*`'s, `distortangle` only the decal skins'
-  (`c_water_skin`, `vdu_tex_shade`). **What the client batch is to
-  read**, `creatures_look` with the zombie (`MG_OVERRIDE` with its model,
-  textures and appearance.2da, `MG_APPEARANCES=28518,28518`): (a) as it
-  is, a few frames apart; (b) its TXI without `proceduretype` and
-  `distort` (still dim: the blending, not the ripple); (c) a flat card
+  no `defaultwidth`) looks as the client's since an additive texture is
+  weighed by its alpha (2026-10-29): read on 2026-10-30
+  (`reading_rippling_glow`, the fourth client batch: two of the zombies
+  from close, the model, textures and appearance.2da out of the haks),
+  the body charred with dim orange veins in both, the client's veins
+  moving from picture to picture. Not compared: the ripple itself,
+  ported as Moonglow's reading (the amplitude a part of `defaultwidth`,
+  64 without one; the wiki: with `distort 1` the channels' scale and
+  translation are ignored and the amplitude is in texels): a flat card
   with probe TXIs, one keyword changed at a time (`distort 0` with this
-  scale and translation: white or the texture; `distortionamplitude` 10
-  against 40, with and without `defaultwidth`; `speed`), for how far and
-  how fast it ripples. (The client binary's symbols name the procedure,
+  scale and translation; `distortionamplitude` 10 against 40, with and
+  without `defaultwidth`; `speed`), for how far and how fast it ripples.
+  (The client binary's symbols name the procedure,
   `ArturoTextureController`: reading its code, where the client's
   pictures are what Moonglow reads, is the owner's to say.) (M: the
-  reading, then the port)
-  (from the Domains of Dread's report on the flickering zombie, 2026-10-22;
-  seen in the client, `creatures_look`)
+  reading, then the port) (from the Domains of Dread's report on the
+  flickering zombie, 2026-10-22; seen in the client, `creatures_look`)
 
 ## Models and textures
 
 - **Heed's previews after 1.33.0** (not reproduced): the Drow shields of
   the standard palette shown as bags in their thumbnails and the
   palette's hover preview. In the base game they show whole
-  (`item_previews` in `screens.rs`: `x2_adrowshl001`), so his haks are the
-  likely cause (a `baseitems.2da` of their own); his hak list or a
-  blueprint is needed. (His armor showing only a head and pelvis was
-  Beamdog's HD bodies, drawn whole since 1.34.1.) (S–M)
+  (`item_previews` in `screens.rs`: `x2_adrowshl001`). What makes a bag
+  (2026-10-30): the Drow shields are large shields (base item 56,
+  `ItemClass` `AShLw`, `ModelPart1` 33: `ashlw_033`), and baseitems.2da
+  row 56's `DefaultModel` is `it_bag`, which `mg_preview::item_parts`
+  falls to where the class and number name no model in the load order:
+  a hak's `baseitems.2da` whose row 56 names another `ItemClass`, or a
+  load order without `ashlw_033`. Waits on his hak list or a blueprint.
+  (His armor showing only a head and pelvis was Beamdog's HD bodies,
+  drawn whole since 1.34.1.) (S–M)
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
   its suite passes every probe since 2026-10-29, in Moonglow's tests
@@ -1176,9 +1140,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   That a face with one such vertex among weighed ones goes too is taken
   from the collapse, not seen: of the game's 1,778 skins only that wing
   has any such vertex, all of its own.
-  Left: the wing it keeps stands otherwise than the client's (spread
-  where the client's hangs, seen from the side; the demon's wings beside
-  it alike in both): its pose, not looked into. (S)
+  Left: the wing it keeps (`Dragon_Lwing`, a skin on the
+  `Gargoyle_L*` bones) stands otherwise than the client's: spread,
+  broadside, in the client's picture; hanging edge-on in Moonglow's.
+  Looked into (2026-10-30): `c_wings2`'s animations are all a
+  creature's (`cpause1`, `creadyl`...), none `pause1`, which the human
+  stands in; an animated part without the animation asked plays
+  `creadyl`, `cpause1` or `pause1` in `mg_preview::compose` (lines
+  `["creadyl", "cpause1", "pause1"]`, twice), so it plays `creadyl`,
+  while the demon's wings (`c_wingsdm`), which have none of the three,
+  stand as the human's animation leaves them, alike in both. The wing
+  at its bind pose, rendered alone, is spread as the client's looks:
+  the client likely plays none of a part's animations but the one
+  asked. Not changed here: the area view from another camera did not
+  show the client's shape plainly, and the fallback reaches every wing
+  and tail. Waits on the client batch: `reading_wings_without_bones`'s
+  picture beside Moonglow's (`moonglow_beside`) with that fallback
+  taken out. (S)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
@@ -1851,27 +1829,21 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
-  `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
-  `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
-  `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
-  `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
-  `Usage` and `Hit`. (L, mechanical)
+- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:262`,
+  `mg-edit lib.rs:39`, whose `GffPath` writes labels escaped where
+  `walk_fields`' paths don't), hand parsers of a path's text
+  (`search.rs:400` for `Hit::instance`, `rename.rs:68` for
+  `Usage::instance`, `rename.rs:677`, `verify.rs:65`,
+  `references.rs:813`, `mg-edit found.rs:62`), hand walkers beside
+  `Struct::walk_fields` (`rename.rs:171` `fields_with_paths`, the
+  index's tags and StrRefs; `text.rs:415`). `GffPath` into mg-gff,
+  carried by `Reference`, `Usage` and `Hit` (a `Usage` in a script is
+  `line N`, in a 2DA `row R, COLUMN`: a path of its own kind), which
+  `mg refs --json` and the UI read as text. Looked at
+  again 2026-10-30: unchanged in size. (L, mechanical)
 
 ### Settled in the engine or Aurora first
 
-- **A valid resource name, three rules:** ASCII of 16 (`mg-plugin
-  tables.rs:253`), letters, digits and `_` (`talk.rs:237`), those and
-  `-` (`hak_edit.rs:114`, `mg-plugin files.rs:247`), lower case alone
-  (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
-  `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
-  `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
-  The game takes any name of up to 16 bytes but NUL, whatever its case
-  (found by either, listed in lower case), with `-`, `.`, a space or a
-  byte past ASCII (`engine_resource_names.rs`), as `ResRef` does; what
-  is left is the one rule for names Moonglow makes, chosen (narrower
-  than the game's, for names that are also a project's file names)
-  and put in mg-core for the eleven places. (S–M)
 - **A copy's resref, what is left:** a blueprint's Copy is named as
   Aurora's Edit Copy names one now (`palette_add::copy_resref_named`,
   captured 2026-10-29: `nw_w1copy007` to `w1copy008`, the one case).
@@ -1880,11 +1852,15 @@ of truth, and does each caller's difference matter.
   `mgp_utc002`; `captures/wave1/add-palette.mod`, `pal2-addpal.mod`),
   where `new_resref` gives `001`, as the earlier capture's `mgp_utp001`
   (`aurora_palette_add.rs`) has it: what makes the difference is not
-  known (S, an Aurora capture or two). `copy_resref`
-  (`palette_view.rs`) stays for other resources, with three more
-  generators (`store_setup.rs:27`, `blueprints.rs:35`,
-  `dialog_view.rs:1612`) and two from a file's stem
-  (`dialog_view.rs:1608`, `nui_view/images.rs:91`). (S)
+  known. Not the bare template's being in the module (`mgp_utp.utp` was
+  in `placement-doors.mod` too, read 2026-10-30); the captures differ in
+  what was added (a creature and the items it holds, against a
+  placeable and its items), so the Aurora batch should capture, in one
+  session, Add to Palette of a placeable from an unnumbered module
+  blueprint holding an unnumbered module item, of a creature from an
+  unnumbered blueprint, and of that creature again, with the names each
+  dialog offers. (S, waits on the Aurora batch.) (The numbering itself
+  is one function since 2026-10-30, `Naming::numbered`.)
 - **The two portrait filters, the Creature Wizard's:** Select Portrait's
   (`situated.rs`: the gender exactly, the module's portraits too, the
   table's order) is Aurora's (captured 2026-10-29: Human and Male lists
@@ -1892,24 +1868,21 @@ of truth, and does each caller's difference matter.
   Outsider and Male shows nothing there too). The Creature Wizard's
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
   none, Plot rows left out, not the module's portraits) was not compared
-  with Aurora's wizard. (S)
+  with Aurora's wizard. (S, waits on the Aurora batch: the Creature
+  Wizard's portrait page for Human and Male in the `w1probe` module,
+  whether rows of `Sex` 2 to 4 (both, other, none) are listed, whether Plot
+  rows are, whether the module's own `w1po_` is, and in what order.)
 
 ### Smaller, each S
 
-- Left by the one row list (`widgets::row_choice`, 2026-10-21): it lays
-  out every row while open, where the 2DA editor's "a row of X.2da" laid
-  out only those in sight (a table of tens of thousands of rows, not
-  measured); Advanced Search's Value list goes by name past 12 rows,
-  where the item editor's cost list keeps the numbers' order (+10 before
-  +2 there); the Appearance and loading screen lists have no "≠" mark
-  for blueprints edited together, which the other fields' lists have;
-  and an item property's parameter list, by name now, was not held to
-  Aurora's order (a creature's classes and a door's generic appearance
-  are by name in Aurora too; its portraits are in the table's order, as
-  Select Portrait's grid: captured 2026-10-29).
-- `rename`'s `usages`, `tag_usages` and `mentions` restate what
-  `UsageIndex` answers. (`#include`, read three ways, is read one way
-  since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
+- Left by the one row list (`widgets::row_choice`, 2026-10-21): an item
+  property's parameter list, by name now, was not held to Aurora's order
+  (a creature's classes and a door's generic appearance are by name in
+  Aurora too; its portraits are in the table's order, as Select
+  Portrait's grid: captured 2026-10-29). (S, waits on the Aurora batch:
+  the item editor's Select Property Parameters for a property whose
+  parameter table has more than 12 rows, iprp_damagetype's or
+  iprp_onhit's, in the order Aurora lists it.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

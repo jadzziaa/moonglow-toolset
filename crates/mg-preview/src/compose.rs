@@ -396,7 +396,10 @@ impl Composed {
             textures: p.textures.clone(),
             ..Instance::new(p.gpu.clone(), transform)
         };
-        let mut out = vec![instance(&self.base, transform, Some(base_pose.clone()))];
+        // (The base in its own visual transform too, where it has one: a
+        // placed composite item's bottom part.)
+        let mut out =
+            vec![instance(&self.base, transform * self.base.local, Some(base_pose.clone()))];
         for p in &self.parts {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
             let (hung, bones) = p.hung(at);

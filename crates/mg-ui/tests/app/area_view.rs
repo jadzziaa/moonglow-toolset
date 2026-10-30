@@ -2009,6 +2009,13 @@ fn a_sound_s_random_range_is_drawn_its_ranges_wide() {
         let wide = at + Vec3::new(2.0 * side, 0.0, 0.0);
         assert!(!orange_near(wide), "not twice as wide ({side})");
     }
+    // Pitched, as Aurora's second picture: each distance a dotted sphere.
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        (o.pitch, o.yaw, o.distance) = (25f32.to_radians(), -90f32.to_radians(), 40.0);
+    }
+    h.run_steps(4);
+    let image = h.render().expect("render");
+    image.save(mg_testkit::output_dir("sound-range").join(format!("{name}-pitched.png"))).unwrap();
 }
 
 #[test]

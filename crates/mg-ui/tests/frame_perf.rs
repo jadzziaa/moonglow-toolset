@@ -1516,6 +1516,60 @@ fn grass_frames_at_144() {
     r.end();
 }
 
+/// Sound Ranges' cost: the campaign's area with the most placed sounds,
+/// in the viewer with the switch off and then on (each distance of each
+/// positional sound a dotted sphere). Needs the game and a GPU; run in
+/// release: `cargo test --release -p mg-ui --test frame_perf sound_ranges
+/// -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn sound_ranges_frames_at_144() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let path = root.join("data/nwm").join(CAMPAIGN);
+    if !path.is_file() {
+        println!("skipped: {CAMPAIGN} isn't installed");
+        return;
+    }
+    let mut r = Report::new();
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    // The area with the most positional sounds, and its size in tiles.
+    let (area, tiles, sounds) = {
+        let ws = app.ws.as_mut().unwrap();
+        let keys: Vec<_> = ws.module.keys_of(ResType::GIT).copied().collect();
+        let mut best = None;
+        for k in keys {
+            let count = ws.doc(&k).ok().map_or(0, |g| {
+                let list = g.root.list("SoundList").unwrap_or(&[]);
+                list.iter().filter(|s| s.integer("Positional").unwrap_or(0) != 0).count()
+            });
+            let are = ws.doc(&ResKey::new(k.resref, ResType::ARE)).ok();
+            let size = are.and_then(|a| Some(a.root.integer("Width")? * a.root.integer("Height")?));
+            if best.as_ref().is_none_or(|(_, _, n)| count > *n) {
+                best = Some((k.resref, size.unwrap_or(0), count));
+            }
+        }
+        best.unwrap()
+    };
+    println!(
+        "Sound Ranges: {CAMPAIGN}'s {area}, {sounds} positional sounds, frames at {SCREEN:?}, \
+         budget {:.2} ms",
+        ms(BUDGET)
+    );
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    for on in [false, true] {
+        h.state_mut().settings.sound_ranges = on;
+        let label = if on { " (Sound Ranges on)" } else { " (Sound Ranges off)" };
+        area_views(&mut h, &mut r, area, tiles, label);
+    }
+    r.end();
+}
+
 /// The Shaders switch's cost (`docs/shaders-proposal.md`, M3): a large
 /// area of stock content (the campaign's largest) and a large area of The
 /// Domains of Dread's own, with its haks and their custom shaders

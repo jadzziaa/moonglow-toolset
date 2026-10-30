@@ -415,7 +415,14 @@ impl Particles {
                     if fired { p("birthrate", 0.0).max(0.0) as usize } else { 0 }
                 }
                 "fountain" => {
-                    e.owed += p("birthrate", 0.0).max(0.0) * if trail { moved } else { dt };
+                    // (A birthrate under 1 a second makes none: the client
+                    // drew no particle of 0.5 or 0.667 in ten seconds,
+                    // ASCII or compiled, and 1.5 a second of 1.5;
+                    // `reading_particle_turn_and_birth`. None of the
+                    // game's 9,530 emitters has such a birthrate.)
+                    let rate = p("birthrate", 0.0);
+                    let rate = if !trail && rate < 1.0 { 0.0 } else { rate.max(0.0) };
+                    e.owed += rate * if trail { moved } else { dt };
                     let n = e.owed.floor();
                     e.owed -= n;
                     n as usize
@@ -495,7 +502,10 @@ impl Particles {
                     render_order: em.render_order,
                     vertices: strip(&points, None, eye),
                     tint: None,
-                    softness: 0.0,
+                    // (Soft as other particles, by its size: the client
+                    // gave a bolt of size 0.5 a softness of 20;
+                    // `reading_soft_particles_of_lightning_and_linked`.)
+                    softness: softness(p("sizestart", 0.0), p("sizeend", 0.0), &em.render),
                 });
                 continue;
             }
@@ -515,7 +525,13 @@ impl Particles {
             let (a0, a1) = (p("alphastart", 1.0), p("alphaend", 1.0));
             let (s0, s1) = (p("sizestart", 1.0), p("sizeend", 1.0));
             let (sy0, sy1) = (p("sizestart_y", 0.0), p("sizeend_y", 0.0));
-            let rot_speed = p("particlerot", 0.0) * std::f32::consts::TAU;
+            // (Radians a second: the client turned a 0.25 particle a
+            // quarter turn in about 7 s; `reading_particle_spin_and_order`.)
+            let rot_speed = p("particlerot", 0.0);
+            // (Absent, 10, as compilers write it; every one of the game's
+            // 332 motion-blurred emitters has its own. Not read in the
+            // client: a hand-written ASCII model without one.)
+            let blur = p("blurlength", 10.0);
             let (fps, f0, f1) = (p("fps", 0.0), p("framestart", 0.0), p("frameend", 0.0));
             let (gx, gy) = (em.xgrid.max(1), em.ygrid.max(1));
             let frames = (f1 - f0 + 1.0).max(1.0);
@@ -567,8 +583,26 @@ impl Particles {
                 // (Upright where it doesn't spin: the client draws a still
                 // emitter's square particles square, each of them, not each
                 // turned by a random angle; `surfaces_in_the_client`. A
-                // spinning one's starting angle wasn't read.)
-                let angle = if rot_speed == 0.0 { 0.0 } else { q.rot + rot_speed * q.age };
+                // spinning one starts upright too, turning anticlockwise as
+                // seen: `reading_particle_spin_and_order`.)
+                let angle = rot_speed * q.age;
+                if render == "motion_blur" {
+                    let quad = motion_blur(
+                        q,
+                        inherit,
+                        world,
+                        eye,
+                        (sx, sy),
+                        blur,
+                        (uv0, uv1),
+                        color,
+                        alpha,
+                    );
+                    if let Some(quad) = quad {
+                        quads.push((pos.distance_squared(eye), quad));
+                    }
+                    continue;
+                }
                 let (right, up) = match render.as_str() {
                     // Upright, turned about the world's Z to the eye (a
                     // shaft of light); `billboard_to_world_z` lies flat,
@@ -587,7 +621,7 @@ impl Particles {
                         (r, z)
                     }
                     "billboard_to_world_z" => (Vec3::X, Vec3::Y),
-                    "motion_blur" | "aligned_to_particle_dir" => {
+                    "aligned_to_particle_dir" => {
                         let world_vel =
                             if inherit { world.transform_vector3(q.vel) } else { q.vel };
                         let d = world_vel.normalize_or(Vec3::Z);
@@ -617,10 +651,10 @@ impl Particles {
                 ];
                 quads.push((pos.distance_squared(eye), quad));
             }
+            // (In the order they were born, the newest over the older, as
+            // the client draws them, whichever is nearer the eye: a rising
+            // and a falling column alike; `reading_particle_spin_and_order`.)
             let blend = blend_of(em);
-            if blend == ParticleBlend::Normal {
-                quads.sort_by(|a, b| b.0.total_cmp(&a.0));
-            }
             out.push(ParticleBatch {
                 texture: em.texture.clone(),
                 blend,
@@ -673,6 +707,49 @@ impl Particles {
         out
     }
 }
+
+/// A `Motion_Blur` particle's quad: twice its size across and from its
+/// head back to where its tail has got to, faded out there, as the client
+/// draws one (`client_render.rs`'s `reading_motion_blur_*`, 2026-10-30):
+/// the tail follows the particle `0.76 × blurlength` seconds behind, so
+/// that a streak is `speed × τ × (1 − e^(−age/τ))` longer than the square
+/// (a 2 m/s particle's 1.3 m at its 0.9th second with `blurlength` 1, 0.56
+/// m with 0.25). None with `blurlength` 0, as the client draws none.
+#[allow(clippy::too_many_arguments)]
+fn motion_blur(
+    q: &Particle,
+    inherit: bool,
+    world: Mat4,
+    eye: Vec3,
+    (sx, sy): (f32, f32),
+    blur: f32,
+    (uv0, uv1): (Vec2, Vec2),
+    color: Vec3,
+    alpha: f32,
+) -> Option<[ParticleVertex; 6]> {
+    if blur <= 0.0 {
+        return None;
+    }
+    let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
+    let vel = if inherit { world.transform_vector3(q.vel) } else { q.vel };
+    let d = vel.normalize_or(Vec3::Z);
+    let r = d.cross(eye - pos).normalize_or(Vec3::X) * sx;
+    let tau = BLUR_SECONDS * blur;
+    let trail = vel.length() * tau * (1.0 - (-q.age / tau).exp());
+    let (head, tail) = (pos + d * sy, pos - d * (sy + trail));
+    let v = |p: Vec3, uv: Vec2, a: f32| ParticleVertex {
+        pos: p.to_array(),
+        uv: uv.to_array(),
+        color: [color.x, color.y, color.z, a],
+    };
+    let (bl, br) = (v(tail - r, uv0, 0.0), v(tail + r, Vec2::new(uv1.x, uv0.y), 0.0));
+    let (tr, tl) = (v(head + r, uv1, alpha), v(head - r, Vec2::new(uv0.x, uv1.y), alpha));
+    Some([bl, br, tr, bl, tr, tl])
+}
+
+/// How far behind a `Motion_Blur` particle's tail follows it, seconds a
+/// unit of `blurlength` (fitted to the client's streaks: [`motion_blur`]).
+const BLUR_SECONDS: f32 = 0.76;
 
 /// A flip-book's frame as the corners of its cell in the texture: the
 /// first frame is the picture's top left, and they go along each row and
@@ -802,6 +879,120 @@ mod tests {
             let lowest = b[0].vertices.iter().map(|v| v.pos[2]).fold(f32::MAX, f32::min);
             let highest = b[0].vertices.iter().map(|v| v.pos[2]).fold(f32::MIN, f32::max);
             assert!(lowest < -1.0 && highest < 1.0, "{flags:#x} {turned}: {lowest} to {highest}");
+        }
+    }
+
+    /// `fountain` with `params` set (replacing its own).
+    fn fountain_with(render: &str, params: &[(&str, f32)]) -> Model {
+        let mut m = fountain();
+        if let NodeKind::Emitter(e) = &mut m.nodes[1].kind {
+            e.render = render.into();
+            e.blend = "Normal".into();
+        }
+        for (name, v) in params {
+            m.nodes[1].controllers.retain(|c| c.name != *name);
+            m.nodes[1].controllers.push(Controller::constant(name, &[*v]));
+        }
+        m
+    }
+
+    /// A Fountain emitter's birthrate under 1 a second makes no particle,
+    /// as in the client (`client_render.rs`'s
+    /// `reading_particle_turn_and_birth`: 0.5 and 0.667 none, ASCII or
+    /// compiled, 1.5 one and a half a second).
+    #[test]
+    fn a_birthrate_under_one_makes_none() {
+        for (rate, want) in [(0.5f32, 0..=0), (0.99, 0..=0), (1.5, 14..=15)] {
+            let m = fountain_with("Normal", &[("birthrate", rate), ("lifeexp", 20.0)]);
+            let pose = crate::rest_pose(&m);
+            let mut p = Particles::new(&m);
+            for _ in 0..100 {
+                p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            }
+            let n = p.emitters[0].particles.len();
+            assert!(want.contains(&n), "birthrate {rate}: {n} in 10 s");
+        }
+    }
+
+    /// A `Motion_Blur` particle is twice its size across and streaks
+    /// behind it as the client's (`reading_motion_blur_single`): its tail
+    /// follows `0.76 × blurlength` s behind, faded out; with `blurlength`
+    /// 0 it isn't drawn.
+    #[test]
+    fn a_motion_blurred_particle_streaks_behind_it() {
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+        let streak = |blur: f32| -> Option<(f32, f32, [f32; 2])> {
+            let m = fountain_with(
+                "Motion_Blur",
+                &[
+                    ("birthrate", 1.0),
+                    ("lifeexp", 5.0),
+                    ("velocity", 2.0),
+                    ("sizestart", 0.12),
+                    ("sizeend", 0.12),
+                    ("blurlength", blur),
+                ],
+            );
+            let pose = crate::rest_pose(&m);
+            let mut p = Particles::new(&m);
+            // (One born in the first second, 0.9 s old.)
+            for _ in 0..19 {
+                p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            }
+            assert_eq!(p.emitters[0].particles.len(), 1);
+            let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view);
+            let v = b.first().map(|b| b.vertices.clone()).unwrap_or_default();
+            if v.is_empty() {
+                return None;
+            }
+            let z: Vec<f32> = v.iter().map(|v| v.pos[2]).collect();
+            let x: Vec<f32> = v.iter().map(|v| v.pos[0]).collect();
+            let span = |s: &[f32]| {
+                s.iter().copied().fold(f32::MIN, f32::max)
+                    - s.iter().copied().fold(f32::MAX, f32::min)
+            };
+            Some((span(&z), span(&x), [v[0].color[3], v[2].color[3]]))
+        };
+        // (Born as the first second ended: 0.9 s old.)
+        let age = 0.9;
+        for (blur, want) in [(1.0f32, 1.3f32), (0.25, 0.56)] {
+            let (long, wide, [tail, head]) = streak(blur).unwrap();
+            let tau = 0.76 * blur;
+            let trail = 2.0 * tau * (1.0 - (-age / tau).exp());
+            assert!((long - (0.24 + trail)).abs() < 1e-3, "blurlength {blur}: {long}");
+            assert!(
+                (long - want).abs() < 0.1,
+                "blurlength {blur}: {long} against the client's {want}"
+            );
+            assert!((wide - 0.24).abs() < 1e-3, "twice its size across: {wide}");
+            assert_eq!((tail, head), (0.0, 1.0), "faded out at its tail");
+        }
+        assert!(streak(0.0).is_none(), "none with blurlength 0");
+    }
+
+    /// A spinning particle starts upright and turns by `particleRot`
+    /// radians a second, anticlockwise as seen; a Normal emitter's
+    /// particles are drawn in the order they were born, the newest last
+    /// (`reading_particle_spin_and_order`).
+    #[test]
+    fn spinning_particles_start_upright_and_the_newest_is_drawn_last() {
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+        let m = fountain_with(
+            "Normal",
+            &[("birthrate", 1.0), ("lifeexp", 10.0), ("velocity", 0.25), ("particlerot", 0.25)],
+        );
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        for _ in 0..41 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        let ages: Vec<f32> = p.emitters[0].particles.iter().map(|q| q.age).collect();
+        assert!(ages.len() >= 4 && ages.windows(2).all(|w| w[0] > w[1]), "{ages:?}");
+        let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view);
+        for (q, v) in p.emitters[0].particles.iter().zip(b[0].vertices.as_chunks::<6>().0) {
+            let right = Vec3::from(v[1].pos) - Vec3::from(v[0].pos);
+            let angle = right.z.atan2(right.x);
+            assert!((angle - 0.25 * q.age).abs() < 0.02, "age {}: turned {angle}", q.age);
         }
     }
 
@@ -1000,6 +1191,9 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, -1.0), Vec3::new(0.0, 0.0, -1.0), Vec3::Z);
         let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view);
         assert_eq!(b[0].vertices.len(), 8 * 6);
+        // Soft by its size, as the client's bolts are
+        // (`reading_soft_particles_of_lightning_and_linked`: 20 at 0.5).
+        assert!((b[0].softness - 10.0 / 0.2).abs() < 1e-3, "{}", b[0].softness);
     }
 
     #[test]

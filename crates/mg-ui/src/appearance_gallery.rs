@@ -276,16 +276,7 @@ pub(crate) fn grid(
                     let problem = if seen { kind.problem(&game, c.row) } else { None };
                     let mut about = format!("{} ({name}.2da row {})", c.text, c.row);
                     if let Some(p) = &problem {
-                        let red = ui.visuals().error_fg_color;
-                        let stroke = egui::Stroke::new(1.5, red);
-                        ui.painter().rect_stroke(r.rect, 3.0, stroke, egui::StrokeKind::Inside);
-                        ui.painter().text(
-                            r.rect.left_top() + egui::vec2(5.0, 4.0),
-                            egui::Align2::LEFT_TOP,
-                            "No model",
-                            egui::TextStyle::Body.resolve(ui.style()),
-                            red,
-                        );
+                        crate::palette_view::no_model_mark(ui, r.rect);
                         about = format!(
                             "{about}
 {p}"

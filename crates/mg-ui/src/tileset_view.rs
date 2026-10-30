@@ -218,11 +218,14 @@ fn read(file: &SetFile) -> Result<Arc<Tileset>, String> {
 pub fn new_tileset(app: &mut Moonglow) {
     let suggested = PathBuf::from("zzz01.set");
     let Some(path) = app.dialogs.save_file(FileKind::Tileset, Some(&suggested)) else { return };
-    let name = path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
-    if name.is_empty() || name.len() > 16 {
-        app.log.error("A tileset's name has 1 to 16 characters");
-        return;
-    }
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = match mg_core::ResRef::new_name(&stem) {
+        Ok(name) => name.to_string_lossy(),
+        Err(e) => {
+            app.log.error(format!("{stem}: a tileset's name: {e}"));
+            return;
+        }
+    };
     let file = edit::skeleton(&name);
     if let Err(e) = std::fs::write(&path, file.text()) {
         app.log.error(format!("{}: {e}", path.display()));

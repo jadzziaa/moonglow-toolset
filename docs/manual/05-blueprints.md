@@ -212,11 +212,13 @@ The palette's buttons:
 - **Lists of choices** (an appearance, a race, a part, a palette
   category, an item property's spell) work alike everywhere, the 2DA
   editor's, Area Properties' and Advanced Search's too. One of more than 12 rows is in its
-  names' order (parts and costs keep their numbers' order, categories
-  the palette's unless Options › General sorts them); one of
-  more than 30 has a **Filter** field above its rows, which narrows them
-  by name (case and accents aside: `arbol` finds `Árbol`) or to a row's
-  number, and opens at the row chosen. They take
+  names' order (parts and costs keep their numbers' order, an item
+  property's values in Advanced Search too, categories the palette's
+  unless Options › General sorts them); one of more than 30 has a
+  **Filter** field above its rows, which narrows them by name (case and
+  accents aside: `arbol` finds `Árbol`) or to a row's number, and opens
+  at the row chosen, as quick with a table of tens of thousands of rows
+  as with a short one. They take
   the arrow keys once clicked or reached with Tab: Up and Down choose
   the one before and after, Page Up and Page Down ten away, Home and End
   the first and last. Every other dropdown takes them the same way: a
@@ -268,6 +270,10 @@ The palette's buttons:
   a waypoint's Appearance Type when its `waypoint.2da` row has no flag
   to draw (the game draws no waypoint: the area view shows none for it).
   Verify (Build › Verify) reports the same objects by the same rule.
+  The Appearance lists mark each such row "(no model)" after its name,
+  so you see it before you choose it, and the palette's Gallery marks a
+  blueprint whose appearance has no model with **No model** in a red
+  frame where its picture would be.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
   shield from its front. A blueprint

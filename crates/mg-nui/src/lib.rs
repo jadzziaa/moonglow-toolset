@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use mg_core::ResType;
+use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit};
 use mg_module::Module;
 use mg_resman::ResKey;
@@ -216,13 +216,14 @@ pub fn parse(bytes: &[u8]) -> Result<Value, NuiError> {
     serde_json::from_slice::<Unique>(bytes).map(|v| v.0).map_err(|e| NuiError::Json(e.to_string()))
 }
 
-/// Whether `name` can be a window's: a ResRef (16 bytes, lower case here)
-/// with two bytes left for the `_o` and `_e` of its scripts. A name is
-/// never shortened or changed to fit.
+/// Whether `name` can be a window's: a name Moonglow makes
+/// ([`ResRef::new_name_of`]) with two bytes left for the `_o` and `_e` of
+/// its scripts, in lower case and without `-` (the scripts' functions are
+/// named after it: `Open_NAME`). A name is never shortened or changed to
+/// fit.
 pub fn check_name(name: &str) -> Result<(), NuiError> {
-    let fits = !name.is_empty()
-        && name.len() <= 14
-        && name.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_');
+    let fits = !name.contains('-')
+        && ResRef::new_name_of(name, 14).is_ok_and(|r| r.as_bytes() == name.as_bytes());
     if fits { Ok(()) } else { Err(NuiError::Name { name: name.into() }) }
 }
 
@@ -560,7 +561,7 @@ mod tests {
 
     #[test]
     fn a_name_is_a_resref_with_room_for_the_scripts_suffixes() {
-        for name in ["", "longer_than_fourteen", "Upper", "a/b", "ą", "a\0"] {
+        for name in ["", "longer_than_fourteen", "Upper", "a/b", "ą", "a\0", "a-b"] {
             assert_eq!(check_name(name), Err(NuiError::Name { name: name.into() }), "{name}");
         }
         assert!(check_name("abcdefghijklm1").is_ok());
