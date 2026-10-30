@@ -4549,3 +4549,52 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         assert_eq!(replace(&mut h, 5), Some(i64::from(bad)), "kept: nothing chosen");
     }
 }
+
+/// With the game's shaders on, the tiles a brush would lay, drawn
+/// see-through under the pointer, are drawn by the game's programs as the
+/// area's own tiles are, not by Moonglow's shader (the owner's report on
+/// 3.1.0: the brush's water was Moonglow's pale water beside the game's).
+/// What is solid of them still lays its depth first.
+#[test]
+fn a_brush_s_tiles_are_drawn_by_the_game_s_shaders() {
+    use glam::Vec3;
+    let Some((mut app, rs, area)) =
+        area_app("brush-shaders", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    app.settings.game_shaders = Some(true);
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(3);
+    // The models the game's programs draw, once they are all made.
+    let drawn = |h: &mut Harness<'_, Moonglow>| -> std::collections::BTreeSet<String> {
+        for _ in 0..40 {
+            h.state_mut().viewport.as_mut().unwrap().renderer.wait_for_game_programs();
+            h.step();
+            let r = &h.state().viewport.as_ref().unwrap().renderer;
+            if r.drawn.game_pending == 0 && r.drawn.textures_pending == 0 {
+                break;
+            }
+        }
+        h.step();
+        let r = &h.state().viewport.as_ref().unwrap().renderer;
+        r.game_programs.iter().flatten().map(|p| p.model.clone()).collect()
+    };
+    h.state_mut().viewport.as_mut().unwrap().renderer.game_programs = Some(Vec::new());
+    let area_alone = drawn(&mut h);
+    assert!(!area_alone.is_empty(), "the area's tiles, by the game's programs");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
+    h.run_steps(3);
+    let with_brush = drawn(&mut h);
+    let brush: Vec<&String> = with_brush.difference(&area_alone).collect();
+    assert!(
+        brush.iter().any(|m| m.to_ascii_lowercase().starts_with("ttr01_")),
+        "the brush's water tiles, by the game's programs: {brush:?} (the area's: {area_alone:?})"
+    );
+}

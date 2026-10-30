@@ -2157,12 +2157,14 @@ impl Renderer {
                 };
                 // (The skybox: `vsvt`/`fst`, read from the client.)
                 let traits = crate::game::Traits { sky: is_sky, ..surface.traits };
+                // (Drawn by the game's programs, a mesh solid of its own in
+                // an instance drawn see-through, a blueprint about to be
+                // placed or a brush's tiles, still lays its depth first,
+                // by Moonglow's shader, below.)
+                let mut game_drawn = false;
                 if let Some(f) = &game_frame
                     && let Some(game_pass) = game_pass
                     && !inst.unlit
-                    // (A blueprint about to be placed, see-through, is
-                    // Moonglow's: it lays its depth first.)
-                    && inst.opacity >= 1.0
                     && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
                     && self.game_path(slots, surface)
                 {
@@ -2314,7 +2316,10 @@ impl Renderer {
                                 draws.push(Draw { pass: Pass::Fringe, game: Some(at + 1), ..draw });
                             }
                         }
-                        continue;
+                        if !ghost_solid {
+                            continue;
+                        }
+                        game_drawn = true;
                     }
                 }
                 let normal = model_view.inverse().transpose();
@@ -2428,6 +2433,12 @@ impl Renderer {
                     if ghost_solid {
                         uniforms.push(part(4.0));
                         draws.push(Draw { depth: f32::INFINITY, ..draw });
+                    }
+                    // (The rest the game's programs draw, above: its two
+                    // parts, the second a little towards the eye, so that
+                    // this depth laid by another shader doesn't hide it.)
+                    if game_drawn {
+                        continue;
                     }
                     let draw = Draw { uniform: uniforms.len() as u32, ..draw };
                     uniforms.push(part(1.0));

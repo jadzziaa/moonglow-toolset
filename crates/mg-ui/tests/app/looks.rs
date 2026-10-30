@@ -54,6 +54,62 @@ fn terrain_screen() {
     image.save(out.join("terrain.png")).unwrap();
 }
 
+/// The Tiles palette's brush over the area with the game's shaders on: the
+/// tiles it would lay, see-through, drawn by the same shaders as the
+/// area's (the owner's report on 3.1.0: they were Moonglow's own). Writes
+/// `target/test-output/screens/tile-brush-shaders.png`; run by hand.
+#[test]
+#[ignore]
+fn look_tile_brush_with_game_shaders() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-brush-shaders") else { return };
+    h.state_mut().settings.game_shaders = Some(true);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    // Water laid at one corner, and the brush over the opposite one: the
+    // laid tiles and the brush's beside them.
+    let at = screen(&h, area, Vec3::new(10.0, 10.0, 0.0));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    h.hover_at(screen(&h, area, Vec3::new(30.0, 30.0, 0.0)));
+    // (The game's programs are made as they are first asked for.)
+    for _ in 0..120 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let out = mg_testkit::scratch_dir("screens-tile-brush").parent().unwrap().join("screens");
+    std::fs::create_dir_all(&out).unwrap();
+    h.render().expect("render").save(out.join("tile-brush-shaders.png")).unwrap();
+    // A brush of solid tiles (ground and cut-out trees): what is solid of
+    // them lays its depth first.
+    h.get_by_label("Trees").click();
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, Vec3::new(30.0, 30.0, 0.0)));
+    for _ in 0..80 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    h.render().expect("render").save(out.join("tile-brush-shaders-trees.png")).unwrap();
+    // The same at a slant, its trees standing over its ground.
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target, o.pitch, o.distance) = (Vec3::new(30.0, 30.0, 0.0), 0.55, 22.0);
+    }
+    h.run_steps(4);
+    h.hover_at(screen(&h, area, Vec3::new(30.0, 30.0, 0.0)));
+    for _ in 0..80 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    h.render().expect("render").save(out.join("tile-brush-shaders-slant.png")).unwrap();
+}
+
 /// A look at Options › Area's marks: a door's orientation arrow and an
 /// encounter's spawn point posts. Writes
 /// `target/test-output/ui-area-marks/marks.png`; run by hand.
