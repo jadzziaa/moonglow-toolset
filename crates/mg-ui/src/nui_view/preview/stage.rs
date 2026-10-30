@@ -646,6 +646,7 @@ impl Stage<'_> {
                 selected_bounds: &mut self.selected_bounds,
                 ancestor_disabled: !flag(&v["accepts_input"], s, None, true),
                 context_prefix: self.context_prefix,
+                reach: None,
             };
             if !flag(&v["collapsed"], s, None, false) {
                 let desired = renderer.scaled(natural(&v["root"], s, None, 0));

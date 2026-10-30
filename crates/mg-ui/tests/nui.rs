@@ -2384,7 +2384,8 @@ fn binds_given_are_held_to_what_their_properties_take() {
     };
     assert!(issues(json!({"caption": 12.5})).is_empty());
     let label = l_text(&w, json!({"caption": 12.5}));
-    assert_eq!(label.as_deref(), Some("13"));
+    // (Ties to even, as the client writes numbers: 12.5 at no places is 12.)
+    assert_eq!(label.as_deref(), Some("12"));
     assert_eq!(
         issues(json!({"tint": {"r": 10, "g": 20, "b": 30}})),
         ["bind \"tint\" at /root/children/0/foreground_color: Expected color {r,g,b,a} with \
@@ -2437,6 +2438,79 @@ fn sizes_are_whole_pixels_at_a_scale_that_isn_t_whole() {
     let cells: Vec<_> = l.elements.iter().filter(|e| e.id.as_deref() == Some("cell")).collect();
     let stride = (cells[1].area.y - cells[0].area.y) * 1.11;
     assert!((stride - (27.0 + 4.0 * 1.11)).abs() < 0.01, "{stride}");
+}
+
+/// A window of one column of `children`, laid out at `scale`.
+fn column_laid_out(children: Value, scale: f32) -> mg_ui::nui_render::Layout {
+    let mut doc = mg_nui::window();
+    doc["geometry"] = json!({"x": -1.0, "y": -1.0, "w": 600.0, "h": 560.0});
+    doc["root"]["children"] = children;
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse("column", ResType::JUI).unwrap(), serde_json::to_vec(&doc).unwrap());
+    let w = mg_ui::nui_render::Window { name: "column", ..crier_window(&m) };
+    let o = mg_ui::nui_render::Options { scale, ..Default::default() };
+    mg_ui::nui_render::layout(&w, &o).unwrap()
+}
+
+/// A row's buttons without widths are 150 wide; its last stretches to a
+/// control with a width of its own after the row in its column, until the
+/// row is as wide as it less 2, never to one before the row (NWN EE
+/// 8193.37, `nui_readings_in_the_client`: one button under an image 200
+/// wide is 196, under 400 396; two under 400 are 150 and 242; under 100,
+/// three under 400, and any above them, 150 each).
+#[test]
+fn a_row_s_last_button_stretches_to_a_wider_control_below_it() {
+    let widths = |above: bool, kind: &str, width: f64, n: usize| {
+        let mut c = json!({"type": kind, "id": "c", "label": "w", "value": "", "height": 30.0});
+        c["width"] = json!(width);
+        let buttons: Vec<Value> = (0..n)
+            .map(|i| json!({"type": "button", "id": format!("b{i}"), "label": "b"}))
+            .collect();
+        let row = json!({"type": "row", "children": buttons});
+        let l = column_laid_out(if above { json!([c, row]) } else { json!([row, c]) }, 1.0);
+        let w: Vec<f32> = (l.elements.iter())
+            .filter(|e| e.id.as_deref().is_some_and(|id| id.starts_with('b')))
+            .map(|e| e.area.w)
+            .collect();
+        w
+    };
+    for kind in ["image", "button"] {
+        assert_eq!(widths(false, kind, 200.0, 1), [196.0], "{kind}");
+        assert_eq!(widths(false, kind, 400.0, 1), [396.0], "{kind}");
+        assert_eq!(widths(false, kind, 400.0, 2), [150.0, 242.0], "{kind}");
+        assert_eq!(widths(false, kind, 400.0, 3), [150.0; 3], "{kind}");
+        assert_eq!(widths(false, kind, 100.0, 1), [150.0], "{kind}");
+        for width in [100.0, 200.0, 400.0] {
+            for n in 1..=3 {
+                assert_eq!(widths(true, kind, width, n), vec![150.0; n], "{kind} {width} {n}");
+            }
+        }
+    }
+}
+
+/// At a UI scale that isn't whole each margin is whole pixels, rounded
+/// down, as a control's size is (NWN EE 8193.37 at 111%: ten buttons 30
+/// high are 37 apart with margins of 2 and 43 with margins of 5, each 33
+/// high); at 100%, 34 and 40.
+#[test]
+fn margins_are_whole_pixels_at_a_scale_that_isn_t_whole() {
+    for (margin, scale, apart) in
+        [(2.0, 1.0, 34.0), (5.0, 1.0, 40.0), (2.0, 1.11, 37.0), (5.0, 1.11, 43.0)]
+    {
+        let buttons: Vec<Value> = (0..10)
+            .map(|i| {
+                json!({"type": "button", "id": format!("b{i}"), "label": "b", "width": 150.0,
+                       "height": 30.0, "margin": margin})
+            })
+            .collect();
+        let l = column_laid_out(json!(buttons), scale);
+        let b: Vec<_> = l.elements.iter().filter(|e| e.kind == "button").collect();
+        for pair in b.windows(2) {
+            let px = ((pair[1].area.y - pair[0].area.y) * scale).round();
+            assert_eq!(px, apart, "margin {margin} at {scale}");
+        }
+        assert_eq!((b[0].area.h * scale).round(), (30.0 * scale).floor(), "margin {margin}");
+    }
 }
 
 fn crier_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
