@@ -268,6 +268,10 @@ The palette's buttons:
   a waypoint's Appearance Type when its `waypoint.2da` row has no flag
   to draw (the game draws no waypoint: the area view shows none for it).
   Verify (Build › Verify) reports the same objects by the same rule.
+  The Appearance lists mark each such row "(no model)" after its name,
+  so you see it before you choose it, and the palette's Gallery marks a
+  blueprint whose appearance has no model with **No model** in a red
+  frame where its picture would be.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
   shield from its front. A blueprint

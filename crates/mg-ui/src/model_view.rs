@@ -1180,6 +1180,9 @@ struct Made {
     revision: Option<u64>,
     /// The frame it was last asked for in.
     used: u64,
+    /// A blueprint with nothing to draw because its appearance has no
+    /// model ([`mg_rules::appearance`]): the palette's Gallery marks it.
+    no_model: bool,
 }
 
 /// What a thumbnail is of: a blueprint or a model, or a creature's look
@@ -1290,6 +1293,17 @@ impl Thumbnails {
                 None => self.wanted.push(kept),
             }
         }
+    }
+
+    /// Whether `key`'s picture is made with nothing to draw because the
+    /// blueprint's appearance has no model.
+    pub(crate) fn no_model(&self, key: Pictured) -> bool {
+        self.made.get(&self.kept_as(key)).is_some_and(|m| m.no_model)
+    }
+
+    /// [`no_model`](Self::no_model) of blueprint `key`'s picture.
+    pub fn blueprint_has_no_model(&self, key: ResKey) -> bool {
+        self.no_model(Pictured::Resource(key))
     }
 
     /// A picture, if it is made (`Some(None)`: there is nothing to draw of
@@ -1476,8 +1490,13 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
         match drawn {
             Err(Waiting) => _ = app.thumbnails.ready.insert(kept, ready),
             Ok(picture) => {
-                let made =
-                    Made { picture, look: ready.look, revision: ready.revision, used: frame };
+                let made = Made {
+                    picture,
+                    look: ready.look,
+                    revision: ready.revision,
+                    used: frame,
+                    no_model: false,
+                };
                 keep_made(app, kept, made);
             }
         }
@@ -1497,7 +1516,7 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
             return;
         }
         let picture = draw_group_thumbnail(app, tileset, group);
-        keep_made(app, kept, Made { picture, look: None, revision, used: frame });
+        keep_made(app, kept, Made { picture, look: None, revision, used: frame, no_model: false });
         return;
     }
     let look = pictured_look(app, kept);
@@ -1517,7 +1536,21 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
     }
     let picture =
         look.as_ref().and_then(|(source, preview)| draw_thumbnail(app, key, source, preview));
-    keep_made(app, kept, Made { picture, look: kept_look, revision, used: frame });
+    // (Nothing to draw: whether for an appearance with no model.)
+    let no_model = look.is_none() && has_no_model(app, key);
+    keep_made(app, kept, Made { picture, look: kept_look, revision, used: frame, no_model });
+}
+
+/// Whether `key` is a blueprint whose appearance has no model to draw
+/// (as its Properties and Verify judge it).
+fn has_no_model(app: &Moonglow, key: Pictured) -> bool {
+    let Pictured::Resource(k) = key else { return false };
+    let Some(kind) = mg_rules::ObjectKind::from_restype(k.restype) else { return false };
+    let (Some(game), Some(gff)) = (app.game.as_deref(), crate::area_tools::blueprint(app, k))
+    else {
+        return false;
+    };
+    game.appearance_problem(kind, &gff.root).is_some()
 }
 
 /// Keeps a picture made, letting go of the one it takes the place of.

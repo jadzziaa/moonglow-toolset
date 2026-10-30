@@ -2045,13 +2045,36 @@ impl Tree<'_> {
     /// (whole on hover). Until the picture is made, or for a blueprint
     /// with nothing to draw, its name alone.
     fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
-        let made = self.ready.made(crate::model_view::Pictured::Resource(key));
+        let pictured = crate::model_view::Pictured::Resource(key);
+        let made = self.ready.made(pictured);
         let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
         if seen {
             self.shown.push(key);
         }
+        // (Marked where its appearance has no model, as the Appearance
+        // Gallery marks a row: its Properties say why.)
+        if seen && self.ready.no_model(pictured) {
+            no_model_mark(ui, r.rect);
+            return r.on_hover_text(
+                "Its appearance has no model to draw: its Properties say why (Verify too)",
+            );
+        }
         r
     }
+}
+
+/// A picture's mark for an appearance with no model: a frame and "No
+/// model" in the error color, as the Appearance Gallery marks a row.
+pub(crate) fn no_model_mark(ui: &egui::Ui, rect: egui::Rect) {
+    let red = ui.visuals().error_fg_color;
+    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.5, red), egui::StrokeKind::Inside);
+    ui.painter().text(
+        rect.left_top() + egui::vec2(5.0, 4.0),
+        egui::Align2::LEFT_TOP,
+        "No model",
+        egui::TextStyle::Body.resolve(ui.style()),
+        red,
+    );
 }
 
 /// What a palette's hover says of a blueprint that has no model to show:

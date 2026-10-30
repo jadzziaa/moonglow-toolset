@@ -98,6 +98,9 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
+/// An appearance list's kind of object, its length and first row's name.
+type MarkedKey = (ObjectKind, usize, Option<String>);
+
 /// What looking up a 2DA found, kept until [`GameData::invalidate`]. (A
 /// read that failed on I/O is not kept: it may succeed next time.)
 #[derive(Debug, Clone)]
@@ -121,6 +124,10 @@ pub struct GameData {
     /// The choice lists made so far ([`choice_list`](Self::choice_list)),
     /// by table and the two columns' places in it.
     choices: RwLock<HashMap<ChoiceKey, Arc<Vec<Choice>>>>,
+    /// Appearance lists with their rows of no model marked
+    /// ([`appearance_choices`](Self::appearance_choices)), by the kind of
+    /// object and the list they were made from.
+    marked: RwLock<HashMap<MarkedKey, Arc<Vec<Choice>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -223,6 +230,7 @@ impl GameData {
             custom_tlk: None,
             tables: RwLock::new(HashMap::new()),
             choices: RwLock::new(HashMap::new()),
+            marked: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -232,6 +240,7 @@ impl GameData {
         self.custom_tlk = tlk;
         // (The lists name rows by its strings.)
         self.choices.get_mut().expect("choice cache poisoned").clear();
+        self.marked.get_mut().expect("marked cache poisoned").clear();
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -256,6 +265,7 @@ impl GameData {
     pub fn invalidate(&self) {
         self.tables.write().expect("table cache poisoned").clear();
         self.choices.write().expect("choice cache poisoned").clear();
+        self.marked.write().expect("marked cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 

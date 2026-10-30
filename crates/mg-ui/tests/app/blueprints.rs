@@ -706,7 +706,10 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
     h.run_steps(2);
-    let choice = h.get_by_label("Missing_Thing").rect().center();
+    // The list marks the row with no model (dansen9191's report).
+    h.render().expect("render").save(shots.join("list.png")).unwrap();
+    let marked = format!("Missing_Thing{}", mg_rules::appearance::NO_MODEL);
+    let choice = h.get_by_label(&marked).rect().center();
     h.hover_at(choice);
     press(&h, choice, true, egui::Modifiers::NONE);
     press(&h, choice, false, egui::Modifiers::NONE);

@@ -180,7 +180,48 @@ impl crate::GameData {
         let table = self.table(at.table).ok();
         at.model(table.as_deref(), &self.resman).err()
     }
+
+    /// `choices`, a list of the rows of an object's appearance (a
+    /// placeable's, a creature's, a door's or a waypoint's), each row
+    /// with no model to draw ([`appearance_problem`](Self::appearance_problem))
+    /// marked [`NO_MODEL`] after its name: what the Properties' Appearance
+    /// lists show. A door's row 0, the generic door (its model another
+    /// field's), is not judged. Made once until the tables or resources
+    /// change ([`invalidate`](Self::invalidate)), not each frame.
+    pub fn appearance_choices(
+        &self,
+        kind: ObjectKind,
+        choices: &[crate::Choice],
+    ) -> std::sync::Arc<Vec<crate::Choice>> {
+        let field = match kind {
+            ObjectKind::Creature => "Appearance_Type",
+            _ => "Appearance",
+        };
+        let key = (kind, choices.len(), choices.first().map(|c| c.text.clone()));
+        let cache = &self.marked;
+        if let Some(made) = cache.read().expect("marked cache poisoned").get(&key) {
+            return made.clone();
+        }
+        let marked: Vec<crate::Choice> = choices
+            .iter()
+            .map(|c| {
+                let mut object = Struct::new(0);
+                object.set(field, mg_gff::Value::Int(c.row as i32));
+                let judged = !(kind == ObjectKind::Door && c.row == 0);
+                match judged.then(|| self.appearance_problem(kind, &object)).flatten() {
+                    Some(_) => crate::Choice { row: c.row, text: format!("{}{NO_MODEL}", c.text) },
+                    None => c.clone(),
+                }
+            })
+            .collect();
+        let marked = std::sync::Arc::new(marked);
+        cache.write().expect("marked cache poisoned").insert(key, marked.clone());
+        marked
+    }
 }
+
+/// What an Appearance list says after a row with no model to draw.
+pub const NO_MODEL: &str = "  (no model)";
 
 #[cfg(test)]
 mod tests {
@@ -236,6 +277,37 @@ mod tests {
 
     fn problem(kind: ObjectKind, fields: &[(&str, i64)]) -> String {
         check(kind, fields).expect_err("a problem").to_string()
+    }
+
+    /// The Properties' Appearance lists mark the rows with no model to
+    /// draw, and only those; a door's generic row 0 is not judged.
+    #[test]
+    fn an_appearance_list_marks_the_rows_with_no_model() {
+        let game = crate::GameData::new(resman(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let names = |table: &str| {
+            let columns = crate::ChoiceColumns { name: None, label: Some("Label") };
+            game.choices(table, columns).unwrap()
+        };
+        let rows = names("placeables");
+        let marked = game.appearance_choices(ObjectKind::Placeable, &rows);
+        let texts: Vec<&str> = marked.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["Chair", "Gone  (no model)", "Empty  (no model)", "Mine  (no model)"],
+            "row 4, empty, is no choice"
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &marked,
+            &game.appearance_choices(ObjectKind::Placeable, &rows)
+        ));
+        let columns = crate::ChoiceColumns { name: None, label: Some("LABEL") };
+        let creatures = game.choices("appearance", columns).unwrap();
+        let marked = game.appearance_choices(ObjectKind::Creature, &creatures);
+        let texts: Vec<&str> = marked.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, ["Dwarf", "Badger", "Ghost  (no model)"], "a body of parts has one");
+        // (Row 0 of the doors is the generic door: another field's model.)
+        let doors = vec![crate::Choice { row: 0, text: "Generic".into() }];
+        assert_eq!(game.appearance_choices(ObjectKind::Door, &doors)[0].text, "Generic");
     }
 
     #[test]

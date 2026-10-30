@@ -207,19 +207,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   single-model creature's and a waypoint's row and model by name (the
   waypoint's flag since 2026-10-29: Verify warns of it, the preview and
   the Properties go by it; a waypoint without the field, as 190 of
-  BioWare's blueprints are, is not judged, and what Aurora draws for
-  one was not captured), and an item's base item row.
-  Not checked by it, each S, about a day together: an item's own models
-  (its parts, `ModelPart1`… and an armor's), whose names mg-preview
-  alone makes (the naming would move down into mg-rules); a body of
-  parts' skeleton and parts, likewise; a model that is there but cannot
-  be read (a broken file is found when it is drawn; reading each
-  appearance's model in Verify was not timed on a large module); the
-  Appearance lists in the Properties don't mark the rows with no model
-  (the Appearance Gallery does, for those in sight: a mark in
-  `widgets::row_choice`, the rows checked once a revision, not each
-  frame); and the palette's own Gallery doesn't mark blueprints whose
-  appearance has none. (dansen9191's report, October 2026)
+  BioWare's blueprints are, is not judged: what Aurora draws for one
+  waits on an Aurora capture), and an item's base item row. The
+  Properties' Appearance lists mark the rows with no model and the
+  palette's Gallery the blueprints (since 2026-10-30). Not checked by
+  it, each S, about a day together: an item's own models (its parts,
+  `ModelPart1`… and an armor's), whose names mg-preview alone makes (the
+  naming would move down into mg-rules); a body of parts' skeleton and
+  parts, likewise; a model that is there but cannot be read (a broken
+  file is found when it is drawn; reading each appearance's model in
+  Verify was not timed on a large module). (dansen9191's report,
+  October 2026)
 - **Number fields' limits against Aurora, what is left:** the rest were
   measured in Aurora (2026-10-29, typed past their ends: an encounter's
   creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,
