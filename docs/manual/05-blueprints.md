@@ -269,7 +269,24 @@ The palette's buttons:
   item's Base Type Name says so when it isn't a `baseitems.2da` row, and
   a waypoint's Appearance Type when its `waypoint.2da` row has no flag
   to draw (the game draws no waypoint: the area view shows none for it).
-  Verify (Build › Verify) reports the same objects by the same rule.
+  A creature that is a body of parts (Human, Elf…) has no model when
+  its skeleton isn't there (`pmh0`: its gender, race letter and
+  phenotype, or the phenotype's default).
+  Past the appearance, the models the object's parts name are checked
+  too, a line under the field for each one that is in neither the
+  module, its haks nor the game, as in "No model: wswls_t_250 (its
+  ModelPart3) isn't in the module, its haks or the game": an item's
+  pieces (a weapon's three, a helmet's or a ring's one, a cloak's) and
+  an armor's parts (on a man or a woman of phenotype 0), and a body's
+  head and parts. The game draws the rest of the object without that
+  part. An item with no model of its own at all is drawn as its base
+  item's `DefaultModel` (as the game draws its own potions), which is
+  said only when that is missing too.
+  Verify (Build › Verify) reports the same objects by the same rule
+  (a part's model as a warning, placed or not), and also each model of
+  the module's or a hak's that an object names and that is there but
+  can't be read, with why: "Unreadable model: plc_crate9
+  (placeables.2da row 451, ModelName) is there and can't be read: …".
   The Appearance lists mark each such row "(no model)" after its name,
   so you see it before you choose it, and the palette's Gallery marks a
   blueprint whose appearance has no model with **No model** in a red

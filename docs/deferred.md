@@ -177,23 +177,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **An appearance with no model, what the warning leaves out:** the rule
-  (`mg_rules::appearance`) checks a placeable's, a door's, a
-  single-model creature's and a waypoint's row and model by name (the
-  waypoint's flag since 2026-10-29: Verify warns of it, the preview and
-  the Properties go by it; a waypoint without the field, as 190 of
-  BioWare's blueprints are, is not judged, as Aurora draws it as every
-  waypoint, its yellow arrow, and places it with `Appearance` 1, as
-  Moonglow does: captured 2026-10-30), and an item's base item row. The
-  Properties' Appearance lists mark the rows with no model and the
-  palette's Gallery the blueprints (since 2026-10-30). Not checked by
-  it, each S, about a day together: an item's own models (its parts,
-  `ModelPart1`… and an armor's), whose names mg-preview alone makes (the
-  naming would move down into mg-rules); a body of parts' skeleton and
-  parts, likewise; a model that is there but cannot be read (a broken
-  file is found when it is drawn; reading each appearance's model in
-  Verify was not timed on a large module). (dansen9191's report,
-  October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not

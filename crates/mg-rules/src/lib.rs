@@ -22,6 +22,7 @@ pub mod creatures;
 pub mod item_wizard;
 pub mod items;
 pub mod levelup;
+pub mod models;
 pub mod names;
 pub mod objects;
 pub mod placeables;

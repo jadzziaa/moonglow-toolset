@@ -1585,7 +1585,8 @@ fn has_no_model(app: &Moonglow, key: Pictured) -> bool {
     else {
         return false;
     };
-    game.appearance_problem(kind, &gff.root).is_some()
+    // (Not a part's model: the rest of the object is drawn.)
+    game.appearance_problem(kind, &gff.root).is_some_and(|p| !p.problem.is_part())
 }
 
 /// Keeps a picture made, letting go of the one it takes the place of.

@@ -5,6 +5,7 @@
 use mg_core::ResRef;
 use mg_gff::{Struct, Value};
 use mg_rules::GameData;
+use mg_rules::models;
 
 use crate::{Lookup, Part, Preview, PreviewError, cell, cell_int, env_map, item_colors};
 
@@ -187,11 +188,10 @@ pub(crate) fn item_parts(
         // transform them as the client does (`client_render.rs`'s
         // `reading_item_part_scopes`: a longsword's 255 the whole sword,
         // 254 its guard, 253 its blade; 252 and 251 nothing).
-        2 => ["b", "m", "t"]
+        2 => models::COMPOSITE
             .iter()
-            .zip(["ModelPart1", "ModelPart2", "ModelPart3"])
             .zip([None, Some(254), Some(253)])
-            .map(|((p, f), scope)| (format!("{class}_{p}_{:03}", n(f)), scope))
+            .map(|((p, f), scope)| (models::composite_model(&class, p, n(f)), scope))
             .filter(|(m, _)| lk.has_model(m))
             .map(|(m, scope)| {
                 let mut p = part(m);
@@ -210,11 +210,11 @@ pub(crate) fn item_parts(
             let cloaks = game.table("cloakmodel")?;
             let r = n("ModelPart1").max(0) as usize;
             let number = cell_int(&cloaks, r, "MODEL").unwrap_or(1);
-            let hers = format!("pfh0_cloak_{number:03}");
+            let hers = models::cloak_model(true, number);
             let model = if female && lk.has_model(&hers) {
                 hers
             } else {
-                format!("pmh0_cloak_{number:03}")
+                models::cloak_model(false, number)
             };
             if lk.has_model(&model) {
                 let mut p = part(model);
@@ -229,7 +229,7 @@ pub(crate) fn item_parts(
             }
         }
         1 => {
-            let model = format!("{class}_{:03}", n("ModelPart1"));
+            let model = models::item_model(&class, n("ModelPart1"));
             if lk.has_model(&model) {
                 let mut p = part(model);
                 p.colors = Some(item_colors(uti, colors));
@@ -239,7 +239,7 @@ pub(crate) fn item_parts(
             }
         }
         _ => {
-            let model = format!("{class}_{:03}", n("ModelPart1"));
+            let model = models::item_model(&class, n("ModelPart1"));
             if lk.has_model(&model) { vec![part(model)] } else { Vec::new() }
         }
     };

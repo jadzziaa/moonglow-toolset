@@ -5,35 +5,12 @@
 use mg_core::ResRef;
 use mg_gff::{Gff, Struct, Value};
 use mg_rules::GameData;
+use mg_rules::models::{self, BODY_PARTS};
 
 use crate::{
     HAIR, Lookup, Part, Preview, PreviewError, SKIN, TATTOO1, TATTOO2, cell, cell_f32, cell_int,
     env_map, item_colors,
 };
-
-/// Per capart.2da `MDLNAME`: the creature's field with its part number and
-/// the armour's. (The creature's right foot really is `ArmorPart_RFoot`.)
-/// In the order of the game's armor parts (`mg_rules::items::ARMOR_PARTS`).
-const PARTS: [(&str, &str, &str); 18] = [
-    ("footr", "ArmorPart_RFoot", "ArmorPart_RFoot"),
-    ("footl", "BodyPart_LFoot", "ArmorPart_LFoot"),
-    ("shinr", "BodyPart_RShin", "ArmorPart_RShin"),
-    ("shinl", "BodyPart_LShin", "ArmorPart_LShin"),
-    ("legl", "BodyPart_LThigh", "ArmorPart_LThigh"),
-    ("legr", "BodyPart_RThigh", "ArmorPart_RThigh"),
-    ("pelvis", "BodyPart_Pelvis", "ArmorPart_Pelvis"),
-    ("chest", "BodyPart_Torso", "ArmorPart_Torso"),
-    ("belt", "BodyPart_Belt", "ArmorPart_Belt"),
-    ("neck", "BodyPart_Neck", "ArmorPart_Neck"),
-    ("forer", "BodyPart_RFArm", "ArmorPart_RFArm"),
-    ("forel", "BodyPart_LFArm", "ArmorPart_LFArm"),
-    ("bicepr", "BodyPart_RBicep", "ArmorPart_RBicep"),
-    ("bicepl", "BodyPart_LBicep", "ArmorPart_LBicep"),
-    ("shor", "BodyPart_RShoul", "ArmorPart_RShoul"),
-    ("shol", "BodyPart_LShoul", "ArmorPart_LShoul"),
-    ("handr", "BodyPart_RHand", "ArmorPart_RHand"),
-    ("handl", "BodyPart_LHand", "ArmorPart_LHand"),
-];
 
 /// The robe, among the armor's parts.
 const ROBE: usize = 18;
@@ -121,7 +98,7 @@ impl CreatureLook {
         utc.set("Gender", Value::Byte(self.gender));
         utc.set("Phenotype", Value::Int(i32::from(self.phenotype)));
         utc.set("Appearance_Head", Value::Byte(self.head));
-        for (mdlname, field, _) in PARTS {
+        for (mdlname, field, _) in BODY_PARTS {
             let bare = matches!(mdlname, "belt" | "shor" | "shol");
             utc.set(field, Value::Byte(if bare { 0 } else { self.body }));
         }
@@ -214,14 +191,17 @@ pub(crate) fn dressed(
         let phenotypes = game.table("phenotype")?;
         let default_pheno = cell_int(&phenotypes, pheno as usize, "DefaultPhenoType").unwrap_or(0);
         let letter = race.to_ascii_lowercase();
-        let skeleton = format!("p{g}{letter}{pheno}");
-        let fallback = format!("p{g}{letter}{default_pheno}");
+        let skeleton = models::skeleton(&g, &letter, pheno);
+        let fallback = models::skeleton(&g, &letter, default_pheno);
         let skel = if lk.has_model(&skeleton) { skeleton.clone() } else { fallback.clone() };
         preview.base = Part::new(&skel);
-        let part_model = |name: &str, n: i64, sep: &str| -> Option<String> {
+        let part_model = |name: &str, n: i64| -> Option<String> {
             [&skeleton, &fallback]
                 .into_iter()
-                .map(|s| format!("{s}_{name}{sep}{n:03}"))
+                .map(|s| match name {
+                    "cloak" => models::body_cloak_model(s, n),
+                    _ => models::body_part_model(s, name, n),
+                })
                 .find(|m| lk.has_model(m))
         };
         // `part`: the armor part (an index of `ARMOR_PARTS`), which may
@@ -248,7 +228,7 @@ pub(crate) fn dressed(
                     == Some("1")
         };
         if robe > 0
-            && let Some(m) = part_model("robe", robe, "")
+            && let Some(m) = part_model("robe", robe)
         {
             preview.parts.push(with(m, None, true, Some(ROBE)));
         }
@@ -263,7 +243,7 @@ pub(crate) fn dressed(
             hide_wings = flag("HIDEWING");
             hide_tail = flag("HIDETAIL");
             if let Some(model) =
-                cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m, "_"))
+                cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m))
             {
                 let mut p = with(model, None, true, None);
                 p.local = crate::scope_matrix(utc, CLOAK_SCOPE);
@@ -281,10 +261,10 @@ pub(crate) fn dressed(
             let Some(mdlname) = cell(&capart, row, "MDLNAME").map(str::to_ascii_lowercase) else {
                 continue;
             };
-            let Some(part) = PARTS.iter().position(|(n, _, _)| *n == mdlname) else {
+            let Some(part) = BODY_PARTS.iter().position(|(n, _, _)| *n == mdlname) else {
                 continue;
             };
-            let (_, body_field, armor_field) = PARTS[part];
+            let (_, body_field, armor_field) = BODY_PARTS[part];
             if hidden(&mdlname)
                 || (mdlname == "shol" && hide_shoulders[0])
                 || (mdlname == "shor" && hide_shoulders[1])
@@ -304,7 +284,7 @@ pub(crate) fn dressed(
                 continue;
             }
             let node = cell(&capart, row, "NODENAME").unwrap_or("rootdummy");
-            if let Some(m) = part_model(&mdlname, n, "") {
+            if let Some(m) = part_model(&mdlname, n) {
                 preview.parts.push(with(m, Some(node), false, Some(part)));
             }
         }
@@ -316,7 +296,7 @@ pub(crate) fn dressed(
                 // (A helmet whose model isn't there is drawn as its base
                 // item's `DefaultModel`, the bag, in the head's place, as
                 // the client draws it: `reading_missing_helmet_model`.)
-                let model = Some(format!("helm_{:03}", number(h, "ModelPart1")))
+                let model = Some(models::helmet_model(number(h, "ModelPart1")))
                     .filter(|m| lk.has_model(m))
                     .or_else(|| {
                         let baseitems = game.table("baseitems").ok()?;
@@ -342,7 +322,7 @@ pub(crate) fn dressed(
             None if !hidden("head") => {
                 let head = number(utc, "Appearance_Head");
                 if head > 0
-                    && let Some(m) = part_model("head", head, "")
+                    && let Some(m) = part_model("head", head)
                 {
                     let mut p = with(m, Some("head_g"), false, None);
                     p.local = crate::scope_matrix(utc, HEAD_SCOPE);

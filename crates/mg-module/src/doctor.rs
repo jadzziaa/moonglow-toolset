@@ -706,6 +706,9 @@ struct Doctor<'a> {
     skip: &'a Skip,
     out: Vec<Finding>,
     tables: HashMap<String, Option<TwoDa>>,
+    /// Why each model an object names couldn't be read (`None`: it was,
+    /// or it is the game's own), read once a run.
+    models_read: HashMap<ResKey, Option<String>>,
 }
 
 /// Nothing left out.
@@ -723,6 +726,7 @@ impl<'a> Doctor<'a> {
             skip: self.skip,
             out: Vec::new(),
             tables: HashMap::new(),
+            models_read: HashMap::new(),
         }
     }
 
@@ -771,6 +775,36 @@ impl<'a> Doctor<'a> {
             self.tables.insert(name.to_string(), t);
         }
         self.tables[name].as_ref()
+    }
+
+    /// Why model `name` (an object's appearance's or one of its parts')
+    /// can't be read, where it is the module's or a hak's (the game's own
+    /// are taken as they are, as a hak left out is): read whole once, and
+    /// not again while its archive is as it was.
+    fn unreadable(&mut self, name: &str) -> Option<String> {
+        let key = ResKey::parse(name, ResType::MDL)?;
+        if let Some(known) = self.models_read.get(&key) {
+            return known.clone();
+        }
+        let why = self.rm.find(&key).and_then(|layer| {
+            let l = &self.rm.layers()[layer];
+            if !is_custom(l) || self.skip.source(&l.label) {
+                return None;
+            }
+            let facts = self.known(layer, &key);
+            if let Some(read) = facts.and_then(|f| f.read.clone()) {
+                return read;
+            }
+            if let Some(Err(e)) = facts.and_then(|f| f.faces.clone()) {
+                return Some(e);
+            }
+            let data = self.rm.get(&key).ok()?;
+            let read = mg_mdl::Model::read(&data).err().map(|e| e.to_string());
+            self.learn(layer, key, Facts { read: Some(read.clone()), ..Facts::default() });
+            read
+        });
+        self.models_read.insert(key, why.clone());
+        why
     }
 
     /// Whether a 2DA row exists: within the table and with something in the
@@ -826,6 +860,7 @@ pub fn examine_groups(
         skip,
         out: Vec::new(),
         tables: HashMap::new(),
+        models_read: HashMap::new(),
     };
     // (Looked up in parallel: a module with a hundred haks has hundreds of
     // thousands, each looked for in the layers above its own. A hak left
@@ -888,6 +923,7 @@ pub fn examine_groups(
                 skip,
                 out: Vec::new(),
                 tables: std::mem::take(tables),
+                models_read: HashMap::new(),
             };
             let source = &layers[layer].label;
             match key.restype {
@@ -1102,6 +1138,7 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         skip: &NOTHING,
         out: Vec::new(),
         tables: HashMap::new(),
+        models_read: HashMap::new(),
     };
     tileset_data(&mut d, "tileset", key, data);
     d.out
@@ -2403,10 +2440,11 @@ fn objects(d: &mut Doctor, module: &Module) {
         walk_objects(d, &gff.root, kind, "", &mut found);
         // Placed, it breaks the area (Aurora's area view crashes on it); a
         // blueprint breaks only when placed, and a waypoint's flag nothing
-        // the game shows.
-        for (path, message) in found {
+        // the game shows. A part with no model (an item's piece, a body's
+        // part) leaves the rest drawn: a warning wherever it is.
+        for (path, message, part) in found {
             let waypoint = path.starts_with("/WaypointList[") || key.restype == ResType::UTW;
-            let severity = match key.restype == ResType::GIT && !waypoint {
+            let severity = match key.restype == ResType::GIT && !waypoint && !part {
                 true => Severity::Error,
                 false => Severity::Warning,
             };
@@ -2914,7 +2952,7 @@ fn walk_objects(
     s: &Struct,
     kind: Option<ResType>,
     path: &str,
-    out: &mut Vec<(String, String)>,
+    out: &mut Vec<(String, String, bool)>,
 ) {
     // The row the object's appearance names must exist, and the model its
     // column names too (a missing one crashes Aurora's area view), as the
@@ -2927,10 +2965,33 @@ fn walk_objects(
         // (A waypoint's flag is the toolset's alone: judged only where
         // there is a waypoint.2da to judge it by, a game.)
         let unjudged = object == Some(mg_rules::ObjectKind::Waypoint) && table.is_none();
-        if let Err(e) = at.model(table, rm)
-            && !unjudged
-        {
-            out.push((format!("{path}/{}", at.field), e.to_string()));
+        match at.model(table, rm) {
+            Err(e) if !unjudged => out.push((format!("{path}/{}", at.field), e.to_string(), false)),
+            Err(_) => {}
+            // Its parts' models (an item's pieces and armor parts, a
+            // body's skeleton and parts) must be there too, and what is
+            // there be readable (one that isn't is found only when drawn).
+            Ok(own) => {
+                let names = ["baseitems", "cloakmodel", "appearance", "gender", "phenotype"];
+                for name in names {
+                    d.table(name);
+                }
+                let tables = &d.tables;
+                let lookup = |name: &str| tables.get(name).and_then(Option::as_ref);
+                let parts = at.parts(s, &lookup, rm);
+                for p in &parts.problems {
+                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                }
+                let models = own.map(|m| (None, m));
+                let found = parts.found.into_iter().map(|(field, m)| (Some(field), m));
+                for (field, model) in models.into_iter().chain(found) {
+                    let Some(why) = d.unreadable(&model) else { continue };
+                    let unread = mg_rules::appearance::Unread { field, model, why };
+                    let problem = mg_rules::appearance::Problem::Unreadable(Box::new(unread));
+                    let p = mg_rules::appearance::ModelProblem { at, problem };
+                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                }
+            }
         }
     }
     if kind == Some(ResType::UTC)
@@ -2943,6 +3004,7 @@ fn walk_objects(
                 out.push((
                     format!("{path}/ClassList[{i}]/Class"),
                     format!("class {v} isn't a classes.2da row; Aurora and the game crash"),
+                    false,
                 ));
             }
         }
@@ -4626,8 +4688,10 @@ endmodelgeom fx\ndonemodel fx\n";
     fn a_waypoint_s_flag_is_a_row_with_a_model() {
         let table =
             b"2DA V2.0\n\n   LABEL RESREF STRREF\n0 **** **** ****\n1 blue gi_waypoint01 5\n";
-        let rm =
-            resman(&[("waypoint", ResType::TWODA, table), ("gi_waypoint01", ResType::MDL, b"x")]);
+        let rm = resman(&[
+            ("waypoint", ResType::TWODA, table),
+            ("gi_waypoint01", ResType::MDL, &model_text("gi_waypoint01")),
+        ]);
         let mut m = Module::new();
         let mut utw = Gff::new(*b"UTW ");
         utw.root.set("Appearance", Value::Byte(1));
@@ -4648,6 +4712,93 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(at, ["area › waypoint WP_BAD › Appearance"], "{rows:?}");
         assert!(rows.iter().all(|f| f.severity == Severity::Warning), "{rows:?}");
         assert!(rows[0].message.contains("waypoint.2da has no row 7"), "{rows:?}");
+    }
+
+    /// A model of ours named `name`, which reads.
+    fn model_text(name: &str) -> Vec<u8> {
+        format!(
+            "newmodel {name}\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             endmodelgeom {name}\ndonemodel {name}\n"
+        )
+        .into_bytes()
+    }
+
+    /// Past an appearance's row, the models an object's parts name: an
+    /// item's piece that isn't there is a warning, placed or not (the rest
+    /// is drawn), as is a body's part; a body with no skeleton is as an
+    /// appearance with no model. And a model of a hak's that is there and
+    /// can't be read is said to be, with why: an error placed, as the
+    /// game's area view would find it.
+    #[test]
+    fn an_object_s_parts_and_unreadable_models() {
+        let placeables = b"2DA V2.0\n\n   Label ModelName\n0  Broken plc_broken\n";
+        let baseitems = b"2DA V2.0\n\n   label ItemClass ModelType DefaultModel\n\
+                          0 shortsword WSwSs 2 ****\n";
+        let appearance = b"2DA V2.0\n\n   LABEL RACE MODELTYPE\n0 Dwarf D P\n1 Gnome G P\n";
+        let rm = resman(&[
+            ("placeables", ResType::TWODA, placeables),
+            ("baseitems", ResType::TWODA, baseitems),
+            ("appearance", ResType::TWODA, appearance),
+            ("plc_broken", ResType::MDL, b"not a model"),
+            ("wswss_b_001", ResType::MDL, &model_text("wswss_b_001")),
+            ("wswss_m_001", ResType::MDL, &model_text("wswss_m_001")),
+            ("pmd0", ResType::MDL, &model_text("pmd0")),
+            ("pmd0_head001", ResType::MDL, b"truncated"),
+        ]);
+        let mut m = Module::new();
+        let mut sword = Gff::new(*b"UTI ");
+        for (field, n) in [("BaseItem", 0), ("ModelPart1", 1), ("ModelPart2", 1), ("ModelPart3", 2)]
+        {
+            sword.root.set(field, Value::Int(n));
+        }
+        m.set_gff(key("sword", ResType::UTI), &sword).unwrap();
+        let mut dwarf = Gff::new(*b"UTC ");
+        dwarf.root.set("Appearance_Type", Value::Word(0));
+        dwarf.root.set("Appearance_Head", Value::Byte(1));
+        dwarf.root.set("BodyPart_LShin", Value::Byte(3));
+        m.set_gff(key("dwarf", ResType::UTC), &dwarf).unwrap();
+        let mut gnome = Gff::new(*b"UTC ");
+        gnome.root.set("Appearance_Type", Value::Word(1));
+        m.set_gff(key("gnome", ResType::UTC), &gnome).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut box_ = Struct::new(9);
+        box_.set("Appearance", Value::Dword(0));
+        box_.set("Tag", Value::String(b"BOX".to_vec()));
+        let mut placed = sword.root.clone();
+        placed.id = 0;
+        placed.set("Tag", Value::String(b"SWORD".to_vec()));
+        git.root.set("Placeable List", Value::List(vec![box_]));
+        git.root.set("List", Value::List(vec![placed]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let mut rows: Vec<(Severity, &str, &str)> = f
+            .iter()
+            .filter(|f| f.check == "object-row")
+            .map(|f| (f.severity, f.at.as_str(), f.message.as_str()))
+            .collect();
+        rows.sort();
+        let said = |at: &str| rows.iter().find(|r| r.1 == at).map(|r| (r.0, r.2));
+        let (severity, message) = said("area › placeable BOX › Appearance").expect("the box");
+        assert_eq!(severity, Severity::Error);
+        assert!(
+            message.starts_with(
+                "Unreadable model: plc_broken (placeables.2da row 0, ModelName) is there and \
+                 can't be read: "
+            ),
+            "{message}"
+        );
+        let missing = "No model: wswss_t_002 (its ModelPart3) isn't in the module, its haks or \
+                       the game";
+        assert_eq!(said("sword.uti › ModelPart3"), Some((Severity::Warning, missing)), "{rows:?}");
+        let placed = rows.iter().find(|r| r.1.starts_with("area ›") && r.1.ends_with("ModelPart3"));
+        assert_eq!(placed.map(|r| (r.0, r.2)), Some((Severity::Warning, missing)), "{rows:?}");
+        let (_, shin) = said("dwarf.utc › BodyPart_LShin").expect("the shin");
+        assert!(shin.starts_with("No model: pmd0_shinl003 (its BodyPart_LShin)"), "{shin}");
+        let (_, head) = said("dwarf.utc › Appearance_Head").expect("the head");
+        assert!(head.starts_with("Unreadable model: pmd0_head001 (its Appearance_Head)"), "{head}");
+        let (_, skeleton) = said("gnome.utc › Appearance_Type").expect("the gnome");
+        assert!(skeleton.starts_with("No model: the skeleton pmg0 (appearance.2da row 1"));
+        assert_eq!(rows.len(), 6, "{rows:?}");
     }
 
     /// An object of the PC faction is warned of, blueprint or placed, and
