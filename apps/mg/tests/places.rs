@@ -240,6 +240,12 @@ fn module(dir: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
+/// `text` with `path` called `name`: as printed, and as JSON writes it
+/// (on Windows, its backslashes doubled).
+fn named(text: &str, path: &str, name: &str) -> String {
+    text.replace(&path.replace('\\', "\\\\"), name).replace(path, name)
+}
+
 /// `mg ARGS` on no game, its standard output and error as printed.
 fn run(nowhere: &std::path::Path, args: &[&str]) -> String {
     let out = crate::mg_on(nowhere, None).args(args).output().unwrap();
@@ -289,14 +295,21 @@ fn where_things_are_said_as_they_were() {
         if json {
             args.insert(0, "--json");
         }
-        said.push_str(&run(nowhere, &args).replace(c, "COPY"));
-        said.push_str(&run(nowhere, &["--json", "refs", c, "sentry.utc"]).replace(c, "COPY"));
+        said.push_str(&named(&run(nowhere, &args), c, "COPY"));
+        said.push_str(&named(&run(nowhere, &["--json", "refs", c, "sentry.utc"]), c, "COPY"));
     }
-    let said = said.replace(p, "MODULE").replace(nowhere.to_str().unwrap(), "NOWHERE");
-    let expected = include_str!("places.txt");
+    let said = named(&named(&said, p, "MODULE"), nowhere.to_str().unwrap(), "NOWHERE");
+    // (On Windows the file may be checked out with CRLF line ends.)
+    let expected = include_str!("places.txt").replace("\r\n", "\n");
     if said != expected {
         let at = mg_testkit::output_dir("mg-places").join("places.txt");
         std::fs::write(&at, &said).unwrap();
-        panic!("what mg says differs from tests/places.txt: it said {}", at.display());
+        // (The first line that differs, for a run whose files can't be
+        // looked at: CI's.)
+        let differs = said.lines().zip(expected.lines()).enumerate().find(|(_, (a, b))| a != b);
+        panic!(
+            "what mg says differs from tests/places.txt: it said {}; first at {differs:?}",
+            at.display()
+        );
     }
 }
