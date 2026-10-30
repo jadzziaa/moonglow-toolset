@@ -241,15 +241,15 @@ pub struct HakList {
 /// (a hak copied in meanwhile shows then): not read every frame.
 const ON_DISK_KEPT: f64 = 2.0;
 
-/// The haks in the hak folders (lower case, without `.hak`): the list
-/// read at most [`ON_DISK_KEPT`] seconds ago, else read now. `None`
-/// without a game install.
+/// The haks in the hak folders, by the names a module names them by
+/// ([`GameInstall::hak_names`]): the list read at most [`ON_DISK_KEPT`]
+/// seconds ago, else read now. `None` without a game install.
 fn haks_on_disk(app: &mut Moonglow, now: f64) -> Option<std::sync::Arc<Vec<String>>> {
     let install = app.install.as_ref()?;
     match &app.hak_list.on_disk {
         Some((read, haks)) if (0.0..ON_DISK_KEPT).contains(&(now - read)) => Some(haks.clone()),
         _ => {
-            let haks = std::sync::Arc::new(GameInstall::file_names(&install.hak_dirs(), "hak"));
+            let haks = std::sync::Arc::new(install.hak_names());
             app.hak_list.on_disk = Some((now, haks.clone()));
             Some(haks)
         }
@@ -297,8 +297,11 @@ pub(crate) fn moved(
 fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     use std::collections::BTreeSet;
     let items = root.items(&ifo::MOD_HAK_LIST);
-    let haks: Vec<String> =
-        items.iter().map(|h| decode(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes())).collect();
+    // (A hak's name is its file's bytes, read as the game data's layering
+    // reads them, not by the module's codepage: `mg_resman::hak_name`.)
+    let haks: Vec<String> = (items.iter())
+        .map(|h| mg_resman::hak_name(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()))
+        .collect();
     let n = haks.len();
     let list = || ifo::MOD_HAK_LIST.label.to_string();
     let command = |edits: Vec<Edit>, label: &str| Action::Apply(Command::new(label, edits));
@@ -506,7 +509,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     let r = ui.selectable_label(false, h.as_str());
                     if keys.row(&r) || r.clicked() {
                         let mut item = ifo::MOD_HAK_LIST.new_item();
-                        item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
+                        let name = mg_resman::hak_name_bytes(h);
+                        item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(name));
                         let insert = Edit::insert_item(
                             info_key(),
                             GffPath::root(),

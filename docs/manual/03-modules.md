@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:33:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T11:00:14Z }
 ---
 
 # Modules
@@ -1224,7 +1224,15 @@ it is there, or taken off the list. A module from before the list (1.69)
 names a single hak in its own field, `Mod_Hak`: Moonglow and `mg` use
 it where the module has no list, and the empty list says which it is. A
 hak added starts the list, which is then read in its place, so add that
-hak to it too.
+hak to it too. A hak's name is its file's name, byte for byte: the game
+opens the file whose name has the bytes the module names it by, and
+converts nothing. A name with a letter outside ASCII (`ñ`) is a byte the
+module wrote on Windows (0xF1) and two bytes in a file named on Linux
+(UTF-8): to the game, two haks. Moonglow and `mg` show each name's bytes
+as Windows-1252, as the game reads them, so a hak whose file was named
+`mg_ñhak` on Linux is listed as `mg_Ã±hak`; Add hak… and Add Haks and
+Talk Table… write the bytes of the file chosen. Haks named in ASCII
+alone load the same everywhere.
 - **Choose** a row with a click; Ctrl + click adds or takes out a row,
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots

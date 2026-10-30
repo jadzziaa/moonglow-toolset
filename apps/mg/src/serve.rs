@@ -300,8 +300,7 @@ pub(crate) fn prepare(
         let _ = std::fs::remove_file(target.with_extension("mod.bak"));
     }
     for hak in &haks {
-        let file = format!("{hak}.hak");
-        let to = dir.join("hak").join(&file);
+        let to = dir.join("hak").join(mg_resman::hak_file_name(hak));
         match gi.find_hak(hak) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}

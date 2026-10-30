@@ -477,7 +477,7 @@ impl Fixture {
         let haks = module.haks().unwrap_or_default();
         if let Some(folder) = folder {
             for name in &haks {
-                let path = folder.join("hak").join(format!("{name}.hak"));
+                let path = folder.join("hak").join(mg_resman::hak_file_name(name));
                 if !path.is_file() {
                     continue;
                 }

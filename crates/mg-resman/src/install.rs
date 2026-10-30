@@ -189,11 +189,28 @@ impl GameInstall {
         self.user("hak")
     }
 
-    /// The file of the hak `name` (without `.hak`) the game opens: the
-    /// first of [`GameInstall::hak_dirs`] that has it.
+    /// The file of the hak `name` (without `.hak`, as [`crate::hak_name`]
+    /// reads a module's) the game opens: the first of
+    /// [`GameInstall::hak_dirs`] that has [`crate::hak_file_name`].
     pub fn find_hak(&self, name: &str) -> Option<PathBuf> {
-        let file = format!("{name}.hak");
+        let file = crate::hak_file_name(name);
         self.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
+    }
+
+    /// The haks in the hak folders, by the names a module names them by
+    /// ([`crate::hak_name_of_file`]), sorted and without duplicates.
+    pub fn hak_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = (self.hak_dirs().iter())
+            .filter_map(|d| std::fs::read_dir(d).ok())
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("hak")))
+            .filter_map(|p| p.file_stem().map(crate::hak_name_of_file))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Where custom talk tables are: the user's `tlk/`, then the install's

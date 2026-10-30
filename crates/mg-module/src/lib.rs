@@ -1039,10 +1039,12 @@ pub fn areas_of(info: &mg_gff::Struct) -> Vec<ResRef> {
 
 /// The haks a `module.ifo`'s root names, highest priority first: its
 /// `Mod_HakList`, or the single pre-1.69 `Mod_Hak` field when it has no
-/// list; names trimmed, empty ones left out. [`Module::haks`] reads the
-/// module's saved IFO by it, and the window its IFO with unsaved edits.
+/// list; names trimmed, empty ones left out, each read by
+/// [`mg_resman::hak_name`] (its bytes are the hak's file name's).
+/// [`Module::haks`] reads the module's saved IFO by it, and the window its
+/// IFO with unsaved edits.
 pub fn haks_of(info: &mg_gff::Struct) -> Vec<String> {
-    let text = |s: ExoString| String::from_utf8_lossy(s.as_bytes()).trim().to_owned();
+    let text = |s: ExoString| mg_resman::hak_name(s.as_bytes()).trim().to_owned();
     let list: Vec<String> = (info.items(&ifo::MOD_HAK_LIST).iter())
         .map(|h| text(h.read(&ifo::mod_hak_list::MOD_HAK)))
         .filter(|h| !h.is_empty())
@@ -1133,6 +1135,9 @@ mod tests {
         };
         list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b" top "), row(b""), row(b"low")]));
         assert_eq!(haks_of(&list), ["top", "low"]);
+        // A byte past ASCII is kept, as `mg_resman::hak_name` reads it.
+        list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b"mg_\xf1hak")]));
+        assert_eq!(haks_of(&list), ["mg_ñhak"]);
     }
 
     #[test]
