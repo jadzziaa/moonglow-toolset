@@ -726,14 +726,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   palette's ☀ Lights, Light Color, a ring for the reach as the client
   measured it. Way B is not started. It waits on the owner's answer to
   the proposal's question (is a hak that Moonglow writes and keeps
-  acceptable, given that a persistent world must ship it?), and on the
-  client for the proposal's two questions not measured: whether a
+  acceptable, given that a persistent world must ship it?); the
+  proposal's two questions for the client are answered (2026-10-29: a
   `LightColor` light and a model's light node light creatures and
-  placeables or only tiles, and how many dynamic lights the game draws
-  at one place before dropping some (the client batch can read both as
-  `placeable_light_uniforms` in `client_render.rs` reads a light's
-  reach: the uniforms the client hands its shader, with a creature and
-  a placeable beside the light, and with one to twelve lights). Its
+  placeables as they light tiles; a draw takes as many lights as the
+  client's Max Lights, 32 by default). Its
   row needs no merge of several haks' tables: the way Make a Lighting
   Scheme adds an environment.2da row (the table opened where the
   builder chooses, the row added with `Editing::add_row_of`) serves a
