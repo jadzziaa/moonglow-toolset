@@ -726,7 +726,8 @@ fn from_hak(hak: &str, names: &[&str]) -> Vec<(String, Vec<u8>)> {
 /// veins in the client and in Moonglow alike, the client's veins moving
 /// from picture to picture. `dds`: the client drew the bodies pale gray
 /// and see-through (Moonglow charred, as with the TGA). `stockdds`
-/// (2026-10-30): pale white, no stones: the client draws neither DDS on it.
+/// (2026-10-30): pale white and opaque, no stones: the client shows
+/// neither DDS's picture.
 #[test]
 #[ignore]
 fn reading_rippling_glow() {

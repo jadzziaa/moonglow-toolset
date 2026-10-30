@@ -827,9 +827,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     beside it (as the hak has both) draws it charred as Moonglow draws
     the DDS. Not the file (2026-10-30, `MG_B4_ZOMBIE=stockdds`): the
     game's own `tic01_floor01.dds` (a BioWare DXT1 alike, 512², alpha
-    mean 1) in its place draws the zombie pale white, not its stones:
-    the client draws neither DDS on this creature, Moonglow both (where
-    and why the client takes no DDS here, not read; TDoD's areas, which
+    mean 1) in its place draws the zombie pale white and opaque, not its
+    stones: the client shows neither DDS's picture (TDoD's pale and
+    see-through, the stock one pale and not), Moonglow both as decoded
+    (what the client makes of a BioWare DXT1 here, not read; TDoD's areas, which
     the module on this machine doesn't hold (`tdod.mod`: three staging
     areas), wait on their files). (S)
 - **The special surfaces (M5 of [the shaders
@@ -906,8 +907,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0.25 at 60 cm (alike at 0.5 and 1 m gaps; the rule in the particles'
   size not fitted from two sizes), where Moonglow's runs from one
   particle to the next exactly (S). Among see-through meshes: a mesh of
-  `alpha 0.5` in front of a ribbon hides it entirely in the client (it
-  writes the depth the particles are drawn against), where Moonglow
+  `alpha 0.5` in front of a ribbon hides it entirely in the client (in
+  the ribbon's own model: it writes the depth the particles are drawn
+  against; across models not read), where Moonglow
   draws the ribbon over it whole, its see-through part writing no
   depth (`alpha 0.5` meshes writing depth is the see-through meshes
   entry's question too: M). A model with no mesh to draw (this fog)
