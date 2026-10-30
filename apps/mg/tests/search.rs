@@ -152,6 +152,55 @@ fn search_a_module_without_the_game() {
     assert!(fails(&["--var", "dei(dad", "--regex"]).contains("dei(dad"));
 }
 
+/// `--any` of the conditions, and `--not` before one to leave out what
+/// meets it, where it is on the command line.
+#[test]
+fn search_for_any_condition_and_leave_one_out() {
+    let dir = mg_testkit::scratch_dir("mg-search-any-not");
+    let path = module(&dir);
+    let p = path.to_str().unwrap();
+    let nowhere = dir.join("no-game");
+    let ask = |args: &[&str]| {
+        let mut all = vec![p];
+        all.extend_from_slice(args);
+        run(&nowhere, &all)
+    };
+    let found = |args: &[&str]| -> Vec<String> {
+        let (ok, json, err) = ask(args);
+        assert!(ok, "{args:?}: {err}");
+        let found = json["found"].as_array().unwrap();
+        found.iter().map(|f| f["place"].as_str().unwrap().to_string()).collect()
+    };
+    // The priest's variable, but not on what carries an item with the
+    // property (the priest carries the amulet); nor on fighters (none).
+    assert!(found(&["--var", "nPriestly", "--not", "--property", "52"]).is_empty());
+    let priestly = ["priest.utc", "shrine.ute › spawns priest.utc"];
+    assert_eq!(found(&["--var", "nPriestly", "--not", "--class", "4"]), priestly);
+    // The guard has appearance 103.
+    assert!(found(&["--class", "4", "--not", "--appearance", "103"]).is_empty());
+    // --not goes with the condition after it, wherever that is.
+    assert_eq!(found(&["--not", "--var", "nPriestly", "--class", "4"]), ["keep › creature GUARD"]);
+    // Any of them: each one's.
+    assert_eq!(
+        found(&["--class", "4", "--var", "nPriestly", "--any"]),
+        ["keep › creature GUARD", "priest.utc", "shrine.ute › spawns priest.utc"]
+    );
+    assert!(found(&["--class", "4", "--var", "nPriestly"]).is_empty(), "all of them");
+    let either = ["--any", "--class", "4", "--var", "sDeidad", "--not", "--property", "52"];
+    assert_eq!(found(&either), ["keep › creature GUARD"]);
+    // What it can't do.
+    let fails = |args: &[&str]| {
+        let (ok, json, _) = ask(args);
+        assert!(!ok, "{args:?}");
+        json["error"].as_str().unwrap_or_default().to_string()
+    };
+    assert!(fails(&["--class", "4", "--not"]).contains("--not goes before"));
+    assert!(fails(&["--not", "--class", "4"]).contains("besides what to leave out"));
+    assert!(fails(&["--not", "--not", "--class", "4", "--var", "x"]).contains("--not twice"));
+    let both = ["--not", "--var", "nPriestly", "--not", "--class", "4"];
+    assert!(fails(&both).contains("besides what to leave out"));
+}
+
 #[test]
 fn search_a_campaign_by_the_names_the_game_gives() {
     let root = mg_testkit::corpus!();
