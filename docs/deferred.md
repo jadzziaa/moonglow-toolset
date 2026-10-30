@@ -1808,8 +1808,11 @@ few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
-  all fifteen pages are unchanged upstream. (S)
-  (the documentation audit of 2026-10-12)
+  all fifteen pages are unchanged upstream (the mirror's sync of
+  2026-10-26). Each page's edit is ready to paste in
+  [wiki-corrections/](wiki-corrections/index.md) (the passage, its
+  replacement, an edit summary, the evidence); submitting them waits on
+  the owner. (S) (the documentation audit of 2026-10-12)
 
 ## The code itself (the code review of October 2026)
 
