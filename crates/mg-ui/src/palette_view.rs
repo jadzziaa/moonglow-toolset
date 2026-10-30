@@ -478,11 +478,7 @@ pub fn copy_resref_named(
     taken: &dyn Fn(&str) -> bool,
 ) -> Option<ResRef> {
     let stem = naming.strip(from).trim_end_matches(|c: char| c.is_ascii_digit());
-    let stem = &stem[..stem.len().min(13)];
-    (1..1000)
-        .map(|n| naming.fit(stem, &format!("{n:03}")))
-        .find(|name| !taken(name))
-        .and_then(|name| ResRef::from_str(&name).ok())
+    naming.numbered(&stem[..stem.len().min(13)], 1, taken)
 }
 
 /// Opens one of the game's blueprints to look at (the module's own of

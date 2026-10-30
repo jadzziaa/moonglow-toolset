@@ -8,7 +8,7 @@ fn filtering_the_tree_opens_its_groups() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Scripts start closed.
     assert!(h.query_by_label("hello").is_none());
@@ -62,7 +62,7 @@ fn a_tree_row_s_menu_opens_it_in_its_editor() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let script = ResKey::parse("hello", ResType::NSS).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_none());
@@ -82,7 +82,7 @@ fn resources_open_in_their_editors() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let script = ResKey::parse("hello", ResType::NSS).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(script).unwrap()));
@@ -520,7 +520,7 @@ fn areas_are_listed_by_name_when_asked() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // By ResRef, as Aurora lists them.
     h.get_by_label("area467");
@@ -570,7 +570,7 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().settings.area_names = true;
     h.run();
@@ -608,7 +608,7 @@ fn blueprints_are_listed_by_name_when_asked() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Open the groups (the filter opens every group with a match).
     h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
@@ -1435,7 +1435,7 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
     h.get_by_label("lost").click_secondary();

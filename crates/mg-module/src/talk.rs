@@ -441,10 +441,13 @@ impl Table {
                 format!("the text has characters the table's language can't write ({codepage:?})")
             })
         };
-        let sound = line.sound.trim().to_ascii_lowercase();
-        if sound.len() > 16 || !sound.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
-            return Err("a sound's name has at most 16 letters, digits and _".into());
-        }
+        // (No sound, or one by the rule a plugin's line is held to too.)
+        let sound = match line.sound.trim() {
+            "" => String::new(),
+            s => mg_core::ResRef::new_name(s)
+                .map_err(|e| format!("a sound's name: {e}"))?
+                .to_string_lossy(),
+        };
         let entry = |text: &str, old: Option<&TlkEntry>| -> Result<TlkEntry, String> {
             let mut e = old.cloned().unwrap_or_default();
             e.text = encode(text)?;
@@ -1089,6 +1092,25 @@ mod tests {
 
     fn line(text: &str) -> Line {
         Line { text: text.into(), feminine: None, sound: String::new(), sound_length: 0.0 }
+    }
+
+    /// A line's sound is named by the rule of the names Moonglow makes
+    /// (`ResRef::new_name`, which a plugin's line is held to too): `-`
+    /// taken, capitals lowered, a space or a dot refused.
+    #[test]
+    fn a_line_s_sound_is_named_by_the_rule_of_new_names() {
+        let tlk = Tlk { language: Language::ENGLISH, entries: vec![TlkEntry::default()] };
+        let found = Found { source: Source::Module, data: tlk.to_bytes().unwrap() };
+        let mut t = Table::open("mine", found, None).unwrap();
+        let sounded = |s: &str| Line { sound: s.into(), ..line("Hi") };
+        t.set_line(0, &sounded(" VS_Hide-2 "), None).unwrap();
+        assert_eq!(t.tlk.entries[0].sound, b"vs_hide-2");
+        for bad in ["a b", "vs_hide.wav", "seventeen_letters"] {
+            let e = t.set_line(0, &sounded(bad), None).unwrap_err();
+            assert!(e.starts_with("a sound's name: "), "{bad}: {e}");
+        }
+        t.set_line(0, &sounded(""), None).unwrap();
+        assert_eq!(t.tlk.entries[0].flags & FLAG_SOUND, 0);
     }
 
     /// A project's table (JSON) with a line that has a length and no

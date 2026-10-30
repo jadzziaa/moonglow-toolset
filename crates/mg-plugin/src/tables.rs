@@ -291,10 +291,13 @@ fn entry(value: &LuaValue, cp: mg_core::Codepage) -> mlua::Result<TlkEntry> {
             let text: Option<String> = t.get("text")?;
             let mut e = TlkEntry::text(encoded(text.as_deref().unwrap_or_default())?);
             if let Some(sound) = t.get::<Option<String>>("sound")?.filter(|s| !s.is_empty()) {
-                if sound.len() > 16 || !sound.is_ascii() {
-                    return fail(format!("{sound}: a sound's name is at most 16 letters"));
-                }
-                e.sound = sound.into_bytes();
+                // (The rule `mg tlk` and the talk-table editor hold a
+                // line's sound to.)
+                let made = match mg_core::ResRef::new_name(&sound) {
+                    Ok(made) => made,
+                    Err(e) => return fail(format!("{sound}: a sound's name: {e}")),
+                };
+                e.sound = made.as_bytes().to_vec();
                 e.flags |= mg_tlk::FLAG_SOUND;
             }
             if let Some(length) = t.get::<Option<f32>>("sound_length")?.filter(|l| *l != 0.0) {

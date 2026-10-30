@@ -1364,7 +1364,11 @@ module's talk table:
 - **Saving**: **Save** saves the table, as does saving the module.
 
 With no talk table, the editor makes one in the user folder's `tlk` (with
-a feminine table if you ask) and names it in Module Properties. A table
+a feminine table if you ask) and names it in Module Properties. Its name,
+as every name Moonglow makes for a resource (a new tileset, a hak's file,
+a line's sound, here or from a plugin), is 1 to 16 letters, digits, `_`
+and `-`, kept in lower case: the game takes more (any 16 characters), but
+the name is a file's too, on every system. A table
 kept in the module (a `.tlk` among its files) is edited there and saved
 into it: its Save puts it into the module, and the module's Save writes
 it. A table in a hak, or one the game ships (a premium campaign's, in

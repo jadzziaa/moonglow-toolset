@@ -7,8 +7,7 @@ use crate::common::*;
 fn welcome_then_open_a_module_through_the_dialog() {
     let dir = mg_testkit::scratch_dir("ui-open");
     let path = sample_module(&dir);
-    let mut h =
-        Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![path.clone()]));
+    let mut h = window_harness(app_with(vec![path.clone()]));
     h.run();
     h.get_by_label("Open Module…").click();
     h.run();
@@ -28,7 +27,7 @@ fn edit_undo_save_reopen() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
 
     // Change the tag through the text field (commits when focus leaves).
@@ -91,7 +90,7 @@ fn closing_with_unsaved_changes_asks_first() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     set_tag(h.state_mut(), "EDITED");
     h.run();
 
@@ -173,13 +172,10 @@ fn a_first_save_builds_once_and_not_when_called_off() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-first-save");
     let path = dir.join("fresh.mod");
-    let install = mg_resman::GameInstall::new(&root, None, "en");
     // The first Save As is called off, the second answered.
-    let app = Moonglow::new(
-        Some(install),
-        Box::new(NoDialogs { save: vec![path.clone()], ..Default::default() }),
-    );
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let app =
+        game_app_with(&root, None, NoDialogs { save: vec![path.clone()], ..Default::default() });
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::NewModule("Fresh".into()));
     h.run();
@@ -208,7 +204,7 @@ fn new_module_and_area_through_the_wizards() {
     let path = dir.join("wizard.mod");
     let app =
         game_app_with(&root, None, NoDialogs { save: vec![path.clone()], ..Default::default() });
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
 
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
@@ -281,7 +277,7 @@ fn recent_modules_reopen_from_the_welcome_page() {
     app.open_module(&path);
     assert_eq!(app.settings.recent, std::slice::from_ref(&path));
     app.close();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // (Its name, and the folder it is in.)
     let place = dir.file_name().unwrap().to_string_lossy().into_owned();
@@ -304,7 +300,7 @@ fn export_lists_a_kind() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
     h.run();
     let draft = h.state().export.clone().unwrap();
@@ -360,7 +356,7 @@ fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
             Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() }),
         );
         app.open_module(&source);
-        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = window_harness(app);
         h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
         h.run();
         h.get_by_label("Export 1…").click();
@@ -400,7 +396,7 @@ fn export_then_import_into_another_module() {
         }),
     );
     app.open_module(&source);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
     h.run();
     h.get_by_label("Export 1…").click();
@@ -448,7 +444,7 @@ fn an_area_exported_alone_takes_its_git_and_gic() {
     let dialogs = NoDialogs { save: vec![erf.clone()], ..Default::default() };
     let mut app = Moonglow::new(None, Box::new(dialogs));
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
     h.run();
@@ -479,7 +475,7 @@ fn a_folder_module_is_saved_as_a_mod_beside_it() {
         let ws = app.ws.as_mut().unwrap();
         ws.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
     }
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert!(!h.state().settings.no_mod_beside_folder, "on unless switched off");
     h.state_mut().settings.no_mod_beside_folder = true;
@@ -510,8 +506,7 @@ fn a_mod_with_its_folder_beside_it_asks_which_to_open() {
     let path = sample_module(&dir);
     let folder = dir.join("sample");
     Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
-    let mut h =
-        Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![path.clone()]));
+    let mut h = window_harness(app_with(vec![path.clone()]));
     h.run();
     let location = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref()?.module.location.clone();
     // File › Open Module… (the welcome page's button): asked first.
@@ -588,7 +583,7 @@ fn the_welcome_page_tells_a_folder_from_its_mod() {
     let mut app = app_with(Vec::new());
     app.settings.recent = vec![folder.clone(), path.clone()];
     app.settings.module_folders = mg_ui::settings::ModuleFolders::Folder;
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let place = dir.file_name().unwrap().to_string_lossy().into_owned();
     h.get_by_label(&format!("sample.mod  in {place}"));
@@ -607,8 +602,7 @@ fn a_mod_s_folder_in_another_case_is_found() {
     let path = sample_module(&dir);
     let folder = dir.join("Sample");
     Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
-    let mut h =
-        Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![path.clone()]));
+    let mut h = window_harness(app_with(vec![path.clone()]));
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
     h.run();
@@ -635,7 +629,7 @@ fn module_name_in_every_language_and_variables() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let info = |app: &mut Moonglow| {
         let ws = app.ws.as_mut().unwrap();
@@ -699,8 +693,7 @@ fn module_name_in_every_language_and_variables() {
 fn published_to_nwsync_from_the_build_menu() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-nwsync");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let mut w = mg_erf::ErfWriter::new(*b"HAK ");
     let table = b"2DA V2.0\n\n   Label\n0  synced\n".to_vec();
     w.add(ResRef::from_str("mg_synced").unwrap(), ResType::TWODA, table.clone()).unwrap();
@@ -793,7 +786,7 @@ fn faction_editor_adds_and_removes_factions() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run();
     let factions =
@@ -830,7 +823,7 @@ fn journal_editor_builds_what_aurora_builds() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
     h.run();
     // As Aurora was driven: two categories, two entries in the first, one
@@ -880,8 +873,7 @@ fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow
         return None;
     };
     let dir = mg_testkit::scratch_dir(name);
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let mut rows = String::from("2DA V2.0\n\n     Codepoint\n");
     let own = mg_core::Codepage::WINDOWS_1252.chars().unwrap();
     for (b, c) in own.iter().enumerate() {
@@ -1118,7 +1110,7 @@ fn saving_keeps_the_module_as_it_was_as_a_backup() {
         vec![mg_edit::Edit::SetResource { key, data: Some(b"void main() {}".to_vec()) }],
     )));
     app.actions.push(mg_ui::Action::Save);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Aurora's name: <module>.BackupMod, the module before the save.
     let backup = path.with_extension("BackupMod");
@@ -1157,7 +1149,7 @@ fn an_import_warns_of_what_it_shadows() {
     }
     w.add(ResRef::from_str("mg_mine").unwrap(), ResType::NSS, b"void main() {}".to_vec()).unwrap();
     std::fs::write(&erf, w.to_bytes().unwrap()).unwrap();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::ImportDialog);
     h.run();
     h.get_by_label("Import").click();
@@ -1199,7 +1191,7 @@ fn unsaved_work_survives_a_crash() {
             value: Some(mg_gff::Value::String(b"RECOVERED".to_vec())),
         };
         app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("tag", vec![edit])));
-        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = window_harness(app);
         h.run();
         let copy = h.state_mut().write_recovery().unwrap();
         assert!(copy.starts_with(&recovery) && copy.is_file());
@@ -1210,7 +1202,7 @@ fn unsaved_work_survives_a_crash() {
     app.find_recoveries();
     assert_eq!(app.recoveries.len(), 1);
     assert_eq!(app.recoveries[0].note.module.as_deref(), Some(path.as_path()));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Recover Unsaved Work");
     h.get_by_label("Recover").click();
@@ -1238,7 +1230,7 @@ fn a_panic_keeps_the_unsaved_work() {
     let mut app = app_with(Vec::new());
     app.recovery_dir = Some(recovery.clone());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // (Its message is printed: the test's own.)
     let panics = |app: &mut Moonglow| {
@@ -1361,7 +1353,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
         app.settings.scratch_dir = Some(scratch.into());
         app.open_module(module);
         app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = window_harness(app);
         h.run();
         h
     };
@@ -1539,7 +1531,7 @@ fn without_game_data_a_script_goes_out_with_the_module_s_compiled_script() {
         dependencies: false,
         scratch: true,
     });
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run_steps(3);
     assert_eq!(std::fs::read(scratch.join("hello.ncs")).unwrap(), b"NCS V1.0 old");
     let log = &h.state().log.entries;
@@ -1803,7 +1795,7 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
     app.settings.no_last_area = true;
     app.open_module(&file);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run_steps(2);
     let test = |h: &mut Harness<'_, Moonglow>| {
         let from = h.state().log.entries.len();
@@ -1892,8 +1884,7 @@ fn the_round_trip_check_runs_from_the_build_menu() {
 fn check_for_conflicts_says_what_the_module_uses_of_its_haks() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-hak-usage");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let mut w = mg_erf::ErfWriter::new(*b"HAK ");
     let mut utp = Gff::new(*b"UTP ");
     utp.root.set("OnUsed", mg_gff::Value::resref(ResRef::from_str("mg_hak_used").unwrap()));

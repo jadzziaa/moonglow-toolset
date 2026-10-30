@@ -403,6 +403,20 @@ pub(crate) fn row_picker(
     row: &mut Option<usize>,
     any: Option<&str>,
 ) {
+    row_picker_in(ui, id, choices, row, any, false);
+}
+
+/// [`row_picker`], in the order given where `ordered` (an item
+/// property's values, as the item editor's Cost Parameter has them: +2
+/// before +10).
+fn row_picker_in(
+    ui: &mut Ui,
+    id: &str,
+    choices: &[Choice],
+    row: &mut Option<usize>,
+    any: Option<&str>,
+    ordered: bool,
+) {
     if choices.is_empty() {
         let mut on = row.is_some() || any.is_none();
         if any.is_some() {
@@ -418,9 +432,12 @@ pub(crate) fn row_picker(
         ui.label(format!("Row {row}"));
     };
     let current = row.map(|r| r as i64);
-    let list = crate::widgets::row_choice(egui::Id::new(id), choices, current)
+    let mut list = crate::widgets::row_choice(egui::Id::new(id), choices, current)
         .width(260.0)
         .about(&mut number);
+    if ordered {
+        list = list.ordered();
+    }
     let list = match any {
         Some(any) => list.none(any),
         None => list.unset("Choose…"),
@@ -492,7 +509,10 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             ] {
                 if all || !choices.is_empty() {
                     crate::widgets::field_label(ui, label);
-                    row_picker(ui, &id(label), choices, row, Some("Any"));
+                    // (Each in the item editor's order: the values as the
+                    // cost table has them, the others by name.)
+                    let ordered = label == "Value";
+                    row_picker_in(ui, &id(label), choices, row, Some("Any"), ordered);
                     ui.end_row();
                 }
             }

@@ -508,7 +508,11 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
         Some(p) => p.talk_table_file(n),
         None => Some(dir.join(format!("{n}.tlk"))),
     };
-    let new = app.talk_view.new_name.trim().to_string();
+    // (A name by the rule of the names Moonglow makes, in lower case: the
+    // file's on every system.)
+    let typed = app.talk_view.new_name.trim();
+    let valid = mg_core::ResRef::new_name(typed);
+    let new = valid.as_ref().map_or_else(|_| typed.to_string(), |r| r.to_string_lossy());
     let made_in = file_of(&new);
     // (In the project, as its nasher.cfg names it: `src/mytlk.tlk.json`.)
     let shown = |f: &std::path::Path| match in_project {
@@ -525,11 +529,9 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
             .on_hover_text("For languages whose text differs for female characters");
     });
     let problem = if new.is_empty() {
-        Some("Name it: up to 16 lower-case letters, digits and _.".to_string())
-    } else if new.len() > 16
-        || !new.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-    {
-        Some("A name has up to 16 lower-case letters, digits and _.".to_string())
+        Some(format!("Name it: {}.", mg_core::NewName::RULE))
+    } else if let Err(e) = &valid {
+        Some(format!("Not a name: {e}."))
     } else if made_in.is_none() {
         Some("The project's rules discard talk tables: nowhere to make one.".to_string())
     } else if made_in.as_ref().is_some_and(|f| f.exists()) {

@@ -2732,6 +2732,9 @@ pub(crate) const FILTERED_CHOICES: usize = 30;
 /// The greatest height of a filtered list's rows, under its Filter field.
 const ROWS_HEIGHT: f32 = 170.0;
 
+/// How many of a long list's rows (the longest) its width is measured by.
+const MEASURED_ROWS: usize = 64;
+
 /// The rows of a 2DA as a list's choices, by its `name` column (StrRefs
 /// read in the talk tables) else its `label` (`GameData::choice_list`:
 /// the list made once and kept, not copied); none without a game.
@@ -2930,8 +2933,19 @@ impl<'a> RowChoice<'a> {
                 // builder's report). (A short list is egui's own.)
                 let pad = 2.0 * ui.spacing().button_padding.x;
                 let bar = ui.spacing().scroll.allocated_width();
-                let widest = (none.map(std::borrow::Cow::from).into_iter())
-                    .chain(in_order().iter().map(|c| text(c, numbered)))
+                // (Measured: the longest rows by their characters, not
+                // every row of a table of thousands.)
+                let mut texts: Vec<std::borrow::Cow<'_, str>> =
+                    (none.map(std::borrow::Cow::from).into_iter())
+                        .chain(in_order().iter().map(|c| text(c, numbered)))
+                        .collect();
+                let measured = texts.len().min(MEASURED_ROWS);
+                if measured < texts.len() {
+                    texts.select_nth_unstable_by_key(measured, |t| {
+                        std::cmp::Reverse(t.chars().count())
+                    });
+                }
+                let widest = (texts.into_iter().take(measured))
                     .map(|t| {
                         egui::WidgetText::from(t.as_ref())
                             .into_galley(
@@ -2975,41 +2989,84 @@ impl<'a> RowChoice<'a> {
             let matches = |c: &mg_rules::Choice| {
                 filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
             };
-            // (The rows scroll under the Filter field, which stays.)
-            let mut rows = |ui: &mut Ui| {
-                if let Some(none) = none {
-                    let r = ui.selectable_label(current.is_none(), none);
-                    if go && current.is_none() {
-                        r.scroll_to_me(Some(egui::Align::Center));
+            // The rows shown: the row of none (`None`) first, then those
+            // the filter finds.
+            // (Of a long list, found once while it is open and kept until
+            // the filter changes: not sorted and searched every frame.)
+            let found: Vec<&mg_rules::Choice> = if long {
+                // (Where in `choices` each row shown is, by the list it was
+                // found in and the filter.)
+                type Kept = (usize, usize, String, std::sync::Arc<Vec<usize>>);
+                let kept_id = open_id.with("found");
+                let made_for = (choices.as_ptr() as usize, choices.len(), filter.as_str());
+                let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
+                let at = match kept {
+                    Some((p, n, f, at)) if !opened && (p, n, f.as_str()) == made_for => at,
+                    _ => {
+                        let order = match by_name {
+                            true => mg_rules::name_order(choices),
+                            false => (0..choices.len()).collect(),
+                        };
+                        let at: Vec<usize> =
+                            order.into_iter().filter(|&i| matches(&choices[i])).collect();
+                        let at = std::sync::Arc::new(at);
+                        let kept: Kept = (made_for.0, made_for.1, made_for.2.into(), at.clone());
+                        ui.data_mut(|d| d.insert_temp(kept_id, kept));
+                        at
                     }
-                    if r.clicked() {
-                        pick = Some(None);
-                        ui.close();
-                    }
+                };
+                at.iter().map(|&i| &choices[i]).collect()
+            } else {
+                in_order().iter().filter(|c| matches(c)).collect()
+            };
+            let shown: Vec<Option<&mg_rules::Choice>> =
+                (none.map(|_| None).into_iter()).chain(found.into_iter().map(Some)).collect();
+            let chosen = |c: Option<&mg_rules::Choice>| match c {
+                Some(c) => current == Some(c.row as i64),
+                None => current.is_none(),
+            };
+            let mut row = |ui: &mut Ui, c: Option<&mg_rules::Choice>, scroll: bool| {
+                let label = match c {
+                    Some(c) => text(c, numbered),
+                    None => none.unwrap_or_default().into(),
+                };
+                let mut r = ui.selectable_label(chosen(c), label);
+                if scroll && go && chosen(c) {
+                    r.scroll_to_me(Some(egui::Align::Center));
                 }
-                for c in in_order().iter().filter(|c| matches(c)) {
-                    let chosen = current == Some(c.row as i64);
-                    let mut r = ui.selectable_label(chosen, text(c, numbered));
-                    if go && chosen {
-                        r.scroll_to_me(Some(egui::Align::Center));
-                    }
-                    if let Some(about) = about.as_mut() {
-                        r = r.on_hover_ui_at_pointer(|ui| about(ui, c.row));
-                    }
-                    if r.clicked() {
-                        pick = Some(Some(c.row as i64));
-                        ui.close();
-                    }
+                if let (Some(about), Some(c)) = (about.as_mut(), c) {
+                    r = r.on_hover_ui_at_pointer(|ui| about(ui, c.row));
+                }
+                if r.clicked() {
+                    pick = Some(c.map(|c| c.row as i64));
+                    ui.close();
                 }
             };
             if long {
+                // (The rows scroll under the Filter field, which stays;
+                // only those in sight are laid out, of a table of tens of
+                // thousands too. Opened, the chosen one is in the middle.)
+                let height = ui.spacing().interact_size.y.max(
+                    ui.text_style_height(&egui::TextStyle::Button)
+                        + 2.0 * ui.spacing().button_padding.y,
+                );
+                let step = height + ui.spacing().item_spacing.y;
                 let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
                 if narrowed {
                     area = area.vertical_scroll_offset(0.0);
+                } else if go && let Some(at) = shown.iter().position(|c| chosen(*c)) {
+                    let offset = at as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
+                    area = area.vertical_scroll_offset(offset.max(0.0));
                 }
-                area.show(ui, rows);
+                area.show_rows(ui, height, shown.len(), |ui, range| {
+                    for c in &shown[range] {
+                        row(ui, *c, false);
+                    }
+                });
             } else {
-                rows(ui);
+                for c in &shown {
+                    row(ui, *c, true);
+                }
             }
         });
         let r = &list.response;
@@ -3026,9 +3083,22 @@ impl<'a> RowChoice<'a> {
         // shown), and the wheel where asked.
         let stepping = r.clicked() || r.has_focus() || (wheel && r.hovered());
         if pick.is_none() && stepping {
-            let rows: Vec<i64> = (none.map(|_| NO_ROW).into_iter())
-                .chain(in_order().iter().map(|c| c.row as i64))
-                .collect();
+            // (Put in order only for a key or the wheel: a box with the
+            // keys is drawn every frame, its list of thousands too.)
+            let asked = ui.input(|i| {
+                (i.events.iter()).any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
+                    )
+                })
+            });
+            let rows: Vec<i64> = match asked {
+                true => (none.map(|_| NO_ROW).into_iter())
+                    .chain(in_order().iter().map(|c| c.row as i64))
+                    .collect(),
+                false => Vec::new(),
+            };
             let at = current.unwrap_or(NO_ROW);
             let stepped = arrow_pick(ui, r, &rows, at)
                 .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
@@ -4145,7 +4215,7 @@ mod token_tests {
 #[cfg(test)]
 mod row_choice_tests {
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
 
     /// The list of a dropdown of `count` rows (one of them long) open:
     /// where its box is, and where its list is on each of the first 60
@@ -4214,5 +4284,50 @@ mod row_choice_tests {
         let (at, lists) = open_list(200, true);
         assert!(lists.iter().all(|l| *l == lists[0]), "{lists:?}");
         assert!(lists[0].width() > at.width() + 50.0, "{lists:?} beside {at:?}");
+    }
+
+    /// A list of tens of thousands of rows (a 2DA's) lays out only those
+    /// in sight while open, the chosen one among them in the middle,
+    /// and isn't sorted or searched again each frame: 62 frames of one
+    /// of 50,000 took 5.8 s before (93 ms a frame, in a release build),
+    /// 20 ms after.
+    #[test]
+    fn a_long_list_lays_out_only_the_rows_in_sight() {
+        struct State {
+            choices: Vec<mg_rules::Choice>,
+        }
+        let choices = (0..50_000)
+            .map(|row| mg_rules::Choice { row, text: format!("Choice {row:05}") })
+            .collect();
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                let id = egui::Id::new("list");
+                super::row_choice(id, &s.choices, 31_234).width(160.0).show(ui);
+            },
+            State { choices },
+        );
+        h.run();
+        h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
+        h.run();
+        let rows = h.query_all_by_label_contains("Choice ").count();
+        assert!(rows < 30, "{rows} rows laid out");
+        assert!(h.query_by_label("Choice 31234").is_some(), "the chosen one in sight");
+        // Narrowed by the filter: from its top.
+        h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::TextInput)).click();
+        h.run();
+        h.event(egui::Event::Text("4999".into()));
+        h.run();
+        h.run();
+        let shown: Vec<String> = (h.query_all_by_label_contains("Choice "))
+            .map(|n| n.accesskit_node().label().unwrap_or_default())
+            .collect();
+        assert_eq!(shown[0], "Choice 04999", "{shown:?}");
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            h.step();
+        }
+        // (A frame of it in a debug build, with a margin: it took 93 ms
+        // in a release build when every row was laid out.)
+        assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
     }
 }

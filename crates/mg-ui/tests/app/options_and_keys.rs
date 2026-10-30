@@ -10,7 +10,7 @@ fn options_choose_the_game_folder() {
         None,
         Box::new(NoDialogs { folders: vec![dir.clone()], ..Default::default() }),
     );
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
@@ -52,7 +52,7 @@ fn options_say_the_user_folder_of_this_run() {
         settings,
         Box::new(NoDialogs { folders: vec![other.clone()], ..Default::default() }),
     );
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let user = |h: &Harness<Moonglow>| h.state().install.as_ref().and_then(|i| i.user_dir.clone());
     assert_eq!(user(&h), Some(run.clone()));
@@ -81,7 +81,7 @@ fn options_leave_the_module_open() {
     let mut app = Moonglow::new(None, Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Unsaved work: the module's tag changed.
     let ifo = ResKey::parse("module", ResType::IFO).unwrap();
@@ -535,7 +535,7 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
 /// back to the usual size when set back.
 #[test]
 fn the_interface_size_is_set_in_options() {
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = window_harness(app_with(Vec::new()));
     h.run();
     assert_eq!(h.ctx.zoom_factor(), 1.0);
     h.state_mut().settings.ui_scale = Some(150);
@@ -646,7 +646,7 @@ fn the_toolbar_shows_icons_only_when_asked() {
 /// Options › General › Light theme.
 #[test]
 fn the_theme_is_set_in_options() {
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = window_harness(app_with(Vec::new()));
     h.run();
     assert_eq!(h.ctx.theme(), egui::Theme::Dark);
     h.state_mut().settings.light_theme = true;
@@ -815,7 +815,7 @@ fn the_updates_option_turns_automatic_checks_off() {
     settings.update_checked = None;
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.settings = settings.clone();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 0, "switched off");
     assert!(h.state().updates.notice.is_none());

@@ -25,16 +25,21 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
-  split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
-  86 harnesses at kittest's default size (`Harness::new_ui_state`), 27
-  installs made apart from the application (read before it, in another
-  language, or by a test's own helper), 14 scratch user folders, each
-  with its own subfolders, and 6 harnesses with a step of their own.
-  They are in 17 of the folder's 21 files, the scripts', the area
-  view's and the lists' among them, which the deferred sprint's other
-  packages of 2026-10-29 change: folded after those merge, not beside
-  them. (A file not named in `main.rs` fails
-  `every_test_file_is_a_module` since 2026-10-29.) (M)
+  split by subject, with `harness`, `window_harness`, `game_app`,
+  `game_app_with`, `game_data`, `user_folder` and `gpu` in
+  `common.rs`): folded on 2026-10-30 in the files no other package of
+  the fifth wave was in (modules, windows, the tree, options and keys,
+  projects, plugins, resources: 57 harnesses, 13 installs, 15 user
+  folders); left, in the files the wave's area, models, editors and
+  bulk packages change: 40 harnesses at kittest's size
+  (`Harness::new_ui_state`: scripts 18, conversations 6, fields 6,
+  search 4, areas 3, blueprints, drawing, palettes), 18 installs made
+  apart (tables 6, tiles 3, blueprints, conversations, drawing, scripts
+  2 each, looks), 12 user folders made by hand (drawing 4, tables 4,
+  palettes 3, search) and the 6 harnesses with a step of their own.
+  (S once those packages merge: the same three folds, `window_harness`
+  for the first, `game_app_with` or `game_data` for the second,
+  `user_folder` for the third.)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:
@@ -1859,27 +1864,21 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
-  `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
-  `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
-  `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
-  `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
-  `Usage` and `Hit`. (L, mechanical)
+- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:262`,
+  `mg-edit lib.rs:39`, whose `GffPath` writes labels escaped where
+  `walk_fields`' paths don't), hand parsers of a path's text
+  (`search.rs:400` for `Hit::instance`, `rename.rs:68` for
+  `Usage::instance`, `rename.rs:677`, `verify.rs:65`,
+  `references.rs:813`, `mg-edit found.rs:62`), hand walkers beside
+  `Struct::walk_fields` (`rename.rs:171` `fields_with_paths`, the
+  index's tags and StrRefs; `text.rs:415`). `GffPath` into mg-gff,
+  carried by `Reference`, `Usage` and `Hit` (a `Usage` in a script is
+  `line N`, in a 2DA `row R, COLUMN`: a path of its own kind), which
+  `mg refs --json` and the UI read as text. Looked at
+  again 2026-10-30: unchanged in size. (L, mechanical)
 
 ### Settled in the engine or Aurora first
 
-- **A valid resource name, three rules:** ASCII of 16 (`mg-plugin
-  tables.rs:253`), letters, digits and `_` (`talk.rs:237`), those and
-  `-` (`hak_edit.rs:114`, `mg-plugin files.rs:247`), lower case alone
-  (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
-  `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
-  `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
-  The game takes any name of up to 16 bytes but NUL, whatever its case
-  (found by either, listed in lower case), with `-`, `.`, a space or a
-  byte past ASCII (`engine_resource_names.rs`), as `ResRef` does; what
-  is left is the one rule for names Moonglow makes, chosen (narrower
-  than the game's, for names that are also a project's file names)
-  and put in mg-core for the eleven places. (S–M)
 - **A copy's resref, what is left:** a blueprint's Copy is named as
   Aurora's Edit Copy names one now (`palette_add::copy_resref_named`,
   captured 2026-10-29: `nw_w1copy007` to `w1copy008`, the one case).
@@ -1888,11 +1887,15 @@ of truth, and does each caller's difference matter.
   `mgp_utc002`; `captures/wave1/add-palette.mod`, `pal2-addpal.mod`),
   where `new_resref` gives `001`, as the earlier capture's `mgp_utp001`
   (`aurora_palette_add.rs`) has it: what makes the difference is not
-  known (S, an Aurora capture or two). `copy_resref`
-  (`palette_view.rs`) stays for other resources, with three more
-  generators (`store_setup.rs:27`, `blueprints.rs:35`,
-  `dialog_view.rs:1612`) and two from a file's stem
-  (`dialog_view.rs:1608`, `nui_view/images.rs:91`). (S)
+  known. Not the bare template's being in the module (`mgp_utp.utp` was
+  in `placement-doors.mod` too, read 2026-10-30); the captures differ in
+  what was added (a creature and the items it holds, against a
+  placeable and its items), so the Aurora batch should capture, in one
+  session, Add to Palette of a placeable from an unnumbered module
+  blueprint holding an unnumbered module item, of a creature from an
+  unnumbered blueprint, and of that creature again, with the names each
+  dialog offers. (S, waits on the Aurora batch.) (The numbering itself
+  is one function since 2026-10-30, `Naming::numbered`.)
 - **The two portrait filters, the Creature Wizard's:** Select Portrait's
   (`situated.rs`: the gender exactly, the module's portraits too, the
   table's order) is Aurora's (captured 2026-10-29: Human and Male lists
@@ -1900,24 +1903,21 @@ of truth, and does each caller's difference matter.
   Outsider and Male shows nothing there too). The Creature Wizard's
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
   none, Plot rows left out, not the module's portraits) was not compared
-  with Aurora's wizard. (S)
+  with Aurora's wizard. (S, waits on the Aurora batch: the Creature
+  Wizard's portrait page for Human and Male in the `w1probe` module,
+  whether rows of `Sex` 2 to 4 (both, other, none) are listed, whether Plot
+  rows are, whether the module's own `w1po_` is, and in what order.)
 
 ### Smaller, each S
 
-- Left by the one row list (`widgets::row_choice`, 2026-10-21): it lays
-  out every row while open, where the 2DA editor's "a row of X.2da" laid
-  out only those in sight (a table of tens of thousands of rows, not
-  measured); Advanced Search's Value list goes by name past 12 rows,
-  where the item editor's cost list keeps the numbers' order (+10 before
-  +2 there); the Appearance and loading screen lists have no "≠" mark
-  for blueprints edited together, which the other fields' lists have;
-  and an item property's parameter list, by name now, was not held to
-  Aurora's order (a creature's classes and a door's generic appearance
-  are by name in Aurora too; its portraits are in the table's order, as
-  Select Portrait's grid: captured 2026-10-29).
-- `rename`'s `usages`, `tag_usages` and `mentions` restate what
-  `UsageIndex` answers. (`#include`, read three ways, is read one way
-  since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
+- Left by the one row list (`widgets::row_choice`, 2026-10-21): an item
+  property's parameter list, by name now, was not held to Aurora's order
+  (a creature's classes and a door's generic appearance are by name in
+  Aurora too; its portraits are in the table's order, as Select
+  Portrait's grid: captured 2026-10-29). (S, waits on the Aurora batch:
+  the item editor's Select Property Parameters for a property whose
+  parameter table has more than 12 rows, iprp_damagetype's or
+  iprp_onhit's, in the order Aurora lists it.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
