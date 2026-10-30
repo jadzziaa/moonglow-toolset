@@ -45,6 +45,18 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.0.0" date="2026-10-30">
+      <description>
+        <p>The release after the deferred sprint: of the 440 things left
+        undone, 71 are still open. Stencil shadows as the game casts them
+        (Options, Area: Shadows quality High), Advanced Search with any of
+        the conditions and a condition not met, 7z and rar archives, NWSync
+        upload and compression levels, custom lights in a hak of your
+        choosing, grass that sways and grows in clumps, a minimap, and many
+        fixes checked against the game, the client and Aurora. Some
+        behavior changes on purpose: see the release notes.</p>
+      </description>
+    </release>
     <release version="2.13.3" date="2026-10-29">
       <description>
         <p>A model with several textured meshes is drawn as soon as its

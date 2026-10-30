@@ -191,7 +191,7 @@ changed, below, to what it was):
 - From the Domains of Dread's notes on 2.1.0 and 2.2.0, and their
   builder proposal (C1).
 
-After Moonglow 2.13.3, still as API 0.4 (only additions: a plugin that
+Moonglow 3.0.0, still as API 0.4 (only additions: a plugin that
 says `api = "0.4"` runs as it did):
 
 - An overridden copy the resource browser opened (a resource as a lower
