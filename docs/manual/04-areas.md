@@ -1475,6 +1475,14 @@ open tilesets too, and closing one with unsaved changes asks first.
   textures its model draws: each one's picture, file, where in the load
   order it comes from, what draws it and the missing ones marked
   ([A tile's textures](#a-tiles-textures)).
+  A **hole** (a tile the file has no `[TILEn]` section for, or one
+  without `Model=`, as an old tileset merged by hand may have) is
+  listed as one, in orange, and said over its fields: the game draws it
+  as nothing, with no walkmesh, and painting never chooses it; a model
+  typed into it fills it in. A tile chosen from elsewhere (Add Tile)
+  is scrolled into sight in the list. The Terrains and Crossers and
+  Painting Rules pages name the sections their lists lack, which the
+  game leaves out.
 - **Groups:** each group's name, size and tiles, the bottom row first.
 
 The toolbar also has:
