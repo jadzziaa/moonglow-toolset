@@ -570,7 +570,7 @@ impl Moonglow {
         let added_area =
             changes.iter().any(|c| c.key.restype == ResType::ARE && c.resource.is_some());
         let mut keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
-        if added_area && let Some(info) = ws.module.settle_area_list() {
+        if added_area && let Some(info) = ws.module.area_list_settled() {
             let key = mg_module::Module::info_key();
             if let Err(e) = ws.adopt(&[(key, Some(info))]) {
                 self.log.error(e.to_string());

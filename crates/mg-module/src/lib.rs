@@ -878,14 +878,19 @@ impl Module {
     /// yet are listed after the others, as when the project is opened,
     /// unless its `removeUnusedAreas` is off), counted as read: its
     /// `module.ifo` as it is now, for the workspace to take as one changed
-    /// outside (`Workspace::adopt`); `None` where nothing changed.
-    pub fn settle_area_list(&mut self) -> Option<Arc<[u8]>> {
+    /// outside (`Workspace::adopt`, which puts it in the module); `None`
+    /// where nothing changed. The module itself is left as it is.
+    pub fn area_list_settled(&mut self) -> Option<Arc<[u8]>> {
         let project = self.project.as_mut()?;
         let info = Module::info_key();
-        let was = self.resources.get(&info).cloned();
-        project.settle_area_list(&mut self.resources);
-        let now = self.resources.get(&info)?;
-        (!was.is_some_and(|w| Arc::ptr_eq(&w, now))).then(|| now.clone())
+        let was = self.resources.get(&info)?.clone();
+        let mut these: nasher::Resources = (self.resources.iter())
+            .filter(|(k, _)| k.restype == ResType::ARE || **k == info)
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        project.settle_area_list(&mut these);
+        let now = these.get(&info)?;
+        (!Arc::ptr_eq(&was, now)).then(|| now.clone())
     }
 
     /// Puts the locks kept apart from a nasher project's files
