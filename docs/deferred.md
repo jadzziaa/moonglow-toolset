@@ -179,20 +179,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **The PC faction, what's left** (waits on an Aurora capture and the
-  client): Moonglow keeps objects out of faction 0 and says so where it
-  is written (the faction lists, the Store Wizard, `mg set`, the raw
-  fields view, Verify's `pc-faction`, an object with no faction too,
-  which the server reads as 0: `engine_factions.rs`). Not known:
-  whether Aurora's own faction lists offer PC (not captured; Aurora
-  writes faction 0 for a trigger whose blueprint has none, which is why
-  triggers are left out, the owner's decision); how an object of
-  faction 0 regards a player, or a player it (no player joins a
-  headless server); and what an encounter of faction 0, or of none,
-  gives the creatures it spawns (a player's entering spawns them). An
-  Aurora capture of a faction list and a client run with a player
-  entering an encounter settle it. (S) (Jasperre's report, October
-  2026)
+- **The PC faction, what's left** (waits on the client): Moonglow keeps
+  objects out of faction 0 and says so where it is written (the faction
+  lists, the Store Wizard, `mg set`, the raw fields view, Verify's
+  `pc-faction`, an object with no faction too, which the server reads as
+  0: `engine_factions.rs`), as Aurora's faction lists do (a creature's
+  Faction offers Hostile, Commoner, Merchant and Defender, no PC:
+  captured 2026-10-30 in `captures/wave2/before.mod`; Aurora writes
+  faction 0 for a trigger whose blueprint has none, which is why
+  triggers are left out, the owner's decision). Not known: how an
+  object of faction 0 regards a player, or a player it (no player joins
+  a headless server); and what an encounter of faction 0, or of none,
+  gives the creatures it spawns (a player's entering spawns them). A
+  client run with a player entering an encounter settles it. (S)
+  (Jasperre's report, October 2026)
 - **The Visuals page's texture and animation pickers, what's left:**
   waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
@@ -208,8 +208,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   single-model creature's and a waypoint's row and model by name (the
   waypoint's flag since 2026-10-29: Verify warns of it, the preview and
   the Properties go by it; a waypoint without the field, as 190 of
-  BioWare's blueprints are, is not judged: what Aurora draws for one
-  waits on an Aurora capture), and an item's base item row. The
+  BioWare's blueprints are, is not judged, as Aurora draws it as every
+  waypoint, its yellow arrow, and places it with `Appearance` 1, as
+  Moonglow does: captured 2026-10-30), and an item's base item row. The
   Properties' Appearance lists mark the rows with no model and the
   palette's Gallery the blueprints (since 2026-10-30). Not checked by
   it, each S, about a day together: an item's own models (its parts,
@@ -219,21 +220,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   file is found when it is drawn; reading each appearance's model in
   Verify was not timed on a large module). (dansen9191's report,
   October 2026)
-- **Number fields' limits against Aurora, what is left:** the rest were
-  measured in Aurora (2026-10-29, typed past their ends: an encounter's
-  creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,
-  a sound's interval and variation to 60 s, a trigger's highlight height
-  0 to 10, a creature's CR adjustment -125 to 125, an area's fog clip
-  distance 30 to 9999 m; weather, shadow opacity, fog amounts, a store's
-  mark up, mark down and stolen goods' mark down as Moonglow had them)
-  and are Moonglow's now, as is the encounter's maximum raised to a
-  minimum typed above it (since 2026-10-30). Left, waiting on Aurora: an
-  item property's Chance of Appearing (Moonglow 0 to 100) typed past
-  both ends, -5 and 150, in the property's window (`TDLGPROPEDIT`'s
-  `eChance`), and what the saved `.uti`'s `ChanceAppear` holds; its
-  up-down's form says only Min 0, and the form's limits are not the
-  code's (the encounter's say 0, its code 1 to 8). (S) (a second
-  builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
@@ -260,30 +246,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   objects' windows under test both ways, a slot's item onto a chest and
   a chest's onto a taken slot; a weapon dropped on the secondary weapon
   slot while the primary is free going in the primary, as Aurora puts a
-  longsword). Left:
+  longsword, a dagger and a hand axe, a torch in the secondary, and the
+  primary's own dragged there staying in the primary; the Creature
+  Wizard's categories without Familiars, as Aurora's: 2026-10-30). Left:
   - **Several items at once:** the inventory selects several (Ctrl,
     Shift), but a drag, Copy and Paste carry one: `Dragged` and
     `item_clip` hold one item each place; carrying the selection is a
     drag of many rows, and where each lands (slots, grid places). (M)
-  - **The secondary slot, for other weapons:** Aurora was seen with a
-    longsword only; the Aurora batch should drop a dagger, a one-handed
-    axe and a torch (which fits the secondary alone) on the secondary
-    slot of a creature whose primary is empty, and say where each goes.
-    (waits on Aurora)
-  - **A move between two slots that needs a feat:** Moonglow asks the
-    question about a missing feat as any Equip does; Aurora asks when a
-    weapon is dropped on another weapon slot, but a true move of an item
-    that needs a feat between two slots it takes was not seen (the
-    Aurora batch: a creature without Martial Weapon Proficiency, a
-    longsword dragged from its primary slot to its secondary). (waits on
-    Aurora)
-  - **A blueprint made in Familiars:** the Creature Wizard offers every
-    category of `creaturepal.itp`, Familiars (ID 254, `TYPE` 1) too, and
-    the custom palette is made without `TYPE` 0 and 1 nodes, as Aurora
-    makes it (`docs/findings.md`, "Custom palettes"): a blueprint made
-    there is in no category the palette shows. Whether Aurora's wizard
-    offers Familiars, and where Aurora shows such a blueprint, the
-    Aurora batch should read. (S once read; waits on Aurora)
   - **New strings written to a talk-table range:** a name or
     description typed in a blueprint goes into the file, Aurora's way;
     writing it as a line of the module's custom talk table instead, at
@@ -589,36 +558,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or waypoint on the target area's map or in its lists, as Aurora's
   `TdlgAreaTransition` does, but has none of its Connection Type (Both
   Ways, Current To Target, Target To Current) nor its Target Type
-  Trigger: the target linked back to this door or trigger. What Aurora
-  writes to the target (its `LinkedTo`, and `LinkedToFlags` where either
-  end is a trigger) waits on a capture of the dialog in Aurora; Moonglow
-  then writes the same as one step. (S–M, needs Aurora) (what was left of
-  "The minimap in Moonglow", 2026-10-29)
-- **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
-  were compared with Aurora (2026-10-29): its Object Mode Only fades in
-  Select Objects and not in Select Terrain, as Moonglow's; the rural
-  tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay
-  (a City Interior's walls of `tilefade` 1 looked the same in every mode
-  at the three cameras tried, so that 1 goes rests on the trees). A
-  mesh with `tilefade` 4 wasn't in the tiles captured, and Moonglow
-  fades it as 1. Of the game's tile models (2026-10-30, every mesh
-  read), 1,877 meshes have `tilefade` 4 against 22,879 with 1 and 3,087
-  with 2, and 1,744 of those 4 are black (`tin01_black`,
-  `ttr01_black00`...), as the caps of 2 that Aurora keeps are: that 4
-  stays is as likely. Waits on Aurora (the off-screen display): Fade
-  Geometry Always and Never on `tin01_a01_01` (its `Line773`, 52 faces)
-  or `ttr01_b06_01` (`Object654`) from above; the fix is then one match
-  in `mg-area`'s `scene.rs` (`tilefade` 1 or 4). (S) (from builders'
-  reports after 1.10.1)
+  Trigger: the target linked back to this door or trigger. Measured in
+  Aurora (2026-10-30, `captures/wave2/transitions.mod`, door to door in
+  another area): Both Ways writes `LinkedTo` and `LinkedToFlags` 1 on both
+  doors; Current To Target on the current one alone; Target To Current
+  wrote nothing on either (twice); it saves the current area first, and
+  asks before going on when the current object's tag is its
+  blueprint's. Moonglow's window writes the current one's, as Current To
+  Target; the Connection Type is to add, the target's fields written in
+  its area's GIT in the same step. A trigger as the target was not
+  captured (the probe's trigger stopped Aurora's dialog: "List index out
+  of bounds (-1)"); a trigger painted from the palette would show it.
+  (S–M) (what was left of "The minimap in Moonglow", 2026-10-29)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture. The model is chosen by the torso's
   parts_chest.2da `ACBONUS` (`mg_preview::item::item_placed`, measured
   with the game's own armors): a torso the table lacks, or whose
   `ACBONUS` is blank, lies as cloth (`gi_armor01`), so plate here means
   the table Moonglow read gives his torso 6 or more; that Aurora shows a
-  tunic says it read another table or another rule. Waits on the
-  builder's item (its torso's number) and his haks' parts_chest.2da.
-  (S) (from builders' reports after 1.19.1)
+  tunic says it read another table or another rule. The game's own
+  armors of each `ACBONUS`, 0 to 8, lie in Aurora as Moonglow lays them
+  now (captured 2026-10-30: 0 and 1 the tunic, 2 and 3 leather, 4 and 5
+  chain, 6 to 8 plate; padded armor, of 1, lay as leather before), so no
+  stock item shows it. Waits on the builder's item (its torso's number)
+  and his haks' parts_chest.2da. (S) (from builders' reports after
+  1.19.1)
 ## Editing in the area view
 
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
@@ -687,11 +651,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   light uses any more stay in the hak, as a row's number is what placed
   lights know it by (settle?: proposed by the sprint on 2026-10-29, the
   owner's to say). (S) (from builders' reports after 1.16.2)
-- **Tile Properties on several tiles, in Aurora:** Moonglow writes only
-  the controls set into every tile chosen (2.4.0's OK wrote every shown
-  value, the first tile's, into all of them); how Aurora writes them for
-  several tiles was not looked at on the oracle: it waits on a session
-  driving Aurora. (S) (the owner's report on Tile Properties)
 
 ## Rendering: creatures, particles, water and shaders
 
@@ -1263,15 +1222,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   cell, the resource browser's list, else an area's; a palette's cursor
   at its first row); in the Gallery Up and Down go a row of pictures at
   a time (done 2026-10-29). Not done:
-  - F2 at a placed object does nothing: its row's menu has no Rename,
-    nor has Aurora's object menu (the parity inventory); whether
-    Aurora's tree edits an object's label in place on F2 (its
-    `tvMainEditing` renames resources) was not watched. Delete there
-    deletes it as its menu does. Waits on the Aurora oracle (not used
-    in the fix wave of 2026-10-29). (S)
-  - With the keys on a category the blueprint selected stays in hand;
-    whether Aurora keeps one in hand then was not checked. Waits on the
-    Aurora oracle. (S)
   - The log is not among F6's panes: it has no keys of its own (its
     lines are text to select and copy); a command a builder already
     gave F6 to is in conflict with Next Pane (Options › Keyboard lists
@@ -1297,16 +1247,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Languages, tokens and loading screens
 
-- **The game's text in the language edited:** the install is read as
-  that language when its `lang/<code>/data/dialog.tlk` is there (its
-  talk table, and the rest of its `lang` folder); a module's custom
-  talk table is one file whatever the language (checked for each of
-  the five other languages installed, `the_install_s_language_is_the_one_edited`).
-  Whether the feminine table (`dialogf.tlk`) is shown where the game
-  would use it was not looked at: the game reads it for a woman's
-  character, which the editor has none of. (S) (waits on Aurora: whether
-  it ever shows the feminine table's text, a line by StrRef in its
-  conversation editor say; if never, this is settled)
 - **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
   table of the Unicode character each byte of the game's text stands
   for; a builder who knows the engine pointed it out, after 1.19.1):
@@ -1840,45 +1780,8 @@ of truth, and does each caller's difference matter.
 
 ### Settled in the engine or Aurora first
 
-- **A copy's resref, what is left:** a blueprint's Copy is named as
-  Aurora's Edit Copy names one now (`palette_add::copy_resref_named`,
-  captured 2026-10-29: `nw_w1copy007` to `w1copy008`, the one case).
-  Aurora's Add to Palette, captured the same day, named copies of
-  templates without a number `002` (`w1_held002`, `w1_arrow002`,
-  `mgp_utc002`; `captures/wave1/add-palette.mod`, `pal2-addpal.mod`),
-  where `new_resref` gives `001`, as the earlier capture's `mgp_utp001`
-  (`aurora_palette_add.rs`) has it: what makes the difference is not
-  known. Not the bare template's being in the module (`mgp_utp.utp` was
-  in `placement-doors.mod` too, read 2026-10-30); the captures differ in
-  what was added (a creature and the items it holds, against a
-  placeable and its items), so the Aurora batch should capture, in one
-  session, Add to Palette of a placeable from an unnumbered module
-  blueprint holding an unnumbered module item, of a creature from an
-  unnumbered blueprint, and of that creature again, with the names each
-  dialog offers. (S, waits on the Aurora batch.) (The numbering itself
-  is one function since 2026-10-30, `Naming::numbered`.)
-- **The two portrait filters, the Creature Wizard's:** Select Portrait's
-  (`situated.rs`: the gender exactly, the module's portraits too, the
-  table's order) is Aurora's (captured 2026-10-29: Human and Male lists
-  Sex 0 rows alone in row order, the module's own `w1po_` among them;
-  Outsider and Male shows nothing there too). The Creature Wizard's
-  (`creature_wizard.rs:92`: the gender chosen, then rows of both or
-  none, Plot rows left out, not the module's portraits) was not compared
-  with Aurora's wizard. (S, waits on the Aurora batch: the Creature
-  Wizard's portrait page for Human and Male in the `w1probe` module,
-  whether rows of `Sex` 2 to 4 (both, other, none) are listed, whether Plot
-  rows are, whether the module's own `w1po_` is, and in what order.)
-
 ### Smaller, each S
 
-- Left by the one row list (`widgets::row_choice`, 2026-10-21): an item
-  property's parameter list, by name now, was not held to Aurora's order
-  (a creature's classes and a door's generic appearance are by name in
-  Aurora too; its portraits are in the table's order, as Select
-  Portrait's grid: captured 2026-10-29). (S, waits on the Aurora batch:
-  the item editor's Select Property Parameters for a property whose
-  parameter table has more than 12 rows, iprp_damagetype's or
-  iprp_onhit's, in the order Aurora lists it.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -2622,3 +2525,22 @@ is not taken for a new gap.
   Sets window is open and a rename is put back by renaming it (neither
   is in Edit › Undo, the module's), and `variable-sets` has no folders
   inside it. (Settled by the owner, 2026-10-29: the triage's proposals.)
+- **Tile Properties on several tiles** writes only the controls set
+  into every tile chosen. Aurora's OK writes every value shown, the
+  first tile's, into all of them, and the source lights and loops it
+  shows disabled as 0 (captured 2026-10-30, `captures/wave2/tiles-one.mod`:
+  Main Light 1 changed alone on two tiles of lights 5, 6, 1, 2 and 10,
+  11, 3, 4 left both 27, 6, 0, 0, their loops 0); Moonglow keeps its own,
+  as the owner's report on Tile Properties asked. (settle?: proposed by
+  the sprint on 2026-10-30, the owner's to say)
+- **The game's text in the language edited, and the feminine talk
+  table:** the install is read as that language when its
+  `lang/<code>/data/dialog.tlk` is there (its talk table, and the rest
+  of its `lang` folder); a module's custom talk table is one file
+  whatever the language (`the_install_s_language_is_the_one_edited`).
+  The feminine table is not shown: Aurora shows a line by
+  its StrRef from the masculine table alone (a custom table's line 1 in
+  its conversation editor, an item named by line 0 in its palette:
+  "W2 MASCULINE", with `w2f.tlk` beside it saying "W2 FEMININE",
+  2026-10-30), as Moonglow does: the feminine table is the game's for a
+  woman's character. (Settled in Aurora.)

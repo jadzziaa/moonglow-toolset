@@ -327,8 +327,10 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
     assert!(mg_render::guard::take_failures().is_empty(), "told once");
 }
 
-/// Fade Geometry: a tile's fading meshes (`tilefade` 1 and 4: an interior's
-/// upper walls) are given no alpha, so they aren't drawn; the others stay.
+/// Fade Geometry: a tile's fading meshes (`tilefade` 1: an interior's
+/// upper walls) are given no alpha, so they aren't drawn; the others stay,
+/// the black strips of `tilefade` 4 too, as Aurora draws them (its Fade
+/// Geometry Always kept `ttr01_b06_01`'s `Object654`, 2026-10-30).
 #[test]
 fn fade_geometry_leaves_out_the_fading_meshes() {
     use mg_module::new::{AreaSpec, add_area, new_module};
@@ -370,6 +372,33 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
     let (faded, all_faded) = count(true);
     assert_eq!((shown, all), (0, all_faded), "nothing left out unless asked");
     assert!(faded > 0 && faded < all, "{faded} of {all} meshes fade");
+    // The walled tile's meshes that fade are exactly those of tilefade 1
+    // (it has a 4, `Line773`, which stays).
+    let mdl = game.resman.get_named("tin01_a01_01", ResType::MDL).unwrap();
+    let mdl = mg_mdl::Model::read(&mdl).unwrap();
+    let tilefade = |node: usize| match &mdl.nodes[node].kind {
+        mg_mdl::NodeKind::Mesh(mesh) => mesh.tilefade,
+        _ => 0,
+    };
+    let view = View { fade: true, ..View::of(&model) };
+    let scene = loaded.scene(&model, &view);
+    let walled = scene
+        .instances
+        .iter()
+        .find(|i| i.state.as_ref().is_some_and(|s| s.meshes.iter().any(|m| m.alpha == Some(0.0))));
+    let walled = walled.expect("the walled tile");
+    let state = walled.state.as_ref().unwrap();
+    let mut by_fade: Vec<(u32, bool)> = walled
+        .model
+        .meshes
+        .iter()
+        .zip(&state.meshes)
+        .map(|(m, s)| (tilefade(m.node), s.alpha == Some(0.0)))
+        .collect();
+    by_fade.sort();
+    by_fade.dedup();
+    assert!(by_fade.contains(&(4, false)), "a tilefade 4 mesh, kept: {by_fade:?}");
+    assert!(by_fade.iter().all(|&(fade, gone)| gone == (fade == 1)), "{by_fade:?}");
 }
 
 /// A tile's emitters emit as its animation loops have them: a chimney's

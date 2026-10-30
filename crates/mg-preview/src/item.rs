@@ -90,10 +90,11 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
     let default = cell(&baseitems, row, "DefaultModel").map(str::to_ascii_lowercase);
     if armor {
         // The game's own models of armor lying on the ground, by how
-        // heavy it is (its torso's parts_chest.2da `ACBONUS`): cloth,
-        // leather, chain, plate. Which model is which weight is told by
-        // their looks; the base item's `DefaultModel` where one is not
-        // there.
+        // heavy it is (its torso's parts_chest.2da `ACBONUS`): cloth (0
+        // and 1), leather (2 and 3), chain (4 and 5), plate, as Aurora
+        // lays the game's armors of each (captured 2026-10-30,
+        // `captures/wave2/before.mod`); the base item's `DefaultModel`
+        // where one is not there.
         let torso = mg_rules::items::part_number(uti, "ArmorPart_Torso").unwrap_or(0);
         let parts = game.table("parts_chest")?;
         let ac = usize::try_from(torso)
@@ -101,8 +102,8 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
             .and_then(|row| crate::cell_f32(&parts, row, "ACBONUS"))
             .unwrap_or(0.0);
         let by_weight = match ac as i32 {
-            ..=0 => "gi_armor01",
-            1..=3 => "gi_armor04",
+            ..=1 => "gi_armor01",
+            2..=3 => "gi_armor04",
             4..=5 => "gi_armor03",
             _ => "gi_armor02",
         };

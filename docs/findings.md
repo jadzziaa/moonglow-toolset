@@ -1752,7 +1752,10 @@ the feat).
 - **Moonglow:** `crates/mg-ui/src/blueprint/creature_lists.rs`
   (`equip_edits`: what the slot held goes to the backpack as it is, in
   the same step; up to 2.5.6 it was deleted). A weapon dropped on the
-  secondary slot stays there (recorded in deferred.md).
+  secondary slot while the primary is free goes in the primary, the
+  primary's own dragged there too (Aurora, 2026-10-30, with a dagger, a
+  hand axe and a longsword; a torch stays in the secondary:
+  `a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary`).
 - **Wiki:** missing.
 
 ### Conversation script parameters

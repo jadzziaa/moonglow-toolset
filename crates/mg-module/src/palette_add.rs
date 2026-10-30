@@ -2,8 +2,12 @@
 //! into a new custom blueprint, as Aurora does it (captured:
 //! `aurora_palette_add.rs`).
 //!
-//! - The new resref is the object's blueprint's without a leading `nw_`,
-//!   numbered as [`new_resref`] says (`nw_wswls001` → `wswls003`).
+//! - The new resref of a creature or an item is its blueprint's without a
+//!   leading `nw_`, numbered as [`new_resref`] says (`nw_wswls001` →
+//!   `wswls003`, `w2guard` → `w2guard002`); of a placeable, door, trigger,
+//!   sound or waypoint, its blueprint's without a reserved prefix, as it
+//!   is where that is free, else numbered as [`situated_resref_named`]
+//!   says (`nw_waypoint001` → `waypoint001`, `mgp_utd` → `mgp_utd001`).
 //! - The blueprint is the object's fields less where it stands (position,
 //!   orientation, visual transforms, outlines, spawn points), with the
 //!   palette category and comment of the blueprint it was placed from, and
@@ -30,12 +34,14 @@ pub struct Added {
     pub instance: Struct,
 }
 
-/// A new blueprint resref for a copy of `template`, as Aurora names it:
-/// the template without a leading `nw_` and its trailing number (within 13
-/// characters); from that number (0 without one), the first not in use
-/// (with or without the `nw_`), plus one (`nw_wswls001`, with no
-/// `nw_wswls002`: `wswls003`; `mgp_utp`: `mgp_utp001`), or the next free
-/// after it.
+/// A new blueprint resref for a copy of `template`, a creature's or an
+/// item's, as Aurora's Add to Palette names it: the template without a
+/// leading `nw_` and its trailing number (within 13 characters); from that
+/// number (0 without one, standing for the bare name), the first not in
+/// use (with or without the `nw_`), plus one (`nw_wswls001`, with no
+/// `nw_wswls002`: `wswls003`; `w2guard`, which is there: `w2guard002`;
+/// `w2guard002`: `w2guard004`), or the next free after it (captured
+/// 2026-10-29 and 2026-10-30, `captures/wave2/add-palette.mod`).
 pub fn new_resref(template: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
     new_resref_named(template, &Naming::default(), taken)
 }
@@ -58,15 +64,58 @@ pub fn new_resref_named(
     let stem = &stem[..stem.len().min(13)];
     let stem = if stem.is_empty() { "blueprint" } else { stem };
     let named = |n: u32| naming.fit(stem, &format!("{n:03}"));
-    let used = |n: u32| {
-        taken(&format!("{prefix}{stem}{n:03}"))
-            || taken(&format!("{stem}{n:03}"))
-            || taken(&named(n))
+    let used = |n: u32| match n {
+        // The bare name: the template itself, where it is there.
+        0 => taken(&format!("{prefix}{stem}")) || taken(stem) || taken(&naming.fit(stem, "")),
+        _ => {
+            taken(&format!("{prefix}{stem}{n:03}"))
+                || taken(&format!("{stem}{n:03}"))
+                || taken(&named(n))
+        }
     };
     while n < 999 && used(n) {
         n += 1;
     }
     naming.numbered(stem, n + 1, taken)
+}
+
+/// A new blueprint resref for a copy of `template`, a placeable's, door's,
+/// trigger's, sound's or waypoint's, as Aurora's Add to Palette names it
+/// (captured 2026-10-30, `captures/wave2/add-palette.mod`): the template
+/// without one reserved prefix (`nw_`, `plc_`, `x0_`...), as it is where
+/// that name is free (`nw_waypoint001` → `waypoint001`, `x0_skullpole` →
+/// `skullpole`, `x3_plc_rubble1` → `plc_rubble1` → `rubble1`); else
+/// numbered as Edit Copy numbers ([`copy_resref_named`]: `mgp_utd` →
+/// `mgp_utd001`, `skullpole` → `skullpole001`, `rubble1` → `rubble002`).
+pub fn situated_resref_named(
+    template: &str,
+    naming: &Naming,
+    taken: &dyn Fn(&str) -> bool,
+) -> Option<ResRef> {
+    let lower = template.to_ascii_lowercase();
+    let bare = naming.strip(without_reserved_prefix(&lower));
+    if !bare.is_empty() {
+        let own = naming.fit(bare, "");
+        if !taken(&own)
+            && let Some(r) = ResRef::from_str(&own).ok().filter(|r| !r.is_empty())
+        {
+            return Some(r);
+        }
+    }
+    copy_resref_named(bare, naming, taken)
+}
+
+/// `name` without the one reserved prefix it begins with, if any: `nw_`,
+/// `plc_` or `x` and a digit and `_` (the namespaces Aurora warns of).
+fn without_reserved_prefix(name: &str) -> &str {
+    if let Some(rest) = name.strip_prefix("nw_").or_else(|| name.strip_prefix("plc_")) {
+        return rest;
+    }
+    let b = name.as_bytes();
+    if b.len() > 3 && b[0] == b'x' && b[1].is_ascii_digit() && b[2] == b'_' {
+        return &name[3..];
+    }
+    name
 }
 
 /// A resref for a blueprint's Edit Copy, as Aurora's offers one (captured
@@ -130,7 +179,14 @@ pub fn add_to_palette(
             key.is_some_and(|k| taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
         };
         let template = instance.resref(template_field).map(|r| r.to_string()).unwrap_or_default();
-        new_resref_named(&template, naming, &|n| used(n, &blueprints))?
+        let used = |n: &str| used(n, &blueprints);
+        match restype {
+            ResType::UTP | ResType::UTD | ResType::UTT | ResType::UTS | ResType::UTW => {
+                situated_resref_named(&template, naming, &used)?
+            }
+            // (Encounters and stores were not measured.)
+            _ => new_resref_named(&template, naming, &used)?,
+        }
     };
     let from = instance
         .resref(template_field)
@@ -380,5 +436,41 @@ mod tests {
         assert_eq!(new_resref("mgp_utp", &taken).unwrap().to_string(), "mgp_utp003");
         let long = new_resref("averyveryverylongname", &|_| false).unwrap();
         assert_eq!(long.to_string(), "averyveryvery001");
+        // A template with no number that is there counts as number 0
+        // (captured 2026-10-30: `w2guard` gave `w2guard002`, `w2gem`
+        // `w2gem002`, then `w2guard002` `w2guard004`).
+        let module = |n: &str| ["w2guard", "w2gem"].contains(&n);
+        assert_eq!(new_resref("w2guard", &module).unwrap().to_string(), "w2guard002");
+        assert_eq!(new_resref("w2gem", &module).unwrap().to_string(), "w2gem002");
+        let then = |n: &str| ["w2guard", "w2gem", "w2guard002"].contains(&n);
+        assert_eq!(new_resref("w2guard002", &then).unwrap().to_string(), "w2guard004");
+    }
+
+    #[test]
+    fn situated_blueprints_are_named_as_aurora_names_them() {
+        // Aurora's Add to Palette of a placeable, door, trigger, sound or
+        // waypoint (captured 2026-10-30, one session, in this order).
+        let mut there: Vec<String> = ["w2chest", "mgp_utd", "mgq_utt", "batcriesflaps"]
+            .into_iter()
+            .chain(["nw_waypoint001", "x0_skullpole", "x3_plc_rubble1"])
+            .map(String::from)
+            .collect();
+        let mut add = |template: &str| {
+            let taken = |n: &str| there.iter().any(|t| t == n);
+            let r = situated_resref_named(template, &Naming::default(), &taken).unwrap();
+            there.push(r.to_string());
+            r.to_string()
+        };
+        assert_eq!(add("w2chest"), "w2chest001");
+        assert_eq!(add("w2chest001"), "w2chest002");
+        assert_eq!(add("mgp_utd"), "mgp_utd001");
+        assert_eq!(add("mgq_utt"), "mgq_utt001");
+        assert_eq!(add("batcriesflaps"), "batcriesflaps001");
+        assert_eq!(add("nw_waypoint001"), "waypoint001", "nw_ left off, as it is");
+        assert_eq!(add("x0_skullpole"), "skullpole", "x0_ left off");
+        assert_eq!(add("skullpole"), "skullpole001");
+        assert_eq!(add("x3_plc_rubble1"), "plc_rubble1", "one prefix at a time");
+        assert_eq!(add("plc_rubble1"), "rubble1");
+        assert_eq!(add("rubble1"), "rubble002");
     }
 }

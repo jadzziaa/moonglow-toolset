@@ -807,10 +807,16 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     // leather, chain, plate), no body.
     let dropped =
         |name: &str| models(&placed(name)).into_iter().map(str::to_string).collect::<Vec<_>>();
+    // (As Aurora lays one of each torso ACBONUS, 0 to 8: captured
+    // 2026-10-30.)
     assert_eq!(dropped("nw_cloth001"), ["gi_armor01"]);
-    assert_eq!(dropped("nw_aarcl001"), ["gi_armor04"], "leather");
-    assert_eq!(dropped("nw_aarcl004"), ["gi_armor03"], "chain");
-    assert_eq!(dropped("nw_aarcl007"), ["gi_armor02"], "full plate");
+    assert_eq!(dropped("nw_aarcl009"), ["gi_armor01"], "padded (1): the tunic");
+    assert_eq!(dropped("nw_aarcl001"), ["gi_armor04"], "leather (2)");
+    assert_eq!(dropped("nw_aarcl002"), ["gi_armor04"], "3");
+    assert_eq!(dropped("nw_aarcl012"), ["gi_armor03"], "4");
+    assert_eq!(dropped("nw_aarcl004"), ["gi_armor03"], "chain (5)");
+    assert_eq!(dropped("nw_aarcl011"), ["gi_armor02"], "6");
+    assert_eq!(dropped("nw_aarcl007"), ["gi_armor02"], "full plate (8)");
     // A cloak: the game's model of a cloak dropped, folded, in the
     // cloak's colors.
     let cloak = placed("nw_aarcl013");

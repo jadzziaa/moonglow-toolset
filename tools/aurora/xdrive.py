@@ -4,7 +4,7 @@
     xdrive.py windows                 # viewable top-level windows: id, title, geometry
     xdrive.py shot OUT.png [--scale S] # screenshot of the whole display
     xdrive.py winshot TITLE OUT.png   # screenshot of one window (title contains TITLE)
-    xdrive.py click X Y [--right|--double]
+    xdrive.py click X Y [--right|--double] [--ctrl] [--shift]   # Ctrl or Shift held with --ctrl, --shift
     xdrive.py press X Y | release X Y | move X Y   # the left button held, let go; the pointer moved
     xdrive.py drag X1 Y1 X2 Y2 [--escape]  # a left-button drag; --escape presses Escape before letting go
     xdrive.py wheel X Y up|down [N] [--ctrl]    # N notches of the wheel (Ctrl held with --ctrl)
@@ -166,7 +166,14 @@ def main(argv):
         return winshot(args[0], args[1])
     elif cmd == "click":
         x, y = int(args[0]), int(args[1])
+        held = [keycode(MODS[m]) for m in ("ctrl", "shift") if f"--{m}" in args]
+        for m in held:
+            xtest.fake_input(d, X.KeyPress, m)
+        d.sync()
         click(x, y, 3 if "--right" in args else 1, 2 if "--double" in args else 1)
+        for m in reversed(held):
+            xtest.fake_input(d, X.KeyRelease, m)
+        d.sync()
     elif cmd in ("press", "release", "move"):
         move(int(args[0]), int(args[1]))
         time.sleep(0.05)

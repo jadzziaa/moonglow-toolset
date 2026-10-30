@@ -1462,6 +1462,45 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.get_by_label("No property has that.");
 }
 
+/// A property's Parameter 1 lists its table's rows in the table's order,
+/// as Aurora's Select Property Parameters does (iprp_damagetype's
+/// Bludgeoning, Piercing, Slashing, Magical, Acid...: captured 2026-10-30),
+/// where it went by name; the Available Properties list a kind's choices
+/// by name, as Aurora's tree does, where they went in the table's order.
+#[test]
+fn a_property_s_parameters_are_in_the_table_s_order() {
+    let Some((mut h, _key)) = blueprint_harness("nw_wswls001", "sword_params", ResType::UTI) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Properties").click();
+    h.run();
+    let name = "Damage Bonus vs. Specific Alignment";
+    h.get_by_label(name).scroll_to_me();
+    h.run();
+    h.get_by_label(name).click();
+    h.run();
+    // Its choices by name, as Aurora's tree has them (the table begins
+    // with Lawful Good).
+    let at =
+        |h: &Harness<'_, Moonglow>, label: &str| h.query_by_label(label).map(|n| n.rect().top());
+    let (chaotic, lawful) = (at(&h, "Chaotic Evil"), at(&h, "Lawful Good"));
+    assert!(chaotic.is_some() && chaotic < lawful, "by name: {chaotic:?} {lawful:?}");
+    h.get_by_label("Chaotic Evil").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    // The new property selected: its parameter, the table's first row.
+    h.get_by_value("Bludgeoning").scroll_to_me();
+    h.run();
+    h.get_by_value("Bludgeoning").click();
+    h.run();
+    let at = |label: &str| h.query_by_label(label).map(|n| n.rect().top());
+    let (piercing, acid) = (at("Piercing"), at("Acid"));
+    assert!(piercing.is_some() && acid.is_some(), "the list open: {piercing:?} {acid:?}");
+    assert!(piercing < acid, "Piercing (row 1) before Acid (row 6): {piercing:?} {acid:?}");
+}
+
 /// The Great Constitution feats' hit points, which the game leaves out of
 /// those a creature starts with (`engine_saves.rs`), are kept in its
 /// current hit points: given with the feats; a creature without them, or
@@ -2747,6 +2786,11 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     (w.first_name, w.last_name) = ("Hent".into(), "Fynolds".into());
     h.run();
     next(&mut h);
+    // The custom palette's categories, as Aurora's wizard offers them:
+    // no Familiars nor Summoned Monsters (the skeleton's `TYPE` 1 nodes).
+    assert!(h.query_by_label("Monsters").is_some() && h.query_by_label("NPCs").is_some());
+    assert!(h.query_by_label("Familiars").is_none(), "not offered");
+    assert!(h.query_by_label("Summoned Monsters").is_none(), "not offered");
     h.get_by_label("Tutorial").click();
     h.run();
     next(&mut h); // the review

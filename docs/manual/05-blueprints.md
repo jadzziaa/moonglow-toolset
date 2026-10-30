@@ -610,8 +610,9 @@ A domain or school left **Not set** is the game's to choose.
   beside it) sends that one to the backpack, as it is, in the same step,
   as Aurora does; two rings are not swapped. A weapon dropped on the
   Secondary Weapon slot while the Primary Weapon slot is free goes in
-  the primary, as in Aurora (one moved there from the primary stays
-  where it is dropped). A
+  the primary, as in Aurora (a torch, which goes in the secondary alone,
+  in the secondary; so one dragged there from the primary stays in the
+  primary, though a missing feat is still asked about). A
   right click on an item anywhere offers the same (**Equip** or **To
   Backpack**, **Copy**, **Remove**, and last, as in Aurora's menus,
   **Properties**), and on the palette's
@@ -665,8 +666,13 @@ A domain or school left **Not set** is the game's to choose.
 - The **Creature Wizard** makes a creature from a race, classes and levels,
   gender, appearance, portrait, faction and name, leveled as the game's
   packages level it. Its appearances are pictures, narrowed by **Find**;
-  **All portraits** offers every creature's portrait, not the race's
-  alone; and its Name page takes a ResRef and Tag of your own.
+  its portraits are the race's and gender's, in the table's order, the
+  module's own among them, as Aurora's wizard lists them (a race with
+  none of the gender, as a monster's, those of no gender); **All
+  portraits** offers every creature's portrait, not the race's alone;
+  its categories are the custom palette's (no Familiars or Summoned
+  Monsters, as in Aurora); and its Name page takes a ResRef and Tag of
+  your own.
 - **Portraits…** chooses the portrait from the game's, by race and
   gender.
 

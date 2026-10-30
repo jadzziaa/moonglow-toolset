@@ -250,14 +250,22 @@ impl BlueprintWizard {
 }
 
 /// The type's palette categories, as Aurora's wizards list them: by name,
-/// without the empty "assign" branch.
+/// those of the custom palette, without the skeleton's nodes of `TYPE` 0
+/// and 1 (the empty "assign" branch, and the creatures' Familiars and
+/// Summoned Monsters: Aurora's Creature Wizard offers Monsters, NPCs,
+/// Special and Tutorial, captured 2026-10-30).
 pub(crate) fn categories(game: &GameData, kind: BlueprintKind) -> Vec<PaletteNode> {
     let skeleton = game
         .resman
         .get_named(&format!("{}pal", kind.name()), ResType::ITP)
         .ok()
         .and_then(|d| mg_gff::Gff::read(&d).ok())
-        .map(|g| Palette::read(&g))
+        .map(|mut g| {
+            if let Some(main) = g.root.list_mut("MAIN") {
+                main.retain(|n| !matches!(n.integer("TYPE"), Some(0 | 1)));
+            }
+            Palette::read(&g)
+        })
         .unwrap_or_default();
     fn sorted(nodes: &[PaletteNode], game: &GameData) -> Vec<PaletteNode> {
         let mut out: Vec<PaletteNode> = nodes

@@ -1660,17 +1660,20 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     if let (Some(mut bit), Some(r)) = (equip, chosen) {
         let whole = moving.as_ref().map(|m| &m.item).filter(|s| inventory::is_whole(s));
         // A weapon dropped on the secondary weapon slot while the primary
-        // is free goes in the primary, as in Aurora (seen with a
-        // longsword); one moved there from the primary stays moved.
+        // is free goes in the primary, as in Aurora (seen with a longsword,
+        // a dagger and a hand axe; a torch, which goes in the secondary
+        // alone, stays there); so one dragged there from the primary stays
+        // in the primary (after the question about a missing feat, whose
+        // Yes still adds it: Aurora, 2026-10-30).
         let taken = moving.as_ref().map_or(&[][..], |m| &m.taken[..]);
         if dropped
             && bit == SECONDARY
-            && !from_primary
             && item_slots(f, r, whole) & PRIMARY != 0
             && !after_taken(f, &equipped, "Equip_ItemList", taken).iter().any(|s| s.id == PRIMARY)
         {
             bit = PRIMARY;
         }
+        let stays = from_primary && bit == PRIMARY;
         if item_slots(f, r, whole) & bit == 0 {
             let name = whole.map_or_else(|| name_of(r), |s| f.entry_name(s, &names));
             f.app.log.error(format!("{name} does not go in that slot"));
@@ -1693,8 +1696,10 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 _ => Vec::new(),
             };
             if missing.is_empty() {
-                let e = equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref());
-                apply(f, "Equip", e);
+                if !stays {
+                    let e = equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref());
+                    apply(f, "Equip", e);
+                }
             } else {
                 ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing, moving)));
             }

@@ -1303,8 +1303,10 @@ fn a_creature_s_inventory_shows_the_icons_of_its_gender() {
 }
 
 /// A weapon dropped on the secondary weapon slot while the primary is
-/// free goes in the primary, as Aurora puts it (seen with a longsword);
-/// with the primary taken, in the secondary.
+/// free goes in the primary, as Aurora puts it (seen with a longsword, a
+/// dagger and a hand axe, 2026-10-30); a torch, which goes in the
+/// secondary alone, in the secondary; with the primary taken, in the
+/// secondary; and the primary's own dragged there stays in the primary.
 #[test]
 fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
     use mg_edit::{Command, Edit};
@@ -1314,6 +1316,7 @@ fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
         vec![
             own_item(game, "nw_wswdg001", 0, ("MG_ONE", "First Dagger")),
             own_item(game, "nw_wswdg001", 1, ("MG_TWO", "Second Dagger")),
+            own_item(game, "nw_it_torch001", 2, ("MG_TORCH", "Probe Torch")),
         ]
     };
     let bandit = bandit_holding(&mut h, area, &held);
@@ -1343,12 +1346,30 @@ fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
         let on = worn.iter().find(|s| s.id == bit)?;
         Some(String::from_utf8_lossy(on.string("Tag")?).into_owned())
     };
+    let take_off = |h: &mut Harness<'_, Moonglow>, bit: u32| {
+        let (worn, _) = creature_items(h, area, &bandit);
+        let index = worn.iter().position(|s| s.id == bit).unwrap();
+        let list = "Equip_ItemList".into();
+        let off = Edit::RemoveItem { key: git, path: bandit.clone(), list, index };
+        h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Off", vec![off])));
+        h.run_steps(4);
+    };
+    drop(&mut h, "Probe Torch");
+    assert_eq!(tag_in(&mut h, 0x20).as_deref(), Some("MG_TORCH"), "a torch: the secondary");
+    assert_eq!(tag_in(&mut h, 0x10), None);
+    take_off(&mut h, 0x20);
     drop(&mut h, "First Dagger");
     assert_eq!(tag_in(&mut h, 0x10).as_deref(), Some("MG_ONE"), "{:?}", h.state().log.entries);
     assert_eq!(tag_in(&mut h, 0x20), None);
     drop(&mut h, "Second Dagger");
     assert_eq!(tag_in(&mut h, 0x20).as_deref(), Some("MG_TWO"), "the primary taken");
     assert_eq!(tag_in(&mut h, 0x10).as_deref(), Some("MG_ONE"));
+    // The secondary free again, the primary's dagger dragged onto it stays
+    // in the primary.
+    take_off(&mut h, 0x20);
+    drop(&mut h, "First Dagger");
+    assert_eq!(tag_in(&mut h, 0x10).as_deref(), Some("MG_ONE"), "stays in the primary");
+    assert_eq!(tag_in(&mut h, 0x20), None);
 }
 
 /// Drags between two objects' windows the other ways: a creature's worn
