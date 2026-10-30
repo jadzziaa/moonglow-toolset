@@ -99,6 +99,70 @@ fn resources_open_in_their_editors() {
     h.get_by_label("⛲ Placeables");
 }
 
+/// The log is among Next Pane's panes (the module tree and the palettes'
+/// entry, its first item): F6 or a click in it gives it the keys, which
+/// scroll it, a line, a page, to its ends; Escape hands them back. A thin
+/// outline shows it has them (`target/test-output/ui-log-keys/`).
+#[test]
+fn the_log_by_the_keyboard() {
+    let dir = mg_testkit::scratch_dir("ui-log-keys");
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&sample_module(&dir));
+    app.log.clear();
+    for i in 0..200 {
+        app.log.info(format!("Line {i:03} of the log"));
+    }
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run_steps(3);
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+    };
+    let shown = |h: &Harness<'_, Moonglow>, i: usize| {
+        h.query_by_label_contains(&format!("Line {i:03} of the log")).is_some()
+    };
+    assert!(shown(&h, 199) && !shown(&h, 0), "at its end");
+    key(&mut h, egui::Key::Home);
+    assert!(!shown(&h, 0), "not the log's yet");
+    // (From the middle's: the palettes' where their pane is, then the
+    // log's.)
+    key(&mut h, egui::Key::F6);
+    if h.state().dock.find_tab(&Tab::Palette).is_some() {
+        key(&mut h, egui::Key::F6);
+    }
+    h.render().expect("render").save(dir.join("log-keys.png")).unwrap();
+    key(&mut h, egui::Key::Home);
+    assert!(shown(&h, 0) && !shown(&h, 199), "at its start");
+    let first_shown = |h: &Harness<'_, Moonglow>| (0..200).find(|&i| shown(h, i)).unwrap();
+    let mut at = Vec::new();
+    for _ in 0..6 {
+        key(&mut h, egui::Key::ArrowDown);
+        at.push(first_shown(&h));
+    }
+    assert!(at.windows(2).all(|w| w[1] == w[0] || w[1] == w[0] + 1), "a line at a time: {at:?}");
+    h.render().expect("render").save(dir.join("log-keys-lines.png")).unwrap();
+    assert!(at[5] >= 4, "{at:?}");
+    let lines = at[5];
+    key(&mut h, egui::Key::PageDown);
+    let page = first_shown(&h);
+    assert!(page > lines + 3, "a page: {page}");
+    h.render().expect("render").save(dir.join("log-keys-page.png")).unwrap();
+    key(&mut h, egui::Key::PageUp);
+    assert_eq!(first_shown(&h), lines);
+    key(&mut h, egui::Key::End);
+    assert!(shown(&h, 199), "at its end again");
+    // Escape hands the keys back; a click in it gives them again.
+    key(&mut h, egui::Key::Escape);
+    key(&mut h, egui::Key::Home);
+    assert!(!shown(&h, 0), "the keys aren't the log's");
+    h.get_by_label_contains("Line 199 of the log").click();
+    h.run_steps(2);
+    key(&mut h, egui::Key::Home);
+    assert!(shown(&h, 0), "the log's from the click");
+    h.render().expect("render").save(dir.join("log-keys-clicked.png")).unwrap();
+}
+
 /// GitHub issue 12: the module tree by the keyboard. A click in it gives
 /// it the arrow keys: Up and Down go from row to row, Left and Right
 /// close and open a group, Enter opens the row's resource.
@@ -123,8 +187,11 @@ fn the_module_tree_by_the_keyboard() {
     h.get_by_label("start").hover();
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(at(&h), None);
-    // F6 gives them to the tree without one, at its first row; again, on
-    // to the middle (no palettes here), and Shift+F6 back.
+    // F6 gives them to the next pane from the middle's: the log (no
+    // palettes here), then the tree without one, at its first row; again,
+    // on to the middle, and Shift+F6 back.
+    key(&mut h, egui::Key::F6);
+    assert_eq!(at(&h), None, "the log's");
     key(&mut h, egui::Key::F6);
     assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
     key(&mut h, egui::Key::ArrowDown);

@@ -2196,7 +2196,7 @@ impl Moonglow {
     /// Next Pane and Previous Pane (F6): the arrow keys given to the next
     /// of the panes shown, round from the last: the module tree (at the
     /// row they were at, else its first), the middle (an area's view has
-    /// them, as after a click in it), the palettes.
+    /// them, as after a click in it), the palettes, the log.
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
         // Each pane's keys are what its tab in front has: the middle's (the
@@ -2234,6 +2234,10 @@ impl Moonglow {
                 Some(Tab::Resources) => (Keys::Browser, None),
                 _ => (Keys::Palette, None),
             });
+        }
+        // The log last, below them all, where it is shown.
+        if !self.settings.hide_log {
+            panes.push((Keys::Log, None));
         }
         let now = panes.iter().position(|p| palette_view::keys_are(ctx, p.0));
         // (The keys anywhere else, a conversation's lines: as the middle's.)
@@ -2753,12 +2757,54 @@ impl Moonglow {
     }
 
     fn log_ui(&mut self, ui: &mut egui::Ui) {
+        use palette_view::Keys;
+        let pane = ui.max_rect();
+        // The keys (from a click in it, or Next Pane, F6) scroll it: a
+        // line at a time, a page, to its ends; Escape hands them back.
+        let mut scroll = 0.0;
+        if palette_view::keys_are(ui.ctx(), Keys::Log) && !ui.ctx().egui_wants_keyboard_input() {
+            use egui::Key;
+            // (A line as tall as the last drawn.)
+            let drawn = self.log.rows.iter().rev().find(|h| **h > 0.0).copied();
+            let line = drawn.unwrap_or_else(|| {
+                ui.text_style_height(&egui::TextStyle::Monospace) + ui.spacing().item_spacing.y
+            });
+            let page = (pane.height() - line).max(line);
+            let steps = [
+                (Key::ArrowDown, -line),
+                (Key::ArrowUp, line),
+                (Key::PageDown, -page),
+                (Key::PageUp, page),
+                (Key::End, -1e9),
+                (Key::Home, 1e9),
+            ];
+            scroll = ui.input_mut(|i| {
+                steps
+                    .into_iter()
+                    .filter(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
+                    .map(|s| s.1)
+                    .sum()
+            });
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+                palette_view::give_keys(ui.ctx(), Keys::Area);
+            }
+        }
+        // (A click anywhere in it: on a line, between them, on a button.)
+        let clicked_in = ui.input(|i| {
+            i.pointer.primary_pressed()
+                && i.pointer.press_origin().is_some_and(|p| pane.contains(p))
+        });
         // No minimum of its own (egui's is 64 points), so the panel decides.
-        egui::ScrollArea::vertical()
+        let shown = egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .auto_shrink([false, false])
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
+                if scroll != 0.0 {
+                    // (At once, as a list's cursor moves.)
+                    let now = egui::style::ScrollAnimation::none();
+                    ui.scroll_with_delta_animation(egui::vec2(0.0, scroll), now);
+                }
                 let mut clicked = None;
                 // Only the lines in sight are laid out (a Verify of a large
                 // module says thousands): the others take the room they
@@ -2828,6 +2874,10 @@ impl Moonglow {
                     self.actions.push(Action::ApplyFix(line));
                 }
             });
+        if clicked_in {
+            palette_view::give_keys(ui.ctx(), Keys::Log);
+        }
+        palette_view::keys_outline(ui, shown.inner_rect, Keys::Log);
         // Buttons in its corner: the whole log copied or saved (a line
         // selected is copied alone: Jasperre's report), and emptied, so
         // that a second Verify's report isn't mistaken for the first's.

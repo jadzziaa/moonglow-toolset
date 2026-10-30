@@ -1175,12 +1175,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the keys to the next pane, each pane's being what its tab in front
   has (the middle's a talk table's lines, a 2DA's cells at its first
   cell, the resource browser's list, else an area's; a palette's cursor
-  at its first row); in the Gallery Up and Down go a row of pictures at
-  a time (done 2026-10-29). Not done:
-  - The log is not among F6's panes: it has no keys of its own (its
-    lines are text to select and copy); a command a builder already
-    gave F6 to is in conflict with Next Pane (Options › Keyboard lists
-    it; the pane's wins until one is changed). (S)
+  at its first row), the log last, which they scroll (done 2026-10-30);
+  in the Gallery Up and Down go a row of pictures at a time (done
+  2026-10-29). Not done:
+  - A command a builder already gave F6 to is in conflict with Next
+    Pane: Options › Keyboard lists it, and the pane's wins until one is
+    changed. Kept so (settle?: proposed by the sprint on 2026-10-30, the
+    owner's to say): the builder's binding is theirs to change, and
+    Options says the conflict.
   - Down from the hak editor's, the tileset editor's and the Appearance
     Gallery's Find fields goes nowhere: their lists have no keys of
     their own, nor have the tileset's palette and the Prefabs list.
