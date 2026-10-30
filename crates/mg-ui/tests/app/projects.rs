@@ -273,9 +273,14 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
-    h.state_mut().talk_view.new_name = "mg_new".into();
+    // (A name by the rule of the names Moonglow makes, `ResRef::new_name`:
+    // a space refused, capitals lowered.)
+    h.state_mut().talk_view.new_name = "mg new".into();
     h.run();
-    h.get_by_label_contains("Made in the project as");
+    h.get_by_label_contains("Not a name: ' '");
+    h.state_mut().talk_view.new_name = "MG_New".into();
+    h.run();
+    h.get_by_label_contains("Made in the project as src/mg_new.tlk.json");
     h.get_by_label("Create").click();
     h.run();
     h.run();

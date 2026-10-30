@@ -78,6 +78,24 @@ fn undo_over_a_tileset_editor_is_the_tileset_s() {
     assert_ne!(module_step(&h).as_deref(), Some("A table"), "the module's step undone");
 }
 
+/// A new tileset's name is one by the rule of the names Moonglow makes
+/// (`ResRef::new_name`): a file named with a space is refused and not
+/// written; capitals are lowered in the tileset's own name.
+#[test]
+fn a_new_tileset_is_named_by_the_rule_of_new_names() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-new-name");
+    let spaced = dir.join("my tiles.set");
+    let capitals = dir.join("ZZN01.set");
+    let dialogs = NoDialogs { save: vec![capitals.clone(), spaced.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    mg_ui::tileset_view::new_tileset(&mut app);
+    assert!(!spaced.exists());
+    assert!(app.log.entries.iter().any(|e| e.1.contains("my tiles: a tileset's name: ' '")));
+    mg_ui::tileset_view::new_tileset(&mut app);
+    let text = std::fs::read_to_string(&capitals).unwrap();
+    assert!(text.contains("UnlocalizedName=zzn01"), "{text}");
+}
+
 #[test]
 fn tileset_made_edited_saved_with_its_palette() {
     let root = mg_testkit::corpus!();

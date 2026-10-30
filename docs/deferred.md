@@ -1891,18 +1891,6 @@ of truth, and does each caller's difference matter.
 
 ### Settled in the engine or Aurora first
 
-- **A valid resource name, three rules:** ASCII of 16 (`mg-plugin
-  tables.rs:253`), letters, digits and `_` (`talk.rs:237`), those and
-  `-` (`hak_edit.rs:114`, `mg-plugin files.rs:247`), lower case alone
-  (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
-  `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
-  `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
-  The game takes any name of up to 16 bytes but NUL, whatever its case
-  (found by either, listed in lower case), with `-`, `.`, a space or a
-  byte past ASCII (`engine_resource_names.rs`), as `ResRef` does; what
-  is left is the one rule for names Moonglow makes, chosen (narrower
-  than the game's, for names that are also a project's file names)
-  and put in mg-core for the eleven places. (S–M)
 - **A copy's resref, what is left:** a blueprint's Copy is named as
   Aurora's Edit Copy names one now (`palette_add::copy_resref_named`,
   captured 2026-10-29: `nw_w1copy007` to `w1copy008`, the one case).

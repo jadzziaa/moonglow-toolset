@@ -171,16 +171,7 @@ pub fn key_for(name: &str) -> Result<ResKey, String> {
     let Some(restype) = ResType::from_extension(ext) else {
         return Err(format!(".{ext} isn't a type the game reads"));
     };
-    if stem.is_empty() {
-        return Err("no name".into());
-    }
-    if stem.len() > 16 {
-        return Err(format!("the name has {} characters; the game reads at most 16", stem.len()));
-    }
-    if !stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
-        return Err("names are letters, digits, _ and -".into());
-    }
-    let resref = ResRef::from_str(&stem.to_ascii_lowercase()).map_err(|e| e.to_string())?;
+    let resref = ResRef::new_name(stem).map_err(|e| e.to_string())?;
     Ok(ResKey::new(resref, restype))
 }
 
@@ -746,13 +737,7 @@ mod tests {
         assert_eq!((added.added, added.replaced), (2, 0));
         let mut why: Vec<String> = added.skipped.iter().map(|(_, w)| w.clone()).collect();
         why.sort();
-        assert_eq!(
-            why,
-            [
-                "no extension to give its type",
-                "the name has 20 characters; the game reads at most 16"
-            ]
-        );
+        assert_eq!(why, ["20 characters: a name has at most 16", "no extension to give its type"]);
         assert!(hak.is_dirty());
         let keys: Vec<String> = hak.items().iter().map(|i| i.key.to_string()).collect();
         assert_eq!(keys, ["plc_chair.mdl", "plc_chair.tga"]);

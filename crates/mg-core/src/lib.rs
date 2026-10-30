@@ -18,6 +18,6 @@ pub mod time;
 
 pub use lang::{Codepage, Gender, Language};
 pub use locstring::{LocString, LocStringKey};
-pub use resref::{ResRef, ResRefError};
+pub use resref::{NewName, ResRef, ResRefError};
 pub use restype::ResType;
 pub use strref::StrRef;

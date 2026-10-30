@@ -376,7 +376,7 @@ another `tlk`.
 | `tlk.language` | Its language's two-letter code (`"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pl"`), as its file says (since Moonglow 2.13.0). |
 | `tlk:set_language(code)` | Makes it a table of another language (since Moonglow 2.13.0). |
 | `tlk:get(line)` | A line as `{ text, sound, sound_length }`; nil for none. |
-| `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` and `sound_length`; nil empties it. |
+| `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` (1 to 16 letters, digits, `_` and `-`, as the talk-table editor takes one; kept in lower case) and `sound_length`; nil empties it. |
 | `tlk:add(value)` | Adds a line at the end and returns its number. |
 | `tlk:write()` | The table as a file's bytes. |
 

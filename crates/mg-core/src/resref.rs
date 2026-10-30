@@ -106,9 +106,55 @@ impl ResRef {
         !self.as_bytes().iter().any(|b| matches!(b, b'/' | b'\\' | b':') || b.is_ascii_control())
     }
 
+    /// A name for a resource Moonglow makes (a talk table, a tileset, a
+    /// hak's resource, a line's sound): [`NewName::RULE`], in lower case
+    /// (a name given in capitals is lowered). Narrower than what the game
+    /// takes ([`ResRef::from_str`]: any 16 bytes but NUL, found in either
+    /// case), because the name is a project's file's too, on every
+    /// system.
+    pub fn new_name(name: &str) -> Result<ResRef, NewName> {
+        Self::new_name_of(name, Self::MAX_LEN)
+    }
+
+    /// [`ResRef::new_name`] with room for at most `most` characters (a
+    /// name that has a suffix added for another resource: a NUI window's
+    /// `_o` and `_e`).
+    pub fn new_name_of(name: &str, most: usize) -> Result<ResRef, NewName> {
+        if name.is_empty() {
+            return Err(NewName::Empty);
+        }
+        if let Some(c) =
+            name.chars().find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-')))
+        {
+            return Err(NewName::Character(c));
+        }
+        let most = most.min(Self::MAX_LEN);
+        if name.len() > most {
+            return Err(NewName::TooLong { len: name.len(), most });
+        }
+        Self::from_str(&name.to_ascii_lowercase())
+            .map_err(|_| NewName::TooLong { len: name.len(), most })
+    }
+
     fn folded(&self) -> impl Iterator<Item = u8> + '_ {
         self.as_bytes().iter().map(u8::to_ascii_lowercase)
     }
+}
+
+/// Why a name cannot be one Moonglow makes ([`ResRef::new_name`]).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum NewName {
+    #[error("a name is needed: {}", NewName::RULE)]
+    Empty,
+    #[error("{0:?}: {rule}", rule = NewName::RULE)]
+    Character(char),
+    #[error("{len} characters: a name has at most {most}")]
+    TooLong { len: usize, most: usize },
+}
+
+impl NewName {
+    /// The rule, as a message says it.
+    pub const RULE: &str = "1 to 16 letters, digits, _ and -";
 }
 
 impl Default for ResRef {
@@ -217,6 +263,27 @@ mod tests {
         assert!(matches!(ResRef::from_str("0123456789abcdefg"), Err(ResRefError::TooLong(_))));
         assert!(matches!(ResRef::from_bytes(b"a\0b"), Err(ResRefError::ContainsNul(_))));
         assert!(ResRef::from_str("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_name_moonglow_makes_is_letters_digits_underscores_and_hyphens() {
+        let made = |n: &str| ResRef::new_name(n).map(|r| r.as_str().unwrap().to_string());
+        assert_eq!(made("My_Sound-01").as_deref(), Ok("my_sound-01"));
+        assert_eq!(made("sixteen_chars_ok").as_deref(), Ok("sixteen_chars_ok"));
+        assert_eq!(made(""), Err(NewName::Empty));
+        assert_eq!(made("seventeen_chars_x"), Err(NewName::TooLong { len: 17, most: 16 }));
+        for (name, c) in [("a b", ' '), ("a.wav", '.'), ("é", 'é'), ("../x", '.'), ("a\\b", '\\')]
+        {
+            assert_eq!(made(name), Err(NewName::Character(c)), "{name}");
+        }
+        // (Each of them the game takes: the rule is Moonglow's own.)
+        assert!(["a b", "a.wav", "My_Sound"].iter().all(|n| ResRef::from_str(n).is_ok()));
+        assert_eq!(
+            ResRef::new_name_of("fifteen_chars_x", 14),
+            Err(NewName::TooLong { len: 15, most: 14 })
+        );
+        let said = NewName::Character('.').to_string();
+        assert!(said.contains("'.'") && said.contains(NewName::RULE), "{said}");
     }
 
     #[test]
