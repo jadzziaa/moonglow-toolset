@@ -2641,7 +2641,7 @@ impl Renderer {
         // The game's shaders' blocks and bind groups; the solid draws by
         // pipeline and material, each set once for its draws.
         // (Those after the framebuffer's copy, last.)
-        game_draws.sort_by_key(|d| (d.late, !d.receives, d.order()));
+        crate::game::sort(&mut game_draws, |d| (d.late, !d.receives));
         let early = game_draws.iter().take_while(|d| !d.late).count();
         // (Those the shadows fall on, first.)
         let received = game_draws.iter().take_while(|d| !d.late && d.receives).count();

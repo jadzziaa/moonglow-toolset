@@ -1209,11 +1209,29 @@ impl GameDraw<'_> {
 
     /// What its draws are best kept together by: the pipeline, the
     /// material, then the mesh (one bound for all its draws in a row, as
-    /// instances of one draw).
-    pub(crate) fn order(&self) -> (u32, u32, usize) {
-        (self.pipeline.id, self.material, self.geometry.id())
+    /// instances of one draw), a mesh by `first`, the place of its first
+    /// draw among the frame's ([`sort`]).
+    pub(crate) fn order(&self, first: u32) -> (u32, u32, u32) {
+        (self.pipeline.id, self.material, first)
     }
+}
 
+/// `draws` in the order they are drawn: by `rank` (which comes first),
+/// then [`GameDraw::order`]. Draws of one pipeline and material keep the
+/// order of their meshes' first draws, as they were pushed: not their
+/// meshes' addresses, which change from run to run, so that where two
+/// meshes of a pipeline and material lie in one plane (a decal on the
+/// ground) the same one wins each run (it didn't, by a few scattered
+/// pixels in 8 of Tyrants of the Moonsea's 140 areas).
+pub(crate) fn sort<K: Ord>(draws: &mut [GameDraw<'_>], rank: impl Fn(&GameDraw<'_>) -> K) {
+    let mut first: Fast<usize, u32> = Fast::default();
+    for (i, d) in draws.iter().enumerate() {
+        first.entry(d.geometry.id()).or_insert(i as u32);
+    }
+    draws.sort_by_cached_key(|d| (rank(d), d.order(first[&d.geometry.id()])));
+}
+
+impl GameDraw<'_> {
     /// What it can be drawn as an instance with others by: its pipeline
     /// and material (and the renderer's mesh); `None` for a skinned draw,
     /// whose bones are its own.

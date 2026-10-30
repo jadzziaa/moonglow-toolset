@@ -1989,6 +1989,58 @@ fn the_game_path_draws_opengl_s_clip_space_right() {
     assert!(differ <= 8, "{differ} pixels differ in what they show");
 }
 
+/// Two meshes of one pipeline and material lying in one plane are drawn
+/// by the game's programs in the order of the scene's instances, whatever
+/// their meshes' addresses: one wins where they meet the same each run
+/// (ordered by address, 8 of Tyrants of the Moonsea's 140 areas differed
+/// from run to run by a few pixels). Two quads standing in the same place,
+/// one texture (red on its left, blue on its right) each showing one half.
+#[test]
+fn coplanar_meshes_of_one_material_keep_the_scene_s_order() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let mut halves = Vec::new();
+    for _ in 0..4 {
+        for x in 0..4 {
+            halves.extend(if x < 2 { [255, 0, 0, 255] } else { [0, 0, 255, 255] });
+        }
+    }
+    let t = mg_image::Rgba { width: 4, height: 4, data: halves }.into_texture(false);
+    assets.textures.insert("halves".into(), t);
+    let (_, camera) = clip_space_scene(&gpu);
+    let half = |u: f32| {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("halves".into());
+            m.uvs[0] = vec![[u, 0.5]; 4];
+        }
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+        let t = Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))
+            * Mat4::from_rotation_x(90f32.to_radians())
+            * Mat4::from_scale(Vec3::splat(3.0));
+        Instance::new(model, t)
+    };
+    // (Texel centres: the second, red, and the third, blue.)
+    let (red, blue) = (half(0.375), half(0.625));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let mut shot = |instances: Vec<Instance>| {
+        let scene = Scene { instances, background: [0.0, 0.0, 0.0], ..Default::default() };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
+    };
+    let red_first = shot(vec![red.clone(), blue.clone()]);
+    let blue_first = shot(vec![blue, red]);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 2, "{:?}", r.drawn);
+    eprintln!("red first {red_first:?}, blue first {blue_first:?}");
+    assert_ne!(red_first, blue_first, "the order of the scene's instances decides");
+    assert!(
+        (red_first, blue_first) == ([255, 0, 0, 255], [0, 0, 255, 255])
+            || (red_first, blue_first) == ([0, 0, 255, 255], [255, 0, 0, 255]),
+        "{red_first:?} {blue_first:?}"
+    );
+}
+
 /// The game path on whatever GPU the platform has (CI's Windows runner
 /// draws it with Direct3D 12, its macOS one with Metal, as no game install
 /// is there for the stock programs): an authored pair written as the
