@@ -519,6 +519,18 @@ impl Naming {
     pub fn resref(&self, name: &str, number: &str) -> Option<ResRef> {
         ResRef::from_str(&self.fit(name, number)).ok().filter(|r| !r.is_empty())
     }
+
+    /// The first of `name` numbered from `from` (`name001`, `name002`...,
+    /// [`Naming::fit`] each) that `taken` doesn't name: how every new
+    /// resource Moonglow numbers is named (a copy, a blueprint a wizard
+    /// makes, a store's conversation, a conversation imported). Past 999,
+    /// the number has four digits; none past 9999.
+    pub fn numbered(&self, name: &str, from: u32, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
+        (from.max(1)..10_000)
+            .map(|n| self.fit(name, &format!("{n:03}")))
+            .find(|s| !taken(s))
+            .and_then(|s| ResRef::from_str(&s).ok().filter(|r| !r.is_empty()))
+    }
 }
 
 /// What is wrong with a builder code, or none where it is one: letters,
@@ -1824,6 +1836,16 @@ keeper_variable = "tdod_store"
         let t = Naming::new("ab", "t{code}_{name}");
         assert_eq!(t.fit("averyveryverylongname", "1"), "tab_averyveryve1");
         assert_eq!(Naming::new("abcdefgh", DEFAULT_PATTERN).room(), 7);
+        // Numbered: the first free from a number, in the pattern, cut.
+        let numbered = |n: &Naming, name: &str, from: u32, taken: &dyn Fn(&str) -> bool| {
+            n.numbered(name, from, taken).map(|r| r.to_string())
+        };
+        let some = |s: &str| Some(s.to_string());
+        assert_eq!(numbered(&plain, "chicken", 1, &|_| false), some("chicken001"));
+        assert_eq!(numbered(&ab, "chicken", 3, &|s| s == "ab_chicken003"), some("ab_chicken004"));
+        assert_eq!(numbered(&plain, "averyveryverylong", 0, &|_| false), some("averyveryvery001"));
+        assert_eq!(numbered(&plain, "x", 1, &|s| s != "x1000"), some("x1000"), "past 999");
+        assert_eq!(numbered(&plain, "x", 1, &|_| true), None);
         // An area's (the Area Wizard's): a number added where it is taken.
         let area = |name: &str, taken: &dyn Fn(&ResRef) -> bool| {
             crate::new::resref_for_named(name, &ab, taken).to_string()

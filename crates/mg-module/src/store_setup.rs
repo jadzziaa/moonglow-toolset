@@ -26,11 +26,9 @@ pub const NO: &str = "No, thanks.";
 /// The first `stem001`, `stem002`, ... the module has no `restype` of
 /// (by the builder's code, in a project with one: `ab_stem001`).
 pub fn next_name(module: &Module, stem: &str, restype: ResType) -> ResRef {
-    let naming = module.project_file.naming_for(restype);
-    (1..1000)
-        .filter_map(|n| naming.resref(stem, &format!("{n:03}")))
-        .find(|r| !module.contains(&ResKey::new(*r, restype)))
-        .unwrap_or(ResRef::EMPTY)
+    let taken =
+        |s: &str| ResRef::from_str(s).is_ok_and(|r| module.contains(&ResKey::new(r, restype)));
+    module.project_file.naming_for(restype).numbered(stem, 1, &taken).unwrap_or(ResRef::EMPTY)
 }
 
 /// The script that opens the store with `tag` for the PC speaker (with

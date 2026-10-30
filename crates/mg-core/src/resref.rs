@@ -136,6 +136,15 @@ impl ResRef {
             .map_err(|_| NewName::TooLong { len: name.len(), most })
     }
 
+    /// Text (a file's name) in the characters [`ResRef::new_name`] takes:
+    /// in lower case, each other character a `_` (`Märchen 2` is
+    /// `m_rchen_2`). Not cut to a length: the caller leaves room for its
+    /// number.
+    pub fn name_of(text: &str) -> String {
+        let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
+        text.chars().map(|c| if plain(c) { c.to_ascii_lowercase() } else { '_' }).collect()
+    }
+
     fn folded(&self) -> impl Iterator<Item = u8> + '_ {
         self.as_bytes().iter().map(u8::to_ascii_lowercase)
     }
@@ -282,6 +291,9 @@ mod tests {
             ResRef::new_name_of("fifteen_chars_x", 14),
             Err(NewName::TooLong { len: 15, most: 14 })
         );
+        // A file's name made into one: what is left takes the rule.
+        assert_eq!(ResRef::name_of("Märchen 2.v-1"), "m_rchen_2_v-1");
+        assert!(ResRef::new_name(&ResRef::name_of("Ein Märchen")).is_ok());
         let said = NewName::Character('.').to_string();
         assert!(said.contains("'.'") && said.contains(NewName::RULE), "{said}");
     }

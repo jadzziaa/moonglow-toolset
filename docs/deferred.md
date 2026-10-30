@@ -1899,11 +1899,15 @@ of truth, and does each caller's difference matter.
   `mgp_utc002`; `captures/wave1/add-palette.mod`, `pal2-addpal.mod`),
   where `new_resref` gives `001`, as the earlier capture's `mgp_utp001`
   (`aurora_palette_add.rs`) has it: what makes the difference is not
-  known (S, an Aurora capture or two). `copy_resref`
-  (`palette_view.rs`) stays for other resources, with three more
-  generators (`store_setup.rs:27`, `blueprints.rs:35`,
-  `dialog_view.rs:1612`) and two from a file's stem
-  (`dialog_view.rs:1608`, `nui_view/images.rs:91`). (S)
+  known. Not the bare template's being in the module (`mgp_utp.utp` was
+  in `placement-doors.mod` too, read 2026-10-30); the captures differ in
+  what was added (a creature and the items it holds, against a
+  placeable and its items), so the Aurora batch should capture, in one
+  session, Add to Palette of a placeable from an unnumbered module
+  blueprint holding an unnumbered module item, of a creature from an
+  unnumbered blueprint, and of that creature again, with the names each
+  dialog offers. (S, waits on the Aurora batch.) (The numbering itself
+  is one function since 2026-10-30, `Naming::numbered`.)
 - **The two portrait filters, the Creature Wizard's:** Select Portrait's
   (`situated.rs`: the gender exactly, the module's portraits too, the
   table's order) is Aurora's (captured 2026-10-29: Human and Male lists
@@ -1911,7 +1915,10 @@ of truth, and does each caller's difference matter.
   Outsider and Male shows nothing there too). The Creature Wizard's
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
   none, Plot rows left out, not the module's portraits) was not compared
-  with Aurora's wizard. (S)
+  with Aurora's wizard. (S, waits on the Aurora batch: the Creature
+  Wizard's portrait page for Human and Male in the `w1probe` module,
+  whether rows of `Sex` 2 to 4 (both, other, none) are listed, whether Plot
+  rows are, whether the module's own `w1po_` is, and in what order.)
 
 ### Smaller, each S
 
