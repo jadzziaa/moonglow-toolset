@@ -1138,3 +1138,72 @@ fn joined_pc_faction() {
     eprintln!("{} (done: {done})", dir.display());
     j.stop();
 }
+
+/// A body part model `name` of a square at hip height under a dummy of its
+/// own (`name_d`), as a `skin` weighted wholly to that dummy (`skin`) or a
+/// plain mesh.
+fn own_part(name: &str, skin: bool) -> String {
+    let (kind, weights) = if skin {
+        (
+            "skin",
+            format!(
+                "  weights 4\n    {name}_d 1\n    {name}_d 1\n    {name}_d 1\n    {name}_d 1\n"
+            ),
+        )
+    } else {
+        ("trimesh", String::new())
+    };
+    format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+         setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node dummy {name}_d\n  parent {name}\n  position 0 0 1\nendnode\n\
+         node {kind} {name}_m\n  parent {name}_d\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap mgwhite\n  \
+         render 1\n  shadow 0\n  verts 4\n    -0.3 0 0\n    0.3 0 0\n    0.3 0 0.6\n    -0.3 0 0.6\n  \
+         tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n{weights}  faces 2\n    \
+         0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\nendnode\nendmodelgeom {name}\ndonemodel {name}\n"
+    )
+}
+
+/// Whether the game's own model compiler (`nwmain compilemodel <resref>`,
+/// the client run with those arguments in the sandbox) compiles a skin
+/// (the deferred list's "Builders' reports after 1.21.0": the compiled
+/// skins weighted to their own part's nodes tried were `mgv compile`'s):
+/// a part of [`own_part`] as a skin and as a plain mesh, in the scratch
+/// override, each compiled; what the client writes to its user
+/// directory's `modelcompiler` is listed.
+///
+/// Seen (2026-10-30, 89.8193.37): `modelcompiler/mg_plainpart.mdl`, 1,400
+/// bytes, and nothing for `mg_skinpart`: the game's compiler compiles no
+/// skin (as the research brief had it, now read).
+#[test]
+#[ignore]
+fn reading_game_compiler_skins() {
+    let dir = scratch_dir("client_reading_game_compiler_skins");
+    let over = dir.join("user/override");
+    std::fs::create_dir_all(&over).unwrap();
+    std::fs::write(over.join("mg_skinpart.mdl"), own_part("mg_skinpart", true)).unwrap();
+    std::fs::write(over.join("mg_plainpart.mdl"), own_part("mg_plainpart", false)).unwrap();
+    std::fs::write(over.join("mgwhite.tga"), super::white_tga()).unwrap();
+    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    for name in ["mg_plainpart", "mg_skinpart"] {
+        let _ = super::readings::client_after(
+            &dir,
+            &["compilemodel", name],
+            Duration::from_secs(25),
+            None,
+        );
+    }
+    for d in ["user/modelcompiler", "user/MODELCOMPILER", "user"] {
+        if let Ok(entries) = std::fs::read_dir(dir.join(d)) {
+            for e in entries.flatten() {
+                let len = e.metadata().map(|m| m.len()).unwrap_or(0);
+                eprintln!("{d}/{}: {len} bytes", e.file_name().to_string_lossy());
+            }
+        }
+    }
+    let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
+    for line in log.lines().filter(|l| l.to_lowercase().contains("compil")) {
+        eprintln!("{line}");
+    }
+}

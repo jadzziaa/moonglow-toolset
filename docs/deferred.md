@@ -919,11 +919,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in a body part or a held item": not where it is compiled, a plain
   mesh where it is text; a held item's never). Not done: a skin
   weighted to nodes of its own part, which the client draws out of
-  place, is not drawn; the compiled models tried were `mgv compile`'s,
-  not the game's own compiler's. Not reproduced: "unequipping an armor
-  sets all body parts to 0": nothing in the code writes a body part on
-  unequip, and the preview draws the creature's own parts then; the
-  creature it was seen on would tell. (S)
+  place, is not drawn (S). The compiled skins tried were `mgv
+  compile`'s: the game's own compiler (`nwmain compilemodel`) compiles
+  none (2026-10-30, `reading_game_compiler_skins` in the fifth client
+  batch: a part as a plain mesh written, 1,400 bytes, the same as a skin
+  nothing), so a compiled skin is always another compiler's. Not
+  reproduced: "unequipping an armor sets all body parts to 0": nothing
+  in the code writes a body part on unequip, and the preview draws the
+  creature's own parts then (waits on the creature it was seen on).
   (from builders' reports and the owner's notes after 1.21.0)
 - **See-through meshes** are drawn in two parts: what is nearly opaque
   of them (alpha from 0.95) with the depth written, then the rest over
