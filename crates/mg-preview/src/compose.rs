@@ -427,10 +427,12 @@ impl Composed {
         // self-illumination keyed in a placeable's `default`, which the
         // client plays on a dynamic placeable:
         // `reading_static_placeable_default_animation`).
-        if self.idle_keys_meshes && animation.is_some() && animation == self.idle.as_deref() {
-            if let Some(a) = base_anim {
-                out[0].state = Some(Arc::new(anim::mesh_state(&self.base.gpu, a, t)));
-            }
+        if self.idle_keys_meshes
+            && animation.is_some()
+            && animation == self.idle.as_deref()
+            && let Some(a) = base_anim
+        {
+            out[0].state = Some(Arc::new(anim::mesh_state(&self.base.gpu, a, t)));
         }
         for p in &self.parts {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
