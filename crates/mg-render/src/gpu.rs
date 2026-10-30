@@ -6,6 +6,13 @@ use std::time::Duration;
 
 use mg_image::Rgba;
 
+/// The features a device is asked for where its adapter has them: BC
+/// textures (the game's are mostly BC-compressed: uploaded as they are)
+/// and 32-bit float depth with a stencil (the shadow volumes' depth copy
+/// as exact as the scene's; 24 bits without).
+pub const OPTIONAL_FEATURES: wgpu::Features =
+    wgpu::Features::TEXTURE_COMPRESSION_BC.union(wgpu::Features::DEPTH32FLOAT_STENCIL8);
+
 /// A device and queue.
 #[derive(Debug, Clone)]
 pub struct Gpu {
@@ -24,7 +31,7 @@ impl Gpu {
     /// a usable adapter: on [`headless_adapter`].
     pub fn headless() -> Option<Gpu> {
         let adapter = headless_adapter()?;
-        let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
+        let features = adapter.features() & OPTIONAL_FEATURES;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("moonglow"),
             required_features: features,

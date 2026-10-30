@@ -138,6 +138,9 @@ pub struct GpuMesh {
     /// Its place in its chunk, given back when the last mesh drawing from
     /// it is dropped.
     slot: Arc<crate::pool::Slot>,
+    /// Its shadow volume ([`crate::volume`]), made the first time it casts
+    /// one with the shadows' High quality.
+    pub(crate) volume: crate::volume::VolumeSlot,
 }
 
 impl GpuMesh {
@@ -305,6 +308,7 @@ impl GpuModel {
                 casts: m.shadow,
                 skin,
                 slot: Arc::new(slot),
+                volume: Default::default(),
             };
             if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
@@ -334,6 +338,7 @@ impl GpuModel {
                 tangents_made: m.tangents_made,
                 casts: m.casts,
                 slot: m.slot.clone(),
+                volume: Default::default(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

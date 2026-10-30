@@ -98,7 +98,7 @@ pub fn probe(adapter: &wgpu::Adapter) -> Probe {
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("moonglow startup check"),
-            required_features: adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC,
+            required_features: adapter.features() & crate::OPTIONAL_FEATURES,
             required_limits: adapter.limits(),
             ..Default::default()
         }))

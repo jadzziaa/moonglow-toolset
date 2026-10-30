@@ -115,11 +115,17 @@ pub(crate) fn casts(inst: &Instance, mesh: &GpuMesh, alpha: f32) -> bool {
 #[derive(Clone, Copy)]
 pub(crate) struct Caster<'a> {
     pub(crate) mesh: &'a GpuMesh,
+    /// The model it is of (its faces, for its shadow volume:
+    /// [`crate::volume`]).
+    pub(crate) model: &'a crate::GpuModel,
     /// From the mesh's node to the world.
     pub(crate) world: Mat4,
     /// A skinned mesh's first bone among the frame's casting bones
     /// ([`Plan::bones`]).
     pub(crate) bones: Option<u32>,
+    /// A tile's: the bottom of its bounding box, where the game ends its
+    /// sun's shadow volumes (EE 8193.31's "tile-bbox lower clip").
+    pub(crate) bottom: Option<f32>,
 }
 
 impl Caster<'_> {
@@ -230,6 +236,11 @@ pub(crate) struct Plan<'a> {
     /// The map's depth range, metres.
     pub(crate) depth: f32,
     pub(crate) shadows: SunShadows,
+    /// Towards the area light.
+    pub(crate) direction: Vec3,
+    /// The lowest of what receives shadows: where a sun's volume cast by
+    /// what is not a tile ends.
+    pub(crate) floor: f32,
 }
 
 /// The shadow map a scene needs, seen by `camera` in a picture of
@@ -243,6 +254,13 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
         let node = |n: usize| inst.transform * pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
+        let model: &'a crate::GpuModel = &inst.model;
+        // (A tile's box's bottom, of all its meshes.)
+        let bottom = inst.tile.then(|| {
+            (model.meshes.iter().chain(&model.shadow_only))
+                .map(|m| world_box(node(m.node), m).0.z)
+                .fold(f32::MAX, f32::min)
+        });
         for (j, mesh) in inst.model.meshes.iter().enumerate() {
             let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
             let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
@@ -256,7 +274,8 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
             }
             if casts(inst, mesh, alpha) {
                 let skinned = skin_bones(mesh, pose, &mut bones);
-                casters.push((Caster { mesh, world, bones: skinned }, posed_box(bounds, skinned)));
+                let caster = Caster { mesh, model, world, bones: skinned, bottom };
+                casters.push((caster, posed_box(bounds, skinned)));
             }
         }
         for mesh in &inst.model.shadow_only {
@@ -264,7 +283,7 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
                 let world = node(mesh.node);
                 let skinned = skin_bones(mesh, pose, &mut bones);
                 let bounds = posed_box(world_box(world, mesh), skinned);
-                casters.push((Caster { mesh, world, bones: skinned }, bounds));
+                casters.push((Caster { mesh, model, world, bones: skinned, bottom }, bounds));
             }
         }
     }
@@ -308,7 +327,15 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     let (near, far) = (-hi.z - 1.0, -lo.z + 1.0);
     let projection = Mat4::orthographic_rh(left, left + side, bottom, bottom + side, near, far);
     in_drawing_order(&mut kept);
-    Some(Plan { light: projection * view, casters: kept, bones, depth: far - near, shadows })
+    Some(Plan {
+        light: projection * view,
+        casters: kept,
+        bones,
+        depth: far - near,
+        shadows,
+        direction: scene.area.direction,
+        floor: rmin.z,
+    })
 }
 
 /// The lights' shadows of a frame: per creature casting one, the light's
@@ -316,6 +343,9 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
 /// (in [`LightPlan::casters`], from and to).
 pub(crate) struct LightPlan<'a> {
     pub(crate) lights: Vec<Mat4>,
+    /// Per creature, where its shadow is cast from (its light, lifted) and
+    /// how far the light reaches from there (its shadow volume's radius).
+    pub(crate) sources: Vec<(Vec3, f32)>,
     pub(crate) ranges: Vec<std::ops::Range<u32>>,
     pub(crate) casters: Vec<Caster<'a>>,
     pub(crate) bones: Vec<Mat4>,
@@ -377,6 +407,7 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
     creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut plan = LightPlan {
         lights: Vec::new(),
+        sources: Vec::new(),
         ranges: Vec::new(),
         casters: Vec::new(),
         bones: Vec::new(),
@@ -400,7 +431,8 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
             let skinned = skin_bones(mesh, pose, &mut plan.bones);
             let (a, b) = posed_box(world_box(world, mesh), skinned);
             (lo, hi) = (lo.min(a), hi.max(b));
-            plan.casters.push(Caster { mesh, world, bones: skinned });
+            let model = &inst.model;
+            plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
         }
         if plan.casters.len() == first {
             continue;
@@ -413,7 +445,9 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
         };
         let light = &scene.lights[light];
         let from = light.position + Vec3::Z * light.shadow_lift;
-        plan.lights.push(light_projection(from, at, radius, light.cutoff + light.shadow_lift));
+        let reach = light.cutoff + light.shadow_lift;
+        plan.lights.push(light_projection(from, at, radius, reach));
+        plan.sources.push((from, reach));
         in_drawing_order(&mut plan.casters[first..]);
         plan.ranges.push(first as u32..plan.casters.len() as u32);
     }
@@ -475,10 +509,27 @@ struct CasterData {
     bones: [u32; 4],
 }
 
+/// The darkening uniform's size, bytes.
+pub(crate) const DARKEN_UNIFORM_SIZE: u64 = std::mem::size_of::<DarkenUniform>() as u64;
+
+/// The darkening's values for the stencil volumes' shadows
+/// ([`crate::volume`]): no maps, the look as the maps' have it.
+pub(crate) fn stencil_uniform(
+    shadows: SunShadows,
+    camera: &Camera,
+    size: (u32, u32),
+    fog: Option<crate::scene::Fog>,
+) -> Vec<u8> {
+    let look = (shadows, 0.0, 0, [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS]);
+    bytemuck::bytes_of(&uniform(look, camera, size, fog)).to_vec()
+}
+
 /// The darkening pass's shader for `samples` samples a pixel: from the
 /// sun's map (orthographic), or from the lights' (perspective, a layer
-/// each, the darkest taken).
-pub(crate) fn darken_source(samples: u32, lights: bool) -> String {
+/// each, the darkest taken); or, where `stencil`, over every pixel the
+/// pass's stencil test lets through (the shadow volumes' counts), the
+/// sun's or the `lights`' way.
+pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
             "texture_depth_multisampled_2d",
@@ -497,7 +548,9 @@ pub(crate) fn darken_source(samples: u32, lights: bool) -> String {
     } else {
         "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;"
     };
-    let (map, shade) = if lights {
+    let (map, shade) = if stencil {
+        ("", "let shade = 1.0;")
+    } else if lights {
         (
             "texture_depth_2d_array",
             "var shade = 0.0;
@@ -519,6 +572,14 @@ pub(crate) fn darken_source(samples: u32, lights: bool) -> String {
     let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);",
         )
     };
+    let maps = if stencil {
+        String::new()
+    } else {
+        format!(
+            "@group(0) @binding(2) var map: {map};
+@group(0) @binding(3) var cmp: sampler_comparison;"
+        )
+    };
     format!(
         "struct Params {{
     unproject: mat4x4<f32>,
@@ -531,8 +592,7 @@ pub(crate) fn darken_source(samples: u32, lights: bool) -> String {
 }}
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var depth: {depth};
-@group(0) @binding(2) var map: {map};
-@group(0) @binding(3) var cmp: sampler_comparison;
+{maps}
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
     return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
@@ -1030,7 +1090,7 @@ impl Darkener {
     ) -> Darkener {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow darkening"),
-            source: wgpu::ShaderSource::Wgsl(darken_source(samples, lights).into()),
+            source: wgpu::ShaderSource::Wgsl(darken_source(samples, lights, false).into()),
         });
         let maps = if lights {
             wgpu::TextureViewDimension::D2Array

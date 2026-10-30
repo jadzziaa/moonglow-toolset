@@ -111,6 +111,9 @@ pub use mg_render::backend as graphics;
 pub use mg_render::dx12;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
+/// The device features asked for where the adapter has them (BC textures,
+/// 32-bit depth with a stencil for the shadow volumes).
+pub use mg_render::OPTIONAL_FEATURES;
 pub use options::{OptionsDraft, OptionsPage};
 pub use settings::{GraphicsBackend, Settings};
 pub use tabs::Tab;

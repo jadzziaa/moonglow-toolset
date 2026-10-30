@@ -21,13 +21,14 @@ mod renderer;
 pub mod scene;
 mod shadow;
 pub mod texture;
+mod volume;
 pub mod watch;
 
 pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use game::ShaderStats;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};
-pub use gpu::{Gpu, headless_adapter};
+pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use reach::{Frustum, box_corners};
 pub use renderer::{
@@ -45,13 +46,21 @@ pub fn wgsl_sources() -> Vec<(String, String)> {
         ("particle".into(), include_str!("particle.wgsl").into()),
         ("line".into(), include_str!("line.wgsl").into()),
         ("shadow_cast".into(), shadow::CAST.into()),
+        ("shadow_volume".into(), volume::VOLUME.into()),
     ];
     for samples in [1, 4] {
         out.push((format!("framebuffer_{samples}"), framebuffer::source(samples)));
         out.push((format!("watch_{samples}"), watch::source(samples)));
+        out.push((format!("shadow_volume_depth_{samples}"), volume::copy_source(samples)));
         for lights in [false, true] {
-            let name = format!("shadow_darken_{samples}{}", if lights { "_lights" } else { "" });
-            out.push((name, shadow::darken_source(samples, lights)));
+            for stencil in [false, true] {
+                let name = format!(
+                    "shadow_darken_{samples}{}{}",
+                    if lights { "_lights" } else { "" },
+                    if stencil { "_stencil" } else { "" }
+                );
+                out.push((name, shadow::darken_source(samples, lights, stencil)));
+            }
         }
     }
     out
