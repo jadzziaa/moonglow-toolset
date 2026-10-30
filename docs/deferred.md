@@ -1069,11 +1069,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   at its first row), the log last, which they scroll (done 2026-10-30);
   in the Gallery Up and Down go a row of pictures at a time (done
   2026-10-29). Not done:
-  - A command a builder already gave F6 to is in conflict with Next
-    Pane: Options › Keyboard lists it, and the pane's wins until one is
-    changed. Kept so (settle?: proposed by the sprint on 2026-10-30, the
-    owner's to say): the builder's binding is theirs to change, and
-    Options says the conflict.
   - Down from the hak editor's, the tileset editor's and the Appearance
     Gallery's Find fields goes nowhere: their lists have no keys of
     their own, nor have the tileset's palette and the Prefabs list.
@@ -2468,3 +2463,8 @@ is not taken for a new gap.
   know: said in the manual's command line chapter, as it is. (the
   review of the NUI Creator's pull request, October 2026) (Settled by
   the owner, 2026-10-30.)
+- **F6 against a builder's own binding:** a command a builder already
+  gave F6 to is in conflict with Next Pane; Options › Keyboard lists
+  the conflict, and the pane's wins until one of them is changed: the
+  builder's binding is theirs to change. (Settled by the owner,
+  2026-10-30.)
