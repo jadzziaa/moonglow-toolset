@@ -570,6 +570,34 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     h.get_by_label("Choose a class");
 }
 
+/// Advanced Search's Value list of an item property keeps the cost
+/// table's order, as the item editor's Cost Parameter does (+2 before
+/// +10), where it went by name past 12 rows.
+#[test]
+fn advanced_search_lists_a_property_s_values_in_the_cost_table_s_order() {
+    let Some(mut h) = game_harness("advanced-search-values") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    settle(&mut h);
+    {
+        let d = &mut h.state_mut().advanced_search;
+        d.first.kind = mg_ui::search::Kind::ItemProperty;
+        // (itempropdef.2da's Enhancement Bonus: iprp_bonuscost's +1 to +20.)
+        d.first.row = Some(6);
+    }
+    settle(&mut h);
+    h.get_by_label("Value");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let any = |n: &egui_kittest::Node<'_>| n.accesskit_node().value() == Some("Any".into());
+    let lists: Vec<_> = h.query_all(combo).filter(any).map(|n| n.rect().center()).collect();
+    // (Subtype has none: the Value list is the first "Any".)
+    click_pos(&h, lists[0]);
+    settle(&mut h);
+    let at = |label: &str| h.query_by_label(label).map(|n| n.rect().top());
+    let (two, ten) = (at("+2"), at("+10"));
+    assert!(two.is_some(), "the list open, with +2");
+    assert!(ten.is_none_or(|ten| two.unwrap() < ten), "+2 before +10: {two:?} {ten:?}");
+}
+
 /// The references list names an area as the rest of the window does:
 /// by its name where areas are shown by name.
 #[test]

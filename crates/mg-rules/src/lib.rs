@@ -57,8 +57,20 @@ pub struct Choice {
 /// name in the table's order): long lists are found by name, not by where
 /// the table has them.
 pub fn by_name(mut choices: Vec<Choice>) -> Vec<Choice> {
-    choices.sort_by_cached_key(|c| (mg_core::text::sort_key(&c.text), c.row));
+    choices.sort_by_cached_key(name_key);
     choices
+}
+
+/// Where each of `choices` comes in [`by_name`]'s order: the indexes of
+/// `choices`, sorted (a list kept as it is, shown sorted).
+pub fn name_order(choices: &[Choice]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..choices.len()).collect();
+    order.sort_by_cached_key(|&i| name_key(&choices[i]));
+    order
+}
+
+fn name_key(c: &Choice) -> ((String, String), usize) {
+    (mg_core::text::sort_key(&c.text), c.row)
 }
 
 /// [`by_name`] for choices named by a path of groups (`Oficios / Herrero`,

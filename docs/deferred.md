@@ -1922,17 +1922,14 @@ of truth, and does each caller's difference matter.
 
 ### Smaller, each S
 
-- Left by the one row list (`widgets::row_choice`, 2026-10-21): it lays
-  out every row while open, where the 2DA editor's "a row of X.2da" laid
-  out only those in sight (a table of tens of thousands of rows, not
-  measured); Advanced Search's Value list goes by name past 12 rows,
-  where the item editor's cost list keeps the numbers' order (+10 before
-  +2 there); the Appearance and loading screen lists have no "≠" mark
-  for blueprints edited together, which the other fields' lists have;
-  and an item property's parameter list, by name now, was not held to
-  Aurora's order (a creature's classes and a door's generic appearance
-  are by name in Aurora too; its portraits are in the table's order, as
-  Select Portrait's grid: captured 2026-10-29).
+- Left by the one row list (`widgets::row_choice`, 2026-10-21): an item
+  property's parameter list, by name now, was not held to Aurora's order
+  (a creature's classes and a door's generic appearance are by name in
+  Aurora too; its portraits are in the table's order, as Select
+  Portrait's grid: captured 2026-10-29). (S, waits on the Aurora batch:
+  the item editor's Select Property Parameters for a property whose
+  parameter table has more than 12 rows, iprp_damagetype's or
+  iprp_onhit's, in the order Aurora lists it.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
