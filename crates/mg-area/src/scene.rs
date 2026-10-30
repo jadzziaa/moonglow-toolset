@@ -982,7 +982,9 @@ impl AreaScene {
             // grass's sway in each tile's own space, made once for each way
             // a tile is turned.)
             let sway = crate::grass::sway(area.lighting.wind_power, view.time);
-            let poses: RefCell<Vec<(usize, Vec3, Arc<Vec<Mat4>>)>> = RefCell::default();
+            // (By the model's node count and the sway in its space.)
+            type Swayed = (usize, Vec3, Arc<Vec<Mat4>>);
+            let poses: RefCell<Vec<Swayed>> = RefCell::default();
             let swayed = |model: &GpuModel, transform: Mat4| {
                 let local = transform.inverse().transform_vector3(sway);
                 let nodes = model.rest.len();
