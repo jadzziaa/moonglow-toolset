@@ -290,7 +290,7 @@ impl GpuModel {
                     texture: m.textures[0].clone(),
                     maps: [m.textures[1].clone(), m.textures[2].clone(), m.textures[3].clone()],
                     mtr: m.material.clone(),
-                    normal_mapped: m.renderhint.as_deref().is_some_and(|h| h != "none"),
+                    normal_mapped: m.renderhint.as_deref().is_some_and(hint_wants_tangents),
                     diffuse: Vec3::from(m.diffuse),
                     ambient: Vec3::from(m.ambient),
                     emissive,
@@ -341,6 +341,15 @@ impl GpuModel {
         let (model, rest) = (self.model.clone(), self.rest.clone());
         GpuModel { id, model, meshes, shadow_only: Vec::new(), rest }
     }
+}
+
+/// Whether a model's render hint (any case) gives its mesh tangents: only
+/// `NormalAndSpecMapped` and `NormalTangents`, as the client reads an
+/// ASCII model's (another word, such as `NormalAndSpecMappedMesh`, gives
+/// none: `reading_tangents`, the deferred sprint's fifth client batch),
+/// as the game's compiler takes one and as an MTR's is read.
+pub fn hint_wants_tangents(hint: &str) -> bool {
+    ["normalandspecmapped", "normaltangents"].iter().any(|h| hint.eq_ignore_ascii_case(h))
 }
 
 /// Tangents for a mesh that has none (each vertex's, and the bitangent's
@@ -440,6 +449,11 @@ mod tests {
     /// angles to the normal where the coordinates give none.
     #[test]
     fn tangents_are_made_from_the_texture_coordinates() {
+        // (Only the two hints the game knows ask for them.)
+        assert!(
+            hint_wants_tangents("normalandspecmapped") && hint_wants_tangents("normaltangents")
+        );
+        assert!(!hint_wants_tangents("normalandspecmappedmesh") && !hint_wants_tangents("none"));
         let quad = |uvs: Vec<[f32; 2]>| Mesh {
             vertices: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
             normals: vec![[0.0, 0.0, 1.0]; 4],

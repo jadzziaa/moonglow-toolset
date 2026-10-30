@@ -438,10 +438,14 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         return vec4<f32>(0.0);
     }
 
-    // The sky fade: its colour over the sky as much as its texture is white.
+    // The sky fade: its colour times its texture, blended over the sky by
+    // the texture's alpha, as the client's `fst` draws it with the fog's
+    // colour as `globalColor` (`reading_sky_fade`: `skyblurpoly`'s band is
+    // white with its alpha falling off; its red, 1 there, made the band
+    // solid).
     if (draws[this_draw].extra.z > 0.5) {
         let t = textureSampleGrad(tex0, samp0, uv, duv1, duv2);
-        return vec4<f32>(draws[this_draw].diffuse.rgb, t.r);
+        return vec4<f32>(draws[this_draw].diffuse.rgb * t.rgb, t.a);
     }
 
     // Base texture.

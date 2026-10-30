@@ -58,6 +58,8 @@ mod batch2;
 mod batch3;
 #[path = "client_render/batch4.rs"]
 mod batch4;
+#[path = "client_render/batch5.rs"]
+mod batch5;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
@@ -111,6 +113,24 @@ void main()
     DelayCommand(4.0, Log("MG_READY"));
 }
 "#;
+
+/// [`ENTER`] with the camera `SetCameraFacing(90, distance, pitch)` given a
+/// second after the player enters, which the client takes (given at once
+/// it keeps its own camera, but for the reference scenes' 12 and 45:
+/// [findings](../../../docs/findings.md), "An upright particle turns to the
+/// eye").
+fn enter_with_camera(distance: &str, pitch: &str) -> String {
+    let at_once =
+        "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));";
+    assert!(ENTER.contains(at_once));
+    ENTER.replace(
+        at_once,
+        &format!(
+            "DelayCommand(1.0, AssignCommand(pc, SetCameraFacing(90.0, {distance}, {pitch}, \
+             CAMERA_TRANSITION_TYPE_SNAP)));"
+        ),
+    )
+}
 
 /// Regions compared (fractions of the image, top-left origin), clear of the
 /// game's GUI, with the largest mean difference allowed per channel. Most
@@ -1140,10 +1160,10 @@ fn grass_and_sky_look() {
         );
     assert!(settings.contains("mode = 2") && settings.contains("enabled = true"));
     std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
-    // MG_CLOSE=1: the camera low and close, to see the client's grass.
+    // MG_CLOSE=1: the camera low and close, to see the client's grass
+    // (given a second after entry: the fifth client batch).
     if std::env::var_os("MG_CLOSE").is_some() {
-        let enter =
-            ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 3.0, 80.0");
+        let enter = enter_with_camera("3.0", "80.0");
         let ncs = compile(&dir, "mg_enter", &enter);
         m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
     }
@@ -1234,10 +1254,14 @@ fn grass_overrides_look() {
         let settings =
             SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
         std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
-        let camera = format!("SetCameraFacing(90.0, {distance}, {pitch}");
-        let enter = ENTER
-            .replace("SetCameraFacing(90.0, 12.0, 45.0", &camera)
-            .replace("CreateObject(", "if (FALSE) CreateObject(");
+        // (Another camera than the reference's is given a second after
+        // entry, which the client takes: the fifth client batch.)
+        let enter = if (distance.as_str(), pitch.as_str()) == ("12.0", "45.0") {
+            ENTER.to_string()
+        } else {
+            enter_with_camera(&distance, &pitch)
+        };
+        let enter = enter.replace("CreateObject(", "if (FALSE) CreateObject(");
         let ncs = compile(&dir, "mg_enter", &enter);
         m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
         m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
@@ -1625,9 +1649,9 @@ fn particles_look() {
         }
     }
     std::fs::write(user.join("settings.tml"), SETTINGS).unwrap();
-    // From the side, closer and lower than the reference scenes.
-    let enter =
-        ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 9.0, 80.0");
+    // From the side, closer and lower than the reference scenes (given a
+    // second after entry: the fifth client batch).
+    let enter = enter_with_camera("9.0", "80.0");
     let ncs = compile(&dir, "mg_enter", &enter);
     m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
     m.save_as(&ModuleLocation::Archive(user.join("modules/MgScene.mod"))).unwrap();
@@ -2601,6 +2625,71 @@ fn tdod_custom_shaders_look() {
         let c = mean(&client, *r);
         let (a, b) = (mean(&off, *r), mean(&on, *r));
         eprintln!("{name}: client {c:.1?}, own {a:.1?}, game's {b:.1?}");
+    }
+    // `MG_FIT_WALL=1`: the camera fitted to the far wall and floor (rows a
+    // quarter to two fifths down, the dark wall's edge across them) a
+    // tenth of a degree and centimetres about the fitted one, and the far
+    // floor measured again from it (the fifth client batch).
+    if std::env::var_os("MG_FIT_WALL").is_some() {
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let view = mg_area::View { fog: false, time: 4.0, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        let grey = |img: &Rgba, x: usize, y: usize| {
+            let i = (y * img.width as usize + x) * 4;
+            (img.data[i] as f32 + img.data[i + 1] as f32 + img.data[i + 2] as f32) / 3.0
+        };
+        let (wu, hu) = (w as usize, h as usize);
+        let error = |img: &Rgba| {
+            let (mut e, mut n) = (0.0f32, 0.0f32);
+            for y in (hu / 4..hu * 2 / 5).step_by(2) {
+                for x in (wu * 3 / 10..wu * 7 / 10).step_by(2) {
+                    e += (grey(img, x, y) - grey(&client, x, y)).abs();
+                    n += 1.0;
+                }
+            }
+            e / n
+        };
+        let pc = Vec3::new(20.0, 20.0, 0.0);
+        let mut best = (f32::MAX, [FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH]);
+        for dp in -3..=3 {
+            for dd in -4..=4 {
+                for df in -1..=1 {
+                    for dv in -1..=1 {
+                        let p = [
+                            FIT_FOV + dv as f32 * 0.3,
+                            FIT_FOCUS + df as f32 * 0.03,
+                            FIT_DISTANCE + dd as f32 * 0.1,
+                            FIT_PITCH + dp as f32 * 0.2,
+                        ];
+                        let cam = fitted_camera(pc, p[0], p[1], p[2], p[3]);
+                        let e = error(&r.render_image(&gpu, &game.resman, &scene, &cam, w, h));
+                        if e < best.0 {
+                            best = (e, p);
+                        }
+                    }
+                }
+            }
+        }
+        let fitted = fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let before = error(&r.render_image(&gpu, &game.resman, &scene, &fitted, w, h));
+        let cam = fitted_camera(pc, best.1[0], best.1[1], best.1[2], best.1[3]);
+        let off = r.render_image(&gpu, &game.resman, &scene, &cam, w, h);
+        r.game_shaders = true;
+        let on = r.render_image(&gpu, &game.resman, &scene, &cam, w, h);
+        save_png(&off, &dir.join("moonglow_off_wall.png"));
+        save_png(&on, &dir.join("moonglow_on_wall.png"));
+        eprintln!(
+            "fitted to the wall: fov, focus, distance, pitch {:?}, error {:.2} (the reference \
+             camera's {before:.2})",
+            best.1, best.0
+        );
+        for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
+            let c = mean(&client, *r);
+            let (a, b) = (mean(&off, *r), mean(&on, *r));
+            eprintln!("{name} (wall's camera): client {c:.1?}, own {a:.1?}, game's {b:.1?}");
+        }
     }
 }
 

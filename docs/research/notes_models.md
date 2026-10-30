@@ -10,7 +10,7 @@ sources:
   - id: corpus
     resource: crates/mg-corpus-tests/tests/mdl_compile.rs
     title: every_binary_model_writes_back_the_same and decompiled_models_compile_back over the whole install (MOONGLOW_FULL_CORPUS=1, 89.8193.37), 2026-10-29
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:43:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T12:00:00Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -673,6 +673,7 @@ Probe emitters (an overridden `plc_a01` in a scratch user directory) in the sand
 - `twosidedtex` changes nothing visible: one-sided `Aligned_to_World_Z` particles show from below too.
 - `render Aligned_to_World_Z` particles stand upright (a Shaft of Light's beam) and `Billboard_to_World_Z` ones lie flat, facing up (the glow at its foot): a 1 m quad of each just above the floor, the first is cut in half by the floor and the second is whole (`particles_look`, `MG_PARTICLES=worldz`, 2026-10-08). Moonglow had them the other way round until 1.19.2.
 - Not measured: wind (`affectedByWind`, needs area wind), `splat`, `deadspace`.
+- Taken again on 2026-10-30 with the camera the test asks for (`SetCameraFacing(90, 9, 80)` given a second after entry; before, the client kept its own, the numbers read against the green dots of the throws' plane): mass 1 from 1.5 m lands 0.54 m out and mass 0.5 from 3 m 1.07 m (9.8 × mass and velocity 1: 0.55 and 1.11), `bounce_co` 1's hops 1.82, 1.14 and 0.74 m and 0.5's 0.22 m: as above.
 
 ### B.21 Reader recipe (Moonglow)
 

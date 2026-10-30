@@ -179,20 +179,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **The PC faction, what's left** (waits on the client): Moonglow keeps
-  objects out of faction 0 and says so where it is written (the faction
-  lists, the Store Wizard, `mg set`, the raw fields view, Verify's
-  `pc-faction`, an object with no faction too, which the server reads as
-  0: `engine_factions.rs`), as Aurora's faction lists do (a creature's
-  Faction offers Hostile, Commoner, Merchant and Defender, no PC:
-  captured 2026-10-30 in `captures/wave2/before.mod`; Aurora writes
-  faction 0 for a trigger whose blueprint has none, which is why
-  triggers are left out, the owner's decision). Not known: how an
-  object of faction 0 regards a player, or a player it (no player joins
-  a headless server); and what an encounter of faction 0, or of none,
-  gives the creatures it spawns (a player's entering spawns them). A
-  client run with a player entering an encounter settles it. (S)
-  (Jasperre's report, October 2026)
 - **The Visuals page's texture and animation pickers, what's left:**
   waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
@@ -527,23 +513,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A grass tuft's sway:** a tuft is one upright quad turned at random,
   a texture quarter, as tall as wide, as the client's are (seen with
   white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
-  client's sway in the wind, tops moving and feet still (`reading_grass_sway`:
-  6% of the field's pixels changed in a second and a half at `WindPower`
-  2); Moonglow's stand still with either shader: the game's `vsgrass`
-  reads no wind, so the engine moves the vertices itself, and the area
-  view would have to as well. How far and how fast isn't read: the
-  window's pictures come about 0.4 s apart and seconds late (30 taken
-  from the side, `MG_CAMERA=90,4,85 MG_SHOTS=30,0`, 2026-10-29: half of
-  them the same as the one before), too few and too loose to time a
-  sway by. The reading that would: one tuft, a patched `fsgrass`
-  painting its vertices' world place (top against foot, carried as a
-  varying) and `worldtimerTimeOfDay` into the picture, as
-  `light_uniforms_match_the_client` paints its uniforms, at `WindPower`
-  1 and 2; then the tops moved in both of Moonglow's paths (its own
-  grass shader, and the game's `vsgrass` fed moved vertices: a pass of
-  their own over the whole view's grass, as the engine moves them on
-  the CPU). (L: the reading, then the motion in both paths; waits on
-  the client)
+  client's tufts sway, tops moving and feet still, read on 2026-10-30
+  (`reading_grass_sway_by_clock` in `client_render.rs`'s `batch5.rs`:
+  `vsgrass` and `fsgrass` patched to paint each tuft's top and foot
+  places and the client's clock): all of them together, along the
+  area's north-south, at `WindPower` 2 between −0.055 and +0.098 m of
+  their feet (1.2 m tufts), about 4 s from one peak to the next; at 1
+  between −0.027 and +0.045 m, slower. Moonglow's stand still with
+  either shader: the game's `vsgrass` reads no wind, so the engine moves
+  the vertices itself, and the area view would have to as well, in both
+  of its paths (its own grass shader, and the game's `vsgrass` fed moved
+  vertices: a pass of their own over the whole view's grass, as the
+  engine moves them on the CPU). (M: the motion; the swing's shape
+  beyond its reach and period, and whether the area's wind direction
+  turns it, not read)
+
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
@@ -622,15 +606,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   copy the load order puts over them, with each shader's color: that
   line from the next release says which of the two it was. (S) (Heed's
   reports, October 2026)
-- **A custom shader's tangents, not every case read:** the client's
-  rule (tangents from the model or a render hint, else zeros) was read
-  with an ASCII model without tangents, with and without an MTR
-  `renderhint`; a model that names `texture1` itself without a hint,
-  and a compiled one, under a custom pair, weren't tried, nor the black
-  of a normal map without tangents on Windows and macOS (the stock
-  include normalizing a zero vector; that half waits on a Windows and a
-  Mac client, or the renderer's CI branch). (S) (Heed's report, October
-  2026)
+- **A custom shader's tangents, the black on Windows and macOS:** the
+  client's rule (tangents from the model or a render hint,
+  `NormalAndSpecMapped` or `NormalTangents`, the model's or its MTR's,
+  else zeros) is read for every case on Linux (`reading_tangents`,
+  2026-10-30: `texture1` named in the model alone gives none, nor a
+  model compiled by nwnmdlcomp with its hint, which it doesn't keep);
+  the black of a normal map without tangents (the stock include
+  normalizing a zero vector) was not seen on Windows or macOS (waits on
+  a Windows and a Mac client, or the renderer's CI branch). (S) (Heed's
+  report, October 2026)
 - **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
   way B is built behind its option (Custom Light…, `mg_module::lights`;
   the server reads the hak, finds the model in it and places the row:
@@ -645,9 +630,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   client plays a dynamic placeable's `default` (a light's color keyed
   red, blue, red over 2 s cycled, the floor with it) and not a static
   one's (it stayed red), so a flickering light is a dynamic placeable;
-  the area view holds a static placeable still since, but plays no light
-  node's keys, and Moonglow's lights don't take their animation at all
-  (`point_lights`): both are what building it takes. Rows and models no
+  the area view holds a static placeable still since, and plays a
+  dynamic one's light node keys and its meshes' self-illumination keys
+  since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
+  client batch). Left: the window's flicker itself (Custom Light…
+  writing the keyed `default` and a dynamic placeable). Rows and models no
   light uses any more stay in the hak, as a row's number is what placed
   lights know it by (settle?: proposed by the sprint on 2026-10-29, the
   owner's to say). (S) (from builders' reports after 1.16.2)
@@ -733,6 +720,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shader to returning). (S: a see-through mesh's solid part through
     the game's programs, as `a_see_through_edge_does_not_hide_the_ground_behind_it`
     draws Moonglow's, on the renderer's CI branch)
+  - The Domains of Dread's fountain is 10.6 of 255 from the client on
+    average with the Shaders switch on (the game's `fswater` with the
+    framebuffer's copies; 11.7 with Moonglow's own water). The rural
+    lake's 10.9 was Moonglow drawn without fog (the fifth client batch,
+    2026-10-30: with fog it matches within 0.6); the fountain's is not
+    explained by that: read beside the client with fog, as
+    `reading_far_water_by_part` reads the lake. (S, waits on a client
+    reading)
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
@@ -740,19 +735,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     framebuffer proposal](framebuffer-proposal.md)) are made after the
     solid meshes only. A material's `sample_framebuffer` (TDoD's two
     flow MTRs; their programs read no copy) is read and not drawn late,
-    after the shadows, as the engine draws it (S); whether the client
-    copies again after the water (a see-through mesh or a particle over
-    water sees the solid meshes only) wasn't read (S) (waits on a
-    client reading: a see-through mesh reading `texFBColor` over water,
-    whether the water shows in its copy).
+    after the shadows, as the engine draws it (S). Over water (read
+    2026-10-30, `reading_framebuffer_copy_over_water`: cards painting
+    the copy above them): a `sample_framebuffer` mesh's copy holds no
+    water in the client, as Moonglow's; a solid or `transparency 1`
+    mesh's holds the water in the client (likely the frame before's last
+    copy: the camera was still), where Moonglow gives it the solid
+    meshes' copy. Giving those the frame before's picture (the area
+    view keeps none; a picture drawn once has no frame before) (S–M).
   - The tangents the renderer makes (a mesh with a render hint and none
-    of its own) are summed per face (`made_tangents`), where the game's
-    compiler copies a vertex whose handedness flips (`engine_tangents`,
-    MDL-MESH-043): whether the client makes an ASCII model's so at load
-    is not known, and a seam may shade otherwise. (S) (waits on a
-    client reading: an ASCII mesh with a mirrored UV seam under a render
-    hint, its tangents written as colour through a patched include,
-    beside the same model compiled)
+    of its own) are summed per face (`made_tangents`): across a
+    mirrored UV seam they run smoothly where the client splits the seam
+    at load as the game's compiler does (a vertex whose handedness flips
+    copied, `engine_tangents`, MDL-MESH-043: read 2026-10-30,
+    `reading_tangents`, an ASCII card with a mirrored seam under a
+    custom pair painting its tangent and handedness, sharp in the
+    client). Copying the vertices in the renderer touches every reader
+    of a mesh's vertices by the model's numbering (skins, dangly meshes,
+    vertex animation). (S–M)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
     until they are asked for anew: `set_game_shaders` changes the
@@ -833,26 +833,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     alpha mean 1, no transparent texel, its levels whole) alone in the
     override drew the zombie a pale gray, see-through, where its TGA
     beside it (as the hak has both) draws it charred as Moonglow draws
-    the DDS: why not read (a stock BioWare DXT1 renamed, beside it, would
-    tell the file from the format). (S) (waits on a client reading: a
-    TDoD area with both, beside the client's picture)
-  - Against the client, the switch on is as close as off on the stock
-    scenes and closer on TDoD's room, but for its far floor (1.0 of 255
-    from the client on, 0.4 off), beside a dark wall where the fitted
-    camera is a fraction of a pixel off. (S) (waits on a client reading:
-    the room with the camera fitted to that wall)
+    the DDS. Not the file (2026-10-30, `MG_B4_ZOMBIE=stockdds`): the
+    game's own `tic01_floor01.dds` (a BioWare DXT1 alike, 512², alpha
+    mean 1) in its place draws the zombie pale white and opaque, not its
+    stones: the client shows neither DDS's picture (TDoD's pale and
+    see-through, the stock one pale and not), Moonglow both as decoded
+    (what the client makes of a BioWare DXT1 here, not read; TDoD's areas, which
+    the module on this machine doesn't hold (`tdod.mod`: three staging
+    areas), wait on their files). (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
   and drawn with the game's programs or kept Moonglow's. (from M5,
   2026-10-21)
-  - **Shiny water is the game's** (`vswater`/`fswater` with the
-    framebuffer's copies) with the Shaders switch on: a rural area's far
-    water 10.9 of 255 from the client against Moonglow's own 12.6,
-    TDoD's fountain 10.6 against 11.7, a standing card 14.6 against
-    57.1. Still 10.9 away: not looked into. (S) (waits on the client
-    batch: the far water's pixels against Moonglow's, by part: the
-    reflection, the refraction's copy, the fog)
   - **Soft particles** fade as the client's with the Shaders switch on
     (`particleSoftness` 10 over the emitter's larger size, a `Linked`
     emitter's and a lightning bolt's too: read on 2026-10-30,
@@ -860,10 +853,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     made soft); a Lighten particle's foot fades a little more than the
     client's (6.2 of 255 away over its last rows). Moonglow's own
     particle shader (the switch off) doesn't fade. (S)
-  - **The sky's fade** (the horizon's band in the fog's colour) stays
-    Moonglow's: what the engine draws it with and gives it
-    (`globalColor`, its blending) wasn't read; the skybox is the game's
-    `vsvt`/`fst`. (S) (waits on a client reading)
   - **Particles' size:** a still emitter's square particles are drawn
     upright, as in the client, 28 pixels a side against the client's 30
     in `surfaces_in_the_client` (the fitted camera's error, or the size:
@@ -918,39 +907,36 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and the fog shows as an even haze, as in the game. The picture's turn
   within a piece is Moonglow's (read on 2026-10-30,
   `reading_particle_turn_and_birth`: the newest piece shows the cell
-  turned half round in both, its pieces drawn newest last). Left: the
-  client's pieces each show the cell's top half for nearly all their
-  length, the next piece over the rest (a stretched, overlapping piece,
-  `reading_particle_spin_and_order`'s ribbon a metre a piece), where
-  Moonglow's show the whole cell from one particle to the next: the rule
-  not read further; how the client orders a ribbon among other
-  see-through things; and a model with no mesh to draw (this fog) has no
-  bounds of its own to frame a view by. (S) (from builders' reports
-  after 1.19.1)
-- **Client tests' scripted cameras:** the client takes a
-  `SetCameraFacing` only when it is set a second after the player
-  enters ([findings](findings.md), "An upright particle turns to the
-  eye"; the module's `Mod_Entry_Dir_X` and `_Y` turn it too, as the
-  program-choice tests do); `particles_look`'s closer camera,
-  `grass_and_sky_look`'s
-  `MG_CLOSE` and `grass_overrides_look`'s `MG_DISTANCE` and `MG_PITCH`
-  set it at once, so their pictures were likely taken from the client's
-  own camera. Not changed: the numbers measured from them (in
-  `docs/research/notes_models.md`) would be taken again with it, in a
-  session that runs the client (the sprint's fix waves of 2026-10-29
-  ran none, other sessions having the off-screen display). (S, waits on
-  a client session)
+  turned half round in both, its pieces drawn newest last). Read on
+  2026-10-30 (`reading_ribbon_pieces_and_order`, the fifth client batch,
+  a texture whose green is its v): a client piece starts its cell at its
+  older particle and stretches it past the next, which starts again:
+  the cell runs over the gap and about 0.1 m more at 30 cm particles,
+  0.25 at 60 cm (alike at 0.5 and 1 m gaps; the rule in the particles'
+  size not fitted from two sizes), where Moonglow's runs from one
+  particle to the next exactly (S). Among see-through meshes: a mesh of
+  `alpha 0.5` in front of a ribbon hides it entirely in the client (in
+  the ribbon's own model: it writes the depth the particles are drawn
+  against; across models not read), where Moonglow
+  draws the ribbon over it whole, its see-through part writing no
+  depth (`alpha 0.5` meshes writing depth is the see-through meshes
+  entry's question too: M). A model with no mesh to draw (this fog)
+  has no bounds of its own to frame a view by. (S) (from builders'
+  reports after 1.19.1)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
   in a body part or a held item": not where it is compiled, a plain
   mesh where it is text; a held item's never). Not done: a skin
   weighted to nodes of its own part, which the client draws out of
-  place, is not drawn; the compiled models tried were `mgv compile`'s,
-  not the game's own compiler's. Not reproduced: "unequipping an armor
-  sets all body parts to 0": nothing in the code writes a body part on
-  unequip, and the preview draws the creature's own parts then; the
-  creature it was seen on would tell. (S)
+  place, is not drawn (S). The compiled skins tried were `mgv
+  compile`'s: the game's own compiler (`nwmain compilemodel`) compiles
+  none (2026-10-30, `reading_game_compiler_skins` in the fifth client
+  batch: a part as a plain mesh written, 1,400 bytes, the same as a skin
+  nothing), so a compiled skin is always another compiler's. Not
+  reproduced: "unequipping an armor sets all body parts to 0": nothing
+  in the code writes a body part on unequip, and the preview draws the
+  creature's own parts then (waits on the creature it was seen on).
   (from builders' reports and the owner's notes after 1.21.0)
 - **See-through meshes** are drawn in two parts: what is nearly opaque
   of them (alpha from 0.95) with the depth written, then the rest over
@@ -962,7 +948,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   here; compared with the client on a rural shore, ttr01's tile 7 and
   its water (`reading_shore`, 2026-10-29): no patches in either, the
   water as the client's with the Shaders switch on.) Two see-through surfaces crossing each other still
-  sort by their middles. Each see-through mesh costs two draws. On
+  sort by their middles, where the client draws a model's meshes of
+  mesh `alpha` under 1 in the model's order, each writing its depth: a
+  card listed after another and behind it is hidden where they overlap,
+  and a ribbon behind one is hidden too (read on 2026-10-30,
+  `reading_see_through_crossing` and `reading_ribbon_pieces_and_order`
+  in the fifth client batch; across models not read). Drawing them so
+  (by model order, with depth, and the soft edges of a texture's alpha
+  kept as they are) (M). Each see-through mesh costs two draws. On
   macOS the solid part's discarded fragments wrote their depth (the
   plant's edge hid the ground again) until the shader stopped at each
   discard: seen and mended on the CI's Mac, a virtual one; no real Mac
@@ -996,22 +989,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2026-10-28). Left:
   - the lights' shadows fall off with the lamp's distance, where
     Moonglow's darkness is the opacity times the plane's fade alone: an
-    ogre's shadow from a lamp post (row 73) 1.5, 3 and 5 m north of it
-    darkens the floor just south of its feet (the same place on the
-    screen) by 0.50, 0.53 and 0.38 (medians; `reading_light_shadows` in
-    `client_render.rs`'s `batch3.rs`, 2026-10-29), and grows longer as
-    the lamp goes further (the rule, `shadowradius` or the light's reach,
-    not fitted: S);
-  - which light of two equally near the client takes isn't the first of
-    the area's (Moonglow's): with two lamp posts 2.5 m west and east of
-    the ogre, in either order in the area's file, it cast from the west
-    one, and of two north and south, from the south one (the ogre facing
-    south; the server places all three where they were put, so it likely
-    measures from the creature's model, not its feet: not read further);
-    how many creatures cast the lights' shadows at once
-    (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
-    PC's own light at night (Moonglow places no PC) (S) (waits on a
-    client reading);
+    ogre's shadow from a lamp post (row 73, radius 10) 1.5, 3, 5, 7, 9
+    and 12 m north of it darkens the floor just south of its feet by
+    0.50, 0.53, 0.38, 0.21, 0.11 and nothing (medians;
+    `reading_light_shadows` in `client_render.rs`'s `batch3.rs`,
+    2026-10-29 and 2026-10-30), Moonglow's by 0.53 to 0.60 at every
+    distance (`moonglow_light_shadows`, `batch5.rs`), the shadows' lengths
+    alike; flat to about 3 m, then nearly straight down to none by about
+    11 m, not the light's own attenuation (the rule not fitted: S); how
+    many creatures cast the lights' shadows at once (`max-casting-lights`
+    changed nothing with one; Moonglow: 16), and a PC's own light at
+    night (Moonglow places no PC) (S) (waits on a client reading);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -1025,25 +1013,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - a sun low in the west (a GIT's direction,
     `reading_git_sun_direction`): the client leaves a city street lit
     but for thin spikes, where Moonglow lays the buildings' long shadows
-    over all of it, light showing through in thin lines. Read further
-    (2026-10-29, `reading_low_sun_shadow_length`, a sun from the west 14,
-    27 and 45 degrees up): a white pillar's shadow, static or not, 4 m
-    high or 8, is as long in the client as in Moonglow at every height
-    (33 m for the 8 m pillar under the lowest), and so is a rural tile's
-    hill's (ttr01); but tcn01's buildings, whose shadows cover half the
-    street at 45 and 27 degrees in both, cast none on it at 14 in the
-    client, only the posts' and trees' spikes. So a tile's shadows go as
-    the sun sinks, which Moonglow's map (its bias tried at 0.5 m: no
-    change) has no reason to do; the client's rule isn't read: its
-    stencil volumes of these tiles' meshes (open ones, the wiki's
-    "shadow tearing"), or a reach of its tiles' precomputed projections
-    (`ComputeStaticProjections`). (M: the reading, a tcn01 building tile
-    alone on a flat area at a few heights of the sun, its `shadow`
-    meshes looked at, then the rule; waits on the client) (The fade with
-    the height between plane and caster that 8193.31 names is not seen:
-    armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
-    and casters above the camera still cast, as in Moonglow:
-    `reading_shadows_of_doors_items_and_heights`, 2026-10-29);
+    over all of it, light showing through in thin lines
+    (`reading_low_sun_shadow_length` with `MG_TILESET=tcn01`, a sun from
+    the west 14 degrees up; again on 2026-10-30). Not the building
+    tiles themselves: a tcn01 house (tile 54) alone on plain cobbles casts
+    the same long shadow in the client as in Moonglow at 14, 19, 27, 37
+    and 45 degrees, turned any of the four ways, at the view's edge, out
+    to the area's end (`reading_low_sun_building`, 2026-10-30). So what
+    the client leaves out in the city comes from that area's other tiles
+    (their heights, which tiles receive, or casters two tiles off), not
+    read (M: the city area's tiles taken one by one, then the rule;
+    waits on the client) (The fade with the height between plane and
+    caster that 8193.31 names is not seen: armoires raised 0, 1.5 and 3
+    m darken the ground alike, 0.44 to 0.49, and casters above the camera
+    still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
+    2026-10-29);
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
@@ -1561,10 +1545,12 @@ contribution itself states as not done or not checked.
   by NWSync is the same isn't read: the download is (2026-10-29,
   `joined_nwsync_download`), but the client then ends itself ("We
   disconnected you from the server while NWSync is running", exit 0,
-  its own restart not seen in the sandbox), and started again it finds
-  the server, shows the character list and ends again; a player in
-  the game after a download waits on that restart in
-  `tools/nwclient/run-server-and-client.sh`. (S)
+  its own restart not seen in the sandbox), and started again it joins
+  and leaves the server within the second (2026-10-30: `Joined as Player
+  1`, `Left as a Player` in the server's log, the client's logs saying
+  nothing of why); a player in the game after a download waits on that
+  restart in `tools/nwclient/run-server-and-client.sh` (what arguments
+  the client restarts itself with, not read). (S)
 
 ## Tileset authoring
 

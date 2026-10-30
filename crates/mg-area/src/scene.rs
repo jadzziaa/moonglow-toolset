@@ -1041,7 +1041,8 @@ impl AreaScene {
             }
             let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
             let posed = mg_render::guard::guarded(name, || {
-                (c.instances(c.idle.as_deref(), time, transform), c.point_lights(transform))
+                let idle = c.idle.as_deref();
+                (c.instances(idle, time, transform), c.point_lights_at(idle, time, transform))
             });
             let Some((drawn, lit)) = posed else {
                 self.failed.borrow_mut().insert(key);

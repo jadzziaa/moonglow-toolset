@@ -323,16 +323,28 @@ pub(crate) struct LightPlan<'a> {
 }
 
 /// The light a creature at `at` (its box's middle), `radius` round,
-/// casts its shadow from: the nearest of `lights` that casts shadows,
-/// reaches it and is outside it (a torch it holds casts none), as the
-/// client picks (`shadows_look`: of two lamps, the nearer).
-pub(crate) fn casting_light(lights: &[PointLight], at: Vec3, radius: f32) -> Option<usize> {
+/// standing at `feet` (its place), casts its shadow from: of `lights` that
+/// cast shadows, reach it and are outside it (a torch it holds casts
+/// none), the nearest to its place, as the client picks (`shadows_look`:
+/// of two lamps, the nearer; `reading_light_shadows`: of two lamp posts
+/// 2.5 m either side, the one whose light, set off 1 cm by its row's
+/// `LightOffsetX` and `Y`, is nearer the ogre's feet, whichever way it
+/// faces, where its box's middle turns with it).
+pub(crate) fn casting_light(
+    lights: &[PointLight],
+    at: Vec3,
+    radius: f32,
+    feet: Vec3,
+) -> Option<usize> {
     lights
         .iter()
         .enumerate()
         .filter(|(_, l)| l.casts_shadows && !l.ambient_only)
-        .map(|(i, l)| (i, l.position.distance(at)))
-        .filter(|&(i, d)| d > radius && d <= lights[i].cutoff)
+        .filter(|(_, l)| {
+            let d = l.position.distance(at);
+            d > radius && d <= l.cutoff
+        })
+        .map(|(i, l)| (i, l.position.distance(feet)))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(i, _)| i)
 }
@@ -394,7 +406,8 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
             continue;
         }
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
-        let Some(light) = casting_light(&scene.lights, at, radius) else {
+        let feet = inst.transform.w_axis.truncate();
+        let Some(light) = casting_light(&scene.lights, at, radius, feet) else {
             plan.casters.truncate(first);
             continue;
         };
@@ -1226,9 +1239,10 @@ mod tests {
         assert_eq!(seen(&away, 1.5, area), None);
     }
 
-    /// A creature casts its lights' shadow from the nearest light that
-    /// casts shadows, reaches it and stands outside it, as the client
-    /// (of two lamps, the nearer); a tile's flame (radius 7) casts none.
+    /// A creature casts its lights' shadow from the light nearest its
+    /// place that casts shadows, reaches it and stands outside it, as the
+    /// client (of two lamps, the nearer); a tile's flame (radius 7) casts
+    /// none.
     #[test]
     fn a_creature_casts_from_the_nearest_light_that_casts() {
         let lamp = |x: f32, radius: f32| {
@@ -1236,15 +1250,22 @@ mod tests {
                 .casting(true, radius, 3.0)
         };
         let at = Vec3::new(0.0, 0.0, 1.0);
+        let feet = Vec3::ZERO;
         let lights = [lamp(-2.6, 10.0), lamp(3.0, 10.0), lamp(1.0, 7.0)];
         assert!(!lights[2].casts_shadows);
-        assert_eq!(casting_light(&lights, at, 1.0), Some(0));
+        assert_eq!(casting_light(&lights, at, 1.0, feet), Some(0));
         // (Too far for its light, or inside the creature: none.)
-        assert_eq!(casting_light(&lights[1..2], Vec3::new(40.0, 0.0, 0.0), 1.0), None);
-        assert_eq!(casting_light(&lights[1..2], lights[1].position, 1.0), None);
+        let far = Vec3::new(40.0, 0.0, 0.0);
+        assert_eq!(casting_light(&lights[1..2], far, 1.0, far), None);
+        assert_eq!(casting_light(&lights[1..2], lights[1].position, 1.0, feet), None);
         // An ambient light casts none.
         let ambient = PointLight { ambient_only: true, ..lights[0] };
-        assert_eq!(casting_light(&[ambient], at, 1.0), None);
+        assert_eq!(casting_light(&[ambient], at, 1.0, feet), None);
+        // Nearly as near: the nearer to its place, not to its box's
+        // middle (which a creature facing aside carries off its feet).
+        let pair = [lamp(-2.504, 10.0), lamp(2.496, 10.0)];
+        let aside = Vec3::new(-0.2, 0.0, 1.0);
+        assert_eq!(casting_light(&pair, aside, 1.0, feet), Some(1));
     }
 
     /// A light's view holds the creature and what lies behind it: the
