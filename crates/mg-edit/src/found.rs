@@ -57,21 +57,6 @@ pub struct Outcome {
     pub skipped: Vec<String>,
 }
 
-/// A path as a hit or an object writes it (`/Creature List[3]/Tag`).
-fn path_of(text: &str) -> GffPath {
-    let steps = text.trim_start_matches('/').split('/').filter(|s| !s.is_empty());
-    GffPath(
-        steps
-            .map(|s| match s.strip_suffix(']').and_then(|p| p.rsplit_once('[')) {
-                Some((label, i)) if i.parse::<usize>().is_ok() => {
-                    Step::Item(label.to_string(), i.parse().expect("checked"))
-                }
-                _ => Step::Field(s.to_string()),
-            })
-            .collect(),
-    )
-}
-
 /// Resources read once.
 struct Reader<'a> {
     module: &'a Module,
@@ -93,7 +78,7 @@ fn variables_of(o: &Object) -> (ResKey, GffPath) {
         ResType::ARE if o.key.restype == ResType::ARE => {
             (ResKey::new(o.key.resref, ResType::GIT), GffPath::root())
         }
-        _ => (o.key, path_of(&o.path)),
+        _ => (o.key, o.path.clone()),
     }
 }
 
@@ -120,7 +105,7 @@ fn objects(hits: &[&Hit]) -> Vec<(Object, String)> {
 /// The field a hit was found at, if it was a field (its struct's path and
 /// its label).
 fn field_found(h: &Hit) -> Option<(GffPath, String)> {
-    let mut path = path_of(&h.path);
+    let mut path = h.path.clone();
     match path.0.pop()? {
         Step::Field(label) if h.carried.is_none() && h.spawned.is_none() => Some((path, label)),
         _ => None,
@@ -249,7 +234,7 @@ fn set_fields(
                 if !objects_done.insert(o.clone()) {
                     continue;
                 }
-                (o.key, path_of(&o.path))
+                (o.key, o.path.clone())
             }
         };
         if !done.insert((key, path.clone())) {
@@ -288,7 +273,7 @@ pub fn events(module: &Module, hits: &[&Hit]) -> Vec<String> {
         }
     }
     for (o, _) in objects(hits) {
-        let Some(s) = r.get(o.key, &path_of(&o.path)) else { continue };
+        let Some(s) = r.get(o.key, &o.path) else { continue };
         for f in &s.fields {
             let l = f.label.to_string_lossy();
             if matches!(f.value, Value::ResRef(_)) && mg_module::refs::is_script_field(&l) {

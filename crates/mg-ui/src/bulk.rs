@@ -301,15 +301,7 @@ impl Moonglow {
         let mut total = 0;
         let mut errors = Vec::new();
         for (hit, _) in draft.hits.iter().filter(|(_, on)| *on) {
-            let path = GffPath(
-                hit.path
-                    .iter()
-                    .map(|s| match s {
-                        mg_module::text::Step::Field(l) => mg_edit::Step::Field(l.clone()),
-                        mg_module::text::Step::Item(l, i) => mg_edit::Step::Item(l.clone(), *i),
-                    })
-                    .collect(),
-            );
+            let path = hit.path.clone();
             let Ok(doc) = ws.doc(&hit.key) else { continue };
             let Some(v) = path.get(&doc.root).and_then(|s| s.get(&hit.label)).cloned() else {
                 continue;
@@ -463,7 +455,7 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
         let hit = &draft.hits[i].0;
         let usage = mg_module::rename::Usage {
             from: hit.key,
-            path: hit.path_text(),
+            path: mg_module::refs::Location::Gff(hit.field()),
             place: hit.place.clone(),
         };
         app.go_to_usage(&usage);

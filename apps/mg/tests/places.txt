@@ -1,0 +1,1345 @@
+$ mg refs MODULE hello.nss
+caller.nss › line 1	caller.nss line 1
+enc.ute › OnEntered	enc.ute /OnEntered
+guard.utc › OnSpawn	guard.utc /ScriptSpawn
+keep (area) › OnEnter	keep.are /OnEnter
+keep › creature GUARD › OnSpawn	keep.git /Creature List[0]/ScriptSpawn
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[1]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[2]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[3]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[4]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[5]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[6]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[7]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[8]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[9]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[10]/ScriptHeartbeat
+keep › creature GUARD › OnHeartbeat	keep.git /Creature List[11]/ScriptHeartbeat
+keep › door DOOR1 › OnOpen	keep.git /Door List[0]/OnOpen
+Module › OnModLoad	module.ifo /Mod_OnModLoad
+talk › EndConversation	talk.dlg /EndConversation
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › action	talk.dlg /EntryList[0]/Script
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › condition	talk.dlg /EntryList[0]/RepliesList[0]/Active
+talk › PC line 1 “A friend.” › action	talk.dlg /ReplyList[0]/Script
+talk › start 1 › condition	talk.dlg /StartingList[0]/Active
+caller.nss line 1: #include "hello"
+caller.nss line 4: ExecuteScript("hello", OBJECT_SELF);
+warning: the game's tables not read: NOWHERE is not a game install (no data/nwn_base.key)
+23 uses, 0 by the game's tables, 2 script strings
+$ mg --json refs MODULE hello.nss
+{
+  "uses": [
+    {
+      "place": "caller.nss › line 1",
+      "from": "caller.nss",
+      "path": "line 1"
+    },
+    {
+      "place": "enc.ute › OnEntered",
+      "from": "enc.ute",
+      "path": "/OnEntered"
+    },
+    {
+      "place": "guard.utc › OnSpawn",
+      "from": "guard.utc",
+      "path": "/ScriptSpawn"
+    },
+    {
+      "place": "keep (area) › OnEnter",
+      "from": "keep.are",
+      "path": "/OnEnter"
+    },
+    {
+      "place": "keep › creature GUARD › OnSpawn",
+      "from": "keep.git",
+      "path": "/Creature List[0]/ScriptSpawn"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[1]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[2]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[3]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[4]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[5]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[6]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[7]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[8]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[9]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[10]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › creature GUARD › OnHeartbeat",
+      "from": "keep.git",
+      "path": "/Creature List[11]/ScriptHeartbeat"
+    },
+    {
+      "place": "keep › door DOOR1 › OnOpen",
+      "from": "keep.git",
+      "path": "/Door List[0]/OnOpen"
+    },
+    {
+      "place": "Module › OnModLoad",
+      "from": "module.ifo",
+      "path": "/Mod_OnModLoad"
+    },
+    {
+      "place": "talk › EndConversation",
+      "from": "talk.dlg",
+      "path": "/EndConversation"
+    },
+    {
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › action",
+      "from": "talk.dlg",
+      "path": "/EntryList[0]/Script"
+    },
+    {
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › condition",
+      "from": "talk.dlg",
+      "path": "/EntryList[0]/RepliesList[0]/Active"
+    },
+    {
+      "place": "talk › PC line 1 “A friend.” › action",
+      "from": "talk.dlg",
+      "path": "/ReplyList[0]/Script"
+    },
+    {
+      "place": "talk › start 1 › condition",
+      "from": "talk.dlg",
+      "path": "/StartingList[0]/Active"
+    }
+  ],
+  "script_strings": [
+    {
+      "script": "caller.nss",
+      "line": 1,
+      "text": "#include \"hello\""
+    },
+    {
+      "script": "caller.nss",
+      "line": 4,
+      "text": "ExecuteScript(\"hello\", OBJECT_SELF);"
+    }
+  ],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "warning: the game's tables not read: NOWHERE is not a game install (no data/nwn_base.key)",
+    "23 uses, 0 by the game's tables, 2 script strings"
+  ]
+}
+$ mg refs MODULE guard.utc
+enc.ute › ResRef	enc.ute /CreatureList[0]/ResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[0]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[1]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[2]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[3]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[4]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[5]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[6]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[7]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[8]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[9]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[10]/TemplateResRef
+keep › creature GUARD › TemplateResRef	keep.git /Creature List[11]/TemplateResRef
+keep › encounter ENC › creatures ResRef	keep.git /Encounter List[0]/CreatureList[0]/ResRef
+14 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE guard.utc
+{
+  "uses": [
+    {
+      "place": "enc.ute › ResRef",
+      "from": "enc.ute",
+      "path": "/CreatureList[0]/ResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[0]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[1]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[2]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[3]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[4]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[5]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[6]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[7]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[8]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[9]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[10]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[11]/TemplateResRef"
+    },
+    {
+      "place": "keep › encounter ENC › creatures ResRef",
+      "from": "keep.git",
+      "path": "/Encounter List[0]/CreatureList[0]/ResRef"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "14 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE sword.uti
+guard.utc › InventoryRes	guard.utc /ItemList[0]/InventoryRes
+guard.utc › EquippedRes	guard.utc /Equip_ItemList[0]/EquippedRes
+keep › creature GUARD › inventory InventoryRes	keep.git /Creature List[0]/ItemList[0]/InventoryRes
+keep › item SWORD › TemplateResRef	keep.git /List[0]/TemplateResRef
+4 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE sword.uti
+{
+  "uses": [
+    {
+      "place": "guard.utc › InventoryRes",
+      "from": "guard.utc",
+      "path": "/ItemList[0]/InventoryRes"
+    },
+    {
+      "place": "guard.utc › EquippedRes",
+      "from": "guard.utc",
+      "path": "/Equip_ItemList[0]/EquippedRes"
+    },
+    {
+      "place": "keep › creature GUARD › inventory InventoryRes",
+      "from": "keep.git",
+      "path": "/Creature List[0]/ItemList[0]/InventoryRes"
+    },
+    {
+      "place": "keep › item SWORD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/List[0]/TemplateResRef"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "4 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE talk.dlg
+guard.utc › Conversation	guard.utc /Conversation
+keep › creature GUARD › Conversation	keep.git /Creature List[0]/Conversation
+2 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE talk.dlg
+{
+  "uses": [
+    {
+      "place": "guard.utc › Conversation",
+      "from": "guard.utc",
+      "path": "/Conversation"
+    },
+    {
+      "place": "keep › creature GUARD › Conversation",
+      "from": "keep.git",
+      "path": "/Creature List[0]/Conversation"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "2 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE keep.are
+Module › start area	module.ifo /Mod_Entry_Area
+Module › area list	module.ifo /Mod_Area_list[0]/Area_Name
+2 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE keep.are
+{
+  "uses": [
+    {
+      "place": "Module › start area",
+      "from": "module.ifo",
+      "path": "/Mod_Entry_Area"
+    },
+    {
+      "place": "Module › area list",
+      "from": "module.ifo",
+      "path": "/Mod_Area_list[0]/Area_Name"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "2 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE --tag GUARD
+guard.utc › Tag	guard.utc /Tag
+keep › creature GUARD › Tag	keep.git /Creature List[0]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[1]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[2]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[3]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[4]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[5]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[6]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[7]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[8]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[9]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[10]/Tag
+keep › creature GUARD › Tag	keep.git /Creature List[11]/Tag
+13 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE --tag GUARD
+{
+  "uses": [
+    {
+      "place": "guard.utc › Tag",
+      "from": "guard.utc",
+      "path": "/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[0]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[1]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[2]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[3]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[4]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[5]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[6]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[7]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[8]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[9]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[10]/Tag"
+    },
+    {
+      "place": "keep › creature GUARD › Tag",
+      "from": "keep.git",
+      "path": "/Creature List[11]/Tag"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "13 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE --tag WP_IN
+keep › door DOOR1 › LinkedTo	keep.git /Door List[0]/LinkedTo
+keep › waypoint WP_IN › Tag	keep.git /WaypointList[0]/Tag
+2 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE --tag WP_IN
+{
+  "uses": [
+    {
+      "place": "keep › door DOOR1 › LinkedTo",
+      "from": "keep.git",
+      "path": "/Door List[0]/LinkedTo"
+    },
+    {
+      "place": "keep › waypoint WP_IN › Tag",
+      "from": "keep.git",
+      "path": "/WaypointList[0]/Tag"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "2 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg refs MODULE --tag SWORD
+keep › creature GUARD › inventory Tag	keep.git /Creature List[0]/ItemList[0]/Tag
+keep › item SWORD › Tag	keep.git /List[0]/Tag
+sword.uti › Tag	sword.uti /Tag
+3 uses, 0 by the game's tables, 0 script strings
+$ mg --json refs MODULE --tag SWORD
+{
+  "uses": [
+    {
+      "place": "keep › creature GUARD › inventory Tag",
+      "from": "keep.git",
+      "path": "/Creature List[0]/ItemList[0]/Tag"
+    },
+    {
+      "place": "keep › item SWORD › Tag",
+      "from": "keep.git",
+      "path": "/List[0]/Tag"
+    },
+    {
+      "place": "sword.uti › Tag",
+      "from": "sword.uti",
+      "path": "/Tag"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "3 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg search MODULE --script hello
+enc.ute	OnEntered: hello	enc.ute /OnEntered
+enc.ute › spawns guard.utc	OnSpawn: hello	enc.ute /CreatureList[0]/ResRef
+guard.utc	OnSpawn: hello	guard.utc /ScriptSpawn
+keep (area)	OnEnter: hello	keep.are /OnEnter
+keep › creature GUARD	OnSpawn: hello	keep.git /Creature List[0]/ScriptSpawn
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[1]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[2]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[3]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[4]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[5]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[6]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[7]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[8]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[9]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[10]/ScriptHeartbeat
+keep › creature GUARD	OnHeartbeat: hello	keep.git /Creature List[11]/ScriptHeartbeat
+keep › door DOOR1	OnOpen: hello	keep.git /Door List[0]/OnOpen
+keep › encounter ENC › spawns guard.utc	OnSpawn: hello	keep.git /Encounter List[0]/CreatureList[0]/ResRef
+Module	Mod_OnModLoad: hello	module.ifo /Mod_OnModLoad
+talk › EndConversation	EndConversation: hello	talk.dlg /EndConversation
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › action	Action: hello	talk.dlg /EntryList[0]/Script
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › condition	Condition: hello	talk.dlg /EntryList[0]/RepliesList[0]/Active
+talk › PC line 1 “A friend.” › action	Action: hello	talk.dlg /ReplyList[0]/Script
+talk › start 1 › condition	Condition: hello	talk.dlg /StartingList[0]/Active
+warning: no game install found: what is found is named by numbers
+24 found
+$ mg --json search MODULE --script hello
+{
+  "found": [
+    {
+      "resource": "enc.ute",
+      "path": "/OnEntered",
+      "place": "enc.ute",
+      "match": "OnEntered: hello",
+      "type": "ute",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "enc.ute",
+      "path": "/CreatureList[0]/ResRef",
+      "place": "enc.ute › spawns guard.utc",
+      "match": "OnSpawn: hello",
+      "type": "utc",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": "guard.utc"
+    },
+    {
+      "resource": "guard.utc",
+      "path": "/ScriptSpawn",
+      "place": "guard.utc",
+      "match": "OnSpawn: hello",
+      "type": "utc",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.are",
+      "path": "/OnEnter",
+      "place": "keep (area)",
+      "match": "OnEnter: hello",
+      "type": "are",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[0]/ScriptSpawn",
+      "place": "keep › creature GUARD",
+      "match": "OnSpawn: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 0,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[1]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 1,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[2]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 2,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[3]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 3,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[4]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 4,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[5]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 5,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[6]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 6,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[7]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 7,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[8]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 8,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[9]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 9,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[10]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 10,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[11]/ScriptHeartbeat",
+      "place": "keep › creature GUARD",
+      "match": "OnHeartbeat: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 11,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Door List[0]/OnOpen",
+      "place": "keep › door DOOR1",
+      "match": "OnOpen: hello",
+      "type": "utd",
+      "placed": true,
+      "area": "keep",
+      "index": 0,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Encounter List[0]/CreatureList[0]/ResRef",
+      "place": "keep › encounter ENC › spawns guard.utc",
+      "match": "OnSpawn: hello",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 0,
+      "carried": null,
+      "spawned": "guard.utc"
+    },
+    {
+      "resource": "module.ifo",
+      "path": "/Mod_OnModLoad",
+      "place": "Module",
+      "match": "Mod_OnModLoad: hello",
+      "type": "ifo",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/EndConversation",
+      "place": "talk › EndConversation",
+      "match": "EndConversation: hello",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/EntryList[0]/Script",
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › action",
+      "match": "Action: hello",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/EntryList[0]/RepliesList[0]/Active",
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › condition",
+      "match": "Condition: hello",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/ReplyList[0]/Script",
+      "place": "talk › PC line 1 “A friend.” › action",
+      "match": "Action: hello",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/StartingList[0]/Active",
+      "place": "talk › start 1 › condition",
+      "match": "Condition: hello",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    }
+  ],
+  "notes": [
+    "warning: no game install found: what is found is named by numbers",
+    "24 found"
+  ]
+}
+$ mg search MODULE --var sDeidad
+guard.utc › carries sword.uti	sDeidad (string) = "Ezra"	guard.utc /ItemList[0]/InventoryRes
+guard.utc › carries sword.uti	sDeidad (string) = "Ezra"	guard.utc /Equip_ItemList[0]/EquippedRes
+keep › creature GUARD	sDeidad (string) = "Ezra"	keep.git /Creature List[0]/VarTable[0]
+sword.uti	sDeidad (string) = "Ezra"	sword.uti /VarTable[0]
+warning: no game install found: what is found is named by numbers
+4 found
+$ mg --json search MODULE --var sDeidad
+{
+  "found": [
+    {
+      "resource": "guard.utc",
+      "path": "/ItemList[0]/InventoryRes",
+      "place": "guard.utc › carries sword.uti",
+      "match": "sDeidad (string) = \"Ezra\"",
+      "type": "uti",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": "sword.uti",
+      "spawned": null
+    },
+    {
+      "resource": "guard.utc",
+      "path": "/Equip_ItemList[0]/EquippedRes",
+      "place": "guard.utc › carries sword.uti",
+      "match": "sDeidad (string) = \"Ezra\"",
+      "type": "uti",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": "sword.uti",
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[0]/VarTable[0]",
+      "place": "keep › creature GUARD",
+      "match": "sDeidad (string) = \"Ezra\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 0,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "sword.uti",
+      "path": "/VarTable[0]",
+      "place": "sword.uti",
+      "match": "sDeidad (string) = \"Ezra\"",
+      "type": "uti",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    }
+  ],
+  "notes": [
+    "warning: no game install found: what is found is named by numbers",
+    "4 found"
+  ]
+}
+$ mg search MODULE --field Tag --text GUARD
+guard.utc	Tag = "GUARD"	guard.utc /Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[0]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[1]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[2]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[3]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[4]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[5]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[6]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[7]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[8]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[9]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[10]/Tag
+keep › creature GUARD	Tag = "GUARD"	keep.git /Creature List[11]/Tag
+warning: no game install found: what is found is named by numbers
+13 found
+$ mg --json search MODULE --field Tag --text GUARD
+{
+  "found": [
+    {
+      "resource": "guard.utc",
+      "path": "/Tag",
+      "place": "guard.utc",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[0]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 0,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[1]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 1,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[2]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 2,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[3]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 3,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[4]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 4,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[5]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 5,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[6]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 6,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[7]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 7,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[8]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 8,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[9]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 9,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[10]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 10,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "keep.git",
+      "path": "/Creature List[11]/Tag",
+      "place": "keep › creature GUARD",
+      "match": "Tag = \"GUARD\"",
+      "type": "utc",
+      "placed": true,
+      "area": "keep",
+      "index": 11,
+      "carried": null,
+      "spawned": null
+    }
+  ],
+  "notes": [
+    "warning: no game install found: what is found is named by numbers",
+    "13 found"
+  ]
+}
+$ mg search MODULE --int 0
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › Index	Index = 0	talk.dlg /EntryList[0]/RepliesList[0]/Index
+talk › start 1 › Index	Index = 0	talk.dlg /StartingList[0]/Index
+warning: no game install found: what is found is named by numbers
+2 found
+$ mg --json search MODULE --int 0
+{
+  "found": [
+    {
+      "resource": "talk.dlg",
+      "path": "/EntryList[0]/RepliesList[0]/Index",
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” (link) › Index",
+      "match": "Index = 0",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    },
+    {
+      "resource": "talk.dlg",
+      "path": "/StartingList[0]/Index",
+      "place": "talk › start 1 › Index",
+      "match": "Index = 0",
+      "type": "dlg",
+      "placed": false,
+      "area": null,
+      "index": null,
+      "carried": null,
+      "spawned": null
+    }
+  ],
+  "notes": [
+    "warning: no game install found: what is found is named by numbers",
+    "2 found"
+  ]
+}
+$ mg replace MODULE Ezra Zed --only all --dry-run
+keep (area) › Name	The Keep of Ezra
+keep › creature GUARD › FirstName	Ezra's guard
+keep › creature GUARD › VarTable Value	Ezra
+sword.uti › DescIdentified	Blessed by Ezra.
+sword.uti › Value	Ezra
+talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › Text	Halt! Who goes there, in Ezra's name?
+6 strings, 6 times
+$ mg --json replace MODULE Ezra Zed --only all --dry-run
+{
+  "strings": [
+    {
+      "place": "keep (area) › Name",
+      "resource": "keep.are",
+      "kind": "Names",
+      "text": "The Keep of Ezra",
+      "times": 1
+    },
+    {
+      "place": "keep › creature GUARD › FirstName",
+      "resource": "keep.git",
+      "kind": "Names",
+      "text": "Ezra's guard",
+      "times": 1
+    },
+    {
+      "place": "keep › creature GUARD › VarTable Value",
+      "resource": "keep.git",
+      "kind": "Variables",
+      "text": "Ezra",
+      "times": 1
+    },
+    {
+      "place": "sword.uti › DescIdentified",
+      "resource": "sword.uti",
+      "kind": "Descriptions",
+      "text": "Blessed by Ezra.",
+      "times": 1
+    },
+    {
+      "place": "sword.uti › Value",
+      "resource": "sword.uti",
+      "kind": "Variables",
+      "text": "Ezra",
+      "times": 1
+    },
+    {
+      "place": "talk › NPC line 1 “Halt! Who goes there, in Ezra's name?” › Text",
+      "resource": "talk.dlg",
+      "kind": "Conversations",
+      "text": "Halt! Who goes there, in Ezra's name?",
+      "times": 1
+    }
+  ],
+  "times": 6,
+  "replaced": 0,
+  "dry_run": true,
+  "notes": [
+    "6 strings, 6 times"
+  ]
+}
+$ mg rename COPY guard.utc sentry
+renamed guard.utc to sentry: 14 references, 0 in scripts, 0 scripts compiled again
+$ mg --json refs COPY sentry.utc
+{
+  "uses": [
+    {
+      "place": "enc.ute › ResRef",
+      "from": "enc.ute",
+      "path": "/CreatureList[0]/ResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[0]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[1]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[2]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[3]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[4]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[5]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[6]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[7]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[8]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[9]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[10]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[11]/TemplateResRef"
+    },
+    {
+      "place": "keep › encounter ENC › creatures ResRef",
+      "from": "keep.git",
+      "path": "/Encounter List[0]/CreatureList[0]/ResRef"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "14 uses, 0 by the game's tables, 0 script strings"
+  ]
+}
+$ mg --json rename COPY guard.utc sentry
+{
+  "from": "guard.utc",
+  "to": "sentry",
+  "references": 14,
+  "in_scripts": 0,
+  "changed": [
+    "sentry.utc",
+    "keep.git",
+    "enc.ute"
+  ],
+  "compiled": null,
+  "notes": [
+    "renamed guard.utc to sentry: 14 references, 0 in scripts, 0 scripts compiled again"
+  ]
+}
+$ mg --json refs COPY sentry.utc
+{
+  "uses": [
+    {
+      "place": "enc.ute › ResRef",
+      "from": "enc.ute",
+      "path": "/CreatureList[0]/ResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[0]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[1]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[2]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[3]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[4]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[5]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[6]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[7]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[8]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[9]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[10]/TemplateResRef"
+    },
+    {
+      "place": "keep › creature GUARD › TemplateResRef",
+      "from": "keep.git",
+      "path": "/Creature List[11]/TemplateResRef"
+    },
+    {
+      "place": "keep › encounter ENC › creatures ResRef",
+      "from": "keep.git",
+      "path": "/Encounter List[0]/CreatureList[0]/ResRef"
+    }
+  ],
+  "script_strings": [],
+  "tables": [],
+  "marked": null,
+  "notes": [
+    "14 uses, 0 by the game's tables, 0 script strings"
+  ]
+}

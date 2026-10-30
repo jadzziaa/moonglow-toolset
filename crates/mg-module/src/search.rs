@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mg_core::{Codepage, ResRef, ResType};
-use mg_gff::{FieldAt, Gff, Struct, Value};
+use mg_gff::{FieldAt, Gff, GffPath, Step, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::rows::{RowTable, list_table, row_table};
 use mg_rules::{Choice, ChoiceColumns, GameData, ItemProperty, ObjectKind};
@@ -25,7 +25,7 @@ use rayon::prelude::*;
 
 use crate::Module;
 use crate::query::like;
-use crate::refs::{RefKind, Reference, gff_references};
+use crate::refs::{Location, RefKind, Reference, gff_references};
 pub use crate::vars::VarType;
 
 /// What an appearance is of: the field and table it is a row of.
@@ -281,7 +281,7 @@ pub struct Hit {
     pub key: ResKey,
     /// Where in it (`/Creature List[3]/VarTable[0]`); a GFF path as
     /// [`rename::Usage`](crate::rename::Usage) has.
-    pub path: String,
+    pub path: GffPath,
     /// The object, for people: `keep › creature GUARD › item SWORD`,
     /// `sword.uti`, `keep (area)`.
     pub place: String,
@@ -311,13 +311,14 @@ impl Hit {
         if self.key.restype != ResType::GIT {
             return None;
         }
-        let (list, index) = item(self.path.strip_prefix('/')?.split('/').next()?)?;
+        let (list, index) = self.path.first()?.item()?;
         ObjectKind::from_list(list).map(|_| (list, index))
     }
 
     /// The place, as Find References names one (to go there).
     pub fn usage(&self) -> crate::rename::Usage {
-        crate::rename::Usage { from: self.key, path: self.path.clone(), place: self.place.clone() }
+        let path = Location::Gff(self.path.clone());
+        crate::rename::Usage { from: self.key, path, place: self.place.clone() }
     }
 
     /// The object it is on: a blueprint (an item blueprint found through
@@ -333,7 +334,7 @@ impl Hit {
     /// blueprint found in a container blueprint's inventory, the
     /// container.
     pub fn objects(&self) -> Vec<Object> {
-        let root = |key: ResKey| Object { key, path: "/".into(), kind: key.restype };
+        let root = |key: ResKey| Object { key, path: GffPath::root(), kind: key.restype };
         if let Some(item) = self.carried {
             return vec![root(ResKey::new(item, ResType::UTI)), root(self.key)];
         }
@@ -343,11 +344,10 @@ impl Hit {
             let mut out = vec![root(ResKey::new(creature, ResType::UTC))];
             match self.key.restype {
                 ResType::GIT => {
-                    let first = self.path.trim_start_matches('/').split('/').next();
-                    let path = format!("/{}", first.unwrap_or_default());
+                    let path = GffPath(self.path.first().cloned().into_iter().collect());
                     out.push(Object { key: self.key, path, kind: ResType::UTE });
                     let are = ResKey::new(self.key.resref, ResType::ARE);
-                    out.push(Object { key: are, path: "/".into(), kind: ResType::ARE });
+                    out.push(Object { key: are, path: GffPath::root(), kind: ResType::ARE });
                 }
                 _ => out.push(root(self.key)),
             }
@@ -355,21 +355,16 @@ impl Hit {
         }
         let area = || {
             let key = ResKey::new(self.key.resref, ResType::ARE);
-            Object { key, path: "/".into(), kind: ResType::ARE }
+            Object { key, path: GffPath::root(), kind: ResType::ARE }
         };
         match self.key.restype {
             ResType::ARE => vec![area()],
             ResType::IFO => vec![root(self.key)],
             ResType::GIT => {
-                let steps: Vec<&str> = self
-                    .path
-                    .trim_start_matches('/')
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let steps = &self.path.0;
                 let mut out = vec![area()];
                 for (i, step) in steps.iter().enumerate() {
-                    let Some((list, _)) = item(step) else { continue };
+                    let Some((list, _)) = step.item() else { continue };
                     let kind = if i == 0 {
                         ObjectKind::from_list(list).map(ObjectKind::restype)
                     } else {
@@ -377,7 +372,7 @@ impl Hit {
                     };
                     match kind {
                         Some(kind) => {
-                            let path = format!("/{}", steps[..=i].join("/"));
+                            let path = GffPath(steps[..=i].to_vec());
                             out.push(Object { key: self.key, path, kind });
                         }
                         // (The GIT's own lists of other things.)
@@ -397,11 +392,11 @@ impl Hit {
 /// An object something was found on: the resource, and the path of the
 /// object's struct in it (`/` for the resource's own, `/Creature List[3]`
 /// for a placed creature, `/Creature List[3]/ItemList[0]` for an item it
-/// holds), as [`Hit::path`] writes paths.
+/// holds).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Object {
     pub key: ResKey,
-    pub path: String,
+    pub path: GffPath,
     /// The kind of object (`utc`, `uti`...; `are` for an area, `ifo` for
     /// the module).
     pub kind: ResType,
@@ -414,33 +409,17 @@ impl Object {
     }
 }
 
-/// `List[3]`: the list's label and the index.
-fn item(step: &str) -> Option<(&str, usize)> {
-    let (l, rest) = step.split_once('[')?;
-    Some((l, rest.strip_suffix(']')?.parse().ok()?))
-}
-
-/// The structs a path steps through: the root's, then the list items
-/// (labels and indices) and structs it names, with each step's label.
-fn path_labels(path: &str) -> Vec<&str> {
-    path.trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split('[').next().unwrap_or(s))
-        .collect()
-}
-
 /// Lists whose items are items (in inventories and equipment, and items
 /// lying in an area).
 const ITEM_LISTS: [&str; 2] = ["ItemList", "Equip_ItemList"];
 
 /// The kind of object the struct at the end of `steps` is (the steps
 /// through list items, as a path has them).
-fn object_type(key: ResKey, steps: &[&str]) -> ResType {
+fn object_type(key: ResKey, steps: &[Step]) -> ResType {
     // (A GIT's own fields, its `AreaProperties`, are the area's.)
     let mut t = if key.restype == ResType::GIT { ResType::ARE } else { key.restype };
     for (i, step) in steps.iter().enumerate() {
-        let Some((list, _)) = item(step) else { continue };
+        let Some((list, _)) = step.item() else { continue };
         if key.restype == ResType::GIT && i == 0 {
             if let Some(k) = ObjectKind::from_list(list) {
                 t = k.restype();
@@ -476,9 +455,9 @@ fn git_kind(list: &str) -> &'static str {
 /// The object a path is in, for people: `keep › creature GUARD › item
 /// SWORD` (a placed object and the items it holds), `sword.uti`, `keep
 /// (area)`, `Module`; a conversation's line as Find References names it.
-fn place(key: ResKey, gff: &Gff, path: &str, cp: Codepage) -> String {
+fn place(key: ResKey, gff: &Gff, path: &GffPath, cp: Codepage) -> String {
     let name = key.resref.to_lowercase().to_string();
-    let first = path.trim_start_matches('/').split('/').next().and_then(item);
+    let first = path.first().and_then(Step::item);
     let mut out = match key.restype {
         ResType::GIT if first.is_some_and(|(l, _)| ObjectKind::from_list(l).is_some()) => name,
         ResType::GIT => return format!("{name} (area)"),
@@ -488,9 +467,9 @@ fn place(key: ResKey, gff: &Gff, path: &str, cp: Codepage) -> String {
         _ => return crate::rename::describe(key, Some(gff), path),
     };
     let mut s = &gff.root;
-    for (i, step) in path.trim_start_matches('/').split('/').enumerate() {
-        let Some((list, index)) = item(step) else {
-            match s.get(step) {
+    for (i, step) in path.0.iter().enumerate() {
+        let Some((list, index)) = step.item() else {
+            match s.get(step.label()) {
                 Some(Value::Struct(c)) => s = c,
                 _ => break,
             }
@@ -610,10 +589,12 @@ fn field_hit(
     game: Option<&GameData>,
     cp: Codepage,
     regex: bool,
-) -> Option<(String, String)> {
+) -> Option<(GffPath, String)> {
     let glob = |p: &str, t: &str| like(p, t, regex);
     // The path of the struct the field is in.
-    let owner = || f.path.rsplit_once('/').map_or("", |(p, _)| p).to_string();
+    let owner = || f.path.parent();
+    // The labels of the steps to it, the field's own last.
+    let labels = || f.path.0.iter().map(Step::label).collect::<Vec<&str>>();
     match search {
         Search::Variable { name, kind, value } => {
             if f.list != Some("VarTable") || f.label != "Name" {
@@ -657,7 +638,7 @@ fn field_hit(
             if Some(n) != search.row() {
                 return None;
             }
-            let labels = path_labels(f.path);
+            let labels = labels();
             let table = row_table(file_type, &labels[..labels.len().saturating_sub(1)], f.label)?;
             if table.table != want.table {
                 return None;
@@ -678,7 +659,7 @@ fn field_hit(
                 }
                 _ => "Appearance",
             };
-            Some((f.path.to_string(), format!("{what}: {name}")))
+            Some((f.path.clone(), format!("{what}: {name}")))
         }
         Search::ClassLevel { class, min, max } => {
             if f.list != Some("ClassList")
@@ -698,10 +679,10 @@ fn field_hit(
             if f.list != Some("SkillList") || f.label != "Rank" {
                 return None;
             }
-            let labels = path_labels(f.path);
+            let labels = labels();
             let at = labels.len().saturating_sub(2);
             let table = list_table(file_type, &labels[..at], "SkillList")?;
-            let (_, index) = item(f.path.rsplit('/').nth(1)?)?;
+            let (_, index) = f.path.0.iter().rev().nth(1)?.item()?;
             let rank = f.value.as_integer()?;
             let hit = index == *skill && rank >= i64::from((*min_rank).max(1));
             let name = row_name(game, &table, index as i64);
@@ -723,7 +704,7 @@ fn field_hit(
             if !hit || (label.is_none() && value.is_none()) {
                 return None;
             }
-            Some((f.path.to_string(), format!("{} = {}", f.label, shown(f.value, cp))))
+            Some((f.path.clone(), format!("{} = {}", f.label, shown(f.value, cp))))
         }
     }
 }
@@ -740,14 +721,14 @@ fn resource_hits(
 ) -> Vec<Vec<Hit>> {
     let Read { key, gff, refs } = *read;
     let file_type = gff.file_type_str();
-    let mut found: Vec<Vec<(String, String)>> = vec![Vec::new(); searches.len()];
+    let mut found: Vec<Vec<(GffPath, String)>> = vec![Vec::new(); searches.len()];
     for (s, found) in searches.iter().zip(&mut found) {
         let Search::Script(pattern) = s else { continue };
         for r in refs {
+            let Some(path) = r.path.gff() else { continue };
             if r.kind == RefKind::Script && like(pattern, &r.target.to_string(), regex) {
-                let label = r.path.rsplit('/').next().unwrap_or_default();
                 let script = r.target.to_lowercase();
-                found.push((r.path.clone(), format!("{}: {script}", event(label))));
+                found.push((path.clone(), format!("{}: {script}", event(path.label()))));
             }
         }
     }
@@ -760,11 +741,10 @@ fn resource_hits(
             }
         });
     }
-    let hits = |found: Vec<(String, String)>| {
+    let hits = |found: Vec<(GffPath, String)>| {
         let mut out: Vec<Hit> = Vec::new();
         for (path, matched) in found {
-            let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-            let object = object_type(key, &steps);
+            let object = object_type(key, &path.0);
             // (A struct matched by more than one of its fields once.)
             if out.last().is_some_and(|h| h.path == path) {
                 continue;
@@ -949,7 +929,7 @@ fn joined(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
 /// Fighter, level 5`).
 fn any_of(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
     let mut hits: Vec<Hit> = Vec::new();
-    let mut at: HashMap<(ResKey, String, Option<ResRef>, Option<ResRef>), usize> = HashMap::new();
+    let mut at: HashMap<(ResKey, GffPath, Option<ResRef>, Option<ResRef>), usize> = HashMap::new();
     for (c, s) in std::iter::once(&q.search).chain(&q.and).enumerate() {
         for h in condition_hits(found, c, s) {
             let place = (h.key, h.path.clone(), h.carried, h.spawned);
@@ -1018,9 +998,9 @@ impl Query {
 struct Found {
     hits: Vec<Vec<Hit>>,
     /// (path, item blueprint, place).
-    carries: Vec<(String, ResRef, String)>,
+    carries: Vec<(GffPath, ResRef, String)>,
     /// (path, creature blueprint, place).
-    spawns: Vec<(String, ResRef, String)>,
+    spawns: Vec<(GffPath, ResRef, String)>,
 }
 
 impl Found {
@@ -1038,16 +1018,17 @@ impl Found {
             let blueprint = ObjectKind::from_restype(key.restype).is_some();
             let encounters = matches!(key.restype, ResType::UTE | ResType::GIT);
             for r in read.refs {
+                let Some(path) = r.path.gff() else { continue };
                 let target = r.target.to_lowercase();
                 if blueprint && r.kind == RefKind::Blueprint(ResType::UTI) {
                     let place = format!("{key} › carries {target}.uti");
-                    carries.push((r.path.clone(), r.target, place));
+                    carries.push((path.clone(), r.target, place));
                 } else if encounters
                     && r.kind == RefKind::Blueprint(ResType::UTC)
-                    && spawned_at(key.restype, &r.path)
+                    && spawned_at(key.restype, path)
                 {
-                    let at = place(key, read.gff, &r.path, cp);
-                    spawns.push((r.path.clone(), r.target, format!("{at} › spawns {target}.utc")));
+                    let at = place(key, read.gff, path, cp);
+                    spawns.push((path.clone(), r.target, format!("{at} › spawns {target}.utc")));
                 }
             }
         }
@@ -1071,7 +1052,7 @@ fn condition_hits(found: &[(ResKey, &Found)], c: usize, s: &Search) -> Vec<Hit> 
             .collect();
         // What each item blueprint carries (a bag's), to follow a found
         // one down through bags in bags.
-        let bags: HashMap<ResRef, &[(String, ResRef, String)]> = (found.iter())
+        let bags: HashMap<ResRef, &[(GffPath, ResRef, String)]> = (found.iter())
             .filter(|(k, f)| k.restype == ResType::UTI && !f.carries.is_empty())
             .map(|(k, f)| (k.resref, f.carries.as_slice()))
             .collect();
@@ -1126,13 +1107,12 @@ fn condition_hits(found: &[(ResKey, &Found)], c: usize, s: &Search) -> Vec<Hit> 
 /// `restype` is one an encounter spawns: in an encounter blueprint's
 /// `CreatureList`, or a placed encounter's (not a placed creature's
 /// `TemplateResRef`).
-fn spawned_at(restype: ResType, path: &str) -> bool {
-    let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    let listed = |s: &str| item(s).is_some_and(|(l, _)| l == "CreatureList");
-    match (restype, steps.as_slice()) {
-        (ResType::UTE, [list, ..]) => listed(list),
-        (ResType::GIT, [placed, list, ..]) => {
-            item(placed).is_some_and(|(l, _)| l == "Encounter List") && listed(list)
+fn spawned_at(restype: ResType, path: &GffPath) -> bool {
+    let in_list = |s: &Step, list: &str| s.item().is_some_and(|(l, _)| l == list);
+    match (restype, &path.0[..]) {
+        (ResType::UTE, [listed, ..]) => in_list(listed, "CreatureList"),
+        (ResType::GIT, [placed, listed, ..]) => {
+            in_list(placed, "Encounter List") && in_list(listed, "CreatureList")
         }
         _ => false,
     }
@@ -1150,7 +1130,7 @@ fn carried_found(
     target: ResRef,
     own: Option<ResRef>,
     items: &HashMap<ResRef, Vec<String>>,
-    bags: &HashMap<ResRef, &[(String, ResRef, String)]>,
+    bags: &HashMap<ResRef, &[(GffPath, ResRef, String)]>,
 ) -> Vec<(ResRef, String)> {
     let mut out = Vec::new();
     let mut seen: std::collections::HashSet<ResRef> = own.into_iter().collect();
@@ -1390,7 +1370,7 @@ mod tests {
                 ("sword.uti", "sDeidad (string) = \"Ezra\""),
             ]
         );
-        assert_eq!(hits[1].path, "/Creature List[0]/VarTable[0]");
+        assert_eq!(hits[1].path.to_string(), "/Creature List[0]/VarTable[0]");
         assert_eq!(hits[1].instance(), Some(("Creature List", 0)));
         assert_eq!(hits[0].carried, Some(rr("sword")));
         // Every variable with Deidad in its name, of the module's areas and
@@ -1465,7 +1445,7 @@ mod tests {
                 "sword.uti"
             ]
         );
-        assert_eq!(hits[1].path, "/Creature List[0]/ItemList[0]/PropertiesList[0]");
+        assert_eq!(hits[1].path.to_string(), "/Creature List[0]/ItemList[0]/PropertiesList[0]");
         assert_eq!(hits[2].matched, "Property 52 (subtype 3, value 5)");
         assert_eq!(find(&m, p(Some(3), Some(5))).len(), 2);
         assert!(find(&m, p(Some(4), None)).is_empty());
@@ -1484,7 +1464,7 @@ mod tests {
                 ("keep › creature GUARD_01", "Class: row 4, level 5")
             ]
         );
-        assert_eq!(hits[0].path, "/ClassList[0]");
+        assert_eq!(hits[0].path.to_string(), "/ClassList[0]");
         assert!(find(&m, Search::Class(5)).is_empty());
         assert_eq!(find(&m, Search::Feat(0)).len(), 2);
         // A known spell and a special ability.
@@ -1520,7 +1500,7 @@ mod tests {
                 ("keep › creature GUARD_01", "OnSpawn: x2_def_spawn")
             ]
         );
-        assert_eq!(scripts[1].path, "/Creature List[0]/ScriptSpawn");
+        assert_eq!(scripts[1].path.to_string(), "/Creature List[0]/ScriptSpawn");
         // Every field holding 103: the chest's appearance, a variable, the
         // area's music (its GIT's, no placed object's); not a known spell
         // (107 is not 103).
@@ -1534,7 +1514,7 @@ mod tests {
                 ("keep (area)", "MusicDay = 103")
             ]
         );
-        assert_eq!(hits[1].path, "/Creature List[0]/VarTable[0]/Value");
+        assert_eq!(hits[1].path.to_string(), "/Creature List[0]/VarTable[0]/Value");
         assert!(hits[1].placed() && !hits[2].placed());
         assert_eq!((hits[2].object, hits[2].instance()), (ResType::ARE, None));
         // Text, and labels with or without a value.
@@ -1750,7 +1730,11 @@ mod tests {
         // What is found is the sword, held by the crate.
         let crate_hit = &hits[2];
         assert_eq!(crate_hit.carried, Some(rr("sword")));
-        assert_eq!(crate_hit.path, "/ItemList[0]/InventoryRes", "where the crate names the pouch");
+        assert_eq!(
+            crate_hit.path.to_string(),
+            "/ItemList[0]/InventoryRes",
+            "where the crate names the pouch"
+        );
         let objects: Vec<String> = crate_hit.objects().iter().map(|o| o.key.to_string()).collect();
         assert_eq!(objects, ["sword.uti", "crate.utp"]);
     }

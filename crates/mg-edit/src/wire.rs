@@ -14,14 +14,13 @@
 //!   { "op": "remove_resource", "resource": "old.utc" } ] }
 //! ```
 //!
-//! Values and structs are nwn-lib JSON (`mg_gff::json`). A path is the
+//! Values and structs are nwn-lib JSON (`mg_gff::json`). A path is a
+//! [`GffPath`] as it writes itself: the
 //! labels from a resource's root, each after a `/`, a list's item as
 //! `Label[index]`; in a label, `~0`, `~1`, `~2` and `~3` stand for `~`, `/`,
 //! `[` and `]`, and `~e` alone for a label that is empty. What is read is
 //! taken as untrusted: every fault is an error that says where, never a
 //! panic.
-
-use std::str::FromStr;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -47,82 +46,6 @@ pub struct WireError {
 
 fn fault<T>(at: &str, message: impl Into<String>) -> Result<T, WireError> {
     Err(WireError { at: at.to_string(), message: message.into() })
-}
-
-/// A label as a path writes it.
-pub(crate) fn escape(label: &str) -> String {
-    if label.is_empty() {
-        return "~e".into();
-    }
-    let mut out = String::with_capacity(label.len());
-    for c in label.chars() {
-        match c {
-            '~' => out.push_str("~0"),
-            '/' => out.push_str("~1"),
-            '[' => out.push_str("~2"),
-            ']' => out.push_str("~3"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-fn unescape(text: &str) -> Result<String, String> {
-    if text == "~e" {
-        return Ok(String::new());
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '~' => out.push(match chars.next() {
-                Some('0') => '~',
-                Some('1') => '/',
-                Some('2') => '[',
-                Some('3') => ']',
-                other => {
-                    let shown = other.map(String::from).unwrap_or_default();
-                    return Err(format!("~{shown} is no escape (~0 ~1 ~2 ~3, or ~e alone)"));
-                }
-            }),
-            '[' | ']' => return Err(format!("a stray {c} in {text:?} (write ~2 for [, ~3 for ])")),
-            c => out.push(c),
-        }
-    }
-    if out.is_empty() {
-        return Err("an empty label is written ~e".into());
-    }
-    Ok(out)
-}
-
-impl FromStr for GffPath {
-    type Err = String;
-
-    /// Reads what `Display` writes: `/` for the root, else `/Label` and
-    /// `/Label[index]` steps.
-    fn from_str(text: &str) -> Result<GffPath, String> {
-        let Some(rest) = text.strip_prefix('/') else {
-            return Err(format!("a path starts with /: {text:?}"));
-        };
-        if rest.is_empty() {
-            return Ok(GffPath::root());
-        }
-        let mut steps = Vec::new();
-        for part in rest.split('/') {
-            // An item: the label, then [index] at the very end.
-            let step = match part.strip_suffix(']').and_then(|p| p.rsplit_once('[')) {
-                Some((label, index)) => {
-                    let index = index
-                        .parse()
-                        .map_err(|_| format!("{index:?} in {part:?} is not an item's number"))?;
-                    Step::Item(unescape(label)?, index)
-                }
-                None => Step::Field(unescape(part)?),
-            };
-            steps.push(step);
-        }
-        Ok(GffPath(steps))
-    }
 }
 
 /// A field's address as one path, `/List[2]/Label`: the path to its struct,

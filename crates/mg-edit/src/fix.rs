@@ -141,8 +141,8 @@ pub const TAKE_TRANSFORM_OFF: &str = "Take the transform off";
 fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
     let gff = module.gff(&f.resource)?.ok()?;
     let found = mg_module::var_desc::variables_of(f.resource, &gff).into_iter().filter(|v| {
-        let place =
-            mg_module::rename::describe(f.resource, Some(&gff), &format!("{}/VarTable", v.path));
+        let table = mg_module::var_desc::table_path(&v.path);
+        let place = mg_module::rename::describe(f.resource, Some(&gff), &table);
         format!("{place} › {}", v.name) == f.at
     });
     let v = found.into_iter().nth(nth)?;
@@ -163,7 +163,7 @@ fn untransform_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
     let list = gff.root.list("Placeable List")?;
     let at = (0..list.len())
         .filter(|i| {
-            let path = format!("/Placeable List[{i}]/Static");
+            let path = GffPath::root().item("Placeable List", *i).field("Static");
             mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
         })
         .nth(nth)?;

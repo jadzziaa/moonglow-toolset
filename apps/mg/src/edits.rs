@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow, bail};
 use mg_core::Codepage;
 use mg_edit::wire::{command_from_json, command_to_json, field_from_str};
-use mg_edit::{Command, Edit, Workspace};
+use mg_edit::{Command, Edit, GffPath, Workspace};
 use mg_gff::{FieldType, Value};
 use mg_module::Module;
 use mg_resman::ResKey;
@@ -222,8 +222,8 @@ fn made_twice(
 /// `areas`' own tag (a builder's), weighed as [`made_twice`] weighs a
 /// command's, in the module as it is after.
 pub(crate) fn areas_made_twice(m: &Module, areas: &[mg_core::ResRef]) -> Vec<String> {
-    let areas: Vec<(ResKey, Vec<mg_module::text::Step>)> =
-        areas.iter().map(|&a| (ResKey::new(a, mg_core::ResType::ARE), Vec::new())).collect();
+    let areas: Vec<(ResKey, GffPath)> =
+        areas.iter().map(|&a| (ResKey::new(a, mg_core::ResType::ARE), GffPath::root())).collect();
     objects_made_twice(m, &areas)
 }
 
@@ -231,11 +231,7 @@ pub(crate) fn areas_made_twice(m: &Module, areas: &[mg_core::ResRef]) -> Vec<Str
 /// an area's ARE and its root, or its GIT and the path of an object
 /// placed in it), each a builder's, weighed as [`made_twice`] weighs a
 /// command's, in the module as it is after (`mg areas`, `mg replace`).
-pub(crate) fn objects_made_twice(
-    m: &Module,
-    objects: &[(ResKey, Vec<mg_module::text::Step>)],
-) -> Vec<String> {
-    use mg_module::text::Step;
+pub(crate) fn objects_made_twice(m: &Module, objects: &[(ResKey, GffPath)]) -> Vec<String> {
     let rules = &m.project_file.tags;
     let warning = rules.paste_warning_or(true);
     if objects.is_empty() || warning == mg_module::project_file::PasteWarning::Off {
@@ -244,9 +240,10 @@ pub(crate) fn objects_made_twice(
     let tags: Vec<(mg_core::ResRef, Vec<u8>, bool)> = objects
         .iter()
         .filter_map(|(key, path)| {
-            let mut g = m.gff(key)?.ok()?;
-            let s = mg_module::text::struct_at(&mut g.root, path)?;
-            let placeable = matches!(path.as_slice(), [Step::Item(l, _)] if l == "Placeable List");
+            let g = m.gff(key)?.ok()?;
+            let s = path.get(&g.root)?;
+            let placeable =
+                matches!(&path.0[..], [mg_edit::Step::Item(l, _)] if l == "Placeable List");
             let is_static = placeable && s.integer("Static").unwrap_or(0) != 0;
             Some((key.resref, s.string("Tag")?.to_vec(), is_static))
         })

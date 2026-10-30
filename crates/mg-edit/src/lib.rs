@@ -5,7 +5,6 @@
 //! modules through the same path.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 
 use mg_gff::{Gff, Label, Struct, Value};
 use mg_module::{Module, ModuleError};
@@ -34,74 +33,9 @@ pub enum EditError {
     Module(#[from] ModuleError),
 }
 
-/// One step into a GFF tree: a struct field, or an item of a list field.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Step {
-    Field(String),
-    Item(String, usize),
-}
-
-/// A path from a GFF's root to a struct inside it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct GffPath(pub Vec<Step>);
-
-impl GffPath {
-    pub fn root() -> GffPath {
-        GffPath(Vec::new())
-    }
-
-    /// This path extended into item `index` of list `label`.
-    pub fn item(&self, label: &str, index: usize) -> GffPath {
-        let mut p = self.clone();
-        p.0.push(Step::Item(label.to_string(), index));
-        p
-    }
-
-    /// This path extended into struct field `label`.
-    pub fn field(&self, label: &str) -> GffPath {
-        let mut p = self.clone();
-        p.0.push(Step::Field(label.to_string()));
-        p
-    }
-
-    /// The struct this path leads to from `s`.
-    pub fn get<'a>(&self, mut s: &'a Struct) -> Option<&'a Struct> {
-        for step in &self.0 {
-            s = match step {
-                Step::Field(l) => s.child(l)?,
-                Step::Item(l, i) => s.list(l)?.get(*i)?,
-            };
-        }
-        Some(s)
-    }
-
-    /// The struct this path leads to from `s`, to change.
-    pub fn get_mut<'a>(&self, mut s: &'a mut Struct) -> Option<&'a mut Struct> {
-        for step in &self.0 {
-            s = match step {
-                Step::Field(l) => s.child_mut(l)?,
-                Step::Item(l, i) => s.list_mut(l)?.get_mut(*i)?,
-            };
-        }
-        Some(s)
-    }
-}
-
-impl fmt::Display for GffPath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0.is_empty() {
-            return f.write_str("/");
-        }
-        for step in &self.0 {
-            // (Written so that it reads back: `wire`'s `FromStr`.)
-            match step {
-                Step::Field(l) => write!(f, "/{}", wire::escape(l))?,
-                Step::Item(l, i) => write!(f, "/{}[{i}]", wire::escape(l))?,
-            }
-        }
-        Ok(())
-    }
-}
+/// Where an edit is: a path from a GFF's root to a struct (mg-gff's, which
+/// every crate above it shares).
+pub use mg_gff::{GffPath, Step};
 
 /// A primitive change. Each has an exact inverse.
 #[derive(Debug, Clone, PartialEq)]

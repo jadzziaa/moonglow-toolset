@@ -1303,6 +1303,19 @@ pub struct Found {
     pub value: String,
 }
 
+/// The path of the `VarTable` of the object at `path` (a [`Found`]'s:
+/// empty for the resource's root). Its labels are those of the lists
+/// objects are in (`Placeable List`, `ItemList`), which have none of the
+/// characters a path escapes, so it reads as a path; text that doesn't
+/// (none [`variables_of`] writes) is the root's.
+pub fn table_path(path: &str) -> mg_gff::GffPath {
+    let object = match path {
+        "" => mg_gff::GffPath::root(),
+        p => p.parse().unwrap_or_default(),
+    };
+    object.field("VarTable")
+}
+
 /// Every local variable of the module: the module's, the areas' (in
 /// their GITs), placed objects', blueprints' and the items they hold,
 /// stores' pages too.

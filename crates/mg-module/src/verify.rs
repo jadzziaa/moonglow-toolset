@@ -9,7 +9,7 @@ use mg_resman::{ResKey, ResMan, priority};
 use mg_rules::ObjectKind;
 
 use crate::Module;
-use crate::refs::{RefKind, Reference, references};
+use crate::refs::{Location, RefKind, Reference, references};
 
 /// Which object type a finding belongs to, following Aurora's verify
 /// filters (Creatures, Doors, Placeables, Items, ...).
@@ -62,8 +62,7 @@ impl Category {
     /// The category of a reference, from its source and path (area
     /// instances belong to their object type).
     pub fn of(r: &Reference) -> Category {
-        let list = r.path.split('/').nth(1).unwrap_or_default();
-        let list = list.split('[').next().unwrap_or_default();
+        let list = r.path.gff().and_then(mg_gff::GffPath::first).map_or("", mg_gff::Step::label);
         match r.from.restype {
             ResType::GIT => ObjectKind::from_list(list).map_or(Category::Areas, Category::from),
             t => Category::of_type(t),
@@ -186,7 +185,7 @@ impl Missing {
     pub fn placed_from_gone_blueprint(&self) -> bool {
         let r = &self.reference;
         r.from.restype == ResType::GIT
-            && r.path.ends_with("/TemplateResRef")
+            && r.path.field() == Some("TemplateResRef")
             && matches!(r.kind, RefKind::Blueprint(_))
     }
 
@@ -219,7 +218,7 @@ impl Missing {
             return false;
         }
         match r.from.restype {
-            ResType::GIT => !r.path.ends_with("/TemplateResRef"),
+            ResType::GIT => r.path.field() != Some("TemplateResRef"),
             ResType::ARE | ResType::IFO | ResType::DLG | ResType::NSS => true,
             _ => false,
         }
@@ -376,7 +375,7 @@ pub fn table_scripts(table: &crate::doctor::TableOf) -> Vec<Reference> {
                 if target.is_empty() {
                     continue;
                 }
-                let path = format!("row {row}, {column}");
+                let path = Location::Cell { row, column: column.to_string() };
                 out.push(Reference { from, path, kind: RefKind::Script, target });
             }
         }
@@ -428,7 +427,7 @@ pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference>
                 let Some(cell) = t.get(row, column) else { continue };
                 let Ok(target) = mg_core::ResRef::from_str(cell.trim()) else { continue };
                 if !target.is_empty() {
-                    let path = format!("row {row}, {column}");
+                    let path = Location::Cell { row, column: column.to_string() };
                     out.push(Reference { from: key, path, kind: RefKind::Script, target });
                 }
             }
@@ -450,7 +449,7 @@ fn string_references(from: ResKey, source: &[u8]) -> Vec<Reference> {
             continue;
         }
         for kind in &kinds {
-            out.push(Reference { from, path: "string".into(), kind: *kind, target });
+            out.push(Reference { from, path: Location::String, kind: *kind, target });
         }
     }
     out
@@ -610,7 +609,7 @@ mod tests {
         for k in ObjectKind::ALL {
             let r = Reference {
                 from: ResKey::parse("area1", ResType::GIT).unwrap(),
-                path: format!("/{}[2]/OnClick", k.list()),
+                path: Location::Gff(mg_gff::GffPath::root().item(k.list(), 2).field("OnClick")),
                 kind: RefKind::Script,
                 target: rr("x"),
             };
@@ -619,7 +618,7 @@ mod tests {
         }
         let area = Reference {
             from: ResKey::parse("area1", ResType::GIT).unwrap(),
-            path: "/AreaProperties/MusicDay".into(),
+            path: Location::Gff(mg_gff::GffPath::root().field("AreaProperties").field("MusicDay")),
             kind: RefKind::Script,
             target: rr("x"),
         };
@@ -764,7 +763,7 @@ mod tests {
         // Where: the table and its cell.
         let fear = table_scripts_in(&rm).into_iter().find(|r| r.target == rr("st_fear")).unwrap();
         assert_eq!(
-            (fear.from, fear.path.as_str()),
+            (fear.from, fear.path.to_string().as_str()),
             (key("statescripts", ResType::TWODA), "row 1, SCRIPTNAME")
         );
         // Without the tables, they are unused.
@@ -881,7 +880,10 @@ mod tests {
         assert_eq!(names(&m), ["j_not"]);
         let r = &described_scripts(&m, Some(&rm))[0];
         assert!(described_scripts(&m, None).is_empty(), "the game's list not found");
-        assert_eq!((r.from, r.path.as_str()), (key("j_modes", ResType::TWODA), "row 0, Script"));
+        assert_eq!(
+            (r.from, r.path.to_string().as_str()),
+            (key("j_modes", ResType::TWODA), "row 0, Script")
+        );
     }
 
     /// The project file's `[used]` counts what it names as used.

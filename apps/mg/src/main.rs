@@ -1487,7 +1487,7 @@ fn undescribed_vars(
                 let place = mg_module::rename::describe(
                     f.key,
                     gff.as_ref(),
-                    &format!("{}/VarTable", f.path),
+                    &mg_module::var_desc::table_path(&f.path),
                 );
                 // (A blueprint's place begins with its name.)
                 match place.starts_with(&f.key.to_string()) {
@@ -3013,9 +3013,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 )
             };
             out.json = json!({
-                "uses": usages.iter().map(|u| json!({ "place": u.place, "from": u.from.to_string(), "path": u.path })).collect::<Vec<_>>(),
+                "uses": usages.iter().map(|u| json!({ "place": u.place, "from": u.from.to_string(), "path": u.path.to_string() })).collect::<Vec<_>>(),
                 "script_strings": mentions.iter().map(|x| json!({ "script": x.script.to_string(), "line": x.line, "text": x.text })).collect::<Vec<_>>(),
-                "tables": run.iter().map(|r| json!({ "table": r.from.to_string(), "at": r.path })).collect::<Vec<_>>(),
+                "tables": run.iter().map(|r| json!({ "table": r.from.to_string(), "at": r.path.to_string() })).collect::<Vec<_>>(),
                 "marked": (!*tag).then(|| ResKey::from_filename(name))
                     .flatten()
                     .and_then(|k| m.project_file.used.marking(k.resref, k.restype)),
@@ -3264,7 +3264,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut replaced = 0;
             // (A tag given another object's: said, as `mg set` says it; of
             // a dry run, as the replace would leave the module.)
-            let tags: Vec<(ResKey, Vec<mg_module::text::Step>)> = (hits.iter())
+            let tags: Vec<(ResKey, mg_edit::GffPath)> = (hits.iter())
                 .filter(|h| h.kind == TextKind::Tag)
                 .map(|h| (h.key, h.path.clone()))
                 .collect();
@@ -4609,7 +4609,7 @@ fn verify(
             "severity": if x.is_error() { "error" } else { "warning" },
             "category": format!("{:?}", x.category),
             "from": x.reference.from.to_string(),
-            "path": x.reference.path,
+            "path": x.reference.path.to_string(),
             "kind": x.reference.kind.name(),
             "target": x.reference.target.to_string(),
             "uncompiled": x.uncompiled,

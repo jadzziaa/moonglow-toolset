@@ -902,13 +902,12 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
         if !seen.insert(o.clone()) {
             continue;
         }
-        let steps: Vec<&str> = o.path.trim_start_matches('/').split('/').collect();
-        if o.path == "/" && ObjectKind::from_restype(o.key.restype).is_some() {
+        if o.path.is_root() && ObjectKind::from_restype(o.key.restype).is_some() {
             blueprints.entry(o.key.restype).or_default().push(o.key);
         } else if o.placed()
-            && let [one] = steps[..]
-            && let Some((list, i)) = one.strip_suffix(']').and_then(|s| s.rsplit_once('['))
-            && let (Some(kind), Ok(i)) = (ObjectKind::from_list(list), i.parse::<usize>())
+            && let [one] = &o.path.0[..]
+            && let Some((list, i)) = one.item()
+            && let Some(kind) = ObjectKind::from_list(list)
         {
             placed
                 .entry((o.key.resref, kind.list()))

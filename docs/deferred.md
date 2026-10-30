@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:18:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1576,20 +1576,6 @@ it says so. One question settles most of them: which copy is the source
 of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
-
-- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:262`,
-  `mg-edit lib.rs:39`, whose `GffPath` writes labels escaped where
-  `walk_fields`' paths don't), hand parsers of a path's text
-  (`search.rs:400` for `Hit::instance`, `rename.rs:68` for
-  `Usage::instance`, `rename.rs:677`, `verify.rs:65`,
-  `references.rs:813`, `mg-edit found.rs:62`), hand walkers beside
-  `Struct::walk_fields` (`rename.rs:171` `fields_with_paths`, the
-  index's tags and StrRefs; `text.rs:415`). `GffPath` into mg-gff,
-  carried by `Reference`, `Usage` and `Hit` (a `Usage` in a script is
-  `line N`, in a 2DA `row R, COLUMN`: a path of its own kind), which
-  `mg refs --json` and the UI read as text. Looked at
-  again 2026-10-30: unchanged in size. (L, mechanical) (After 3.0.0,
-  the owner's word, 2026-10-30: 2nd of 9 by complexity.)
 
 ### Settled in the engine or Aurora first
 

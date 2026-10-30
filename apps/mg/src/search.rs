@@ -331,7 +331,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
     out.json = json!({
         "found": hits.iter().map(|h| json!({
             "resource": h.key.to_string(),
-            "path": h.path,
+            "path": h.path.to_string(),
             "place": h.place,
             "match": h.matched,
             "type": h.object.extension(),

@@ -7,7 +7,7 @@
 //! their `#include`s.
 
 use mg_core::{ResRef, ResType};
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{Gff, GffPath, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 
@@ -74,12 +74,67 @@ impl RefKind {
     }
 }
 
+/// Where in a resource something is: a field of a GFF, a script's line, a
+/// 2DA's cell, a sound set's entry, or a script's string. Its text
+/// ([`Display`](std::fmt::Display)) is what `mg refs`, `mg verify` and the
+/// window show: `/Creature List[3]/ScriptSpawn`, `line 12`, `row 12,
+/// ImpactScript`, `entry 3`, `string`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Location {
+    /// A field of a GFF resource.
+    Gff(GffPath),
+    /// A script's line (from 1).
+    Line(usize),
+    /// A 2DA's cell.
+    Cell { row: usize, column: String },
+    /// A sound set's entry (from 0).
+    Entry(usize),
+    /// A string in a script, which may be a resource's name.
+    String,
+}
+
+impl Location {
+    /// The path, of a field of a GFF.
+    pub fn gff(&self) -> Option<&GffPath> {
+        match self {
+            Location::Gff(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The field's label, of a field of a GFF (`ScriptSpawn`).
+    pub fn field(&self) -> Option<&str> {
+        match self.gff()?.0.last()? {
+            mg_gff::Step::Field(l) => Some(l),
+            mg_gff::Step::Item(..) => None,
+        }
+    }
+}
+
+impl From<GffPath> for Location {
+    fn from(path: GffPath) -> Location {
+        Location::Gff(path)
+    }
+}
+
+impl std::fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Location::Gff(p) => write!(f, "{p}"),
+            Location::Line(n) => write!(f, "line {n}"),
+            Location::Cell { row, column } => write!(f, "row {row}, {column}"),
+            Location::Entry(i) => write!(f, "entry {i}"),
+            Location::String => f.write_str("string"),
+        }
+    }
+}
+
 /// One reference from a resource to another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
     pub from: ResKey,
     /// Where in the source (e.g. `/Creature List[3]/ScriptSpawn`).
-    pub path: String,
+    pub path: Location,
     pub kind: RefKind,
     pub target: ResRef,
 }
@@ -149,7 +204,7 @@ fn walk(from: ResKey, file_type: &str, s: &Struct, out: &mut Vec<Reference>) {
             && !target.is_empty()
             && let Some(kind) = classify(file_type, f.list, f.label)
         {
-            out.push(Reference { from, path: f.path.to_string(), kind, target });
+            out.push(Reference { from, path: Location::Gff(f.path.clone()), kind, target });
         }
     });
 }
@@ -216,7 +271,7 @@ pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
         {
             out.push(Reference {
                 from,
-                path: format!("line {line}"),
+                path: Location::Line(line),
                 kind: RefKind::Include,
                 target,
             });
@@ -327,20 +382,27 @@ mod tests {
         g.root.items_mut(&git::CREATURE_LIST).push(c);
         let key = ResKey::parse("area1", ResType::GIT).unwrap();
         let refs = gff_references(key, &g);
-        let got: Vec<(RefKind, String, &str)> =
-            refs.iter().map(|r| (r.kind, r.target.to_string(), r.path.as_str())).collect();
+        let got: Vec<(RefKind, String, String)> =
+            (refs.iter()).map(|r| (r.kind, r.target.to_string(), r.path.to_string())).collect();
         assert_eq!(
             got,
             [
                 (
                     RefKind::Blueprint(ResType::UTC),
                     "nw_chicken".into(),
-                    "/Creature List[0]/TemplateResRef"
+                    "/Creature List[0]/TemplateResRef".into()
                 ),
-                (RefKind::Script, "my_spawn".into(), "/Creature List[0]/ScriptSpawn"),
-                (RefKind::Conversation, "chicken_talk".into(), "/Creature List[0]/Conversation"),
+                (RefKind::Script, "my_spawn".into(), "/Creature List[0]/ScriptSpawn".into()),
+                (
+                    RefKind::Conversation,
+                    "chicken_talk".into(),
+                    "/Creature List[0]/Conversation".into()
+                ),
             ]
         );
+        // (Each a field of the GFF, its path typed.)
+        let spawn = GffPath::root().item("Creature List", 0).field("ScriptSpawn");
+        assert_eq!(refs[1].path, Location::Gff(spawn));
     }
 
     #[test]
@@ -352,7 +414,7 @@ mod tests {
             g.root.set(k.list(), Value::List(vec![placed]));
             let refs = gff_references(ResKey::parse("area1", ResType::GIT).unwrap(), &g);
             let got: Vec<(RefKind, String)> =
-                refs.iter().map(|r| (r.kind, r.path.clone())).collect();
+                refs.iter().map(|r| (r.kind, r.path.to_string())).collect();
             let path = format!("/{}[0]/{}", k.list(), k.resref_field());
             assert_eq!(got, [(RefKind::Blueprint(k.restype()), path)], "{k:?}");
         }
@@ -377,8 +439,9 @@ mod tests {
         let mut g = Gff::new(*b"GIT ");
         g.root.set("List", Value::List(vec![item.clone()]));
         let refs = gff_references(ResKey::parse("area1", ResType::GIT).unwrap(), &g);
-        let got: Vec<(RefKind, &str)> = refs.iter().map(|r| (r.kind, r.path.as_str())).collect();
-        assert_eq!(got, [(RefKind::Blueprint(ResType::UTI), "/List[0]/TemplateResRef")]);
+        let got: Vec<(RefKind, String)> =
+            refs.iter().map(|r| (r.kind, r.path.to_string())).collect();
+        assert_eq!(got, [(RefKind::Blueprint(ResType::UTI), "/List[0]/TemplateResRef".into())]);
         // A `List` elsewhere is not the area's items.
         let mut other = Gff::new(*b"GIC ");
         other.root.set("List", Value::List(vec![item]));
@@ -403,16 +466,59 @@ mod tests {
             inc.iter().map(|r| r.target.to_string()).collect::<Vec<_>>(),
             ["nw_i0_generic", "x0_i0_spawn"]
         );
-        assert_eq!(inc[1].path, "line 3");
+        assert_eq!(inc[1].path.to_string(), "line 3");
         // Commented out, or in a string: none, as the compiler reads them.
         let src =
             b"// #include \"a\"\n/*\n#include \"b\"\n*/\nstring s = \"#include \\\"c\\\"\";\n\
                     #include \"d\"\n";
         let inc = script_includes(ResKey::parse("s", ResType::NSS).unwrap(), src);
-        let got: Vec<_> = inc.iter().map(|r| (r.target.to_string(), r.path.clone())).collect();
+        let got: Vec<_> = inc.iter().map(|r| (r.target.to_string(), r.path.to_string())).collect();
         assert_eq!(got, [("d".to_string(), "line 6".to_string())]);
 
         let p = RefKind::Portrait.candidates(rr("po_aribeth_"));
         assert_eq!(p[0], ResKey::parse("po_aribeth_m", ResType::TGA).unwrap());
+    }
+
+    /// Each kind of place says itself as `mg refs`, `mg verify` and the
+    /// window have always said it.
+    #[test]
+    fn locations_are_said_as_they_were() {
+        let field = GffPath::root().item("Creature List", 10).field("ScriptSpawn");
+        let said = [
+            Location::Gff(field.clone()),
+            Location::Line(12),
+            Location::Cell { row: 3, column: "ImpactScript".into() },
+            Location::Entry(4),
+            Location::String,
+        ]
+        .map(|l| l.to_string());
+        assert_eq!(
+            said,
+            [
+                "/Creature List[10]/ScriptSpawn",
+                "line 12",
+                "row 3, ImpactScript",
+                "entry 4",
+                "string"
+            ]
+        );
+        assert_eq!(Location::from(field.clone()).gff(), Some(&field));
+        assert_eq!(Location::Line(1).gff(), None);
+        assert_eq!(Location::from(field).field(), Some("ScriptSpawn"));
+    }
+
+    /// A label with the characters a path is written with is written
+    /// escaped, as `mg set` and `mg apply` read a path (walked as text, it
+    /// was `/a/b[0]/OnSpawn`, which reads back as another path).
+    #[test]
+    fn a_label_with_a_path_s_characters_is_written_escaped() {
+        let mut odd = Struct::new(0);
+        odd.set("OnSpawn", Value::resref(rr("my_spawn")));
+        let mut g = Gff::new(*b"UTC ");
+        g.root.set("a/b", Value::List(vec![odd]));
+        let refs = gff_references(ResKey::parse("x", ResType::UTC).unwrap(), &g);
+        let text = refs[0].path.to_string();
+        assert_eq!(text, "/a~1b[0]/OnSpawn");
+        assert_eq!(text.parse::<GffPath>().map(Location::Gff), Ok(refs[0].path.clone()));
     }
 }

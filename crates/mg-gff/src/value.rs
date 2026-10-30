@@ -5,6 +5,8 @@ use std::fmt;
 use mg_core::{Codepage, Gender, Language, LocString, ResRef};
 use thiserror::Error;
 
+use crate::{GffPath, Step};
+
 /// A field label: at most 16 bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Label {
@@ -381,8 +383,9 @@ macro_rules! getters {
 #[derive(Debug)]
 pub struct FieldAt<'a> {
     /// Where it is, from the root: `/Creature List[0]/Tag` (a field of a
-    /// list's first item), `/Tag` (a field of the root).
-    pub path: &'a str,
+    /// list's first item), `/Tag` (a field of the root): its last step is
+    /// the field's own.
+    pub path: &'a GffPath,
     /// The list it is in an item of (the nearest, if lists are nested).
     pub list: Option<&'a str>,
     pub label: &'a str,
@@ -464,23 +467,32 @@ impl Struct {
     /// where it is: a field before what is inside it, lists' items in
     /// order.
     pub fn walk_fields(&self, each: &mut dyn FnMut(&FieldAt<'_>)) {
-        fn walk(s: &Struct, list: Option<&str>, path: &str, each: &mut dyn FnMut(&FieldAt<'_>)) {
+        // (One path: each field's step put on it, and taken off after.)
+        fn walk(
+            s: &Struct,
+            list: Option<&str>,
+            path: &mut GffPath,
+            each: &mut dyn FnMut(&FieldAt<'_>),
+        ) {
             for f in &s.fields {
                 let label = f.label.to_string_lossy();
-                let at = format!("{path}/{label}");
-                each(&FieldAt { path: &at, list, label: &label, value: &f.value, owner: s });
+                path.0.push(Step::Field(label.to_string()));
+                each(&FieldAt { path, list, label: &label, value: &f.value, owner: s });
                 match &f.value {
-                    Value::Struct(c) => walk(c, list, &at, each),
+                    Value::Struct(c) => walk(c, list, path, each),
                     Value::List(items) => {
                         for (i, c) in items.iter().enumerate() {
-                            walk(c, Some(&label), &format!("{at}[{i}]"), each);
+                            let at = path.0.len() - 1;
+                            path.0[at] = Step::Item(label.to_string(), i);
+                            walk(c, Some(&label), path, each);
                         }
                     }
                     _ => {}
                 }
+                path.0.pop();
             }
         }
-        walk(self, None, "", each);
+        walk(self, None, &mut GffPath::root(), each);
     }
 
     /// The bytes of a `CExoString` field.
