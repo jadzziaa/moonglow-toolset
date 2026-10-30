@@ -639,3 +639,144 @@ fn reading_low_sun_building() {
         eprintln!("{}", dir.display());
     }
 }
+
+/// The game's `vsgrass` and `fsgrass` patched to paint each tuft in three
+/// bands of its texture's height (the quarter's v, the tuft's own): the
+/// lower and upper quarter the fragment's place in the world (red and
+/// green the fractions of its x and y metres, blue 0.2 below and 0.8
+/// above), the middle half the client's clock (`worldtimerTimeOfDay`'s
+/// two low bytes as red and green, blue 0.5).
+fn sway_programs(game: &GameData) -> [(&'static str, Vec<u8>); 2] {
+    let world = "#define POSITION_WORLD 1\n";
+    let vs = format!("{world}{}", program(game, "vsgrass"));
+    let fs = patched(
+        &format!("{world}#include \"inc_uniforms\"\n{}", program(game, "fsgrass")),
+        "gl_FragColor = FragmentColor;",
+        "float v = fract(vVertexTexCoords.y * 2.0);\n    \
+         int t = worldtimerTimeOfDay;\n    \
+         if (v < 0.25 || v > 0.75)\n        \
+         gl_FragColor = vec4(fract(vPosWorld.x), fract(vPosWorld.y), v < 0.25 ? 0.2 : 0.8, 1.0);\n    \
+         else\n        \
+         gl_FragColor = vec4(float(t - (t / 256) * 256) / 255.0, \
+         float((t / 256) - (t / 65536) * 256) / 255.0, 0.5, 1.0);",
+    );
+    [("vsgrass.shd", vs.into_bytes()), ("fsgrass.shd", fs.into_bytes())]
+}
+
+/// How far and how fast a grass tuft's top sways in the client (the
+/// deferred list's "A grass tuft's sway"): sparse white tufts (0.3 a
+/// square metre) on a rural field in the wind (`MG_WIND`, 1 and 2 by
+/// default), seen from the side and close (`SetCameraFacing(90, 4, 85)`),
+/// the grass programs patched ([`sway_programs`]) so that each picture
+/// carries the client's clock and each tuft its feet's and top's places
+/// in the world; `MG_SHOTS` pictures (30 by default) as fast as they come.
+/// For each picture, the clock (the middle bands' most common value) and,
+/// for each tuft (a run of rows of the same column whose lower band and
+/// upper band both show), its top's place less its feet's (metres, the
+/// fractions unwrapped), the mean over the picture's tufts, are printed.
+///
+/// Seen (2026-10-30, 89.8193.37; 80 pictures each, about 5.5 s of the
+/// clock, a new frame every 0.05 to 0.5 s): the tops of all the tufts
+/// (500 to 590 read a picture) sway together, north and south (y; x stays
+/// within 0.03 m): at `WindPower` 2 between −0.055 and +0.098 m of their
+/// feet (1.2 m tufts), from a peak at 31.8 s through a trough at 33.8 s to
+/// the next peak at 35.8 to 36.0 s, about 4 s a swing; at 1 between
+/// −0.027 and +0.045 m, slower (a peak at 33.1 s, falling to the end at
+/// 36.5 s). Moonglow's tufts stand still (its own programs and the game's).
+#[test]
+#[ignore]
+fn reading_grass_sway_by_clock() {
+    let base = base_game();
+    let shots = std::env::var("MG_SHOTS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    let winds = std::env::var("MG_WIND").unwrap_or_else(|_| "1,2".into());
+    for wind in winds.split(',').filter_map(|w| w.trim().parse::<i32>().ok()) {
+        let mut overrides = vec![("mgwhite.tga", super::white_tga())];
+        overrides.extend(sway_programs(&base));
+        let light =
+            Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+        let mut r = Reading::new(&format!("grass_sway_clock_{wind}"), "ttr01", light, &overrides);
+        r.are.root.set("WindPower", Value::Int(wind));
+        let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else { panic!() };
+        let mut ovr = mg_gff::Struct::new(101);
+        let white = super::grass_override(3, "mgwhite", 0.3, 1.2, [1.0, 1.0, 1.0]);
+        ovr.set("GrassOvrList", Value::List(vec![white]));
+        props.set("GrassOverrides", Value::Struct(ovr));
+        r.save(
+            &super::readings::enter(INVISIBLE, (90.0, 4.0, 85.0)),
+            &super::readings::with_grass(),
+        );
+        let pictures =
+            common::client_screenshots(&r.dir, "MgScene", shots, Duration::from_millis(0))
+                .expect("the client's pictures");
+        eprintln!("wind {wind}: {}", r.dir.display());
+        for (i, (_, img)) in pictures.iter().enumerate() {
+            save_png(img, &r.dir.join(format!("sway_{i}.png")));
+            let (clock, sway, tufts) = sway_of(img);
+            eprintln!(
+                "wind {wind} picture {i}: clock {clock:?} ms (low 16 bits), {tufts} tufts, \
+                 top less feet ({:.3}, {:.3}) m",
+                sway[0], sway[1]
+            );
+        }
+    }
+}
+
+/// What a picture of [`reading_grass_sway_by_clock`] shows: the clock's
+/// two low bytes (the most common middle-band value), the mean of the
+/// tufts' top less feet (x, y metres), how many tufts were read.
+fn sway_of(img: &Rgba) -> (Option<u32>, [f32; 2], usize) {
+    let (w, h) = (img.width as usize, img.height as usize);
+    let px = |x: usize, y: usize| {
+        let i = (y * w + x) * 4;
+        [img.data[i], img.data[i + 1], img.data[i + 2]]
+    };
+    let band = |p: [u8; 3]| match p[2] {
+        46..=56 => Some(0u8),
+        122..=133 => Some(1),
+        199..=209 => Some(2),
+        _ => None,
+    };
+    let mut clocks: HashMap<u32, usize> = HashMap::new();
+    let (mut sum, mut tufts) = ([0.0f32; 2], 0usize);
+    // (The game's GUI covers the bottom; the tufts stand in the middle.)
+    // One tuft down a column: its top band, then its clock band, then its
+    // other band down to its foot, without a break; the first such run in
+    // each column, its top's first pixel less its foot's last.
+    let d = |a: u8, c: u8| {
+        let v = (f32::from(a) - f32::from(c)) / 255.0;
+        v - v.round()
+    };
+    for x in 0..w {
+        let (mut top, mut clocked, mut feet): (Option<[u8; 3]>, bool, Option<[u8; 3]>) =
+            (None, false, None);
+        for y in h / 8..h * 3 / 4 {
+            let p = px(x, y);
+            let b = band(p);
+            if let (Some(t), Some(f)) = (top, feet) {
+                if b == band(f) {
+                    feet = Some(p);
+                    continue;
+                }
+                sum[0] += d(t[0], f[0]);
+                sum[1] += d(t[1], f[1]);
+                tufts += 1;
+                break;
+            }
+            match b {
+                Some(1) => {
+                    *clocks.entry(u32::from(p[0]) | u32::from(p[1]) << 8).or_default() += 1;
+                    clocked = top.is_some();
+                }
+                Some(b) => match top {
+                    Some(t) if clocked && band(t) != Some(b) => feet = Some(p),
+                    Some(t) if band(t) == Some(b) && !clocked => {}
+                    _ => (top, clocked) = (Some(p), false),
+                },
+                None => (top, clocked) = (None, false),
+            }
+        }
+    }
+    let clock = clocks.into_iter().max_by_key(|(_, n)| *n).map(|(c, _)| c);
+    let n = tufts.max(1) as f32;
+    (clock, [sum[0] / n, sum[1] / n], tufts)
+}

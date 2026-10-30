@@ -527,23 +527,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A grass tuft's sway:** a tuft is one upright quad turned at random,
   a texture quarter, as tall as wide, as the client's are (seen with
   white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
-  client's sway in the wind, tops moving and feet still (`reading_grass_sway`:
-  6% of the field's pixels changed in a second and a half at `WindPower`
-  2); Moonglow's stand still with either shader: the game's `vsgrass`
-  reads no wind, so the engine moves the vertices itself, and the area
-  view would have to as well. How far and how fast isn't read: the
-  window's pictures come about 0.4 s apart and seconds late (30 taken
-  from the side, `MG_CAMERA=90,4,85 MG_SHOTS=30,0`, 2026-10-29: half of
-  them the same as the one before), too few and too loose to time a
-  sway by. The reading that would: one tuft, a patched `fsgrass`
-  painting its vertices' world place (top against foot, carried as a
-  varying) and `worldtimerTimeOfDay` into the picture, as
-  `light_uniforms_match_the_client` paints its uniforms, at `WindPower`
-  1 and 2; then the tops moved in both of Moonglow's paths (its own
-  grass shader, and the game's `vsgrass` fed moved vertices: a pass of
-  their own over the whole view's grass, as the engine moves them on
-  the CPU). (L: the reading, then the motion in both paths; waits on
-  the client)
+  client's tufts sway, tops moving and feet still, read on 2026-10-30
+  (`reading_grass_sway_by_clock` in `client_render.rs`'s `batch5.rs`:
+  `vsgrass` and `fsgrass` patched to paint each tuft's top and foot
+  places and the client's clock): all of them together, along the
+  area's north-south, at `WindPower` 2 between −0.055 and +0.098 m of
+  their feet (1.2 m tufts), about 4 s from one peak to the next; at 1
+  between −0.027 and +0.045 m, slower. Moonglow's stand still with
+  either shader: the game's `vsgrass` reads no wind, so the engine moves
+  the vertices itself, and the area view would have to as well, in both
+  of its paths (its own grass shader, and the game's `vsgrass` fed moved
+  vertices: a pass of their own over the whole view's grass, as the
+  engine moves them on the CPU). (M: the motion; the swing's shape
+  beyond its reach and period, and whether the area's wind direction
+  turns it, not read)
+
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
