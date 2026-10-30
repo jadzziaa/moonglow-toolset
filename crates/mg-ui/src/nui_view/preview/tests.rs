@@ -7,19 +7,31 @@ mod canvas;
 mod hostile;
 mod native;
 
+/// Numbers in text as the client writes them (NWN EE 8193.37,
+/// `nui_readings_in_the_client`): a 32-bit float's digits to as many places
+/// as asked, no cap at 16, and ties to even.
 #[test]
-fn native_decimal_changes_exact_ties_without_double_rounding() {
-    for sign in [1.0, -1.0] {
-        let tie = 42.125_f64 * sign;
-        for neighbour in [tie.next_down(), tie.next_up()] {
-            assert_eq!(native_decimal(neighbour, 2), format!("{neighbour:.2}"));
-        }
+fn numbers_in_text_are_the_client_s() {
+    let third = 1.0 / 3.0;
+    for (n, places, shown) in [
+        (third, 16, "0.3333333432674408"),
+        (third, 17, "0.33333334326744080"),
+        (third, 20, "0.33333334326744079590"),
+        (third, 30, "0.333333343267440795898437500000"),
+        (0.5, 0, "0"),
+        (2.5, 0, "2"),
+        (-2.5, 0, "-2"),
+        (1.5, 0, "2"),
+        (42.125, 2, "42.12"),
+    ] {
+        assert_eq!(native_decimal(n, places), shown, "{n} to {places}");
     }
-    for value in [0.0_f64, -0.0, f64::MIN_POSITIVE, f64::MAX, 1.005, -1.005] {
-        for precision in [0, 2, 4, 16] {
-            assert_eq!(native_decimal(value, precision), format!("{value:.precision$}"));
-        }
-    }
+    assert_eq!(native_decimal(1e40, 0), "inf");
+    assert_eq!(native_decimal(third, 100_000).len(), 2 + MOST_PLACES);
+    let mut s = Settings::default();
+    s.bindings.insert("n".into(), Binding { value: json!(third), ..Default::default() });
+    let text = string(&json!({"bind": "n", "number_precision": 30}), &s, None);
+    assert_eq!(text, "0.333333343267440795898437500000");
 }
 
 #[test]

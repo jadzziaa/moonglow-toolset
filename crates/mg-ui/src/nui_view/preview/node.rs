@@ -18,6 +18,10 @@ pub(super) struct Renderer<'a> {
     pub(super) selected_bounds: &'a mut Option<Rect>,
     pub(super) ancestor_disabled: bool,
     pub(super) context_prefix: Option<&'a str>,
+    /// A row of a column with a control of its own width after it: the
+    /// row's path, and the right edge its last button without a width
+    /// stretches to (`Renderer::children`).
+    pub(super) reach: Option<(String, f32)>,
 }
 
 /// A control being drawn: where, in which state and with what. The kinds'
@@ -125,6 +129,34 @@ impl Renderer<'_> {
         (size * ui + Vec2::splat(1e-3)).floor() * (self.scale / ui)
     }
 
+    /// A length in points as the game scales it ([`Renderer::scaled`]).
+    pub(super) fn px(&self, length: f32) -> f32 {
+        self.scaled(vec2(length, 0.0)).x
+    }
+
+    /// How much farther out a control's own margin puts it than the
+    /// default 2, as the game scales margins: each a whole number of
+    /// pixels, rounded down (NWN EE 8193.37 at 111%: margins of 2 and 5
+    /// are 2 and 5 pixels, ten buttons 30 high 37 and 43 apart).
+    pub(super) fn margin_px(&self, node: &Value, row: Option<usize>) -> f32 {
+        let extra = extra_margin(node, self.s, row);
+        if extra == 0.0 { 0.0 } else { self.px(2.0 + extra) - self.px(2.0) }
+    }
+
+    /// The gap the layout puts between two controls (`child_gap`, the two
+    /// default margins between them), each margin whole pixels.
+    pub(super) fn gap_px(&self, gap: f32) -> f32 {
+        2.0 * self.px(gap / 2.0)
+    }
+
+    /// A control's room, margins included, as the game scales it: its size
+    /// and each margin whole pixels apart.
+    pub(super) fn cell(&self, node: &Value, row: Option<usize>, depth: usize) -> Vec2 {
+        let extra = extra_margin(node, self.s, row);
+        let core = (natural(node, self.s, row, depth) - Vec2::splat(2.0 * extra)).max(Vec2::ZERO);
+        self.scaled(core) + Vec2::splat(2.0 * self.margin_px(node, row))
+    }
+
     /// A control in the room `outer` its parent gives it: drawn, and noted
     /// where it went when that is asked for (`mg nui layout`), drawn or not.
     pub(super) fn node(
@@ -143,7 +175,7 @@ impl Renderer<'_> {
                 path,
                 row,
                 node,
-                outer.shrink(extra_margin(node, self.s, row) * self.scale),
+                outer.shrink(self.margin_px(node, row)),
                 ui.clip_rect(),
             );
         self.draw_node(ui, node, path, outer, row, depth);
@@ -185,8 +217,7 @@ impl Renderer<'_> {
         let ty = node["type"].as_str().unwrap_or("unknown");
         let s = self.s;
         let scale = self.scale;
-        let margin = extra_margin(node, s, row) * scale;
-        let rect = outer.shrink(margin);
+        let rect = outer.shrink(self.margin_px(node, row));
         if !rect.is_positive() {
             return;
         }

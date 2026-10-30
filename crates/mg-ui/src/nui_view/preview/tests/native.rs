@@ -9,12 +9,16 @@ use super::super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 
 #[test]
-fn native_number_precision_rounds_signed_half_away_from_zero() {
-    // Creator-generated Set bind actions, NWN EE89.8193.37-17, 2026-10-08:
-    // +/-42.125 renders +/-42.13 at precision 2 (not Rust's ties-to-even).
+fn native_number_precision_writes_a_float_s_digits_ties_to_even() {
+    // The second client batch, NWN EE 8193.37, 2026-10-29
+    // (`nui_readings_in_the_client`): a 32-bit float's digits, ties to even
+    // (0.5 and 2.5 at no places are 0 and 2). The contributor's reading of
+    // 2026-10-08, +/-42.125 as +/-42.13 at 2 places (away from zero), its
+    // window not kept, disagrees: the deferred list's entry asks the
+    // client again.
     for (value, expected) in [
-        (42.125, ["42", "42.13", "42.1250"]),
-        (-42.125, ["-42", "-42.13", "-42.1250"]),
+        (42.125, ["42", "42.12", "42.1250"]),
+        (-42.125, ["-42", "-42.12", "-42.1250"]),
         (-12.345, ["-12", "-12.35", "-12.3450"]),
     ] {
         let mut settings = Settings::default();
