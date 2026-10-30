@@ -844,13 +844,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (Shadows quality High: [the notes](research/notes_shaders.md) §G.2),
   beside the client in `high_shadows_beside_the_client`. Left:
   - with High: skins cast none, as the wiki says of the game ("only
-    Trimesh nodes"), where Fast casts them posed: not read in the
-    client (a creature with a skinned part, `c_horse1`'s); where the
-    sun's volume of what is not a tile ends (the game's
-    `projectionWorldZClip` for a placeable or a creature; Moonglow's:
-    the lowest receiver seen); and what the client draws for a caster
-    with an edge of three faces (the wiki's "finhead": Moonglow's casts
-    the faces' shadow, no spike) (S, each waits on a client reading);
+    Trimesh nodes"), where Fast casts them posed (the game's own horse,
+    `c_horse1`, carries `render 0` trimeshes beside its `HorseBody`
+    skin, as a stand-in would be: not read in the client, where Fast and
+    High would show the same shape); and where the sun's volume of what
+    is not a tile ends (the game's `projectionWorldZClip` for a
+    placeable or a creature; Moonglow's: the lowest receiver seen: a
+    placeable at a cliff's edge would show it) (S, each waits on a
+    client reading not made in this session). The wiki's "finhead" (three
+    fins on one edge, which it says tears the volumes) was read on
+    2026-10-30 (`high_shadows_beside_the_client`, case `finhead`, the
+    sun 23 and 43 degrees up): the client draws it welded as it draws
+    it unwelded, the fins' shadow and no spike, as Moonglow's Fast and
+    High do;
   - High's first frame in an area makes its casters' volume meshes in
     the frame: area084's opening's longest frame 22 ms with Fast, 48 to
     51 ms with High (`frame_perf`, 2026-10-30); its frames after are
@@ -2216,7 +2222,8 @@ is not taken for a new gap.
   stencil shadow volumes, as the owner asked on 2026-10-30. Settled
   2026-10-28 as the map alone; rewritten 2026-10-30 for both. In
   either, a caster that isn't closed (an edge of three faces or more)
-  casts its faces' shadow, not the game's torn spikes.
+  casts its faces' shadow, no spike, as the client (89.8193.37) drew
+  the wiki's "finhead".
 - **Lighting off against Aurora:** Aurora's Use Area Lighting off draws
   the textures unshaded at full brightness (no side darker than another;
   shadows still drawn; captured 2026-10-29, `target/test-output` shots

@@ -431,9 +431,25 @@ struct HighCase {
     suns: &'static [f32],
     /// The area's tiles across and up (4: the readings' own).
     side: i32,
+    /// Two "finheads" stand in it (three fins on one edge: [`finhead`]),
+    /// the west one's fins welded on their edge, the east one's not.
+    finhead: bool,
 }
 
-const HIGH_CASES: [HighCase; 6] = [
+const HIGH_CASES: [HighCase; 7] = [
+    // A caster that isn't closed: the wiki's "finhead", three fins on one
+    // edge (which tears the game's volumes), welded and not.
+    HighCase {
+        name: "finhead",
+        tileset: "ttr01",
+        placeables: &[],
+        creature: None,
+        tile: None,
+        look: (90.0, 8.0, 55.0),
+        suns: &[1.0, 0.45],
+        side: 4,
+        finhead: true,
+    },
     // The owner's in a large area (16×16 tiles), looking out over it:
     // Fast's map stretched over what is seen, 160 m, its texels 8 cm.
     HighCase {
@@ -445,6 +461,7 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 5.0, 78.0),
         suns: &[1.0],
         side: 16,
+        finhead: false,
     },
     // The owner's again, looking out over the area: Fast's map stretched
     // to the horizon, its texels large on the fence's shadow.
@@ -457,6 +474,7 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 5.0, 78.0),
         suns: &[1.0],
         side: 4,
+        finhead: false,
     },
     // The owner's close up: the fence's shadow a few metres off, where the
     // map's texels show.
@@ -469,6 +487,7 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 3.5, 60.0),
         suns: &[1.0],
         side: 4,
+        finhead: false,
     },
     // The owner's: a rural fence and a gallows-like frame (the Hangman's
     // Scaffold) on flat ground.
@@ -481,6 +500,7 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 10.0, 55.0),
         suns: &[0.45, 1.0, 2.5],
         side: 4,
+        finhead: false,
     },
     HighCase {
         name: "ogre",
@@ -491,6 +511,7 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 8.0, 50.0),
         suns: &[1.0],
         side: 4,
+        finhead: false,
     },
     // A building: tcn01's house (tile 54), as `reading_low_sun_building`.
     HighCase {
@@ -502,8 +523,38 @@ const HIGH_CASES: [HighCase; 6] = [
         look: (90.0, 16.0, 50.0),
         suns: &[0.6],
         side: 4,
+        finhead: false,
     },
 ];
+
+/// The wiki's "finhead" (Model Shadows, "Let's Prove It"): three
+/// one-sided fins, 1.5 m, on one upright edge 1.5 to 3.5 m up, white,
+/// `shadow 1`; `welded`, the fins share the edge's two vertices (an edge
+/// of three faces: "shadow tearing"); else each has its own.
+fn finhead(name: &str, welded: bool) -> String {
+    let (bottom, top) = ([0.0f32, 0.0, 1.5], [0.0f32, 0.0, 3.5]);
+    let tips = [[1.5f32, 0.0, 2.5], [-1.5, 0.3, 2.5], [0.0, 1.5, 2.5]];
+    // (Each fin's corners, wound as the wiki's: the first, the second
+    // turned over, the third.)
+    let fins = [[bottom, top, tips[0]], [top, bottom, tips[1]], [bottom, top, tips[2]]];
+    let (verts, faces): (Vec<[f32; 3]>, Vec<[usize; 3]>) = if welded {
+        (vec![bottom, top, tips[0], tips[1], tips[2]], vec![[0, 1, 2], [1, 0, 3], [0, 1, 4]])
+    } else {
+        (fins.concat(), vec![[0, 1, 2], [3, 4, 5], [6, 7, 8]])
+    };
+    let verts: String = verts.iter().map(|[x, y, z]| format!("    {x} {y} {z}\n")).collect();
+    let faces: String =
+        faces.iter().map(|[a, b, c]| format!("    {a} {b} {c} 1 0 1 2 0\n")).collect();
+    let (nv, nf) = (if welded { 5 } else { 9 }, 3);
+    format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+         setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node trimesh {name}_fins\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap mgwhite\n  \
+         render 1\n  shadow 1\n  verts {nv}\n{verts}  tverts 3\n    0 0 0\n    1 0 0\n    1 1 0\n  \
+         faces {nf}\n{faces}endnode\nendmodelgeom {name}\ndonemodel {name}\n"
+    )
+}
 
 /// Where a picture is darker than the same without shadows (by a fifth
 /// or more): above the client's GUI (the lowest eighth left out).
@@ -589,7 +640,28 @@ fn high_shadows_beside_the_client() {
             let mut scene_of = None;
             for (shadows, settings) in [(true, &with), (false, &without)] {
                 let suffix = if shadows { "" } else { "_none" };
-                let mut r = Reading::new(&format!("{name}{suffix}"), case.tileset, light, &[]);
+                // (The finheads: their models and placeables.2da's rows for
+                // them, in the scratch user directory's `override`.)
+                let mut overrides = Vec::new();
+                let mut fins = None;
+                if case.finhead {
+                    let root = mg_testkit::nwn_root().expect("the game");
+                    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+                    let models = [("mg_fin_w", 0u8), ("mg_fin_s", 0)];
+                    let (table, first) = super::readings::placeables_with(&base, &models);
+                    overrides.push(("mg_fin_w.mdl", finhead("mg_fin_w", true).into_bytes()));
+                    overrides.push(("mg_fin_s.mdl", finhead("mg_fin_s", false).into_bytes()));
+                    overrides.push(("mgwhite.tga", super::white_tga()));
+                    overrides.push(("placeables.2da", table.into_bytes()));
+                    fins = Some(first);
+                }
+                let mut r =
+                    Reading::new(&format!("{name}{suffix}"), case.tileset, light, &overrides);
+                if let Some(first) = fins {
+                    for (row, x) in [(first, 18.0f32), (first + 1, 22.0)] {
+                        r.place(row, [x, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+                    }
+                }
                 for (label, v) in [("SunShadows", 1u8), ("MoonShadows", 0), ("ShadowOpacity", 60)] {
                     r.are.root.set(label, Value::Byte(v));
                 }

@@ -56,7 +56,7 @@ the module is opened again from its file.
   tiles cast at once (the largest areas seen whole) and keeps a depth
   and stencil buffer of the view's size (about 160 MB at 3440×1440 with
   four samples a pixel). Skins (a robe's or a dragon's wings' skinned
-  meshes) cast none with High, as in the game, where Fast casts them.
+  meshes) cast none with High, as the wiki says of the game, where Fast casts them.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift
