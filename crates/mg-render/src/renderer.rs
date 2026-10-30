@@ -760,6 +760,15 @@ fn upload<T: bytemuck::Pod>(
     }
 }
 
+/// Whether a mesh is blended by its alpha (its own, `alpha`, times its
+/// instance's `opacity`): a cut-out (`blending punchthrough`) is not by
+/// its own, which the client leaves solid and cut (a disc of mesh
+/// `alpha 0.5` drawn opaque: `client_render.rs`'s
+/// `reading_see_through_cut_out`); an instance drawn see-through is.
+fn blended_by(alpha: f32, opacity: f32, blending: Blending) -> bool {
+    if blending == Blending::Punchthrough { opacity < 1.0 } else { alpha < 1.0 }
+}
+
 impl Renderer {
     /// A renderer drawing into `color_format` targets with `sample_count`
     /// samples (1 = no MSAA).
@@ -2002,7 +2011,7 @@ impl Renderer {
                     Pass::Sky
                 } else if surface.blending == Blending::Additive {
                     Pass::Additive
-                } else if alpha < 1.0 || see_through {
+                } else if blended_by(alpha, inst.opacity, surface.blending) || see_through {
                     Pass::Blend
                 } else {
                     Pass::Opaque
