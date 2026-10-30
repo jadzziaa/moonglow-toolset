@@ -1256,6 +1256,10 @@ unlit: as bright in an area lit 0x101010 as by day.
 A texel is cut out where its alpha is 0.2 or less (`fAlphaDiscardValue`),
 whatever the TXI says and with an MTR or without. What is left of a
 `blending punchthrough` texture is drawn solid; of any other, blended.
+A cut-out whose mesh's alpha is under 1 is drawn solid and cut all the
+same (a disc of `alpha 0.5` opaque, a quarter lighter than the plain
+one: `reading_see_through_cut_out`, 2026-10-30); a transparency hint
+changes nothing.
 
 - **Checked:** `cutouts_look`; the cut with `MG_DISCARD=1`, which paints
   each surface with the value through a patched `inc_standard.shd`.

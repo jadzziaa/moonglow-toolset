@@ -1123,15 +1123,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Where a cut-out is cut:** at alpha 0.2 and solid where it is not
   cut; that, two-sided faces and decals as the client draws them are in
   [the findings](findings.md) ("Two-sided faces, cut-outs and decals").
-  Left: the tiles and the armoires were not
-  painted by the probe (another shader path: their value was not
-  read); a cut-out that is also see-through as a whole (a mesh's alpha
-  under 1, a transparency hint) is still blended, rim and all, which
-  was not compared. Cut-outs are no longer sorted back to front with
-  the see-through meshes: they write their depth as solid meshes do.
-  (S)
-  (asked by the Domains of Dread module session; checked in the client,
-  2026-10-09)
+  A cut-out whose mesh's alpha is under 1 is drawn solid and cut, as the
+  client draws one, and a transparency hint changes nothing in either
+  (2026-10-30, `reading_see_through_cut_out`). Left: that disc of mesh
+  `alpha 0.5` is a quarter lighter in the client than the plain one
+  (156, 99, 40 against 126, 79, 31), not read why; the tiles and the
+  armoires were not painted by the probe (another shader path: their
+  value was not read). (S) (asked by the Domains of Dread module
+  session; checked in the client, 2026-10-09)
 - **A rippling glow (TXI `proceduretype arturo`), how far and how fast it
   ripples:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
   `channelscale` 0 0 0 0, `channeltranslate` 1 1 1 1, `distort 1`,
