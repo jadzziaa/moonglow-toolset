@@ -1339,8 +1339,8 @@ impl Moonglow {
             if !vp.configured {
                 vp.configured = true;
                 vp.renderer.set_shader_cache(self.shader_cache_dir.clone());
-                let ctx = ui.ctx().clone();
-                vp.renderer.set_game_waker(move || ctx.request_repaint());
+                let (ctx, at_once) = (ui.ctx().clone(), self.background_jobs);
+                vp.renderer.set_game_waker(move || jobs::wake(&ctx, at_once));
             }
             // (Forgotten with the programs, when the resources are read
             // again: told again if they still fail.)
@@ -4932,9 +4932,13 @@ impl Moonglow {
     /// (`moonglow.toml`) alone, as frames are drawn: a few small files,
     /// and the rules the module is worked by.
     fn reload_timer(&mut self, ui: &egui::Ui) {
-        // A look at the module's files under way: taken once it is done.
+        // A look at the module's files under way: taken once it is done
+        // (its thread asks for the frame then; this is in case it can't).
+        // (Not a frame every 50 ms while it goes on: where a frame is
+        // thought to take longer, as in the UI tests, that was a frame at
+        // once, frame after frame, until it was done.)
         if self.take_looked(ui.ctx()) {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
         }
         // (Whether blueprints read again changed their palettes.)
         if self.look_at_palettes() {
@@ -4953,7 +4957,7 @@ impl Moonglow {
         let off = self.settings.no_auto_reload || self.game.is_none();
         // (A watch asks for a frame when it hears a change, which is
         // looked at then, not when the few seconds' look is due.)
-        self.outside.repaint = Some(ui.ctx().clone());
+        self.outside.repaint = Some((ui.ctx().clone(), self.background_jobs));
         let heard = !off && self.heard_outside();
         if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) && !heard {
             if !off {

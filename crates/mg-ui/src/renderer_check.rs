@@ -50,6 +50,13 @@ pub struct LitCheck {
     pub found: Option<mg_render::probe::Lit>,
 }
 
+impl LitCheck {
+    /// Whether it is under way, apart from the window's thread.
+    pub(crate) fn checking(&self) -> bool {
+        self.pending.is_some()
+    }
+}
+
 /// Starts the lit check once the game's data and the 3D views' GPU are
 /// there (in the desktop app: where jobs run in the background), and takes
 /// what it found when it is done.

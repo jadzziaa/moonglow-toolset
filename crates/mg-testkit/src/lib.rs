@@ -172,10 +172,21 @@ pub fn unlisted_modules(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-/// A fresh, empty scratch directory for a test under `target/test-output/`.
+/// Where tests write: `target/test-output/`, or `MOONGLOW_TEST_OUTPUT`
+/// when it is set (a second run of the same tests beside the first, as a
+/// loaded machine is tried: the same folders, emptied by each run's
+/// [`scratch_dir`] under the other's tests, were most of its failures).
+pub fn test_output() -> PathBuf {
+    match env::var_os("MOONGLOW_TEST_OUTPUT") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output"),
+    }
+}
+
+/// A fresh, empty scratch directory for a test under `target/test-output/`
+/// ([`test_output`]).
 pub fn scratch_dir(name: &str) -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
-    let dir = base.join(name);
+    let dir = test_output().join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch dir");
     dir
@@ -199,7 +210,7 @@ pub fn link_or_copy(from: &Path, to: &Path) -> std::io::Result<()> {
 /// output that several tests add to (the pictures of `screens.rs`), which
 /// [`scratch_dir`] would empty under them.
 pub fn output_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output").join(name);
+    let dir = test_output().join(name);
     std::fs::create_dir_all(&dir).expect("create output dir");
     dir
 }

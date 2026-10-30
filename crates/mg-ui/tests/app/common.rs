@@ -233,15 +233,17 @@ pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, glyph: &str, name: &st
         PALETTE_TYPES.iter().any(|glyph| value.starts_with(glyph))
     };
     h.query_all(combo).find(is_type).expect("the palette's type dropdown").click();
-    h.run();
+    settle(h);
     // (The last of them are below the dropdown's edge until scrolled to.)
     h.get_by_label(&format!("{glyph} {name}")).scroll_to_me();
-    h.run();
+    settle(h);
     h.get_by_label(&format!("{glyph} {name}")).click();
-    h.run();
+    settle(h);
 }
 
-/// Types into the text field with placeholder `hint` (a live filter).
+/// Types into the text field with placeholder `hint` (a live filter), and
+/// waits for what it shows ([`settle`]: a gallery's pictures, made a few
+/// milliseconds' worth a frame).
 pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     // ("Find" is a list's search: the palette's says what it looks in.)
     let palette = "🔍 Search name, tag, resref";
@@ -252,25 +254,39 @@ pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &s
     let hint = if hint == "Find" && !has(h, hint) { palette } else { hint };
     let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
-    h.run();
+    settle(h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
-    h.run();
+    settle(h);
 }
 
 pub(crate) const ANIMATIONS: (&str, &str, &str, &str) =
     ("AnimationReplace", "AnimationReplace", "OldAnimation", "NewAnimation");
 
-/// Frames until the UI stops asking for more (a gallery makes its pictures
-/// a few milliseconds' worth a frame; a look at the module's files runs on
-/// a thread, which takes longer on Windows: a little time between tries).
+/// How long [`settle`] waits for the window to settle: far longer than
+/// any of its work takes on a busy machine, short of a test that hangs.
+pub(crate) const SETTLE_TIME: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Frames until the UI stops asking for more and the window's own work is
+/// done ([`Moonglow::under_way`]: a gallery makes its pictures a few
+/// milliseconds' worth a frame, fewer on a busy machine; a look at the
+/// module's files runs on a thread, which takes longer on Windows), with a
+/// little time between tries, for at most [`SETTLE_TIME`].
 pub(crate) fn settle(h: &mut Harness<'_, Moonglow>) {
-    for _ in 0..400 {
-        if h.try_run().is_ok() {
+    let started = std::time::Instant::now();
+    loop {
+        let ran = h.try_run();
+        let under_way = h.state().under_way();
+        if ran.is_ok() && under_way.is_none() {
             return;
+        }
+        if started.elapsed() > SETTLE_TIME {
+            match (ran, under_way) {
+                (Err(e), _) => panic!("the UI keeps repainting: {e}"),
+                (Ok(_), what) => panic!("the window's work never ended: {}", what.unwrap()),
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    panic!("the UI keeps repainting");
 }
 
 /// The sample module with the game's data (`None` without the game).

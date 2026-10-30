@@ -1789,7 +1789,11 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     let running = elsewhere.join("nwmain-linux");
     std::fs::copy(&sh, &running).unwrap();
     let path = sample_module(&dir);
-    std::fs::copy(&path, user.join("modules/mgtest.mod")).unwrap();
+    // (Named for this process: a run of these tests beside it has its own
+    // stand-in game running on its own module, which this one would find.)
+    let name = format!("mgtest{}", std::process::id());
+    let file = user.join(format!("modules/{name}.mod"));
+    std::fs::copy(&path, &file).unwrap();
     let game = |module: &str| {
         std::process::Command::new(&running)
             .args(["-c", "sleep 30; true", "nwmain-linux", "+TestNewModule", module])
@@ -1798,7 +1802,7 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     };
     let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
     app.settings.no_last_area = true;
-    app.open_module(&user.join("modules/mgtest.mod"));
+    app.open_module(&file);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(2);
     let test = |h: &mut Harness<'_, Moonglow>| {
@@ -1808,17 +1812,16 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
         h.state().log.entries[from..].iter().map(|(_, m)| m.clone()).collect::<Vec<_>>()
     };
     // On the module: no test.
-    let mut on_it = game("mgtest");
+    let mut on_it = game(&name);
     let said = test(&mut h);
     on_it.kill().unwrap();
     on_it.wait().unwrap();
     let refused =
-        format!("A game is running on mgtest (process {}), not started by Moonglow", on_it.id());
+        format!("A game is running on {name} (process {}), not started by Moonglow", on_it.id());
     assert!(said.iter().any(|m| m.starts_with(&refused)), "{said:?}");
-    assert!(!said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+    assert!(!said.iter().any(|m| *m == format!("Testing {name}")), "{said:?}");
     // F9 looks before Test Module's save: the module's file is not
     // written under that game.
-    let file = user.join("modules/mgtest.mod");
     let before = std::fs::read(&file).unwrap();
     let edit = mg_edit::Edit::SetResource {
         key: ResKey::parse("added", ResType::NSS).unwrap(),
@@ -1826,7 +1829,7 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
     h.run_steps(2);
-    let mut on_it = game("mgtest");
+    let mut on_it = game(&name);
     h.key_press(egui::Key::F9);
     h.run_steps(3);
     on_it.kill().unwrap();
@@ -1845,7 +1848,7 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
         said.iter().any(|m| m.starts_with(warned) && m.contains(&other.id().to_string())),
         "{said:?}"
     );
-    assert!(said.iter().any(|m| m == "Testing mgtest"), "{said:?}");
+    assert!(said.iter().any(|m| *m == format!("Testing {name}")), "{said:?}");
 }
 
 /// A program on `PATH`.

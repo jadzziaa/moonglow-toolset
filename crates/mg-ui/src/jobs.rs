@@ -91,6 +91,23 @@ impl std::fmt::Debug for Job {
     }
 }
 
+/// Asks for a frame from a thread of the window's whose work is done (a
+/// look at the module's files, a watch that heard a change, the game's
+/// programs made): at once where the window keeps going (`at_once`:
+/// [`Moonglow::background_jobs`]); otherwise (the UI tests, which draw
+/// their frames themselves) in a second, which a test's run of frames
+/// doesn't wait for. What the thread made is taken at the next frame
+/// drawn either way. (A frame asked for at once in the middle of a test's
+/// run added frames to it, as many as threads were done in it: on a busy
+/// machine more than a run allows.)
+pub(crate) fn wake(ctx: &egui::Context, at_once: bool) {
+    if at_once {
+        ctx.request_repaint();
+    } else {
+        ctx.request_repaint_after(Duration::from_secs(1));
+    }
+}
+
 /// What a thread that panicked said.
 fn panic_text(panic: &Made) -> String {
     panic
@@ -104,6 +121,55 @@ impl Moonglow {
     /// Whether a job is under way (the window takes no other input then).
     pub fn busy(&self) -> bool {
         self.job.is_some()
+    }
+
+    /// Asks for a frame in `after` (the end of a pause timed by the clock,
+    /// not by frames): where the window keeps going
+    /// ([`Moonglow::background_jobs`]) then; otherwise in a second at the
+    /// soonest, which a test's run of frames doesn't wait for (a frame
+    /// asked for sooner than a test's frame is long is one at once, and
+    /// those went on, frame after frame, until the pause was over). A test
+    /// waits the pause out and draws a frame.
+    pub(crate) fn frame_after(&self, ctx: &egui::Context, after: Duration) {
+        let soonest = if self.background_jobs { Duration::ZERO } else { Duration::from_secs(1) };
+        ctx.request_repaint_after(after.max(soonest));
+    }
+
+    /// What of the window's own work is under way, to be taken at a later
+    /// frame, in a few words (`None`: nothing): a job, a look at the
+    /// module's files or the scripts it read to compile, blueprints read
+    /// again whose palettes are to be looked at, a burst of changes outside
+    /// being heard (a save's own), a gallery's pictures to
+    /// make or being read, an area's first reading, the lit check, the
+    /// module's references being read, an update check. The frames go on
+    /// meanwhile; a test waits for it before it looks (on a busy machine
+    /// it takes more frames than on an idle one).
+    pub fn under_way(&self) -> Option<&'static str> {
+        if self.busy() {
+            return Some("a job");
+        }
+        if let Some(what) = self.outside_under_way() {
+            return Some(what);
+        }
+        if self.thumbnails.waiting() > 0 {
+            return Some("pictures to make");
+        }
+        if self.thumbnails.reading() > 0 {
+            return Some("pictures being read");
+        }
+        if self.area_views.values().any(crate::area_view::AreaView::reading) {
+            return Some("an area being read");
+        }
+        if self.lit_check.checking() {
+            return Some("the lit check");
+        }
+        if self.references.reading() {
+            return Some("the references being read");
+        }
+        if self.updates.checking() {
+            return Some("an update check");
+        }
+        None
     }
 
     /// Starts `work` on a thread of its own, on the open module as it is

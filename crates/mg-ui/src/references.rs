@@ -83,6 +83,12 @@ pub struct References {
 }
 
 impl References {
+    /// Whether the module's references are being read, on a thread of
+    /// their own.
+    pub(crate) fn reading(&self) -> bool {
+        matches!(self.index, Index::Reading(_))
+    }
+
     /// Looks again at the next frame: what it says changed outside the
     /// module (the project file's `[used]`).
     pub(crate) fn look_again(&mut self) {
