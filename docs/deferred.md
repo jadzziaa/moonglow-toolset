@@ -346,14 +346,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   properties, matched by type, subtype and value; inventories
   (`inventory.rs`), items added to each. Several days' work with a
   design of its own for the marks and the guard. (L)
-- **Lighting of one's own:** Saved Lighting and Copy From Area give an
-  area the Visual page's fields; not the tiles' lights (each tile's
-  own, as a scheme picks them at random from its colors), and lighting
-  kept isn't made an environment.2da row of a hak, for the toolset's
-  scheme list and the game's `SetAreaLightingScheme` (`mg areas` takes
-  no saved lighting either). Saved lighting is listed, not renamed or
-  deleted in the toolset (its files are). (S–M) (dansen9191's ask,
-  October 2026)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;

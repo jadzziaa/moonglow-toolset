@@ -349,8 +349,7 @@ pub struct Scheme {
 }
 
 /// A tile's light fields, as a scheme sets them ([`Scheme::tile_fields`]).
-pub const TILE_LIGHT_FIELDS: [&str; 4] =
-    ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"];
+pub use crate::lighting::TILE_LIGHT_FIELDS;
 
 impl Scheme {
     /// The environment.2da row `text` names: its number, its `LABEL`, or
@@ -444,9 +443,12 @@ impl Scheme {
     /// (both source fields alike, as the Area Wizard writes them) picked
     /// at random ([`tile_lights`](Self::tile_lights)).
     pub fn tile_fields(&self, rng: &mut fastrand::Rng) -> [(&'static str, Value); 4] {
-        let [main1, main2, source] = self.tile_lights(rng);
-        let [a, b, c, d] = TILE_LIGHT_FIELDS;
-        [(a, main1), (b, main2), (c, source), (d, source)].map(|(l, v)| (l, Value::Byte(v)))
+        crate::lighting::pick_tile_fields(&self.lights, rng)
+    }
+
+    /// The colors its tiles' lights are picked from.
+    pub fn tile_colors(&self) -> crate::lighting::TileColors {
+        self.lights
     }
 }
 

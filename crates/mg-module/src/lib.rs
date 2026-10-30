@@ -25,6 +25,7 @@ pub mod hak_edit;
 pub mod haks;
 pub mod instances;
 pub mod journal;
+pub mod lighting;
 pub mod locks;
 pub mod minimap;
 pub mod models;

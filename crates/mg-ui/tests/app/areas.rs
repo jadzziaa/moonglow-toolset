@@ -96,12 +96,37 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
         label: label.into(),
         value: Some(v),
     };
-    let edits = vec![
+    let mut edits = vec![
         set("SunAmbientColor", mg_gff::Value::Dword(0x12_3456)),
         set("MoonFogColor", mg_gff::Value::Dword(0x00_0a0b)),
     ];
+    // And its tiles' lights its own: every tile's the same three colors.
+    let tiles = |h: &mut Harness<'_, Moonglow>, area: ResRef| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap().to_vec()
+    };
+    let lit = |tiles: &[mg_gff::Struct]| {
+        tiles.iter().all(|t| {
+            let l = |f: &str| t.integer(f);
+            (l("Tile_MainLight1"), l("Tile_MainLight2"), l("Tile_SrcLight1"), l("Tile_SrcLight2"))
+                == (Some(9), Some(8), Some(7), Some(7))
+        })
+    };
+    // (The sample module's area has none: three of them given.)
+    let mut tile = mg_gff::Struct::new(1);
+    for (label, v) in [
+        ("Tile_MainLight1", 9),
+        ("Tile_MainLight2", 8),
+        ("Tile_SrcLight1", 7),
+        ("Tile_SrcLight2", 7),
+    ] {
+        tile.set(label, mg_gff::Value::Byte(v));
+    }
+    edits.push(set("Tile_List", mg_gff::Value::List(vec![tile; 3])));
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Own", edits)));
     h.run();
+    assert!(lit(&tiles(&mut h, first)) && !lit(&tiles(&mut h, second)));
     assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
     // In the second's Visual page: Copy From Area › the first.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(second)));
@@ -114,10 +139,12 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.run_steps(3);
     assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
     assert_eq!(field(&mut h, second, "MoonFogColor"), Some(mg_gff::Value::Dword(0x00_0a0b)));
+    assert!(lit(&tiles(&mut h, second)), "the tiles' lights from the first's tiles' colors");
     assert!(h.state().ws.as_ref().unwrap().can_undo().is_some_and(|u| u.starts_with("Visual")));
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    assert!(!lit(&tiles(&mut h, second)), "one step");
     // The first's lighting kept as "Dusk", from its own page.
     close_tab(h.state_mut(), &Tab::AreaProperties(second));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(first)));
@@ -145,7 +172,60 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.get_by_label("Dusk").click();
     h.run_steps(3);
     assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    assert!(lit(&tiles(&mut h, second)), "the tiles' lights kept with it");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Dusk"));
+
+    // Renamed, deleted and put back, in the menu.
+    let open_menu = |h: &mut Harness<'_, Moonglow>, sub: &str| {
+        h.get_by_label("Saved Lighting").click();
+        h.run_steps(2);
+        h.get_by_label_contains(sub).hover();
+        h.run_steps(3);
+    };
+    open_menu(&mut h, "Rename");
+    h.get_all_by_label("Dusk").last().unwrap().click();
+    h.run_steps(3);
+    let input = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap();
+    input.focus();
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Evening");
+    h.run_steps(2);
+    h.get_by_label("Rename").click();
+    h.run_steps(2);
+    assert_eq!(mg_ui::lighting::list(Some(&dir)), ["Evening"]);
+    open_menu(&mut h, "Delete");
+    h.get_all_by_label("Evening").last().unwrap().click();
+    h.run_steps(2);
+    assert!(mg_ui::lighting::list(Some(&dir)).is_empty());
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(2);
+    h.get_by_label("Undo Delete 'Evening'").click();
+    h.run_steps(2);
+    assert_eq!(mg_ui::lighting::list(Some(&dir)), ["Evening"]);
+
+    // Made a lighting scheme: a row of environment.2da, here a copy in the
+    // module, open in the 2DA editor to be saved.
+    open_menu(&mut h, "Make a Lighting Scheme");
+    h.get_all_by_label_contains("Evening").last().unwrap().hover();
+    h.run_steps(3);
+    h.get_by_label("A Copy in the Module").click();
+    h.run_steps(3);
+    let table =
+        h.state().tables.iter().find(|t| t.key.resref.as_str() == Some("environment")).unwrap();
+    let (id, t) = (table.id, table.edit.table().clone());
+    let row = t.len() - 1;
+    assert_eq!(t.get(row, "LABEL"), Some("Evening"));
+    assert_eq!(t.get(row, "STRREF"), None);
+    assert_eq!(t.get(row, "MAIN1_COLOR1"), Some("9"));
+    assert_eq!(t.get(row, "SECONDARY_COLOR4"), Some("7"));
+    assert_eq!(t.get(row, "LIGHT_AMB_RED"), Some("86"), "0x56, the red of 0x123456");
+    assert!(table.edit.is_dirty(), "not saved until Save");
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    let ws = h.state().ws.as_ref().unwrap();
+    let key = ResKey::new(ResRef::from_str("environment").unwrap(), ResType::TWODA);
+    let saved = mg_2da::TwoDa::parse(ws.module.get(&key).unwrap(), mg_core::Codepage::default());
+    assert_eq!(saved.unwrap().get(row, "LABEL"), Some("Evening"));
 }
 
 /// Options › General › Toolbar buttons, Icons only: the area view's

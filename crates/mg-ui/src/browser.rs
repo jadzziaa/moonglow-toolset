@@ -330,7 +330,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// Where a table shown in the browser is to be edited.
-enum EditTable {
+pub(crate) enum EditTable {
     InModule,
     Copy(crate::table_view::Home),
     CopyInFile,
@@ -361,10 +361,16 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
 /// one the game reads, in the module, in a hak open in the hak editor,
 /// or in a file. (The game's own tables are never changed.)
 fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
+    ui.menu_button("Edit…", |ui| table_homes(app, ui, key)).inner.flatten()
+}
+
+/// The places a table can be edited in, as buttons ([`table_menu`]'s):
+/// the one clicked.
+pub(crate) fn table_homes(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
     use crate::table_view::Home;
     let mut out = None;
     let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
-    ui.menu_button("Edit…", |ui| {
+    {
         if in_module {
             if ui.button("The Module's Table").clicked() {
                 out = Some(EditTable::InModule);
@@ -412,8 +418,22 @@ fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
         if ui.button("A Copy in a File…").clicked() {
             out = Some(EditTable::CopyInFile);
         }
-    });
+    }
     out
+}
+
+/// Opens table `key` in the 2DA editor where `home` says; its document's
+/// id, where it opened.
+pub(crate) fn open_table(app: &mut Moonglow, key: ResKey, home: EditTable) -> Option<u32> {
+    match home {
+        EditTable::InModule => crate::table_view::open_in_module(app, key),
+        EditTable::Copy(home) => crate::table_view::edit_copy(app, key, home),
+        EditTable::CopyInFile => crate::table_view::edit_copy_in_file(app, key),
+        EditTable::InHak(path) => {
+            let hak = crate::hak_view::open_at(app, &path)?;
+            crate::table_view::open_in_hak(app, hak, key)
+        }
+    }
 }
 
 /// A copy of a table that a hak of the module has (`layer`, `hak:name`),
@@ -669,16 +689,8 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         ui.weak(format!("Overridden by {over}, whose copy the game reads."));
     }
     ui.separator();
-    match edit_table {
-        Some(EditTable::InModule) => _ = crate::table_view::open_in_module(app, key),
-        Some(EditTable::Copy(home)) => _ = crate::table_view::edit_copy(app, key, home),
-        Some(EditTable::CopyInFile) => crate::table_view::edit_copy_in_file(app, key),
-        Some(EditTable::InHak(path)) => {
-            if let Some(hak) = crate::hak_view::open_at(app, &path) {
-                crate::table_view::open_in_hak(app, hak, key);
-            }
-        }
-        None => {}
+    if let Some(home) = edit_table {
+        open_table(app, key, home);
     }
     if copy {
         app.actions.push(Action::Apply(Command::new(

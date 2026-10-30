@@ -845,10 +845,18 @@ enum Cmd {
         /// `--set` changes made with it are made after it.
         #[arg(long, value_name = "SCHEME")]
         lighting_scheme: Option<String>,
-        /// The tiles' lights of `--lighting-scheme` picked as with this
-        /// number (printed by a run without it, `--dry-run` too): the same
-        /// number, the same picks.
-        #[arg(long, value_name = "NUMBER", requires = "lighting_scheme")]
+        /// Lighting kept under a name in Moonglow (Area Properties ›
+        /// Visual › Saved Lighting: `Dusk`), or its file
+        /// (`dusk.lighting.json`), as Saved Lighting gives it: the Visual
+        /// page's fields it keeps, and each tile's lights picked at random
+        /// from the colors kept with them. After `--lighting-scheme`,
+        /// before `--set`.
+        #[arg(long, value_name = "NAME_OR_FILE")]
+        lighting: Option<String>,
+        /// The tiles' lights of `--lighting-scheme` or `--lighting` picked
+        /// as with this number (printed by a run without it, `--dry-run`
+        /// too): the same number, the same picks.
+        #[arg(long, value_name = "NUMBER")]
         seed: Option<u64>,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
@@ -3283,6 +3291,7 @@ fn run(cli: &Cli) -> Result<Output> {
             remove_grass,
             tileset_grass,
             lighting_scheme,
+            lighting,
             seed,
             all,
             dry_run,
@@ -3361,6 +3370,18 @@ fn run(cli: &Cli) -> Result<Output> {
                     .map_err(|e| anyhow::anyhow!("--lighting-scheme {e}"))?;
                 let scheme = mg_module::new::Scheme::read(game, row)?;
                 changes.insert(0, Change::LightingScheme(scheme));
+            }
+            // Lighting kept in Moonglow's data folder (or a file of it):
+            // after the scheme, before `--set`.
+            if let Some(name) = lighting {
+                let dir = mg_module::lighting::dir();
+                let saved = mg_module::lighting::read(dir.as_deref(), name)
+                    .map_err(|e| anyhow::anyhow!("--lighting {e}"))?;
+                let at = usize::from(matches!(changes.first(), Some(Change::LightingScheme(_))));
+                changes.insert(at, Change::Lighting(Box::new(saved), name.trim().to_string()));
+            }
+            if seed.is_some() && lighting_scheme.is_none() && lighting.is_none() {
+                anyhow::bail!("--seed picks the tiles' lights of --lighting-scheme or --lighting");
             }
             // A variable's type, where none is given: its description's
             // (`variables.toml`), where the project describes it.
@@ -3474,7 +3495,9 @@ fn run(cli: &Cli) -> Result<Output> {
             // (The tiles' lights picked at random, as Aurora picks them,
             // with a number that picks them again: a dry run's are a
             // run's with it.)
-            let scheme = changes.iter().any(|c| matches!(c, Change::LightingScheme(_)));
+            let scheme = changes
+                .iter()
+                .any(|c| matches!(c, Change::LightingScheme(_) | Change::Lighting(..)));
             let seed = seed.unwrap_or_else(|| {
                 use std::hash::{BuildHasher, Hasher};
                 let mut h = std::collections::hash_map::RandomState::new().build_hasher();
