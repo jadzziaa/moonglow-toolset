@@ -432,14 +432,8 @@ impl Workspace {
             Edit::SetResource { key, data } => {
                 // The cached document may hold edits not yet in the module;
                 // the undo copy must include them.
-                if let Some(doc) = self.docs.remove(key)
-                    && self.edited.remove(key)
-                {
-                    let bytes = doc
-                        .to_bytes()
-                        .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-                    self.module.set(*key, bytes);
-                }
+                self.write_back(key)?;
+                self.docs.remove(key);
                 let old = self.module.get(key).map(<[u8]>::to_vec);
                 match data {
                     Some(d) => self.module.set(*key, d.clone()),
@@ -598,17 +592,36 @@ impl Workspace {
     /// module (those only read are as the module has them already): its
     /// cost is what was edited, not what a session has opened.
     pub fn flush(&mut self) -> Result<(), EditError> {
-        let edited: Vec<ResKey> = self.edited.iter().copied().collect();
-        for key in edited {
-            if let Some(gff) = self.docs.get(&key) {
-                let bytes = gff
-                    .to_bytes()
-                    .map_err(|e| EditError::Invalid { key, message: e.to_string() })?;
-                if self.module.get(&key) != Some(&bytes[..]) {
-                    self.module.set(key, bytes);
-                }
+        let mut edited: Vec<ResKey> = self.edited.iter().copied().collect();
+        edited.sort();
+        for key in &edited {
+            self.write_back(key)?;
+        }
+        Ok(())
+    }
+
+    /// Writes one edited document back into the module. A document whose
+    /// edits left it as the file was when opened or last saved (an edit
+    /// and its undo, a field set back by hand) gets that file's bytes
+    /// back, not Moonglow's layout of them (Aurora lays a file out
+    /// otherwise, and a module folder kept in git showed it changed); one
+    /// as the module holds it already is left alone. (James Reeves's pull
+    /// request, GitHub 36.)
+    fn write_back(&mut self, key: &ResKey) -> Result<(), EditError> {
+        if !self.edited.remove(key) {
+            return Ok(());
+        }
+        let Some(gff) = self.docs.get(key) else { return Ok(()) };
+        let bytes =
+            gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
+        let holds = |data: &[u8]| data == &bytes[..] || Gff::read(data).is_ok_and(|g| g == *gff);
+        if let Some(saved) = self.saved.get(key).filter(|d| holds(d)) {
+            if self.module.get(key) != Some(saved) {
+                let saved = saved.to_vec();
+                self.module.set(*key, saved);
             }
-            self.edited.remove(&key);
+        } else if !self.module.get(key).is_some_and(holds) {
+            self.module.set(*key, bytes);
         }
         Ok(())
     }
@@ -1295,5 +1308,78 @@ mod tests {
         assert!(ws.module.contains(&script));
         ws.undo().unwrap();
         assert!(!ws.module.contains(&script));
+    }
+
+    /// A workspace holding two areas' GITs laid out otherwise than
+    /// Moonglow's writer lays them (as Aurora's files are): eight bytes
+    /// more at the end, read as the same document. (This test and the two
+    /// after it are James Reeves's, from GitHub pull request 36.)
+    fn foreign_workspace() -> (Workspace, [(ResKey, Vec<u8>); 2]) {
+        let mut m = Module::new();
+        let files = ["one", "two"].map(|area| {
+            let mut g = Gff::new(*b"GIT ");
+            g.root.set("Creature List", Value::List(Vec::new()));
+            let mut bytes = g.to_bytes().unwrap();
+            bytes.extend_from_slice(&[0; 8]);
+            assert_eq!(Gff::read(&bytes).unwrap(), g, "the padding is not read");
+            let k = key(area, ResType::GIT);
+            m.set(k, bytes.clone());
+            (k, bytes)
+        });
+        (Workspace::new(m), files)
+    }
+
+    fn set_extra(k: ResKey, value: Option<Value>) -> Command {
+        let label = "Extra".into();
+        Command::new("Extra", vec![Edit::SetField { key: k, path: GffPath::root(), label, value }])
+    }
+
+    #[test]
+    fn documents_only_read_keep_their_bytes() {
+        let (mut ws, files) = foreign_workspace();
+        for (k, _) in &files {
+            ws.doc(k).unwrap();
+        }
+        ws.flush().unwrap();
+        for (k, bytes) in &files {
+            assert_eq!(ws.module.get(k), Some(&bytes[..]), "{k}: only read");
+        }
+    }
+
+    #[test]
+    fn an_edit_writes_its_own_document_alone() {
+        let (mut ws, [(one, _), (two, two_bytes)]) = foreign_workspace();
+        ws.doc(&two).unwrap();
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        assert_eq!(Gff::read(ws.module.get(&one).unwrap()).unwrap().root.int("Extra"), Some(3));
+        assert_eq!(ws.module.get(&two), Some(&two_bytes[..]));
+    }
+
+    /// An edit undone, or set back by hand, gives the file its own bytes
+    /// back, not Moonglow's layout of the same document.
+    #[test]
+    fn an_edit_undone_gives_the_bytes_back() {
+        let (mut ws, [(one, one_bytes), _]) = foreign_workspace();
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        assert_ne!(ws.module.get(&one), Some(&one_bytes[..]));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&one), Some(&one_bytes[..]), "undone");
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        ws.apply(set_extra(one, None)).unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&one), Some(&one_bytes[..]), "set back by hand");
+        // And through a resource replaced whole, whose undo copy is the
+        // document as it was.
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.undo().unwrap();
+        let other = Gff::new(*b"GIT ").to_bytes().unwrap();
+        ws.apply(Command::new("Whole", vec![Edit::SetResource { key: one, data: Some(other) }]))
+            .unwrap();
+        ws.undo().unwrap();
+        assert_eq!(ws.module.get(&one), Some(&one_bytes[..]), "a resource replaced, undone");
     }
 }

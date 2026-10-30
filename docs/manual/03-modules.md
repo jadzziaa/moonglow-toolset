@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T11:30:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:03:04Z }
 ---
 
 # Modules
@@ -135,6 +135,10 @@ a directory), nasher projects (see below) and the game's campaign files
 
 Moonglow keeps everything in a module it does not understand: fields with
 no editor, unknown resources, unusual orderings. An untouched module saves
+as it was, and so does anything you only looked at, such as an area you
+opened, a Properties window, or the areas Update Instances checked. In a
+module folder kept in git, a save changes only the files you actually
+edited, and an edit undone (or a field set back by hand) leaves its file
 as it was.
 
 ## Where things are used, and renaming
