@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:48:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:36:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -40,27 +40,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (S once those packages merge: the same three folds, `window_harness`
   for the first, `game_app_with` or `game_data` for the second,
   `user_folder` for the third.)
-- **`mg` builds the GPU stack by default** for `mg nui render` (drawn
-  with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
-  egui, no GPU), both of mg-ui:
-  229 crates, 2 min 42 s cold (`cargo build --release -p mg`, 4 jobs),
-  37.8 MB. Without the feature `nui-preview` (`--no-default-features`)
-  `mg` is 140 crates, 87 s and 22.7 MB, and has neither command (clap
-  says "unrecognized subcommand"). The canvas in a crate of its own,
-  with egui and no wgpu, would leave `render` alone behind the feature;
-  the packages keep the default, so only builds of `mg` from source
-  gain. Looked into on 2026-10-29 (the deferred sprint's package m11), it
-  is several days, not one: the crate would take `nui_view/preview/`
-  (the canvas, about 3,400 lines), `skin.rs` (1,400), the painting half
-  of `draw.rs`, `layouts.rs`'s variant in its window and `interaction.rs`'s
-  session, and the 25 or so fields of `nui_view::State` the canvas reads
-  (a state of the canvas's own, carved out of the editor's); and what the
-  canvas reaches into the editor for would become hooks: `design::node_name`
-  and `Insert`, `structure::select`, `drag_target` and `Drag` (selecting,
-  dragging and dropping on the canvas), and `widgets::field_label`,
-  `widgets::dropdown` and `fields::hinted` (the draw layers' fields in
-  `draw.rs`). (settle?: proposed by the sprint on 2026-10-29, the owner's
-  to say: kept as it is while no one builds `mg` alone.) (L)
 - **Moonglow Viewer's shader cache across toolset tags:** the libraries
   are 0.0.0 and read the release from the program (`mg_core::release`),
   which the viewer doesn't set, so its compiled-shader cache is named by
@@ -93,13 +72,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
-  - **An object both moved and retagged on one side** is taken as removed
-    and another added (a conflict where the other side changed it):
-    matched by its blueprint alone, an object one side removed while it
-    placed another of the blueprint elsewhere would take the other
-    side's change (the merge review's ruling, 2026-10-30; the chest
-    A / chest B test). (settle?: kept so, proposed by the sprint on
-    2026-10-30, the owner's to say) (S)
   - **Conversations** merge their entry and reply lists by place, and the
     links name nodes by number: two builders adding nodes to one
     conversation conflict, where renumbering one side's new nodes (and
@@ -114,36 +86,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
     apply`) or a Moonglow window would. (M)
   (The Domains of Dread's builder proposal, C9)
 
-## Modules kept as folders
-
-- **A module's files changed outside, read on a thread of their own**
-  (`mg_module::outside`; their reads' allocator arena is Settled): what
-  the entry said besides, as it is: a reload that touches resources the
-  undo history has changes to clears the whole history (undoing an
-  earlier change to them could not be done from what they are now; a
-  command's other edits are not taken apart from it); a script open in
-  the editor with typing not yet applied counts as changed here (it is
-  unsaved work, and the window asks which to keep); the haks and the
-  `override`, `development` and portrait folders (and the custom talk
-  table) are read again on the window's thread after a change, measured
-  on an `override` of 20,000 files at 20 ms each time something in it
-  changes (the look that finds the change 7 ms; the machine's load 2.2
-  on 32 CPUs): three frames at 144 a second, once a change. (settle?:
-  the three kept as they are, proposed by the sprint on 2026-10-30, the
-  owner's to say) (S each)
-
 ## Test loop
 
 - **`mg serve` on Windows:** not tried there: the server's console on
   pipes, the links for haks, and Ctrl+C (the server in a console
   process group of its own, `CREATE_NEW_PROCESS_GROUP`, told to `exit`
   by `mg`). (S) (waits on a Windows machine)
-- **`mg watch`** (a project followed into a development folder):
-  nothing is pushed through NWNX's console (what changed goes to the
-  development folder, which a server with NWNX reads as any other).
-  Dropping it is proposed: an NWNX integration no one asked for.
-  (settle?: proposed by the sprint on 2026-10-29, the owner's to say)
-  (M)
 - **Test Module and Steam:** the game started for a test is told which
   Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
   Steam and loads the Workshop's content, as when started from Steam;
@@ -248,17 +196,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     writing it as a line of the module's custom talk table instead, at
     the next free line of a range the project keeps (`mg tlk-alloc`'s
     map is one), touches every localized-string field and the talk
-    table's saving. (L)
-  - **Made from the blueprint, between a placed object and a
-    blueprint:** an item carried (dragged, pasted) between them is made
-    from its blueprint where it lands, keeping its flags, as a
-    blueprint's inventory holds only a blueprint's name. (settle?:
-    proposed by the sprint on 2026-10-29, the owner's to say)
-  - **A moved row keeps its grid place:** a row dragged within a list
-    takes its place in the list, and keeps its `Repos_PosX` and
-    `Repos_Posy` (where the game's inventory grid shows it), as
-    Moonglow shows a list, not Aurora's grid. (settle?: proposed by the
-    sprint on 2026-10-29, the owner's to say)
+    table's saving. (L) (After 3.0.0, the owner's word, 2026-10-30: 3rd
+    of 9 by complexity.)
   (a second builder's review, October 2026)
 
 ## Bulk editing
@@ -279,7 +218,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   each and a class added where there is room; spells, per class; item
   properties, matched by type, subtype and value; inventories
   (`inventory.rs`), items added to each. Several days' work with a
-  design of its own for the marks and the guard. (L)
+  design of its own for the marks and the guard. (L) (After 3.0.0, the
+  owner's word, 2026-10-30: 6th of 9 by complexity.)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
@@ -320,11 +260,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   then, as the lists did already and as a Polish game shows it, and
   says which letters a text cannot hold (`text.rs`'s `entry_codepage`).
   Left, waiting on the reporter: String Edit on their module with Polish
-  the editing language, its names seen right and one saved. With another
-  editing language a Polish name kept in the English text is read as
-  Windows-1252, as an English game and Aurora (the system's codepage)
-  show it: Moonglow has nothing else to know the text's codepage by (settle?:
-  proposed by the sprint on 2026-10-30, the owner's to say). (S)
+  the editing language, its names seen right and one saved. (S)
   (from builders' reports after 1.19.1)
 
 - **The custom palettes kept, what is left** (since a save changes only
@@ -467,7 +403,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
-  begun. Move to Talk Table does one string at a time. (L)
+  begun. Move to Talk Table does one string at a time. (L) (After
+  3.0.0, the owner's word, 2026-10-30: 4th of 9 by complexity.)
   (from builders' reports after 1.19.1)
 
 ## Haks in the GUI
@@ -486,21 +423,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     files (a visual effect's models, progfx.2da's, its sounds; a
     spell's icons, models and sounds; an appearance's look through
     `mg_preview::creature`). In mg-script and `usage.rs`: a day or two
-    (L), larger than the rest of the entry was.
+    (L), larger than the rest of the entry was. (After 3.0.0, the
+    owner's word, 2026-10-30: 1st of 9 by complexity.)
   - **The body parts players choose** at character creation (tattoos):
     which part numbers the creation screen offers for a race and
     phenotype isn't known here (parts_*.2da has no column for it, and
     every part number would count every armor part as used). Waits on
     the client batch: read the creation screen's part lists against
     parts_chest.2da and the others.
-
-  A script's string still counts as a use of whatever it spells,
-  whatever the string is for (a release cut keeps too much rather than
-  too little; said in the manual), and a per-hak list for the release
-  cut (a folder of the used assets to pack smaller haks) is not written:
-  `--json` has the lists, and writing haks from them goes beyond what
-  was asked. (settle?: both proposed by the sprint on 2026-10-29, the
-  owner's to say) (L; the body parts wait on the client batch)
 
 - **Viewing in the hak editor:** a model of a hak the game doesn't read
   (not one of the module's, or changed there and not saved) shows as its
@@ -638,25 +568,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   dynamic one's light node keys and its meshes' self-illumination keys
   since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
   client batch). Left: the window's flicker itself (Custom Light…
-  writing the keyed `default` and a dynamic placeable). Rows and models no
-  light uses any more stay in the hak, as a row's number is what placed
-  lights know it by (settle?: proposed by the sprint on 2026-10-29, the
-  owner's to say). (S) (from builders' reports after 1.16.2)
+  writing the keyed `default` and a dynamic placeable). (S) (from
+  builders' reports after 1.16.2)
 
 ## Rendering: creatures, particles, water and shaders
 
-- **Emitters start as they look once going:** an emitter new to the
-  view, an object's or a tile's, is run twenty seconds ahead so that it
-  shows as it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the
-  nearest 256 objects and 128 tiles with emitters are simulated while
-  Animations is on (`nearest`); a wide fog is as dense as the game's and
-  Magic Sparks streak as the client's since 2026-10-30 (`Motion_Blur`
-  read in the fourth client batch and drawn). Left: a tile's emitters
-  take their keys from the animations playing on it as one animation as
-  long as the longest (the game's tiles' keys are constant; one that
-  changed over a shorter loop would run slow) (settle?: proposed by the
-  sprint on 2026-10-30, the owner's to say: kept so, as no tile of the
-  game's has such keys). (S) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
@@ -866,20 +782,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
     17.0). The material colours the engine uploads (`.set`
-    [GRASS]'s) are not read through a patched `vsgrass`. How far it
-    draws grass is read (`reading_grass_placement` with
-    `MG_GRASS_DISTANCE`, 2026-10-29): the client's Grass Far Render
-    Distance (`graphics.grass.render-distance`, 900 by default and at
-    the least, to 30,000) is in square meters, the grass fading out over
-    the last fifth or so of its root from the eye: at 900 the white
-    tufts are whole to about 22 m and gone by 28 to 30 m (the "15 to 20
-    m out" seen from the player), at 3,600 they reach the horizon of
-    the 4 by 4 area. Moonglow's go on, whole, to the end of the view,
-    as the owner asked of an editor's camera on 2026-10-23 (grass seen
-    only about its target was what he took for a fault; from an
-    editor's height, 30 m from the eye is no grass at all) (settle?:
-    proposed by the sprint on 2026-10-29, the owner's to say: kept to
-    the view's end, not cut at the client's distance). (S)
+    [GRASS]'s) are not read through a patched `vsgrass`. (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough
@@ -1111,13 +1014,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and tail. Waits on the client batch: `reading_wings_without_bones`'s
   picture beside Moonglow's (`moonglow_beside`) with that fallback
   taken out. (S)
-- **The model compiler and writers in `mg-mdl`** (moved from the
-  viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
-  1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
-  file's `[pack] compile_models`) compiles models only when asked, as
-  the game reads text and a pack's bytes should not change unasked: on
-  by default later? (settle?: proposed by the sprint on 2026-10-29, the
-  owner's to say: kept off by default)
 - **Animations bind by part number, not by name:** done (by name
   where either is from text, and for a worn cloak or robe).
   Seen in the viewer session's client pictures (a
@@ -1233,30 +1129,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   their own inside) keep egui's sizing, which can grow by the scroll
   bar's width once. (S) (Troubletcat's report, October 2026)
 
-## Languages, tokens and loading screens
-
-- **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
-  table of the Unicode character each byte of the game's text stands
-  for; a builder who knows the engine pointed it out, after 1.19.1):
-  the toolset, plugins and `mg` read and write a module's text by it
-  wherever they are given the module (`mg gff` and `mg lsp` with
-  `--module`, the name `mg nwsync` publishes), as the server reads it
-  (`engine_encoding.rs`: from a hak or `override`, not the module file;
-  a missing row the game's language's letter, a Polish game's
-  Windows-1250 one; `game.language.codepage` honored). Kept as they are
-  by choice, for the owner to settle: a prefab's file keeps the bytes
-  (written as Windows-1252 text, so that it is the same object in any
-  module); a hak's description is the hak's, not the module's; a nasher
-  project's sources are converted by its `nasher.cfg`'s
-  `--nwn-encoding`, as nasher's own tools convert them, so that the
-  bytes nasher packs are the module's; and the toolset reads the game's
-  text by Options › Language, not by the user folder's
-  `game.language.codepage`, which the server honors and `mg lsp` reads.
-  An exported or imported conversation is spelled over as a whole, its
-  punctuation too (of no matter unless a table moves ASCII's own
-  characters). (settle?: the four kept as they are, proposed by the
-  sprint on 2026-10-30, the owner's to say) (S)
-
 ## Remappable keys
 
 - **Shift+Insert in the window itself:** it asks the backend for the
@@ -1305,23 +1177,6 @@ contribution itself states as not done or not checked.
     bit. `mg-image` differs on both; a model's texture of the same file
     was not read, and `mg-image` decodes it for the renderer too, so the
     fix (the table, and the bit not alpha) waits on that one reading. (S)
-- **Where the preview is known to differ from the game** (stated in
-  [the manual](manual/18-nui-creator.md);
-  `crates/mg-ui/src/nui_view/preview.rs`; `mg nui render` and `layout`
-  show the canvas, with these differences; since 2026-10-30, as the
-  client was read on 2026-10-29: a control's size and margins whole
-  pixels at a UI scale that isn't whole, a row's last button stretched
-  to a wider control below it, numbers in text a 32-bit float's digits,
-  ties to even):
-  - *An encouraged control* shows its hover look and does not pulse; the
-    pulse's period is not measured either. (settle?: proposed by the
-    sprint on 2026-10-29, the owner's to say: a still preview shows the
-    pulse's peak.)
-  - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
-    places neighbors apart: it finds none but where the game would lay the
-    window out otherwise, which it can't know. (settle?: proposed by the
-    sprint on 2026-10-29, the owner's to say: said in the manual's command
-    line chapter, as it is.)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
@@ -1372,7 +1227,8 @@ contribution itself states as not done or not checked.
     the tool itself does is out of a plugin's reach: there is no view
     to draw in or brush to take input from, and baking textures in
     Luau would be slow. Sculpted terrain inside Moonglow would be a
-    feature of its own. (L)
+    feature of its own. (L) (After 3.0.0, the owner's word, 2026-10-30:
+    9th of 9 by complexity.)
   - **Not tried in the application on a desktop:** the folder and the
     hak question were driven through the UI harness and `mg`, not with
     the real file dialogs (the file dialog of `open_file` filters by
@@ -1430,7 +1286,8 @@ contribution itself states as not done or not checked.
     through the UI harness, with a rendered picture of the form; not
     used on a desktop. (S each)
   - **More kinds of things to add:** exporters and importers, wizards,
-    panels. (L)
+    panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
+    complexity.)
   - **Commands on what is selected** (API 0.4, the Domains of Dread's
     builder proposal A1: `ctx.selection`, `ctx.open`, a command's
     `for`). Not done: `for` names a kind for its placed objects and its
@@ -1631,7 +1488,8 @@ contribution itself states as not done or not checked.
   crate over GitHub Releases. Also not done: the release notes shown in
   the window (only the page is linked); the issue's "Install Now, Later"
   buttons (the notice has the page, Don't remind me about this version
-  and ×). (L) (GitHub issue 28)
+  and ×). (L) (GitHub issue 28) (After 3.0.0, the owner's word,
+  2026-10-30: 7th of 9 by complexity.)
 - **The graphics backend** (Options › General, `mg_render::backend`;
   El Grillo's report, October 2026: an AMD Radeon PRO's tiles gone one
   by one through AMD's Windows Vulkan driver, 25.10.37.03, drawn right
@@ -1740,7 +1598,8 @@ viewer under 2). What is left:
 
 - **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
   13 ms a key: egui lays out the whole text again on each change. An
-  editor that lays out the lines in sight would be needed. (L)
+  editor that lays out the lines in sight would be needed. (L) (After
+  3.0.0, the owner's word, 2026-10-30: 5th of 9 by complexity.)
 
 ## Written more than once (the review of 2026-10-21)
 
@@ -1766,7 +1625,8 @@ of truth, and does each caller's difference matter.
   carried by `Reference`, `Usage` and `Hit` (a `Usage` in a script is
   `line N`, in a 2DA `row R, COLUMN`: a path of its own kind), which
   `mg refs --json` and the UI read as text. Looked at
-  again 2026-10-30: unchanged in size. (L, mechanical)
+  again 2026-10-30: unchanged in size. (L, mechanical) (After 3.0.0,
+  the owner's word, 2026-10-30: 2nd of 9 by complexity.)
 
 ### Settled in the engine or Aurora first
 
@@ -2521,8 +2381,8 @@ is not taken for a new gap.
   shows disabled as 0 (captured 2026-10-30, `captures/wave2/tiles-one.mod`:
   Main Light 1 changed alone on two tiles of lights 5, 6, 1, 2 and 10,
   11, 3, 4 left both 27, 6, 0, 0, their loops 0); Moonglow keeps its own,
-  as the owner's report on Tile Properties asked. (settle?: proposed by
-  the sprint on 2026-10-30, the owner's to say)
+  as the owner's report on Tile Properties asked. (Settled by the
+  owner, 2026-10-30.)
 - **The game's text in the language edited, and the feminine talk
   table:** the install is read as that language when its
   `lang/<code>/data/dialog.tlk` is there (its talk table, and the rest
@@ -2534,3 +2394,119 @@ is not taken for a new gap.
   "W2 MASCULINE", with `w2f.tlk` beside it saying "W2 FEMININE",
   2026-10-30), as Moonglow does: the feminine table is the game's for a
   woman's character. (Settled in Aurora.)
+- **`mg` builds the GPU stack by default** for `mg nui render` (drawn
+  with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
+  egui, no GPU), both of mg-ui: 229 crates, 2 min 42 s cold (`cargo
+  build --release -p mg`, 4 jobs), 37.8 MB. Without the feature
+  `nui-preview` (`--no-default-features`) `mg` is 140 crates, 87 s and
+  22.7 MB, and has neither command (clap says "unrecognized
+  subcommand"). The packages keep the default, so only builds of `mg`
+  from source would gain from the canvas in a crate of its own, with
+  egui and no wgpu, which was looked into on 2026-10-29 (the deferred
+  sprint's package m11) and is several days: the crate would take
+  `nui_view/preview/` (the canvas, about 3,400 lines), `skin.rs`
+  (1,400), the painting half of `draw.rs`, `layouts.rs`'s variant in its
+  window and `interaction.rs`'s session, and the 25 or so fields of
+  `nui_view::State` the canvas reads; and what the canvas reaches into
+  the editor for would become hooks (`design::node_name` and `Insert`,
+  `structure::select`, `drag_target` and `Drag`, `widgets::field_label`,
+  `widgets::dropdown` and `fields::hinted`). Kept as it is while no one
+  builds `mg` alone. (Settled by the owner, 2026-10-30.)
+- **`mg merge-gff`: an object both moved and retagged on one side** is
+  taken as removed and another added (a conflict where the other side
+  changed it): matched by its blueprint alone, an object one side
+  removed while it placed another of the blueprint elsewhere would take
+  the other side's change (the merge review's ruling, 2026-10-30; the
+  chest A / chest B test). (Settled by the owner, 2026-10-30.)
+- **A module's files changed outside, read on a thread of their own**
+  (`mg_module::outside`; their reads' allocator arena is settled above):
+  a reload that touches resources the undo history has changes to
+  clears the whole history (undoing an earlier change to them could not
+  be done from what they are now; a command's other edits are not taken
+  apart from it); a script open in the editor with typing not yet
+  applied counts as changed here (it is unsaved work, and the window
+  asks which to keep); the haks and the `override`, `development` and
+  portrait folders (and the custom talk table) are read again on the
+  window's thread after a change, measured on an `override` of 20,000
+  files at 20 ms each time something in it changes (the look that finds
+  the change 7 ms; the machine's load 2.2 on 32 CPUs): three frames at
+  144 a second, once a change. The three kept as they are. (Settled by
+  the owner, 2026-10-30.)
+- **An inventory's item made from the blueprint, between a placed object
+  and a blueprint:** an item carried (dragged, pasted) between them is
+  made from its blueprint where it lands, keeping its flags, as a
+  blueprint's inventory holds only a blueprint's name. (a second
+  builder's review, October 2026) (Settled by the owner, 2026-10-30.)
+- **An inventory's moved row keeps its grid place:** a row dragged
+  within a list takes its place in the list, and keeps its `Repos_PosX`
+  and `Repos_Posy` (where the game's inventory grid shows it), as
+  Moonglow shows a list, not Aurora's grid. (a second builder's review,
+  October 2026) (Settled by the owner, 2026-10-30.)
+- **A Polish name in the English text, with another editing language:**
+  String Edit reads and writes the Windows-1252 languages' text as
+  Windows-1250 when Polish is the editing language (`text.rs`'s
+  `entry_codepage`); with another editing language a Polish name kept
+  in the English text is read as Windows-1252, as an English game and
+  Aurora (the system's codepage) show it: Moonglow has nothing else to
+  know the text's codepage by. (issue 13's other half, from builders'
+  reports after 1.19.1) (Settled by the owner, 2026-10-30.)
+- **What the Module Uses, a script's strings and the release cut**
+  (`--usage`, `mg_preview::usage`): a script's string counts as a use of
+  whatever it spells, whatever the string is for (a release cut keeps
+  too much rather than too little; said in the manual), and a per-hak
+  list for the release cut (a folder of the used assets to pack smaller
+  haks) is not written: `--json` has the lists, and writing haks from
+  them goes beyond what was asked. (Settled by the owner, 2026-10-30.)
+- **Custom lights' rows and models no light uses any more** stay in the
+  hak (Custom Light…, `mg_module::lights`), as a row's number is what
+  placed lights know it by. (from builders' reports after 1.16.2)
+  (Settled by the owner, 2026-10-30.)
+- **A tile's emitters' keys:** a tile's emitters take their keys from
+  the animations playing on it as one animation as long as the longest
+  (`scene.rs`); the game's tiles' keys are constant, and one that
+  changed over a shorter loop would run slow, but no tile of the game's
+  has such keys. (from builders' reports after 1.14.1) (Settled by the
+  owner, 2026-10-30.)
+- **Grass to the end of the view:** the client's Grass Far Render
+  Distance (`graphics.grass.render-distance`, 900 by default and at the
+  least, to 30,000) is in square meters, the grass fading out over the
+  last fifth or so of its root from the eye: at 900 the white tufts are
+  whole to about 22 m and gone by 28 to 30 m (`reading_grass_placement`
+  with `MG_GRASS_DISTANCE`, 2026-10-29), at 3,600 they reach the horizon
+  of the 4 by 4 area. Moonglow's go on, whole, to the end of the view,
+  as the owner asked of an editor's camera on 2026-10-23 (grass seen
+  only about its target was what he took for a fault; from an editor's
+  height, 30 m from the eye is no grass at all): not cut at the
+  client's distance. (Settled by the owner, 2026-10-30.)
+- **`mg pack` compiles models only when asked** (and a nasher project's
+  Pack, by its project file's `[pack] compile_models`; the compiler and
+  writers in `mg-mdl`, moved from the viewer's `crates/mgv-mdl` at its
+  0.1.6): the game reads text and a pack's bytes should not change
+  unasked, so it stays off by default. (Settled by the owner,
+  2026-10-30.)
+- **A module's `encoding.2da`, the four kept by choice** (EE 1.87: a
+  table of the Unicode character each byte of the game's text stands
+  for; the toolset, plugins and `mg` read and write a module's text by
+  it wherever they are given the module, as the server reads it,
+  `engine_encoding.rs`): a prefab's file keeps the bytes (written as
+  Windows-1252 text, so that it is the same object in any module); a
+  hak's description is the hak's, not the module's; a nasher project's
+  sources are converted by its `nasher.cfg`'s `--nwn-encoding`, as
+  nasher's own tools convert them, so that the bytes nasher packs are
+  the module's; and the toolset reads the game's text by Options ›
+  Language, not by the user folder's `game.language.codepage`, which
+  the server honors and `mg lsp` reads. An exported or imported
+  conversation is spelled over as a whole, its punctuation too (of no
+  matter unless a table moves ASCII's own characters). (a builder who
+  knows the engine, after 1.19.1) (Settled by the owner, 2026-10-30.)
+- **Where the NUI preview is known to differ from the game** (stated in
+  [the manual](manual/18-nui-creator.md);
+  `crates/mg-ui/src/nui_view/preview.rs`; `mg nui render` and `layout`
+  show the canvas): an encouraged control shows its hover look and does
+  not pulse (the pulse's period not measured): a still preview shows
+  the pulse's peak; and `mg nui layout`'s `overlaps` come of the
+  canvas's own layout, which places neighbors apart, so it finds none
+  but where the game would lay the window out otherwise, which it can't
+  know: said in the manual's command line chapter, as it is. (the
+  review of the NUI Creator's pull request, October 2026) (Settled by
+  the owner, 2026-10-30.)

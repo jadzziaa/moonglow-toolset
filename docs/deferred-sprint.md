@@ -4,12 +4,15 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:23:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:36:14Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
     resource: conversation with the owner, 2026-10-28
     title: 'The owner''s scope: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved'
+  - id: owner-2026-10-30
+    resource: conversation with the owner, 2026-10-30
+    title: 'The owner''s verdicts: the proposals accepted as recommended; the large entries after 3.0.0, in order of complexity'
   - id: deferred
     resource: deferred.md
     title: 'Deferred: what was left out, for a decision later'
@@ -101,5 +104,28 @@ land in `deferred.md` itself.
 | 2026-10-30, the medium-fix wave (thirteen packages), the second client batch and the owner's further work (7z and rar, NWSync upload, CI time) merged | 107 | 215 | 228 | 47 | 54 | 82 |
 | 2026-10-30, the third and fourth client batches, way B and wave 5 (five packages) merged | 92 | 185 | 262 | 55 | 54 | 83 |
 | 2026-10-30, the second Aurora batch, the fifth client batch and the frame budget merged | 83 | 168 | 275 | 62 | 54 | 85 |
+| 2026-10-30, the owner's verdicts, round two | 76 | 157 | 275 | 62 | 55 | 91 |
+
+## After 3.0.0
+
+The large entries (L) stay open for after 3.0.0, to be taken in order
+of complexity, least first (the owner's word, 2026-10-30; each entry of
+the [deferred list](deferred.md) says its place):
+
+1. What scripts reach by a number, followed by the usage walk (Haks in
+   the GUI: a day or two).
+2. GFF paths as strings, built once (Written more than once: mechanical).
+3. New strings written to a talk-table range from a blueprint
+   (Blueprint editors and inventories).
+4. Text put in the talk table as it is written (Custom content data).
+5. Typing in a very large script, an editor that lays out the lines in
+   sight (The code itself).
+6. Lists across several blueprints in Edit Together (Bulk editing).
+7. Installing updates from the app (The install, starting and crashes;
+   GitHub issue 28).
+8. Plugins beyond API 0.4: more kinds of things to add, exporters,
+   importers, wizards and panels (Automation).
+9. Plugins beyond API 0.4: a builder's terrain tool as the measure,
+   sculpted terrain inside Moonglow (Automation).
 
 [^owner]: The owner's scope, 2026-10-28: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved.
