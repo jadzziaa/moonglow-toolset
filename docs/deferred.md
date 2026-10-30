@@ -172,9 +172,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a frame zooming out; TDoD's synthetic woods (33,000 meshes in sight)
   13 ms (21 turned to the horizon), 25,000 draws of meshes mostly drawn
   once each. What is left is each draw's own work: wgpu's call and the
-  chunk of shared buffers it switches to (a large area spans ten), each
-  mesh's lights chosen and its values written. Fewer, larger chunks, and
-  values kept from frame to frame for what doesn't move, would cut it.
+  chunk of shared buffers it switches to (a large area spans ten) and its
+  values written (each mesh's lights are kept from frame to frame while
+  the lights stay, `ReachCache`, since 30 October). Fewer, larger chunks,
+  and values kept from frame to frame for what doesn't move, would cut
+  it. Tyrants of the Moonsea's area084 (676 tiles, 16,000 meshes) with
+  the wheel zooming over all of it: 9.6 to 11.7 ms (`frame_perf`'s
+  `sound_ranges_frames_at_144`, named in its `KNOWN_OVER`).
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
 
 ## EE fields Aurora hides

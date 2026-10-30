@@ -47,7 +47,15 @@ const MARGIN: f64 = 1.25;
 const KNOWN_OVER: &[(&str, &str)] = &[
     // 13 to 16 ms seen whole, 21 to 28 turning, 2026-10-27.
     ("area woods (", "A dense area seen whole is still slower with the switch on"),
+    // The wheel zooming over the whole of area084 (16,000 meshes drawn):
+    // 9.6 to 11.7 ms, 2026-10-30.
+    ("549 objects) (Sound Ranges off), overview (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges off), turning (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), overview (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), turning (wheel)", LARGEST),
 ];
+/// The entry of `docs/deferred.md` for the largest areas' frames.
+const LARGEST: &str = "The largest areas in full view";
 
 const CAMPAIGN: &str = "Neverwinter Nights - Tyrants of the Moonsea.nwm";
 
@@ -358,36 +366,57 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
         return;
     }
     let Some(rect) = rect_of(h.state(), &tab) else { return };
+    // (Once the camera rests: the wheel's zoom of the views before goes on
+    // a while, and the object would slip from under the press.)
+    let orbit = |h: &App<'_>| h.state().area_views.get(&area).and_then(|v| v.orbit);
+    for _ in 0..1000 {
+        let was = orbit(h);
+        h.run_steps(1);
+        if orbit(h) == was {
+            break;
+        }
+    }
     if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
         o.pitch = 0.7;
         o.distance = 25.0;
     }
     h.run_steps(2);
+    assert_eq!(orbit(h).map(|o| o.distance), Some(25.0), "{what}: the camera rests");
     let inner = rect.shrink2(rect.size() * 0.2);
     let Some(v) = h.state_mut().area_views.get_mut(&area) else { return };
     let Some(m) = v.model.as_ref() else { return };
     // (Those picked where they stand: not a sound's or a trigger's.)
     use mg_area::ObjectKind as K;
-    let seen: Vec<_> = m
-        .objects
-        .iter()
-        .filter(|o| matches!(o.kind, K::Placeable | K::Creature | K::Waypoint | K::Item))
-        .filter(|o| v.screen_pos(o.position).is_some_and(|p| inner.contains(p)))
-        .map(|o| ((o.kind, o.index), o.position))
+    let seen: Vec<_> = (m.objects.iter().enumerate())
+        .filter(|(_, o)| matches!(o.kind, K::Placeable | K::Creature | K::Waypoint | K::Item))
+        .filter(|(_, o)| v.screen_pos(o.position).is_some_and(|p| inner.contains(p)))
+        .map(|(i, o)| (i, (o.kind, o.index), o.position))
         .collect();
-    let Some(&(_, at)) = seen.first() else {
+    if seen.is_empty() {
         println!("  {what}: no object in sight close up");
         return;
-    };
-    let (Some(from), Some(to)) =
-        (v.screen_pos(at), v.screen_pos(at + glam::Vec3::new(4.0, 3.0, 0.0)))
-    else {
+    }
+    let what = format!("{what} (one of {} in sight)", seen.len());
+    // The first that can be held away from its handles (its feet are its
+    // turning ring's: pressed there, the drag turned it), selected alone
+    // (the turning rings of others about it would turn them instead), and
+    // dragged 5 m.
+    let mut grip = None;
+    for &(i, key, at) in &seen {
+        let Some(v) = h.state_mut().area_views.get_mut(&area) else { return };
+        v.selection = vec![key];
+        h.run_steps(2);
+        let v = &h.state().area_views[&area];
+        let step = v.screen_pos(at + glam::Vec3::new(4.0, 3.0, 0.0)).zip(v.screen_pos(at));
+        if let (Some(from), Some((ahead, foot))) = (v.move_grip(i), step) {
+            grip = Some((from, from + (ahead - foot)));
+            break;
+        }
+    }
+    let Some((from, to)) = grip else {
+        println!("  {what}: none to hold away from its handles");
         return;
     };
-    // (One: the turning rings of others about it would turn them instead.)
-    v.selection = vec![seen[0].0];
-    let what = format!("{what} (one of {} in sight)", seen.len());
-    h.run_steps(2);
     let f = frames(h, rect, Pointer::Drags(from, to), r.count, |_, _| {});
     said(r, &what, "drag", &f);
     // (The move taken back, the selection let go.)
