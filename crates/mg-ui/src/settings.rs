@@ -696,7 +696,7 @@ pub struct Settings {
     /// The backup interval in minutes (`None`: [`DIALOG_BACKUP_MINUTES`], Aurora's).
     pub dialog_backup_minutes: Option<u32>,
     /// Options › Updates: Check for updates automatically, off (on by
-    /// default: GitHub is asked for the latest release once a day at most).
+    /// default: GitHub is asked for the latest release at each start and once a day).
     pub no_update_check: bool,
     /// When the automatic check last asked GitHub, UNIX seconds.
     pub update_checked: Option<u64>,

@@ -232,6 +232,9 @@ pub struct Updates {
     pub notice: Option<Release>,
     /// When the automatic check last looked whether it was due.
     looked: Option<std::time::Instant>,
+    /// The automatic check has asked since this program started: it asks
+    /// once at each start (or as it is switched on), then once a day.
+    asked: bool,
     /// The request under way (on its thread): whether the automatic
     /// check and the window wait for it.
     pending: Option<(Answer, bool, bool)>,
@@ -257,7 +260,7 @@ impl Updates {
     /// The automatic check looks whether it is due at the next frame, not
     /// within the hour (Options were applied: it may have been switched
     /// on).
-    pub(crate) fn look_again(&mut self) {
+    pub fn look_again(&mut self) {
         self.looked = None;
     }
 }
@@ -328,13 +331,18 @@ pub(crate) fn frame(app: &mut Moonglow, ctx: &egui::Context) {
     if !looked && app.updates.fetch.is_some() {
         app.updates.looked = Some(std::time::Instant::now());
         let now = now();
+        // (At each start too, not only a day after the last: a release
+        // out since that day's check was told only the next day, though a
+        // builder had started Moonglow again, Carcerian's report on 3.1.0,
+        // and the notice isn't kept from one run to the next.)
         if app.updates.installer.is_none()
             && !app.settings.no_update_check
-            && due(app.settings.update_checked, now)
+            && (!app.updates.asked || due(app.settings.update_checked, now))
         {
-            // (Noted as it starts: a day goes by between two requests,
-            // whatever they found.)
+            // (Noted as it starts: a day goes by between two requests of a
+            // run, whatever they found.)
             app.settings.update_checked = Some(now);
+            app.updates.asked = true;
             start(app, true, false);
         }
     }
@@ -472,16 +480,17 @@ pub(crate) fn options_page(
     let response = ui
         .add_enabled(!managed, egui::Checkbox::new(&mut shown, "Check for updates automatically"))
         .on_hover_text(
-            "Once a day at most, in the background, ask GitHub whether a newer Moonglow is out, \
-             and say so under the toolbar",
+            "At each start and once a day while Moonglow runs, in the background, ask GitHub \
+             whether a newer Moonglow is out, and say so under the toolbar",
         );
     if response.changed() {
         *check = shown;
     }
     ui.weak(
-        "Sent: one request to GitHub (api.github.com) a day at most, for the latest release's \
-         version and page: nothing about you, your modules or this computer. Offline, or when \
-         GitHub doesn't answer, nothing is said. Help › Check for Updates… asks at once.",
+        "Sent: one request to GitHub (api.github.com) at each start and once a day while \
+         Moonglow runs, for the latest release's version and page: nothing about you, your \
+         modules or this computer. Offline, or when GitHub doesn't answer, nothing is said. \
+         Help › Check for Updates… asks at once.",
     );
     if let Some(i) = installer {
         ui.add_space(4.0);

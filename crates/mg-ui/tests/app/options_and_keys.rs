@@ -690,11 +690,11 @@ fn check_for_updates_says_what_is_newest() {
     use std::sync::atomic::Ordering;
     let current = mg_core::release::version();
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
-    // (No automatic check: one was made a moment ago.)
-    app.settings.update_checked = Some(mg_ui::updates::now());
+    // (No automatic check: switched off.)
+    app.settings.no_update_check = true;
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
-    assert_eq!(asked.load(Ordering::SeqCst), 0, "not due");
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "not asked by itself");
     h.get_by_label("Help").click();
     h.run();
     h.get_by_label_contains("Check for Updates").click();
@@ -789,6 +789,27 @@ fn the_update_notice_appears_and_is_dismissed() {
     assert!(!h.state().log.entries.iter().any(|(_, m)| m.contains("GitHub")));
 }
 
+/// The automatic check asks at each start, not only a day after the last
+/// one: a release out since that day's check is told when Moonglow starts
+/// again (Carcerian's report on 3.1.0: the notice never came, Check for
+/// Updates… found the release). While it runs, a day between two asks.
+#[test]
+fn the_update_check_asks_at_each_start() {
+    use std::sync::atomic::Ordering;
+    let current = mg_core::release::version();
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    // (Checked an hour ago, when nothing newer was out.)
+    app.settings.update_checked = Some(mg_ui::updates::now() - 60 * 60);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "asked at start, a day not gone by");
+    h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
+    // (Looked again within the run, before a day is out: not asked.)
+    h.state_mut().updates.look_again();
+    h.run_steps(3);
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "once a day while it runs");
+}
+
 /// Options › Updates › Check for updates automatically, off: no request
 /// at start; and none where a package manager updates Moonglow, whose
 /// page says so.
@@ -799,6 +820,7 @@ fn the_updates_option_turns_automatic_checks_off() {
     app.settings.update_checked = Some(mg_ui::updates::now());
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "asked at start, on");
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("Updates").click();
@@ -808,7 +830,7 @@ fn the_updates_option_turns_automatic_checks_off() {
     h.get_by_label("OK").click();
     h.run();
     assert!(h.state().settings.no_update_check);
-    assert_eq!(asked.load(Ordering::SeqCst), 0);
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "not again, switched off");
 
     // At the next start, a day later: not asked.
     let mut settings = h.state().settings.clone();

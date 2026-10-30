@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T23:50:08Z }
 ---
 
 # Options
@@ -453,15 +453,17 @@ function keys, work there too.
 
 Moonglow's own: Aurora has no such page.
 
-- **Check for updates automatically** (on by default): once a day at
-  most, in the background, Moonglow asks GitHub for its latest release,
+- **Check for updates automatically** (on by default): at each start
+  (and as you switch it on) and once a day while it runs, in the
+  background, Moonglow asks GitHub for its latest release,
   and when a newer one is out says so in a line under the toolbar (see
   [Help › Check for Updates…](02-main-window.md#menus)). It never holds
   up starting or the window, and nothing is downloaded or installed.
   Offline, or on any error, it says nothing (a line in the
   [debug log](13-troubleshooting.md#something-fails-without-a-word) at most) and asks again a day
   later.
-- **What is sent:** one HTTPS request a day at most, to
+- **What is sent:** one HTTPS request at each start and one a day while
+  Moonglow runs, to
   `api.github.com`, for the latest release's version and page, with
   Moonglow's version as its User-Agent (`Moonglow/2.4.0`), as GitHub
   asks of every program. Nothing about you, your computer or your
