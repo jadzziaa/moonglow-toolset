@@ -879,6 +879,99 @@ fn reading_git_sun_direction() {
     }
 }
 
+/// A white pillar of `side` metres a side and `height` high, closed (its
+/// bottom too, for the client's shadow volumes) and casting (`shadow 1`):
+/// the model, of `name`.
+pub(super) fn pillar(name: &str, side: f32, height: f32) -> String {
+    let h = side / 2.0;
+    let c = |x: f32, y: f32, z: f32| [x * h, y * h, z * height];
+    let quads = [
+        [c(-1.0, -1.0, 1.0), c(1.0, -1.0, 1.0), c(1.0, 1.0, 1.0), c(-1.0, 1.0, 1.0)],
+        [c(-1.0, 1.0, 0.0), c(1.0, 1.0, 0.0), c(1.0, -1.0, 0.0), c(-1.0, -1.0, 0.0)],
+        [c(-1.0, -1.0, 0.0), c(1.0, -1.0, 0.0), c(1.0, -1.0, 1.0), c(-1.0, -1.0, 1.0)],
+        [c(1.0, -1.0, 0.0), c(1.0, 1.0, 0.0), c(1.0, 1.0, 1.0), c(1.0, -1.0, 1.0)],
+        [c(1.0, 1.0, 0.0), c(-1.0, 1.0, 0.0), c(-1.0, 1.0, 1.0), c(1.0, 1.0, 1.0)],
+        [c(-1.0, 1.0, 0.0), c(-1.0, -1.0, 0.0), c(-1.0, -1.0, 1.0), c(-1.0, 1.0, 1.0)],
+    ];
+    let mut verts = String::new();
+    let mut faces = String::new();
+    for (k, q) in quads.iter().enumerate() {
+        for [x, y, z] in q {
+            verts += &format!("    {x} {y} {z}\n");
+        }
+        let b = k * 4;
+        faces += &format!(
+            "    {} {} {} 1 0 1 2 0\n    {} {} {} 1 0 2 3 0\n",
+            b,
+            b + 1,
+            b + 2,
+            b,
+            b + 2,
+            b + 3
+        );
+    }
+    let tverts = "  tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n";
+    format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+         setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node trimesh {name}_box\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap mgwhite\n  \
+         render 1\n  shadow 1\n  verts 24\n{verts}{tverts}  faces 12\n{faces}endnode\n\
+         endmodelgeom {name}\ndonemodel {name}\n"
+    )
+}
+
+/// How long a shadow is under a low sun: white pillars 1 m a side and
+/// 4 m high on a rural field (ttr01, Sun Shadows at 100), the west one
+/// static and the east one not, with a GIT sun from the west at each
+/// height of `MG_SUN_Z` (default 0.25, 0.5 and 1: the sun 14, 27 and 45
+/// degrees up; a whole shadow is 16, 8 and 4 m long), beside Moonglow's
+/// area view (`client_reading_low_sun_<tileset>_<z>`).
+#[test]
+#[ignore]
+fn reading_low_sun_shadow_length() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let (table, first) = placeables_with(&base, &[("mg_pillar", 1), ("mg_pillar", 0)]);
+    // (`MG_PILLAR`: their height and where they stand east, 4 and 12 m by
+    // default.)
+    let pillar_at: Vec<f32> = std::env::var("MG_PILLAR")
+        .unwrap_or_else(|_| "4,12".into())
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect();
+    let (height, x) = (pillar_at[0], pillar_at[1]);
+    let overrides = [
+        ("mg_pillar.mdl", pillar("mg_pillar", 1.0, height).into_bytes()),
+        ("mgwhite.tga", white_tga()),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let heights = std::env::var("MG_SUN_Z").unwrap_or_else(|_| "0.25,0.5,1".into());
+    for z in heights.split(',').filter_map(|z| z.trim().parse::<f32>().ok()) {
+        // (`MG_TILESET`: another than ttr01's field, as tcn01's city.)
+        let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "ttr01".into());
+        let name = format!("low_sun_{tileset}_{z}");
+        let mut r = Reading::new(&name, &tileset, light, &overrides);
+        for (label, v) in [("SunShadows", 1u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+            r.are.root.set(label, Value::Byte(v));
+        }
+        for (row, y, is_static) in [(first, 27.0f32, 1u8), (first + 1, 23.0, 0)] {
+            r.place(row, [x, y, 0.0], 0.0, &[("Static", Value::Byte(is_static))]);
+        }
+        let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
+            panic!("no AreaProperties")
+        };
+        for (axis, v) in [("X", -1.0f32), ("Y", 0.0), ("Z", z)] {
+            props.set(&format!("SunDirection{axis}"), Value::Float(v));
+            props.set(&format!("MoonDirection{axis}"), Value::Float(v));
+        }
+        let settings = super::shadows::settings();
+        let (dir, _) = r.shoot_beside(INVISIBLE, &settings, &|v| v.shadows = true);
+        eprintln!("{}", dir.display());
+    }
+}
+
 /// The shine of a dropped cloak's colors: the game's cloak
 /// (`nw_maarcl055`, its environment map cloakmodel.2da's `default`)
 /// lying north of the player in colors 0, 56 to 59 and 61 (every channel),

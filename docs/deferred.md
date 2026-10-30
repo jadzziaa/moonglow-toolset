@@ -1135,7 +1135,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - a sun low in the west (a GIT's direction,
     `reading_git_sun_direction`): the client leaves a city street lit
     but for thin spikes, where Moonglow lays the buildings' long shadows
-    over all of it, light showing through in thin lines. (The fade with
+    over all of it, light showing through in thin lines. Read further
+    (2026-10-29, `reading_low_sun_shadow_length`, a sun from the west 14,
+    27 and 45 degrees up): a white pillar's shadow, static or not, 4 m
+    high or 8, is as long in the client as in Moonglow at every height
+    (33 m for the 8 m pillar under the lowest), and so is a rural tile's
+    hill's (ttr01); but tcn01's buildings, whose shadows cover half the
+    street at 45 and 27 degrees in both, cast none on it at 14 in the
+    client, only the posts' and trees' spikes. So a tile's shadows go as
+    the sun sinks, which Moonglow's map (its bias tried at 0.5 m: no
+    change) has no reason to do; the client's rule isn't read: its
+    stencil volumes of these tiles' meshes (open ones, the wiki's
+    "shadow tearing"), or a reach of its tiles' precomputed projections
+    (`ComputeStaticProjections`). (M: the reading, a tcn01 building tile
+    alone on a flat area at a few heights of the sun, its `shadow`
+    meshes looked at, then the rule; waits on the client) (The fade with
     the height between plane and caster that 8193.31 names is not seen:
     armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
     and casters above the camera still cast, as in Moonglow:
