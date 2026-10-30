@@ -497,9 +497,11 @@ row of icons at its top),
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
 blueprint from the categories. Click in an area to place the chosen
 blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
-palette shows the tileset's brushes instead. The row's last two are
-**Prefabs** and **Start Location** (where a player's character enters
-the module: chosen, a click in an area puts it there). **Preview** (toolbar) shows
+palette shows the tileset's brushes instead. The row's last three are
+**Prefabs**, **Lights** (☀: the game's invisible lights, one chosen and
+then put where an area is clicked) and **Start Location** (where a
+player's character enters the module: chosen, a click in an area puts
+it there). **Preview** (toolbar) shows
 the chosen blueprint in a window of its own. After a click in it, the
 arrow keys move through its rows and open and close its categories (see
 [Blueprints](05-blueprints.md)).

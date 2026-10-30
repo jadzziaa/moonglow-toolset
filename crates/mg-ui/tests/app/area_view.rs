@@ -4267,6 +4267,74 @@ fn a_light_is_added_from_the_area_s_menu_and_recolored() {
     assert_eq!(placed(&mut h)[0].integer("Appearance"), Some(15111), "Light, Red");
 }
 
+/// The palette's Lights (beside the area's menu's Add Light Here): a
+/// light chosen there is put where the view is clicked, as the menu puts
+/// one, and let go; with Shift held, more of them; Escape stops. Picture:
+/// `target/test-output/ui-area-palette-lights/placed.png`.
+#[test]
+fn a_light_is_placed_from_the_palette() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("palette-lights") else { return };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.run_steps(3);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let placed = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Placeable List").map(<[_]>::to_vec).unwrap_or_default()
+    };
+    h.get_by_label("☀").click();
+    h.run_steps(3);
+    assert!(h.state().palette.lights);
+    h.get_by_label("Blue").click();
+    h.run_steps(2);
+    let blue = h.state().palette.placing_light.expect("about to be placed");
+    let at = screen(&h, area, Vec3::new(14.0, 26.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(3);
+    let lights = placed(&mut h);
+    assert_eq!(lights.len(), 1);
+    assert_eq!(lights[0].integer("Appearance"), Some(blue as i64));
+    let (x, y, z) = (
+        lights[0].float("X").unwrap(),
+        lights[0].float("Y").unwrap(),
+        lights[0].float("Z").unwrap(),
+    );
+    assert!(
+        (x - 14.0).abs() < 0.2 && (y - 26.0).abs() < 0.2 && (z - 1.5).abs() < 0.3,
+        "{x} {y} {z}"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add Light, Blue"));
+    assert_eq!(h.state().palette.placing_light, None, "let go once placed");
+    // With Shift: placed, and still about to be placed; Escape stops.
+    h.get_by_label("Red").click();
+    h.run_steps(2);
+    let shift = egui::Modifiers::SHIFT;
+    h.event(egui::Event::ModifiersChanged(shift));
+    for x in [20.0, 24.0] {
+        let at = screen(&h, area, Vec3::new(x, 20.0, 0.0));
+        h.hover_at(at);
+        h.run_steps(1);
+        for pressed in [true, false] {
+            let button = egui::PointerButton::Primary;
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: shift });
+        }
+        h.run_steps(3);
+    }
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+    assert_eq!(placed(&mut h).len(), 3);
+    assert!(h.state().palette.placing_light.is_some(), "Shift: still placing");
+    h.hover_at(screen(&h, area, Vec3::new(30.0, 30.0, 0.0)));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(h.state().palette.placing_light, None);
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-palette-lights").join("placed.png"))
+        .unwrap();
+}
+
 /// With Shift held, a selected placeable has a handle that scales its
 /// model about its feet: pulled twice as far from the object, twice the
 /// size, in one undoable step, the handle following the pointer; Escape

@@ -84,6 +84,13 @@ pub struct PaletteView {
     /// The module's start location is about to be placed: a click in an
     /// area's view puts it there.
     pub placing_start: bool,
+    /// The lights' page is shown (the game's invisible light placeables,
+    /// as the area's menu's Add Light Here has them), rather than
+    /// blueprints.
+    pub lights: bool,
+    /// A light is about to be placed: its placeables.2da row. A click in
+    /// an area's view puts one there.
+    pub placing_light: Option<usize>,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The tile chosen last among a terrain's or crosser's pictures (the
@@ -409,6 +416,8 @@ impl Default for PaletteView {
             prefabs: false,
             start: false,
             placing_start: false,
+            lights: false,
+            placing_light: None,
             tile_brush: None,
             tile_choice: None,
             area: None,
@@ -767,6 +776,36 @@ fn start_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
     );
 }
 
+/// The lights' page: the game's invisible light placeables ("Light,
+/// White" and the six others, and any a hak adds in the same way), one
+/// chosen to place with a click in an area's view, as the area's menu's
+/// Add Light Here puts one.
+fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
+    ui.label(
+        "The game's invisible lights: placeables that light what is around them and need no \
+         custom content. Each shows in the area's view as a small sun in its color.",
+    );
+    ui.add_space(4.0);
+    let lights = crate::area_view::stock_lights(app);
+    if lights.is_empty() {
+        ui.weak("The game's placeables.2da has none (no game data?).");
+        return;
+    }
+    let tip = "Chosen: a click in an area's view puts this light there, a little above the \
+               ground (Shift + click: and more); a right click or Escape over the view stops";
+    for light in &lights {
+        let on = view.placing_light == Some(light.row);
+        if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+            view.placing_light = if on { None } else { Some(light.row) };
+        }
+    }
+    ui.add_space(4.0);
+    ui.weak(
+        "Placed, a light is a placeable: move and raise it as any. Light Color on its \
+         right-click menu gives it another color; selected, a ring shows where its light ends.",
+    );
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -791,6 +830,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 .into_iter()
                 .find(|k| k.restype().extension().is_some_and(|e| e == last));
             (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
+            view.lights = last == "lights";
             if let Some(kind) = kind {
                 view.kind = kind;
                 view.custom = app.settings.palette_custom && app.ws.is_some();
@@ -818,18 +858,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
     {
-        use crate::icons::{PREFABS, START, TILES, labelled, object};
+        use crate::icons::{LIGHTS, PREFABS, START, TILES, labelled, object};
         #[derive(Clone, Copy, PartialEq)]
         enum Type {
             Tiles,
             Kind(BlueprintKind),
             Prefabs,
+            Lights,
             Start,
         }
         let now = if view.tiles {
             Type::Tiles
         } else if view.prefabs {
             Type::Prefabs
+        } else if view.lights {
+            Type::Lights
         } else if view.start {
             Type::Start
         } else {
@@ -843,6 +886,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Prefabs",
             "Groups of placed objects saved under a name (a camp, a furnished room), to place \
              again in any area or module",
+        ));
+        types.push((
+            Type::Lights,
+            LIGHTS,
+            "Lights",
+            "The game's invisible lights, seven colors: click one, then click in an area to put \
+             it there (no custom content)",
         ));
         types.push((
             Type::Start,
@@ -893,6 +943,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         if chosen.is_some_and(|t| t != Type::Start) {
             (view.start, view.placing_start) = (false, false);
         }
+        if chosen.is_some_and(|t| t != Type::Lights) {
+            (view.lights, view.placing_light) = (false, None);
+        }
         match chosen {
             Some(Type::Tiles) => {
                 view.tiles = true;
@@ -913,6 +966,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 view.selected = None;
                 view.chosen.clear();
             }
+            Some(Type::Lights) => {
+                view.lights = true;
+                (view.tiles, view.prefabs) = (false, false);
+                view.selected = None;
+                view.chosen.clear();
+                view.tile_brush = None;
+            }
             // Chosen, the start location is about to be placed, as
             // Aurora's Paint Start Location has it.
             Some(Type::Start) => {
@@ -926,9 +986,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
         // Remembered for the next start.
         if chosen.is_some() && !view.start {
-            app.settings.palette_type = Some(match (view.tiles, view.prefabs) {
-                (true, _) => "tiles".to_string(),
-                (_, true) => "prefabs".to_string(),
+            app.settings.palette_type = Some(match (view.tiles, view.prefabs, view.lights) {
+                (true, ..) => "tiles".to_string(),
+                (_, true, _) => "prefabs".to_string(),
+                (.., true) => "lights".to_string(),
                 _ => view.kind.restype().extension().unwrap_or_default().to_string(),
             });
         }
@@ -937,7 +998,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
         ui.horizontal(|ui| {
             ui.strong(name);
-            if !view.tiles && !view.prefabs && !view.start {
+            if !view.tiles && !view.prefabs && !view.start && !view.lights {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(app.ws.is_some(), |ui| {
                         ui.selectable_value(&mut view.custom, true, "Custom")
@@ -962,6 +1023,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if view.start {
         ui.separator();
         start_ui(app, ui, &mut view);
+        app.palette = view;
+        return;
+    }
+    if view.lights {
+        ui.separator();
+        lights_ui(app, ui, &mut view);
         app.palette = view;
         return;
     }

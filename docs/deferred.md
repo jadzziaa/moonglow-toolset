@@ -746,22 +746,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
   the renderer can tell the two apart, so the fix is in `mg-render`'s
   map choice too. (S)
-- **Lights placed on the fly** ([the proposal](lights-proposal.md)):
-  way A is in (the game's seven invisible light placeables from the
-  area's menu, a sun for a marker, Light Color, a ring for the reach).
-  The reach is measured in the client (`placeable_light_uniforms`): a
-  light of radius 10 in the lightcolor.2da color, ending 20 m out
-  (further for a color brighter than 1), static or not, as Moonglow
-  drew it already. Not in: a palette entry beside the menu, and way B (any color and reach, by generated content), which
-  needs generated 2DA rows merged into the module's tables (`mg 2da-diff
-  --base` merges from a terminal; nothing in the window does). An
-  object whose model is too small to see
-  (lying flat and under half a metre across, or empty) is now drawn and
-  picked by a marker's box, lights and the Invisible Object alike. (M)
-  (Small models with height, a potion, a gem or a healer's kit, were
-  taken for it too and had a marker's metre-wide box: a builder's
-  report after 1.32.1.)
-  (from builders' reports after 1.16.2)
+- **Lights placed on the fly, way B** ([the proposal](lights-proposal.md)):
+  lights of any color and reach by generated content (a model with one
+  light node for each setting, a placeables.2da row for it, both in a
+  hak the module lists). Way A is built whole: the game's seven
+  invisible lights from the area's menu (Add Light Here) and from the
+  palette's ☀ Lights, Light Color, a ring for the reach as the client
+  measured it. Way B is not started. It waits on the owner's answer to
+  the proposal's question (is a hak that Moonglow writes and keeps
+  acceptable, given that a persistent world must ship it?), and on the
+  client for the proposal's two questions not measured: whether a
+  `LightColor` light and a model's light node light creatures and
+  placeables or only tiles, and how many dynamic lights the game draws
+  at one place before dropping some (the client batch can read both as
+  `placeable_light_uniforms` in `client_render.rs` reads a light's
+  reach: the uniforms the client hands its shader, with a creature and
+  a placeable beside the light, and with one to twelve lights). Its
+  row needs no merge of several haks' tables: the way Make a Lighting
+  Scheme adds an environment.2da row (the table opened where the
+  builder chooses, the row added with `Editing::add_row_of`) serves a
+  placeables.2da row as well. The light editor, the generated models
+  and keeping them: (M–L). (from builders' reports after 1.16.2)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for

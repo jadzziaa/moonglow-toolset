@@ -356,7 +356,9 @@ A click on a ring or an arrow selects the object under it, if there is
 one; the selection stays otherwise.
 
 **Lights**: right-click the ground and choose **Add Light Here**, then
-a color. Moonglow puts one of the game's invisible light placeables
+a color, or choose a color in the palette's **☀ Lights** and click
+where it goes (Shift + click places more; a right click or Escape over
+the view stops). Moonglow puts one of the game's invisible light placeables
 there ("Light, White" and the six others of placeables.2da), a little
 above the ground: it lights what is around it in the game and needs no
 custom content. It shows as a small sun in its color; select, move and
