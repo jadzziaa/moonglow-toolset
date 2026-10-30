@@ -38,6 +38,8 @@ mod nasher;
 mod nui;
 #[path = "../nwsync_upload.rs"]
 mod nwsync_upload;
+#[path = "../places.rs"]
+mod places;
 #[path = "../plugins.rs"]
 mod plugins;
 #[path = "../replace.rs"]

@@ -705,3 +705,126 @@ fn references_name_areas_as_the_window_does() {
     assert_eq!(h.query_all_by_label_contains(&format!("{area} ›")).count(), 0);
     assert_eq!(h.query_all_by_label_contains("Field ›").count(), by_resref);
 }
+
+/// Find References and the Delete window say where things are as they
+/// did when GFF paths were text: each place and the path its link's hover
+/// shows (`start.git /Creature List[10]/ScriptHeartbeat`, `caller.nss
+/// line 1`, a sound set's `entry 3`, a 2DA's `row 0, Name`), the Delete
+/// window's in the order of that text; and a conversation's place opens
+/// at its row.
+#[test]
+fn the_references_window_says_where_things_are() {
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-reference-places");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let rr = |s: &str| Value::resref(ResRef::from_str(s).unwrap());
+    let with = |fields: Vec<(&str, Value)>| {
+        let mut s = Struct::new(0);
+        for (label, v) in fields {
+            s.set(label, v);
+        }
+        s
+    };
+    let guard =
+        || with(vec![("Tag", Value::String(b"GUARD".to_vec())), ("ScriptHeartbeat", rr("hello"))]);
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List((0..12).map(|_| guard()).collect()));
+    m.set_gff(ResKey::parse("start", ResType::GIT).unwrap(), &git).unwrap();
+    let mut dlg = Gff::new(*b"DLG ");
+    let text = |s: &str| Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, s));
+    let link =
+        || Value::List(vec![with(vec![("Index", Value::Dword(0)), ("Active", rr("hello"))])]);
+    let entry =
+        with(vec![("Text", text("Halt!")), ("Script", rr("hello")), ("RepliesList", link())]);
+    dlg.root.set("EntryList", Value::List(vec![entry]));
+    let reply = with(vec![("Text", text("A friend.")), ("EntriesList", Value::List(Vec::new()))]);
+    dlg.root.set("ReplyList", Value::List(vec![reply]));
+    dlg.root.set("StartingList", link());
+    m.set_gff(ResKey::parse("talk", ResType::DLG).unwrap(), &dlg).unwrap();
+    let caller = b"#include \"hello\"\nvoid main()\n{\n    SpeakStringByStrRef(16777220);\n}\n";
+    m.set(ResKey::parse("caller", ResType::NSS).unwrap(), caller.to_vec());
+    let mut item = Gff::new(*b"UTI ");
+    let named = LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };
+    item.root.set("LocalizedName", Value::LocString(named));
+    m.set_gff(ResKey::parse("sword", ResType::UTI).unwrap(), &item).unwrap();
+    let classes = b"2DA V2.0\n\n   Label Name\n0  Kz 16777220\n1  Other 5\n".to_vec();
+    m.set(ResKey::parse("classes", ResType::TWODA).unwrap(), classes);
+    let entries = (0..4)
+        .map(|i| mg_ssf::SsfEntry {
+            sound: Vec::new(),
+            strref: mg_core::StrRef(if i == 3 { 16_777_220 } else { u32::MAX }),
+        })
+        .collect();
+    let ssf = mg_ssf::Ssf { entries };
+    m.set(ResKey::parse("guard", ResType::SSF).unwrap(), ssf.to_bytes().unwrap());
+    m.save().unwrap();
+
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        (h.state().references.usages.iter())
+            .map(|u| format!("{}\t{} {}", u.place, u.from, u.path))
+            .collect()
+    };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+    h.run_steps(3);
+    let mut expected = vec!["caller.nss › line 1\tcaller.nss line 1".to_string()];
+    for i in 0..12 {
+        let at = format!("start.git /Creature List[{i}]/ScriptHeartbeat");
+        expected.push(format!("start › creature GUARD › OnHeartbeat\t{at}"));
+    }
+    expected.extend([
+        "talk › NPC line 1 “Halt!” › action\ttalk.dlg /EntryList[0]/Script".to_string(),
+        "talk › NPC line 1 “Halt!” (link) › condition\ttalk.dlg /EntryList[0]/RepliesList[0]/Active"
+            .to_string(),
+        "talk › start 1 › condition\ttalk.dlg /StartingList[0]/Active".to_string(),
+    ]);
+    assert_eq!(said(&h), expected);
+    h.get_by_label("Used in 16 places:");
+    // A conversation's place opens it at the row: a link's condition at
+    // the link, a line's action at the link to the line.
+    h.get_by_label("talk › NPC line 1 “Halt!” (link) › condition").click();
+    h.run_steps(3);
+    let talk = ResKey::parse("talk", ResType::DLG).unwrap();
+    let selected =
+        |h: &Harness<'_, Moonglow>| format!("{:?}", h.state().dialog_views[&talk].selected);
+    assert_eq!(selected(&h), "Some(Row { parent: Node(Entry, 0), pos: 0 })");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Dialog(talk)));
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+    h.run_steps(3);
+    h.get_by_label("talk › NPC line 1 “Halt!” › action").click();
+    h.run_steps(3);
+    assert_eq!(selected(&h), "Some(Row { parent: Root, pos: 0 })");
+
+    // A talk-table line: a localized string, a script's line, a 2DA's
+    // cell and a sound set's entry.
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_220));
+    h.run_steps(3);
+    assert_eq!(
+        said(&h),
+        [
+            "caller.nss › line 4\tcaller.nss line 4",
+            "classes.2da › row 0, Name\tclasses.2da row 0, Name",
+            "guard.ssf › entry 3\tguard.ssf entry 3",
+            "sword.uti › LocalizedName\tsword.uti /LocalizedName",
+        ]
+    );
+
+    // The Delete window's, in the order of their text.
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(hello));
+    h.run_steps(3);
+    h.get_by_label("16 places in the module name it, left as they are:");
+    let named = h.state().references.named.clone().expect("what names it");
+    let order: Vec<String> =
+        named.usages.iter().map(|u| format!("{} {}", u.from, u.path)).collect();
+    let mut by_text = order.clone();
+    by_text.sort();
+    assert_eq!(order, by_text);
+    assert_eq!(order[1], "start.git /Creature List[0]/ScriptHeartbeat");
+    assert_eq!(order[2], "start.git /Creature List[10]/ScriptHeartbeat");
+}
