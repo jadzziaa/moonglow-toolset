@@ -75,8 +75,12 @@ fn count_picture(img: &Rgba) -> Rgba {
     out
 }
 
+/// A case of the lamp posts' readings: its name, where the lamps stand,
+/// which way the ogre faces (degrees).
+pub(super) type LampCase = (&'static str, &'static [(f32, f32)], f32);
+
 /// A creature of `resref` placed at `at` facing `facing` (degrees).
-fn put_creature(r: &mut Reading, resref: &str, at: [f32; 3], facing: f32) {
+pub(super) fn put_creature(r: &mut Reading, resref: &str, at: [f32; 3], facing: f32) {
     use mg_module::instances::{Placement, Placing, instance};
     let bp = Gff::read(&r.game.resman.get_named(resref, ResType::UTC).unwrap()).unwrap();
     let none = |_: ResRef| None;
@@ -230,20 +234,35 @@ fn darker(best: &Rgba, off: &Rgba, r: [f32; 4]) -> f32 {
 /// the equal pairs, in either order, the west lamp's shadow and the
 /// south lamp's (`MG_AT`: the server has the ogre at (20, 22) and the
 /// lamps where they were put).
+///
+/// The fifth client batch (2026-10-30) added `near_7`, `near_9` and
+/// `near_12` (0.21, 0.11, and no shadow at 12 m) and the equal pairs with
+/// the ogre facing east and north (`equal_we_east`, `equal_ns_east`,
+/// `equal_ns_north`): still the west lamp's and the south lamp's, the
+/// lights set off by their row's `LightOffsetX` and `Y` (0.004, 0.011)
+/// nearer the ogre's place, whichever way it faces.
 #[test]
 #[ignore]
 fn reading_light_shadows() {
-    let cases: [(&str, &[(f32, f32)]); 7] = [
-        ("near_1.5", &[(20.0, 23.5)]),
-        ("near_3", &[(20.0, 25.0)]),
-        ("near_5", &[(20.0, 27.0)]),
-        ("equal_we", &[(17.5, 22.0), (22.5, 22.0)]),
-        ("equal_ew", &[(22.5, 22.0), (17.5, 22.0)]),
-        ("equal_ns", &[(20.0, 24.5), (20.0, 19.5)]),
-        ("equal_sn", &[(20.0, 19.5), (20.0, 24.5)]),
+    // (The fifth client batch's cases after the first seven: farther
+    // lamps, and the equal pairs with the ogre facing east.)
+    let cases: [LampCase; 13] = [
+        ("near_1.5", &[(20.0, 23.5)], 270.0),
+        ("near_3", &[(20.0, 25.0)], 270.0),
+        ("near_5", &[(20.0, 27.0)], 270.0),
+        ("equal_we", &[(17.5, 22.0), (22.5, 22.0)], 270.0),
+        ("equal_ew", &[(22.5, 22.0), (17.5, 22.0)], 270.0),
+        ("equal_ns", &[(20.0, 24.5), (20.0, 19.5)], 270.0),
+        ("equal_sn", &[(20.0, 19.5), (20.0, 24.5)], 270.0),
+        ("near_7", &[(20.0, 29.0)], 270.0),
+        ("near_9", &[(20.0, 31.0)], 270.0),
+        ("near_12", &[(20.0, 34.0)], 270.0),
+        ("equal_we_east", &[(17.5, 22.0), (22.5, 22.0)], 0.0),
+        ("equal_ns_east", &[(20.0, 24.5), (20.0, 19.5)], 0.0),
+        ("equal_ns_north", &[(20.0, 24.5), (20.0, 19.5)], 90.0),
     ];
     let only = std::env::var("MG_B3_CASES").ok();
-    for (case, lamps) in cases {
+    for (case, lamps, facing) in cases {
         if only.as_deref().is_some_and(|o| !o.split(',').any(|c| c == case)) {
             continue;
         }
@@ -255,7 +274,7 @@ fn reading_light_shadows() {
             for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
                 r.are.root.set(label, Value::Byte(v));
             }
-            put_creature(&mut r, "nw_ogre01", [20.0, 22.0, 0.0], 270.0);
+            put_creature(&mut r, "nw_ogre01", [20.0, 22.0, 0.0], facing);
             for &(x, y) in lamps {
                 r.place(73, [x, y, 0.0], 0.0, &[("Static", Value::Byte(0))]);
             }

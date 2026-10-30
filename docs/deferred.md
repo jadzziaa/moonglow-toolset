@@ -991,22 +991,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2026-10-28). Left:
   - the lights' shadows fall off with the lamp's distance, where
     Moonglow's darkness is the opacity times the plane's fade alone: an
-    ogre's shadow from a lamp post (row 73) 1.5, 3 and 5 m north of it
-    darkens the floor just south of its feet (the same place on the
-    screen) by 0.50, 0.53 and 0.38 (medians; `reading_light_shadows` in
-    `client_render.rs`'s `batch3.rs`, 2026-10-29), and grows longer as
-    the lamp goes further (the rule, `shadowradius` or the light's reach,
-    not fitted: S);
-  - which light of two equally near the client takes isn't the first of
-    the area's (Moonglow's): with two lamp posts 2.5 m west and east of
-    the ogre, in either order in the area's file, it cast from the west
-    one, and of two north and south, from the south one (the ogre facing
-    south; the server places all three where they were put, so it likely
-    measures from the creature's model, not its feet: not read further);
-    how many creatures cast the lights' shadows at once
-    (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
-    PC's own light at night (Moonglow places no PC) (S) (waits on a
-    client reading);
+    ogre's shadow from a lamp post (row 73, radius 10) 1.5, 3, 5, 7, 9
+    and 12 m north of it darkens the floor just south of its feet by
+    0.50, 0.53, 0.38, 0.21, 0.11 and nothing (medians;
+    `reading_light_shadows` in `client_render.rs`'s `batch3.rs`,
+    2026-10-29 and 2026-10-30), Moonglow's by 0.53 to 0.60 at every
+    distance (`moonglow_light_shadows`, `batch5.rs`), the shadows' lengths
+    alike; flat to about 3 m, then nearly straight down to none by about
+    11 m, not the light's own attenuation (the rule not fitted: S); how
+    many creatures cast the lights' shadows at once (`max-casting-lights`
+    changed nothing with one; Moonglow: 16), and a PC's own light at
+    night (Moonglow places no PC) (S) (waits on a client reading);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -1020,25 +1015,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - a sun low in the west (a GIT's direction,
     `reading_git_sun_direction`): the client leaves a city street lit
     but for thin spikes, where Moonglow lays the buildings' long shadows
-    over all of it, light showing through in thin lines. Read further
-    (2026-10-29, `reading_low_sun_shadow_length`, a sun from the west 14,
-    27 and 45 degrees up): a white pillar's shadow, static or not, 4 m
-    high or 8, is as long in the client as in Moonglow at every height
-    (33 m for the 8 m pillar under the lowest), and so is a rural tile's
-    hill's (ttr01); but tcn01's buildings, whose shadows cover half the
-    street at 45 and 27 degrees in both, cast none on it at 14 in the
-    client, only the posts' and trees' spikes. So a tile's shadows go as
-    the sun sinks, which Moonglow's map (its bias tried at 0.5 m: no
-    change) has no reason to do; the client's rule isn't read: its
-    stencil volumes of these tiles' meshes (open ones, the wiki's
-    "shadow tearing"), or a reach of its tiles' precomputed projections
-    (`ComputeStaticProjections`). (M: the reading, a tcn01 building tile
-    alone on a flat area at a few heights of the sun, its `shadow`
-    meshes looked at, then the rule; waits on the client) (The fade with
-    the height between plane and caster that 8193.31 names is not seen:
-    armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
-    and casters above the camera still cast, as in Moonglow:
-    `reading_shadows_of_doors_items_and_heights`, 2026-10-29);
+    over all of it, light showing through in thin lines
+    (`reading_low_sun_shadow_length` with `MG_TILESET=tcn01`, a sun from
+    the west 14 degrees up; again on 2026-10-30). Not the building
+    tiles themselves: a tcn01 house (tile 54) alone on plain cobbles casts
+    the same long shadow in the client as in Moonglow at 14, 19, 27, 37
+    and 45 degrees, turned any of the four ways, at the view's edge, out
+    to the area's end (`reading_low_sun_building`, 2026-10-30). So what
+    the client leaves out in the city comes from that area's other tiles
+    (their heights, which tiles receive, or casters two tiles off), not
+    read (M: the city area's tiles taken one by one, then the rule;
+    waits on the client) (The fade with the height between plane and
+    caster that 8193.31 names is not seen: armoires raised 0, 1.5 and 3
+    m darken the ground alike, 0.44 to 0.49, and casters above the camera
+    still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
+    2026-10-29);
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)

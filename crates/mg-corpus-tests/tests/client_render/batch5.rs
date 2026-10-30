@@ -475,3 +475,167 @@ fn reading_tangents() {
     let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
     eprintln!("{}", dir.display());
 }
+
+/// Moonglow's side of `batch3.rs`'s `reading_light_shadows` (no client):
+/// the same dim tic01 room, the ogre at (20, 22) and the lamp posts of
+/// each case, drawn by the area view from the reference camera with the
+/// lights' shadows on and off; the shadow's pixels (where on is darker by
+/// 6 of 765 or more), which side of the middle they lie, and the floor's
+/// darkness below the feet (the median), printed as the client's reading
+/// prints them. `MG_CASES` picks.
+///
+/// Seen (2026-10-30): the floor darker by 0.53, 0.54, 0.57, 0.59 and 0.60
+/// at 1.5, 3, 5, 7 and 9 m (the client's 0.50, 0.53, 0.38, 0.21, 0.11),
+/// the shadows as long as the client's; of the equal pairs, before the
+/// fix, the east lamp's shadow (falling west) where the client casts the
+/// west one's, and with the ogre facing east the north one's; after
+/// (`casting_light` measuring from the creature's place), the client's
+/// lamps in every case.
+#[test]
+#[ignore]
+fn moonglow_light_shadows() {
+    let cases: [super::batch3::LampCase; 8] = [
+        ("near_1.5", &[(20.0, 23.5)], 270.0),
+        ("near_3", &[(20.0, 25.0)], 270.0),
+        ("near_5", &[(20.0, 27.0)], 270.0),
+        ("near_7", &[(20.0, 29.0)], 270.0),
+        ("near_9", &[(20.0, 31.0)], 270.0),
+        ("equal_we", &[(17.5, 22.0), (22.5, 22.0)], 270.0),
+        ("equal_ns", &[(20.0, 24.5), (20.0, 19.5)], 270.0),
+        ("equal_ns_east", &[(20.0, 24.5), (20.0, 19.5)], 0.0),
+    ];
+    let only = std::env::var("MG_CASES").ok();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    for (case, lamps, facing) in cases {
+        if only.as_deref().is_some_and(|o| !o.split(',').any(|c| c == case)) {
+            continue;
+        }
+        let light =
+            Lighting { ambient: 0x303030, diffuse: 0x303030, main_light: 0, only_tile: None };
+        let mut r = Reading::new(&format!("moonglow_light_shadows_{case}"), "tic01", light, &[]);
+        for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+            r.are.root.set(label, Value::Byte(v));
+        }
+        super::batch3::put_creature(&mut r, "nw_ogre01", [20.0, 22.0, 0.0], facing);
+        for &(x, y) in lamps {
+            r.place(73, [x, y, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+        }
+        let tileset = mg_area::tileset(&r.game, r.are.root.resref("Tileset").unwrap()).ok();
+        let model = mg_area::AreaModel::read(&r.game, &r.are.root, &r.git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &r.game, &model);
+        let camera =
+            fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let shot = |on: bool| {
+            let v = mg_area::View {
+                fog: false,
+                creature_shadows: on,
+                light_shadows: on,
+                ..mg_area::View::of(&model)
+            };
+            let scene = area_scene.scene(&model, &v);
+            let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+            renderer.render_image(&gpu, &r.game.resman, &scene, &camera, 1024, 768)
+        };
+        let (best, off) = (shot(true), shot(false));
+        save_png(&best, &r.dir.join("on.png"));
+        save_png(&off, &r.dir.join("off.png"));
+        let (w, h) = (best.width as usize, best.height as usize);
+        let (mut n, mut bbox, mut halves, mut floor) =
+            (0usize, [usize::MAX, usize::MAX, 0, 0], [0usize; 2], Vec::new());
+        for y in h * 35 / 100..h * 75 / 100 {
+            for x in w * 30 / 100..w * 70 / 100 {
+                let i = (y * w + x) * 4;
+                let sum = |p: &[u8]| p[0] as f64 + p[1] as f64 + p[2] as f64;
+                let (b, o) = (sum(&best.data[i..i + 3]), sum(&off.data[i..i + 3]));
+                if o - b >= 6.0 {
+                    if y * 1000 >= h * 505 {
+                        floor.push(1.0 - b / o);
+                    }
+                    n += 1;
+                    bbox = [bbox[0].min(x), bbox[1].min(y), bbox[2].max(x), bbox[3].max(y)];
+                    halves[usize::from(x >= w / 2)] += 1;
+                }
+            }
+        }
+        floor.sort_by(f64::total_cmp);
+        eprintln!(
+            "{case}: Moonglow's shadow: {n} pixels from ({}, {}) to ({}, {}); west of the middle \
+             {}, east {}; the floor below the feet darker by {:.3} (the median)",
+            bbox[0],
+            bbox[1],
+            bbox[2],
+            bbox[3],
+            halves[0],
+            halves[1],
+            floor.get(floor.len() / 2).copied().unwrap_or(0.0)
+        );
+    }
+}
+
+/// A city building's shadow under a sinking sun (the deferred list's
+/// shadows entry, the low sun: tcn01's buildings cast none over the street
+/// at 14 degrees in the client, half of it at 27 and 45): tcn01 all plain
+/// cobbles (tile 44) but for one house (tile 54, `tcn01_s05_01`) west of
+/// the middle, north of the player, Sun Shadows on at 100, a GIT sun from
+/// the west at each height of `MG_SUN_Z` (default 0.25, 0.35, 0.5, 0.75
+/// and 1: 14, 19, 27, 37 and 45 degrees up), beside Moonglow's area view
+/// with its shadows.
+///
+/// `MG_HOUSE_X` puts the house that many tiles from the west edge (0: at
+/// the view's edge), `MG_HOUSE_TURN` turns it, `MG_LOOK` gives another
+/// camera (`facing,distance,pitch`).
+///
+/// Seen (2026-10-30, 89.8193.37): the house's shadow is as long in the
+/// client as in Moonglow at every height, 14 degrees too (out to the
+/// area's end, `MG_LOOK=30,20,50`), turned each of the four ways, and at
+/// the view's edge: the city street the client leaves lit at 14 degrees
+/// (`reading_low_sun_shadow_length` with `MG_TILESET=tcn01`) isn't a
+/// building tile's own doing.
+#[test]
+#[ignore]
+fn reading_low_sun_building() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let heights = std::env::var("MG_SUN_Z").unwrap_or_else(|_| "0.25,0.35,0.5,0.75,1".into());
+    for z in heights.split(',').filter_map(|z| z.trim().parse::<f32>().ok()) {
+        let x = std::env::var("MG_HOUSE_X").unwrap_or_else(|_| "1".into())
+            + &std::env::var("MG_HOUSE_TURN").map(|t| format!("_turn{t}")).unwrap_or_default();
+        let mut r = Reading::new(&format!("low_sun_building_{x}_{z}"), "tcn01", light, &[]);
+        for (label, v) in [("SunShadows", 1u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+            r.are.root.set(label, Value::Byte(v));
+        }
+        let width = r.are.root.int("Width").unwrap_or(4) as usize;
+        for (i, t) in r.are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+            // (`MG_HOUSE_X`: the house that many tiles from the west edge, 1 by
+            // default; 0 puts it out of the camera's view.)
+            let column = std::env::var("MG_HOUSE_X").ok().and_then(|x| x.parse().ok()).unwrap_or(1);
+            let house = i == 2 * width + column;
+            t.set("Tile_ID", Value::Int(if house { 54 } else { 44 }));
+            t.set("Tile_Height", Value::Int(0));
+            // (`MG_HOUSE_TURN`: the house turned so many quarters.)
+            let turn = std::env::var("MG_HOUSE_TURN").ok().and_then(|t| t.parse().ok());
+            t.set("Tile_Orientation", Value::Int(if house { turn.unwrap_or(0) } else { 0 }));
+        }
+        let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
+            panic!("no AreaProperties")
+        };
+        for (axis, v) in [("X", -1.0f32), ("Y", 0.0), ("Z", z)] {
+            props.set(&format!("SunDirection{axis}"), Value::Float(v));
+            props.set(&format!("MoonDirection{axis}"), Value::Float(v));
+        }
+        let settings = super::shadows::settings();
+        // (`MG_LOOK=facing,distance,pitch`: another camera, as `shoot_close`.)
+        let look: Vec<f32> = std::env::var("MG_LOOK")
+            .map(|l| l.split(',').filter_map(|v| v.parse().ok()).collect())
+            .unwrap_or_default();
+        let (dir, _) = if let [f, d, p] = look[..] {
+            super::batch4::shoot_close(r, INVISIBLE, &settings, (f, d, p), &|v| v.shadows = true)
+        } else {
+            r.shoot_beside(INVISIBLE, &settings, &|v| v.shadows = true)
+        };
+        eprintln!("{}", dir.display());
+    }
+}
