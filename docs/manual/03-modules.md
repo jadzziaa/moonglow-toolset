@@ -247,6 +247,21 @@ fighters carrying an item with a property, items held by fighters,
 creatures in an area with a variable. What each condition found is told
 after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
 
+With more than one condition, **Find objects** chooses **meeting all of
+the conditions** (as above) or **meeting any of the conditions**: then
+the window lists what each condition finds, resource by resource, and
+the rows read **Or** (the button **Or…**); a place two conditions find
+is listed once, with both matches told. Tick **Not** beside a condition
+(its row then reads **Not**) to leave out the objects that meet it:
+exactly those an And of it would keep. "Fighters, not with Alertness"
+are the fighters without the feat; an object holding what a Not finds,
+or held by it, is left out too (fighters not carrying an item with a
+property; creatures not in an area with a variable; a blueprint not
+carrying such an item). With any, a Not still leaves out: "Fighters or
+rogues, not with Alertness". The first condition is what is looked
+for (it has no Not). The Aurora toolset's Find Instance has neither:
+this is Moonglow's own.
+
 **Look at** keeps the search to one kind of object (Items include
 those in inventories, equipment and stores) and to blueprints or placed
 objects. **Regular expressions** makes the names and texts asked for (a
@@ -268,7 +283,8 @@ the encounters that spawn it, an encounter blueprint's creatures and a
 placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
 CAMP_01 › spawns boss.utc`); a change made to one of those is made to
 the creature blueprint. The command line has the same, a condition of
-each kind at once, class levels and number ranges too:
+each kind at once, class levels and number ranges too, `--any` and
+`--not`:
 `mg search` ([Command-line tools](11-command-line.md)).
 
 Each one found is ticked; untick those to leave out (**Tick All**,

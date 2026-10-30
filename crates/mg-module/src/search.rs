@@ -3,7 +3,8 @@
 //! their tag or name: local variables, item properties, creatures'
 //! classes (by level), feats, spells and skills, appearances, the scripts
 //! attached, or any field by its label and value (a number in a range).
-//! Several conditions together find the objects that meet them all.
+//! Several conditions together find the objects that meet them all, or
+//! any of them; and objects that meet a condition can be left out.
 //!
 //! Every GFF resource of the module is walked, lists included (items in
 //! placed creatures' and containers' inventories and equipment, store
@@ -210,8 +211,17 @@ pub struct Query {
     pub search: Search,
     /// Conditions the objects found must also meet: what `search` finds
     /// is kept where the same object (or one holding it, or one it holds)
-    /// is found by each of these.
+    /// is found by each of these. With `any`, the others it may meet
+    /// instead.
     pub and: Vec<Search>,
+    /// What `search` and each of `and` find, together (each found where
+    /// it is found, an object meeting several once for each), in place of
+    /// what `search` finds where the same object meets them all.
+    pub any: bool,
+    /// Conditions the objects found must not meet: what is found is left
+    /// out where the same object (or one holding it, or one it holds) is
+    /// found by one of these, as `and` would keep it.
+    pub not: Vec<Search>,
     /// The kinds of object looked at (`utc`, `uti`...; `are` for areas,
     /// `ifo` for the module, `dlg` for conversations); empty: all.
     pub types: Vec<ResType>,
@@ -225,7 +235,15 @@ pub struct Query {
 
 impl Query {
     pub fn new(search: Search) -> Query {
-        Query { search, and: Vec::new(), types: Vec::new(), placed: None, regex: false }
+        Query {
+            search,
+            and: Vec::new(),
+            any: false,
+            not: Vec::new(),
+            types: Vec::new(),
+            placed: None,
+            regex: false,
+        }
     }
 
     /// Why one of its regular expressions isn't one (with `regex`).
@@ -807,7 +825,8 @@ struct Read<'a> {
 /// that carry it (but not for a search of fields, which finds fields).
 /// With other conditions, what is found on an object that meets them
 /// all, each one's first match told after its own (`Class: Fighter,
-/// level 5 · Feat: Alertness`). `game` names what is found as the game
+/// level 5 · Feat: Alertness`); with `any`, what each finds; less what
+/// is on an object meeting one of `not`. `game` names what is found as the game
 /// does (else by numbers); `cp` reads the module's text. Each resource
 /// is read once, for all the conditions ([`Kept`] keeps what it found).
 pub fn search(m: &Module, q: &Query, game: Option<&GameData>, cp: Codepage) -> Vec<Hit> {
@@ -897,13 +916,72 @@ impl Kept {
 /// What the query finds, from what each resource holds (`found`, in the
 /// order of their keys).
 fn joined(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
-    let mut hits = condition_hits(found, 0, &q.search);
-    for (c, extra) in q.and.iter().enumerate() {
-        // The objects it finds things on, and those holding them.
-        let theirs = condition_hits(found, c + 1, extra);
+    let mut hits = match q.any {
+        false => {
+            let mut hits = condition_hits(found, 0, &q.search);
+            for (c, extra) in q.and.iter().enumerate() {
+                let theirs = condition_hits(found, c + 1, extra);
+                let near = Near::of(&theirs);
+                hits.retain_mut(|h| {
+                    let also = near.meets(h);
+                    if let Some(text) = also {
+                        h.matched = format!("{} · {text}", h.matched);
+                    }
+                    also.is_some()
+                });
+            }
+            hits
+        }
+        true => any_of(found, q),
+    };
+    for (c, not) in q.not.iter().enumerate() {
+        let theirs = condition_hits(found, 1 + q.and.len() + c, not);
+        let near = Near::of(&theirs);
+        hits.retain(|h| near.meets(h).is_none());
+    }
+    hits.retain(|h| wanted(q, h));
+    hits
+}
+
+/// What each of the query's first conditions (`search` and `and`) finds,
+/// together, resource by resource (each one's in its turn); a place two
+/// of them find once, telling what each found (`Feat: Alertness · Class:
+/// Fighter, level 5`).
+fn any_of(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
+    let mut hits: Vec<Hit> = Vec::new();
+    let mut at: HashMap<(ResKey, String, Option<ResRef>, Option<ResRef>), usize> = HashMap::new();
+    for (c, s) in std::iter::once(&q.search).chain(&q.and).enumerate() {
+        for h in condition_hits(found, c, s) {
+            let place = (h.key, h.path.clone(), h.carried, h.spawned);
+            match at.get(&place) {
+                Some(&i) if !hits[i].matched.split(" · ").any(|m| m == h.matched) => {
+                    hits[i].matched = format!("{} · {}", hits[i].matched, h.matched);
+                }
+                Some(_) => {}
+                None => {
+                    at.insert(place, hits.len());
+                    hits.push(h);
+                }
+            }
+        }
+    }
+    // (Stable: within a resource, each condition's in the order found.)
+    hits.sort_by_key(|h| h.key);
+    hits
+}
+
+/// The objects a condition finds things on, and those holding them, each
+/// with what it first found there.
+struct Near<'a> {
+    own: HashMap<Object, &'a str>,
+    held: HashMap<Object, &'a str>,
+}
+
+impl<'a> Near<'a> {
+    fn of(theirs: &'a [Hit]) -> Near<'a> {
         let mut own: HashMap<Object, &str> = HashMap::new();
         let mut held: HashMap<Object, &str> = HashMap::new();
-        for h in &theirs {
+        for h in theirs {
             let objects = h.objects();
             if let Some(o) = objects.first() {
                 own.entry(o.clone()).or_insert(&h.matched);
@@ -912,26 +990,23 @@ fn joined(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
                 held.entry(o).or_insert(&h.matched);
             }
         }
-        // The same object, one holding what it is found on, or one held
-        // by it.
-        hits.retain_mut(|h| {
-            let objects = h.objects();
-            let first = objects.first().and_then(|o| held.get(o)).copied();
-            let also = first.or_else(|| objects.iter().find_map(|o| own.get(o).copied()));
-            if let Some(text) = also {
-                h.matched = format!("{} · {text}", h.matched);
-            }
-            also.is_some()
-        });
+        Near { own, held }
     }
-    hits.retain(|h| wanted(q, h));
-    hits
+
+    /// What the condition found on the object `h` is on, on one it holds,
+    /// or on one holding it.
+    fn meets(&self, h: &Hit) -> Option<&'a str> {
+        let objects = h.objects();
+        let first = objects.first().and_then(|o| self.held.get(o)).copied();
+        first.or_else(|| objects.iter().find_map(|o| self.own.get(o).copied()))
+    }
 }
 
 impl Query {
-    /// Its searches: the first, then the others with it.
+    /// Its searches: the first, the others with it, then those it must
+    /// not meet.
     fn searches(&self) -> Vec<&Search> {
-        std::iter::once(&self.search).chain(&self.and).collect()
+        std::iter::once(&self.search).chain(&self.and).chain(&self.not).collect()
     }
 }
 
@@ -1542,6 +1617,94 @@ mod tests {
         );
         assert_eq!(places(&value("1.5")), [("keep (area)", "Value = 1.5")]);
         assert_eq!(value("100..").len(), 1, "the guard's 103");
+    }
+
+    /// Conditions any of which is met, and conditions left out: a NOT
+    /// leaves out exactly what an AND of it keeps, by the same objects
+    /// (the same, one holding it, one held by it).
+    #[test]
+    fn any_of_the_conditions_and_those_not_met() {
+        let m = module();
+        let ask = |first: Search, and: Vec<Search>, any: bool, not: Vec<Search>| {
+            let q = Query { and, any, not, ..Query::new(first) };
+            search(&m, &q, None, Codepage::WINDOWS_1252)
+        };
+        let and = |first: Search, also: Search| ask(first, vec![also], false, Vec::new());
+        let not = |first: Search, out: Search| ask(first, Vec::new(), false, vec![out]);
+        let var = |name: &str| Search::Variable { name: name.into(), kind: None, value: None };
+        let bonus = Search::ItemProperty { property: 52, subtype: None, value: None, param: None };
+        let chest = Search::Appearance { of: AppearanceOf::Placeable, row: 103 };
+
+        // Fighters without the variable: the blueprint, not the placed
+        // guard who has it; with a feat they all have, none.
+        assert_eq!(
+            places(&not(Search::Class(4), var("sdeidad"))),
+            [("guard.utc", "Class: row 4, level 5")]
+        );
+        assert!(not(Search::Class(4), Search::Feat(0)).is_empty());
+        // An object holding what the condition finds is left out too (the
+        // guard holds an item with the variable), and one held by it (the
+        // item a fighter holds), and a blueprint carrying an item found
+        // (the chest carries the sword).
+        assert_eq!(
+            places(&not(Search::Feat(0), var("nDeidadBonus")))[..],
+            [("guard.utc", "Feat: row 0")]
+        );
+        assert_eq!(
+            places(&not(bonus.clone(), Search::Class(4))),
+            [
+                ("chest.utp › carries sword.uti", "Property 52 (subtype 3, value 5)"),
+                ("sword.uti", "Property 52 (subtype 3, value 5)"),
+            ]
+        );
+        assert_eq!(and(chest.clone(), bonus.clone()).len(), 1);
+        assert!(not(chest, bonus.clone()).is_empty());
+        // What a NOT leaves is what its AND doesn't keep.
+        for (first, other) in [
+            (Search::Class(4), var("*deidad*")),
+            (bonus.clone(), Search::Class(4)),
+            (var("*"), Search::Feat(0)),
+            (Search::Field { label: Some("Tag".into()), value: None }, var("AREA_*")),
+        ] {
+            let all = find(&m, first.clone()).len();
+            let kept = and(first.clone(), other.clone()).len();
+            assert_eq!(kept + not(first, other).len(), all);
+        }
+
+        // Any of them: each one's, resource by resource.
+        let either = ask(Search::Class(4), vec![var("AREA_*")], true, Vec::new());
+        assert_eq!(
+            places(&either),
+            [
+                ("guard.utc", "Class: row 4, level 5"),
+                ("keep (area)", "AREA_DEIDAD (float) = 1.5"),
+                ("keep › creature GUARD_01", "Class: row 4, level 5"),
+            ]
+        );
+        // A place two of them find, once, telling each (a text both find
+        // once).
+        let both = ask(var("sdeidad"), vec![var("*deidad"), var("x")], true, Vec::new());
+        assert_eq!(places(&both), places(&find(&m, var("*deidad"))));
+        let typed = Search::Variable { name: "s*".into(), kind: Some(VarType::Int), value: None };
+        let both = ask(typed, vec![var("sdeidad")], true, Vec::new());
+        let guard = both.iter().find(|h| h.place == "keep › creature GUARD_01").unwrap();
+        assert_eq!(guard.matched, "sdeidad (int) = 103", "told once");
+        assert_eq!(both.len(), 3, "the sword, the chest carrying it, the guard");
+        // Any of them, less what is in an area or on a creature with the
+        // variable.
+        let some = ask(Search::Class(4), vec![var("AREA_*")], true, vec![var("sdeidad")]);
+        assert_eq!(places(&some), [("guard.utc", "Class: row 4, level 5")]);
+        // Kept to what is looked at, as ever.
+        let q = Query {
+            and: vec![var("AREA_*")],
+            any: true,
+            placed: Some(true),
+            ..Query::new(Search::Class(4))
+        };
+        assert_eq!(search(&m, &q, None, Codepage::WINDOWS_1252).len(), 1);
+        // A regular expression in a condition left out is checked too.
+        let q = Query { regex: true, not: vec![var("(")], ..Query::new(Search::Class(4)) };
+        assert!(q.check().is_err());
     }
 
     /// An item blueprint found is followed up through bags in bags: a crate
