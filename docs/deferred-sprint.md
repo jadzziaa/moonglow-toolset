@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:36:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T12:12:32Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -105,6 +105,7 @@ land in `deferred.md` itself.
 | 2026-10-30, the third and fourth client batches, way B and wave 5 (five packages) merged | 92 | 185 | 262 | 55 | 54 | 83 |
 | 2026-10-30, the second Aurora batch, the fifth client batch and the frame budget merged | 83 | 168 | 275 | 62 | 54 | 85 |
 | 2026-10-30, the owner's verdicts, round two | 76 | 157 | 275 | 62 | 55 | 91 |
+| 2026-10-30, wave 6 (two packages), Advanced Search's OR/NOT and the hak names merged | 71 | 150 | 287 | 63 | 55 | 98 |
 
 ## After 3.0.0
 
