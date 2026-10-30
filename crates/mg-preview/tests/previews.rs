@@ -511,6 +511,48 @@ fn a_creature_s_own_parts_show_where_its_armor_is_bare() {
     assert!(models.contains(&"pmh0_bicepr002"), "the creature's own arm: {models:?}");
     assert!(models.contains(&"pmh0_bicepl001"), "{models:?}");
     assert!(models.contains(&"pmh0_chest005"), "the armor's chest: {models:?}");
+    // Where the creature has no part of its own (no field: a commoner made
+    // a human), the armor's bare skin shows none, as in the client
+    // (`client_render.rs`'s `reading_part_scopes`: no arms).
+    utc.remove("BodyPart_RBicep");
+    utc.remove("BodyPart_LBicep");
+    let bare = creature(&game, &utc, &armor).unwrap();
+    let models = self::models(&bare);
+    assert!(
+        !models.iter().any(|m| m.starts_with("pmh0_bicep")),
+        "no arms where neither has one: {models:?}"
+    );
+    assert!(models.contains(&"pmh0_chest005"), "{models:?}");
+}
+
+/// A helmet whose model isn't there is drawn as its base item's
+/// `DefaultModel` (the bag) in the head's place, as the client draws it
+/// (`client_render.rs`'s `reading_missing_helmet_model`); one that is
+/// there, as itself.
+#[test]
+fn a_helmet_without_its_model_is_the_bag() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = CreatureLook::new(6).to_utc();
+    let mut worn = mg_gff::Struct::new(1);
+    worn.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+    utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+    for (part, want) in [(2u8, "helm_002"), (250, "it_bag")] {
+        let helmet = |_: ResRef| -> Option<Gff> {
+            let mut g = Gff::new(*b"UTI ");
+            g.root.set("BaseItem", mg_gff::Value::Int(17));
+            g.root.set("ModelPart1", mg_gff::Value::Byte(part));
+            Some(g)
+        };
+        let preview = creature(&game, &utc, &helmet).unwrap();
+        let models = models(&preview);
+        assert!(models.contains(&want), "helmet {part}: {models:?}");
+        assert!(!models.iter().any(|m| m.contains("_head")), "no head under it: {models:?}");
+        let p = preview.parts.iter().find(|p| p.model == want).unwrap();
+        assert_eq!(p.attach.as_deref(), Some("head_g"));
+    }
 }
 
 /// A cloak moves with the bones of the body wearing it: on an elf (whose
@@ -1024,4 +1066,36 @@ fn a_placeable_s_light_and_reflection_follow_the_client() {
     let default = |s| placeable(&game, &s).unwrap().base.env_map_default;
     assert!(default(utp(428, None, 0)));
     assert!(!default(utp(191, None, 0)) && !default(utp(0, None, 0)));
+}
+
+/// A placed composite item's part scopes transform its models as the
+/// client's (`client_render.rs`'s `reading_item_part_scopes`): 255 the
+/// whole item, 254 its middle (a sword's guard), 253 its top (the blade);
+/// 252 and 251 none of them.
+#[test]
+fn an_item_s_part_scopes_transform_its_parts() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let sword = Gff::read(&game.resman.get_named("nw_wswls001", ResType::UTI).unwrap()).unwrap();
+    let which = |scope: i32| -> Vec<String> {
+        let mut uti = sword.root.clone();
+        let mut entry = mg_gff::Struct::new(6);
+        entry.set("Scope", mg_gff::Value::Int(scope));
+        let mut axis = mg_gff::Struct::new(0);
+        axis.set("ValueTo", mg_gff::Value::Float(2.0));
+        entry.set("ScaleX", mg_gff::Value::Struct(axis));
+        uti.set("VisTransformList", mg_gff::Value::List(vec![entry]));
+        let p = item(&game, &uti).unwrap();
+        std::iter::once(&p.base)
+            .chain(&p.parts)
+            .filter(|part| part.local.is_some())
+            .map(|part| part.model.clone())
+            .collect()
+    };
+    assert_eq!(which(255).len(), 3, "the whole sword");
+    assert_eq!(which(254), vec!["wswls_m_011".to_string()]);
+    assert_eq!(which(253), vec!["wswls_t_011".to_string()]);
+    assert!(which(252).is_empty() && which(251).is_empty());
 }

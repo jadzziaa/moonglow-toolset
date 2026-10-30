@@ -56,6 +56,8 @@ mod armourer;
 mod batch2;
 #[path = "client_render/batch3.rs"]
 mod batch3;
+#[path = "client_render/batch4.rs"]
+mod batch4;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]

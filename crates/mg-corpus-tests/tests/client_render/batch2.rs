@@ -113,7 +113,7 @@ fn reading_feminine_talk_table() {
 
 /// The blueprint `resref` (`ty`) placed at `at` facing `facing`
 /// (degrees) in the reading's GIT list `list`, with `fields` set.
-fn put(
+pub(super) fn put(
     r: &mut Reading,
     ty: ResType,
     resref: &str,
@@ -223,7 +223,7 @@ fn reading_grass_placement() {
 /// A `VisTransformList` entry of `scope`, scaled by `scale` and turned
 /// by `turn` (`RotateX`, degrees), as Aurora's Adjust Location writes
 /// one (each axis a struct of `ValueTo`).
-fn transform_entry(scope: i32, scale: f32, turn: f32) -> mg_gff::Struct {
+pub(super) fn transform_entry(scope: i32, scale: f32, turn: f32) -> mg_gff::Struct {
     let axis = |v: f32| {
         let mut s = mg_gff::Struct::new(0);
         s.set("TimerType", Value::Int(0));

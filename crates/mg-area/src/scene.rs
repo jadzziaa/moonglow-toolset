@@ -1033,7 +1033,7 @@ impl AreaScene {
             // A waypoint's flag, a store's sign and a sound's speaker
             // are markers: in their own colours, unlit.
             let unlit = o.kind.is_marker();
-            let time = if view.animate { view.time } else { 0.0 };
+            let time = object_time(o.kind, o.is_static, view);
             let key = Arc::as_ptr(shown) as usize;
             if failed(key) {
                 continue;
@@ -1345,6 +1345,17 @@ pub fn fog(l: &Lighting, night: bool) -> Fog {
     Fog { start, end, color: Vec3::new(ch(0), ch(8), ch(16)) }
 }
 
+/// The time a placed object's models are posed at: the view's while it
+/// animates, else their start. A static placeable holds its start too, as
+/// the client plays no animation of one (its `default`'s keys stood still
+/// where a dynamic copy's played: `client_render.rs`'s
+/// `reading_static_placeable_default_animation`); its emitters run either
+/// way (`reading_static_placeable_emitters`).
+fn object_time(kind: ObjectKind, is_static: bool, view: &View) -> f32 {
+    let still = kind == ObjectKind::Placeable && is_static;
+    if view.animate && !still { view.time } else { 0.0 }
+}
+
 /// Where a camera sees the whole area from above, for a first view.
 pub fn overview(area: &AreaModel) -> mg_render::Camera {
     let (w, h) = area.size();
@@ -1387,6 +1398,30 @@ mod tests {
         // Fewer than the most: all of them; ties in the order of the list.
         let two = [(5, Vec3::X), (2, -Vec3::X)].into_iter();
         assert_eq!(nearest(two, Vec3::ZERO, 8), vec![2, 5]);
+    }
+
+    /// A static placeable stands still at its animation's start while
+    /// everything else plays (`object_time`).
+    #[test]
+    fn a_static_placeable_plays_no_animation() {
+        let view = View {
+            time: 7.5,
+            night: false,
+            fog: false,
+            lit: true,
+            show: [true; 9],
+            animate: true,
+            fade: false,
+            grass: None,
+            shadows: false,
+            creature_shadows: false,
+            light_shadows: false,
+        };
+        assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
+        assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
+        assert_eq!(object_time(ObjectKind::Creature, false, &view), 7.5);
+        let still = View { animate: false, ..view };
+        assert_eq!(object_time(ObjectKind::Creature, false, &still), 0.0);
     }
 
     #[test]

@@ -295,9 +295,11 @@ pub(crate) fn dressed(
             // The armor's part covers the creature's own unless it is
             // bare skin (part 1) or nothing: there the creature's shows (a
             // pale master's arm; a jackalwere's legs and paws under armor
-            // whose parts are all 1).
+            // whose parts are all 1), and where the creature has none (no
+            // field), none shows: a commoner made a human, his clothes'
+            // arms 1, has no arms in the client (`reading_part_scopes`).
             let own = number(utc, body_field);
-            let n = if worn > 1 || own <= 0 { worn } else { own };
+            let n = if worn > 1 { worn } else { own };
             if n <= 0 {
                 continue;
             }
@@ -311,8 +313,19 @@ pub(crate) fn dressed(
         let helmet = worn(HEAD);
         match &helmet {
             Some(h) => {
-                let model = format!("helm_{:03}", number(h, "ModelPart1"));
-                if lk.has_model(&model) {
+                // (A helmet whose model isn't there is drawn as its base
+                // item's `DefaultModel`, the bag, in the head's place, as
+                // the client draws it: `reading_missing_helmet_model`.)
+                let model = Some(format!("helm_{:03}", number(h, "ModelPart1")))
+                    .filter(|m| lk.has_model(m))
+                    .or_else(|| {
+                        let baseitems = game.table("baseitems").ok()?;
+                        let row = usize::try_from(number(h, "BaseItem")).ok()?;
+                        cell(&baseitems, row, "DefaultModel")
+                            .map(str::to_ascii_lowercase)
+                            .filter(|m| lk.has_model(m))
+                    });
+                if let Some(model) = model {
                     let mut p = Part::new(model);
                     p.attach = Some("head_g".into());
                     let scale_col = if g == "f" { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };

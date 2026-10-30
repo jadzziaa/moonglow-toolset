@@ -182,13 +182,26 @@ pub(crate) fn item_parts(
         p
     };
     let parts = match cell_int(&baseitems, row, "ModelType").unwrap_or(0) {
-        // Composite: bottom, middle, top.
+        // Composite: bottom, middle, top. A placed item's part scopes
+        // transform them as the client does (`client_render.rs`'s
+        // `reading_item_part_scopes`: a longsword's 255 the whole sword,
+        // 254 its guard, 253 its blade; 252 and 251 nothing).
         2 => ["b", "m", "t"]
             .iter()
             .zip(["ModelPart1", "ModelPart2", "ModelPart3"])
-            .map(|(p, f)| format!("{class}_{p}_{:03}", n(f)))
-            .filter(|m| lk.has_model(m))
-            .map(part)
+            .zip([None, Some(254), Some(253)])
+            .map(|((p, f), scope)| (format!("{class}_{p}_{:03}", n(f)), scope))
+            .filter(|(m, _)| lk.has_model(m))
+            .map(|(m, scope)| {
+                let mut p = part(m);
+                let whole = crate::scope_matrix(uti, 255);
+                let own = scope.and_then(|s| crate::scope_matrix(uti, s));
+                p.local = match (whole, own) {
+                    (Some(w), Some(o)) => Some(w * o),
+                    (w, o) => w.or(o),
+                };
+                p
+            })
             .collect(),
         // Layered: helmets; cloaks shown as worn by a human (a man, or a
         // woman where `female` and the cloak has her model).
