@@ -562,6 +562,11 @@ mod tests {
         rm.add(priority::HAK_USER, "hak:own", LayerClass::Erf, mem);
         let game = mg_rules::GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
         assert_eq!(crate::new::Scheme::find(&game, "Crypt"), Ok(row));
+        // Listed by its label where the Visual page lists the schemes (it
+        // has no talk-table name).
+        let columns = mg_rules::ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") };
+        let listed = game.choices("environment", columns).unwrap();
+        assert!(listed.iter().any(|c| c.row == row && c.text == "Crypt"), "{listed:?}");
         let scheme = crate::new::Scheme::read(&game, row).unwrap();
         let given = saved.fields_for(&from).unwrap();
         for (label, value) in scheme.fields() {
