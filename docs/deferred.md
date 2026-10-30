@@ -1195,8 +1195,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   texels; Moonglow takes it as a part of `defaultwidth` (64 without one:
   10/64 of the picture here, where 10 of its 256 texels is a quarter as
   far). A ripple moves the picture and doesn't dim it, so the
-  difference may be the blending: Moonglow adds an additive texture
-  whole (One, One), the client may weigh it by its alpha. The game's 39
+  difference may be the blending: Moonglow added an additive texture
+  whole (One, One) when this was seen; it weighs it by its alpha since
+  2026-10-29, as the client does (`reading_additive_blending`), which
+  may dim the zombie as the client's (not looked at again). The game's 39
   arturo TXIs all name a scale and a translation; `distort 2` is only
   `fxpa_globe*`'s, `distortangle` only the decal skins'
   (`c_water_skin`, `vdu_tex_shade`). **What the client batch is to
