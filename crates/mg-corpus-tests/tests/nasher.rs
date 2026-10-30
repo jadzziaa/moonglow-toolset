@@ -3,7 +3,8 @@
 //! Moonglow must read each file back to a resource it writes as the same
 //! text (so an untouched tree saves without changes). Opened as a project,
 //! edited and saved, a tree must be what nasher unpacks from the edited
-//! module.
+//! module, with its GFF files kept as JSON or as NWNT (`gffFormat = nwnt`,
+//! WilliamDraco's `nwn_nwnt`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,18 +23,30 @@ use rayon::prelude::*;
 
 /// Unpacks `module` into the project at `dir` with nasher (made with its
 /// default rules, everything into `src`, if there is none), removing the
-/// sources of resources the module doesn't have.
-fn nasher_unpack(nasher: &Path, module: &Path, dir: &Path) {
+/// sources of resources the module doesn't have. With `nwnt`, the project
+/// keeps its GFF files as NWNT, its own `.nasher/user.cfg` saying so.
+fn nasher_unpack(nasher: &Path, module: &Path, dir: &Path, nwnt: bool) {
     std::fs::create_dir_all(dir).unwrap();
+    let tool = |n: &str| nwn_tool(n).unwrap().display().to_string();
+    let gff = if nwnt { "nwnt" } else { "json" };
     if !dir.join("nasher.cfg").exists() {
         std::fs::write(
             dir.join("nasher.cfg"),
-            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n\n  \
-             [package.rules]\n  \"*\" = \"src\"\n\n[target]\nname = \"default\"\nfile = \"m.mod\"\n",
+            format!(
+                "[package]\n  [package.sources]\n  include = \"src/**/*.{{nss,{gff}}}\"\n\n  \
+                 [package.rules]\n  \"*\" = \"src\"\n\n[target]\nname = \"default\"\nfile = \"m.mod\"\n"
+            ),
         )
         .unwrap();
     }
-    let tool = |n: &str| nwn_tool(n).unwrap().display().to_string();
+    if nwnt {
+        std::fs::create_dir_all(dir.join(".nasher")).unwrap();
+        std::fs::write(
+            dir.join(".nasher/user.cfg"),
+            format!("gffUtil = \"{}\"\ngffFormat = \"nwnt\"\ngffFlags = \"\"\n", tool("nwn_nwnt")),
+        )
+        .unwrap();
+    }
     let out = Command::new(nasher)
         .current_dir(dir)
         // nasher installs nothing when unpacking a given file; keep it away
@@ -44,7 +57,7 @@ fn nasher_unpack(nasher: &Path, module: &Path, dir: &Path) {
             format!("--file:{}", module.display()),
             "--yes".into(),
             "--removeDeleted".into(),
-            format!("--gffUtil:{}", tool("nwn_gff")),
+            format!("--gffUtil:{}", tool(if nwnt { "nwn_nwnt" } else { "nwn_gff" })),
             format!("--erfUtil:{}", tool("nwn_erf")),
             format!("--tlkUtil:{}", tool("nwn_tlk")),
         ])
@@ -57,13 +70,14 @@ fn nasher_unpack(nasher: &Path, module: &Path, dir: &Path) {
 
 /// nasher's unpack of a shipped module, made once for the tests here (they
 /// read it, or copy it to change it).
-fn unpacked(nasher: &Path, module: &Path) -> PathBuf {
-    static ALL: Shared<PathBuf, PathBuf> = Shared::new();
+fn unpacked(nasher: &Path, module: &Path, nwnt: bool) -> PathBuf {
+    static ALL: Shared<(PathBuf, bool), PathBuf> = Shared::new();
     static SCRATCH: OnceLock<PathBuf> = OnceLock::new();
-    ALL.get(&module.to_path_buf(), || {
+    ALL.get(&(module.to_path_buf(), nwnt), || {
         let name = module.file_stem().unwrap().to_string_lossy().replace(' ', "_");
+        let name = if nwnt { format!("{name}-nwnt") } else { name };
         let dir = SCRATCH.get_or_init(|| scratch_dir("nasher-unpack")).join(name);
-        nasher_unpack(nasher, module, &dir);
+        nasher_unpack(nasher, module, &dir, nwnt);
         dir
     })
 }
@@ -81,7 +95,7 @@ fn first_difference(a: &str, b: &str) -> String {
 /// Compares one unpacked module; returns the problems found.
 fn check_module(nasher: &Path, module: &Path) -> (usize, Vec<String>) {
     let name = module.file_stem().unwrap().to_string_lossy().to_string();
-    let dir = unpacked(nasher, module);
+    let dir = unpacked(nasher, module, false);
     let data = std::fs::read(module).unwrap();
     let erf = Erf::read(&data).unwrap();
     let conv = Conversion::default();
@@ -179,10 +193,11 @@ fn copy_dir(from: &Path, to: &Path) {
 /// Opens nasher's tree of `module` as a project, saves it untouched (nothing
 /// may be written), then edits it, saves, and compares the tree with nasher's
 /// unpack of the edited module into the original tree.
-fn edit_project(nasher: &Path, module: &Path, scratch: &Path) -> Vec<String> {
+fn edit_project(nasher: &Path, module: &Path, scratch: &Path, nwnt: bool) -> Vec<String> {
     let name = module.file_stem().unwrap().to_string_lossy().replace(' ', "_");
+    let name = if nwnt { format!("{name}-nwnt") } else { name };
     let dir = scratch.join(&name);
-    copy_dir(&unpacked(nasher, module), &dir);
+    copy_dir(&unpacked(nasher, module, nwnt), &dir);
     let expected = scratch.join(format!("{name}-nasher"));
     copy_dir(&dir, &expected);
     let before = tree(&dir);
@@ -247,7 +262,7 @@ fn edit_project(nasher: &Path, module: &Path, scratch: &Path) -> Vec<String> {
     // nasher's unpack of the same module into the original tree.
     let edited = scratch.join(format!("{name}-edited.mod"));
     m.save_as(&ModuleLocation::Archive(edited.clone())).unwrap();
-    nasher_unpack(nasher, &edited, &expected);
+    nasher_unpack(nasher, &edited, &expected, nwnt);
     let (ours, theirs) = (tree(&dir), tree(&expected));
     for (path, bytes) in &theirs {
         match ours.get(path) {
@@ -348,7 +363,7 @@ fn a_talk_table_the_module_takes_in_is_packed_as_nasher_packs_it() {
         return;
     }
     let project = scratch_dir("nasher-tlk-in-module").join("chess");
-    copy_dir(&unpacked(&nasher, &module), &project);
+    copy_dir(&unpacked(&nasher, &module, false), &project);
     std::fs::create_dir_all(project.join("src/tlk")).unwrap();
     std::fs::write(
         project.join("src/tlk/mytlk.tlk.json"),
@@ -393,6 +408,25 @@ fn projects_save_what_nasher_unpacks() {
         .filter(|m| m.extension().is_some_and(|e| e == "mod"))
         .collect();
     let problems: Vec<String> =
-        modules.par_iter().flat_map(|m| edit_project(&nasher, m, &scratch)).collect();
+        modules.par_iter().flat_map(|m| edit_project(&nasher, m, &scratch, false)).collect();
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// The same with the projects' GFF files kept as NWNT: what `nasher
+/// unpack` writes with `gffFormat = nwnt` is read, saved untouched without
+/// a change, and edited and saved as nasher unpacks the edited module.
+#[test]
+fn projects_kept_as_nwnt_save_what_nasher_unpacks() {
+    let root = corpus!();
+    let nasher = oracle_tool!("nasher");
+    let _ = oracle_tool!("nwn_nwnt");
+    let scratch = scratch_dir("nasher-projects-nwnt");
+    let modules: Vec<_> = sweep(bundled_modules(&root), 6)
+        .into_iter()
+        .filter(|m| m.extension().is_some_and(|e| e == "mod"))
+        .collect();
+    assert!(!modules.is_empty());
+    let problems: Vec<String> =
+        modules.par_iter().flat_map(|m| edit_project(&nasher, m, &scratch, true)).collect();
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

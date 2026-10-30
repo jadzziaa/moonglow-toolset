@@ -87,7 +87,7 @@ impl FolderFiles {
         Known {
             key,
             path: path.into(),
-            json: false,
+            form: crate::nasher::Form::Plain,
             file: file.clone(),
             stamp: self.stamps.get(path).copied(),
         }

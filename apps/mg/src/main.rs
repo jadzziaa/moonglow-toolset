@@ -512,10 +512,14 @@ enum Cmd {
         output: Option<PathBuf>,
         /// The file's path in the repository (git's %P): its name in the
         /// report, and where its nasher project is looked for (the float
-        /// places and codepage JSON is written with; default: OURS's
-        /// folder).
+        /// places and codepage JSON and NWNT are written with; default:
+        /// OURS's folder, then the working folder).
         #[arg(long)]
         path: Option<PathBuf>,
+        /// The nasher project whose settings those are, where it isn't
+        /// above the file (a folder with a nasher.cfg).
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
     },
     /// Write a custom talk table from strings kept by name (a .toml or
     /// .json file: `key = "text"`, in groups if you like), each on a line
@@ -2716,7 +2720,7 @@ fn run(cli: &Cli) -> Result<Output> {
             },
             Codepage::default(),
         )?,
-        Cmd::MergeGff { base, ours, theirs, prefer, output, path } => {
+        Cmd::MergeGff { base, ours, theirs, prefer, output, path, project } => {
             merge::merge_gff(&merge::Args {
                 base,
                 ours,
@@ -2724,6 +2728,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 prefer: prefer.as_deref(),
                 output: output.as_deref(),
                 path: path.as_deref(),
+                project: project.as_deref(),
             })?
         }
         Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against } => {

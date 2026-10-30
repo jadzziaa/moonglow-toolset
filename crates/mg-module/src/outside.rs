@@ -33,8 +33,9 @@ pub(crate) fn stamp(path: &Path) -> Option<Stamp> {
 pub(crate) struct Known {
     pub(crate) key: ResKey,
     pub(crate) path: Arc<Path>,
-    /// A GFF kept as JSON (a project's), not the resource itself.
-    pub(crate) json: bool,
+    /// The resource itself, or a GFF kept as text (a project's JSON or
+    /// NWNT).
+    pub(crate) form: crate::nasher::Form,
     /// The file's bytes then.
     pub(crate) file: Arc<[u8]>,
     /// Its time and size when last found as it was: one that still has

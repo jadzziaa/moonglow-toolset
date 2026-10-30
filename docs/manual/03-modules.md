@@ -455,8 +455,23 @@ nasher rounds the module's numbers to 4 decimal places (its
 ten-thousandth of a meter from where they were in a `.mod`. In the game
 that can show as a turn of up to a degree. Moonglow uses the project's
 own settings (`.nasher/user.cfg`): the number of places, the codepage and
-whether the area list is kept up to date. It reads projects that keep
-resources as JSON, nasher's default; NWNT format isn't supported yet.
+whether the area list is kept up to date.
+
+**NWNT projects.** A project whose settings say `gffFormat = "nwnt"`
+(nasher with WilliamDraco's `nwn_nwnt` as its `gffUtil`) keeps its GFF
+files as NWNT, a line a field (`Creature List[].Tag$CExoString =
+GUARD`), rather than JSON. Moonglow reads and saves those as it does
+JSON: each `.nwnt` file is written as `nasher unpack` writes it (fields
+sorted, floats to the project's places, line breaks in text as `\n`,
+lines ending in CRLF, without the module's `Mod_ID` and an area's
+`Version`), so an untouched file stays as it is, and a new resource (an
+area, a blueprint) gets a `.nwnt` file. A JSON file the project still
+has (from before it changed format) is read and saved as JSON. Save As
+nasher Project takes in `.nwnt` files instead of `.json` where the
+settings it is saved under (the global `user.cfg`, or one already in the
+folder's `.nasher`) say NWNT. A field whose label has a dot in it can't
+be written as NWNT (`nwn_nwnt` reads the dot as a struct's); the game's
+own files have none.
 
 `mg init` and `mg build` do the same from a terminal or a build pipeline
 (see [Command-line tools](11-command-line.md)).
@@ -476,7 +491,7 @@ driver*: in every merge, on every file you assign it to.
 `.gitattributes` (it is committed, so every builder has it):
 
 ```
-# nasher projects: GFF kept as JSON
+# nasher projects: GFF kept as JSON (or as NWNT: *.are.nwnt and so on)
 *.are.json merge=mg-gff
 *.git.json merge=mg-gff
 *.gic.json merge=mg-gff
@@ -548,9 +563,12 @@ with it.
   of an item is not kept.
 
 **The merge is written over your file (`%A`) in its own form.** A GFF is
-written as a GFF and JSON as `nasher unpack` writes it: keys sorted,
-floats rounded to the project's places, text in its codepage (read from
-the nasher project the file is in). A merge that equals your file leaves
+written as a GFF, and JSON and NWNT as `nasher unpack` writes them: keys
+sorted, floats rounded to the project's places, text in its codepage.
+Those are read from the nasher project the file is in (above `--path`,
+else above your file), else from the one the working folder is in (git
+runs the driver at the repository's top); `--project DIR` names the
+project where it is somewhere else. A merge that equals your file leaves
 it untouched, byte for byte; one that equals theirs is their file.
 
 **On a conflict** the command exits with an error and writes nothing.
@@ -572,8 +590,7 @@ or take one side's file whole (`git checkout --ours FILE` or `--theirs`),
 or open the module in Moonglow and make the change there.
 
 The command needs no game install, and `--json` prints the conflicts for
-a script or a bot. NWNT files (nasher's other text form) aren't merged
-yet.
+a script or a bot.
 
 ## The project file (moonglow.toml)
 

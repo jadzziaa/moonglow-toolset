@@ -36,6 +36,8 @@ mod modules;
 mod nasher;
 #[path = "../nwn_gff_diff.rs"]
 mod nwn_gff_diff;
+#[path = "../nwnt_diff.rs"]
+mod nwnt_diff;
 #[path = "../nwsync.rs"]
 mod nwsync;
 #[path = "../palettes.rs"]

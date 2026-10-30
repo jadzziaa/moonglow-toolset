@@ -4,20 +4,23 @@
 //! OURS, and the exit is a failure when the two changed something each
 //! its own way.
 //!
-//! Each file is a GFF or its JSON (neverwinter.nim's, as a nasher project
-//! keeps it), told by what is in it: git hands a driver files without
-//! their names. A merge the same as OURS leaves the file untouched (so a
-//! file nobody changed keeps every byte), one the same as THEIRS is
+//! Each file is a GFF, its JSON (neverwinter.nim's, as a nasher project
+//! keeps it) or its NWNT (`nwn_nwnt`'s, as a project with `gffFormat =
+//! nwnt` keeps it), told by what is in it: git hands a driver files
+//! without their names. A merge the same as OURS leaves the file untouched
+//! (so a file nobody changed keeps every byte), one the same as THEIRS is
 //! THEIRS's bytes, and any other is written in OURS's form: as `nasher
-//! unpack` writes JSON (with the project's float places and codepage, from
-//! the nasher project the file is in), or as a GFF.
+//! unpack` writes JSON or NWNT (with the project's float places and
+//! codepage, from the nasher project `--project` names, else the one the
+//! file is in, else the one the working folder is in: git runs a driver at
+//! the repository's top), or as a GFF.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use mg_core::Codepage;
 use mg_gff::{Gff, TextStyle, Value};
-use mg_module::nasher::{Conversion, Package, Settings};
+use mg_module::nasher::{Conversion, Form, Package, Settings};
 use mg_schema::merge::{Conflict, Prefer};
 use serde_json::json;
 
@@ -32,31 +35,39 @@ pub(crate) struct Args<'a> {
     /// The file's own path (git's `%P`): where its nasher project is
     /// looked for, and its name in the report.
     pub path: Option<&'a Path>,
+    /// The nasher project whose settings convert the text (`--project`).
+    pub project: Option<&'a Path>,
 }
 
-/// A file as read: its tree, its bytes and whether it was JSON.
+/// A file as read: its tree, its bytes and the form it was in.
 struct Read {
     gff: Gff,
     data: Vec<u8>,
-    json: bool,
+    form: Form,
 }
 
-/// Whether the bytes are JSON (an object), not a GFF.
-fn is_json(data: &[u8]) -> bool {
+/// The form the bytes are in, by what they begin with: JSON (an object),
+/// NWNT (`data_type`, as `nwn_nwnt` tells it) or a GFF.
+fn form_of(data: &[u8]) -> Form {
     let data = data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(data);
-    data.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')
+    let start = data.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(data.len());
+    match &data[start..] {
+        [b'{', ..] => Form::Json,
+        d if d.starts_with(b"data_type") => Form::Nwnt,
+        _ => Form::Plain,
+    }
 }
 
 fn read(path: &Path, conv: &Conversion) -> Result<Read> {
     let data = std::fs::read(path).with_context(|| path.display().to_string())?;
     let name = path.display().to_string();
-    let json = is_json(&data);
-    let gff = if json {
-        conv.from_source(&name, &data).map_err(|e| anyhow::anyhow!("{e}"))?
+    let form = form_of(&data);
+    let gff = if form.is_text() {
+        conv.from_text(form, &name, &data).map_err(|e| anyhow::anyhow!("{e}"))?
     } else {
-        Gff::read(&data).with_context(|| format!("{name} is no GFF or GFF JSON"))?
+        Gff::read(&data).with_context(|| format!("{name} is no GFF, GFF JSON or NWNT"))?
     };
-    Ok(Read { gff, data, json })
+    Ok(Read { gff, data, form })
 }
 
 /// The settings of the nasher project at or above `dir`, if it is in one.
@@ -113,8 +124,14 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
         None => args.ours.parent().map(Path::to_path_buf).unwrap_or_default(),
     };
     let near = if near.as_os_str().is_empty() { PathBuf::from(".") } else { near };
-    let settings = project_settings(&near).unwrap_or_default();
-    let conv = Conversion { codepage: settings.codepage, float_places: settings.truncate_floats };
+    let settings = match args.project {
+        Some(p) if Package::is_package(p) => Settings::read(p),
+        Some(p) => bail!("--project {}: no nasher.cfg there", p.display()),
+        None => {
+            project_settings(&near).or_else(|| project_settings(Path::new("."))).unwrap_or_default()
+        }
+    };
+    let conv = Conversion::of(&settings);
     let cp = conv.codepage;
     let (base, ours, theirs) =
         (read(args.base, &conv)?, read(args.ours, &conv)?, read(args.theirs, &conv)?);
@@ -149,9 +166,14 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
     let target = args.output.unwrap_or(args.ours);
     let (bytes, taken) = if merged.gff == ours.gff {
         (ours.data, "ours")
-    } else if merged.gff == theirs.gff && theirs.json == ours.json {
+    } else if merged.gff == theirs.gff && theirs.form == ours.form {
         (theirs.data, "theirs")
-    } else if ours.json {
+    } else if ours.form == Form::Nwnt {
+        if let Some(path) = mg_gff::nwnt_unkept_label(&merged.gff.root) {
+            bail!("{name}: {path}: NWNT can't keep a label with a dot in it");
+        }
+        (mg_gff::to_nwnt(&merged.gff, cp, conv.float_places).into_bytes(), "merged")
+    } else if ours.form == Form::Json {
         let j = mg_gff::to_json(&merged.gff, cp).with_context(|| name.clone())?;
         let style = TextStyle { float_places: Some(conv.float_places), ..TextStyle::NASHER };
         (mg_gff::to_json_text(&j, style).into_bytes(), "merged")

@@ -86,8 +86,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## nasher projects
 
-- **NWNT projects:** projects using NWNT instead of JSON for GFF files
-  are refused with a message. (M)
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
   - **Lists merged by place** that have an identity of their own: an
@@ -112,10 +110,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
     side for one conflict and the other for the next but `-o` from
     git's stages. A conflict file (the edits each side wants, for `mg
     apply`) or a Moonglow window would. (M)
-  - **NWNT files** aren't merged (the projects aren't read either). (S)
-  - **The settings:** a JSON file's float places and codepage come from
-    the nasher project above `--path` (or OURS's folder); a repository
-    whose project sits elsewhere gets nasher's defaults. (S)
   (The Domains of Dread's builder proposal, C9)
 
 ## Modules kept as folders
