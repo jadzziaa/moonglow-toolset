@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use mg_2da::TwoDa;
 use mg_core::{ResRef, ResType};
 use mg_gff::Struct;
@@ -91,6 +91,11 @@ pub struct Part {
     /// bones copy the skeleton's), wings and tails (with their own
     /// animations).
     pub animated: bool,
+    /// Its own visual transform, where the object has one for it (a
+    /// placed creature's head, tail, wings or cloak: [`scope_matrix`]):
+    /// the model placed so within the node it hangs from, as the whole
+    /// object's is placed within the object ([`visual_matrix`]).
+    pub local: Option<Mat4>,
 }
 
 impl Part {
@@ -104,8 +109,44 @@ impl Part {
             env_map: None,
             env_map_default: false,
             animated: false,
+            local: None,
         }
     }
+}
+
+/// A visual transform as the game client draws it (`visual_transforms_look`
+/// in `client_render.rs`): the model scaled by `ScaleX` every way (`scale`);
+/// leaned about its Y by `RotateZ`, then tipped about its X by `RotateY`,
+/// then turned about its upright axis by `RotateX` (`rotate`, degrees);
+/// then moved by the translation (meters).
+pub fn visual_matrix(scale: f32, rotate: [f32; 3], translate: [f32; 3]) -> Mat4 {
+    Mat4::from_translation(Vec3::from(translate))
+        * visual_turn(rotate)
+        * Mat4::from_scale(Vec3::splat(scale))
+}
+
+/// The rotation alone of [`visual_matrix`].
+pub fn visual_turn(rotate: [f32; 3]) -> Mat4 {
+    let r = Vec3::from(rotate) * (std::f32::consts::PI / 180.0);
+    Mat4::from_rotation_z(r.x) * Mat4::from_rotation_x(r.y) * Mat4::from_rotation_y(r.z)
+}
+
+/// The visual transform of scope `scope` (`VisTransformList`'s entry: a
+/// creature's head 254, tail 253, wings 252, cloak 243) of the placed
+/// object `object`, as a matrix ([`visual_matrix`], each axis's goal,
+/// `ValueTo`); `None` without one, or with one that changes nothing.
+pub fn scope_matrix(object: &Struct, scope: i64) -> Option<Mat4> {
+    let list = object.list("VisTransformList")?;
+    let entry = list.iter().find(|e| e.integer("Scope").unwrap_or(0) == scope)?;
+    let axis = |label: &str, rest: f32| {
+        entry.child(label).and_then(|a| a.float("ValueTo")).unwrap_or(rest)
+    };
+    let three =
+        |prefix: &str, rest: f32| ["X", "Y", "Z"].map(|a| axis(&format!("{prefix}{a}"), rest));
+    let (scale, rotate, translate) =
+        (axis("ScaleX", 1.0), three("Rotate", 0.0), three("Translate", 0.0));
+    let none = scale == 1.0 && rotate == [0.0; 3] && translate == [0.0; 3];
+    (!none).then(|| visual_matrix(scale, rotate, translate))
 }
 
 /// A light a preview carries (a placeable's).
@@ -330,6 +371,35 @@ mod tests {
         e.set(labels.0, Value::resref(ResRef::from_str(old).unwrap()));
         e.set(labels.1, Value::resref(ResRef::from_str(new).unwrap()));
         e
+    }
+
+    /// A scope's entry as a matrix: its goals (`ValueTo`), scaled by
+    /// `ScaleX` alone and turned as the whole object's is; none for a scope
+    /// the list lacks, or one that changes nothing.
+    #[test]
+    fn a_scope_s_visual_transform_is_a_matrix() {
+        let axis = |v: f32| {
+            let mut a = Struct::new(0);
+            a.set("ValueTo", Value::Float(v));
+            Value::Struct(a)
+        };
+        let mut head = Struct::new(6);
+        head.set("Scope", Value::Int(254));
+        head.set("ScaleX", axis(2.0));
+        head.set("ScaleZ", axis(5.0));
+        head.set("RotateX", axis(90.0));
+        head.set("TranslateZ", axis(0.25));
+        let mut plain = Struct::new(6);
+        plain.set("Scope", Value::Int(253));
+        plain.set("ScaleX", axis(1.0));
+        let mut o = Struct::new(0);
+        assert_eq!(scope_matrix(&o, 254), None);
+        o.set("VisTransformList", Value::List(vec![head, plain]));
+        let m = scope_matrix(&o, 254).unwrap();
+        assert!(m.transform_point3(Vec3::X).abs_diff_eq(Vec3::new(0.0, 2.0, 0.25), 1e-5), "{m}");
+        assert!(m.transform_vector3(Vec3::Z).abs_diff_eq(Vec3::Z * 2.0, 1e-5), "ScaleX alone");
+        assert_eq!(scope_matrix(&o, 253), None, "changes nothing");
+        assert_eq!(scope_matrix(&o, 0), None, "no base entry");
     }
 
     #[test]

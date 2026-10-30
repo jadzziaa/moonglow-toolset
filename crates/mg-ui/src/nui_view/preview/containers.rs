@@ -48,8 +48,7 @@ impl Renderer<'_> {
         // bar's track, which falls short of the view by the bar's two
         // end buttons (NWN EE 8193.37, np_group: 374 + 4 − (124 − 36)
         // = 290 down).
-        let content = self.scaled(natural(&node["children"][0], s, row, depth + 1))
-            + Vec2::splat(4.0 * scale);
+        let content = self.cell(&node["children"][0], row, depth + 1) + Vec2::splat(4.0 * scale);
         let scroll = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
         // x: the vertical bar's width; y: the horizontal bar's height.
         let bars = vec2(
@@ -164,14 +163,29 @@ impl Renderer<'_> {
             p.rect_stroke(inner, 0, Stroke::new(1.0, GOLD.gamma_multiply(0.5)), StrokeKind::Inside);
             c.label(inner, "+ Drop a control", Align2::CENTER_CENTER, false);
         }
-        let gap = 4.0 * scale;
+        let gap = self.gap_px(4.0);
         let total_gap = children
             .iter()
             .take(children.len().saturating_sub(1))
-            .map(|child| child_gap(ty, child) * scale)
+            .map(|child| self.gap_px(child_gap(ty, child)))
             .sum::<f32>();
-        let sizes: Vec<_> =
-            children.iter().map(|n| self.scaled(natural(n, s, row, depth + 1))).collect();
+        let sizes: Vec<_> = children.iter().map(|n| self.cell(n, row, depth + 1)).collect();
+        // A row's last button without a width stretches to a control with
+        // a width of its own after the row in its column, never before it
+        // (NWN EE 8193.37: one button under an image 200 wide is 196, two
+        // under 400 are 150 and 242; three under 400, or one under 100,
+        // stay 150).
+        let reach = match &self.reach {
+            Some((path, right)) if ty == "row" && path == source_path => Some(*right),
+            _ => None,
+        };
+        let widths_after: Vec<f32> = (0..children.len())
+            .map(|i| {
+                (children[i + 1..].iter())
+                    .map(|n| num(&n["width"], s, row, -1.0))
+                    .fold(-1.0, f32::max)
+            })
+            .collect();
         let fixed: f32 = children
             .iter()
             .zip(&sizes)
@@ -222,18 +236,25 @@ impl Renderer<'_> {
             {
                 size.y = size.x / num(&child["aspect"], s, row, 1.0);
             }
-            self.node(
-                ui,
-                child,
-                &format!("{source_path}/children/{i}"),
-                Rect::from_min_size(cursor, size),
-                row,
-                depth + 1,
-            );
+            if let Some(right) = reach
+                && i + 1 == children.len()
+                && !fills_width(child, s, row)
+                && num(&child["width"], s, row, -1.0) < 0.0
+            {
+                size.x = size.x.max(right - cursor.x);
+            }
+            let child_path = format!("{source_path}/children/{i}");
+            self.reach =
+                (ty == "col" && child["type"] == "row" && widths_after[i] >= 0.0).then(|| {
+                    let padding = layout_padding(child, s, row) * scale;
+                    (child_path.clone(), cursor.x + self.px(widths_after[i]) - padding)
+                });
+            self.node(ui, child, &child_path, Rect::from_min_size(cursor, size), row, depth + 1);
+            self.reach = None;
             if ty == "row" {
                 cursor.x += size.x + gap;
             } else {
-                cursor.y += size.y + child_gap(ty, child) * scale;
+                cursor.y += size.y + self.gap_px(child_gap(ty, child));
             }
         }
         ui.set_clip_rect(old_clip);

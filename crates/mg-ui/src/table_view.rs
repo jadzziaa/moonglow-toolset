@@ -472,12 +472,27 @@ pub fn edit_copy(app: &mut Moonglow, key: ResKey, home: Home) -> Option<u32> {
 }
 
 /// Edit a Copy In › a file: asks where.
-pub fn edit_copy_in_file(app: &mut Moonglow, key: ResKey) {
+pub fn edit_copy_in_file(app: &mut Moonglow, key: ResKey) -> Option<u32> {
     let suggested = PathBuf::from(key.to_string());
-    if let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Table, Some(&suggested)) {
-        let path = if path.extension().is_some() { path } else { path.with_extension("2da") };
-        edit_copy(app, key, Home::File(path));
-    }
+    let path = app.dialogs.save_file(crate::dialogs::FileKind::Table, Some(&suggested))?;
+    let path = if path.extension().is_some() { path } else { path.with_extension("2da") };
+    edit_copy(app, key, Home::File(path))
+}
+
+/// Adds a row with `cells` (by column name) at the end of the table open
+/// as `id`, as one step to take back, and goes to it: its number.
+pub fn add_row_of(
+    app: &mut Moonglow,
+    id: u32,
+    label: &str,
+    cells: &[(String, String)],
+) -> Option<usize> {
+    let doc = app.tables.iter_mut().find(|d| d.id == id)?;
+    doc.commit();
+    let row = doc.edit.add_row_of(label, cells);
+    doc.changed();
+    doc.go_to(row, 0);
+    Some(row)
 }
 
 /// Saves a table where it lives. Whether it was saved.

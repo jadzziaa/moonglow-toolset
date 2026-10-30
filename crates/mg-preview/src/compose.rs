@@ -18,6 +18,8 @@ struct Placed {
     /// The base's node it hangs from.
     attach: Option<usize>,
     scale: f32,
+    /// Its own visual transform within where it hangs (`Part::local`).
+    local: Mat4,
     textures: Option<Arc<HashMap<String, String>>>,
     colors: Option<[u8; 10]>,
     env_map: Option<String>,
@@ -32,6 +34,16 @@ struct Placed {
 }
 
 impl Placed {
+    /// Where it is drawn within the base's model when it hangs at `at`:
+    /// there, in its own visual transform, at its scale. And where its
+    /// skin's bones are worked out from (without its own transform: a
+    /// skin bound to the base's skeleton follows the skeleton, and is
+    /// carried by the transform as a whole).
+    fn hung(&self, at: Mat4) -> (Mat4, Mat4) {
+        let scale = Mat4::from_scale(Vec3::splat(self.scale));
+        (at * self.local * scale, at * scale)
+    }
+
     /// One of its animations (its own or a supermodel's), by name.
     fn animation(&self, name: &str) -> Option<&Animation> {
         let owner = self.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
@@ -133,6 +145,7 @@ fn place_unguarded(
         gpu: Arc::new(GpuModel::new(gpu, model)),
         attach,
         scale: part.scale,
+        local: part.local.unwrap_or(Mat4::IDENTITY),
         textures: (!part.textures.is_empty())
             .then(|| Arc::new(part.textures.iter().map(|(a, b)| (a.clone(), b.clone())).collect())),
         colors: part.colors,
@@ -307,7 +320,7 @@ impl Composed {
                 continue;
             }
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let (hung, _) = p.hung(at);
             let own = anim::lamps_layers(&p.gpu.model, &[], 0.0, &p.gpu.rest);
             lamps.extend(
                 own.into_iter().map(|l| anim::Lamp { at: hung.transform_point3(l.at), ..l }),
@@ -386,7 +399,7 @@ impl Composed {
         let mut out = vec![instance(&self.base, transform, Some(base_pose.clone()))];
         for p in &self.parts {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let (hung, bones) = p.hung(at);
             let placed = transform * hung;
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
@@ -400,7 +413,7 @@ impl Composed {
                 let worn = self.base.gpu.model.animation_scale;
                 own.or(base_anim).map(|a| Arc::new(anim::pose_worn(&p.gpu.model, a, t, worn)))
             } else {
-                p.skeleton_pose(&base_pose, hung).map(Arc::new)
+                p.skeleton_pose(&base_pose, bones).map(Arc::new)
             };
             out.push(instance(p, placed, pose));
         }
@@ -564,8 +577,8 @@ impl Composed {
                     let worn = self.base.gpu.model.animation_scale;
                     Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
                 });
-                let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
-                (posed.or_else(|| p.skeleton_pose(&base, hung)), hung)
+                let (hung, bones) = p.hung(at);
+                (posed.or_else(|| p.skeleton_pose(&base, bones)), hung)
             })
             .collect();
         Stance { base, parts }
@@ -954,6 +967,41 @@ mod ray_tests {
             c.ray_hit(Vec3::new(0.2, 0.2, 5.0), Vec3::NEG_Z)
                 .is_some_and(|t| (t - 4.0).abs() < 1e-4)
         );
+    }
+
+    /// A part's own visual transform (a placed creature's head scaled,
+    /// `Part::local`) places it within the node it hangs from: the part
+    /// bound to the skeleton, twice the size about `pelvis_g` (half a meter
+    /// up), has its torso at 1.5 m and is twice as wide, drawn and boxed
+    /// alike.
+    #[test]
+    fn a_part_s_own_visual_transform_places_it_about_its_node() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let (base, part) = (Arc::new(skeleton()), Arc::new(bound_part()));
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "part" => Some(part.clone()),
+            _ => None,
+        };
+        let twice = crate::visual_matrix(2.0, [0.0; 3], [0.0; 3]);
+        let part = crate::Part {
+            attach: Some("pelvis_g".into()),
+            local: Some(twice),
+            ..crate::Part::new("part")
+        };
+        let preview = Preview { parts: vec![part], ..Preview::model("base") };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        let (min, max) = c.bounds();
+        assert!((min.z - 1.5).abs() < 1e-4 && (max.z - 1.5).abs() < 1e-4, "{min} {max}");
+        assert!((max.x - 2.0).abs() < 1e-4 && (max.y - 2.0).abs() < 1e-4, "{min} {max}");
+        let instances = c.instances(None, 0.0, Mat4::IDENTITY);
+        let pose = instances[1].pose.as_ref().expect("posed by the skeleton");
+        let torso = instances[1].transform * pose[4];
+        assert!(torso.w_axis.truncate().abs_diff_eq(Vec3::Z * 1.5, 1e-5), "{torso}");
     }
 
     #[test]

@@ -89,7 +89,8 @@ fn format_string(
                 text = format!("{n:x}");
             }
         } else if let Some(n) = resolved.as_f64() {
-            let precision = v["number_precision"].as_u64().unwrap_or(0).min(16) as usize;
+            let precision =
+                v["number_precision"].as_u64().unwrap_or(0).min(MOST_PLACES as u64) as usize;
             text = native_decimal(n, precision);
         }
         let flags = v["text_flags"].as_i64().unwrap_or(0);
@@ -105,23 +106,18 @@ fn format_string(
     text
 }
 
-fn native_decimal(mut n: f64, precision: usize) -> String {
-    // NWN rounds exact decimal half ties away from zero. Rust uses ties-to-even.
-    // Detect the tie in the exact binary value, not with rounded n * 10^p:
-    // that multiplication can incorrectly turn a neighbouring value into a tie.
-    let bits = n.abs().to_bits();
-    let exponent = ((bits >> 52) & 0x7ff) as i32;
-    if n.is_finite() && exponent != 0 {
-        let mantissa = (bits & ((1_u64 << 52) - 1)) | (1_u64 << 52);
-        let numerator = u128::from(mantissa) * 5_u128.pow(precision as u32);
-        let denominator_bits = 1075 - exponent - precision as i32;
-        if (1..128).contains(&denominator_bits) {
-            let denominator = 1_u128 << denominator_bits;
-            if numerator % denominator == denominator / 2 {
-                n = if n.is_sign_negative() { n.next_down() } else { n.next_up() };
-            }
-        }
-    }
+/// The most decimal places a number's text is written to: past every
+/// digit a 32-bit float has (149), where the client writes zeros.
+const MOST_PLACES: usize = 400;
+
+/// A number in text as the client writes it: the bind's value as a 32-bit
+/// float, to `precision` places with no cap of its own, ties to even as C's
+/// `printf` (NWN EE 8193.37, `nui_readings_in_the_client`: 1/3 at 17 places
+/// is 0.33333334326744080, 0.5 and 2.5 at none 0 and 2).
+fn native_decimal(n: f64, precision: usize) -> String {
+    // (Rust writes a float's exact value, ties to even, as printf does.)
+    let n = f64::from(n as f32);
+    let precision = precision.min(MOST_PLACES);
     format!("{n:.precision$}")
 }
 

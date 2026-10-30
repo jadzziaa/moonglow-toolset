@@ -2742,6 +2742,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         "Placing the start location: click to put it here, facing the way the view looks \
          (Shift + click: and again); right click or Escape: stop"
             .to_string()
+    } else if let Some(light) = app.palette.placing_light {
+        let name = stock_lights(app).into_iter().find(|l| l.row == light).map(|l| l.name);
+        format!(
+            "Placing a light ({}): click to put it here (Shift + click: place more); right click \
+             or Escape: stop",
+            name.unwrap_or_else(|| light.to_string())
+        )
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
@@ -4290,6 +4297,24 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.start_selected = true;
             if !shift {
                 app.palette.placing_start = false;
+            }
+        }
+        return;
+    }
+
+    // Placing a light (the palette's Lights): where a click puts it, as
+    // the menu's Add Light Here.
+    if let Some(row) = app.palette.placing_light.filter(|_| !read_only) {
+        if cancelled(ui, response) {
+            app.palette.placing_light = None;
+        } else if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(light) = stock_lights(app).into_iter().find(|l| l.row == row)
+        {
+            add_light(app, view, &light, at);
+            if !shift {
+                app.palette.placing_light = None;
             }
         }
         return;
@@ -6360,11 +6385,11 @@ fn start_facing(facing: f32) -> [mg_edit::Edit; 2] {
 }
 
 /// A placeable appearance that is a light and nothing to see.
-struct StockLight {
+pub(crate) struct StockLight {
     /// Its placeables.2da row.
-    row: usize,
-    name: String,
-    color: Color32,
+    pub row: usize,
+    pub name: String,
+    pub color: Color32,
 }
 
 /// The radius the game gives a placeable's `LightColor` light (its light
@@ -6378,7 +6403,7 @@ const LIGHT_HEIGHT: f32 = 1.5;
 /// `LightColor` whose model is the game's invisible one (`dag_invisible`):
 /// "Light, Blue" to "Light, Yellow" in the game's own table, and any a
 /// hak adds in the same way.
-fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
+pub(crate) fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
     let Some(game) = app.game.as_deref() else { return Vec::new() };
     let Ok(table) = game.table("placeables") else { return Vec::new() };
     let colors = crate::tile_select::light_colors(app);
@@ -6403,6 +6428,17 @@ fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 5.0, light.color);
         ui.button(&light.name)
+    })
+    .inner
+}
+
+/// A light's row in the palette: its color and its name, chosen (`on`)
+/// while it is about to be placed.
+pub(crate) fn light_toggle(ui: &mut egui::Ui, light: &StockLight, on: bool) -> egui::Response {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(), 5.0, light.color);
+        ui.selectable_label(on, &light.name)
     })
     .inner
 }

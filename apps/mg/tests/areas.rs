@@ -437,6 +437,65 @@ fn a_lighting_scheme_is_given_to_the_areas() {
     assert_eq!(tiles(&a), tiles(&b), "the same number, the same picks");
 }
 
+/// `--lighting`: lighting kept in Moonglow (Saved Lighting), by its name
+/// in the data folder or by its file, gives the areas its fields and each
+/// tile its lights from the colors kept; one not kept changes nothing.
+#[test]
+fn kept_lighting_is_given_to_the_areas() {
+    let dir = mg_testkit::scratch_dir("mg-areas-lighting");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let are_key = key("cave1", ResType::ARE);
+    let mut m = Module::open(&path).unwrap();
+    let mut are = m.gff(&are_key).unwrap().unwrap();
+    let tile = || {
+        let mut t = Struct::new(1);
+        for l in ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"] {
+            t.set(l, Value::Byte(0));
+        }
+        t
+    };
+    are.root.set("Tile_List", Value::List(vec![tile(), tile(), tile()]));
+    m.set_gff(are_key, &are).unwrap();
+    m.save().unwrap();
+    let data = dir.join("data");
+    let kept = data.join("lighting");
+    std::fs::create_dir_all(&kept).unwrap();
+    let text = r#"{ "lighting": { "SunFogAmount": 14, "MoonFogColor": 657930 },
+        "tile_lights": { "main1": [27, 27, 4, 4], "main2": [0, 0, 0, 0], "source": [2, 2, 2, 2] } }"#;
+    std::fs::write(kept.join("Damp Crypt.lighting.json"), text).unwrap();
+    let run = |args: &[&str]| {
+        let mut cmd = crate::mg();
+        let out = cmd.env("MOONGLOW_DATA_DIR", &data).arg("areas").arg(&path).args(args).output();
+        let out = out.unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    };
+    let bytes = std::fs::read(&path).unwrap();
+    for bad in [&["cave1", "--lighting", "Nothing Kept"][..], &["cave1", "--seed", "3"]] {
+        let (ok, _, err) = run(bad);
+        assert!(!ok, "{bad:?}: {err}");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "a refusal changes nothing");
+    let (ok, out, err) =
+        run(&["cave1", "--lighting", "Damp Crypt", "--seed", "1", "--set", "SunFogAmount=5"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("cave1\tlighting\t(none) -> Damp Crypt"), "{out}");
+    assert!(out.contains("cave1\tlights of 3 tiles\ttheir own -> Damp Crypt's"), "{out}");
+    let are = Module::open(&path).unwrap().gff(&are_key).unwrap().unwrap().root;
+    assert_eq!(are.integer("MoonFogColor"), Some(657930));
+    assert_eq!(are.integer("SunFogAmount"), Some(5), "--set after the lighting");
+    for t in are.list("Tile_List").unwrap() {
+        assert!(matches!(t.integer("Tile_MainLight1"), Some(27 | 4)), "{t:?}");
+        assert_eq!(t.integer("Tile_SrcLight1"), Some(2));
+        assert_eq!(t.integer("Tile_SrcLight2"), Some(2));
+    }
+    // By its file, anywhere.
+    let file = kept.join("Damp Crypt.lighting.json");
+    let (ok, out, err) = run(&["inn", "--lighting", file.to_str().unwrap(), "--dry-run"]);
+    assert!(ok && out.contains("inn\tlighting\t(none) -> "), "{out}{err}");
+}
+
 /// A `.mod` named to `mg` with its module folder beside it (Aurora's
 /// module directory, `Caves/` beside `caves.mod`, in any case): the
 /// command reads and changes the `.mod`, as the game's server reads it,

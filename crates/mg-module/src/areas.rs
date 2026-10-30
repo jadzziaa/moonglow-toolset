@@ -354,6 +354,10 @@ pub enum Change {
     /// and night and weather, and each tile's lights picked at random from
     /// the scheme's colors.
     LightingScheme(crate::new::Scheme),
+    /// Lighting kept under a name (Area Properties' Saved Lighting,
+    /// [`crate::lighting`]): its Visual page's fields, and each tile's
+    /// lights picked at random from the colors kept with them.
+    Lighting(Box<crate::lighting::Saved>, String),
 }
 
 impl Change {
@@ -922,6 +926,20 @@ pub fn apply(
                         );
                     }
                 }
+                Change::Lighting(saved, name) => {
+                    let (fields, lit) =
+                        saved.give(&mut are.root, &mut rng).map_err(|e| format!("{name}: {e}"))?;
+                    if fields {
+                        are_changed = true;
+                        note("lighting".into(), None, Some(name.clone()));
+                    }
+                    if lit > 0 {
+                        are_changed = true;
+                        let what =
+                            format!("lights of {lit} tile{}", if lit == 1 { "" } else { "s" });
+                        note(what, Some("their own".into()), Some(format!("{name}'s")));
+                    }
+                }
                 Change::RemoveVar(name) => {
                     let Some(git) = git.as_mut() else { continue };
                     let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
@@ -1444,6 +1462,44 @@ mod tests {
             assert!([8, 9].contains(&light("Tile_SrcLight1")), "{t:?}");
             assert_eq!(light("Tile_SrcLight2"), light("Tile_SrcLight1"));
             assert_eq!(t.integer("Tile_ID"), Some(3), "the tile itself stays");
+        }
+    }
+
+    /// Lighting kept under a name (`--lighting`) gives an area its fields
+    /// and picks each tile's lights from the colors kept with them.
+    #[test]
+    fn kept_lighting_lights_the_area_and_its_tiles() {
+        let mut m = module();
+        let key = ResKey::new(r("cave1"), ResType::ARE);
+        let mut cave = m.gff(&key).unwrap().unwrap();
+        let tile = || {
+            let mut t = Struct::new(1);
+            for label in crate::lighting::TILE_LIGHT_FIELDS {
+                t.set(label, Value::Byte(0));
+            }
+            t
+        };
+        cave.root.set("Tile_List", Value::List(vec![tile(), tile()]));
+        m.set_gff(key, &cave).unwrap();
+        let text = "{\"lighting\": {\"SunFogAmount\": 12}, \"tile_lights\": {\"main1\": [4, 4, 4, \
+                    4], \"main2\": [0, 0, 0, 0], \"source\": [7, 7, 7, 7]}}";
+        let saved = crate::lighting::Saved::parse(text).unwrap();
+        let change = Change::Lighting(Box::new(saved), "Crypt".into());
+        let done = apply(&mut m, &[r("cave1")], &[change], CP, 1).unwrap();
+        let said: Vec<(&str, Option<&str>, Option<&str>)> =
+            done.iter().map(|c| (c.what.as_str(), c.from.as_deref(), c.to.as_deref())).collect();
+        assert_eq!(
+            said,
+            [
+                ("lighting", None, Some("Crypt")),
+                ("lights of 2 tiles", Some("their own"), Some("Crypt's"))
+            ]
+        );
+        let cave = are(&m, "cave1");
+        assert_eq!(cave.integer("SunFogAmount"), Some(12));
+        for t in cave.list("Tile_List").unwrap() {
+            assert_eq!(t.integer("Tile_MainLight1"), Some(4));
+            assert_eq!(t.integer("Tile_SrcLight2"), Some(7));
         }
     }
 }

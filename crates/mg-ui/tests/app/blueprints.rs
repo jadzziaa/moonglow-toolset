@@ -3685,8 +3685,29 @@ fn an_armor_s_part_is_chosen_by_its_picture() {
     h.set_size(egui::vec2(1000.0, 1200.0));
     let at = (egui::pos2(10.0, 10.0), egui::vec2(980.0, 1180.0));
     own_window(&mut h, &Tab::Blueprint(key), at.0, at.1);
+    // Each step waits until the page has settled (its pictures are made a
+    // few milliseconds' worth a frame, fewer on a busy machine: a part
+    // chosen makes every picture in sight again), not for a count of
+    // frames, and then for what it looks for.
+    let until = |h: &mut Harness<'_, Moonglow>,
+                 what: &str,
+                 done: &dyn Fn(&Harness<'_, Moonglow>) -> bool| {
+        for _ in 0..50 {
+            settle(h);
+            if done(h) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("{what}: not seen");
+    };
     h.get_by_label("Appearance").click();
-    h.run();
+    until(&mut h, "the Thighs button", &|h| {
+        h.query_by(|n| {
+            n.role() == egui::accesskit::Role::Button && n.label().as_deref() == Some("Thighs")
+        })
+        .is_some()
+    });
     let button = egui::accesskit::Role::Button;
     let number = |l: &str| l.parse::<u16>().ok();
     let tiles = |h: &Harness<'_, Moonglow>| -> Vec<u16> {
@@ -3696,13 +3717,18 @@ fn an_armor_s_part_is_chosen_by_its_picture() {
     };
     // The thighs' pictures: the armor's own among those in sight.
     h.get_by(|n| n.role() == button && n.label().as_deref() == Some("Thighs")).click();
-    h.run_steps(3);
     let own = field(&mut h, &key).integer("ArmorPart_LThigh").unwrap() as u16;
-    let shown = tiles(&h);
-    assert!(shown.contains(&own), "{own} in {shown:?}");
-    let other = *shown.iter().find(|&&n| n != own).unwrap();
+    until(&mut h, "the armor's own thighs", &|h| tiles(h).contains(&own));
+    let other = *tiles(&h).iter().find(|&&n| n != own).unwrap();
+    // (Its place as the settled page has it.)
     h.get_by_label(&other.to_string()).click();
-    h.run();
+    let chosen = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_LThigh");
+    for _ in 0..50 {
+        settle(&mut h);
+        if chosen(&mut h) == Some(i64::from(other)) {
+            break;
+        }
+    }
     let s = field(&mut h, &key);
     assert_eq!(s.integer("ArmorPart_LThigh"), Some(i64::from(other)));
     assert_eq!(s.integer("ArmorPart_RThigh"), Some(i64::from(other)), "both legs");

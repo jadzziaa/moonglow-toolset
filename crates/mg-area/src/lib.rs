@@ -221,15 +221,12 @@ impl VisualTransform {
     /// about its X by `RotateY`, then turned about its upright axis by
     /// `RotateX`; then moved by the translation.
     pub fn matrix(&self) -> Mat4 {
-        Mat4::from_translation(self.translate)
-            * self.turn()
-            * Mat4::from_scale(Vec3::splat(self.scale.x))
+        mg_preview::visual_matrix(self.scale.x, self.rotate.into(), self.translate.into())
     }
 
     /// The rotation alone (of [`VisualTransform::matrix`]).
     pub fn turn(&self) -> Mat4 {
-        let r = self.rotate * (std::f32::consts::PI / 180.0);
-        Mat4::from_rotation_z(r.x) * Mat4::from_rotation_x(r.y) * Mat4::from_rotation_y(r.z)
+        mg_preview::visual_turn(self.rotate.into())
     }
 }
 
@@ -256,6 +253,11 @@ pub struct AreaObject {
     pub outline: Vec<Vec3>,
     /// Its model's visual transform.
     pub visual: Option<VisualTransform>,
+    /// Every entry of its `VisTransformList`: the whole object's (scope 0)
+    /// with its animation speed and lerps in progress, and a creature's
+    /// head, tail, wings and cloak (drawn on those parts:
+    /// `mg_preview::scope_matrix`). What Adjust Location shows of them.
+    pub scopes: Vec<mg_module::placement::Scoped>,
     /// A placeable's `Static`: part of the scenery. The game gives a
     /// static placeable no visual transform (Aurora resets it).
     pub is_static: bool,
@@ -333,6 +335,7 @@ impl AreaObject {
             problem: None,
             outline,
             visual: VisualTransform::read(s),
+            scopes: mg_module::placement::visual_scopes(s),
             is_static: kind == ObjectKind::Placeable && s.integer("Static").unwrap_or(0) != 0,
             trigger_type: if kind == ObjectKind::Trigger {
                 s.integer("Type").unwrap_or(0)

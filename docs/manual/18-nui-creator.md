@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T22:04:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:17:28Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -168,8 +168,10 @@ their data. **Draw layers** adds polylines, curves, ellipses, arcs, text, images
 lines and rectangles. Coordinate handles move shapes/control points and resize
 rectangles; fields expose binds, paint order and mouse conditions.
 A drawing with **Per-row values (in a list)** takes one value per list row
-from its bound arrays, drawn once in each row. Numeric text preview limits
-precision to 16 digits, an editor limit, not the engine's. Verify exact spacing, drawing, scrolling and events in the game.
+from its bound arrays, drawn once in each row. A number bound to text is
+written as the game writes it: the bind's value as a 32-bit float, to as
+many places as its precision asks, ties rounded to even (1/3 at 17 places
+is 0.33333334326744080; 2.5 at none is 2). Verify exact spacing, drawing, scrolling and events in the game.
 
 ## Images
 
@@ -666,11 +668,14 @@ and the preview follow them.
   the game draws at 1.11, on one 993 high at 1.38. The preview's **Screen**
   mode applies the same cap. The game rounds each scaled size down to whole
   pixels (a row 34 high is 37 at 1.11, not 37.7), and so does the preview:
-  each control's size, a list's rows and its cells' widths. The gaps and
-  margins between controls are scaled as they are (whether the game rounds
-  those too is not measured).
+  each control's size, its margins and the gaps between controls (ten
+  buttons 30 high with margins of 5 are 43 pixels apart at 1.11), a
+  list's rows and its cells' widths.
 - **A control with no width** in a column is as wide as the column's widest
-  control, in the game and in the preview. One case differs: after a control
-  with a width of its own, rows of buttons without widths can make the game
-  pick a narrower width (an image after a row of three buttons, an image 200
-  wide and a row of two is 308 wide in the game, 462 in the preview).
+  control, in the game and in the preview. A button without a width is
+  150 wide, in a row too; but a row's last button without a width
+  stretches to a control with a width of its own after the row in its
+  column, until the row is as wide as that control less 2 (one button
+  under an image 200 wide is 196, two under one 400 wide are 150 and
+  242), never to one before the row, nor where its buttons are wider
+  already.
