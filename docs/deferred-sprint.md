@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:55:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:53:59Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -99,5 +99,6 @@ land in `deferred.md` itself.
 | 2026-10-29, the thirteen small-fix packages merged | 161 | 275 | 173 | 41 | 53 | 63 |
 | 2026-10-29, the owner's verdicts on the proposals | 132 | 243 | 173 | 41 | 54 | 77 |
 | 2026-10-30, the medium-fix wave (thirteen packages), the second client batch and the owner's further work (7z and rar, NWSync upload, CI time) merged | 107 | 215 | 228 | 47 | 54 | 82 |
+| 2026-10-30, the third and fourth client batches, way B and wave 5 (five packages) merged | 92 | 185 | 262 | 55 | 54 | 83 |
 
 [^owner]: The owner's scope, 2026-10-28: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved.
