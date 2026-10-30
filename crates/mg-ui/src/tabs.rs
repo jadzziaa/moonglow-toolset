@@ -658,8 +658,9 @@ impl TabViewer for Viewer<'_> {
     /// its pane (in a pane that scrolled, its side lists ran past the pane's
     /// edge and were cut off); so does the manual, whose text wraps at the
     /// pane's width, and the Options, whose page scrolls between its panels;
-    /// and the properties windows and the journal, conversation and talk
-    /// table editors, whose page scrolls over OK and Cancel at their foot (in a pane that scrolled, at a display scale of 125% the
+    /// and the properties windows and the journal, conversation, talk
+    /// table and tileset editors, whose page scrolls over OK and Cancel at
+    /// their foot (in a pane that scrolled, at a display scale of 125% the
     /// pane's scroll bars came and went each frame at some sizes, egui's
     /// content rounded to pixels a sliver past it, and the foot went up
     /// and down with them: GitHub issue 38). The others scroll when wider
@@ -682,6 +683,7 @@ impl TabViewer for Viewer<'_> {
                 | Tab::Journal
                 | Tab::Dialog(_)
                 | Tab::TalkTable
+                | Tab::Tileset(_)
         );
         [!fits, !fits]
     }

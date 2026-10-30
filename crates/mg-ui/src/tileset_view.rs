@@ -270,7 +270,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     // The doc is taken out while drawn (its fields edit through the app's
     // buffers), and put back.
     let mut doc = app.tilesets.remove(i);
-    draw(app, ui, &mut doc);
+    // (All of it scrolls, both ways, over OK and Cancel: the window fits
+    // its pane, `TabViewer::scroll_bars`.)
+    let page = egui::ScrollArea::both().id_salt(("set-editor", id)).auto_shrink(false);
+    page.show(ui, |ui| draw(app, ui, &mut doc));
     app.tilesets.insert(i, doc);
 }
 
