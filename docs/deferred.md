@@ -171,15 +171,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The largest areas in full view:** a 784-tile stock area takes 2.5 ms
   a frame zooming out; TDoD's synthetic woods (33,000 meshes in sight)
   13 ms (21 turned to the horizon), 25,000 draws of meshes mostly drawn
-  once each. What is left is each draw's own work: wgpu's call and the
-  chunk of shared buffers it switches to (a large area spans ten) and its
-  values written (each mesh's lights are kept from frame to frame while
-  the lights stay, `ReachCache`, since 30 October). Fewer, larger chunks,
-  and values kept from frame to frame for what doesn't move, would cut
-  it. Tyrants of the Moonsea's area084 (676 tiles, 16,000 meshes) with
-  the wheel zooming over all of it: 9.6 to 11.7 ms (`frame_perf`'s
-  `sound_ranges_frames_at_144`, named in its `KNOWN_OVER`).
-  ([the frames note](research/notes_frames.md), 27 October) (M–L)
+  once each. Tyrants of the Moonsea's area084 (676 tiles, 16,000 meshes)
+  with the wheel zooming over all of it: 9.8 to 11 ms (`frame_perf`'s
+  `sound_ranges_frames_at_144`, named in its `KNOWN_OVER`). Taken apart
+  on 30 October (`render_area`'s `MG_TIME_RENDER`, the frame test's
+  size, the game's shaders): the scene made in 0.5 ms, its draws encoded
+  in 8.0 ms (7.5 since the lights a mesh took are kept in place), the
+  GPU's 2.6 ms; 16,651 meshes in 9,680 draws of 1,606 materials, 4,779
+  casting the sun's shadows. Of the encoding (its stacks sampled): wgpu's
+  `finish` a third (each draw's groups and buffers bound, their uses
+  tracked, the driver's calls), the draws' values worked out and written
+  a fifth, the lights a mesh takes and the batcher a tenth each, the
+  sun's shadows 1.3 ms (their map fitted to the view, so drawn anew as it
+  moves). Ruled out: leaving out small meshes (632 of the 12,149 in sight
+  are under 2 px across), merging far tiles' meshes (a draw's 32 lights
+  are chosen for its mesh: merged, for the whole, and the picture
+  changes), and keeping the draws' values while the camera moves (the
+  game's programs take `m_mv` and `m_mvp` a draw, and the lights in view
+  space). What is left is wgpu's work a draw: fewer draws (one material's
+  meshes of many tiles in one, each mesh's lights found by its vertices)
+  or render bundles for what doesn't move. ([the frames
+  note](research/notes_frames.md), 27 and 30 October) (L)
 
 ## EE fields Aurora hides
 
@@ -514,24 +526,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 
-- **A grass tuft's sway:** a tuft is one upright quad turned at random,
-  a texture quarter, as tall as wide, as the client's are (seen with
-  white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
-  client's tufts sway, tops moving and feet still, read on 2026-10-30
-  (`reading_grass_sway_by_clock` in `client_render.rs`'s `batch5.rs`:
-  `vsgrass` and `fsgrass` patched to paint each tuft's top and foot
-  places and the client's clock): all of them together, along the
-  area's north-south, at `WindPower` 2 between −0.055 and +0.098 m of
-  their feet (1.2 m tufts), about 4 s from one peak to the next; at 1
-  between −0.027 and +0.045 m, slower. Moonglow's stand still with
-  either shader: the game's `vsgrass` reads no wind, so the engine moves
-  the vertices itself, and the area view would have to as well, in both
-  of its paths (its own grass shader, and the game's `vsgrass` fed moved
-  vertices: a pass of their own over the whole view's grass, as the
-  engine moves them on the CPU). (M: the motion; the swing's shape
-  beyond its reach and period, and whether the area's wind direction
-  turns it, not read)
-
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
@@ -737,16 +731,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or unchecked. (from M2, 2026-10-21)
   - **The framebuffer's copies** (`texFBColor`/`texFBDepth`, [the
     framebuffer proposal](framebuffer-proposal.md)) are made after the
-    solid meshes only. A material's `sample_framebuffer` (TDoD's two
-    flow MTRs; their programs read no copy) is read and not drawn late,
-    after the shadows, as the engine draws it (S). Over water (read
-    2026-10-30, `reading_framebuffer_copy_over_water`: cards painting
-    the copy above them): a `sample_framebuffer` mesh's copy holds no
-    water in the client, as Moonglow's; a solid or `transparency 1`
-    mesh's holds the water in the client (likely the frame before's last
-    copy: the camera was still), where Moonglow gives it the solid
-    meshes' copy. Giving those the frame before's picture (the area
-    view keeps none; a picture drawn once has no frame before) (S–M).
+    solid meshes only (a material's `sample_framebuffer` drawn late,
+    after the shadows, since 2026-10-30). Over water (read 2026-10-30,
+    `reading_framebuffer_copy_over_water`: cards painting the copy above
+    them): a `sample_framebuffer` mesh's copy holds no water in the
+    client, as Moonglow's; a solid or `transparency 1` mesh's holds the
+    water in the client (likely the frame before's last copy: the camera
+    was still), where Moonglow gives it the solid meshes' copy (and so a
+    soft particle over water fades against what lies under it). Giving
+    those the frame before's picture: a second pair of copies (30 to 40
+    MB at the area view's size), filled from the targets as the frame
+    begins where the frame before was of the same view; a picture drawn
+    once has no frame before. (S–M)
   - The tangents the renderer makes (a mesh with a render hint and none
     of its own) are summed per face (`made_tangents`): across a
     mirrored UV seam they run smoothly where the client splits the seam
@@ -754,13 +750,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     copied, `engine_tangents`, MDL-MESH-043: read 2026-10-30,
     `reading_tangents`, an ASCII card with a mirrored seam under a
     custom pair painting its tangent and handedness, sharp in the
-    client). Copying the vertices in the renderer touches every reader
-    of a mesh's vertices by the model's numbering (skins, dangly meshes,
-    vertex animation). (S–M)
-  - Pictures already made (the galleries' thumbnails, a hovered row's
-    preview) are kept across a flip of the switch, drawn as they were,
-    until they are asked for anew: `set_game_shaders` changes the
-    renderer only. (S)
+    client). How: `mg_mdl::compile`'s `engine_tangents` already splits
+    as the compiler does (skin weights, dangly constraints and the source
+    maps copied with the vertex, an animated mesh's left); the renderer
+    would take its split with the made tangents' sums (so that a mesh
+    with no mirrored seam keeps every pixel), the copies at the end of
+    the mesh's vertices and its indices rewritten (`GpuModel::new`), and
+    the two readers that write a mesh's vertices a frame give the copies
+    their originals' (`Dangly`'s rest and limits, `animated_vertices`
+    by `source`). (S–M)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21)
@@ -971,20 +969,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
   fixed against the content itself but none of it compared with the
   client: a supermodel's position keys scaled by `setanimationscale`
-  (taken as the size against the model whose animation is played; a
-  chain of scaled supermodels wasn't tried); a body part drawn only where
-  the base has its node; a mesh with `bitmap NULL` given the part's own
-  texture; a bitmap name over 16 characters cut to 16; a blank line among
-  ASCII skin weights read as a vertex without any (a blank line that is
-  only spacing in a list with all its rows would shift the rows; such a
-  vertex's faces are not drawn since 2026-10-29, as the game draws none
-  of a vertex no bone weighs). The
-  reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
-  it animated, with its skin torn by the shifted weights. The model
-  viewer's own check of names over 16 characters is as it was. The
-  report's Mindwitness also poses differently than in Aurora and the
-  game; not reproduced without the model. (S; the pose needs the
-  files)
+  (taken as the size against the model whose animation is played); a
+  body part drawn only where the base has its node; a mesh with `bitmap
+  NULL` given the part's own texture; a bitmap name over 16 characters
+  cut to 16; a blank line among ASCII skin weights read as a vertex
+  without any (its faces not drawn since 2026-10-29, as the game draws
+  none of a vertex no bone weighs), and since 2026-10-30 as spacing only
+  in a list that has all its rows without it. The reporter's "stopped
+  animating" (Mindwitness) wasn't seen as such: here it animated, with
+  its skin torn by the shifted weights. Left, each waiting: which scale
+  a chain of scaled supermodels plays its animation at (the playing
+  model's alone, or each link's together: a client reading of a model,
+  its supermodel and theirs, each scaled); the model viewer's own check
+  of names over 16 characters (the Moonglow Viewer session's); and the
+  Mindwitness's pose, other than in Aurora and the game (the builder's
+  model). (S)
 - **Shadows:** the area view draws the sun's and moon's shadows
   (2026-10-28: a shadow map standing in for the game's stencil volumes,
   laid as the game's shadow plane lays them, checked against the client
@@ -1040,12 +1039,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   [the findings](findings.md) ("Two-sided faces, cut-outs and decals").
   A cut-out whose mesh's alpha is under 1 is drawn solid and cut, as the
   client draws one, and a transparency hint changes nothing in either
-  (2026-10-30, `reading_see_through_cut_out`). Left: that disc of mesh
-  `alpha 0.5` is a quarter lighter in the client than the plain one
-  (156, 99, 40 against 126, 79, 31), not read why; the tiles and the
-  armoires were not painted by the probe (another shader path: their
-  value was not read). (S) (asked by the Domains of Dread module
-  session; checked in the client, 2026-10-09)
+  (2026-10-30, `reading_see_through_cut_out`). Left, waiting on a client
+  reading: why that disc of mesh `alpha 0.5` is a quarter lighter in the
+  client than the plain one (156, 99, 40 against 126, 79, 31). The
+  game's programs multiply only the fragment's alpha by the mesh's
+  (`inc_standard`'s `SetupStandardShaderInputs`), not its color: the
+  difference is in how the engine draws it (another pass, other lights
+  or no shadow), not in `fslit`. The reading: `fslit` patched to paint
+  each disc's color before its lighting and its lighting apart, and the
+  tiles' and armoires' programs (not painted by the probe) likewise. (S)
+  (asked by the Domains of Dread module session; checked in the client,
+  2026-10-09)
 - **A rippling glow (TXI `proceduretype arturo`), how far and how fast it
   ripples:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
   `channelscale` 0 0 0 0, `channeltranslate` 1 1 1 1, `distort 1`,
@@ -1123,10 +1127,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Seen in the viewer session's client pictures (a
   skeleton numbered afresh under the same names leaves its creatures
   unposed), not measured again here; a human and an elf in armor and
-  cloak still stand as the client draws them. Of the game's models, 70
-  have nodes the two ways move differently, none of them looked at one
-  by one. A node an animation numbers −1 is not moved, on the reading
-  that the game moves none for it. (S)
+  cloak still stand as the client draws them. A node an animation
+  numbers −1 is not moved, on the reading that the game moves none for
+  it. Of the game's 647 compiled models with a compiled supermodel, 70
+  have nodes the two ways move differently (152 nodes:
+  `binding_by_part_number_and_by_name` in `models.rs`, run again on
+  2026-10-30), of two kinds: a node of the supermodel's name numbered −1
+  or afresh in the model (`c_blade_m`'s `head_g`, not moved by number,
+  turned 10 to 20° by name in `a_ba`'s walks; `impact` in a dozen), and
+  old models whose own numbers fall on nodes a later supermodel gained
+  (`c_mohrg`'s `dangles04`, `01` and `05` moved by `a_ba`'s cloak bones'
+  keys; `a_gnome`, `c_oldwara` and `c_sahuagin` alike). Left, waiting
+  on a client reading: `c_mohrg` and `c_blade_m` walking in the client
+  beside Moonglow's model viewer, to see the game move those by number
+  as Moonglow does. (S)
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)

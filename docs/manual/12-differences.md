@@ -56,8 +56,11 @@ it differs, it is on purpose:
   hasn't), wherever the view shows grass ground, thinner far off (the
   game draws it within 30 m of its camera by default, fading it out from
   about 22 m; its Grass Far Render Distance, in square meters, takes it
-  farther: 3,600 is 60 m). It stands still in the wind, where the
-  game's sways. Its tufts gather in clumps with bare ground between them,
+  farther: 3,600 is 60 m). It sways in the wind as far and as fast as
+  the game's, measured in the game in a strong and a weak wind: how a
+  swing runs between its ends is taken to be even, in no wind it stands
+  still (the game's was not measured there), and grass past 180 m (drawn
+  there, not in the game) stands still. Its tufts gather in clumps with bare ground between them,
   as the game's do (fitted to the game's picture of a field), as dense
   near the camera as the game's; the game's sparse grass lies a tuft at
   a time, where Moonglow's lies in twos and threes. Aurora drops an area's own grass when it

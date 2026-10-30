@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T11:30:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -17,6 +17,9 @@ sources:
   - id: woods
     resource: crates/mg-ui/tests/frame_perf.rs
     title: 'game_shaders_frames_at_144 with the builder''s haks: TDoD''s woods, area092 and the water area, before and after (27 October 2026)'
+  - id: area084
+    resource: crates/mg-corpus-tests/examples/render_area.rs
+    title: 'render_area MG_TIME_RENDER on Tyrants of the Moonsea''s area084, its stacks sampled with eu-stack (30 October 2026)'
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -385,6 +388,52 @@ renderer's part.
   lifted by `fTilesetMeshOffsetZ`, 2 m) may be blended in another order
   where it reaches past its grown box.
 
+## The largest stock area seen whole, taken apart (30 October 2026)
+
+Tyrants of the Moonsea's area084 (676 tiles, 549 objects) with the
+wheel zooming over all of it is over the budget: 9.8 ms a frame, 10.8
+turning (`sound_ranges_frames_at_144`, the machine at a load of 1 to
+2), all of it the window's thread, the GPU's 1.2 to 1.7 ms. Drawn alone
+at the frame test's size with the game's shaders (`render_area`'s new
+`MG_TIME_RENDER`, the median of 500 frames, the camera turning a little
+each): the scene made in 0.5 ms, its draws encoded in 8.0 ms, the GPU's
+2.6 ms; 16,651 meshes in 9,680 draws of 1,606 materials and 278
+pipelines in turn, 942 out of sight, 4,779 casting the sun's
+shadows.[^area084]
+
+| Where the encoding went (221 stacks) | Share |
+| --- | --- |
+| wgpu's `finish`: each draw's groups and buffers bound, their uses and initialized ranges tracked, the driver's calls | 33% |
+| The game's draws' values worked out and written (`GameShaders::push`, `upload`, `fill_member`, `write_buffer`) | 20% |
+| The lights each mesh takes (`ReachCache::reaching`), most of it moving kept choices between two maps | 9% |
+| The batcher (`Batcher::place`) | 9% |
+| The sun's shadows: their plan and map (1.3 ms with them off) | 6% |
+| Sorting, the light sets' map growing, the screen boxes | 8% |
+
+The lights a mesh took are now kept in one map with the frame that last
+took them, and the light sets' map keeps its room from frame to frame:
+encoded in 7.5 ms (four runs in turn with the build before, 8.0), the
+picture the same to the bit.
+
+What would not do it:
+
+- **Leaving out what is too small to see.** Of the 12,149 meshes in
+  sight, 47 are under a pixel across and 632 under two: the area's
+  meshes are tile-sized.
+- **Merging far tiles' meshes.** Each draw lights its mesh with the 32
+  lights that matter most to it; a merged mesh would take 32 for the
+  whole, and the picture would change where more reach it.
+- **Keeping the draws' values while only the camera moves.** The game's
+  programs take `m_mv` and `m_mvp` a draw and the lights in view space:
+  every value block is written anew as the camera moves, and a wheel's
+  zoom moves it every frame. The sun's map is fitted to the view, so it
+  is drawn anew as well.
+
+What is left is wgpu's work for each of some 10,000 draws: fewer draws
+(one material's meshes of many tiles drawn as one, each mesh's lights
+found by its vertices), or render bundles recorded once for what doesn't
+move, which wgpu replays without tracking each draw again.
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -407,4 +456,5 @@ In short:
 
 [^frame-perf]: The frame-time test (release build, Tyrants of the Moonsea and the persistent world)
 [^budget]: The budget: a steady 144 frames a second on the development machine (7 October 2026)
+[^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

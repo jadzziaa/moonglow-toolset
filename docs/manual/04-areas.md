@@ -91,7 +91,11 @@ palette's Gallery is 🖼, the Grid ⊞.
   225 m). The game draws it within 30 m of its camera
   by default (its `Grass Render Distance` setting, up to about 170 m).
   From high above a field a tuft is a pixel or two, and the grass shows
-  little. Switched off, in every area view; it stays as you leave it.
+  little. It sways in the area's wind (Area Properties › Wind Power) as
+  the game's does, the tops of all its tufts together, north and south,
+  some 8 cm either way in a strong wind and half that in a weak one; in
+  no wind it stands still. Switched off, in every area view; it stays as
+  you leave it.
 - **🎨 Shaders**: draws with the game's own shaders, compiled on your
   machine from the game and the module's haks, as the game draws: a
   material's custom shaders (its MTR's `customshaderVS` and
@@ -130,7 +134,9 @@ palette's Gallery is 🖼, the Grid ⊞.
   time: until they are ready, what they draw is drawn with Moonglow's own
   shader, so an area may change its look a moment after it opens. It is
   one switch for every 3D view (the model viewer has it too) and it stays
-  as you leave it: switched off, it stays off.
+  as you leave it: switched off, it stays off. The pictures already made
+  (the galleries', a hovered row's preview, a tile's variants) are made
+  anew with the shaders it switches to.
 - **💡 Lighting**: the area's lighting: the sun or moon colors of Area
   Properties, the tiles' main and source lights (Tile Properties), the
   light of each placeable whose appearance has one (placeables.2da's
