@@ -7,8 +7,7 @@ use crate::common::*;
 fn reload_resources_picks_up_new_files_in_override() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-reload");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     let path = sample_module(&dir);
     let mut app = game_app(&root, Some(user.clone()));
     app.open_module(&path);
@@ -30,8 +29,7 @@ fn reload_resources_picks_up_new_files_in_override() {
 fn a_file_new_to_the_override_is_seen_by_the_watch() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-reload-watch");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     let mut app = game_app(&root, Some(user.clone()));
     let key = ResKey::parse("mg_watch_test", ResType::TWODA).unwrap();
     // (The watch begins; what it says at its start finds nothing changed.)
@@ -58,13 +56,12 @@ fn browse_view_and_copy_a_game_resource() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-browser");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
     let out = dir.join("out");
     std::fs::create_dir_all(&out).unwrap();
     let dialogs = NoDialogs { folders: vec![out.clone()], ..Default::default() };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
     h.run();
     // Those listed go out as loose files.
@@ -133,14 +130,13 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     let user = dir.join("user");
     let path = module_with_two_tables(&dir, &user);
     let saved = dir.join("saved.2da");
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
     let exported = dir.join("exported");
     let dialogs = NoDialogs {
         save: vec![saved.clone()],
         folders: vec![exported.clone()],
         ..Default::default()
     };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, Some(user), dialogs);
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
@@ -213,8 +209,7 @@ fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
     let root = mg_testkit::corpus!();
     let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-preview-copy");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     // Ours: a dummy and two quads.
     let quad = |name: &str, x: f32| {
         format!(
@@ -420,8 +415,7 @@ fn a_module_s_haks_are_layered_after_one_closed_while_its_area_was_read() {
 fn an_older_module_s_single_hak_is_layered_and_said() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-hak-older");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
     let key = ResKey::parse("mg_older_hak", ResType::TWODA).unwrap();
     hak.add(key.resref, key.restype, b"2DA V2.0\n".to_vec()).unwrap();
@@ -455,8 +449,7 @@ fn an_older_module_s_single_hak_is_layered_and_said() {
 fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-hak-list");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     for name in ["alpha", "bravo", "charlie"] {
         let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
         std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
@@ -615,8 +608,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
 fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-attach-archives");
-    let user = dir.join("user");
-    std::fs::create_dir_all(&user).unwrap();
+    let user = user_folder(&dir, &[]);
     let fixture = |name: &str| {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../mg-module/tests/fixtures/archives")
@@ -703,8 +695,7 @@ fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
 fn add_hak_takes_the_arrow_keys() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-add-hak-keys");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     for name in ["alpha", "bravo", "charlie"] {
         let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
         std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
@@ -762,8 +753,7 @@ fn add_hak_takes_the_arrow_keys() {
 fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-hak-list-scroll");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let path = sample_module(&dir);
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
@@ -1185,7 +1175,6 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     let tlk = mg_tlk::Tlk::new(Language::ENGLISH).to_bytes().unwrap();
     std::fs::write(download.join("mg_ui.tlk"), tlk).unwrap();
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
     let hak = user.join("hak/mg_ui_hak.hak");
     let dialogs = NoDialogs {
         folders: vec![content.clone()],
@@ -1193,7 +1182,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
         open_many: vec![vec![hak.clone(), download.join("mg_ui.tlk")]],
         open: vec![hak.clone()],
     };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
@@ -1370,7 +1359,7 @@ fn resources_are_exported_as_files() {
     let folders = vec![scratch.clone(), chosen.clone()];
     let mut app = Moonglow::new(None, Box::new(NoDialogs { folders, ..Default::default() }));
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Compiled again in the toolset, not saved: what is exported.
     let edit = mg_edit::Edit::SetResource { key: ncs, data: Some(b"NCS new".to_vec()) };
@@ -1419,13 +1408,12 @@ fn compiled_models_are_saved_as_text() {
     for d in [&plain, &text] {
         std::fs::create_dir_all(d).unwrap();
     }
-    let install = mg_resman::GameInstall::new(&root, None, "en");
     let dialogs = NoDialogs {
         save: vec![dir.join("one.mdl")],
         folders: vec![text.clone(), plain.clone()],
         ..Default::default()
     };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, None, dialogs);
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     let is_text = |p: &std::path::Path| {
         let data = std::fs::read(p).unwrap();

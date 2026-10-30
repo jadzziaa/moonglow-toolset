@@ -72,7 +72,7 @@ fn a_project_s_script_edited_and_saved_changes_only_its_edited_line() {
     let mut app = app_with(Vec::new());
     app.open_module(&project);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let text = h.state().script_text(key).unwrap();
     let at = text[..text.find("1;").unwrap()].chars().count();
@@ -161,7 +161,7 @@ fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
             ..Default::default()
         }),
     );
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
 
@@ -234,7 +234,7 @@ fn pack_compiles_a_project_s_models_where_its_project_file_says() {
     m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
         .unwrap();
     std::fs::write(project.join("moonglow.toml"), "[pack]\ncompile_models = true\n").unwrap();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![]));
+    let mut h = window_harness(app_with(vec![]));
     h.state_mut().open_module(&project);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::PackTarget);
@@ -259,8 +259,7 @@ fn pack_compiles_a_project_s_models_where_its_project_file_says() {
 fn a_new_talk_table_of_a_project_is_made_in_it() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-talk-project-new");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let user = user_folder(&dir, &["tlk"]);
     let m = mg_module::Module::open(&sample_module(&dir)).unwrap();
     let project = dir.join("project");
     let mut m = m;
@@ -306,8 +305,7 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
 fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-talk-project");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let user = user_folder(&dir, &["tlk"]);
     let mut m = mg_module::Module::open(&sample_module(&dir)).unwrap();
     let mut info = m.info().unwrap();
     info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_proj".to_vec()));
@@ -404,8 +402,7 @@ fn store_project(
         eprintln!("skipped: no game install");
         return None;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(5);
     let mut m = new_module(&game, "Shop", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -455,7 +452,7 @@ fn store_project(
          blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
     )
     .unwrap();
-    Some((install, dir, area, area_tag, git))
+    Some((mg_resman::GameInstall::new(&root, None, "en"), dir, area, area_tag, git))
 }
 
 /// The project file is read again when it changes with Options ›
@@ -542,8 +539,7 @@ fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
         eprintln!("skipped: no game install");
         return;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     // The store the list shows last: by name, then ResRef, as it sorts.
     let mut stores: Vec<(String, ResRef)> = game
         .resman
@@ -581,7 +577,7 @@ fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(dir.join("moonglow.toml"), format!("[store]\nblueprint = \"{last}\"\n"))
         .unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&dir);
     app.open_palette = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
@@ -610,8 +606,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
     use mg_module::ModuleLocation;
     use mg_module::new::{AreaSpec, add_area, new_module};
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(7);
     let mut m = new_module(&game, "Outside", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -624,7 +619,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
     m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
     let dir = mg_testkit::scratch_dir("ui-project-outside").join("project");
     m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.open_module(&dir);
     let mut h = harness(app, 1100.0, 800.0);
@@ -716,8 +711,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
 fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(7);
     let mut m = new_module(&game, "Pull", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -734,7 +728,7 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     }
     let dir = mg_testkit::scratch_dir("ui-project-pull").join("project");
     m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.open_module(&dir);
     let mut h = harness(app, 1100.0, 800.0);
@@ -839,8 +833,7 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
 fn a_mod_saved_by_another_program_is_read_again() {
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut m = new_module(&game, "Castle", &mut fastrand::Rng::with_seed(7)).unwrap();
     let (a, b) = (
         ResKey::parse("castle_a", ResType::NSS).unwrap(),
@@ -850,7 +843,7 @@ fn a_mod_saved_by_another_program_is_read_again() {
     m.set(b, b"void main() { int b; }\n".to_vec());
     let path = mg_testkit::scratch_dir("ui-mod-outside").join("castle.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1100.0, 800.0);
@@ -914,8 +907,7 @@ fn a_project_s_locks_stay_out_of_its_files() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     use mg_schema::git;
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(7);
     let mut m = new_module(&game, "Locks", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -942,7 +934,7 @@ fn a_project_s_locks_stay_out_of_its_files() {
     let file = dir.join(format!("src/{area}.git.json"));
     let read = || std::fs::read_to_string(&file).unwrap();
     let start = |dir: &std::path::Path| {
-        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let mut app = game_app(&root, None);
         app.settings.no_last_area = true;
         app.locks_dir = Some(scratch.join("locks"));
         app.open_module(dir);
@@ -999,15 +991,14 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     use mg_module::ModuleLocation;
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut m = new_module(&game, "InPlace", &mut fastrand::Rng::with_seed(7)).unwrap();
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     m.set(key, b"void main()\n{\n}\n".to_vec());
     let dir = mg_testkit::scratch_dir("ui-project-external").join("project");
     m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
     let Some(editor) = true_program() else { return };
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.settings.external_editor = Some(editor.clone().into());
     app.settings.scripts_external = true;
@@ -1191,8 +1182,7 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
     let Some(editor) = true_program() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut m = new_module(&game, "Alone", &mut fastrand::Rng::with_seed(7)).unwrap();
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     m.set(key, b"void main()\n{\n}\n".to_vec());
@@ -1205,7 +1195,7 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
             let mut m = Module::open(&project).unwrap();
             m.save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
         }
-        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let mut app = game_app(&root, None);
         app.settings.no_last_area = true;
         app.settings.external_editor = Some(editor.clone().into());
         app.settings.scripts_external = true;
@@ -1560,7 +1550,7 @@ fn a_module_in_one_file_has_no_builder_code() {
     let dir = mg_testkit::scratch_dir("ui-builder-code-mod");
     let mut app = app_with(Vec::new());
     app.open_module(&sample_module(&dir));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Edit").click();
     h.run();
@@ -1835,7 +1825,7 @@ fn verify_holds_variables_to_their_descriptions() {
     }
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::Verify);
     h.run();
@@ -2677,7 +2667,7 @@ fn file_project_is_off_without_the_project_s_commands() {
     let dir = mg_testkit::scratch_dir("ui-project-commands-none");
     let mut app = app_with(Vec::new());
     app.open_module(&sample_module(&dir));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("File").click();
     h.run();

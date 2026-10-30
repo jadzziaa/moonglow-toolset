@@ -78,7 +78,7 @@ fn the_middle_says_no_area_is_open_without_the_palettes() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert!(h.state().dock.find_tab(&Tab::NoArea).is_none());
     h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
@@ -830,7 +830,7 @@ fn the_log_s_lines_carry_their_time() {
     let mut app = app_with(Vec::new());
     app.log.info("First thing said");
     app.log.warn("Second thing said");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let is_clock = |at: &str| {
         let b = at.as_bytes();
@@ -869,7 +869,7 @@ fn the_whole_log_is_copied_and_saved() {
     app.log.clear();
     app.log.info("First thing said");
     app.log.error("Second thing said");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let whole = h.state().log.text();
     let log = &h.state().log;
@@ -1245,7 +1245,7 @@ fn panes_shown(app: &Moonglow) -> Vec<(bool, Vec<Tab>, Tab)> {
 fn a_module_opens_again_with_the_tabs_it_had() {
     let (path, app, kept) = tabs_app("ui-open-tabs");
     let resources = Module::open(&path).unwrap().len();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
     open_some_tabs(&mut h);
@@ -1278,8 +1278,7 @@ fn a_module_opens_again_with_the_tabs_it_had() {
 fn the_talk_table_opens_again_on_its_line() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-open-tabs-talk-line");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let user = user_folder(&dir, &["tlk"]);
     let mut tlk = mg_tlk::Tlk::new(Language::ENGLISH);
     for text in ["Zero", "One", "Two", "Three"] {
         tlk.entries.push(mg_tlk::TlkEntry::text(text));
@@ -1321,7 +1320,7 @@ fn the_talk_table_opens_again_on_its_line() {
 #[test]
 fn tile_properties_waiting_for_its_area_is_kept_again() {
     let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
     open_some_tabs(&mut h);
@@ -1350,7 +1349,7 @@ fn tile_properties_waiting_for_its_area_is_kept_again() {
 #[test]
 fn a_module_s_tabs_are_not_opened_again_with_the_option_off() {
     let (path, app, kept) = tabs_app("ui-open-tabs-off");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
     let file = mg_ui::open_tabs::file(&kept, &path);
     for keep in [true, false] {
@@ -1379,7 +1378,7 @@ fn a_module_s_tabs_are_not_opened_again_with_the_option_off() {
 #[test]
 fn a_kept_tab_whose_resource_is_gone_is_passed_over() {
     let (path, app, _) = tabs_app("ui-open-tabs-gone");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
     open_some_tabs(&mut h);
@@ -1688,7 +1687,7 @@ fn a_conversation_changed_since_opens_without_its_marks() {
 #[test]
 fn a_window_of_several_panes_opens_again_split() {
     let (path, app, kept) = tabs_app("ui-open-tabs-split");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
     open_some_tabs(&mut h);
@@ -1750,7 +1749,7 @@ fn a_window_of_several_panes_opens_again_split() {
 #[test]
 fn a_window_moved_is_kept_at_once() {
     let (path, app, kept) = tabs_app("ui-open-tabs-moved");
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.state_mut().open_module(&path);
     h.run();
     open_some_tabs(&mut h);
@@ -1864,7 +1863,7 @@ fn a_recovered_module_opens_with_its_tabs() {
     let recovery = path.parent().unwrap().join("recovery");
     let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
     {
-        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = window_harness(app);
         h.state_mut().recovery_dir = Some(recovery.clone());
         h.state_mut().open_module(&path);
         h.run();
@@ -1885,7 +1884,7 @@ fn a_recovered_module_opens_with_its_tabs() {
     app.open_tabs_dir = Some(kept);
     app.recovery_dir = Some(recovery);
     app.find_recoveries();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Recover").click();
     h.run_steps(3);
