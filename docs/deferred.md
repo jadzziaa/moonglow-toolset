@@ -200,28 +200,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   client screenshot of `ReplaceObjectTexture` on each settles it. (S)
   (GitHub issue 32)
 
-- **A tile's replacement texture, out of Tile Properties:** the form
-  had a Replacement Texture (`Tile_ReplaceTex`, a `replacetexture.2da`
-  row for a texture named `replace_tex` in the tile's model); a builder
-  called it untested and likely not working, and it was taken out
-  (2026-10-22). What is known: the server keeps the byte
-  (`engine_ee_fields.rs`, `ObjectToJson`); nwn.wiki calls it BioWare's
-  unused functionality ("Replacing Simple Textures", "2da Files"); the
-  game's `replacetexture.2da` has two rows, both `T_Flag02`; the one
-  model with a `replace_tex` texture, `tms01_c08_01`, is in no tileset
-  (not in `tms01.set`); none of BioWare's 20 campaign modules
-  (`data/nwm`) writes the field. The client draws it (2026-10-29,
-  `reading_tile_replacement_texture`, an area's tiles made
-  `tms01_c08_01`): a value is the row after the one drawn (1 draws row
-  0, 2 row 1), a tile without the field draws row 0, and 0 or a value
-  past the table crashes the client as it loads the area
-  (`CNWCTile::SetReplaceTexture`); the area view now draws as the
-  client does (`mg_area::replacement_row`). Left: the field back in
-  Tile Properties with that rule (a row chosen written as its number
-  plus one, 0 never written), and Verify warning of a tile whose model
-  has `replace_tex` and whose value the client crashes on. (S) (from a
-  builder's tile feedback, October 2026)
-
 ## Blueprint editors and inventories
 
 - **An appearance with no model, what the warning leaves out:** the rule

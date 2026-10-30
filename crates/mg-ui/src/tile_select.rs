@@ -18,6 +18,12 @@
 //!   several tiles, where any has it), the others greyed out, as Aurora
 //!   shows them. Each tile is written only what its own model has.
 //!   Defaults puts back the lighting scheme's first colours and the loops.
+//! - Its Replacement Texture (EE's `Tile_ReplaceTex`, which Aurora's
+//!   window hasn't got) is the `replacetexture.2da` row a mesh of the
+//!   tile's model drawn with `replace_tex` is drawn with, enabled where a
+//!   tile's model has one: a row chosen is written as its number plus one
+//!   (`mg_area::replacement_value`), as the client reads it; a value it
+//!   crashes on (0, or past the table) is said so.
 //! - Its Height sets the tiles' `Tile_Height` alone (a step with - and +,
 //!   or typed), what stands on them moved with them; All tiles (ignore
 //!   fit) offers every tile of the tileset, any one put in the tiles as it
@@ -66,16 +72,24 @@ pub struct TileProps {
     pub has_main: [bool; 2],
     pub has_source: [bool; 2],
     pub has_loops: [bool; 3],
+    /// Whether any of the tiles' models has a mesh drawn with
+    /// `replace_tex`: Replacement Texture is enabled.
+    pub has_replace: bool,
+    /// Replacement Texture: the first tile's `Tile_ReplaceTex` (1, row 0,
+    /// for a tile without the field, as the client draws it).
+    pub replace: u8,
+    /// The replacement texture the window opened with (or took up).
+    pub opened_replace: u8,
     /// What each tile's own model has, by `tiles`' order: what is written
     /// into that tile (the rest of its fields are kept as they are).
     pub has_each: Vec<mg_area::TileFeatures>,
     /// The values the window opened with (or took up after a variant was
     /// put in): a control whose value differs from it is set.
     pub opened: ([u8; 2], [u8; 2], [bool; 3]),
-    /// The controls chosen in the window, by [`LIGHTS`]' order, even to
+    /// The controls chosen in the window, by [`FIELDS`]' order, even to
     /// the value they had: each is written into every tile that has it,
     /// the others keep each tile's own.
-    pub touched: [bool; 7],
+    pub touched: [bool; 8],
     /// The tiles' `Tile_List` structs before the window changed them, by
     /// `tiles`' order: what Cancel puts back where its own step is no
     /// longer the last command.
@@ -154,10 +168,10 @@ pub struct TileProps {
 /// `engine_terrain.rs`; Moonglow reads the field within ±1024).
 pub const HEIGHT_RANGE: i32 = 1024;
 
-/// The tile fields of Tile Properties' lights and loops, in the order of
-/// [`TileProps::touched`]: main lights 1 and 2, source lights 1 and 2,
-/// animation loops 1 to 3.
-pub const LIGHTS: [&str; 7] = [
+/// The tile fields of Tile Properties' lights, loops and replacement
+/// texture, in the order of [`TileProps::touched`]: main lights 1 and 2,
+/// source lights 1 and 2, animation loops 1 to 3, the replacement texture.
+pub const FIELDS: [&str; 8] = [
     "Tile_MainLight1",
     "Tile_MainLight2",
     "Tile_SrcLight1",
@@ -165,15 +179,19 @@ pub const LIGHTS: [&str; 7] = [
     "Tile_AnimLoop1",
     "Tile_AnimLoop2",
     "Tile_AnimLoop3",
+    "Tile_ReplaceTex",
 ];
 
+/// [`FIELDS`]' place of the replacement texture.
+const REPLACE: usize = 7;
+
 /// What Tile Properties writes into its tiles: the values of the controls
-/// set (by [`LIGHTS`]' order; the others are left as each tile has them),
+/// set (by [`FIELDS`]' order; the others are left as each tile has them),
 /// and the height, if one is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Draft {
-    pub values: [u8; 7],
-    pub set: [bool; 7],
+    pub values: [u8; 8],
+    pub set: [bool; 8],
     pub height: Option<i32>,
 }
 
@@ -195,6 +213,7 @@ impl Draft {
         let had = match k {
             0 | 1 => has.main[k],
             2 | 3 => has.source[k - 2],
+            REPLACE => has.replace,
             _ => has.loops[k - 4],
         };
         (self.set[k] && had).then_some(Value::Byte(self.values[k]))
@@ -213,6 +232,7 @@ impl TileProps {
             u8::from(self.loops[0]),
             u8::from(self.loops[1]),
             u8::from(self.loops[2]),
+            self.replace,
         ];
         let opened = [
             main[0],
@@ -222,6 +242,7 @@ impl TileProps {
             u8::from(loops[0]),
             u8::from(loops[1]),
             u8::from(loops[2]),
+            self.opened_replace,
         ];
         let has = [
             self.has_main[0],
@@ -231,6 +252,7 @@ impl TileProps {
             self.has_loops[0],
             self.has_loops[1],
             self.has_loops[2],
+            self.has_replace,
         ];
         let set = std::array::from_fn(|k| has[k] && (self.touched[k] || values[k] != opened[k]));
         let height =
@@ -749,6 +771,7 @@ fn tile_features(
             main: entry.main_lights,
             source: entry.source_lights,
             loops: entry.anim_loops,
+            replace: false,
         },
     }
 }
@@ -760,6 +783,7 @@ struct TileValues {
     main: [u8; 2],
     source: [u8; 2],
     loops: [bool; 3],
+    replace: u8,
     height: i32,
 }
 
@@ -772,6 +796,8 @@ impl TileValues {
             main: [byte("Tile_MainLight1"), byte("Tile_MainLight2")],
             source: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
             loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
+            // (Without the field: row 0, as the client draws it.)
+            replace: t.integer("Tile_ReplaceTex").map_or(1, |v| v.clamp(0, 255) as u8),
             height: int("Tile_Height").clamp(-1024, 1024) as i32,
         }
     }
@@ -843,7 +869,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     let (variants, variant) = variants.unzip();
     // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
     let loops = [0, 1, 2].map(|k| first.loops[k] && has.loops[k]);
-    let (main, source) = (first.main, first.source);
+    let (main, source, replace) = (first.main, first.source, first.replace);
     let seen_at = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
     app.tile_props = Some(TileProps {
         seen: base.clone(),
@@ -861,9 +887,12 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         has_main: has.main,
         has_source: has.source,
         has_loops: has.loops,
+        has_replace: has.replace,
+        replace,
+        opened_replace: replace,
         has_each,
         opened: (main, source, loops),
-        touched: [false; 7],
+        touched: [false; 8],
         base,
         live: None,
         buried: false,
@@ -1016,10 +1045,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             });
             height_row(ui, &mut props);
-            // (No Replacement Texture: `Tile_ReplaceTex` is BioWare's
-            // unused field, which no tile of the game's tilesets has a
-            // texture for, and the client wasn't seen drawing it. One in a
-            // file is kept, among the raw fields: docs/deferred.md.)
+            replacement_row(app, ui, &mut props);
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Defaults").clicked() {
@@ -1387,6 +1413,58 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
     });
 }
 
+/// Tile Properties' Replacement Texture: the `replacetexture.2da` row the
+/// tiles' `replace_tex` is drawn with, chosen from the table's rows, each
+/// written as its number plus one (as the client reads the field); a
+/// value the client crashes on (0, or past the table) shown as such, in
+/// the error color. Enabled where a tile's model has `replace_tex`.
+fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
+    let rows: Vec<String> = (app.game.as_deref())
+        .and_then(|g| g.table("replacetexture").ok())
+        .map(|t| (0..t.len()).map(|r| t.get(r, "TEXTURENAME").unwrap_or("").to_string()).collect())
+        .unwrap_or_default();
+    let name = |row: usize| format!("{row}: {}", rows.get(row).map_or("", String::as_str));
+    let enabled = props.has_replace;
+    ui.horizontal(|ui| {
+        ui.add_enabled(enabled, egui::Label::new("Replacement Texture")).on_hover_text(
+            "What a mesh of the tile's model drawn with a texture named replace_tex is drawn \
+             with: a row of replacetexture.2da (Tile_ReplaceTex, which Aurora's window hasn't \
+             got)",
+        );
+        let row = mg_area::replacement_row(Some(i64::from(props.replace)), rows.len());
+        let shown = match row {
+            Some(r) => egui::RichText::new(name(r)),
+            None => egui::RichText::new(format!(
+                "{}: no row (crashes the game as the area loads)",
+                props.replace
+            ))
+            .color(ui.visuals().error_fg_color),
+        };
+        let r = ui.add_enabled_ui(enabled, |ui| {
+            egui::ComboBox::from_id_salt("tile_replace")
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    let mut changed = false;
+                    for r in 0..rows.len() {
+                        let Some(value) = mg_area::replacement_value(r) else { break };
+                        changed |=
+                            ui.selectable_value(&mut props.replace, value, name(r)).changed();
+                    }
+                    changed
+                })
+                .inner
+        });
+        let combo = r.response;
+        if !enabled {
+            combo.on_disabled_hover_text(
+                "None of these tiles' models has a mesh drawn with replace_tex (of the game's \
+                 tiles, only tms01_c08_01, which no tileset uses)",
+            );
+        }
+        props.touched[REPLACE] |= r.inner.unwrap_or(false);
+    });
+}
+
 /// Every tile of the tileset as pictures, turned as Tile Properties'
 /// Turn says, as many across as the tab is wide; only the rows in sight
 /// are drawn (and their pictures made), however many the tileset has.
@@ -1585,7 +1663,7 @@ fn pick_command(
 /// and how it shows the pictures.
 fn carry_draft(was: &TileProps, now: &mut TileProps) {
     let draft = was.draft();
-    for k in 0..7 {
+    for k in 0..FIELDS.len() {
         if !draft.set[k] {
             continue;
         }
@@ -1593,6 +1671,7 @@ fn carry_draft(was: &TileProps, now: &mut TileProps) {
         match k {
             0 | 1 => now.main[k] = was.main[k],
             2 | 3 => now.source[k - 2] = was.source[k - 2],
+            REPLACE => now.replace = was.replace,
             _ => now.loops[k - 4] = was.loops[k - 4],
         }
     }
@@ -1660,7 +1739,8 @@ fn variant_picture(
 }
 
 /// Defaults: the lighting scheme's first colours and every loop on (where
-/// the tile has them), each of them set (shown in the area at once).
+/// the tile has them), each of them set (shown in the area at once); the
+/// replacement texture stays as it is.
 fn defaults(app: &mut Moonglow, props: &mut TileProps) {
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let Ok(are) = ws.doc(&ResKey::new(props.area, ResType::ARE)) else { return };
@@ -1672,12 +1752,13 @@ fn defaults(app: &mut Moonglow, props: &mut TileProps) {
         props.source = [source, source];
     }
     props.loops = props.has_loops;
-    props.touched = [true; 7];
+    // (Not the replacement texture, which Aurora's Defaults hasn't got.)
+    props.touched[..REPLACE].fill(true);
 }
 
 /// The edits that make the tiles what the window's draft says, from the
-/// area as the workspace has it: each tile is written only the lights and
-/// loops its own model has (its other fields stay), and the height, with
+/// area as the workspace has it: each tile is written only the lights,
+/// loops and replacement texture its own model has (its other fields stay), and the height, with
 /// what stands on the tiles moved with them.
 fn draft_edits(app: &mut Moonglow, props: &TileProps, draft: &Draft) -> Vec<Edit> {
     let key = ResKey::new(props.area, ResType::ARE);
@@ -1688,7 +1769,7 @@ fn draft_edits(app: &mut Moonglow, props: &TileProps, draft: &Draft) -> Vec<Edit
     for (n, &i) in props.tiles.iter().enumerate() {
         let Some(current) = list.get(i) else { continue };
         let has = props.has_each.get(n).copied().unwrap_or_default();
-        for (k, label) in LIGHTS.iter().enumerate() {
+        for (k, label) in FIELDS.iter().enumerate() {
             if let Some(value) = draft.field(k, &has)
                 && current.get(label) != Some(&value)
             {
@@ -1840,7 +1921,7 @@ fn take_back(app: &mut Moonglow, props: &mut TileProps) {
     for (n, &i) in props.tiles.iter().enumerate() {
         let (Some(current), Some(base)) = (list.get(i), props.base.get(n)) else { continue };
         let has = props.has_each.get(n).copied().unwrap_or_default();
-        for (k, label) in LIGHTS.iter().enumerate() {
+        for (k, label) in FIELDS.iter().enumerate() {
             if let Some(value) = draft.field(k, &has)
                 && current.get(label) == Some(&value)
                 && base.get(label) != Some(&value)

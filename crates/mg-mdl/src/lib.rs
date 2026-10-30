@@ -113,6 +113,17 @@ impl Model {
         self.animations.iter().find(|a| a.name.eq_ignore_ascii_case(name))
     }
 
+    /// Whether a mesh of it is drawn with texture `name` as its first
+    /// texture (its bitmap), case aside: a tile's `replace_tex`, which the
+    /// tile's `Tile_ReplaceTex` replaces.
+    pub fn draws_texture(&self, name: &str) -> bool {
+        self.nodes.iter().any(|n| {
+            n.mesh()
+                .and_then(|m| m.textures[0].as_deref())
+                .is_some_and(|t| t.eq_ignore_ascii_case(name))
+        })
+    }
+
     /// Its nodes in the order of a depth-first walk of its tree from its
     /// first root, children in their order: a node's tree position, by
     /// which the engine binds a skin's bones (nwn-mdl-spec MDL-SKIN-011).

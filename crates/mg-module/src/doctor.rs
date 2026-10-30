@@ -66,6 +66,7 @@ pub enum Check {
     PcFaction,
     StaticTransform,
     AreaVariables,
+    TileReplace,
     TagUnique,
     NuiSources,
     VarType,
@@ -80,7 +81,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 39] = [
+    pub const ALL: [Check; 40] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -109,6 +110,7 @@ impl Check {
         Check::PcFaction,
         Check::StaticTransform,
         Check::AreaVariables,
+        Check::TileReplace,
         Check::TagUnique,
         Check::NuiSources,
         Check::VarType,
@@ -152,6 +154,7 @@ impl Check {
             Check::PcFaction => "pc-faction",
             Check::StaticTransform => "static-transform",
             Check::AreaVariables => "area-variables",
+            Check::TileReplace => "tile-replace",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
             Check::VarType => "var-type",
@@ -226,6 +229,11 @@ impl Check {
                 "a static placeable has no visual transform: the game draws it without one"
             }
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
+            Check::TileReplace => {
+                "a tile whose model has a replace_tex texture names a replacetexture.2da row \
+                 (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
+                 or a value past the table)"
+            }
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
                  object only, or on one of each area (unique_in_area)"
@@ -300,6 +308,7 @@ impl Check {
             | Check::PcFaction
             | Check::StaticTransform
             | Check::AreaVariables
+            | Check::TileReplace
             | Check::TagUnique
             | Check::VarType
             | Check::VarValue
@@ -925,6 +934,9 @@ pub fn examine_groups(
     }
     if runs(&[AreaVariables]) {
         timings.time("areas' variables", || area_variables(&mut d, module));
+    }
+    if runs(&[TileReplace]) {
+        timings.time("tiles' replacement textures", || tile_replacements(&mut d, module));
     }
     if runs(&[TagUnique]) {
         timings.time("unique tags", || unique_tags(&mut d, module));
@@ -2502,6 +2514,67 @@ fn area_variables(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// Tiles whose `Tile_ReplaceTex` the game crashes on as it loads the
+/// area (`CNWCTile::SetReplaceTexture`, seen in the client:
+/// `reading_tile_replacement_texture`): 0, or a value past
+/// replacetexture.2da ([`mg_rules::rows::replacement_row`]), on a tile
+/// whose model has a mesh drawn with `replace_tex` (no other is replaced).
+/// Only tiles with the field are looked at, and their models read once
+/// each (the field is seldom written: the game's own tiles but one have
+/// no `replace_tex`).
+fn tile_replacements(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> =
+        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
+    keys.sort();
+    let mut replaced: HashMap<String, bool> = HashMap::new();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let tiles = gff.root.list("Tile_List").unwrap_or(&[]);
+        let rows = d.table("replacetexture").map_or(0, TwoDa::len);
+        let crashing: Vec<(usize, i64, i64)> = (tiles.iter().enumerate())
+            .filter_map(|(i, t)| {
+                let v = t.integer("Tile_ReplaceTex")?;
+                mg_rules::rows::replacement_row(Some(v), rows)
+                    .is_none()
+                    .then(|| (i, v, t.integer("Tile_ID").unwrap_or(0)))
+            })
+            .collect();
+        if crashing.is_empty() {
+            continue;
+        }
+        let Ok(set) = crate::minimap::tileset(d.rm, &gff.root) else { continue };
+        for (i, value, id) in crashing {
+            let Some(model) = usize::try_from(id).ok().and_then(|id| set.tiles.get(id)) else {
+                continue;
+            };
+            let model = model.model.to_ascii_lowercase();
+            let rm = d.rm;
+            let has = *replaced.entry(model.clone()).or_insert_with(|| {
+                (ResKey::parse(&model, ResType::MDL))
+                    .and_then(|k| rm.get(&k).ok())
+                    .and_then(|data| mg_mdl::Model::read(&data).ok())
+                    .is_some_and(|m| m.draws_texture("replace_tex"))
+            });
+            if !has {
+                continue;
+            }
+            let width = gff.root.integer("Width").unwrap_or(1).max(1) as usize;
+            let place = format!("tile ({}, {}), Tile_ReplaceTex", i % width, i / width);
+            let why = if value == 0 {
+                "0, which names no row (a row's value is one past it)".to_string()
+            } else {
+                format!("past replacetexture.2da's {rows} rows (row {} by it)", value - 1)
+            };
+            let message = format!(
+                "the tile's Tile_ReplaceTex is {value}, {why}: the game crashes as it loads the \
+                 area. Its model, {model}, draws a replace_tex texture: choose a row in Tile \
+                 Properties' Replacement Texture"
+            );
+            d.push(Severity::Error, Check::TileReplace, "module", key, place, message);
+        }
+    }
+}
+
 /// Tags the project says must be unique (`[tags] unique` in its
 /// `moonglow.toml`) that are on more than one object: `GetObjectByTag`
 /// gives a script only one of them (the one placed later, of two in an
@@ -3881,6 +3954,68 @@ endmodelgeom fx\ndonemodel fx\n";
             "LAMP is on 2 objects in krezk, and the project's moonglow.toml wants LAMP unique in \
              each area: a script that looks for it there finds only one of them"
         );
+    }
+
+    /// A tile whose model draws `replace_tex` and whose `Tile_ReplaceTex`
+    /// the game crashes on (0, or past replacetexture.2da) is an error;
+    /// a row of the table, or no field, is not, nor any value on a tile
+    /// whose model has no `replace_tex`.
+    #[test]
+    fn a_tile_s_replacement_texture_the_game_crashes_on_is_found() {
+        let model = |name: &str, bitmap: &str| {
+            format!(
+                "newmodel {name}\nsetsupermodel {name} NULL\nclassification tile\n\
+beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n    1 0 0\n\
+    0 1 0\n  faces 1\n    0 1 2 1 0 1 2 1\nendnode\nendmodelgeom {name}\ndonemodel {name}\n"
+            )
+        };
+        let set = "[GENERAL]\nName=TST01\n[TILES]\nCount=2\n[TILE0]\nModel=tst01_flag\n\
+[TILE1]\nModel=tst01_grass\n";
+        let flag = model("tst01_flag", "replace_tex");
+        let grass = model("tst01_grass", "tst_grass");
+        let table = "2DA V2.0\n\n   TEXTURENAME\n0  mg_row0\n1  mg_row1\n";
+        let rm = resman(&[
+            ("tst01", ResType::SET, set.as_bytes()),
+            ("tst01_flag", ResType::MDL, flag.as_bytes()),
+            ("tst01_grass", ResType::MDL, grass.as_bytes()),
+            ("replacetexture", ResType::TWODA, table.as_bytes()),
+        ]);
+        let mut m = Module::new();
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tileset", Value::ResRef(b"tst01".to_vec()));
+        are.root.set("Width", Value::Int(3));
+        let tiles: [(i32, Option<u8>); 7] = [
+            (0, Some(0)),
+            (0, Some(1)),
+            (0, Some(2)),
+            (0, None),
+            (0, Some(3)),
+            (1, Some(0)),
+            (1, Some(9)),
+        ];
+        let list = tiles
+            .iter()
+            .map(|&(id, v)| {
+                let mut t = mg_gff::Struct::new(1);
+                t.set("Tile_ID", Value::Int(id));
+                if let Some(v) = v {
+                    t.set("Tile_ReplaceTex", Value::Byte(v));
+                }
+                t
+            })
+            .collect();
+        are.root.set("Tile_List", Value::List(list));
+        m.set_gff(key("field", ResType::ARE), &are).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tile-replace").collect();
+        let at: Vec<&str> = found.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(at.len(), 2, "{found:?}");
+        assert_eq!(at, ["tile (0, 0), Tile_ReplaceTex", "tile (1, 1), Tile_ReplaceTex"]);
+        assert!(found.iter().all(|x| x.severity == Severity::Error));
+        assert!(found[0].message.contains("Tile_ReplaceTex is 0"), "{}", found[0].message);
+        assert!(found[1].message.contains("past replacetexture.2da's 2 rows"));
+        assert_eq!(Group::of(found[0]), Group::Objects);
     }
 
     /// The Domains of Dread's builder proposal, C7: a merged area keeps its
