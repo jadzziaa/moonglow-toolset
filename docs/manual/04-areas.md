@@ -416,6 +416,17 @@ Aurora):
   does, so a static placeable with one in its file was made elsewhere:
   the window says so, and Verify warns of it (`static-transform`), with
   a **Take the transform off** button (since Moonglow 2.13.0).
+  **Animation Speed**, beside Scale, is how fast the model's
+  animations play (1 as made, 2 twice as fast: the script's
+  `OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED`). What a script can give an
+  object besides, the window shows under the fields and keeps as it is:
+  a creature's head, tail, wings or cloak transformed alone
+  (`SetObjectVisualTransform`'s scopes, kept in a saved game or a
+  module made from one), which the area view draws on that part, about
+  the node it hangs from, the rest of the creature as it is; and a lerp
+  in progress (a value on its way from one to another over some
+  seconds), drawn at its end. Setting that value here ends the lerp; a
+  value left as it is keeps it.
 - **Random Facing**: turns each selected object to face a way of its
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.

@@ -31,6 +31,14 @@ pub struct AdjustLocation {
     /// The visual transform (EE), and whether it was changed.
     pub visual: mg_area::VisualTransform,
     pub visual_changed: bool,
+    /// How fast the model's animations play (the visual transform's
+    /// `AnimationSpeed`, 1 as made), and whether it was changed.
+    pub speed: f32,
+    pub speed_changed: bool,
+    /// What the first object's visual transforms have that the window
+    /// doesn't set ([`kept_notes`]): its parts' own (a creature's head…)
+    /// and lerps in progress.
+    pub kept: Vec<String>,
     /// Some object chosen takes a visual transform (creatures, items,
     /// doors and placeables that aren't static): else it isn't offered, as
     /// in Aurora.
@@ -64,6 +72,9 @@ pub(crate) fn adjust_start(area: ResRef, (position, facing): (Vec3, f32)) -> Adj
         changed: [false; 4],
         visual: mg_area::VisualTransform::default(),
         visual_changed: false,
+        speed: 1.0,
+        speed_changed: false,
+        kept: Vec::new(),
         shaped: false,
         fixed: 0,
         fixed_shaped: 0,
@@ -93,6 +104,9 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
         changed: [false; 4],
         visual: first.visual.unwrap_or_default(),
         visual_changed: false,
+        speed: first.scopes.iter().find(|s| s.scope == 0).map_or(1.0, |s| s.speed),
+        speed_changed: false,
+        kept: kept_notes(first.kind, &first.scopes),
         uneven: view
             .selection
             .iter()
@@ -167,6 +181,14 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         // (Written alike from now on.)
                         a.uneven = 0;
                     }
+                    crate::widgets::field_label(ui, "Animation Speed").on_hover_text(
+                        "How fast the model's animations play: 1 as made, 2 twice as fast \
+                         (the script's OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED)",
+                    );
+                    let r = crate::widgets::spin_draft(ui, &mut a.speed, 0.0..=100.0, 0.1, |d| {
+                        d.speed(0.01).max_decimals(2)
+                    });
+                    a.speed_changed |= r.changed();
                     ui.end_row();
                     // What each turn does, as the game draws it
                     // (`mg_area::VisualTransform::matrix`).
@@ -192,6 +214,18 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         });
                         a.visual_changed |= r.changed();
                         ui.end_row();
+                    }
+                });
+            }
+            if a.shaped && !a.kept.is_empty() {
+                ui.add_space(crate::widgets::SECTION_GAP);
+                ui.scope(|ui| {
+                    ui.set_max_width(340.0);
+                    if a.objects.len() > 1 {
+                        ui.weak("The first of them:");
+                    }
+                    for note in &a.kept {
+                        ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
                     }
                 });
             }
@@ -227,6 +261,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
         apply_location(app, &a);
         a.changed = [false; 4];
         a.visual_changed = false;
+        a.speed_changed = false;
         if close {
             return;
         }
@@ -268,6 +303,84 @@ pub fn static_note(a: &AdjustLocation) -> Option<String> {
         "{which}: the game draws static placeables without visual transforms, so none is \
          offered. Untick Static (Properties) to scale, tilt or move a model.{kept}"
     ))
+}
+
+/// What Adjust Location says of what an object's visual transforms have
+/// that it doesn't set (`scopes`, its `VisTransformList`): a part's own
+/// transform (a creature's head, tail, wings or cloak, drawn on that part;
+/// an item's parts), and each lerp in progress (a script's, kept in a
+/// saved game: drawn at its end, ended by a value set here). Nothing for
+/// an object with neither.
+pub fn kept_notes(kind: ObjectKind, scopes: &[mg_module::placement::Scoped]) -> Vec<String> {
+    use mg_module::placement::scope_name;
+    let mut out = Vec::new();
+    for s in scopes {
+        let named = scope_name(kind, s.scope);
+        if s.scope != 0 {
+            let t = s.transform;
+            let mut parts = Vec::new();
+            if t.scale[0] != 1.0 {
+                parts.push(format!("scale {}", short(t.scale[0])));
+            }
+            if t.rotate != [0.0; 3] {
+                let [x, y, z] = t.rotate.map(short);
+                parts.push(format!("rotation {x}°, {y}°, {z}°"));
+            }
+            if t.translate != [0.0; 3] {
+                let [x, y, z] = t.translate.map(short);
+                parts.push(format!("translation {x}, {y}, {z}"));
+            }
+            if s.speed != 1.0 {
+                parts.push(format!("animation speed {}", short(s.speed)));
+            }
+            if parts.is_empty() {
+                parts.push("none that changes it".into());
+            }
+            let drawn = match (kind, s.scope) {
+                (ObjectKind::Creature, 254 | 253 | 252 | 243) => ", drawn on it",
+                _ => "",
+            };
+            let named = named.strip_prefix("its ").unwrap_or(&named).to_string();
+            out.push(format!(
+                "Its {named} has a visual transform of its own ({}){drawn}: kept as it is, set by \
+                 a script, not here.",
+                parts.join(", ")
+            ));
+        }
+        for l in &s.lerps {
+            let axis = match l.axis {
+                "AnimationSpeed" => "animation speed".to_string(),
+                a => {
+                    let (what, x) = a.split_at(a.len() - 1);
+                    let what = match what {
+                        "Scale" => "scale",
+                        "Rotate" => "rotation",
+                        _ => "translation",
+                    };
+                    format!("{x} {what}")
+                }
+            };
+            let whose = match s.scope {
+                0 => String::new(),
+                _ => format!(" of {named}"),
+            };
+            let along = (l.progress * 100.0).round().clamp(0.0, 100.0);
+            let again = match l.repeats {
+                0 => String::new(),
+                n if n < 0 => ", again and again".to_string(),
+                n => format!(", {n} times more"),
+            };
+            out.push(format!(
+                "Its {axis}{whose} is changing (a script's lerp, kept in a saved game): from {} \
+                 to {} over {} s, {along}% along{again}. Drawn at its end; set here, the lerp \
+                 ends.",
+                short(l.from),
+                short(l.to),
+                short(l.duration)
+            ));
+        }
+    }
+    out
 }
 
 /// What Adjust Location says when a file's `ScaleY` or `ScaleZ` differs
@@ -343,8 +456,15 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
         }
         let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
         edits.extend(mg_area::edit::move_edits(git, o, s, p, rotation));
-        if a.visual_changed && o.takes_visual_transform() {
-            edits.extend(mg_area::edit::visual_transform_edits(git, o, s, a.visual));
+        if (a.visual_changed || a.speed_changed) && o.takes_visual_transform() {
+            // (What wasn't changed here, each its own: a speed alone
+            // changed leaves the object's transform as it was.)
+            let v = match a.visual_changed {
+                true => a.visual,
+                false => o.visual.unwrap_or_default(),
+            };
+            let speed = a.speed_changed.then_some(a.speed);
+            edits.extend(mg_area::edit::visual_transform_edits_with(git, o, s, v, speed));
         }
     }
     if !edits.is_empty() {

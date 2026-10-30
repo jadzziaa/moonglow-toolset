@@ -681,12 +681,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Editing in the area view
 
-- **Lerps, animation speed and other scopes:** Adjust Location edits
-  scope 0's scale, rotation and translation only; a transform's
-  `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
-  and a creature's head, wings, tail or cloak scopes are kept but not
-  shown, and the area view draws scope 0 only. (M) (xtul's report,
-  October 2026)
+- **Lerps, animation speed and other scopes, how the client draws a
+  part's:** Adjust Location shows and sets a transform's animation
+  speed and shows a lerp in progress and other scopes' transforms, kept
+  as they are; the area view draws a creature's head, tail, wings and
+  cloak scopes on those parts (the engine keeps each:
+  `the_engine_keeps_part_scopes_animation_speed_and_lerps`). How the
+  client draws a part's transform is assumed, not read: the part's
+  model placed as the whole object's is (`mg_preview::visual_matrix`),
+  about the node it hangs from (`head_g`, the wings' and the tail's
+  dummies; the cloak, which hangs from none, about the creature's
+  feet). The client batch should read it as `visual_transforms_look`
+  reads the whole object's (`client_render.rs`): a part-based creature
+  (appearance 6, wings 2) with its head scaled 2, then turned 45° about
+  each axis in turn, then moved, and its wings and cloak the same; and
+  a creature of one model (the bandit, appearance 269), whose head
+  scaled Moonglow draws unchanged. An item's part scopes (255 to 251)
+  are shown and not drawn: which of its models each is wants the same
+  reading. (S, waits on the client batch) (xtul's report, October 2026)
 
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured

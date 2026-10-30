@@ -152,15 +152,133 @@ impl Transform {
 
 /// The visual transform the placed object `s`'s model is drawn with:
 /// `VisTransformList`'s entry for scope 0 (an entry with no `Scope` is
-/// of 0), else its first; without the list, the older `VisualTransform`.
-/// `None` without either (or with an empty list).
+/// of 0); without the list, the older `VisualTransform`. `None` without
+/// either, or with a list of other scopes only (a creature's head scaled
+/// alone leaves the rest of it as it is: the engine reads its scope 0 as
+/// untransformed, `the_engine_keeps_part_scopes_animation_speed_and_lerps`).
 pub fn visual_transform(s: &Struct) -> Option<Transform> {
     if let Some(list) = s.list("VisTransformList") {
-        let entry =
-            list.iter().find(|e| e.integer("Scope").unwrap_or(0) == 0).or_else(|| list.first())?;
+        let entry = list.iter().find(|e| e.integer("Scope").unwrap_or(0) == 0)?;
         return Some(Transform::of_entry(entry));
     }
     s.child("VisualTransform").map(Transform::of_struct)
+}
+
+/// A creature's parts a visual transform can be given apart from the rest
+/// (`OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_CREATURE_*`): its head, tail,
+/// wings and cloak, by scope.
+pub const CREATURE_SCOPES: [(i64, &str); 4] =
+    [(254, "head"), (253, "tail"), (252, "wings"), (243, "cloak")];
+
+/// What a scope is (`kind` the object's: the same numbers name an item's
+/// parts, `OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_ITEM_PART1` 255 to 5 251).
+pub fn scope_name(kind: ObjectKind, scope: i64) -> String {
+    match (kind, scope) {
+        (_, 0) => "the whole object".to_string(),
+        (ObjectKind::Creature, s) => match CREATURE_SCOPES.iter().find(|(n, _)| *n == s) {
+            Some((_, name)) => format!("its {name}"),
+            None => format!("scope {s}"),
+        },
+        (ObjectKind::Item, s @ 251..=255) => format!("its part {}", 256 - s),
+        (_, s) => format!("scope {s}"),
+    }
+}
+
+/// The axes of a `VisTransformList` entry, in the order Aurora writes
+/// them.
+pub const AXES: [&str; 10] = [
+    "AnimationSpeed",
+    "ScaleX",
+    "ScaleY",
+    "ScaleZ",
+    "RotateX",
+    "RotateY",
+    "RotateZ",
+    "TranslateX",
+    "TranslateY",
+    "TranslateZ",
+];
+
+/// An axis's lerp in progress (`SetObjectVisualTransform` with a
+/// `LerpType` and a duration, kept in a saved game or a module made from
+/// one): from where, to where, over how long and how far along.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lerp {
+    /// The axis ([`AXES`]).
+    pub axis: &'static str,
+    pub from: f32,
+    pub to: f32,
+    /// Seconds, as the script gave it.
+    pub duration: f32,
+    /// How far along it is, as the engine counts it (`LerpProgress`).
+    pub progress: f32,
+    /// `OBJECT_VISUAL_TRANSFORM_LERP_*` (1 linear, 2 smoothstep…).
+    pub kind: i64,
+    /// `OBJECT_VISUAL_TRANSFORM_BEHAVIOR_*` (1: bounce between the two).
+    pub behavior: i64,
+    /// Times it is to play again (`RepeatsRemaining`; -1: for ever).
+    pub repeats: i64,
+}
+
+/// One entry of `VisTransformList`: its scope, its transform (each axis's
+/// goal), its animation speed and the lerps it has in progress.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scoped {
+    pub scope: i64,
+    pub transform: Transform,
+    /// `AnimationSpeed`'s goal: how fast the model's animations play.
+    pub speed: f32,
+    pub lerps: Vec<Lerp>,
+}
+
+/// A number field of whatever type the file has it as.
+fn number(s: &Struct, label: &str) -> Option<f32> {
+    s.float(label).or_else(|| s.integer(label).map(|n| n as f32))
+}
+
+/// Every entry of the placed object `s`'s `VisTransformList`, in its
+/// order: each scope's transform, speed and lerps in progress (an axis
+/// with a `ValueFrom` or a `LerpDuration`).
+pub fn visual_scopes(s: &Struct) -> Vec<Scoped> {
+    let list = s.list("VisTransformList").unwrap_or(&[]);
+    list.iter()
+        .map(|e| {
+            let lerps = AXES
+                .iter()
+                .filter_map(|axis| {
+                    let a = e.child(axis)?;
+                    if !a.contains("ValueFrom") && !a.contains("LerpDuration") {
+                        return None;
+                    }
+                    let n = |label: &str| number(a, label);
+                    Some(Lerp {
+                        axis,
+                        from: n("ValueFrom").unwrap_or(0.0),
+                        to: n("ValueTo").unwrap_or(0.0),
+                        duration: n("LerpDuration").unwrap_or(0.0),
+                        progress: n("LerpProgress").unwrap_or(0.0),
+                        kind: a.integer("LerpType").unwrap_or(0),
+                        behavior: a.integer("BehaviorFlags").unwrap_or(0),
+                        repeats: a.integer("RepeatsRemaining").unwrap_or(0),
+                    })
+                })
+                .collect();
+            Scoped {
+                scope: e.integer("Scope").unwrap_or(0),
+                transform: Transform::of_entry(e),
+                speed: e.child("AnimationSpeed").and_then(|a| number(a, "ValueTo")).unwrap_or(1.0),
+                lerps,
+            }
+        })
+        .collect()
+}
+
+/// The transform of scope `scope` of the placed object `s` (a creature's
+/// head, 254…), where its list has one.
+pub fn scope_transform(s: &Struct, scope: i64) -> Option<Transform> {
+    let list = s.list("VisTransformList")?;
+    let entry = list.iter().find(|e| e.integer("Scope").unwrap_or(0) == scope)?;
+    Some(Transform::of_entry(entry))
 }
 
 /// Whether any of the placed object `s`'s visual transforms changes how
@@ -246,6 +364,43 @@ mod tests {
         e
     }
 
+    /// Every scope of the list is read: a creature's head with its scale,
+    /// the base with its animation speed and a lerp in progress (`ValueFrom`
+    /// and `LerpDuration` beside the goal), as the engine saves one.
+    #[test]
+    fn every_scope_speed_and_lerp_is_read() {
+        let mut s = Struct::new(0);
+        assert!(visual_scopes(&s).is_empty());
+        let mut base = entry(None, 1.0);
+        let mut speed = Struct::new(0);
+        speed.set("ValueTo", Value::Float(2.5));
+        base.set("AnimationSpeed", Value::Struct(speed));
+        let mut lerp = Struct::new(0);
+        for (label, v) in [("ValueFrom", 1.0), ("ValueTo", 3.0), ("LerpDuration", 600.0)] {
+            lerp.set(label, Value::Float(v));
+        }
+        lerp.set("LerpProgress", Value::Float(0.25));
+        lerp.set("LerpType", Value::Int(1));
+        lerp.set("RepeatsRemaining", Value::Int(-1));
+        base.set("RotateX", Value::Struct(lerp));
+        s.set("VisTransformList", Value::List(vec![base, entry(Some(254), 2.0)]));
+        let scopes = visual_scopes(&s);
+        assert_eq!(scopes.len(), 2);
+        assert_eq!((scopes[0].scope, scopes[0].speed), (0, 2.5));
+        assert_eq!(scopes[0].transform.rotate[0], 3.0, "the goal");
+        let l = &scopes[0].lerps;
+        assert_eq!(l.len(), 1);
+        assert_eq!((l[0].axis, l[0].from, l[0].to, l[0].duration), ("RotateX", 1.0, 3.0, 600.0));
+        assert_eq!((l[0].progress, l[0].kind, l[0].repeats), (0.25, 1, -1));
+        assert_eq!(
+            (scopes[1].scope, scopes[1].speed, scopes[1].transform.scale[0]),
+            (254, 1.0, 2.0)
+        );
+        assert_eq!(scope_name(ObjectKind::Creature, 254), "its head");
+        assert_eq!(scope_name(ObjectKind::Item, 254), "its part 2");
+        assert_eq!(scope_name(ObjectKind::Placeable, 7), "scope 7");
+    }
+
     /// One reader, two questions: the transform the model is drawn with
     /// (scope 0's, else the list's first, else the older struct), and
     /// whether any changes how it shows (any scope's, or the struct).
@@ -258,9 +413,12 @@ mod tests {
         s.set("VisTransformList", Value::List(vec![entry(Some(1), 2.0), entry(None, 1.5)]));
         assert_eq!(visual_transform(&s).unwrap().scale[0], 1.5, "scope 0's");
         assert!(is_transformed(&s));
-        // Only another scope's: drawn by it, and transformed.
-        s.set("VisTransformList", Value::List(vec![entry(Some(4), 2.0)]));
-        assert_eq!(visual_transform(&s).unwrap().scale[0], 2.0, "the first");
+        // Only another scope's: the whole object untransformed (as the
+        // engine reads it), but transformed.
+        s.set("VisTransformList", Value::List(vec![entry(Some(254), 2.0)]));
+        assert_eq!(visual_transform(&s), None, "scope 0 has none");
+        assert_eq!(scope_transform(&s, 254).unwrap().scale[0], 2.0);
+        assert_eq!(scope_transform(&s, 253), None);
         assert!(is_transformed(&s));
         // An identity list beside an older struct that scales: drawn by the
         // list (as before), but transformed.
