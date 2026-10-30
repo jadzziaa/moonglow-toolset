@@ -80,12 +80,17 @@ fn table(column: i32) -> Option<(&'static str, Kind)> {
     })
 }
 
-/// Whether the wizard offers to make a base item magical (it has a table
-/// of properties).
+/// The `PropColumn`s Aurora offers Magical for and gives no properties:
+/// gems (17) and gauntlets (21), made unidentified.
+const MAGICAL_WITHOUT_PROPERTIES: [i32; 2] = [17, 21];
+
+/// Whether the wizard offers to make a base item magical: it has a table
+/// of properties, or is a gem or gauntlets (unidentified, with none), as
+/// Aurora offers it.
 pub fn offered(game: &GameData, base_item: u32) -> bool {
     let column =
         game.table("baseitems").ok().and_then(|t| t.get_int(base_item as usize, "PropColumn"));
-    column.and_then(table).is_some()
+    column.is_some_and(|c| table(c).is_some() || MAGICAL_WITHOUT_PROPERTIES.contains(&c))
 }
 
 /// The wizard's Magical choices.

@@ -47,6 +47,13 @@ fn magical_items_are_made_as_aurora_s() {
             g.root.list("PropertiesList").unwrap().iter().map(ItemProperty::from_gff).collect();
         let what = format!("{file} (base item {base}, level {level}, quality {quality})");
         checked += 1;
+        // Aurora made it unidentified where it offered Magical (gems and
+        // gauntlets too, which get no properties), and left the rest, the
+        // box not to be ticked, as they were.
+        let unidentified = g.root.integer("Identified") == Some(0);
+        if mg_rules::item_wizard::offered(&gd, base) != unidentified {
+            failures.push(format!("{what}: Magical offered, unidentified {unidentified}"));
+        }
         let Some(m) = ItemMagic::new(&gd, base) else {
             if !list.is_empty() {
                 failures.push(format!("{what}: Aurora made it magical"));

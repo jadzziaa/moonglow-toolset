@@ -336,8 +336,9 @@ item stays worth no more than an item for that level may be
 staves three spells; staves, rods and wands 50 charges; scrolls and
 wands may be used by bards, wizards and sorcerers, staves by wizards and
 sorcerers. Only properties the base item can have are given. A magical
-item is made unidentified, as Aurora makes it. Torches, books, kits,
-containers, gems, gauntlets and creature items aren't made magical.
+item is made unidentified, as Aurora makes it; gems and gauntlets get no
+properties, as Aurora gives them none. Torches, books, kits,
+containers and creature items aren't made magical.
 
 ## The editors
 

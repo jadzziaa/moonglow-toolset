@@ -265,11 +265,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
   would need more of Aurora's items to settle; amulets, belts, boots,
   bracers, cloaks and rings get the armor table, where Aurora may use
-  the helmet's (they differ in Weight Reduction only); gems and
-  gauntlets aren't offered Magical (Aurora makes them unidentified with
-  no properties). Fitting again takes a few hundred of Aurora's wizard
-  items, made by driving its wizard on the oracle (M, not started in the
-  sprint's verification wave). (a second builder's review, October 2026)
+  the helmet's (they differ in Weight Reduction only). All of it waits
+  on Aurora: a few hundred of its wizard items, made by driving its
+  wizard on the oracle (Low items at each level band; later properties'
+  tiers; an amulet, belt, boots, bracers, cloak and ring each at 16-20
+  Godly, whose Weight Reduction would tell the table), read against
+  `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
+  since 2026-10-30.) (a second builder's review, October 2026)
 - **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
   free slot, To Backpack and Open Blueprint; talk-table text in its own

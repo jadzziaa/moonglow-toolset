@@ -1943,6 +1943,25 @@ fn item_wizard_makes_a_magical_item_of_a_level_and_quality() {
     // A torch: no Magical.
     make(&mut h, "Torch", "Plain Torch");
     assert!(h.get_by_label("Magical").accesskit_node().is_disabled());
+    // Gauntlets: Magical, as Aurora offers it, and made unidentified with
+    // no properties, as Aurora makes them.
+    make(&mut h, "Gauntlet", "Magic Gauntlets");
+    assert!(!h.get_by_label("Magical").accesskit_node().is_disabled());
+    h.get_by_label("Magical").click();
+    h.run();
+    h.get_by_label("1-5").click();
+    h.run();
+    h.get_by_label("Low").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Plot Item").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "magicgauntlets", ResType::UTI).expect("the gauntlets");
+    assert_eq!(made.root.integer("Identified"), Some(0));
+    assert!(made.root.list("PropertiesList").is_none_or(<[_]>::is_empty));
 }
 
 #[test]
