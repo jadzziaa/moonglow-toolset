@@ -54,6 +54,7 @@
 //! instead of running it again; `MG_SHADOW_ONLY` names the lightings to run
 //! (the first, `day_off`, is every other's measure of no shadow).
 
+use super::readings::{INVISIBLE, Reading};
 use super::*;
 use mg_module::instances::{Placement, Placing, instance};
 
@@ -412,4 +413,294 @@ fn shadows_look() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A case of [`high_shadows_beside_the_client`]: its name, tileset, what
+/// stands in it, the camera (`SetCameraFacing`'s facing, distance and
+/// pitch) and the sun's heights (`SunDirectionZ`, the sun from the west
+/// a little south: x −1, y −0.35).
+struct HighCase {
+    name: &'static str,
+    tileset: &'static str,
+    /// Placeables: appearance (placeables.2da row), x, y, facing.
+    placeables: &'static [(u32, f32, f32, f32)],
+    creature: Option<&'static str>,
+    /// A tile of tcn01 (row, column, its id), the others plain cobbles.
+    tile: Option<(usize, usize, i32)>,
+    look: (f32, f32, f32),
+    suns: &'static [f32],
+    /// The area's tiles across and up (4: the readings' own).
+    side: i32,
+}
+
+const HIGH_CASES: [HighCase; 6] = [
+    // The owner's in a large area (16×16 tiles), looking out over it:
+    // Fast's map stretched over what is seen, 160 m, its texels 8 cm.
+    HighCase {
+        name: "wide",
+        tileset: "ttr01",
+        placeables: &[(324, 19.0, 22.0, 0.0), (634, 22.5, 24.0, 0.0)],
+        creature: None,
+        tile: None,
+        look: (90.0, 5.0, 78.0),
+        suns: &[1.0],
+        side: 16,
+    },
+    // The owner's again, looking out over the area: Fast's map stretched
+    // to the horizon, its texels large on the fence's shadow.
+    HighCase {
+        name: "horizon",
+        tileset: "ttr01",
+        placeables: &[(324, 19.0, 22.0, 0.0), (634, 22.5, 24.0, 0.0)],
+        creature: None,
+        tile: None,
+        look: (90.0, 5.0, 78.0),
+        suns: &[1.0],
+        side: 4,
+    },
+    // The owner's close up: the fence's shadow a few metres off, where the
+    // map's texels show.
+    HighCase {
+        name: "close",
+        tileset: "ttr01",
+        placeables: &[(324, 19.0, 21.5, 0.0), (634, 22.5, 24.0, 0.0)],
+        creature: None,
+        tile: None,
+        look: (90.0, 3.5, 60.0),
+        suns: &[1.0],
+        side: 4,
+    },
+    // The owner's: a rural fence and a gallows-like frame (the Hangman's
+    // Scaffold) on flat ground.
+    HighCase {
+        name: "fence",
+        tileset: "ttr01",
+        placeables: &[(324, 18.5, 23.0, 0.0), (634, 22.5, 24.0, 0.0)],
+        creature: None,
+        tile: None,
+        look: (90.0, 10.0, 55.0),
+        suns: &[0.45, 1.0, 2.5],
+        side: 4,
+    },
+    HighCase {
+        name: "ogre",
+        tileset: "ttr01",
+        placeables: &[],
+        creature: Some("nw_ogre01"),
+        tile: None,
+        look: (90.0, 8.0, 50.0),
+        suns: &[1.0],
+        side: 4,
+    },
+    // A building: tcn01's house (tile 54), as `reading_low_sun_building`.
+    HighCase {
+        name: "house",
+        tileset: "tcn01",
+        placeables: &[],
+        creature: None,
+        tile: Some((2, 1, 54)),
+        look: (90.0, 16.0, 50.0),
+        suns: &[0.6],
+        side: 4,
+    },
+];
+
+/// Where a picture is darker than the same without shadows (by a fifth
+/// or more): above the client's GUI (the lowest eighth left out).
+fn shadow_mask(with: &Rgba, without: &Rgba) -> Vec<bool> {
+    let n = (with.width * with.height) as usize;
+    let rows = with.height as usize * 7 / 8;
+    (0..n)
+        .map(|i| {
+            if i / with.width as usize >= rows {
+                return false;
+            }
+            let lum = |img: &Rgba| {
+                let p = &img.data[i * 4..i * 4 + 3];
+                f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])
+            };
+            let (a, b) = (lum(with), lum(without));
+            b > 30.0 && a < b * 0.8
+        })
+        .collect()
+}
+
+/// How much two shadow masks agree: what both mark over what either does.
+fn overlap(a: &[bool], b: &[bool]) -> f32 {
+    let both = a.iter().zip(b).filter(|(x, y)| **x && **y).count();
+    let either = a.iter().zip(b).filter(|(x, y)| **x || **y).count();
+    both as f32 / either.max(1) as f32
+}
+
+/// Pictures side by side, left to right.
+fn side_by_side(pictures: &[&Rgba]) -> Rgba {
+    let height = pictures.iter().map(|p| p.height).max().unwrap_or(1);
+    let width: u32 = pictures.iter().map(|p| p.width).sum();
+    let mut out = Rgba::new(width, height);
+    let mut left = 0usize;
+    for p in pictures {
+        for y in 0..p.height as usize {
+            let from = &p.data[y * p.width as usize * 4..(y + 1) * p.width as usize * 4];
+            let at = (y * width as usize + left) * 4;
+            out.data[at..at + from.len()].copy_from_slice(from);
+        }
+        left += p.width as usize;
+    }
+    out
+}
+
+/// Shadows of High quality (the game's stencil volumes, Moonglow's
+/// `Renderer::shadow_volumes`) beside Fast (the shadow map) and the game
+/// client at its highest shadow setting (Creature Shadow Detail Best,
+/// environment shadows, all types casting, the owner's 16× anti-aliasing):
+/// the owner's case (a rural fence and a gallows-like frame on flat
+/// ground, the sun at three heights), an ogre, and tcn01's house. Each
+/// case's client is run twice, with its shadows and without, and the
+/// pixels the shadows darken (by a fifth or more) compared with Moonglow's
+/// Fast and High (the game's shaders on): how much the marks agree (what
+/// both mark over what either does) is printed. In the scratch directory
+/// of each (`target/test-output/client_reading_high_shadows_<case>_<sun>/`):
+/// `beside.png` (client, Fast, High, left to right) and each picture.
+/// `MG_HIGH_CASES` names the cases to run (all by default).
+///
+/// Seen (2026-10-30, 89.8193.37): see `docs/deferred.md`'s "Shadows".
+#[test]
+#[ignore]
+fn high_shadows_beside_the_client() {
+    let only = std::env::var("MG_HIGH_CASES").ok();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let owner = |s: String| {
+        s.replace(
+            "\t\t\tmode = 8\n",
+            "\t\t\tmode = 16\n\t\t[graphics.video.anti-aliasing]\n\t\t\tmode = 16\n",
+        )
+        .replace(
+            "\t[graphics.shadows]\n",
+            "\t[graphics.shadows]\n\t\tall-types-can-cast-dynamic = true\n",
+        )
+    };
+    let with = owner(settings());
+    let without = owner(SETTINGS.to_string());
+    let mut report = Vec::new();
+    for case in HIGH_CASES.iter().filter(|c| only.as_deref().is_none_or(|o| o.contains(c.name))) {
+        for &z in case.suns {
+            let name = format!("high_shadows_{}_{z}", case.name);
+            let mut pictures = Vec::new();
+            let mut scene_of = None;
+            for (shadows, settings) in [(true, &with), (false, &without)] {
+                let suffix = if shadows { "" } else { "_none" };
+                let mut r = Reading::new(&format!("{name}{suffix}"), case.tileset, light, &[]);
+                for (label, v) in [("SunShadows", 1u8), ("MoonShadows", 0), ("ShadowOpacity", 60)] {
+                    r.are.root.set(label, Value::Byte(v));
+                }
+                r.are.root.set("IsNight", Value::Byte(0));
+                if case.side != 4 {
+                    // (More of the readings' first tile, row by row.)
+                    let tiles = r.are.root.list("Tile_List").unwrap();
+                    let more = vec![tiles[0].clone(); (case.side * case.side) as usize];
+                    r.are.root.set("Tile_List", Value::List(more));
+                    r.are.root.set("Width", Value::Int(case.side));
+                    r.are.root.set("Height", Value::Int(case.side));
+                }
+                if let Some((row, column, id)) = case.tile {
+                    let width = r.are.root.int("Width").unwrap_or(4) as usize;
+                    for (i, t) in r.are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+                        let here = i == row * width + column;
+                        t.set("Tile_ID", Value::Int(if here { id } else { 44 }));
+                        t.set("Tile_Height", Value::Int(0));
+                        t.set("Tile_Orientation", Value::Int(0));
+                    }
+                }
+                let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
+                    panic!("no AreaProperties")
+                };
+                for (axis, v) in [("X", -1.0f32), ("Y", -0.35), ("Z", z)] {
+                    props.set(&format!("SunDirection{axis}"), Value::Float(v));
+                    props.set(&format!("MoonDirection{axis}"), Value::Float(v));
+                }
+                for &(row, x, y, facing) in case.placeables {
+                    r.place(row, [x, y, 0.0], facing, &[("Static", Value::Byte(0))]);
+                }
+                if let Some(blueprint) = case.creature {
+                    let utc = r.game.resman.get_named(blueprint, ResType::UTC).unwrap();
+                    let mut c = Gff::read(&utc).unwrap().root;
+                    let scripts: Vec<String> = (c.fields.iter())
+                        .map(|f| f.label.to_string_lossy())
+                        .filter(|l| l.starts_with("Script"))
+                        .collect();
+                    for label in scripts {
+                        c.set(&label, Value::resref(ResRef::EMPTY));
+                    }
+                    let none = |_: ResRef| None;
+                    let placing = Placing { game: &r.game, item: &none };
+                    let at = Placement { position: [20.0, 22.6, 0.0], rotation: 0.6 };
+                    let placed = instance(&placing, ResType::UTC, &c, at, &[]).unwrap();
+                    r.git.root.set("Creature List", Value::List(vec![placed]));
+                }
+                if shadows {
+                    scene_of = Some((r.are.clone(), r.git.clone(), r.dir.clone()));
+                }
+                let body = super::readings::logged(INVISIBLE);
+                let (_, client) = r.shoot(&super::readings::enter(&body, case.look), settings);
+                pictures.push(client);
+            }
+            let (are, git, dir) = scene_of.expect("the run with shadows");
+            let game = GameData::open(&GameInstall::new(
+                mg_testkit::nwn_root().unwrap(),
+                Some(dir.join("user")),
+                "en",
+            ))
+            .unwrap();
+            mg_testkit::gpu::hold();
+            let Some(gpu) = Gpu::headless() else {
+                eprintln!("Moonglow's side skipped: no GPU");
+                return;
+            };
+            let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
+            let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+            let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+            let pc = player_stood(&dir, &game, &model, glam::Vec2::new(20.0, 20.0));
+            let (facing, distance, pitch) = case.look;
+            let camera =
+                camera_facing(pc, facing, FIT_FOV, FIT_FOCUS, distance * 0.92, pitch - 1.0);
+            let v = mg_area::View { fog: false, animate: false, ..mg_area::View::of(&model) };
+            let scene = area_scene.scene(&model, &v);
+            let (w, h) = (pictures[0].width, pictures[0].height);
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+            r.game_shaders = true;
+            let bare = Scene { shadows: None, light_shadows: None, ..scene.clone() };
+            let none = r.render_image(&gpu, &game.resman, &bare, &camera, w, h);
+            let fast = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+            r.shadow_volumes = true;
+            let high = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+            let (client, client_none) = (&pictures[0], &pictures[1]);
+            for (file, img) in [
+                ("client.png", client),
+                ("client_none.png", client_none),
+                ("moonglow_none.png", &none),
+                ("moonglow_fast.png", &fast),
+                ("moonglow_high.png", &high),
+            ] {
+                save_png(img, &dir.join(file));
+            }
+            save_png(&side_by_side(&[client, &fast, &high]), &dir.join("beside.png"));
+            let theirs = shadow_mask(client, client_none);
+            let (f, hi) = (shadow_mask(&fast, &none), shadow_mask(&high, &none));
+            let count = |m: &[bool]| m.iter().filter(|x| **x).count();
+            let line = format!(
+                "{name}: the shadows' pixels: client {}, Fast {}, High {}; agreeing with the \
+                 client's: Fast {:.2}, High {:.2}; Fast and High {:.2} ({})",
+                count(&theirs),
+                count(&f),
+                count(&hi),
+                overlap(&theirs, &f),
+                overlap(&theirs, &hi),
+                overlap(&f, &hi),
+                dir.join("beside.png").display(),
+            );
+            eprintln!("{line}");
+            report.push(line);
+        }
+    }
+    eprintln!("{}", report.join("\n"));
 }

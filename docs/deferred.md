@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:36:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -840,7 +840,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   laid as the game's shadow plane lays them, checked against the client
   in `shadows_look`; [the research note](research/notes_shaders.md) §G),
   and creatures' and lights' shadows (the Shadows button's menu, done
-  2026-10-28). Left:
+  2026-10-28); since 2026-10-30 also as the game's own stencil volumes
+  (Shadows quality High: [the notes](research/notes_shaders.md) §G.2),
+  beside the client in `high_shadows_beside_the_client`. Left:
+  - with High: skins cast none, as the wiki says of the game ("only
+    Trimesh nodes"), where Fast casts them posed: not read in the
+    client (a creature with a skinned part, `c_horse1`'s); where the
+    sun's volume of what is not a tile ends (the game's
+    `projectionWorldZClip` for a placeable or a creature; Moonglow's:
+    the lowest receiver seen); and what the client draws for a caster
+    with an edge of three faces (the wiki's "finhead": Moonglow's casts
+    the faces' shadow, no spike) (S, each waits on a client reading);
+  - High's first frame in an area makes its casters' volume meshes in
+    the frame: area084's opening's longest frame 22 ms with Fast, 48 to
+    51 ms with High (`frame_perf`, 2026-10-30); its frames after are
+    within the budget (a frame's GPU time 0.1 to 1 ms more than Fast's,
+    3.3 ms more in area026 seen close, 6.7 ms of 6.9). Making them
+    apart, as textures are read, goes beyond what was asked (M);
   - the lights' shadows fall off with the lamp's distance, where
     Moonglow's darkness is the opacity times the plane's fade alone: an
     ogre's shadow from a lamp post (row 73, radius 10) 1.5, 3, 5, 7, 9
@@ -2192,10 +2208,15 @@ is not taken for a new gap.
 - **A pair drawn both with and without `NO_DISCARD`** is compiled twice
   (TDoD: 26 programs, 22 before): the cost of the engine's choice made
   per mesh. (M4)
-- **The shadow map stands in for the game's stencil volumes**
-  ([notes](research/notes_shaders.md) §G.2): a volume torn by a
-  non-manifold caster isn't drawn as the game draws it, and the map's
-  edges are a texel soft. (2026-10-28)
+- **The shadows in two qualities** ([notes](research/notes_shaders.md)
+  §G.2): Fast (the default), a shadow map standing in for the game's
+  stencil volumes, its edges a texel of the map soft (stepped up close
+  in a large area seen to its far side); and High (Options › Area ›
+  Shadows quality, and the Shadows button's menu), the game's own
+  stencil shadow volumes, as the owner asked on 2026-10-30. Settled
+  2026-10-28 as the map alone; rewritten 2026-10-30 for both. In
+  either, a caster that isn't closed (an edge of three faces or more)
+  casts its faces' shadow, not the game's torn spikes.
 - **Lighting off against Aurora:** Aurora's Use Area Lighting off draws
   the textures unshaded at full brightness (no side darker than another;
   shadows still drawn; captured 2026-10-29, `target/test-output` shots

@@ -5595,6 +5595,32 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     assert_eq!(kinds(&h), [true, false, false]);
 }
 
+/// The shadows' quality: Fast (the shadow map) unless chosen; High in the
+/// Shadows button's menu (as in Options › Area) is kept in the settings,
+/// and the view is drawn again with the stencil volumes; Fast again, with
+/// the map.
+#[test]
+fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
+    use mg_ui::settings::ShadowQuality;
+    let Some((mut h, _area)) = area_harness("shadow-quality") else { return };
+    let volumes = |h: &Harness<'_, Moonglow>| {
+        h.state().viewport.as_ref().map(|vp| vp.renderer.shadow_volumes)
+    };
+    h.run_steps(2);
+    assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
+    assert_eq!(volumes(&h), Some(false), "the map by default");
+    h.get_by_label("◑ Shadows").click_secondary();
+    h.run();
+    h.get_by_label("High").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.shadow_quality, ShadowQuality::High);
+    assert_eq!(volumes(&h), Some(true), "drawn again with the volumes");
+    h.get_by_label("Fast").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
+    assert_eq!(volumes(&h), Some(false));
+}
+
 /// What follows the pointer over the view (the coordinates in its corner,
 /// the outline of tiles about to be pasted) is not drawn while the
 /// pointer is over a window in front of the view: the ground under the

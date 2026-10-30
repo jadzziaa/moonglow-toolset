@@ -584,6 +584,8 @@ struct Drawn {
     follows: bool,
     /// The Shaders switch.
     shaders: bool,
+    /// Options › Area › Shadows quality is High: stencil shadow volumes.
+    high_shadows: bool,
     /// The placed sounds' ranges drawn (Sound Ranges).
     sound_ranges: Vec<SoundRange>,
 }
@@ -2476,7 +2478,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.unlit_areas = !view.lit;
         }
-        shadows_button(ui, view, tools);
+        shadows_button(ui, view, tools, &mut app.settings.shadow_quality);
         let kinds = (view.shadows, view.creature_shadows, view.light_shadows);
         let s = &mut app.settings;
         if kinds != (!s.no_shadows, !s.no_creature_shadows, !s.no_light_shadows) {
@@ -3034,6 +3036,7 @@ fn viewport(
     let clock = module_clock(app);
     let background = app.background_jobs;
     let shaders = app.game_shaders();
+    let high_shadows = app.settings.shadow_quality == crate::settings::ShadowQuality::High;
     let sound_ranges = sound_ranges_of(app, view);
     let game_arc = app.game.clone();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
@@ -3063,6 +3066,7 @@ fn viewport(
         spawn_markers: scene.spawn_markers,
         follows,
         shaders,
+        high_shadows,
         sound_ranges: sound_ranges.clone(),
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
@@ -3147,6 +3151,7 @@ fn viewport(
         // (As the picture's key has it: the switch may have changed this
         // frame.)
         vp.renderer.game_shaders = from.shaders;
+        vp.renderer.shadow_volumes = from.high_shadows;
         // (The game's programs made while the view goes on, Moonglow's own
         // shader drawing until they are: no frame waits on them. The view
         // is drawn again as the animations step, and when one is ready.)
@@ -3797,8 +3802,14 @@ fn held_menu<'r>(ui: &egui::Ui, r: &'r egui::Response) -> (bool, egui::Popup<'r>
 
 /// The Shadows button: down while any kind of shadow is drawn; a click
 /// turns them all off, or on again as they were (all at first); held or
-/// right-clicked, the kinds to choose from.
-fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
+/// right-clicked, the kinds to choose from and their `quality` (Options ›
+/// Area's, every area view's).
+fn shadows_button(
+    ui: &mut egui::Ui,
+    view: &mut AreaView,
+    tools: crate::icons::Tools,
+    quality: &mut crate::settings::ShadowQuality,
+) {
     let kinds = [view.shadows, view.creature_shadows, view.light_shadows];
     let on = kinds.iter().any(|&k| k);
     let r = tools.add(
@@ -3832,6 +3843,11 @@ fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::T
              from the nearest light that casts them (a light node with `shadow 1` and a radius \
              of 10 m or more: a placeable's light), as in the game",
         );
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Quality");
+            crate::options::shadow_quality_choice(ui, quality);
+        });
     });
 }
 
