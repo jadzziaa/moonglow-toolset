@@ -511,6 +511,48 @@ fn a_creature_s_own_parts_show_where_its_armor_is_bare() {
     assert!(models.contains(&"pmh0_bicepr002"), "the creature's own arm: {models:?}");
     assert!(models.contains(&"pmh0_bicepl001"), "{models:?}");
     assert!(models.contains(&"pmh0_chest005"), "the armor's chest: {models:?}");
+    // Where the creature has no part of its own (no field: a commoner made
+    // a human), the armor's bare skin shows none, as in the client
+    // (`client_render.rs`'s `reading_part_scopes`: no arms).
+    utc.remove("BodyPart_RBicep");
+    utc.remove("BodyPart_LBicep");
+    let bare = creature(&game, &utc, &armor).unwrap();
+    let models = self::models(&bare);
+    assert!(
+        !models.iter().any(|m| m.starts_with("pmh0_bicep")),
+        "no arms where neither has one: {models:?}"
+    );
+    assert!(models.contains(&"pmh0_chest005"), "{models:?}");
+}
+
+/// A helmet whose model isn't there is drawn as its base item's
+/// `DefaultModel` (the bag) in the head's place, as the client draws it
+/// (`client_render.rs`'s `reading_missing_helmet_model`); one that is
+/// there, as itself.
+#[test]
+fn a_helmet_without_its_model_is_the_bag() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = CreatureLook::new(6).to_utc();
+    let mut worn = mg_gff::Struct::new(1);
+    worn.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+    utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+    for (part, want) in [(2u8, "helm_002"), (250, "it_bag")] {
+        let helmet = |_: ResRef| -> Option<Gff> {
+            let mut g = Gff::new(*b"UTI ");
+            g.root.set("BaseItem", mg_gff::Value::Int(17));
+            g.root.set("ModelPart1", mg_gff::Value::Byte(part));
+            Some(g)
+        };
+        let preview = creature(&game, &utc, &helmet).unwrap();
+        let models = models(&preview);
+        assert!(models.contains(&want), "helmet {part}: {models:?}");
+        assert!(!models.iter().any(|m| m.contains("_head")), "no head under it: {models:?}");
+        let p = preview.parts.iter().find(|p| p.model == want).unwrap();
+        assert_eq!(p.attach.as_deref(), Some("head_g"));
+    }
 }
 
 /// A cloak moves with the bones of the body wearing it: on an elf (whose
