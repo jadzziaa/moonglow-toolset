@@ -391,8 +391,8 @@ impl Module {
     /// The custom talk table's name (without `.tlk`), if any.
     pub fn custom_tlk(&self) -> Result<Option<String>, ModuleError> {
         let info = self.info()?;
-        let name =
-            String::from_utf8_lossy(info.root.read(&ifo::MOD_CUSTOM_TLK).as_bytes()).into_owned();
+        // (Its bytes are its file's name's, as a hak's.)
+        let name = mg_resman::file_name_text(info.root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
         Ok(Some(name).filter(|n| !n.is_empty()))
     }
 
@@ -1039,10 +1039,13 @@ pub fn areas_of(info: &mg_gff::Struct) -> Vec<ResRef> {
 
 /// The haks a `module.ifo`'s root names, highest priority first: its
 /// `Mod_HakList`, or the single pre-1.69 `Mod_Hak` field when it has no
-/// list; names trimmed, empty ones left out. [`Module::haks`] reads the
-/// module's saved IFO by it, and the window its IFO with unsaved edits.
+/// list; names trimmed, empty ones left out, each read by
+/// [`mg_resman::file_name_text`] (its bytes are the hak's file name's).
+/// [`Module::haks`] reads the module's saved IFO by it, and the window its
+/// IFO with unsaved edits.
 pub fn haks_of(info: &mg_gff::Struct) -> Vec<String> {
-    let text = |s: ExoString| String::from_utf8_lossy(s.as_bytes()).trim().to_owned();
+    // (Trimmed of ASCII's spaces alone: 0xA0 is a byte of the name.)
+    let text = |s: ExoString| mg_resman::file_name_text(s.as_bytes().trim_ascii());
     let list: Vec<String> = (info.items(&ifo::MOD_HAK_LIST).iter())
         .map(|h| text(h.read(&ifo::mod_hak_list::MOD_HAK)))
         .filter(|h| !h.is_empty())
@@ -1133,6 +1136,10 @@ mod tests {
         };
         list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b" top "), row(b""), row(b"low")]));
         assert_eq!(haks_of(&list), ["top", "low"]);
+        // A byte past ASCII is kept, as `mg_resman::file_name_text` reads it.
+        let rows = vec![row(b"mg_\xf1hak"), row(b" mg_x\xa0 ")];
+        list.set(ifo::MOD_HAK_LIST.label, Value::List(rows));
+        assert_eq!(haks_of(&list), ["mg_ñhak", "mg_x\u{a0}"]);
     }
 
     #[test]

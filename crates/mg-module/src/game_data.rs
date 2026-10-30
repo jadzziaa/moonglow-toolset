@@ -27,6 +27,9 @@ pub struct ForModule {
     pub game: GameData,
     /// The haks the module lists that are found nowhere the game looks.
     pub missing_haks: Vec<String>,
+    /// What is said of each of them ([`GameInstall::hak_not_found`]: a
+    /// file of its name in another case, where there is one).
+    pub missing_said: Vec<String>,
     /// What went wrong opening a hak that is there (the module is put
     /// over the haks opened before it, and over the game).
     pub wrong_haks: Option<ResError>,
@@ -50,7 +53,7 @@ impl ForModule {
     /// `warning: `): a hak not found, a hak that can't be opened, a custom
     /// talk table not found or that can't be read.
     pub fn warnings(&self) -> Vec<String> {
-        let haks = self.missing_haks.iter().map(|h| format!("hak {h} not found"));
+        let haks = self.missing_said.iter().cloned();
         let wrong = self.wrong_haks.iter().map(|e| format!("the module's haks: {e}"));
         haks.chain(wrong).chain(self.talk.problem()).collect()
     }
@@ -94,7 +97,8 @@ impl Module {
         let (talk, tlk) = found.read();
         game.set_custom_tlk(tlk);
         game.invalidate();
-        Ok(ForModule { game, missing_haks, wrong_haks, talk })
+        let missing_said = missing_haks.iter().map(|h| install.hak_not_found(h)).collect();
+        Ok(ForModule { game, missing_haks, missing_said, wrong_haks, talk })
     }
 }
 

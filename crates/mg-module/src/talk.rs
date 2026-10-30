@@ -116,7 +116,7 @@ pub fn find(rm: &ResMan, tlk_dirs: &[PathBuf], name: &str) -> Option<Found> {
         return Some(Found { source, data: data.into_owned() });
     }
     tlk_dirs.iter().find_map(|d| {
-        let path = d.join(format!("{name}.tlk"));
+        let path = d.join(mg_resman::named_file(name, "tlk"));
         let data = std::fs::read(&path).ok()?;
         Some(Found { source: Source::File(path), data })
     })
@@ -328,7 +328,7 @@ impl Table {
     /// A new, empty table in `dir` (the user's `tlk/` folder), not yet
     /// saved.
     pub fn create(name: &str, dir: &Path, language: Language, feminine: bool) -> Table {
-        let file = |n: &str| Source::File(dir.join(format!("{n}.tlk")));
+        let file = |n: &str| Source::File(dir.join(mg_resman::named_file(n, "tlk")));
         Table {
             name: name.to_string(),
             source: file(name),

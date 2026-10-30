@@ -2959,7 +2959,7 @@ impl Moonglow {
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
             for h in missing {
-                self.log.warn(format!("Hak {h} not found"));
+                self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
             }
             if let Some(e) = wrong {
                 self.log.error(format!("Could not open the module's haks: {e}"));
@@ -4953,7 +4953,7 @@ impl Moonglow {
         match game.resman.add_haks(gi, &listed) {
             Ok(missing) => {
                 for h in missing {
-                    self.log.warn(format!("Hak {h} not found"));
+                    self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
                 }
             }
             Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),

@@ -12,6 +12,7 @@
 //! [`ResMan::add_haks`] adds a module's haks.
 
 mod container;
+mod file_name;
 mod install;
 
 use std::borrow::Cow;
@@ -24,6 +25,10 @@ use thiserror::Error;
 
 pub use container::{
     Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
+};
+pub use file_name::{
+    CASE_IGNORED, Listed, differs_in_case, file_name_bytes, file_name_text, listed, name_of_file,
+    named_file,
 };
 pub use install::{GameInstall, default_user_dir};
 

@@ -1386,7 +1386,7 @@ fn vars(
         let mut rm = ResMan::for_game(&gi).ok()?;
         let (missing, wrong) = m.stack_onto(&mut rm, &gi);
         for hak in missing {
-            out.note(format!("warning: hak {hak} not found"));
+            out.note(format!("warning: {}", gi.hak_not_found(&hak)));
         }
         if let Some(e) = wrong {
             out.note(format!("warning: the module's haks: {e}"));
@@ -2432,7 +2432,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 it.map(|(k, h)| json!({ "resource": k.to_string(), "haks": h })).collect::<Vec<_>>()
             };
             let mut out = Output::new(json!({
-                "haks": report.haks.iter().map(|(n, p)| json!({ "name": n, "path": p.as_deref().map(path_text) })).collect::<Vec<_>>(),
+                "haks": report.haks.iter().map(|(n, p)| json!({ "name": n, "path": p.as_deref().map(path_text), "not_found": report.not_found.get(n) })).collect::<Vec<_>>(),
                 "conflicts": rows(&mut report.conflicts()),
                 "overrides": rows(&mut report.overrides.iter()),
                 "resources": report.resources.len(),
@@ -3922,7 +3922,8 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let tlk = placed.iter().find(|p| p.is_tlk).map(|t| t.name.clone());
             if let Some(t) = &tlk {
-                info.root.set("Mod_CustomTlk", mg_gff::Value::String(t.clone().into_bytes()));
+                let name = mg_resman::file_name_bytes(t);
+                info.root.set("Mod_CustomTlk", mg_gff::Value::String(name));
             }
             m.set_info(&info)?;
             m.save()?;
@@ -4431,7 +4432,7 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
         return Err(e.into());
     }
     for missing in missing {
-        out.note(format!("warning: hak {missing} not found"));
+        out.note(format!("warning: {}", gi.hak_not_found(&missing)));
     }
     Ok(rm)
 }

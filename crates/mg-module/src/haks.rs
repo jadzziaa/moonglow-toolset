@@ -16,6 +16,10 @@ pub struct HakReport {
     /// The haks in `Mod_HakList` order with the file found for each
     /// (`None`: not found where the game looks, [`GameInstall::hak_dirs`]).
     pub haks: Vec<(String, Option<PathBuf>)>,
+    /// What is said of each hak not found ([`GameInstall::hak_not_found`]:
+    /// a file of its name in another case, which the game doesn't open on
+    /// Linux, where there is one).
+    pub not_found: BTreeMap<String, String>,
     /// Every resource in any hak, with the haks that contain it (highest
     /// priority first; the first one wins in the game).
     pub resources: BTreeMap<ResKey, Vec<String>>,
@@ -37,6 +41,11 @@ impl HakReport {
             match path {
                 Some(p) => _ = writeln!(s, "  {name}  ({})", p.display()),
                 None => _ = writeln!(s, "  {name}  (NOT FOUND)"),
+            }
+            // (A file of its name in another case: what to do.)
+            let plain = format!("hak {name} not found");
+            if let Some(said) = self.not_found.get(name).filter(|s| **s != plain) {
+                _ = writeln!(s, "    {said}");
             }
         }
         let section =
@@ -68,7 +77,10 @@ pub fn hak_report(install: &GameInstall, names: &[String]) -> Result<HakReport, 
     for name in names {
         let path = install.find_hak(name);
         report.haks.push((name.clone(), path.clone()));
-        let Some(path) = path else { continue };
+        let Some(path) = path else {
+            report.not_found.insert(name.clone(), install.hak_not_found(name));
+            continue;
+        };
         let hak = ErfContainer::open(&path)
             .map_err(|e| ModuleError::Archive { path: path.clone(), message: e.to_string() })?;
         for k in hak.keys() {
