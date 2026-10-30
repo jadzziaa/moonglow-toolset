@@ -608,10 +608,15 @@ impl Workspace {
     /// as the module holds it already is left alone. (James Reeves's pull
     /// request, GitHub 36.)
     fn write_back(&mut self, key: &ResKey) -> Result<(), EditError> {
-        if !self.edited.remove(key) {
+        if !self.edited.contains(key) {
             return Ok(());
         }
-        let Some(gff) = self.docs.get(key) else { return Ok(()) };
+        let Some(gff) = self.docs.get(key) else {
+            self.edited.remove(key);
+            return Ok(());
+        };
+        // (A document that can't be written stays edited: the next save
+        // tries it again.)
         let bytes =
             gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
         let holds = |data: &[u8]| data == &bytes[..] || Gff::read(data).is_ok_and(|g| g == *gff);
@@ -623,6 +628,7 @@ impl Workspace {
         } else if !self.module.get(key).is_some_and(holds) {
             self.module.set(*key, bytes);
         }
+        self.edited.remove(key);
         Ok(())
     }
 
