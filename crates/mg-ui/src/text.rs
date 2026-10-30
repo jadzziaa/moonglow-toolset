@@ -183,8 +183,13 @@ pub(crate) fn codepage_name(codepage: Codepage) -> String {
     }
     // (`windows-1250` as `Windows-1250`.)
     let debug = format!("{codepage:?}");
-    let name = debug.trim_start_matches("Codepage(").trim_end_matches(')');
-    let mut chars = name.chars();
+    capitalized(debug.trim_start_matches("Codepage(").trim_end_matches(')'))
+}
+
+/// `text` with a capital first letter: what a tool says after `warning: `,
+/// as the window's log says it.
+pub(crate) fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 

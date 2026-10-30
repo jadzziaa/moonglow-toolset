@@ -594,6 +594,50 @@ fn a_hak_s_name_is_its_file_s_bytes() {
     assert_eq!(h.query_all_by_label("not found").count(), 0, "both are there");
 }
 
+/// The game opens a hak only by its exact name (`engine_hak_names`): on
+/// Linux a module naming `MG_PLAIN` where the hak folder has
+/// `mg_plain.hak` has it not found, and Module Properties and the log say
+/// which file is there; Add hak… offers that file.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hak_named_in_another_case_is_not_found_on_linux() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-name-case");
+    let user = user_folder(&dir, &["hak"]);
+    let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+    std::fs::write(user.join("hak/mg_plain.hak"), empty).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from("MG_PLAIN"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let said = (app.log.entries.iter()).find(|(_, m)| m.starts_with("Hak MG_PLAIN not found"));
+    let said = said.map(|(_, m)| m.clone()).unwrap_or_default();
+    assert!(said.contains("exact name") && said.contains("mg_plain.hak"), "{said}");
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    h.get_by_label("not found: the file is mg_plain.hak");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let add = (h.query_all(combo))
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Add hak…"))
+        .map(|n| n.rect().center())
+        .expect("Add hak…");
+    h.hover_at(add);
+    press(&h, add, true, egui::Modifiers::NONE);
+    press(&h, add, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert!(h.query_by_label("mg_plain").is_some(), "the file in its own case is offered");
+}
+
 /// Module Properties › Custom Content: the module's haks in a list of
 /// their own, numbered from the one that overrides the others. Rows are
 /// chosen (Ctrl and Shift for more) and moved by the keys, the arrows

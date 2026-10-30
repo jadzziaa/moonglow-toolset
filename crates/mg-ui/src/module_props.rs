@@ -10,7 +10,6 @@ use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
 
 use crate::blueprint::Form;
-use crate::text::{decode, encode};
 use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
@@ -298,9 +297,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     use std::collections::BTreeSet;
     let items = root.items(&ifo::MOD_HAK_LIST);
     // (A hak's name is its file's bytes, read as the game data's layering
-    // reads them, not by the module's codepage: `mg_resman::hak_name`.)
+    // reads them, not by the module's codepage: `mg_resman::file_name_text`.)
     let haks: Vec<String> = (items.iter())
-        .map(|h| mg_resman::hak_name(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()))
+        .map(|h| mg_resman::file_name_text(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()))
         .collect();
     let n = haks.len();
     let list = || ifo::MOD_HAK_LIST.label.to_string();
@@ -308,9 +307,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     // The haks there are to attach, and those of the module's that are not
     // among them: not found, which the game will not load the module with.
     let on_disk = haks_on_disk(app, ui.ctx().input(|i| i.time));
-    let missing = |h: &str| {
-        on_disk.as_ref().is_some_and(|all| !all.iter().any(|x| x.eq_ignore_ascii_case(h)))
-    };
+    // (By the game's rule: on Linux a name in another case is another file.)
+    let listed = |h: &str| on_disk.as_ref().map(|all| mg_resman::listed(all, h));
     let mut state = std::mem::take(&mut app.hak_list);
     state.selected.retain(|i| *i < n);
     state.cursor = state.cursor.filter(|c| *c < n);
@@ -373,11 +371,25 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                         egui::Button::selectable(chosen, egui::RichText::new(h).monospace())
                             .sense(egui::Sense::click_and_drag()),
                     );
-                    if missing(h) {
-                        ui.colored_label(ui.visuals().warn_fg_color, "not found").on_hover_text(
-                            "No hak of this name is in the hak folders: the game will not \
-                             load the module until there is, or it is removed here",
-                        );
+                    match listed(h) {
+                        Some(mg_resman::Listed::Missing) => {
+                            let warn = ui.visuals().warn_fg_color;
+                            ui.colored_label(warn, "not found").on_hover_text(
+                                "No hak of this name is in the hak folders: the game will not \
+                                 load the module until there is, or it is removed here",
+                            );
+                        }
+                        Some(mg_resman::Listed::OtherCase(file)) => {
+                            let warn = ui.visuals().warn_fg_color;
+                            ui.colored_label(warn, format!("not found: the file is {file}.hak"))
+                                .on_hover_text(format!(
+                                    "The game opens a hak only by its exact name, and on Linux \
+                                     {file}.hak, in another case, is another file: the game \
+                                     will not load the module. Rename the file to {h}.hak, or \
+                                     remove {h} here and add {file}"
+                                ));
+                        }
+                        Some(mg_resman::Listed::Found) | None => {}
                     }
                     if state.reveal && state.cursor == Some(i) {
                         name.scroll_to_me(None);
@@ -496,7 +508,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     }
 
     let available: Vec<&String> = (on_disk.iter().flat_map(|all| all.iter()))
-        .filter(|h| !haks.iter().any(|x| x.eq_ignore_ascii_case(h)))
+        // (Those the module names not: on Linux, one in another case is another.)
+        .filter(|h| mg_resman::listed(&haks, h) != mg_resman::Listed::Found)
         .collect();
     // The list's commands, under it: what adds to it and checks it, and
     // what is done with the rows chosen.
@@ -509,7 +522,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     let r = ui.selectable_label(false, h.as_str());
                     if keys.row(&r) || r.clicked() {
                         let mut item = ifo::MOD_HAK_LIST.new_item();
-                        let name = mg_resman::hak_name_bytes(h);
+                        let name = mg_resman::file_name_bytes(h);
                         item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(name));
                         let insert = Edit::insert_item(
                             info_key(),
@@ -601,22 +614,25 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     crate::widgets::section_heading(ui, "Talk Table");
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Custom TLK");
-        let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
+        // (A table's name is its file's bytes, as a hak's:
+        // `mg_resman::file_name_text`.)
+        let tlk = mg_resman::file_name_text(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
         let shown = if tlk.is_empty() { "(none)".to_string() } else { tlk.clone() };
         // (Read only while the list is used: open, or with the keys.) The
         // game reads talk tables from haks and the module too. The one
         // chosen as the module names it.
         let tlks = || {
-            let mut tlks = (app.install.as_ref())
-                .map(|i| GameInstall::file_names(&i.tlk_dirs(), "tlk"))
-                .unwrap_or_default();
+            // (The folders' files by their exact names; a hak's or the
+            // module's table is a resource, found by its name in any case.)
+            let mut tlks = app.install.as_ref().map(GameInstall::tlk_names).unwrap_or_default();
             if let Some(game) = &app.game {
-                tlks.extend(game.resman.list(mg_core::ResType::TLK).iter().map(|r| r.to_string()));
-                tlks.sort();
-                tlks.dedup();
+                let named = |t: String| if t.eq_ignore_ascii_case(&tlk) { tlk.clone() } else { t };
+                let resources = game.resman.list(mg_core::ResType::TLK);
+                tlks.extend(resources.iter().map(|r| named(r.to_string())));
             }
-            let named = |t: String| if t.eq_ignore_ascii_case(&tlk) { tlk.clone() } else { t };
-            std::iter::once(String::new()).chain(tlks.into_iter().map(named)).collect::<Vec<_>>()
+            tlks.sort();
+            tlks.dedup();
+            std::iter::once(String::new()).chain(tlks).collect::<Vec<_>>()
         };
         let mut pick = tlk.clone();
         crate::widgets::dropdown("ifo-tlk").selected_text(shown).show_with(
@@ -630,8 +646,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 }
             },
         );
-        if !pick.eq_ignore_ascii_case(&tlk) {
-            app.actions.push(set("Custom TLK", &ifo::MOD_CUSTOM_TLK, ExoString(encode(&pick))));
+        if pick != tlk {
+            let name = ExoString(mg_resman::file_name_bytes(&pick));
+            app.actions.push(set("Custom TLK", &ifo::MOD_CUSTOM_TLK, name));
         }
         let label = if tlk.is_empty() { "New…" } else { "Edit…" };
         if ui.button(label).on_hover_text("Tools › Talk Table").clicked() {
@@ -765,7 +782,7 @@ fn attach(app: &mut Moonglow, draft: &AttachDraft) {
             key: info_key(),
             path: GffPath::root(),
             label: ifo::MOD_CUSTOM_TLK.label.to_string(),
-            value: Some(ExoString(encode(&t.name)).into_value()),
+            value: Some(ExoString(mg_resman::file_name_bytes(&t.name)).into_value()),
         });
     }
     app.log.info(format!("Copied {copied} files into the user folder"));

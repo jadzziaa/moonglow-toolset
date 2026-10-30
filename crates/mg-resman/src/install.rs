@@ -189,28 +189,78 @@ impl GameInstall {
         self.user("hak")
     }
 
-    /// The file of the hak `name` (without `.hak`, as [`crate::hak_name`]
-    /// reads a module's) the game opens: the first of
-    /// [`GameInstall::hak_dirs`] that has [`crate::hak_file_name`].
+    /// The file of the hak `name` (without `.hak`, as
+    /// [`crate::file_name_text`] reads a module's) the game opens: the
+    /// first of [`GameInstall::hak_dirs`] that has [`crate::named_file`].
     pub fn find_hak(&self, name: &str) -> Option<PathBuf> {
-        let file = crate::hak_file_name(name);
+        let file = crate::named_file(name, "hak");
         self.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
     }
 
     /// The haks in the hak folders, by the names a module names them by
-    /// ([`crate::hak_name_of_file`]), sorted and without duplicates.
+    /// ([`crate::name_of_file`]), sorted and without duplicates.
     pub fn hak_names(&self) -> Vec<String> {
-        let mut out: Vec<String> = (self.hak_dirs().iter())
+        GameInstall::names_in(&self.hak_dirs(), "hak")
+    }
+
+    /// The talk tables in the talk table folders, by the names a module
+    /// names them by, sorted and without duplicates.
+    pub fn tlk_names(&self) -> Vec<String> {
+        GameInstall::names_in(&self.tlk_dirs(), "tlk")
+    }
+
+    /// The names a module names the files of an extension in some folders
+    /// by ([`crate::name_of_file`]: as they are, not lower case), sorted
+    /// and without duplicates. The extension in its case where the file
+    /// system has one ([`crate::CASE_IGNORED`]): the game opens `.hak`.
+    pub fn names_in(dirs: &[PathBuf], ext: &str) -> Vec<String> {
+        let ours = |e: &std::ffi::OsStr| match crate::CASE_IGNORED {
+            true => e.eq_ignore_ascii_case(ext),
+            false => e == ext,
+        };
+        let mut out: Vec<String> = (dirs.iter())
             .filter_map(|d| std::fs::read_dir(d).ok())
             .flatten()
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("hak")))
-            .filter_map(|p| p.file_stem().map(crate::hak_name_of_file))
+            .filter(|p| p.extension().is_some_and(ours))
+            .filter_map(|p| p.file_stem().map(crate::name_of_file))
             .collect();
         out.sort();
         out.dedup();
         out
+    }
+
+    /// Where the game finds no hak `name`: a file in the hak folders whose
+    /// name differs from it in case alone ([`crate::Listed::OtherCase`]),
+    /// which the game doesn't open on Linux. `None` where it finds one.
+    pub fn hak_in_other_case(&self, name: &str) -> Option<PathBuf> {
+        if self.find_hak(name).is_some() {
+            return None;
+        }
+        let dirs = self.hak_dirs();
+        let crate::Listed::OtherCase(other) =
+            crate::listed(&GameInstall::names_in(&dirs, "hak"), name)
+        else {
+            return None;
+        };
+        let file = crate::named_file(&other, "hak");
+        dirs.iter().map(|d| d.join(&file)).find(|p| p.is_file())
+    }
+
+    /// What every tool says of the hak `name` the game doesn't find (`mg`
+    /// after `warning: `, the window's log with a capital): that it isn't
+    /// found, and where a file of its name in another case is there, that
+    /// file and what to do.
+    pub fn hak_not_found(&self, name: &str) -> String {
+        match self.hak_in_other_case(name) {
+            Some(file) => format!(
+                "hak {name} not found: the game opens a hak only by its exact name, and {} has \
+                 its name in another case (rename the file or the module's hak to match)",
+                file.display()
+            ),
+            None => format!("hak {name} not found"),
+        }
     }
 
     /// Where custom talk tables are: the user's `tlk/`, then the install's

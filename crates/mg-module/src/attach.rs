@@ -130,7 +130,7 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
         let ext = from.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
         let kind = archive::Kind::of(from);
         // (A file's name as it is, bytes the system's text can't spell
-        // too: a hak's name is its file's bytes, `mg_resman::hak_name_of_file`.)
+        // too: a hak's name is its file's bytes, `mg_resman::name_of_file`.)
         let found: Vec<(Option<String>, std::ffi::OsString, u64)> = match (kind, ext.as_deref()) {
             (Some(kind), _) => archive_entries(kind, from)?
                 .into_iter()
@@ -153,10 +153,7 @@ pub fn placements(user_dir: &Path, files: &[PathBuf]) -> Result<Vec<Placement>, 
             let ext = file_path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
             let is_tlk = ext.as_deref() == Some("tlk");
             let stem = file_path.file_stem().unwrap_or_default();
-            let name = match is_tlk {
-                true => stem.to_string_lossy().into_owned(),
-                false => mg_resman::hak_name_of_file(stem),
-            };
+            let name = mg_resman::name_of_file(stem);
             if is_tlk && name.len() > 16 {
                 return Err(format!("{name}.tlk: a talk table's name has at most 16 characters"));
             }
@@ -281,15 +278,16 @@ pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
 }
 
 /// The module's hak list with `haks` at the top, in order (one already
-/// listed moves up); each name written as [`mg_resman::hak_name_bytes`]
+/// listed moves up); each name written as [`mg_resman::file_name_bytes`]
 /// has it, the bytes of its file's name.
 pub fn hak_list(info: &Struct, haks: &[String]) -> Value {
-    let name = |s: &Struct| mg_resman::hak_name(s.read(&ifo::mod_hak_list::MOD_HAK).as_bytes());
+    let name =
+        |s: &Struct| mg_resman::file_name_text(s.read(&ifo::mod_hak_list::MOD_HAK).as_bytes());
     let mut items: Vec<Struct> = haks
         .iter()
         .map(|h| {
             let mut item = ifo::MOD_HAK_LIST.new_item();
-            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(mg_resman::hak_name_bytes(h)));
+            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(mg_resman::file_name_bytes(h)));
             item
         })
         .collect();

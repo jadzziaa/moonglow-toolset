@@ -300,16 +300,16 @@ pub(crate) fn prepare(
         let _ = std::fs::remove_file(target.with_extension("mod.bak"));
     }
     for hak in &haks {
-        let to = dir.join("hak").join(mg_resman::hak_file_name(hak));
+        let to = dir.join("hak").join(mg_resman::named_file(hak, "hak"));
         match gi.find_hak(hak) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}
             None if to.is_file() => {}
-            None => notes.push(format!("warning: hak {hak} not found")),
+            None => notes.push(format!("warning: {}", gi.hak_not_found(hak))),
         }
     }
     if let Some(tlk) = tlk {
-        let file = format!("{tlk}.tlk");
+        let file = mg_resman::named_file(&tlk, "tlk");
         let to = dir.join("tlk").join(&file);
         if let Some(own) = own_tlk {
             let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
