@@ -191,6 +191,17 @@ changed, below, to what it was):
 - From the Domains of Dread's notes on 2.1.0 and 2.2.0, and their
   builder proposal (C1).
 
+After Moonglow 2.13.3, still as API 0.4 (only additions: a plugin that
+says `api = "0.4"` runs as it did):
+
+- An overridden copy the resource browser opened (a resource as a lower
+  layer of the load order has it) is `ctx.open`, with its type as
+  `kind` and its layer's label as `selected.layer` (it was nil); `mg
+  plugin run --open name.ext@LAYER` names one.
+- `ctx.game:gff`, `text` and `bytes` take a layer's label after the
+  name, and read that layer's copy.
+- From a builder's report on 2.0.0.
+
 ## 0.3
 
 In Moonglow 1.21.0. Only additions: a plugin written for 0.1 or 0.2 runs

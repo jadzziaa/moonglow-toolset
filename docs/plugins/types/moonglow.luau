@@ -41,10 +41,12 @@ export type Form = { title: string?, fields: { FormField } }
 export type Reader = {
     resources: (self: Reader, kind: string?) -> { string },
     has: (self: Reader, name: string) -> boolean,
-    gff: (self: Reader, name: string) -> Struct,
+    -- (ctx.game's gff, text and bytes take a layer's label after the name:
+    -- that layer's copy.)
+    gff: (self: Reader, name: string, layer: string?) -> Struct,
     raw: (self: Reader, name: string, path: string?) -> Struct,
-    text: (self: Reader, name: string) -> string,
-    bytes: (self: Reader, name: string) -> string,
+    text: (self: Reader, name: string, layer: string?) -> string,
+    bytes: (self: Reader, name: string, layer: string?) -> string,
 }
 
 -- One of the game's 2DA tables. Rows count from 0, as in the file; a cell
@@ -187,7 +189,8 @@ export type Terrain = {
 -- `path .. "/Tag"`).
 export type Selected = {
     -- "creature", "placeable"... (placed, or a blueprint), "area"; for
-    -- another editor open, its resource's type ("nss", "dlg").
+    -- another editor open, or a layer's copy, its resource's type ("nss",
+    -- "dlg").
     kind: string,
     resource: string,
     -- Where in the resource: "/Placeable List[3]"; "" for its root.
@@ -203,6 +206,9 @@ export type Selected = {
     tag: string?,
     -- A blueprint's or an area's own; a placed object's blueprint.
     resref: string?,
+    -- A layer's copy (ctx.open only: an overridden copy the resource
+    -- browser opened): the layer's label ("key:nwn_base", "hak:castle").
+    layer: string?,
 }
 
 -- The plugin's settings (API 0.4), as its manifest declares them

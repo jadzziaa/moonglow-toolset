@@ -381,9 +381,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   could not be saved, under an error that named the String Ref). It
   reads and writes the Windows-1252 languages' text as Windows-1250
   then, as the lists did already and as a Polish game shows it, and
-  says which letters a text cannot hold. Not seen on the reporter's
-  module; with another editing language a Polish name kept in the
-  English text is still read as Windows-1252. (S)
+  says which letters a text cannot hold (`text.rs`'s `entry_codepage`).
+  Left, waiting on the reporter: String Edit on their module with Polish
+  the editing language, its names seen right and one saved. With another
+  editing language a Polish name kept in the English text is read as
+  Windows-1252, as an English game and Aurora (the system's codepage)
+  show it: Moonglow has nothing else to know the text's codepage by (settle?:
+  proposed by the sprint on 2026-10-30, the owner's to say). (S)
   (from builders' reports after 1.19.1)
 
 - **The custom palettes kept, what is left** (since a save changes only
@@ -580,18 +584,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (M)
 
 ## Getting files out
-
-- **Overridden copies in the resource browser** open read-only as their
-  layer has them (fields, tables, text, a model as its text), copy to
-  the module and save; since 2026-10-29 Preview shows a copy's model or
-  blueprint (`Tab::ModelCopy`) and Export as Files writes the copies
-  listed, each in a folder of its layer's. Left: a plugin's selection
-  sees a copy's tab as nothing (`Moonglow::plugin_open`). Seeing it
-  needs the plugin API to name a layer: an entry with its `layer`
-  (`mg_plugin::Selected` has none) and a way to read that copy
-  (`ctx.game:bytes(name, layer)`, say), documented in the API reference
-  and its tests: an API addition, not a fix. (S–M) (a builder's report
-  on 2.0.0)
 
 
 ## Area visibility

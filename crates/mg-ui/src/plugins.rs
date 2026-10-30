@@ -784,6 +784,11 @@ impl Moonglow {
             | Tab::Gff(key)
             | Tab::Dialog(key)
             | Tab::Resource(key) => Selected::Resource(key),
+            // (The resource browser's overridden copies, as their layer
+            // has them.)
+            Tab::ResourceCopy { key, layer } | Tab::ModelCopy { key, layer } => {
+                Selected::Copy { key, layer }
+            }
             _ => return None,
         })
     }

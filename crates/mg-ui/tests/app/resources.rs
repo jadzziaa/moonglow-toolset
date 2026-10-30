@@ -167,6 +167,13 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
     let tab = Tab::ResourceCopy { key, layer: "hak:mg_low".into() };
     assert!(h.state().dock.find_tab(&tab).is_some());
+    // A plugin sees it open, with its layer, once it is in front (a click
+    // in it).
+    let at = h.get_by_label("mg_low").rect().center();
+    click_pos(&h, at);
+    h.run_steps(2);
+    let copy = mg_plugin::Selected::Copy { key, layer: "hak:mg_low".into() };
+    assert_eq!(h.state().plugin_open(), Some(copy));
     h.get_by_label("mg_low");
     assert!(h.query_by_label("mg_top").is_none(), "the lower hak's copy, not the higher's");
     h.get_by_label("Overridden by hak:mg_top, whose copy the game reads.");
@@ -257,6 +264,12 @@ fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
     h.run();
     let tab = Tab::ModelCopy { key, layer: game_layer.clone() };
     assert!(h.state().dock.find_tab(&tab).is_some(), "the copy's viewer");
+    // A plugin sees it open, with its layer, once it is in front.
+    let at = h.query_all_by_label_contains(" nodes, ").next().unwrap().rect().center();
+    click_pos(&h, at);
+    h.run_steps(2);
+    let copy = mg_plugin::Selected::Copy { key, layer: game_layer.clone() };
+    assert_eq!(h.state().plugin_open(), Some(copy), "a plugin sees it open, with its layer");
     // (What the viewer says of the model: `PLC_A01: 22 nodes, 12 meshes`.)
     let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let node = |n: egui_kittest::Node<'_>| n.accesskit_node().value();

@@ -1257,7 +1257,10 @@ enum PluginCmd {
         #[arg(long, requires = "event")]
         by: Option<String>,
         /// What is open in front, as in the window (`ctx.open`): named as
-        /// with --select, or any resource of the module (`old.nss`).
+        /// with --select, or any resource of the module (`old.nss`), or a
+        /// copy of a resource as one layer of the load order has it, as
+        /// the resource browser opens an overridden copy
+        /// (`nw_chest.utp@key:nwn_base`; `mg layers` names the layers).
         #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
         open: Option<String>,
         /// A form's field, `ID=VALUE` (the others take their defaults).

@@ -199,6 +199,26 @@ impl Shared {
         }
     }
 
+    /// A resource's bytes as one layer of the game's load order has them
+    /// (by its label: `hak:castle`, `key:nwn_base`), overridden or not.
+    pub(crate) fn layer_bytes(&self, key: &ResKey, layer: &str) -> mlua::Result<Vec<u8>> {
+        let Some(data) = &self.game else {
+            return fail(format!("{key}: there is no game data (no game install)"));
+        };
+        let rm = &data.resman;
+        let Some(i) = rm.layers().iter().position(|l| l.label == layer) else {
+            let labels: Vec<&str> = rm.layers().iter().map(|l| l.label.as_str()).collect();
+            return fail(format!(
+                "{layer:?} is not a layer of the game's load order ({})",
+                labels.join(", ")
+            ));
+        };
+        match rm.get_in(i, key) {
+            Ok(bytes) => Ok(bytes.into_owned()),
+            Err(_) => fail(format!("{layer} has no {key}")),
+        }
+    }
+
     /// A GFF resource's root.
     fn gff(&self, key: &ResKey, game: bool) -> mlua::Result<Gff> {
         if !game {
@@ -415,6 +435,15 @@ fn typed_table(lua: &Lua, v: &LuaValue, what: &str) -> mlua::Result<Option<Value
     }
 }
 
+/// The layer a read of `ctx.game` names (`ctx.game:bytes(name, layer)`),
+/// which `ctx.module`'s reads have none of.
+fn layer_of(game: bool, layer: Option<String>) -> mlua::Result<Option<String>> {
+    match layer {
+        Some(_) if !game => fail("ctx.module has no layers: a layer's copy is ctx.game's"),
+        layer => Ok(layer),
+    }
+}
+
 /// The first argument of a call made with a colon (`ctx.module:has(..)`):
 /// the table the function is in, not used.
 pub(crate) type This = LuaValue;
@@ -462,8 +491,15 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
     let s = sh.clone();
     t.set(
         "gff",
-        lua.create_function(move |lua, (_, name): (This, String)| {
-            let gff = s.gff(&key_of(&name)?, game)?;
+        lua.create_function(move |lua, (_, name, layer): (This, String, Option<String>)| {
+            let key = key_of(&name)?;
+            let gff = match layer_of(game, layer)? {
+                Some(layer) => {
+                    let bytes = s.layer_bytes(&key, &layer)?;
+                    Gff::read(&bytes).or_else(|e| fail(format!("{key}: {e}")))?
+                }
+                None => s.gff(&key, game)?,
+            };
             plain(lua, &gff.root, &GffPath::root())
         })?,
     )?;
@@ -489,16 +525,25 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
     let s = sh.clone();
     t.set(
         "text",
-        lua.create_function(move |lua, (_, name): (This, String)| {
-            let bytes = s.bytes(&key_of(&name)?, game)?;
+        lua.create_function(move |lua, (_, name, layer): (This, String, Option<String>)| {
+            let key = key_of(&name)?;
+            let bytes = match layer_of(game, layer)? {
+                Some(layer) => s.layer_bytes(&key, &layer)?,
+                None => s.bytes(&key, game)?,
+            };
             lua.create_string(codepage().decode(&bytes).as_bytes())
         })?,
     )?;
     let s = sh.clone();
     t.set(
         "bytes",
-        lua.create_function(move |lua, (_, name): (This, String)| {
-            lua.create_string(s.bytes(&key_of(&name)?, game)?)
+        lua.create_function(move |lua, (_, name, layer): (This, String, Option<String>)| {
+            let key = key_of(&name)?;
+            let bytes = match layer_of(game, layer)? {
+                Some(layer) => s.layer_bytes(&key, &layer)?,
+                None => s.bytes(&key, game)?,
+            };
+            lua.create_string(bytes)
         })?,
     )?;
     if !game {
@@ -754,7 +799,7 @@ fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
 
 /// The fields of an entry of `ctx.selection` (and of `ctx.open`), as the
 /// reference names them.
-pub(crate) const SELECTED: [&str; 9] = [
+pub(crate) const SELECTED: [&str; 10] = [
     "selected.kind",
     "selected.resource",
     "selected.path",
@@ -764,6 +809,7 @@ pub(crate) const SELECTED: [&str; 9] = [
     "selected.index",
     "selected.tag",
     "selected.resref",
+    "selected.layer",
 ];
 
 /// An entry of `ctx.selection`, or `ctx.open`: what it is, where it is
@@ -784,12 +830,18 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
             t.set("index", *index)?;
         }
         Selected::Area(area) => t.set("area", area.to_string())?,
+        Selected::Copy { layer, .. } => t.set("layer", layer.as_str())?,
         Selected::Blueprint(_) | Selected::Resource(_) => {}
     }
-    let in_module = sh.ws.borrow().module.contains(&key);
+    // (A layer's copy is the game's, whether or not the module has its own.)
+    let in_module = s.layer().is_none() && sh.ws.borrow().module.contains(&key);
     t.set("module", in_module)?;
     let read = match s {
         Selected::Resource(_) => None,
+        Selected::Copy { layer, .. } if key.restype.is_gff() => {
+            sh.layer_bytes(&key, layer).ok().and_then(|b| Gff::read(&b).ok())
+        }
+        Selected::Copy { .. } => None,
         Selected::Blueprint(_) if !in_module => sh.gff(&key, true).ok(),
         _ => sh.gff(&key, false).ok(),
     };

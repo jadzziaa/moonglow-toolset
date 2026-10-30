@@ -141,7 +141,7 @@ whole module anyway.
 | | |
 | --- | --- |
 | `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree, or an area. From the Plugins menu, the Command Palette or a key: the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
-| `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`). |
+| `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`); a copy the resource browser opened as one layer has it (an overridden copy, read-only), that resource with its type as `kind` and its `layer`. |
 
 An entry:
 
@@ -156,6 +156,7 @@ An entry:
 | `selected.index` | A placed object's place in its list, from 0 as in its path; else nil. |
 | `selected.tag` | Its tag, as the job's copy of the module has it (nil if it has none). |
 | `selected.resref` | A blueprint's or an area's resref; for a placed object the blueprint it was made from (its `TemplateResRef`). |
+| `selected.layer` | For a layer's copy (`ctx.open` only), the layer's label, which `ctx.game:bytes(s.resource, s.layer)` reads it by; else nil. Its `module` is false, and its `tag` is that copy's. |
 
 The entries are what was selected when the job began; its own edits
 don't change them (a placed object deleted by `ctx.edit:remove_item`
@@ -289,10 +290,10 @@ the module's haks over them and its custom talk table.
 | --- | --- |
 | `ctx.game:resources(kind?)` | The names of everything the game can load (there are tens of thousands: give a `kind`). |
 | `ctx.game:has(name)` | Whether the game has the resource. |
-| `ctx.game:gff(name)` | As `ctx.module:gff`, of the game's resource (a stock blueprint, say). |
+| `ctx.game:gff(name, layer?)` | As `ctx.module:gff`, of the game's resource (a stock blueprint, say). With a `layer` (a layer's label, as `selected.layer` and `mg layers` give it: `"key:nwn_base"`, `"hak:castle"`), that layer's copy, though a higher layer's overrides it. |
 | `ctx.game:raw(name, path?)` | As `ctx.module:raw`. |
-| `ctx.game:text(name)` | As `ctx.module:text` (`nwscript.nss`, say). |
-| `ctx.game:bytes(name)` | As `ctx.module:bytes`. |
+| `ctx.game:text(name, layer?)` | As `ctx.module:text` (`nwscript.nss`, say); a `layer`'s copy, as for `gff`. |
+| `ctx.game:bytes(name, layer?)` | As `ctx.module:bytes`; a `layer`'s copy, as for `gff`. |
 | `ctx.game:table(name)` | A 2DA by its name without extension (`"classes"`), as a `twoda` (below). |
 | `ctx.game:string(strref)` | A talk-table string, from the custom talk table for a reference with the custom flag; nil if there is none. |
 
@@ -541,7 +542,8 @@ Writing a hak is refused in a check, and with `mg` unless `--yes` is
 given (the haks go to `--hak-dir`, or the user folder's `hak`). With
 `mg`, `ctx.selection` is what `--select` names (each
 `tavern.git/Placeable List[3]`, `guard.utc` or `tavern.are`) and
-`ctx.open` what `--open` names; else nothing.
+`ctx.open` what `--open` names (a layer's copy as its name and the
+layer's label, `nw_chest.utp@key:nwn_base`); else nothing.
 
 ## `ctx.plugin`
 
