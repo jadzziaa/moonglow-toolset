@@ -859,12 +859,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client reading: an ASCII mesh with a mirrored UV seam under a render
     hint, its tangents written as colour through a patched include,
     beside the same model compiled)
-  - Verify's `shader-pair` reports a material naming one program alone;
-    whether the engine also ignores a lone `customshaderGS`, and what it
-    does with a geometry program at all, is not checked (no content has
-    one; Moonglow fails one, reported, and draws its own). (S) (waits on
-    a client reading: an MTR naming `customshaderGS` alone, and one
-    naming it beside a pair, on a card)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
     until they are asked for anew: `set_game_shaders` changes the
@@ -924,11 +918,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     other way, beside `envmap+mesh alpha`); which mesh of a bucket
     gives its value isn't plain from these (the first of `mgp_plain`'s
     and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
-  - A BioWare DDS's alpha is taken from its header's alpha mean (below
-    1: alpha), not read from the client: 22 of the game's 3,717
-    four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
-    drawn solid. (S) (waits on a client reading: one of the 22 on a card
-    with a transparency hint, cut or solid)
   - Not read in the client: which map an item on the ground reflects (it
     draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
     it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
@@ -940,11 +929,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     with their transparent texels black, and its 21 materials naming
     maps without a render hint. (S) (waits on a client reading: a TDoD
     area with both, beside the client's picture)
-  - `program_choice_in_the_client` reads the cards by where they should
-    be on the client's picture, so a card behind something reads as
-    that: the cards stand clear of the tcn01 tile's tree, and one
-    straddling its cut (DXT5 alpha) isn't read. (S) (waits on the client
-    batch: that card moved clear and read)
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
@@ -2042,6 +2026,12 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A geometry program beside a material's pair** (`customshaderGS` with
+  `customshaderVS` and `FS`): the client runs it (one that emits nothing
+  hid its card, `program_choice_in_the_client`, 2026-10-29); wgpu has no
+  geometry stage, so Moonglow draws its own shader there and reports it.
+  (Named alone, the client ignores it, and so does Moonglow since then.)
 
 - **A creature's Equipment in a narrow window** (about 480 points, as
   a placed creature's Properties open beside the area) shows each slot's
