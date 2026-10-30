@@ -1018,8 +1018,9 @@ impl GamePass {
             GamePass::Solid | GamePass::Fringe | GamePass::Particles(B::Normal) => {
                 Some(wgpu::BlendState::ALPHA_BLENDING)
             }
-            // (As Moonglow's own shader adds an additive mesh.)
-            GamePass::Additive => Some(add(wgpu::BlendFactor::One)),
+            // (As Moonglow's own shader adds an additive mesh: by its
+            // alpha, as the client does, `reading_additive_blending`.)
+            GamePass::Additive => Some(add(wgpu::BlendFactor::SrcAlpha)),
             // (`fsparticle` fades an additive particle by its alpha, into
             // the fog: added as much as its alpha.)
             GamePass::Particles(B::Lighten) => Some(add(wgpu::BlendFactor::SrcAlpha)),

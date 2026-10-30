@@ -885,9 +885,11 @@ impl Renderer {
                 Pass::SkyFade | Pass::Blend | Pass::Fringe => {
                     Some(wgpu::BlendState::ALPHA_BLENDING)
                 }
+                // (Added as much as its alpha, as the client adds an
+                // additive mesh: `reading_additive_blending`.)
                 Pass::Additive => Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
                         dst_factor: wgpu::BlendFactor::One,
                         operation: wgpu::BlendOperation::Add,
                     },

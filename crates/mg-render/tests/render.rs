@@ -3380,6 +3380,61 @@ fn the_game_s_programs_draw_an_additive_mesh_added() {
     assert!(off[0] == 255 && off[1] > 100, "Moonglow's own: {off:?}");
 }
 
+/// An additive mesh is added as much as its texture's alpha (source alpha
+/// and one), whole where its texture has none, with either shader: the
+/// client's card of an alpha rising from 0 to 1 adds 0 to 24 of 255 and
+/// its opaque card 24 (`reading_additive_blending` in `client_render.rs`;
+/// Moonglow added the ramp 36 to 26). A glow of alpha a half over red,
+/// beside the same glow opaque.
+#[test]
+fn an_additive_mesh_is_added_by_its_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    // (The authored `fslit` giving its texture's alpha, as the game's do.)
+    let fs = assets.shaders["fslit"].replace("vec4(c, 1.0)", "vec4(c, texture2D(texUnit0, vUv).a)");
+    assets.shaders.insert("fslit".into(), fs);
+    assets.opaque("red", [255, 0, 0]);
+    assets.opaque("glow", [0, 80, 0]);
+    assets.solid("half_glow", [0, 80, 0, 128]);
+    for glow in ["glow", "half_glow"] {
+        assets.txis.insert(glow.into(), mg_image::txi::Txi::parse(b"blending additive\n"));
+    }
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for on in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = on;
+        let mut green = |glow: &str| {
+            let scene = Scene {
+                instances: vec![
+                    standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0),
+                    standing_quad(&gpu, glow, Vec3::new(0.0, -2.0, 1.0), 1.0),
+                ],
+                area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+                background: [0.0, 0.0, 0.0],
+                ..Default::default()
+            };
+            f32::from(r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)[1])
+        };
+        let (whole, half) = (green("glow"), green("half_glow"));
+        eprintln!("the game's programs {on}: opaque adds {whole}, alpha a half {half}");
+        assert!(whole > 40.0 && whole < 250.0, "{whole}");
+        if on {
+            assert!((half / whole - 0.5).abs() < 0.06, "{half} of {whole}");
+        } else {
+            // (Moonglow's own keeps a see-through surface's specular light
+            // whole, as its blending would: its texture's color by half.)
+            assert!(half / whole > 0.4 && half / whole < 0.8, "{half} of {whole}");
+        }
+    }
+}
+
 /// An additive mesh lying on another (a glow on a body) adds to all of it
 /// when the body is drawn by the game's programs and the glow by Moonglow's
 /// shader (it ripples: `proceduretype arturo`), seen from afar. Their
