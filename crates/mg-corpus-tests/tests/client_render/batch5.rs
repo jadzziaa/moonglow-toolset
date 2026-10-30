@@ -780,3 +780,172 @@ fn sway_of(img: &Rgba) -> (Option<u32>, [f32; 2], usize) {
     let n = tufts.max(1) as f32;
     (clock, [sum[0] / n, sum[1] / n], tufts)
 }
+
+/// A texture 64 square, blue, its green the texture's v (0 at the bottom,
+/// 252 at the top) and its red the u in four steps: what part of it a
+/// pixel shows.
+fn gradient_tga() -> Vec<u8> {
+    // (Bottom row first, BGRA.)
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, 0];
+    for y in 0..64u8 {
+        for x in 0..64u8 {
+            t.extend([255, y * 4, (x / 16) * 40, 255]);
+        }
+    }
+    t
+}
+
+/// A `Linked` ribbon's pieces and its order among see-through meshes (the
+/// deferred list's "A `Linked` ribbon and a flip-book"): north of the
+/// player, seen from the side (`SetCameraFacing(90, 6, 80)`, a second
+/// after entry), west to east, ribbons of 30 cm particles of
+/// [`gradient_tga`] rising 1 m/s (one a second: pieces a metre long) and
+/// 0.5 m/s (half a metre), then the same particles not linked; before them
+/// (nearer the camera) a card of mesh `alpha 0.5`, red, across their
+/// middle (1 to 1.6 m up), and behind them another, from 2 to 2.6 m.
+/// Where a ribbon shows through the near card, or over the far one, says
+/// which is drawn first. `MG_RIBBON_SIZE` gives the particles' size.
+///
+/// Seen (2026-10-30, 89.8193.37), down each ribbon's middle (the
+/// texture's v as green): each piece starts at its older particle with v
+/// near 0 and is stretched past the next one, which starts again from 0:
+/// at 30 cm particles v reaches 0.89 where the next piece starts a metre
+/// on (its whole cell over 1.10 m) and 0.85 half a metre on (over 0.59
+/// m); at 60 cm 0.78 and 0.67 (over 1.23 and 0.75 m): the cell runs over
+/// the gap and about a tenth of a metre more at 30 cm, a quarter at 60.
+/// Moonglow's pieces show the whole cell from one particle to the next.
+/// The near card hides the ribbon behind it entirely in the client (the
+/// card's red over the wall, as where no ribbon is: it writes the depth
+/// the particles are drawn against), where Moonglow draws the ribbon over
+/// it, whole; over the far card the ribbon shows whole in both.
+#[test]
+#[ignore]
+fn reading_ribbon_pieces_and_order() {
+    let base = base_game();
+    let m = "mg_ribbon";
+    // (`MG_RIBBON_SIZE`: the particles' size, 0.3 m by default.)
+    let size = std::env::var("MG_RIBBON_SIZE").unwrap_or_else(|_| "0.3".into());
+    let p =
+        format!("texture mggrad\n  sizeStart {size}\n  sizeEnd {size}\n  birthrate 1\n  lifeExp 4");
+    let card = |name: &str, y: f32, z: f32| {
+        format!(
+            "node trimesh {name}\n  parent {m}\n  position 0 {y} {z}\n  orientation 0 0 0 0\n  \
+             ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap mgred\n  \
+             alpha 0.5\n  render 1\n  shadow 0\n  verts 4\n    -1.4 0 0\n    1.4 0 0\n    \
+             1.4 0 0.6\n    -1.4 0 0.6\n  tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  \
+             faces 2\n    0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\nendnode\n"
+        )
+    };
+    let e = super::batch4::emitter;
+    let model = super::batch4::probe_model(
+        m,
+        &[
+            e(m, "link1", [-0.9, 0.0, 0.0], &format!("{p}\n  velocity 1\n  render Linked")),
+            e(m, "link05", [-0.3, 0.0, 0.0], &format!("{p}\n  velocity 0.5\n  render Linked")),
+            e(m, "plain1", [0.3, 0.0, 0.0], &format!("{p}\n  velocity 1")),
+            e(m, "plain05", [0.9, 0.0, 0.0], &format!("{p}\n  velocity 0.5")),
+            card("near", -0.6, 1.0),
+            card("far", 0.6, 2.0),
+        ],
+    );
+    let (table, first) = placeables_with(&base, &[(m, 0)]);
+    let red = Rgba { width: 4, height: 4, data: [255, 0, 0, 255].repeat(16) };
+    let overrides = [
+        ("mg_ribbon.mdl", model.into_bytes()),
+        ("mggrad.tga", gradient_tga()),
+        ("mgred.tga", mg_image::write_tga(&red)),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0x606060, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r =
+        Reading::new(&format!("ribbon_pieces_and_order_{size}"), "tic01", light, &overrides);
+    r.place(first, [20.0, 24.0, 0.0], 0.0, &[]);
+    let (dir, _) = super::batch4::shoot_close(r, INVISIBLE, SETTINGS, (90.0, 6.0, 80.0), &|v| {
+        v.animate = true
+    });
+    eprintln!("{}", dir.display());
+}
+
+/// A standing card of `model` named `name`, 1.6 m wide and 1.6 m high,
+/// its middle at `at`, turned `turn` degrees about Z, of `bitmap`, with
+/// the mesh's `alpha`.
+fn turned_card(
+    model: &str,
+    name: &str,
+    at: [f32; 3],
+    turn: f32,
+    bitmap: &str,
+    alpha: f32,
+) -> String {
+    let (s, c) = turn.to_radians().sin_cos();
+    let [x, y, z] = at;
+    let corner = |u: f32, h: f32| format!("    {} {} {}\n", u * c, u * s, h);
+    format!(
+        "node trimesh {name}\n  parent {model}\n  position {x} {y} {z}\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap {bitmap}\n  \
+         alpha {alpha}\n  render 1\n  shadow 0\n  verts 4\n{}{}{}{}  tverts 4\n    0 0 0\n    \
+         1 0 0\n    1 1 0\n    0 1 0\n  faces 2\n    0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\n\
+         endnode\n",
+        corner(-0.8, 0.0),
+        corner(0.8, 0.0),
+        corner(0.8, 1.6),
+        corner(-0.8, 1.6)
+    )
+}
+
+/// How the client draws see-through meshes against each other (the
+/// deferred list's "See-through meshes": two crossing ones sort by their
+/// middles in Moonglow, the see-through part writing no depth): north of
+/// the player, west to east, two crossing pairs of cards (red and blue,
+/// turned +35 and −35 degrees about Z, crossing at their middles): of
+/// mesh `alpha 0.5` and a plain texture, and of mesh alpha 1 and a
+/// texture of alpha 128; then a red card of mesh `alpha 0.5` a metre in
+/// front of a blue one of `alpha 0.5`, and a blue one in front of a red
+/// one, the far one listed first in the model (which is drawn over which
+/// where they overlap). Seen from the reference camera, Moonglow's area
+/// view beside.
+///
+/// Seen (2026-10-30, 89.8193.37): the `alpha 0.5` cards are drawn in the
+/// model's order, each writing its depth: where a card listed later lies
+/// behind one listed earlier it is hidden (the crossing pair's blue,
+/// listed second, shows only where it is in front of the red; the front
+/// card listed first hides the one behind it), and where the far card is
+/// listed first the near one is laid over it, both showing (as when the
+/// fourth pair was listed near first: blue alone where they overlap).
+/// Moonglow sorts them back to front writing no depth: both show
+/// everywhere they overlap. A texture of alpha 128 with mesh alpha 1 (no
+/// TXI) is opaque in both.
+#[test]
+#[ignore]
+fn reading_see_through_crossing() {
+    let base = base_game();
+    let m = "mg_cross";
+    let model = super::batch4::probe_model(
+        m,
+        &[
+            turned_card(m, "ar", [-3.0, 0.0, 0.0], 35.0, "mgred", 0.5),
+            turned_card(m, "ab", [-3.0, 0.0, 0.0], -35.0, "mgblue", 0.5),
+            turned_card(m, "br", [-1.0, 0.0, 0.0], 35.0, "mgredt", 1.0),
+            turned_card(m, "bb", [-1.0, 0.0, 0.0], -35.0, "mgbluet", 1.0),
+            turned_card(m, "cr", [1.0, -0.5, 0.0], 0.0, "mgred", 0.5),
+            turned_card(m, "cb", [1.4, 0.5, 0.3], 0.0, "mgblue", 0.5),
+            turned_card(m, "dr", [3.4, 0.5, 0.3], 0.0, "mgred", 0.5),
+            turned_card(m, "db", [3.0, -0.5, 0.0], 0.0, "mgblue", 0.5),
+        ],
+    );
+    let (table, first) = placeables_with(&base, &[(m, 0)]);
+    let solid = |c: [u8; 4]| mg_image::write_tga(&Rgba { width: 4, height: 4, data: c.repeat(16) });
+    let overrides = [
+        ("mg_cross.mdl", model.into_bytes()),
+        ("mgred.tga", solid([255, 0, 0, 255])),
+        ("mgblue.tga", solid([0, 0, 255, 255])),
+        ("mgredt.tga", solid([255, 0, 0, 128])),
+        ("mgbluet.tga", solid([0, 0, 255, 128])),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("see_through_crossing", "tic01", light, &overrides);
+    r.place(first, [20.0, 24.0, 0.0], 0.0, &[]);
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    eprintln!("{}", dir.display());
+}

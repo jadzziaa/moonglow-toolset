@@ -911,15 +911,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and the fog shows as an even haze, as in the game. The picture's turn
   within a piece is Moonglow's (read on 2026-10-30,
   `reading_particle_turn_and_birth`: the newest piece shows the cell
-  turned half round in both, its pieces drawn newest last). Left: the
-  client's pieces each show the cell's top half for nearly all their
-  length, the next piece over the rest (a stretched, overlapping piece,
-  `reading_particle_spin_and_order`'s ribbon a metre a piece), where
-  Moonglow's show the whole cell from one particle to the next: the rule
-  not read further; how the client orders a ribbon among other
-  see-through things; and a model with no mesh to draw (this fog) has no
-  bounds of its own to frame a view by. (S) (from builders' reports
-  after 1.19.1)
+  turned half round in both, its pieces drawn newest last). Read on
+  2026-10-30 (`reading_ribbon_pieces_and_order`, the fifth client batch,
+  a texture whose green is its v): a client piece starts its cell at its
+  older particle and stretches it past the next, which starts again:
+  the cell runs over the gap and about 0.1 m more at 30 cm particles,
+  0.25 at 60 cm (alike at 0.5 and 1 m gaps; the rule in the particles'
+  size not fitted from two sizes), where Moonglow's runs from one
+  particle to the next exactly (S). Among see-through meshes: a mesh of
+  `alpha 0.5` in front of a ribbon hides it entirely in the client (it
+  writes the depth the particles are drawn against), where Moonglow
+  draws the ribbon over it whole, its see-through part writing no
+  depth (`alpha 0.5` meshes writing depth is the see-through meshes
+  entry's question too: M). A model with no mesh to draw (this fog)
+  has no bounds of its own to frame a view by. (S) (from builders'
+  reports after 1.19.1)
 - **Client tests' scripted cameras:** the client takes a
   `SetCameraFacing` only when it is set a second after the player
   enters ([findings](findings.md), "An upright particle turns to the
@@ -955,7 +961,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   here; compared with the client on a rural shore, ttr01's tile 7 and
   its water (`reading_shore`, 2026-10-29): no patches in either, the
   water as the client's with the Shaders switch on.) Two see-through surfaces crossing each other still
-  sort by their middles. Each see-through mesh costs two draws. On
+  sort by their middles, where the client draws a model's meshes of
+  mesh `alpha` under 1 in the model's order, each writing its depth: a
+  card listed after another and behind it is hidden where they overlap,
+  and a ribbon behind one is hidden too (read on 2026-10-30,
+  `reading_see_through_crossing` and `reading_ribbon_pieces_and_order`
+  in the fifth client batch; across models not read). Drawing them so
+  (by model order, with depth, and the soft edges of a texture's alpha
+  kept as they are) (M). Each see-through mesh costs two draws. On
   macOS the solid part's discarded fragments wrote their depth (the
   plant's edge hid the ground again) until the shader stopped at each
   discard: seen and mended on the CI's Mac, a virtual one; no real Mac
