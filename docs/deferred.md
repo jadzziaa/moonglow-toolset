@@ -1197,10 +1197,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## The main window and its panes
 
 - **The light theme's own colors:** it is egui's light theme; the script
-  editor's syntax colors follow it, but conversation and faction colors
-  are the dark theme's (legible on both), and the area view's overlays
-  are drawn for the 3D view. A pass with a builder who uses it would
-  settle the rest. (S–M) (a senior builder's review, October 2026)
+  editor's syntax colors and the conversation editor's line colors
+  follow it, the Factions' sliders keep Aurora's red and blue (legible
+  on both: `conversation_and_factions_in_both_themes`), and the area
+  view's overlays are drawn over the 3D view, whatever the theme. What
+  else a builder who uses it finds wanting waits on such a pass. (S) (a
+  senior builder's review, October 2026)
 - **Panes folded away** (GitHub issue 10, open: waits on its reporter's
   retest of the one-button rule, built on 1.31.0): a View menu (Module
   Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset

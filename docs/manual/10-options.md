@@ -325,7 +325,9 @@ the module is opened again from its file.
   conversation opens as a tab of the window one is open in already; off,
   each in a window of its own.
 - **Show speaker name before text**, and the **NPC** and **Player** text
-  colors.
+  colors (by default red and blue, darker in the light theme, where a
+  link's lines are a darker gray too, so that they stand out against
+  white as they do against the dark theme's black).
 - **Font size**: the size of the conversation editor's text (its lines,
   its buttons, the fields under them, and the lists and right-click
   menus opened from it), apart from the rest of the window; **Default**

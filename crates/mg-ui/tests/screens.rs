@@ -3828,6 +3828,46 @@ fn tileset_rules_and_doors() {
     shoot(&mut h, &dir, "tileset-rules-end");
 }
 
+/// A conversation and the Factions in the light theme and the dark (a
+/// senior builder's review: their colors were the dark theme's): the
+/// Prelude's first conversation opened out, and its factions.
+#[test]
+#[ignore]
+fn conversation_and_factions_in_both_themes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-themes");
+    for light in [false, true] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.settings.no_last_area = true;
+        app.settings.light_theme = light;
+        app.open_module(&root.join("data/nwm/Prelude.nwm"));
+        app.open_palette = false;
+        let dlg = ResKey::parse("m0q01a02olge", ResType::DLG).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(dlg)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(5);
+        let theme = if light { "light" } else { "dark" };
+        shoot(&mut h, &dir, &format!("conversation-{theme}"));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Factions));
+        h.run_steps(5);
+        h.get_by_label("Commoner").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("factions-{theme}"));
+    }
+}
+
 /// A tileset with holes in the tileset editor (a builder's big old
 /// tileset, merged by hand): a copy of the rural tileset without its
 /// `[TILE20]`, its tile 101 without `Model=` and without `[TERRAIN1]`,
