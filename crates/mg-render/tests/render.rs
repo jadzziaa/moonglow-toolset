@@ -927,6 +927,82 @@ fn environment_maps_reflect() {
     }
 }
 
+/// A texture's `envmaptexture default` reflects the object's map where the
+/// object names one, else the area's: on a placeable whose `Reflection`
+/// is `default` (its map `chrome1`, `Instance::env_map_default`), the
+/// area's, as the client draws it (`program_choice_in_the_client` with
+/// `MG_LYING_ENVD=1 MG_REFLECTION=default`); its other meshes reflect
+/// `chrome1`.
+#[test]
+fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    // Two cube maps, red and blue above (the reflected view points up).
+    for (name, up) in [("area_env", [255, 0, 0]), ("chrome1", [0, 0, 255])] {
+        for i in 0..6 {
+            let c = if i == 4 { up } else { [40, 40, 40] };
+            assets.solid(&format!("{name}{i}"), [c[0], c[1], c[2], 255]);
+        }
+        assets.txis.insert(name.into(), txi("cube 1\nfilerange 6\n"));
+    }
+    assets.solid("mirror_default", [128, 128, 128, 0]);
+    assets.txis.insert("mirror_default".into(), txi("envmaptexture default\n"));
+    assets.solid("plain_clear", [128, 128, 128, 0]);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.8, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let quad_with = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let lit =
+        AreaLight { ambient: Vec3::splat(0.05), diffuse: Vec3::splat(0.05), direction: Vec3::Z };
+    let mut shot = |texture: &str, env: Option<&str>, default: bool| {
+        let inst = Instance {
+            env_map: env.map(str::to_string),
+            env_map_default: default,
+            ..Instance::new(quad_with(texture), Mat4::IDENTITY)
+        };
+        let scene = Scene {
+            instances: vec![inst],
+            area: lit,
+            background: [0.0, 1.0, 0.0],
+            env_map: Some("area_env".into()),
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
+    };
+    let red = |p: [u8; 4]| p[0] > p[2] + 8;
+    let blue = |p: [u8; 4]| p[2] > p[0] + 8;
+    // A placeable's `default`: the texture's `default` is the area's, its
+    // plain texture the placeable's `chrome1`.
+    let placeable = shot("mirror_default", Some("chrome1"), true);
+    let plain = shot("plain_clear", Some("chrome1"), true);
+    // A map the object names (here also `chrome1`): the texture's
+    // `default` is it.
+    let named = shot("mirror_default", Some("chrome1"), false);
+    // No map of the object's, or its `default` (a creature's): the area's.
+    let none = shot("mirror_default", None, false);
+    let creature = shot("mirror_default", Some("default"), false);
+    eprintln!(
+        "texture default on: a placeable's default {placeable:?} (its plain texture {plain:?}), \
+         a named map {named:?}, none {none:?}, a creature's default {creature:?}"
+    );
+    assert!(red(placeable), "{placeable:?}");
+    assert!(blue(plain), "{plain:?}");
+    assert!(blue(named), "{named:?}");
+    assert!(red(none), "{none:?}");
+    assert!(red(creature), "{creature:?}");
+}
+
 #[test]
 fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
     let Some(gpu) = gpu() else { return };

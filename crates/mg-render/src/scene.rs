@@ -21,6 +21,15 @@ pub struct Instance {
     /// meshes whose texture names none reflect it, their texture alpha
     /// being the reflectivity. `None`: only what textures ask for.
     pub env_map: Option<String>,
+    /// `env_map` is what the object's own `default` comes to (a
+    /// placeable's `Reflection` `default` is `chrome1`, whatever the
+    /// area's): a mesh whose texture says `envmaptexture default` reflects
+    /// the area's map instead, as it does on an object whose map is
+    /// `default` or none; only a map the object names is taken over the
+    /// area's (read from the client: `program_choice_in_the_client` in
+    /// `client_render.rs`, `MG_LYING_ENVD=1` with `MG_REFLECTION`
+    /// `default` and `plc_g_env`).
+    pub env_map_default: bool,
     /// Colours for PLT textures by layer (skin, hair, metal 1 and 2, cloth
     /// 1 and 2, leather 1 and 2, tattoo 1 and 2); `None`: colour 0.
     pub plt_colors: Option<[u8; 10]>,
@@ -68,6 +77,7 @@ impl Instance {
             pose: None,
             state: None,
             env_map: None,
+            env_map_default: false,
             plt_colors: None,
             textures: None,
             opacity: 1.0,
