@@ -228,6 +228,11 @@ struct Slots {
     no_env: bool,
     /// The MTR's `transparency`: the mesh is blended.
     transparency: bool,
+    /// The MTR's `sample_framebuffer` (1 or 2): a solid mesh drawn after
+    /// the framebuffer's copy is made, as the engine draws it (after the
+    /// shadows), whether or not its programs read the copy (The Domains
+    /// of Dread's two flow materials' don't).
+    late: bool,
     /// The MTR's `parameter`s, which the game's shaders take by name.
     params: Vec<(String, mg_image::mtr::Param)>,
     /// The program pair the MTR names (`customshaderVS` and `FS`, both):
@@ -464,6 +469,9 @@ pub struct Renderer {
     shape_buffers: HashMap<usize, ShapeBuffer>,
     /// The lights each mesh took, kept from frame to frame.
     reach_cache: ReachCache,
+    /// The sets of lights the game's draws are lit by, numbered: emptied
+    /// every frame, its room kept (grown a set at a time, it was seen).
+    light_sets: crate::game::Fast<Box<[u32]>, u32>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -1199,6 +1207,7 @@ impl Renderer {
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
             shape_buffers: HashMap::new(),
             reach_cache: ReachCache::default(),
+            light_sets: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -1402,6 +1411,7 @@ impl Renderer {
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
+            out.late = mtr.sample_framebuffer > 0;
             out.twosided = mtr.twosided;
             out.no_env = !fs.is_empty() && assets.shader(&fs).is_some_and(|s| env_switched_off(&s));
             let mapper = fs.starts_with("mzlm");
@@ -1983,7 +1993,8 @@ impl Renderer {
         let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
         // (The sets of lights the game's draws are lit by, each numbered;
         // and the last draw's, which the next often shares.)
-        let mut light_sets: crate::game::Fast<Box<[u32]>, u32> = Default::default();
+        let mut light_sets = std::mem::take(&mut self.light_sets);
+        light_sets.clear();
         let mut light_set: Vec<u32> = Vec::new();
         let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
@@ -2236,11 +2247,14 @@ impl Renderer {
                         let geometry = crate::game::Geometry::Mesh(mesh);
                         let mut draw = self.game.push(p, material, geometry, dynamic_range, f, &d);
                         // (A solid draw that reads the framebuffer's copies,
-                        // shiny water through `fswater`: after them.)
+                        // shiny water through `fswater`, or whose material
+                        // samples the framebuffer: after them, and after
+                        // the shadows.)
                         draw.late = copies.is_some()
-                            && draw.pipeline.wants_fb
+                            && (draw.pipeline.wants_fb || slots.late)
                             && game_pass == crate::game::GamePass::Opaque;
-                        draw.receives = receives && game_pass == crate::game::GamePass::Opaque;
+                        draw.receives =
+                            receives && !draw.late && game_pass == crate::game::GamePass::Opaque;
                         match fringe {
                             None if game_pass == crate::game::GamePass::Opaque => {
                                 game_draws.push(draw)
@@ -3014,6 +3028,7 @@ impl Renderer {
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
         self.reach_cache = reach_cache;
+        self.light_sets = light_sets;
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn

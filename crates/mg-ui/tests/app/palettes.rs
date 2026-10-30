@@ -1742,6 +1742,55 @@ fn a_gallery_s_pictures_are_made_once_and_kept_while_in_sight() {
     );
 }
 
+/// A gallery's pictures, made with one of the shaders, are made anew with
+/// the other when the Shaders switch is flipped (they were kept as they
+/// were drawn, until asked for anew); a flip that changes nothing (the
+/// switch set as it is) keeps them.
+#[test]
+fn a_gallery_s_pictures_are_made_anew_when_the_shaders_switch() {
+    let Some((mut h, _)) = area_harness("gallery-shaders") else { return };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Placeable;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = "chest".into();
+    }
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().settings.gallery_tile = Some(64);
+    let settle = |h: &mut Harness<'static, Moonglow>| {
+        for _ in 0..400 {
+            h.run_steps(1);
+            let t = &h.state().thumbnails;
+            let game = h.state().viewport.as_ref().unwrap().renderer.drawn.game_pending;
+            if t.waiting() == 0 && game == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(2);
+        assert_eq!(h.state().thumbnails.waiting(), 0, "every picture in sight is made");
+    };
+    settle(&mut h);
+    assert!(!h.state().game_shaders(), "the area tests' own shader");
+    let (kept, drawn) = (h.state().thumbnails.kept(), h.state().thumbnails.drawn);
+    assert!(kept > 0);
+    // As it is: nothing let go.
+    h.state_mut().set_game_shaders(false);
+    settle(&mut h);
+    assert_eq!(h.state().thumbnails.drawn, drawn, "none drawn anew");
+    // On: each made again, with the game's shaders.
+    h.state_mut().set_game_shaders(true);
+    assert_eq!(h.state().thumbnails.kept(), 0, "the pictures let go at once");
+    settle(&mut h);
+    let again = h.state().thumbnails.drawn - drawn;
+    assert!(again >= kept as u64, "each drawn anew: {again} of {kept}");
+    // And off: again.
+    let drawn = h.state().thumbnails.drawn;
+    h.state_mut().set_game_shaders(false);
+    settle(&mut h);
+    assert!(h.state().thumbnails.drawn - drawn >= kept as u64);
+}
+
 /// Where the window keeps going (`background_jobs`, as the desktop app
 /// runs), a gallery's pictures have their models and textures read apart
 /// from the window and are drawn in a later frame, each once: the gallery

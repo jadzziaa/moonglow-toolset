@@ -4346,6 +4346,101 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// A material that samples the framebuffer (its MTR's `sample_framebuffer
+/// 2`, as The Domains of Dread's flow materials, whose programs read
+/// nothing of it) is drawn late, after the framebuffer's copy and after
+/// the shadows, as the engine draws it: [`shadows_darken_what_receives_them_by_the_opacity`]'s
+/// ground of such a material is not darkened under the plate, with the
+/// game's shaders and the targets' copies; drawn without the copies
+/// (`Renderer::render`), or by Moonglow's own shader, as before. The
+/// pictures: `target/test-output/render/late_*.png`.
+#[test]
+fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
+    let Some(gpu) = gpu() else { return };
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let game =
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let dir = mg_testkit::output_dir("render");
+    let mut assets = WithGameShaders { own: TestAssets::default(), game: &game };
+    assets.own.solid("mgflat", [200, 200, 200, 255]);
+    let mtr = |s: &str| mg_image::mtr::Mtr::parse(s.as_bytes());
+    assets.own.materials.insert("mgflow".into(), mtr("texture0 mgflat\nsample_framebuffer 2\n"));
+    assets.own.materials.insert("mgplain".into(), mtr("texture0 mgflat\n"));
+    let ground = |material: &str| {
+        let mut m = quad();
+        if let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind {
+            mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+            mesh.material = Some(material.into());
+        }
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |ground: &Arc<GpuModel>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(
+                plate.clone(),
+                Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.5),
+                    glam::Quat::IDENTITY,
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            ),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 1.0, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let (under, beside) = ((32, 32), (32, 6));
+    for samples in [1, 4] {
+        for (shaders, copies) in [(true, true), (true, false), (false, true)] {
+            for material in ["mgflow", "mgplain"] {
+                let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+                r.game_shaders = shaders;
+                let targets =
+                    mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples, 64, 64);
+                let s = scene(&ground(material));
+                if copies {
+                    r.render_targets(&gpu, &assets, &s, &camera, &targets);
+                } else {
+                    let (view, resolve) = (targets.render_view(), targets.resolve_view());
+                    r.render(&gpu, &assets, &s, &camera, view, resolve, &targets.depth, (64, 64));
+                }
+                let img = gpu.read_rgba(&targets.color);
+                assert_eq!(r.game_shader_failures(), &[]);
+                assert_eq!(r.drawn.game > 0, shaders, "{:?}", r.drawn);
+                let name = format!("late_{material}_{samples}_{shaders}_{copies}.png");
+                save(&img, &dir.join(name));
+                let (lit, shaded) =
+                    (grey(img.pixel(beside.0, beside.1)), grey(img.pixel(under.0, under.1)));
+                let context =
+                    format!("{material}, {samples} samples, shaders {shaders}, copies {copies}");
+                assert!(lit > 40.0, "{context}: the ground is lit: {lit}");
+                if material == "mgflow" && shaders && copies {
+                    assert!((shaded - lit).abs() <= 2.0, "{context}: no shadow: {shaded} of {lit}");
+                } else {
+                    assert!(shaded <= 1.0, "{context}: in the shadow: {shaded}");
+                }
+            }
+        }
+    }
+}
+
 /// Creature shadows: a skinned plate that only casts, a metre over a
 /// ground that receives, its one bone posed 3 m east: its shadow falls
 /// where the bone has taken it (as it is drawn), not where it was bound;

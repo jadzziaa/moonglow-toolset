@@ -7,7 +7,7 @@
 use glam::{Vec2, Vec3};
 use mg_edit::{Edit, GffPath};
 use mg_gff::Struct;
-use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
+use mg_mdl::{Face, Mesh, MeshExtra, Model, Node, NodeKind, Skin};
 use mg_resman::ResKey;
 
 pub use mg_module::grass::*;
@@ -129,6 +129,10 @@ pub const CLUMP_REACH: f32 = 1.4;
 /// `variant` one of its [`VARIANTS`] (by the tile's place, [`variant`]):
 /// the same model and variant grow the same grass, every time.
 ///
+/// Its meshes are skins of two bones: the model's root, which holds the
+/// tufts' feet, and [`SWAY_NODE`], which carries their tops: posed by
+/// [`sway`], the tops sway in the wind and the feet stay.
+///
 /// A mesh's tufts are in no order of place, so that any number of the
 /// first of them are spread over all of its faces: [`thinned`] keeps the
 /// first, for grass seen far off.
@@ -138,7 +142,10 @@ pub fn tufts(
     faces: &[WalkFace],
     growing: &[(u32, GrassLook)],
 ) -> Option<Model> {
-    let mut nodes = vec![Node::new(&format!("{name}_grass"), NodeKind::Dummy)];
+    let mut nodes = vec![
+        Node::new(&format!("{name}_grass"), NodeKind::Dummy),
+        Node { parent: Some(0), ..Node::new(&format!("{name}_grass_sway"), NodeKind::Dummy) },
+    ];
     let seed = name.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
     }) ^ u64::from(variant).wrapping_mul(0x9e37_79b9_7f4a_7c15);
@@ -193,16 +200,49 @@ pub fn tufts(
         }
         mesh.source = (0..mesh.vertices.len() as u32).collect();
         mesh.source_uv = mesh.source.clone();
+        // (A tuft's feet held by the root, its top by the sway.)
+        let weights = (0..mesh.vertices.len()).map(|v| {
+            let bone = u16::from(v % TUFT_VERTICES >= 2);
+            [(bone, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]
+        });
+        mesh.extra = MeshExtra::Skin(Skin {
+            bones: vec![0, SWAY_NODE],
+            weights: weights.collect(),
+            inverse_bind: Vec::new(),
+        });
         let mut node =
             Node::new(&format!("{name}_grass{material}"), NodeKind::Mesh(Box::new(mesh)));
         node.parent = Some(0);
         nodes.push(node);
     }
-    if nodes.len() == 1 {
+    if nodes.len() == 2 {
         return None;
     }
     nodes[0].children = (1..nodes.len()).collect();
     Some(Model { name: format!("{name}_grass"), nodes, animation_scale: 1.0, ..Model::default() })
+}
+
+/// The node of a tile's grass ([`tufts`]) that carries its tufts' tops.
+pub const SWAY_NODE: usize = 1;
+
+/// Where a grass tuft's top stands at `time` (seconds) from where it
+/// stands still, in an area of `WindPower` `wind` (0 to 2), meters: all
+/// the tufts together, north and south, as the client's sway
+/// (`reading_grass_sway_by_clock` in `client_render.rs`, 2026-10-30): at
+/// 2 between 0.055 m south and 0.098 m north of their feet (1.2 m tufts),
+/// a swing about 4 s long; at 1 between 0.027 and 0.045 m, slower (a fall
+/// from a peak longer than 3.4 s: a swing of 7 s taken). The swing is
+/// taken to be a sine's, the same for tufts of any height; how it swings
+/// between its ends, and at 0, were not read: there they stand still.
+pub fn sway(wind: i64, time: f32) -> Vec3 {
+    let (south, north, swing) = match wind {
+        ..=0 => return Vec3::ZERO,
+        1 => (0.027, 0.045, 7.0),
+        _ => (0.055, 0.098, 4.0),
+    };
+    let (middle, reach) = ((north - south) / 2.0, (north + south) / 2.0);
+    let turn = (time / swing).fract() * std::f32::consts::TAU;
+    Vec3::Y * (middle + reach * turn.sin())
 }
 
 /// How much of the walkmesh of an area's tiles is of each surface
@@ -440,6 +480,9 @@ pub fn thinned(grass: &Model, share: f32) -> Model {
         mesh.faces.truncate(kept * TUFT_FACES);
         mesh.source.truncate(kept * TUFT_VERTICES);
         mesh.source_uv.truncate(kept * TUFT_VERTICES);
+        if let MeshExtra::Skin(skin) = &mut mesh.extra {
+            skin.weights.truncate(kept * TUFT_VERTICES);
+        }
     }
     out
 }
@@ -843,6 +886,49 @@ mod tests {
         }
         assert!(used.iter().all(|&n| n >= 8), "every kind: {used:?}");
         assert!(alike < 56 / 2, "neighbours mostly apart: {alike} of 56 alike");
+    }
+
+    /// A tuft's feet are held by the grass's root and its top carried by
+    /// the sway, in every mesh, thinned too.
+    #[test]
+    fn a_tuft_s_top_is_carried_by_the_sway_and_its_feet_held() {
+        let m = tufts("tst", 0, &field(1), &[(1, look("grass", 2.0))]).unwrap();
+        assert_eq!(m.nodes[SWAY_NODE].parent, Some(0));
+        for m in [m.clone(), thinned(&m, 0.5)] {
+            for mesh in m.nodes.iter().filter_map(Node::mesh) {
+                let MeshExtra::Skin(skin) = &mesh.extra else { panic!("not a skin") };
+                assert_eq!(skin.bones, [0, SWAY_NODE]);
+                assert_eq!(skin.weights.len(), mesh.vertices.len());
+                for (v, w) in skin.weights.iter().enumerate() {
+                    // (Corners 2 and 3 the top: higher than 0 and 1.)
+                    let top = v % TUFT_VERTICES >= 2;
+                    assert_eq!(w[0], (u16::from(top), 1.0));
+                    let foot = mesh.vertices[v - v % TUFT_VERTICES + v % 2];
+                    assert_eq!(mesh.vertices[v][2] > foot[2], top);
+                }
+            }
+        }
+    }
+
+    /// The sway reaches as far as the client's tufts' do, north and south,
+    /// a swing of 4 s at wind 2, slower and shorter at 1, none at 0.
+    #[test]
+    fn grass_sways_as_far_and_as_fast_as_the_client_s() {
+        let range = |wind: i64, swing: f32| {
+            let ys: Vec<f32> =
+                (0..400).map(|i| sway(wind, i as f32 * swing / 400.0)).map(|v| v.y).collect();
+            let (lo, hi) = ys.iter().fold((f32::MAX, f32::MIN), |(l, h), &y| (l.min(y), h.max(y)));
+            (lo, hi)
+        };
+        let (lo, hi) = range(2, 4.0);
+        assert!((lo + 0.055).abs() < 1e-3 && (hi - 0.098).abs() < 1e-3, "{lo} {hi}");
+        let (lo, hi) = range(1, 7.0);
+        assert!((lo + 0.027).abs() < 1e-3 && (hi - 0.045).abs() < 1e-3, "{lo} {hi}");
+        assert_eq!(range(0, 4.0), (0.0, 0.0));
+        // (A swing on, where it was.)
+        assert!((sway(2, 1.3) - sway(2, 5.3)).length() < 1e-4);
+        assert!((sway(1, 1.3) - sway(1, 8.3)).length() < 1e-4);
+        assert_eq!(sway(2, 0.7).x, 0.0);
     }
 
     #[test]

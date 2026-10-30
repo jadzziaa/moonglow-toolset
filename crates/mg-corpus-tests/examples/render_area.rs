@@ -7,7 +7,9 @@
 //! app's default); the area's lighting unless `MG_LIT=0` (the Lighting
 //! switch off); `MG_EYE=x,y,z` and `MG_TARGET=x,y,z` place the camera
 //! instead; `MG_LIGHTS=1` lists the scene's lights; `MG_TIME=<frames>` times
-//! the scene's making over that many frames, the clock moving (the median).
+//! the scene's making over that many frames, the clock moving (the median);
+//! `MG_TIME_RENDER=<frames>` times its making, its drawing (encoded) and the
+//! GPU's work at the frame test's size, the camera turning (the medians).
 
 use mg_area::{AreaModel, AreaScene, View, overview};
 use mg_core::{ResRef, ResType};
@@ -92,6 +94,51 @@ fn main() {
     }
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     r.game_shaders = std::env::var("MG_SHADERS").is_ok_and(|v| v == "1");
+    // (`MG_TIME_RENDER=<frames>`: the scene made and drawn that many times
+    // into a target of the frame test's size (3000 by 1250, 4x MSAA), the
+    // camera turning a little each, and the medians printed: the scene's
+    // making, the draws' encoding and the GPU's.)
+    if let Some(frames) = std::env::var("MG_TIME_RENDER").ok().and_then(|n| n.parse::<usize>().ok())
+    {
+        let targets = mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4, 3000, 1250);
+        let wait = || {
+            let _ = gpu.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            });
+        };
+        let (mut made, mut encoded, mut drawn) = (Vec::new(), Vec::new(), Vec::new());
+        for i in 0..frames.max(1) + 4 {
+            let view = View { time: i as f32 / 144.0, ..view };
+            let mut camera = camera;
+            camera.eye = camera.target
+                + glam::Quat::from_rotation_z(i as f32 * 0.002) * (camera.eye - camera.target);
+            wait();
+            let t0 = std::time::Instant::now();
+            let s = scene.scene(&model, &view);
+            let t1 = std::time::Instant::now();
+            r.render_targets(&gpu, &game.resman, &s, &camera, &targets);
+            let t2 = std::time::Instant::now();
+            wait();
+            let t3 = std::time::Instant::now();
+            if i >= 4 {
+                made.push(t1 - t0);
+                encoded.push(t2 - t1);
+                drawn.push(t3 - t2);
+            }
+        }
+        let median = |mut v: Vec<std::time::Duration>| {
+            v.sort();
+            v[v.len() / 2].as_secs_f64() * 1e3
+        };
+        eprintln!(
+            "scene {:.2} ms, encoded {:.2} ms, GPU {:.2} ms (medians of {frames}); drawn: {:?}",
+            median(made),
+            median(encoded),
+            median(drawn),
+            r.drawn
+        );
+    }
     let img = r.render_image(&gpu, &game.resman, &s, &camera, 1280, 800);
     if r.game_shaders {
         eprintln!("game shader failures: {:?}", r.game_shader_failures());

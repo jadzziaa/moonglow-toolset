@@ -1238,8 +1238,12 @@ impl Moonglow {
     }
 
     /// The Shaders switch turned to `on`: on, the game's shaders again,
-    /// whatever the lit check found (the builder asked for them).
+    /// whatever the lit check found (the builder asked for them). The
+    /// pictures made with the other shaders (the galleries', a hovered
+    /// row's preview, a tile's variants) are let go, to be made anew as
+    /// they are asked for.
     pub fn set_game_shaders(&mut self, on: bool) {
+        let before = self.game_shaders();
         self.settings.game_shaders = Some(on);
         if on {
             self.renderer_check.game_shaders_off = None;
@@ -1247,6 +1251,9 @@ impl Moonglow {
         let shaders = self.game_shaders();
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = shaders;
+        }
+        if shaders != before {
+            self.thumbnails.forget(self.viewport.as_ref());
         }
     }
 
@@ -1353,6 +1360,11 @@ impl Moonglow {
         // and the game's programs that couldn't be drawn, said once each.
         renderer_check::lit_check(self);
         let shaders = self.game_shaders();
+        // (The lit check having turned them off: the pictures made with
+        // them let go, as the switch does.)
+        if self.viewport.as_ref().is_some_and(|vp| vp.renderer.game_shaders != shaders) {
+            self.thumbnails.forget(self.viewport.as_ref());
+        }
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = shaders;
             // (Once: the programs' cache folder, and a frame asked for when

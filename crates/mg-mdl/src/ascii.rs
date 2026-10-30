@@ -282,11 +282,21 @@ fn node_block<'a>(
                         rows.push(vec![*w]);
                     }
                 }
+                // A blank line among skin weights is a vertex without any
+                // (it stays where the mesh has it): the rows after it are
+                // still the vertices after it. Unless the list has all of
+                // its rows without them: then they are only spacing.
+                let whole = k == "weights" && {
+                    let row = |l: &Line<'_>| {
+                        let first = l.words[0].to_ascii_lowercase();
+                        first != "endlist"
+                            && !crate::keywords::TOP_LEVEL.contains(&first.as_str())
+                            && !crate::keywords::known_anywhere(&first)
+                    };
+                    ls[i..].iter().take(count).take_while(|l| row(l)).count() == count
+                };
                 while rows.len() < count && i < ls.len() {
-                    // A blank line among skin weights is a vertex without
-                    // any (it stays where the mesh has it): the rows after
-                    // it are still the vertices after it.
-                    if k == "weights" && !rows.is_empty() {
+                    if k == "weights" && !whole && !rows.is_empty() {
                         let room = count - rows.len();
                         rows.extend(std::iter::repeat_n(Vec::new(), ls[i].blank_before.min(room)));
                         if rows.len() == count {
@@ -1210,6 +1220,29 @@ donemodel s
         assert_eq!(of(0), ["bone_a"]);
         assert!(of(1).is_empty(), "the blank line's vertex has no bone");
         assert_eq!(of(2), ["bone_b"], "the last keeps its own");
+        // A list with all of its rows: a blank line among them is only
+        // spacing, and each row is its vertex's, the last too; so with one
+        // short of them, ended by a keyword, the blank line is still the
+        // vertex without any.
+        let spaced =
+            text.replace("    \n    bone_b 1.0\n", "\n    bone_b 1.0\n    bone_a 0.5 bone_b 0.5\n");
+        let short = text.replace("    \n    bone_b 1.0\n", "\n    bone_b 1.0\n  shininess 0\n");
+        for (text, middle, last) in
+            [(spaced, vec!["bone_b"], vec!["bone_a", "bone_b"]), (short, vec![], vec!["bone_b"])]
+        {
+            let (m, map) = read_mapped(text.as_bytes()).unwrap();
+            let notes = &map.notes;
+            assert!(notes.iter().all(|n| !n.message.contains("weights")), "{notes:?}");
+            let hide = m.nodes.iter().find(|n| n.name == "hide").unwrap();
+            let NodeKind::Mesh(mesh) = &hide.kind else { panic!("a mesh") };
+            let MeshExtra::Skin(skin) = &mesh.extra else { panic!("a skin") };
+            let of = |source: u32| {
+                let v = mesh.source.iter().position(|&s| s == source).unwrap();
+                let w = skin.weights[v].iter().filter(|w| w.1 > 0.0);
+                w.map(|w| m.nodes[skin.bones[w.0 as usize]].name.as_str()).collect::<Vec<_>>()
+            };
+            assert_eq!((of(0), of(1), of(2)), (vec!["bone_a"], middle, last));
+        }
     }
 
     const CUBE_ISH: &str = "\

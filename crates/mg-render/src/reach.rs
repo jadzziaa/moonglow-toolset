@@ -225,9 +225,12 @@ pub(crate) struct ReachCache {
     /// The lights the kept choices were made among: each one's place,
     /// reach and priority, as bits.
     lights: Vec<[u32; 5]>,
-    /// The choices of this frame's meshes, and of the frame before's.
-    now: crate::game::Fast<[u32; 4], Box<[Reaching]>>,
-    before: crate::game::Fast<[u32; 4], Box<[Reaching]>>,
+    /// The choices of the meshes, each with the last frame that took it
+    /// (kept in place: moving them from a map of the frame before's to one
+    /// of this frame's was most of what a kept choice cost).
+    kept: crate::game::Fast<[u32; 4], (u32, Box<[Reaching]>)>,
+    /// This frame's number.
+    frame: u32,
 }
 
 impl ReachCache {
@@ -241,14 +244,15 @@ impl ReachCache {
         let same = self.lights.len() == lights.len()
             && self.lights.iter().zip(lights).all(|(k, l)| *k == key(l));
         if same {
-            std::mem::swap(&mut self.now, &mut self.before);
-            self.now.clear();
+            // (What the frame before took is kept; what it didn't, let go.)
+            let before = self.frame;
+            self.kept.retain(|_, (taken, _)| *taken == before);
         } else {
-            self.now.clear();
-            self.before.clear();
+            self.kept.clear();
             self.lights.clear();
             self.lights.extend(lights.iter().map(key));
         }
+        self.frame = self.frame.wrapping_add(1);
     }
 
     /// [`LightGrid::reaching`], as it was for the same ball since the
@@ -261,19 +265,18 @@ impl ReachCache {
         out: &mut Vec<Reaching>,
     ) {
         let key = [centre.x, centre.y, centre.z, radius].map(f32::to_bits);
-        if let Some(kept) = self.now.get(&key) {
-            out.clear();
-            out.extend_from_slice(kept);
-            return;
+        match self.kept.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let (taken, kept) = e.get_mut();
+                *taken = self.frame;
+                out.clear();
+                out.extend_from_slice(kept);
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                grid.reaching(centre, radius, out);
+                e.insert((self.frame, out.as_slice().into()));
+            }
         }
-        if let Some(kept) = self.before.remove(&key) {
-            out.clear();
-            out.extend_from_slice(&kept);
-            self.now.insert(key, kept);
-            return;
-        }
-        grid.reaching(centre, radius, out);
-        self.now.insert(key, out.as_slice().into());
     }
 }
 
@@ -410,9 +413,18 @@ mod tests {
                 cache.reaching(&mut grid, *centre, *radius, &mut out);
                 assert_eq!(out, every(&lights, *centre, *radius), "frame {frame}");
             }
+            // Kept: what the meshes of the frame before and this took, no
+            // more.
+            assert!(cache.kept.len() <= meshes.len());
         }
-        // Kept: what the meshes of the last two frames took, no more.
-        assert!(cache.now.len() <= meshes.len() && cache.before.len() <= meshes.len());
+        // A frame of ten of them: the others are let go after it.
+        cache.begin(&lights);
+        let mut grid = LightGrid::new(&lights);
+        for (centre, radius) in &meshes[..10] {
+            cache.reaching(&mut grid, *centre, *radius, &mut out);
+        }
+        cache.begin(&lights);
+        assert_eq!(cache.kept.len(), 10);
     }
 
     #[test]
