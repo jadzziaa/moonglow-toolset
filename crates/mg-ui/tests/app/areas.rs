@@ -100,35 +100,47 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
         set("SunAmbientColor", mg_gff::Value::Dword(0x12_3456)),
         set("MoonFogColor", mg_gff::Value::Dword(0x00_0a0b)),
     ];
-    // And its tiles' lights its own: every tile's the same three colors.
+    // The first an exterior without tile lights (three tiles, all 0); the
+    // second an interior with its own (every tile 9, 8, 7).
     let tiles = |h: &mut Harness<'_, Moonglow>, area: ResRef| -> Vec<mg_gff::Struct> {
         let ws = h.state_mut().ws.as_mut().unwrap();
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap().to_vec()
     };
-    let lit = |tiles: &[mg_gff::Struct]| {
+    let lit = |tiles: &[mg_gff::Struct], [a, b, c]: [i64; 3]| {
         tiles.iter().all(|t| {
             let l = |f: &str| t.integer(f);
             (l("Tile_MainLight1"), l("Tile_MainLight2"), l("Tile_SrcLight1"), l("Tile_SrcLight2"))
-                == (Some(9), Some(8), Some(7), Some(7))
+                == (Some(a), Some(b), Some(c), Some(c))
         })
     };
-    // (The sample module's area has none: three of them given.)
-    let mut tile = mg_gff::Struct::new(1);
-    for (label, v) in [
-        ("Tile_MainLight1", 9),
-        ("Tile_MainLight2", 8),
-        ("Tile_SrcLight1", 7),
-        ("Tile_SrcLight2", 7),
-    ] {
-        tile.set(label, mg_gff::Value::Byte(v));
-    }
-    edits.push(set("Tile_List", mg_gff::Value::List(vec![tile; 3])));
+    let tile = |[a, b, c]: [u8; 3]| {
+        let mut t = mg_gff::Struct::new(1);
+        for (label, v) in [
+            ("Tile_MainLight1", a),
+            ("Tile_MainLight2", b),
+            ("Tile_SrcLight1", c),
+            ("Tile_SrcLight2", c),
+        ] {
+            t.set(label, mg_gff::Value::Byte(v));
+        }
+        t
+    };
+    edits.push(set("Tile_List", mg_gff::Value::List(vec![tile([0; 3]); 3])));
+    let inside = tiles(&mut h, second).len();
+    edits.push(mg_edit::Edit::SetField {
+        key: ResKey::new(second, ResType::ARE),
+        path: mg_edit::GffPath::root(),
+        label: "Tile_List".into(),
+        value: Some(mg_gff::Value::List(vec![tile([9, 8, 7]); inside])),
+    });
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Own", edits)));
     h.run();
-    assert!(lit(&tiles(&mut h, first)) && !lit(&tiles(&mut h, second)));
+    assert!(lit(&tiles(&mut h, first), [0; 3]) && lit(&tiles(&mut h, second), [9, 8, 7]));
     assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
-    // In the second's Visual page: Copy From Area › the first.
+    // In the second's Visual page: Copy From Area › the first. Its lights,
+    // fog and sky; the interior's tile lights left as they are (the
+    // owner's word: "It should leave the lights alone").
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(second)));
     h.run_steps(3);
     h.get_by_label("Visual").click();
@@ -139,12 +151,11 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.run_steps(3);
     assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
     assert_eq!(field(&mut h, second, "MoonFogColor"), Some(mg_gff::Value::Dword(0x00_0a0b)));
-    assert!(lit(&tiles(&mut h, second)), "the tiles' lights from the first's tiles' colors");
+    assert!(lit(&tiles(&mut h, second), [9, 8, 7]), "the interior's tile lights left alone");
     assert!(h.state().ws.as_ref().unwrap().can_undo().is_some_and(|u| u.starts_with("Visual")));
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
-    assert!(!lit(&tiles(&mut h, second)), "one step");
     // The first's lighting kept as "Dusk", from its own page.
     close_tab(h.state_mut(), &Tab::AreaProperties(second));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(first)));
@@ -169,11 +180,30 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.run_steps(2);
     h.get_by_label("Saved Lighting").click();
     h.run_steps(2);
+    h.get_by_label("Tiles' Lights Too");
     h.get_by_label("Dusk").click();
     h.run_steps(3);
     assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
-    assert!(lit(&tiles(&mut h, second)), "the tiles' lights kept with it");
+    assert!(lit(&tiles(&mut h, second), [9, 8, 7]), "unticked: the tile lights left alone");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Dusk"));
+    // Asked for (ticked): the tiles' lights from the colors kept with it.
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(2);
+    h.get_by_label("Tiles' Lights Too").click();
+    h.run_steps(2);
+    // (The menu closes with the click; the tick stays.)
+    if h.query_by_label("Dusk").is_none() {
+        h.get_by_label("Saved Lighting").click();
+        h.run_steps(2);
+    }
+    let ticked = h.get_by_label("Tiles' Lights Too").accesskit_node().toggled();
+    assert_eq!(ticked, Some(egui::accesskit::Toggled::True));
+    h.get_by_label("Dusk").click();
+    h.run_steps(3);
+    assert!(lit(&tiles(&mut h, second), [0; 3]), "ticked: the first's tiles' colors");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert!(lit(&tiles(&mut h, second), [9, 8, 7]), "one step");
 
     // Renamed, deleted and put back, in the menu.
     let open_menu = |h: &mut Harness<'_, Moonglow>, sub: &str| {
@@ -217,8 +247,8 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     let row = t.len() - 1;
     assert_eq!(t.get(row, "LABEL"), Some("Evening"));
     assert_eq!(t.get(row, "STRREF"), None);
-    assert_eq!(t.get(row, "MAIN1_COLOR1"), Some("9"));
-    assert_eq!(t.get(row, "SECONDARY_COLOR4"), Some("7"));
+    assert_eq!(t.get(row, "MAIN1_COLOR1"), Some("0"), "the first's tiles' colors");
+    assert_eq!(t.get(row, "SECONDARY_COLOR4"), Some("0"));
     assert_eq!(t.get(row, "LIGHT_AMB_RED"), Some("86"), "0x56, the red of 0x123456");
     assert!(table.edit.is_dirty(), "not saved until Save");
     assert!(mg_ui::table_view::save(h.state_mut(), id));

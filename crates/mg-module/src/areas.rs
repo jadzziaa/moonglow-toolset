@@ -355,9 +355,10 @@ pub enum Change {
     /// the scheme's colors.
     LightingScheme(crate::new::Scheme),
     /// Lighting kept under a name (Area Properties' Saved Lighting,
-    /// [`crate::lighting`]): its Visual page's fields, and each tile's
-    /// lights picked at random from the colors kept with them.
-    Lighting(Box<crate::lighting::Saved>, String),
+    /// [`crate::lighting`]), by its name: its Visual page's fields, and
+    /// where asked (`true`) each tile's lights picked at random from the
+    /// colors kept with them.
+    Lighting(Box<crate::lighting::Saved>, String, bool),
 }
 
 impl Change {
@@ -926,9 +927,9 @@ pub fn apply(
                         );
                     }
                 }
-                Change::Lighting(saved, name) => {
-                    let (fields, lit) =
-                        saved.give(&mut are.root, &mut rng).map_err(|e| format!("{name}: {e}"))?;
+                Change::Lighting(saved, name, relight) => {
+                    let (fields, lit) = (saved.give(&mut are.root, &mut rng, *relight))
+                        .map_err(|e| format!("{name}: {e}"))?;
                     if fields {
                         are_changed = true;
                         note("lighting".into(), None, Some(name.clone()));
@@ -1484,7 +1485,7 @@ mod tests {
         let text = "{\"lighting\": {\"SunFogAmount\": 12}, \"tile_lights\": {\"main1\": [4, 4, 4, \
                     4], \"main2\": [0, 0, 0, 0], \"source\": [7, 7, 7, 7]}}";
         let saved = crate::lighting::Saved::parse(text).unwrap();
-        let change = Change::Lighting(Box::new(saved), "Crypt".into());
+        let change = Change::Lighting(Box::new(saved), "Crypt".into(), true);
         let done = apply(&mut m, &[r("cave1")], &[change], CP, 1).unwrap();
         let said: Vec<(&str, Option<&str>, Option<&str>)> =
             done.iter().map(|c| (c.what.as_str(), c.from.as_deref(), c.to.as_deref())).collect();

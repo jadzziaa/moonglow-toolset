@@ -1161,18 +1161,19 @@ Properties** on the viewer's toolbar:
   the columns, Left and Right to the column beside, Home and End the
   first and last. Under them:
   - **Copy From Area** gives this area what another's Visual page holds
-    (its lighting, fog, shadows, sky and weather), and its tiles' lights:
-    each tile's main and source lights picked at random from the colors
-    the other area's tiles have, the colors used most the most often, as
-    a lighting scheme picks them from its own. One undoable step.
+    (its lighting, fog, shadows, sky and weather), as one undoable step.
+    The tiles' own lights are left as they are.
   - **Saved Lighting** keeps this page's settings under a name (**Save
     This Lighting…**), with the colors of the area's tiles' lights, and
-    gives lighting kept so to this area: its settings, and each tile's
-    lights picked from those colors. Yours from any module, as small
-    files in Moonglow's data folder (`lighting`), easy to share
-    (`mg areas --lighting` gives them from a terminal). Lighting kept by
-    Moonglow 2.13 or older has no tiles' colors and leaves the tiles'
-    lights as they are. In the same menu, **Rename** and **Delete** (**Undo Delete**
+    gives lighting kept so to this area: its settings. The tiles' lights
+    are left as they are unless **Tiles' Lights Too** is ticked in the
+    menu (it starts unticked each time Moonglow starts): then every
+    tile's main and source lights are picked at random from the colors
+    kept, the colors used most the most often, as a lighting scheme
+    picks them from its own. Yours from any module, as small files in
+    Moonglow's data folder (`lighting`), easy to share (`mg areas
+    --lighting` gives them from a terminal). Lighting kept by Moonglow
+    2.13 or older has no tiles' colors. In the same menu, **Rename** and **Delete** (**Undo Delete**
     there puts the last one deleted back), and **Make a Lighting
     Scheme**: the lighting as a scheme of the module's own, a row of
     `environment.2da` added where you choose (the module's own table, a
