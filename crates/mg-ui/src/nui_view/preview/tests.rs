@@ -22,7 +22,11 @@ fn numbers_in_text_are_the_client_s() {
         (2.5, 0, "2"),
         (-2.5, 0, "-2"),
         (1.5, 0, "2"),
+        // (Read in the client on 2026-10-29, the third batch: ties to even
+        // at 2 places too.)
         (42.125, 2, "42.12"),
+        (-42.125, 2, "-42.12"),
+        (0.125, 2, "0.12"),
     ] {
         assert_eq!(native_decimal(n, places), shown, "{n} to {places}");
     }

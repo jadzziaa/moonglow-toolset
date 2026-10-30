@@ -367,40 +367,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories by a talk-table line, in the game:** since
-  2026-10-29 Palette › Categories… names a category by a StrRef (Name
-  by StrRef, or Move Name to Talk Table into the module's own table),
-  as the game's own categories are named, and the `palcus.itp` built
-  on save keeps it. Not seen: the DM Creator showing a module's own
-  talk table's line (16777216 and up) as a category's name, in each
-  language. (S) (waits on a CD key for the sandboxed client, to join as
-  a DM: `joined_dm_creator_palette`, `MG_CLIENT_CDKEY`)
-- **A custom palette's names in the game** (a builder: after a save in
-  Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
-  colors wrong; Aurora's Custom palette showed the same, reading the
-  same files): the custom palettes (`<type>palcus.itp`) carried their
-  blueprints' and factions' names as UTF-8, and so did categories named
-  in Moonglow; the game reads them as its text: Windows-1252 for English
-  and the western languages, the language's codepage otherwise
-  (Windows-1250 for Polish). They now carry the
-  names' bytes as the module has them (not read and written again: a
-  color token keeps every byte), and a category is written in the
-  codepage of the game's language, refused where that cannot hold it.
-  Read back, names show in that codepage (a Polish module's in
-  Windows-1250, which also answers the palette half of GitHub issue
-  13), UTF-8 ones from before still as they were meant. A module is put
-  right by Build › Palettes (after 2.5.0 a save changes only the
-  entries of blueprints changed: a name left in UTF-8 stays so until its
-  blueprint changes), and categories left in UTF-8 are written in the
-  game's bytes there and in the module's own category lists (a test
-  spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
-  builds it). Not seen in the game's DM client here (the bytes are
-  tested; the client was not run as a DM): the DM client joins a
-  server; the harness is built (`mg_testkit::joined`, the server and the
-  client in one sandbox, `joined_dm_creator_palette`), and the sandboxed
-  client has no CD key to join with, so it waits on one
-  (`MG_CLIENT_CDKEY`, the owner's to give). Issue 13's other half: with
-  Polish the editing language, String Edit read and wrote a string's
+- **A custom palette's names in the game, issue 13's other half** (a
+  builder's "HipÃ³lito" in the DM's Creator, after a save in Moonglow, is
+  fixed and seen right in the DM client: the deferred sprint's log,
+  2026-10-29). With Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
   reads and writes the Windows-1252 languages' text as Windows-1250
@@ -468,8 +438,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     module's (a hak's, the override folder's, one there is no more);
     Build takes out those of the override folder and the ones there
     are no more, and keeps a hak's. (S)
-  - Not seen in the game's DM Creator (the files are compared with
-    Aurora's). (S)
   (El Grillo's and Jasperre's report, October 2026)
 
 ## Custom content data (2DAs and talk tables)
@@ -1484,14 +1452,6 @@ contribution itself states as not done or not checked.
     pulse's period is not measured either. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: a still preview shows the
     pulse's peak.)
-  - *Two readings of a tie in a number's text disagree*: the second
-    client batch read 0.5 and 2.5 at no places as 0 and 2 (ties to even,
-    which the preview does now); the contributor's reading of 2026-10-08
-    (`preview/tests/native.rs`, its window not kept) had 42.125 and
-    -42.125 at 2 places as 42.13 and -42.13 (away from zero), which ties
-    to even makes 42.12. For the next client batch, in
-    `nui_readings_in_the_client`'s numbers window: 42.125, -42.125 and
-    0.125 at 2 places, and 0.5 at 0; read the text drawn. (S)
   - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
     places neighbors apart: it finds none but where the game would lay the
     window out otherwise, which it can't know. (settle?: proposed by the
@@ -1712,18 +1672,6 @@ contribution itself states as not done or not checked.
 
 ## NWSync publishing
 
-- **No download tested:** the repository matches neverwinter.nim's, but a
-  game client fetching it from a server isn't run. The client's sandbox
-  has no network but a loopback of its own (`bwrap --unshare-net` brings
-  `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
-  web server, `nwserver` naming it and the client started together in
-  one sandbox test it: built on 2026-10-29 (`mg_testkit::joined`,
-  `tools/nwclient/run-server-and-client.sh`; `joined_nwsync_download`
-  publishes Chess with a hak and a talk table and joins). The sandboxed
-  client has no CD key (no Steam: Multiplayer asks for one, `+connect`
-  ends in "Your CD Key is unauthorized"), so the test skips until
-  `MG_CLIENT_CDKEY` names one. (S, waits on the owner: a `cdkey.ini` for
-  the sandbox, or Steam's API let through in that mode)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
   doesn't. Read in single player (2026-10-29,
   `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a
@@ -1733,8 +1681,13 @@ contribution itself states as not done or not checked.
   table for her, where the server's `GetStringByStrRef` with
   `GENDER_FEMALE` reads the feminine one; so the client's own lookups
   don't use it, and only scripts' would. Whether a client downloading
-  by NWSync is the same waits on the download test above (its CD key).
-  (S)
+  by NWSync is the same isn't read: the download is (2026-10-29,
+  `joined_nwsync_download`), but the client then ends itself ("We
+  disconnected you from the server while NWSync is running", exit 0,
+  its own restart not seen in the sandbox), and started again it finds
+  the server, shows the character list and ends again; a player in
+  the game after a download waits on that restart in
+  `tools/nwclient/run-server-and-client.sh`. (S)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
   so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to

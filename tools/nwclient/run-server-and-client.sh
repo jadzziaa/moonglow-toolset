@@ -22,6 +22,8 @@
 #   (default 8080) inside the sandbox, by Python's http.server: an NWSync
 #   repository, the server given -nwsyncurl http://127.0.0.1:PORT.
 # - MG_CLIENT_ARGS (optional): more of the client's arguments.
+# - MG_CLIENT_RUNS (optional, default 1): how many times the client is
+#   started, each after the last ended (after an NWSync download).
 #
 # As run-client.sh: the system read-only, Steam hidden, no D-Bus or audio,
 # the client drawn on $DISPLAY (default :1, the off-screen display), never
@@ -93,8 +95,19 @@ if [ -n "$CLIENT" ]; then
     sleep 0.5; i=$((i + 1))
   done
   sleep 3
-  ./nwmain-linux -userdirectory "$SCRATCH/user" $CLIENT $MG_CLIENT_ARGS \
-    > "$SCRATCH/client.out" 2>&1 &
+  # (MG_CLIENT_RUNS times, one after another: the client ends itself
+  # after an NWSync download, and its restart does not come back in the
+  # sandbox; started again, it joins with what it downloaded. No
+  # apostrophes in here: this is in single quotes.)
+  (
+    n=0
+    while [ $n -lt "${MG_CLIENT_RUNS:-1}" ]; do
+      ./nwmain-linux -userdirectory "$SCRATCH/user" $CLIENT $MG_CLIENT_ARGS \
+        >> "$SCRATCH/client.out" 2>&1
+      echo "MG_CLIENT_EXIT $?" >> "$SCRATCH/client.out"
+      n=$((n + 1))
+    done
+  ) &
 fi
 wait $SERVER
 '
@@ -125,4 +138,5 @@ exec bwrap \
   --setenv NWN "$NWN" --setenv SCRATCH "$SCRATCH" --setenv LOGS "$LOGS" \
   --setenv WEB "$WEB" --setenv WEB_PORT "$WEB_PORT" --setenv NWSYNC "$NWSYNC" \
   --setenv CLIENT "$CLIENT" --setenv MG_CLIENT_ARGS "${MG_CLIENT_ARGS:-}" \
+  --setenv MG_CLIENT_RUNS "${MG_CLIENT_RUNS:-1}" \
   /bin/sh -c "$INNER" sh "$@"

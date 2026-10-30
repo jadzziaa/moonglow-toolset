@@ -200,13 +200,17 @@ fn margins() -> Vec<Win> {
 
 /// The window of numbers: labels bound to numbers at a precision.
 fn numbers() -> Win {
-    let cases: [(&str, f64, i64); 6] = [
+    // (The third batch's: ties at 2 places, each exact in a 32-bit float.)
+    let cases: [(&str, f64, i64); 9] = [
         ("p16", 1.0 / 3.0, 16),
         ("p17", 1.0 / 3.0, 17),
         ("p20", 1.0 / 3.0, 20),
         ("p30", 1.0 / 3.0, 30),
         ("h0", 0.5, 0),
         ("t0", 2.5, 0),
+        ("a2", 42.125, 2),
+        ("n2", -42.125, 2),
+        ("e2", 0.125, 2),
     ];
     let rows: Vec<Json> = cases
         .iter()
@@ -217,7 +221,7 @@ fn numbers() -> Win {
                     "width":480.0}]})
         })
         .collect();
-    let mut w = win("numbers", json!({"type":"col","children":rows}), 600.0, 300.0, 0);
+    let mut w = win("numbers", json!({"type":"col","children":rows}), 600.0, 400.0, 0);
     for (bind, v, _) in cases {
         w.settings.bindings.insert(bind.into(), Binding { value: json!(v), ..Default::default() });
     }
