@@ -630,9 +630,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   client plays a dynamic placeable's `default` (a light's color keyed
   red, blue, red over 2 s cycled, the floor with it) and not a static
   one's (it stayed red), so a flickering light is a dynamic placeable;
-  the area view holds a static placeable still since, but plays no light
-  node's keys, and Moonglow's lights don't take their animation at all
-  (`point_lights`): both are what building it takes. Rows and models no
+  the area view holds a static placeable still since, and plays a
+  dynamic one's light node keys and its meshes' self-illumination keys
+  since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
+  client batch). Left: the window's flicker itself (Custom Light…
+  writing the keyed `default` and a dynamic placeable). Rows and models no
   light uses any more stay in the hak, as a row's number is what placed
   lights know it by (settle?: proposed by the sprint on 2026-10-29, the
   owner's to say). (S) (from builders' reports after 1.16.2)

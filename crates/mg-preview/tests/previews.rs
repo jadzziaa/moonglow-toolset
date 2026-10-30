@@ -1031,6 +1031,58 @@ fn an_object_casts_its_models_lights() {
     assert_eq!(c.row_lights(at).len(), 1);
 }
 
+/// A light node's keys play with the animation it stands in (the deferred
+/// list's flicker: the client plays a dynamic placeable's `default`, a
+/// light's colour keyed red, blue, red over 2 s, the floor lit with it,
+/// `reading_static_placeable_default_animation`): `point_lights_at` takes
+/// the keys at the time asked for, `point_lights` the light as it stands;
+/// and a mesh's self-illumination keyed in its idle animation plays.
+#[test]
+fn a_light_node_s_keys_play_with_its_animation() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let text = "newmodel mg_flicker\nsetsupermodel mg_flicker NULL\nclassification placeable\n\
+                beginmodelgeom mg_flicker\nnode dummy mg_flicker\n  parent NULL\nendnode\n\
+                node trimesh square\n  parent mg_flicker\n  bitmap NULL\n  verts 3\n    0 0 0\n    \
+                1 0 0\n    0 1 0\n  faces 1\n    0 1 2 1 0 0 0 0\nendnode\n\
+                node light lamp\n  parent mg_flicker\n  position 0 0 2\n  color 1 0 0\n  \
+                radius 5\n  multiplier 1\nendnode\nendmodelgeom mg_flicker\n\
+                newanim default mg_flicker\n  length 2\n  transtime 0\n  animroot mg_flicker\n\
+                node dummy mg_flicker\n  parent NULL\nendnode\n\
+                node light lamp\n  parent mg_flicker\n  colorkey 3\n    0 1 0 0\n    1 0 0 1\n    \
+                2 1 0 0\nendnode\nnode trimesh square\n  parent mg_flicker\n  \
+                selfillumcolorkey 3\n    0 1 0 0\n    1 0 0 1\n    2 1 0 0\nendnode\n\
+                doneanim default mg_flicker\ndonemodel mg_flicker\n";
+    let model = Arc::new(Model::read(text.as_bytes()).unwrap());
+    let load = |name: &str| (name == "mg_flicker").then(|| model.clone());
+    let mut p = Preview::model("mg_flicker");
+    p.idle = Some("default".into());
+    let c = Composed::new(&gpu, &p, &load).unwrap();
+    let color = |lights: Vec<mg_render::PointLight>| {
+        assert_eq!(lights.len(), 1, "{lights:#?}");
+        lights[0].color
+    };
+    let at = |t: f32| color(c.point_lights_at(Some("default"), t, Mat4::IDENTITY));
+    assert_eq!(color(c.point_lights(Mat4::IDENTITY)), glam::Vec3::X, "as it stands");
+    assert_eq!(at(0.0), glam::Vec3::X);
+    assert_eq!(at(1.0), glam::Vec3::Z, "blue a second in");
+    let between = at(0.5);
+    assert!(between.x > 0.0 && between.z > 0.0 && between.y == 0.0, "{between}");
+    // (No animation: as it stands.)
+    assert_eq!(color(c.point_lights_at(None, 1.0, Mat4::IDENTITY)), glam::Vec3::X);
+    // The mesh's self-illumination, keyed alike, plays with the pose.
+    let glow = |t: f32| {
+        let drawn = c.instances(Some("default"), t, Mat4::IDENTITY);
+        drawn[0].state.as_ref().and_then(|s| s.meshes[0].selfillum)
+    };
+    assert_eq!(glow(0.0), Some(glam::Vec3::X));
+    assert_eq!(glow(1.0), Some(glam::Vec3::Z));
+    assert_eq!(c.instances(None, 1.0, Mat4::IDENTITY)[0].state, None);
+}
+
 /// **Illuminated** off (`LightState` 0) leaves out a placeable's
 /// appearance light, as the client does; absent or 1, it is there
 /// (`model_light_uniforms` in `client_render.rs`). And a static placeable

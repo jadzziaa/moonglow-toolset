@@ -98,6 +98,11 @@ pub struct Composed {
     /// other light, whatever the placeable's **Illuminated** says (read
     /// from the client: `model_light_uniforms` in `client_render.rs`).
     lamps: Vec<anim::Lamp>,
+    /// How many of [`Composed::lamps`] are the base model's (the first).
+    base_lamps: usize,
+    /// Its idle animation keys the base's meshes (their alpha or
+    /// self-illumination, or their vertices): played with the pose.
+    idle_keys_meshes: bool,
     /// Models named by the preview that could not be loaded.
     pub missing: Vec<String>,
     /// Posing it failed once: it is drawn no more (rather than fail again
@@ -291,12 +296,30 @@ impl Composed {
             idle: preview.idle.clone(),
             lights: preview.lights.clone(),
             lamps: Vec::new(),
+            base_lamps: 0,
+            idle_keys_meshes: false,
             missing,
             failed: Default::default(),
         };
         // (Once: where they are as it stands, not as each frame poses it.)
         let name = c.base.gpu.model.name.clone();
         c.lamps = mg_render::guard::guarded(&name, || c.lamps_standing()).unwrap_or_default();
+        let base_model = &*c.base.gpu.model;
+        c.base_lamps = base_model
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_)))
+            .count()
+            .min(c.lamps.len());
+        let idle = c.idle.as_deref().and_then(|a| playing(a, |n| c.base.animation(n)));
+        c.idle_keys_meshes = idle.is_some_and(|a| {
+            a.nodes.iter().any(|n| {
+                n.anim_mesh.is_some()
+                    || n.controllers
+                        .iter()
+                        .any(|k| matches!(k.name.as_str(), "alpha" | "selfillumcolor"))
+            })
+        });
         Some(c)
     }
 
@@ -400,6 +423,15 @@ impl Composed {
         // placed composite item's bottom part.)
         let mut out =
             vec![instance(&self.base, transform * self.base.local, Some(base_pose.clone()))];
+        // Its idle animation's keys of the base's meshes (a card's
+        // self-illumination keyed in a placeable's `default`, which the
+        // client plays on a dynamic placeable:
+        // `reading_static_placeable_default_animation`).
+        if self.idle_keys_meshes && animation.is_some() && animation == self.idle.as_deref() {
+            if let Some(a) = base_anim {
+                out[0].state = Some(Arc::new(anim::mesh_state(&self.base.gpu, a, t)));
+            }
+        }
         for p in &self.parts {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
             let (hung, bones) = p.hung(at);
@@ -428,6 +460,30 @@ impl Composed {
     pub fn point_lights(&self, transform: Mat4) -> Vec<PointLight> {
         let mut lights = self.row_lights(transform);
         lights.extend(self.lamps.iter().filter_map(|l| l.placed(transform, &|_| None)));
+        lights
+    }
+
+    /// [`Composed::point_lights`] as `animation` has them `t` seconds in:
+    /// the base model's light nodes take its keys (their colour, radius and
+    /// multiplier: a flicker keyed in a placeable's `default`, which the
+    /// client plays on a dynamic placeable, `reading_static_placeable_default_animation`),
+    /// where they move with the pose; the parts' as they stand.
+    pub fn point_lights_at(
+        &self,
+        animation: Option<&str>,
+        t: f32,
+        transform: Mat4,
+    ) -> Vec<PointLight> {
+        let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
+        let Some(a) = base_anim.filter(|_| self.base_lamps > 0) else {
+            return self.point_lights(transform);
+        };
+        let model = &*self.base.gpu.model;
+        let pose = anim::pose(model, a, t);
+        let mut lights = self.row_lights(transform);
+        let base = anim::lamps_layers(model, &[a], t, &pose);
+        let parts = self.lamps.iter().skip(self.base_lamps);
+        lights.extend(base.iter().chain(parts).filter_map(|l| l.placed(transform, &|_| None)));
         lights
     }
 
