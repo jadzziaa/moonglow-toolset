@@ -105,6 +105,13 @@ fn resources_open_in_their_editors() {
 /// outline shows it has them (`target/test-output/ui-log-keys/`).
 #[test]
 fn the_log_by_the_keyboard() {
+    // (The pictures are to look at, taken where there is a GPU.)
+    let picture = |h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str| {
+        if adapter() {
+            mg_testkit::gpu::hold();
+            h.render().expect("render").save(dir.join(name)).unwrap();
+        }
+    };
     let dir = mg_testkit::scratch_dir("ui-log-keys");
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
@@ -131,7 +138,7 @@ fn the_log_by_the_keyboard() {
     if h.state().dock.find_tab(&Tab::Palette).is_some() {
         key(&mut h, egui::Key::F6);
     }
-    h.render().expect("render").save(dir.join("log-keys.png")).unwrap();
+    picture(&mut h, &dir, "log-keys.png");
     key(&mut h, egui::Key::Home);
     assert!(shown(&h, 0) && !shown(&h, 199), "at its start");
     let first_shown = |h: &Harness<'_, Moonglow>| (0..200).find(|&i| shown(h, i)).unwrap();
@@ -141,13 +148,13 @@ fn the_log_by_the_keyboard() {
         at.push(first_shown(&h));
     }
     assert!(at.windows(2).all(|w| w[1] == w[0] || w[1] == w[0] + 1), "a line at a time: {at:?}");
-    h.render().expect("render").save(dir.join("log-keys-lines.png")).unwrap();
+    picture(&mut h, &dir, "log-keys-lines.png");
     assert!(at[5] >= 4, "{at:?}");
     let lines = at[5];
     key(&mut h, egui::Key::PageDown);
     let page = first_shown(&h);
     assert!(page > lines + 3, "a page: {page}");
-    h.render().expect("render").save(dir.join("log-keys-page.png")).unwrap();
+    picture(&mut h, &dir, "log-keys-page.png");
     key(&mut h, egui::Key::PageUp);
     assert_eq!(first_shown(&h), lines);
     key(&mut h, egui::Key::End);
@@ -160,7 +167,7 @@ fn the_log_by_the_keyboard() {
     h.run_steps(2);
     key(&mut h, egui::Key::Home);
     assert!(shown(&h, 0), "the log's from the click");
-    h.render().expect("render").save(dir.join("log-keys-clicked.png")).unwrap();
+    picture(&mut h, &dir, "log-keys-clicked.png");
 }
 
 /// GitHub issue 12: the module tree by the keyboard. A click in it gives

@@ -101,10 +101,7 @@ pub(crate) fn user_folder(dir: &std::path::Path, subfolders: &[&str]) -> std::pa
 /// [`gpu_harness`]; `None`, said, without a GPU adapter.
 pub(crate) fn gpu() -> Option<egui_wgpu::RenderState> {
     mg_testkit::gpu::hold();
-    // (Asked once: a device opened to ask it was a second device for
-    // every test that draws.)
-    static ADAPTER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if !*ADAPTER.get_or_init(|| mg_render::Gpu::headless().is_some()) {
+    if !adapter() {
         eprintln!("skipped: no GPU adapter");
         return None;
     }
@@ -112,6 +109,18 @@ pub(crate) fn gpu() -> Option<egui_wgpu::RenderState> {
         mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     ))
+}
+
+/// Whether this machine has a GPU adapter (CI's Linux runner has none):
+/// a test whose pictures are only to look at takes them when it has.
+/// (Asked once: a device opened to ask it was a second device for every
+/// test that draws.)
+pub(crate) fn adapter() -> bool {
+    static ADAPTER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ADAPTER.get_or_init(|| {
+        mg_testkit::gpu::hold();
+        mg_render::Gpu::headless().is_some()
+    })
 }
 
 /// [`harness`] drawn on the GPU's render state `rs` (from [`gpu`], given
