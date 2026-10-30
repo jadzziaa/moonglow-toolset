@@ -1407,6 +1407,32 @@ fn skinned_quad(x: f32) -> Model {
     model
 }
 
+/// A skin's face with a vertex no valid bone weighs is not drawn, as the
+/// game's programs collapse such a vertex (MDL-SKIN-030) and the client
+/// shows nothing of its faces; a skin none of whose bones is a node draws
+/// nothing (the stock `c_wings2`'s right wing, `reading_wings_without_bones`
+/// in `client_render.rs`). The quad's two faces: one with a vertex
+/// unweighed, then a skin of no bones.
+#[test]
+fn a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn() {
+    let Some(gpu) = gpu() else { return };
+    let mut model = skinned_quad(0.0);
+    let NodeKind::Mesh(m) = &mut model.nodes[2].kind else { unreachable!() };
+    let mg_mdl::MeshExtra::Skin(skin) = &mut m.extra else { unreachable!() };
+    // (Faces 0 1 2 and 0 2 3: vertex 3 is the second's alone.)
+    skin.weights[3] = [(0, 0.0); 4];
+    let one = GpuModel::new(&gpu, Arc::new(model.clone()));
+    assert_eq!(one.meshes[0].index_count, 3, "the face of the weighed vertices alone");
+    let NodeKind::Mesh(m) = &mut model.nodes[2].kind else { unreachable!() };
+    m.extra = mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+        bones: Vec::new(),
+        weights: vec![[(0, 0.0); 4]; 4],
+        inverse_bind: Vec::new(),
+    });
+    let none = GpuModel::new(&gpu, Arc::new(model));
+    assert_eq!(none.meshes[0].index_count, 0, "no bones: nothing drawn");
+}
+
 /// A skinned mesh, and one whose vertices an animation replaces, are left
 /// out where the camera can't see them as they are now, not as they were
 /// bound: one bound in sight, carried out of it by its bone (or its
