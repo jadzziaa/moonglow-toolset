@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:15:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:33:22Z }
 ---
 
 # Modules
@@ -549,13 +549,13 @@ with it.
   4. the only object left with its blueprint and tag (so a moved object is
      still that object);
   5. the only object left with its blueprint and position (so a retagged
-     object is too);
-  6. the only object left with its blueprint (so an object moved *and*
-     retagged on one side is too).
+     object is too).
 
-  Where two of a blueprint are left, an object both moved and retagged
-  is taken as removed and another added; if the other side changed it,
-  that is a conflict, not a lost edit.
+  An object both moved *and* retagged on one side is taken as removed
+  and another added; if the other side changed it, that is a conflict,
+  not a lost edit. (Matching it by its blueprint alone would put the
+  other side's change on a different object where one side removed an
+  object and placed another of the blueprint elsewhere.)
 - **The module's area list** is a union: the areas the base had, without
   those a side removed, and each side's new ones.
 - **Localized strings** (names, descriptions) merge language by
@@ -576,10 +576,12 @@ with it.
   place are a conflict.
 - A list only one side changed is that side's list as it is, order and
   all. Where both changed one of those merged item by item, the order
-  one side gave the base's items is kept (the base's, where both moved
-  them, each its own way), and each side's new items go after the item
-  they follow on that side (ours first, where both put one after the
-  same item).
+  one side gave the base's items is kept, and each side's new items go
+  after the item they follow on that side (ours first, where both put
+  one after the same item). Both moving the base's items, each its own
+  way, is a **conflict** of the list's order (`CONFLICT /Mod_HakList/(order)`),
+  for every list: the order of some is the game's (the hak list's
+  decides which hak wins). `--prefer` takes that side's order.
 
 **The merge is written over your file (`%A`) in its own form.** A GFF is
 written as a GFF, and JSON and NWNT as `nasher unpack` writes them: keys

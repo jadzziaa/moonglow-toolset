@@ -306,9 +306,11 @@ impl Merger<'_> {
 
     /// A list whose items are told by what they are, merged item by
     /// item, in sequence: the base's items kept in the order a side that
-    /// reordered them gave (the base's where both did, each its own way),
-    /// and each side's new items after the item they follow there (at the
-    /// top where they lead), ours before theirs at one place.
+    /// reordered them gave (both reordering them, each its own way, is a
+    /// conflict: the order of some lists is the game's, a hak list's
+    /// deciding which hak wins), and each side's new items after the item
+    /// they follow there (at the top where they lead), ours before theirs
+    /// at one place.
     fn by_identity(
         &mut self,
         path: &str,
@@ -334,18 +336,35 @@ impl Merger<'_> {
             };
             kept.push(item);
         }
-        // Their order: the base's, unless one side moved them.
-        let order_on = |m: &[Option<usize>]| -> Vec<usize> {
-            let mut on: Vec<usize> = (0..b.len()).filter(|&i| kept[i].is_some()).collect();
-            on.sort_by_key(|&i| m[i].unwrap_or(usize::MAX));
-            on
-        };
+        // Their order: the base's, unless one side moved them. (An item a
+        // side doesn't have keeps its place; those it has take theirs, in
+        // the places they fill.)
         let base_order: Vec<usize> = (0..b.len()).filter(|&i| kept[i].is_some()).collect();
+        let order_on = |m: &[Option<usize>]| -> Vec<usize> {
+            let mut moved: Vec<usize> =
+                base_order.iter().copied().filter(|&i| m[i].is_some()).collect();
+            moved.sort_by_key(|&i| m[i]);
+            let mut moved = moved.into_iter();
+            (base_order.iter())
+                .map(|&i| if m[i].is_some() { moved.next().unwrap_or(i) } else { i })
+                .collect()
+        };
         let (o_order, t_order) = (order_on(&om), order_on(&tm));
         let order = match (o_order != base_order, t_order != base_order) {
             (true, false) => o_order,
             (false, true) => t_order,
             (true, true) if o_order == t_order => o_order,
+            (true, true) => {
+                let as_list = |order: &[usize]| {
+                    Value::List(order.iter().filter_map(|&i| kept[i].clone()).collect())
+                };
+                let (bl, ol, tl) = (as_list(&base_order), as_list(&o_order), as_list(&t_order));
+                self.conflict(&format!("{path}/(order)"), Some(&bl), Some(&ol), Some(&tl));
+                match self.prefer {
+                    Prefer::Ours => o_order,
+                    Prefer::Theirs => t_order,
+                }
+            }
             _ => base_order,
         };
         // Each side's new items, with the base item they follow on it.
@@ -510,9 +529,10 @@ type KeyOf = fn(&Struct) -> Option<Vec<u8>>;
 
 /// The steps of [`ListRule::Placed`] after the first (the same in every
 /// field), each a key and whether it pairs only where it is the only one
-/// of its key left on both sides. The last, the blueprint alone, pairs an
-/// object one side both moved and retagged.
-fn placed_steps() -> [(KeyOf, bool); 5] {
+/// of its key left on both sides. (Never the blueprint alone: an object
+/// one side removed while it placed another of the blueprint elsewhere
+/// would take the other side's change to the first.)
+fn placed_steps() -> [(KeyOf, bool); 4] {
     fn join(a: Option<Vec<u8>>, b: Option<Vec<u8>>) -> Option<Vec<u8>> {
         Some([a?, b?].concat())
     }
@@ -521,7 +541,6 @@ fn placed_steps() -> [(KeyOf, bool); 5] {
         (|s| join(fields_key(s, &["TemplateResRef", "Tag"]), position_key(s)), false),
         (|s| fields_key(s, &["TemplateResRef", "Tag"]), true),
         (|s| join(fields_key(s, &["TemplateResRef"]), position_key(s)), true),
-        (|s| fields_key(s, &["TemplateResRef"]), true),
     ]
 }
 
@@ -858,14 +877,15 @@ mod tests {
             Prefer::Ours,
         );
         assert_eq!(m.gff.root, list(&["intro", "cave", "crypt", "start", "town"]));
-        // Both reordered, each its own way: the base's order.
-        let m = run(
-            &b,
-            &list(&["cave", "start", "town"]),
-            &list(&["town", "start", "cave", "x"]),
-            Prefer::Ours,
-        );
-        assert_eq!(m.gff.root, list(&["start", "town", "cave", "x"]));
+        // Both reordered, each its own way: a conflict of the order, the
+        // side preferred taking its own.
+        let (o, t) = (list(&["cave", "start", "town"]), list(&["town", "start", "cave", "x"]));
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert_eq!(m.conflicts.len(), 1);
+        assert_eq!(m.conflicts[0].path, "/Mod_Area_list/(order)");
+        assert_eq!(m.gff.root, list(&["cave", "x", "start", "town"]));
+        let m = run(&b, &o, &t, Prefer::Theirs);
+        assert_eq!(m.gff.root, list(&["town", "start", "cave", "x"]));
         // New items both put after one: ours first.
         let m = run(
             &b,
@@ -1027,32 +1047,30 @@ mod tests {
         assert_eq!(m.gff.root.get("Name"), Some(&name(&[(0, "Chest")])));
     }
 
-    /// An object one side both moved and retagged is still that object
-    /// where it is the only one of its blueprint left: the other side's
-    /// change to it merges in, rather than a conflict.
+    /// One side removed chest A and placed chest B, of the same blueprint,
+    /// elsewhere with another tag, while the other side changed A: a
+    /// conflict, not the change landing on B (which is a different chest,
+    /// though one moved and retagged would look the same).
     #[test]
-    fn an_object_moved_and_retagged_is_still_itself() {
+    fn a_chest_removed_and_another_placed_while_the_first_was_changed_is_a_conflict() {
         let list = |items: Vec<Struct>| root(&[("Placeable List", Value::List(items))]);
-        let chest = placed("plc_chest", "CHEST", 1.0, 1.0);
+        let a = placed("plc_chest", "CHEST", 1.0, 1.0);
         let lamp = placed("plc_lamp", "LAMP", 5.0, 5.0);
-        let mut moved = placed("plc_chest", "RED_CHEST", 3.0, 2.0);
-        moved.set("Appearance", Value::Dword(1));
-        let mut lit = chest.clone();
+        let b_chest = placed("plc_chest", "RED_CHEST", 3.0, 2.0);
+        let mut lit = a.clone();
         lit.set("Appearance", Value::Dword(7));
-        let b = list(vec![chest.clone(), lamp.clone()]);
-        let o = list(vec![moved.clone(), lamp.clone()]);
-        let t = list(vec![lit, lamp.clone()]);
+        let b = list(vec![a.clone(), lamp.clone()]);
+        let o = list(vec![b_chest.clone(), lamp.clone()]);
+        let t = list(vec![lit.clone(), lamp.clone()]);
         let m = run(&b, &o, &t, Prefer::Ours);
-        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
-        let mut want = moved.clone();
-        want.set("Appearance", Value::Dword(7));
-        assert_eq!(m.gff.root, list(vec![want, lamp.clone()]));
-        // Two of the blueprint left: no telling which, so removed and added.
-        let other = placed("plc_chest", "CHEST2", 9.0, 9.0);
-        let b = list(vec![chest.clone(), other.clone()]);
-        let o = list(vec![moved.clone(), placed("plc_chest", "BLUE", 8.0, 8.0)]);
-        let m = run(&b, &o, &b, Prefer::Ours);
-        assert_eq!(m.gff.root, o);
+        assert_eq!(m.conflicts.len(), 1, "{:?}", m.conflicts);
+        assert!(m.conflicts[0].path.contains("plc_chest \"CHEST\""), "{}", m.conflicts[0].path);
+        assert_eq!(m.conflicts[0].ours, None, "ours removed A");
+        // Taking ours: A gone, B kept untouched.
+        assert_eq!(m.gff.root, list(vec![b_chest.clone(), lamp.clone()]));
+        // Taking theirs: A as they changed it, and B.
+        let m = run(&b, &o, &t, Prefer::Theirs);
+        assert_eq!(m.gff.root, list(vec![b_chest, lit, lamp]));
     }
 
     #[test]

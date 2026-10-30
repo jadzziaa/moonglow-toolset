@@ -93,6 +93,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
+  - **An object both moved and retagged on one side** is taken as removed
+    and another added (a conflict where the other side changed it):
+    matched by its blueprint alone, an object one side removed while it
+    placed another of the blueprint elsewhere would take the other
+    side's change (the merge review's ruling, 2026-10-30; the chest
+    A / chest B test). (settle?: kept so, proposed by the sprint on
+    2026-10-30, the owner's to say) (S)
   - **Conversations** merge their entry and reply lists by place, and the
     links name nodes by number: two builders adding nodes to one
     conversation conflict, where renumbering one side's new nodes (and
