@@ -24,22 +24,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
-- **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
-  split by subject, with `harness`, `window_harness`, `game_app`,
-  `game_app_with`, `game_data`, `user_folder` and `gpu` in
-  `common.rs`): folded on 2026-10-30 in the files no other package of
-  the fifth wave was in (modules, windows, the tree, options and keys,
-  projects, plugins, resources: 57 harnesses, 13 installs, 15 user
-  folders); left, in the files the wave's area, models, editors and
-  bulk packages change: 40 harnesses at kittest's size
-  (`Harness::new_ui_state`: scripts 18, conversations 6, fields 6,
-  search 4, areas 3, blueprints, drawing, palettes), 18 installs made
-  apart (tables 6, tiles 3, blueprints, conversations, drawing, scripts
-  2 each, looks), 12 user folders made by hand (drawing 4, tables 4,
-  palettes 3, search) and the 6 harnesses with a step of their own.
-  (S once those packages merge: the same three folds, `window_harness`
-  for the first, `game_app_with` or `game_data` for the second,
-  `user_folder` for the third.)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:

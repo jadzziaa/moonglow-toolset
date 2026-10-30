@@ -62,7 +62,7 @@ fn a_saved_module_s_custom_palette_has_names_in_the_game_s_bytes() {
             vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
         )));
     }
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -143,8 +143,7 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
     let probe = mg_testkit::aurora_capture!("palettes/before.mod");
     let hak = mg_testkit::aurora_capture!("palettes/mgpal.hak");
     let dir = mg_testkit::scratch_dir("ui-palette-haks");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     std::fs::copy(&hak, user.join("hak/mgpal.hak")).unwrap();
     let path = dir.join("palette_probe.mod");
     std::fs::copy(&probe, &path).unwrap();
@@ -1499,8 +1498,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir(&format!("ui-palette-outside-{}", kind.name()));
     let folder = dir.join("module");
-    std::fs::create_dir_all(dir.join("user")).unwrap();
-    let mut app = game_app(&root, Some(dir.join("user")));
+    let mut app = game_app(&root, Some(user_folder(&dir, &[])));
     let game = app.game.clone().unwrap();
     let original = game.resman.get_named(template, kind.restype()).unwrap().to_vec();
     let category = Gff::read(&original).unwrap().root.integer(kind.palette_field()).unwrap();

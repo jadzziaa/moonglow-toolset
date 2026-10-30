@@ -175,8 +175,7 @@ fn find_references_finds_a_line_in_scripts_and_the_haks_2das() {
     use mg_schema::{StructExt, ifo};
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-strref-haks");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
     let classes = b"2DA V2.0\n\n   Label Name\n0  Kz 16777300\n1  Other 5\n".to_vec();
     hak.add(ResRef::from_str("classes").unwrap(), ResType::TWODA, classes).unwrap();
@@ -228,7 +227,7 @@ fn find_and_replace_text_across_the_module() {
         })
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
     h.run();
@@ -288,7 +287,7 @@ fn find_and_replace_in_tags_by_a_regular_expression() {
     g.root.set("WaypointList", mg_gff::Value::List(list));
     let edit = Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![edit])).unwrap();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
     h.run();
@@ -374,7 +373,7 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     let start = ResKey::parse("start", ResType::GIT).unwrap();
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
     h.run_steps(2);
@@ -522,7 +521,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     tlk.entries.push(mg_tlk::TlkEntry::text("Bad Strref"));
     tlk.entries.push(mg_tlk::TlkEntry::text("Fighter"));
     app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     settle(&mut h);
     h.get_by_label("Edit").click();
     h.run_steps(2);

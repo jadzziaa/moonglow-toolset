@@ -348,8 +348,7 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
 fn a_talk_table_that_cannot_be_read_is_tried_once() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-talk-bad");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let user = user_folder(&dir, &["tlk"]);
     std::fs::write(user.join("tlk/mg_bad.tlk"), b"not a talk table").unwrap();
     let path = sample_module(&dir);
     let mut m = mg_module::Module::open(&path).unwrap();
@@ -379,15 +378,13 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
 fn talk_table_made_edited_saved_and_used_by_strings() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-talk-table");
-    let user = dir.join("user");
-    std::fs::create_dir_all(&user).unwrap();
+    let user = user_folder(&dir, &[]);
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
     // (Export CSV and Import CSV are answered with the same file.)
     let csv = dir.join("lines.csv");
     let dialogs =
         NoDialogs { open: vec![csv.clone(); 2], save: vec![csv.clone(); 2], ..Default::default() };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
@@ -572,15 +569,13 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
 fn two_da_view_shows_where_rows_come_from() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-2da-layers");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     // The game's ambientmusic.2da with a row changed and one added, in
     // override.
-    let game =
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let game = game_data(&root);
     let key = ResKey::parse("ambientmusic", ResType::TWODA).unwrap();
     let cp = mg_core::Codepage::default();
-    let t = mg_2da::TwoDa::parse(&game.get(&key).unwrap(), cp).unwrap();
+    let t = mg_2da::TwoDa::parse(&game.resman.get(&key).unwrap(), cp).unwrap();
     let resource = t.column("Resource").unwrap();
     let mut rows: Vec<Vec<String>> = (0..t.len())
         .map(|r| (0..t.columns().len()).map(|c| t.cell(r, c).unwrap_or("****").into()).collect())
@@ -728,8 +723,7 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
         return;
     };
     let dir = mg_testkit::scratch_dir("ui-talk-in-module");
-    let user = dir.join("user");
-    std::fs::create_dir_all(&user).unwrap();
+    let user = user_folder(&dir, &[]);
     let path = sample_module(&dir);
     let key = ResKey::parse("mg_inmod", ResType::TLK).unwrap();
     let mut m = Module::open(&path).unwrap();
@@ -746,8 +740,7 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
     t.add_line(&line("Old words")).unwrap();
     m.set(key, t.tlk.to_bytes().unwrap());
     m.save().unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
@@ -1387,14 +1380,13 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
 fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-table-game-s-own");
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
     let file = dir.join("appearance.2da");
     std::fs::write(&file, game.resman.get(&key).unwrap()).unwrap();
     let footsteps = game.table("appearance").unwrap().column("FOOTSTEPTYPE").unwrap();
     assert_eq!(game.table("appearance").unwrap().cell(562, footsteps), Some("30"));
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let app = game_app(&root, None);
     let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
@@ -1418,8 +1410,7 @@ fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
 fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-table-kinds");
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut t = (*game.table("feat").unwrap()).clone();
     let whole = t.len();
     let (prereq, label) = (t.column("PREREQFEAT1").unwrap(), t.column("LABEL").unwrap());
@@ -1427,7 +1418,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     t.set(5, label, Some("MyOwnShot".into())).unwrap();
     let file = dir.join("feat.2da");
     std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let app = game_app(&root, None);
     let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
@@ -1492,10 +1483,9 @@ fn a_game_table_is_edited_as_a_copy() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-table-copy");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
     let file = dir.join("skills.2da");
     let dialogs = NoDialogs { save: vec![file.clone()], ..Default::default() };
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, None, dialogs);
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1280.0, 800.0);

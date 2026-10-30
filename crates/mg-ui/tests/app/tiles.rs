@@ -146,9 +146,8 @@ fn tileset_made_edited_saved_with_its_palette() {
     let set_path = dir.join("zzz01.set");
     let _ = std::fs::remove_file(&set_path);
     // A game tileset's copy, to edit too.
-    let game =
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
-    let tic = game.get(&ResKey::parse("tic01", ResType::SET).unwrap()).unwrap().into_owned();
+    let game = game_data(&root);
+    let tic = game.resman.get(&ResKey::parse("tic01", ResType::SET).unwrap()).unwrap().into_owned();
     let tic_path = dir.join("tic01.set");
     std::fs::write(&tic_path, &tic).unwrap();
     let dialogs = NoDialogs {
@@ -242,9 +241,8 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     let root = mg_testkit::corpus!();
     let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-tileset-rename");
-    let game =
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
-    let ttr = game.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap().into_owned();
+    let game = game_data(&root);
+    let ttr = game.resman.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap().into_owned();
     let path = dir.join("ttr01.set");
     std::fs::write(&path, &ttr).unwrap();
     let dialogs = NoDialogs { open: vec![path.clone()], ..Default::default() };
@@ -4258,7 +4256,7 @@ fn f10_and_a_click_go_between_objects_and_tiles() {
 fn an_area_of_a_tileset_with_holes_draws_its_other_tiles() {
     let Some(root) = mg_testkit::nwn_root() else { return };
     let user = mg_testkit::scratch_dir("ui-tileset-holes-user");
-    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let game = game_data(&root);
     let ttr01 = game.resman.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap();
     let ttr01 = String::from_utf8_lossy(&ttr01).into_owned();
     drop(game);

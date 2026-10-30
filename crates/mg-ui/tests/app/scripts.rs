@@ -20,7 +20,7 @@ fn script_editor_completion_find_bookmarks() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
 
     // Completion (F2) after "MyHe".
@@ -132,7 +132,7 @@ fn an_include_edited_in_its_tab_is_what_its_includers_see() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     let names = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let symbols = h.state().script_tools.symbols.get(&nss("uses_a"));
         symbols.map(|(_, s)| s.iter().map(|s| s.name.clone()).collect()).unwrap_or_default()
@@ -162,7 +162,7 @@ fn the_save_key_in_a_script_editor_saves_the_script_not_the_module() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let on_disk = || String::from_utf8(Module::open(&path).unwrap().get(&key).unwrap().to_vec());
     let in_module = |h: &Harness<'_, Moonglow>| {
@@ -234,7 +234,7 @@ fn compile_errors_go_to_their_line() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Compile").click();
     h.run();
@@ -268,7 +268,7 @@ fn x2_inc_cutscene_compiles_with_a_warning() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Compile").click();
     h.run();
@@ -618,7 +618,7 @@ fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
     app.settings.debug_info = true;
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // An edit, then Save: the script is compiled too, with its .ndb.
     h.state_mut().script_tools.jump = Some((key, text.len()));
@@ -657,7 +657,7 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), text);
     h.get_by_label("Windows-1250");
@@ -715,7 +715,7 @@ fn build_on_save_opens_the_results_when_something_is_wrong() {
     let mut app = game_app(&root, None);
     app.settings.build_on_save = true; // Options › General
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -735,7 +735,7 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run();
@@ -906,7 +906,7 @@ fn a_crlf_script_has_no_carriage_returns_in_its_editor() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let module = |h: &Harness<'_, Moonglow>| {
         h.state().ws.as_ref().unwrap().module.get(&key).map(<[u8]>::to_vec)
@@ -950,7 +950,7 @@ fn a_save_that_does_not_compile_says_so() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     assert!(!h.state().settings.auto_compile);
     for letter in ["a", "b"] {
@@ -993,7 +993,7 @@ fn the_module_s_save_says_a_script_was_not_compiled() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // Nothing typed: nothing said of the script.
     h.state_mut().actions.push(mg_ui::Action::Save);
@@ -1084,7 +1084,7 @@ fn page_keys_move_through_the_script_editor() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run();
@@ -1143,7 +1143,7 @@ fn the_external_script_editor_s_saves_come_back() {
     app.settings.external_editor = Some(editor.into());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run_steps(3);
     h.get_by_label("External Editor").click();
     h.run_steps(3);
@@ -1174,7 +1174,7 @@ fn references_show_a_script_s_line_in_the_scripts_codepage() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.find_references(Query::Resource(ResKey::parse("next_one", ResType::NSS).unwrap()));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     let line = |h: &mut Harness<'_, Moonglow>, language: Language| {
         mg_ui::set_edit_language(language);
         h.run_steps(2);
@@ -1207,7 +1207,7 @@ fn a_script_named_as_the_game_s_own_is_warned_about() {
     };
     app.actions.push(add("nw_c2_default9"));
     app.actions.push(add("mg_mine"));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let warned: Vec<&String> = h
         .state()
@@ -1236,7 +1236,7 @@ fn print_opens_a_highlighted_page_of_the_script() {
     app.open_module(&path);
     app.print_dir = dir.join("print");
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Print…").click();
     h.run();
@@ -1583,8 +1583,7 @@ fn a_script_saved_outside_is_compiled_when_asked() {
     use mg_module::ModuleLocation;
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut m = new_module(&game, "Outside", &mut fastrand::Rng::with_seed(7)).unwrap();
     let (nss, ncs) = (
         ResKey::parse("hello", ResType::NSS).unwrap(),
@@ -1593,7 +1592,7 @@ fn a_script_saved_outside_is_compiled_when_asked() {
     m.set(nss, b"void main()\n{\n}\n".to_vec());
     let dir = mg_testkit::scratch_dir("ui-folder-compile").join("module");
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.settings.no_mod_beside_folder = true;
     app.settings.auto_compile = false;
@@ -1664,8 +1663,7 @@ fn many_scripts_saved_outside_are_compiled_a_few_a_frame() {
     use mg_module::ModuleLocation;
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut m = new_module(&game, "Checkout", &mut fastrand::Rng::with_seed(7)).unwrap();
     let names: Vec<String> = (0..40).map(|i| format!("pulled_{i:02}")).collect();
     for n in &names {
@@ -1673,7 +1671,7 @@ fn many_scripts_saved_outside_are_compiled_a_few_a_frame() {
     }
     let dir = mg_testkit::scratch_dir("ui-folder-compile-many").join("module");
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.settings.no_mod_beside_folder = true;
     app.settings.auto_compile = true;
@@ -2065,7 +2063,7 @@ fn open_script_opens_the_scripts_selected_together() {
     app.open_module(&path);
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let open_now = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let mut open: Vec<String> = (h.state().dock.iter_all_tabs())

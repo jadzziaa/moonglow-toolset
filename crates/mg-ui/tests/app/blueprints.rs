@@ -131,7 +131,7 @@ fn an_area_s_model_files_are_exported() {
     let mut app = game_app_with(&root, None, dialogs);
     app.settings.no_last_area = true;
     app.open_module(&chess);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let area = ResRef::from_str("chess").unwrap();
     h.state_mut().actions.push(mg_ui::Action::ExportAreaFiles(area));
@@ -2614,8 +2614,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
         eprintln!("skipped: no game install");
         return;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(5);
     let mut m = new_module(&game, "Shop", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -2640,7 +2639,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let path = mg_testkit::scratch_dir("ui-setup-store").join("shop.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
@@ -3546,7 +3545,7 @@ fn armor_and_cloaks_are_shown_on_a_woman_when_asked() {
         eprintln!("skipped: no game install");
         return;
     };
-    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let game = game_data(&root);
     let read = |name: &str| {
         Gff::read(&game.resman.get(&ResKey::parse(name, ResType::UTI).unwrap()).unwrap())
             .unwrap()

@@ -129,8 +129,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
     let dir = mg_testkit::scratch_dir("ui-hak-table-buttons");
     let user = dir.join("user");
     let path = module_with_two_tables(&dir, &user);
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1400.0, 900.0);
