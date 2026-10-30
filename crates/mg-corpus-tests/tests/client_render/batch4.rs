@@ -719,12 +719,14 @@ fn from_hak(hak: &str, names: &[&str]) -> Vec<(String, Vec<u8>)> {
 /// `as_is` (default; three pictures a second apart besides,
 /// `client_<i>.png`), `plain` (its glow's TXI without `proceduretype` and
 /// `distort`: still dim, the blending; bright, the ripple), `dds` (the
-/// TGAs left out, as `as_is` was first run).
+/// TGAs left out, as `as_is` was first run), `stockdds` (as `dds`, the
+/// body's DDS the game's own `tic01_floor01`, a BioWare DXT1 alike).
 ///
 /// Seen (2026-10-30, 89.8193.37): `as_is`: charred bodies with dim orange
 /// veins in the client and in Moonglow alike, the client's veins moving
 /// from picture to picture. `dds`: the client drew the bodies pale gray
-/// and see-through (Moonglow charred, as with the TGA).
+/// and see-through (Moonglow charred, as with the TGA). `stockdds`
+/// (2026-10-30): pale white, no stones: the client draws neither DDS on it.
 #[test]
 #[ignore]
 fn reading_rippling_glow() {
@@ -742,7 +744,20 @@ fn reading_rippling_glow() {
         ],
     );
     files.extend(from_hak("tdod_top.hak", &["appearance.2da"]));
-    if case != "dds" {
+    if case == "stockdds" {
+        // (The game's own BioWare DXT1 of the same size, 512² and alpha
+        // mean 1, `tic01_floor01`, in the body texture's place: whether
+        // the file or the format.)
+        let root = mg_testkit::nwn_root().expect("the game");
+        let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+        let stock = game.resman.get_named("tic01_floor01", ResType::DDS).unwrap().to_vec();
+        for (name, data) in files.iter_mut() {
+            if name == "dd_ce3_txburneds.dds" {
+                *data = stock.clone();
+            }
+        }
+    }
+    if case != "dds" && case != "stockdds" {
         // (The hak has both; `dds` leaves the TGAs out.)
         files.extend(from_hak("tdod_p_ce3.hak", &["dd_ce3_txburneds.tga", "dd_ce3_txhotcoal.tga"]));
     }

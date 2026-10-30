@@ -825,14 +825,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     alpha mean 1, no transparent texel, its levels whole) alone in the
     override drew the zombie a pale gray, see-through, where its TGA
     beside it (as the hak has both) draws it charred as Moonglow draws
-    the DDS: why not read (a stock BioWare DXT1 renamed, beside it, would
-    tell the file from the format). (S) (waits on a client reading: a
-    TDoD area with both, beside the client's picture)
-  - Against the client, the switch on is as close as off on the stock
-    scenes and closer on TDoD's room, but for its far floor (1.0 of 255
-    from the client on, 0.4 off), beside a dark wall where the fitted
-    camera is a fraction of a pixel off. (S) (waits on a client reading:
-    the room with the camera fitted to that wall)
+    the DDS. Not the file (2026-10-30, `MG_B4_ZOMBIE=stockdds`): the
+    game's own `tic01_floor01.dds` (a BioWare DXT1 alike, 512², alpha
+    mean 1) in its place draws the zombie pale white, not its stones:
+    the client draws neither DDS on this creature, Moonglow both (where
+    and why the client takes no DDS here, not read; TDoD's areas, which
+    the module on this machine doesn't hold (`tdod.mod`: three staging
+    areas), wait on their files). (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
