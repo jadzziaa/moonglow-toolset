@@ -343,7 +343,14 @@ impl Moonglow {
     /// name a rename just took away.
     fn warn_still_spelled(&mut self, name: &str) {
         let Some(ws) = &self.ws else { return };
-        let left = rename::mentions(&ws.module, name, true, crate::text::script_codepage());
+        let codepage = crate::text::script_codepage();
+        // (From the window's index where it is at hand, the scripts the
+        // rename changed read again; else the scripts read for it, while
+        // the index is read on its own thread.)
+        let left = match self.references.index(&ws.module, self.background_jobs) {
+            Some(index) => index.mentions(name, true, codepage),
+            None => rename::mentions(&ws.module, name, true, codepage),
+        };
         if !left.is_empty() {
             self.log.warn(format!(
                 "{} still spelled “{}” in scripts ({}); the game won't find it by that name. \

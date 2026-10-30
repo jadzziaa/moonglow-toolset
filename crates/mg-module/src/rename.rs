@@ -11,7 +11,7 @@ use mg_rules::ObjectKind;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
-use crate::refs::{RefKind, Reference, references, rewrite_references};
+use crate::refs::{RefKind, Reference, rewrite_references};
 
 /// The reference kinds that point at a resource of this type; empty if
 /// nothing refers to such resources by name (they can't be renamed here).
@@ -82,28 +82,12 @@ pub struct Mention {
 
 /// Where the resource `target` is used in the module: every reference of
 /// the kinds that point at its type (in GFF resources and `#include`
-/// lines), each with a readable place, in resource order.
+/// lines), each with a readable place, in resource order: one question of
+/// a [`UsageIndex`] of the resources that can hold a reference, read for
+/// it (a window keeps its index from one question to the next).
 pub fn usages(module: &Module, target: ResKey) -> Vec<Usage> {
-    let kinds = kinds(target.restype);
-    let mut keys: Vec<ResKey> = module.keys().copied().collect();
-    keys.sort();
-    let mut out = Vec::new();
-    for key in keys {
-        let Some(data) = module.get(&key) else { continue };
-        let refs: Vec<_> = references(key, data)
-            .into_iter()
-            .filter(|r| kinds.contains(&r.kind) && r.target == target.resref)
-            .collect();
-        if refs.is_empty() {
-            continue;
-        }
-        let gff = if key.restype.is_gff() { Gff::read(data).ok() } else { None };
-        for r in refs {
-            let place = describe(key, gff.as_ref(), &r.path);
-            out.push(Usage { from: key, path: r.path, place });
-        }
-    }
-    out
+    UsageIndex::of_where(module, &|k| k.restype == ResType::NSS || k.restype.is_gff())
+        .usages(target)
 }
 
 /// The module's references, kept from one question to the next
@@ -396,10 +380,28 @@ impl UsageIndex {
     /// is read, and `false` says so (read them elsewhere: on another
     /// thread, from a copy of the module).
     pub fn refresh_at_most(&mut self, module: &Module, most: usize) -> bool {
+        self.refresh_where(module, most, &|_| true)
+    }
+
+    /// The index of the resources of `module` that `keep` takes, read
+    /// now: what one question needs ([`usages`], [`tag_usages`] and
+    /// [`mentions`] ask one each).
+    fn of_where(module: &Module, keep: &dyn Fn(&ResKey) -> bool) -> UsageIndex {
+        let mut index = UsageIndex::default();
+        index.refresh_where(module, usize::MAX, keep);
+        index
+    }
+
+    fn refresh_where(
+        &mut self,
+        module: &Module,
+        most: usize,
+        keep: &dyn Fn(&ResKey) -> bool,
+    ) -> bool {
         use rayon::prelude::*;
-        self.seen.retain(|k, _| module.contains(k));
+        self.seen.retain(|k, _| module.contains(k) && keep(k));
         let mut changed = Vec::new();
-        for key in module.keys() {
+        for key in module.keys().filter(|k| keep(k)) {
             let Some(data) = module.shared(key) else { continue };
             match self.seen.get_mut(key) {
                 Some(was) if std::sync::Arc::ptr_eq(&was.data, data) => continue,
@@ -619,57 +621,30 @@ const TAG_FIELDS: [&str; 4] = ["Tag", "LinkedTo", "KeyName", "Quest"];
 
 /// Where a tag is used: objects, blueprints and areas with that tag, and
 /// the transitions, locks and conversation lines that name it (compared
-/// exactly, as the game's tag lookups do).
+/// exactly, as the game's tag lookups do): a question of a
+/// [`UsageIndex`] of the GFF resources, read for it.
 pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
-    fn walk(s: &Struct, tag: &[u8], out: &mut Vec<String>) {
-        s.walk_fields(&mut |f| {
-            if let Value::String(v) = f.value
-                && TAG_FIELDS.contains(&f.label)
-                && v == tag
-            {
-                out.push(f.path.to_string());
-            }
-        });
-    }
     if tag.is_empty() {
         return Vec::new();
     }
-    let mut keys: Vec<ResKey> = module.keys().filter(|k| k.restype.is_gff()).copied().collect();
-    keys.sort();
-    let mut out = Vec::new();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let mut paths = Vec::new();
-        walk(&gff.root, tag.as_bytes(), &mut paths);
-        for path in paths {
-            let place = describe(key, Some(&gff), &path);
-            out.push(Usage { from: key, path, place });
-        }
-    }
-    out
+    UsageIndex::of_where(module, &|k| k.restype.is_gff()).tag_usages(tag)
 }
 
 /// The strings in the module's scripts that spell `name`: ignoring case for
 /// a resource name (the game looks resources up so), exactly for a tag;
-/// each with its line read in the scripts' `codepage`.
+/// each with its line read in the scripts' `codepage`. A question of a
+/// [`UsageIndex`] of the scripts, read for it.
 pub fn mentions(
     module: &Module,
     name: &str,
     ignore_case: bool,
     codepage: Codepage,
 ) -> Vec<Mention> {
-    let mut keys: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
-    keys.sort();
-    let mut out = Vec::new();
-    for key in keys {
-        let Some(src) = module.get(&key) else { continue };
-        let mut lines = None;
-        for (start, _) in string_literals(src, name, ignore_case) {
-            let lines = lines.get_or_insert_with(|| line_starts(src));
-            out.push(mention_at(key, src, lines, start, codepage));
-        }
-    }
-    out
+    UsageIndex::of_where(module, &|k| k.restype == ResType::NSS).mentions(
+        name,
+        ignore_case,
+        codepage,
+    )
 }
 
 /// The spans (inside the quotes) of a source's plain string literals equal
@@ -1155,8 +1130,9 @@ mod tests {
         );
     }
 
-    /// The index answers as the scan does, and reads again only what
-    /// changed: a resource set anew, one added, one removed.
+    /// The index answers as one read anew for the question does (the
+    /// free functions), and reads again only what changed: a resource set
+    /// anew, one added, one removed.
     #[test]
     fn the_index_answers_as_the_scan_and_reads_only_what_changed() {
         let mut m = module();

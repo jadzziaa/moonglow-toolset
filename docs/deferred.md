@@ -1933,9 +1933,6 @@ of truth, and does each caller's difference matter.
   Aurora's order (a creature's classes and a door's generic appearance
   are by name in Aurora too; its portraits are in the table's order, as
   Select Portrait's grid: captured 2026-10-29).
-- `rename`'s `usages`, `tag_usages` and `mentions` restate what
-  `UsageIndex` answers. (`#include`, read three ways, is read one way
-  since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
