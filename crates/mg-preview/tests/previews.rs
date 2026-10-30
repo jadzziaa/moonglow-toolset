@@ -950,6 +950,55 @@ fn a_race_s_body_part_wears_the_human_s_texture_of_its_name() {
     assert_eq!(chest.textures.get("pmh0_chest004").map(String::as_str), Some("pmh0_chest003"));
 }
 
+/// A material of a part's own name that names no `texture0` (normal and
+/// specular maps alone, as a hak's give its parts) is no texture of that
+/// name: the part takes the human's PLT of its name as without it
+/// (GitHub issue 37: the game draws `pfa0_bicepl001`, whose mesh names
+/// such a material, in `pfh0_bicepl001.plt`; Moonglow drew it white).
+/// The left bicep's mesh names the human's texture, the right one's its
+/// own material.
+#[test]
+fn a_part_s_material_without_texture0_takes_the_human_s_plt() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("preview_part_material");
+    let over = user.join("override");
+    std::fs::create_dir_all(&over).unwrap();
+    for side in ["l", "r"] {
+        std::fs::write(
+            over.join(format!("pme0_bicep{side}001.mtr")),
+            "renderhint NormalAndSpecMapped\ntexture1 pmh0_bicepl001_n\n",
+        )
+        .unwrap();
+    }
+    let name = "pme0_bicepr001";
+    std::fs::write(
+        over.join(format!("{name}.mdl")),
+        format!(
+            "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+             beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             node trimesh bicep\n  parent {name}\n  ambient 1 1 1\n  diffuse 1 1 1\n  \
+             bitmap {name}\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n  faces 1\n    \
+             0 1 2 1 0 0 0 0\nendnode\nendmodelgeom {name}\ndonemodel {name}\n"
+        ),
+    )
+    .unwrap();
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let mut utc = CreatureLook::new(1).to_utc();
+    for side in ["LBicep", "RBicep"] {
+        utc.set(&format!("BodyPart_{side}"), mg_gff::Value::Byte(1));
+    }
+    let elf = creature(&game, &utc, &|_| None).unwrap();
+    let drawn = |model: &str, bitmap: &str| {
+        let part = elf.parts.iter().find(|p| p.model == model).unwrap_or_else(|| panic!("{model}"));
+        part.textures.get(bitmap).cloned().unwrap_or_else(|| bitmap.to_string())
+    };
+    assert_eq!(drawn("pme0_bicepl001", "pmh0_bicepl001"), "pmh0_bicepl001");
+    assert_eq!(drawn("pme0_bicepr001", "pme0_bicepr001"), "pmh0_bicepr001");
+}
+
 /// An authored ASCII model: a small square, the dummies `nodes` (name,
 /// position) and the lights `lights` (position, colour, radius,
 /// multiplier).

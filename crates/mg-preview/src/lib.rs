@@ -321,15 +321,25 @@ impl Lookup<'_> {
         Model::read(&data).ok().map(Arc::new)
     }
 
-    /// Whether a texture name resolves to anything (MTR, DDS, TGA, PLT),
-    /// by the game's lists: cut to 16 characters, as the renderer and the
-    /// game find it (a longer name was taken for none here, and another
-    /// texture put in its place).
+    /// Whether a texture name resolves to anything (DDS, TGA, PLT, or an
+    /// MTR that names a `texture0`), by the game's lists: cut to 16
+    /// characters, as the renderer and the game find it (a longer name was
+    /// taken for none here, and another texture put in its place). An MTR
+    /// with no `texture0` (a part's normal and specular maps alone) gives
+    /// the name no image, and the game goes on to the fallbacks (GitHub
+    /// issue 37: `pfa0_bicepl001`'s own material, drawn in
+    /// `pfh0_bicepl001.plt`).
     fn has_texture(&self, name: &str) -> bool {
         let Some(r) = ResRef::cut(name) else { return false };
-        [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR]
-            .iter()
-            .any(|&t| self.game.resman.contains(&mg_resman::ResKey::new(r, t)))
+        let key = |t| mg_resman::ResKey::new(r, t);
+        [ResType::DDS, ResType::TGA, ResType::PLT]
+            .into_iter()
+            .any(|t| self.game.resman.contains(&key(t)))
+            || self
+                .game
+                .resman
+                .get(&key(ResType::MTR))
+                .is_ok_and(|d| mg_image::mtr::Mtr::parse(&d).textures[0].is_some())
     }
 
     /// The meshes' textures (lower case).
@@ -440,7 +450,15 @@ mod tests {
             &self,
             key: &mg_resman::ResKey,
         ) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
-            panic!("{key} was read to ask whether it is there")
+            // (A material is read for its `texture0`: one with none is no
+            // texture, `no_image` here.)
+            match key.restype {
+                ResType::MTR if key.resref.as_str() == Some("no_image") => {
+                    Ok(b"texture1 normal_n\n".as_slice().into())
+                }
+                ResType::MTR => Ok(b"texture0 metal_d\n".as_slice().into()),
+                _ => panic!("{key} was read to ask whether it is there"),
+            }
         }
         fn keys(&self) -> Box<dyn Iterator<Item = mg_resman::ResKey> + '_> {
             Box::new(self.0.iter().copied())
@@ -452,7 +470,8 @@ mod tests {
 
     /// Whether a model or a texture is there is asked of the lists, not by
     /// reading it (a creature asks of every part it might wear, and a
-    /// hak's resource is read from its file each time).
+    /// hak's resource is read from its file each time); only a material
+    /// that is a name's one resource is read, for its `texture0`.
     #[test]
     fn asking_whether_a_model_or_a_texture_is_there_reads_nothing() {
         let key = |n: &str, t| mg_resman::ResKey::parse(n, t).unwrap();
@@ -462,6 +481,7 @@ mod tests {
             key("old", ResType::TGA),
             key("skin", ResType::PLT),
             key("metal", ResType::MTR),
+            key("no_image", ResType::MTR),
             key("c_drgdeep_hed_ne", ResType::DDS),
         ]);
         let mut rm = mg_resman::ResMan::new();
@@ -474,6 +494,7 @@ mod tests {
             assert!(lk.has_texture(texture), "{texture}");
         }
         assert!(!lk.has_texture("none"));
+        assert!(!lk.has_texture("no_image"), "a material with no texture0");
         // A longer name, as the game reads it: its first 16 characters.
         assert!(lk.has_texture("c_drgdeep_hed_new"));
     }
