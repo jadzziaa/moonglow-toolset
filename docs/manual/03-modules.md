@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:15:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
 ---
 
 # Modules
@@ -264,7 +264,8 @@ sword.uti`), through bags in bags too (`crate.utp › carries pouch.uti
 the encounters that spawn it, an encounter blueprint's creatures and a
 placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
 CAMP_01 › spawns boss.utc`); a change made to one of those is made to
-the creature blueprint. The command line has the same, one condition at a time:
+the creature blueprint. The command line has the same, a condition of
+each kind at once, class levels and number ranges too:
 `mg search` ([Command-line tools](11-command-line.md)).
 
 Each one found is ticked; untick those to leave out (**Tick All**,
@@ -1470,12 +1471,15 @@ changed:
 The table is a grid: the column names stay at the top and the rows'
 numbers at the left as it scrolls.
 
-- **A click** selects a cell; a double click, Enter or F2 types into it
+- **A click** selects a cell; a double click, Enter or F2 types into it,
+  and a letter or digit typed begins typing in its place, as in a
+  spreadsheet
   (Enter keeps what was typed and goes to the row below, Escape leaves
   the cell as it was); Delete empties it (`****`). The arrow keys, Tab,
   Page Up and Down, Home and End move from cell to cell.
 - **Several cells** are selected as a rectangle: Shift and the arrow
-  keys, Shift and a click, or a drag over the cells. Delete empties them
+  keys, Shift and a click, or a drag over the cells (past the grid's
+  edge, it scrolls on that way). Delete empties them
   all in one step.
 - **Ctrl+C** copies what is selected, **Ctrl+X** empties it too, and
   **Ctrl+V** pastes cells from the selection's first cell on: text with

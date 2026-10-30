@@ -745,6 +745,15 @@ pub(crate) fn run(
     let named = what.selection.selected.iter().chain(&what.selection.open);
     for s in named {
         let (key, _) = s.place();
+        if let Some(layer) = s.layer() {
+            // (A layer's copy: that layer of the game's load order has it.)
+            let rm = game.as_ref().map(|g| &g.resman);
+            let at = rm.and_then(|rm| rm.layers().iter().position(|l| l.label == layer));
+            if !at.is_some_and(|i| rm.is_some_and(|rm| rm.get_in(i, &key).is_ok())) {
+                bail!("{layer} has no {key} (`mg which {key}` lists the layers that have it)");
+            }
+            continue;
+        }
         let game_has = game.as_ref().is_some_and(|g| g.resman.get(&key).is_ok());
         if !m.contains(&key) && !(matches!(s, mg_plugin::Selected::Blueprint(_)) && game_has) {
             bail!("{key} is not in the module");

@@ -178,6 +178,7 @@ fn a_plugin_s_command_runs_on_what_is_selected() {
     assert!(fails("guard").contains("not a resource's name"));
     assert!(fails("start.git/Tile_List[0]").contains("not a list of an area's objects"));
     assert!(fails("captain.utc").contains("captain.utc is not in the module"));
+    assert!(fails("guard.utc@key:nwn_base").contains("a layer's copy is only --open"));
 }
 
 /// A plugin's folder is packed into an archive, and the archive installed

@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
 ---
 
 # Plugin API changes
@@ -190,6 +190,17 @@ changed, below, to what it was):
   language's codepage.
 - From the Domains of Dread's notes on 2.1.0 and 2.2.0, and their
   builder proposal (C1).
+
+After Moonglow 2.13.3, still as API 0.4 (only additions: a plugin that
+says `api = "0.4"` runs as it did):
+
+- An overridden copy the resource browser opened (a resource as a lower
+  layer of the load order has it) is `ctx.open`, with its type as
+  `kind` and its layer's label as `selected.layer` (it was nil); `mg
+  plugin run --open name.ext@LAYER` names one.
+- `ctx.game:gff`, `text` and `bytes` take a layer's label after the
+  name, and read that layer's copy.
+- From a builder's report on 2.0.0.
 
 ## 0.3
 

@@ -11,7 +11,9 @@ use serde_json::json;
 
 use crate::{Cli, Output};
 
-/// What `mg search` is asked; one kind of search at a time.
+/// What `mg search` is asked: one condition of each kind, all of them
+/// met by what is found (a creature with a class and a feat, an item
+/// with a property and a variable).
 #[derive(clap::Args)]
 pub(crate) struct Args {
     module: PathBuf,
@@ -42,6 +44,10 @@ pub(crate) struct Args {
     /// name).
     #[arg(long)]
     class: Option<String>,
+    /// With --class: this many levels in it, or a range (`5..10`, `10..`,
+    /// `..3`).
+    #[arg(long, requires = "class", value_name = "N|MIN..MAX")]
+    levels: Option<String>,
     /// Creatures with this feat (feat.2da: a row or its name).
     #[arg(long)]
     feat: Option<String>,
@@ -74,6 +80,16 @@ pub(crate) struct Args {
     /// Any field (or --field's) holding this whole number.
     #[arg(long, value_name = "N", conflicts_with = "text", allow_negative_numbers = true)]
     int: Option<i64>,
+    /// Any field (or --field's), whole number or float, holding a number
+    /// in this range (`5..10`, `0.5..`, `..3`; a float alone, `1.1`, that
+    /// float).
+    #[arg(
+        long,
+        value_name = "RANGE",
+        conflicts_with_all = ["text", "int"],
+        allow_negative_numbers = true
+    )]
+    number: Option<String>,
     /// Any field (or --field's) whose text contains this (case ignored;
     /// `*` as in names): strings, resrefs, every language of localized
     /// strings.
@@ -103,38 +119,25 @@ fn row(game: Option<&GameData>, table: &mg_rules::rows::RowTable, text: &str) ->
     search::row_named(&choices, table.table, text).map_err(|e| anyhow!(e))
 }
 
-/// The search asked for.
-fn what(a: &Args, game: Option<&GameData>) -> Result<Search> {
-    let kinds = [
-        a.var.is_some(),
-        a.property.is_some(),
-        a.class.is_some(),
-        a.feat.is_some(),
-        a.spell.is_some(),
-        a.skill.is_some(),
-        a.appearance.is_some(),
-        a.script.is_some(),
-        a.field.is_some() || a.int.is_some() || a.text.is_some(),
-    ];
-    match kinds.iter().filter(|k| **k).count() {
-        0 => bail!(
-            "say what to search for: --var, --property, --class, --feat, --spell, --skill, \
-             --appearance, --script, or --field, --int or --text"
-        ),
-        1 => {}
-        _ => bail!("search for one kind of thing at a time"),
+/// The conditions asked for, in the order the options are listed: what
+/// is found meets all of them.
+fn what(a: &Args, game: Option<&GameData>) -> Result<Vec<Search>> {
+    if a.var.is_some() && a.property.is_some() && a.value.is_some() {
+        bail!("--value is a variable's and a property's: search for one of them with it");
     }
     let row_of = |s: Search, text: &str| -> Result<usize> {
         row(game, &s.table().expect("a search of a table"), text)
     };
-    Ok(if let Some(name) = &a.var {
+    let mut out = Vec::new();
+    if let Some(name) = &a.var {
         let kind = a
             .var_type
             .as_deref()
             .map(|t| VarType::from_name(t).with_context(|| format!("{t}: not a variable type")))
             .transpose()?;
-        Search::Variable { name: name.clone(), kind, value: a.value.clone() }
-    } else if let Some(p) = &a.property {
+        out.push(Search::Variable { name: name.clone(), kind, value: a.value.clone() });
+    }
+    if let Some(p) = &a.property {
         let property = u16::try_from(row_of(
             Search::ItemProperty { property: 0, subtype: None, value: None, param: None },
             p,
@@ -152,7 +155,7 @@ fn what(a: &Args, game: Option<&GameData>) -> Result<Search> {
             (Some(g), Some(_)) => search::property_parts(g, property, subtype).params,
             _ => parts.params.clone(),
         };
-        Search::ItemProperty {
+        out.push(Search::ItemProperty {
             property,
             subtype,
             value: match &a.value {
@@ -163,34 +166,64 @@ fn what(a: &Args, game: Option<&GameData>) -> Result<Search> {
                 Some(v) => Some(u8::try_from(pick(&params, "the parameter", v)?)?),
                 None => None,
             },
-        }
-    } else if let Some(c) = &a.class {
-        Search::Class(row_of(Search::Class(0), c)? as i64)
-    } else if let Some(f) = &a.feat {
-        Search::Feat(row_of(Search::Feat(0), f)? as i64)
-    } else if let Some(s) = &a.spell {
-        Search::Spell(row_of(Search::Spell(0), s)? as i64)
-    } else if let Some(s) = &a.skill {
+        });
+    }
+    if let Some(c) = &a.class {
+        let class = row_of(Search::Class(0), c)? as i64;
+        out.push(match &a.levels {
+            None => Search::Class(class),
+            Some(levels) => {
+                let (min, max) = match FieldValue::number(levels).map_err(anyhow::Error::msg)? {
+                    FieldValue::Number(n) => (n, n),
+                    FieldValue::Range { min, max } => (
+                        min.map_or(1, |m| m.ceil() as i64),
+                        max.map_or(i64::from(u8::MAX), |m| m.floor() as i64),
+                    ),
+                    FieldValue::Text(_) => unreachable!("a number or a range"),
+                };
+                Search::ClassLevel { class, min, max }
+            }
+        });
+    }
+    if let Some(f) = &a.feat {
+        out.push(Search::Feat(row_of(Search::Feat(0), f)? as i64));
+    }
+    if let Some(s) = &a.spell {
+        out.push(Search::Spell(row_of(Search::Spell(0), s)? as i64));
+    }
+    if let Some(s) = &a.skill {
         let skill = row_of(Search::Skill { skill: 0, min_rank: 1 }, s)?;
-        Search::Skill { skill, min_rank: a.min_rank.unwrap_or(1) }
-    } else if let Some(r) = &a.appearance {
+        out.push(Search::Skill { skill, min_rank: a.min_rank.unwrap_or(1) });
+    }
+    if let Some(r) = &a.appearance {
         let of = match &a.of {
             Some(o) => AppearanceOf::from_name(o).with_context(|| {
                 format!("{o}: creature, placeable, door, generic-door, waypoint or item")
             })?,
             None => AppearanceOf::Creature,
         };
-        Search::Appearance { of, row: row(game, &of.table(), r)? as i64 }
-    } else if let Some(s) = &a.script {
-        Search::Script(s.clone())
-    } else {
-        let value = match (a.int, &a.text) {
-            (Some(n), _) => Some(FieldValue::Number(n)),
-            (None, Some(t)) => Some(FieldValue::Text(t.clone())),
-            (None, None) => None,
+        out.push(Search::Appearance { of, row: row(game, &of.table(), r)? as i64 });
+    }
+    if let Some(s) = &a.script {
+        out.push(Search::Script(s.clone()));
+    }
+    if a.field.is_some() || a.int.is_some() || a.text.is_some() || a.number.is_some() {
+        let value = match (a.int, &a.text, &a.number) {
+            (Some(n), _, _) => Some(FieldValue::Number(n)),
+            (_, Some(t), _) => Some(FieldValue::Text(t.clone())),
+            (_, _, Some(n)) => Some(FieldValue::number(n).map_err(anyhow::Error::msg)?),
+            _ => None,
         };
-        Search::Field { label: a.field.clone(), value }
-    })
+        out.push(Search::Field { label: a.field.clone(), value });
+    }
+    if out.is_empty() {
+        bail!(
+            "say what to search for: --var, --property, --class, --feat, --spell, --skill, \
+             --appearance, --script, or --field, --int, --number or --text (several: all of \
+             them met)"
+        );
+    }
+    Ok(out)
 }
 
 pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
@@ -199,9 +232,11 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
         crate::parse_types(&a.types, ResType::is_gff, "a kind of object (utc, uti, are, …)")?;
     let mut out = Output::default();
     let game = crate::game_data_if_any(cli, &m, &mut out);
+    let mut and = what(a, game.as_ref())?;
+    let search = and.remove(0);
     let q = Query {
-        search: what(a, game.as_ref())?,
-        and: Vec::new(),
+        search,
+        and,
         types,
         placed: if a.placed {
             Some(true)

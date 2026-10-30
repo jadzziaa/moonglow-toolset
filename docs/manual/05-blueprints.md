@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:30:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
 ---
 
 # Blueprints
@@ -336,8 +336,9 @@ item stays worth no more than an item for that level may be
 staves three spells; staves, rods and wands 50 charges; scrolls and
 wands may be used by bards, wizards and sorcerers, staves by wizards and
 sorcerers. Only properties the base item can have are given. A magical
-item is made unidentified, as Aurora makes it. Torches, books, kits,
-containers, gems, gauntlets and creature items aren't made magical.
+item is made unidentified, as Aurora makes it; gems and gauntlets get no
+properties, as Aurora gives them none. Torches, books, kits,
+containers and creature items aren't made magical.
 
 ## The editors
 
@@ -774,7 +775,8 @@ has none).
 
 Triggers: Basic (generic, area transition or trap), Area Transition, Trap,
 Scripts, Advanced, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
-respawns), **Creature List** (from the creature palette, with unique
+the fewest and most creatures it spawns, 1 to 8: a minimum typed above the
+maximum raises the maximum to it, as Aurora's does; respawns), **Creature List** (from the creature palette, with unique
 creatures marked), Scripts, Advanced, Comments.
 
 ### Stores

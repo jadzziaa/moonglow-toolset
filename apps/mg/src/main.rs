@@ -1257,7 +1257,10 @@ enum PluginCmd {
         #[arg(long, requires = "event")]
         by: Option<String>,
         /// What is open in front, as in the window (`ctx.open`): named as
-        /// with --select, or any resource of the module (`old.nss`).
+        /// with --select, or any resource of the module (`old.nss`), or a
+        /// copy of a resource as one layer of the load order has it, as
+        /// the resource browser opens an overridden copy
+        /// (`nw_chest.utp@key:nwn_base`; `mg layers` names the layers).
         #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
         open: Option<String>,
         /// A form's field, `ID=VALUE` (the others take their defaults).
@@ -2307,8 +2310,15 @@ fn run(cli: &Cli) -> Result<Output> {
                 let selected = |n: &String| {
                     mg_plugin::Selected::parse(n).map_err(|e| anyhow::anyhow!("--select {e}"))
                 };
+                // (A layer's copy is only ever open, as the window has it.)
+                let chosen = |n: &String| match selected(n)? {
+                    mg_plugin::Selected::Copy { .. } => {
+                        anyhow::bail!("--select {n}: a layer's copy is only --open")
+                    }
+                    s => Ok(s),
+                };
                 let selection = mg_plugin::Selection {
-                    selected: select.iter().map(selected).collect::<Result<_>>()?,
+                    selected: select.iter().map(chosen).collect::<Result<_>>()?,
                     open: open.as_ref().map(selected).transpose()?,
                 };
                 let what = plugins::What {

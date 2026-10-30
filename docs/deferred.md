@@ -249,9 +249,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 to 10, a creature's CR adjustment -125 to 125, an area's fog clip
   distance 30 to 9999 m; weather, shadow opacity, fog amounts, a store's
   mark up, mark down and stolen goods' mark down as Moonglow had them)
-  and are Moonglow's now. Left: an item property's Chance of Appearing
-  was not measured, and Aurora's encounter raises its maximum to a
-  minimum typed above it, which Moonglow's doesn't. (S) (a second
+  and are Moonglow's now, as is the encounter's maximum raised to a
+  minimum typed above it (since 2026-10-30). Left, waiting on Aurora: an
+  item property's Chance of Appearing (Moonglow 0 to 100) typed past
+  both ends, -5 and 150, in the property's window (`TDLGPROPEDIT`'s
+  `eChance`), and what the saved `.uti`'s `ChanceAppear` holds; its
+  up-down's form says only Min 0, and the form's limits are not the
+  code's (the encounter's say 0, its code 1 to 8). (S) (a second
   builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
@@ -261,11 +265,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
   would need more of Aurora's items to settle; amulets, belts, boots,
   bracers, cloaks and rings get the armor table, where Aurora may use
-  the helmet's (they differ in Weight Reduction only); gems and
-  gauntlets aren't offered Magical (Aurora makes them unidentified with
-  no properties). Fitting again takes a few hundred of Aurora's wizard
-  items, made by driving its wizard on the oracle (M, not started in the
-  sprint's verification wave). (a second builder's review, October 2026)
+  the helmet's (they differ in Weight Reduction only). All of it waits
+  on Aurora: a few hundred of its wizard items, made by driving its
+  wizard on the oracle (Low items at each level band; later properties'
+  tiers; an amulet, belt, boots, bracers, cloak and ring each at 16-20
+  Godly, whose Weight Reduction would tell the table), read against
+  `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
+  since 2026-10-30.) (a second builder's review, October 2026)
 - **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
   free slot, To Backpack and Open Blueprint; talk-table text in its own
@@ -356,9 +362,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     conditions are all ANDed (no OR, no NOT: the window's conditions
     and `Query` both, each half a day); a conversation's lines and other
     things on no object drop out of a search with more than one
-    condition (there is no object for the others to be found on);
-    `mg search` takes one condition at a time, without class levels or
-    ranges. (S each)
+    condition (there is no object for the others to be found on). (S
+    each) (`mg search` takes a condition of each kind at once, class
+    levels and number ranges too, since 2026-10-30; still one of a kind,
+    two variables not.)
   - The module only: blueprints in haks and the game's own palettes
     aren't searched (`Kept::search` walks `Module::keys`; the haks' and
     palettes' blueprints read as the module's are would be a layer of
@@ -375,9 +382,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   could not be saved, under an error that named the String Ref). It
   reads and writes the Windows-1252 languages' text as Windows-1250
   then, as the lists did already and as a Polish game shows it, and
-  says which letters a text cannot hold. Not seen on the reporter's
-  module; with another editing language a Polish name kept in the
-  English text is still read as Windows-1252. (S)
+  says which letters a text cannot hold (`text.rs`'s `entry_codepage`).
+  Left, waiting on the reporter: String Edit on their module with Polish
+  the editing language, its names seen right and one saved. With another
+  editing language a Polish name kept in the English text is read as
+  Windows-1252, as an English game and Aurora (the system's codepage)
+  show it: Moonglow has nothing else to know the text's codepage by (settle?:
+  proposed by the sprint on 2026-10-30, the owner's to say). (S)
   (from builders' reports after 1.19.1)
 
 - **The custom palettes kept, what is left** (since a save changes only
@@ -517,15 +528,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     One builder's view, to weigh the rest by: a spreadsheet does most
     of this already, and the editor earns its place on a module's own
     tables (treasure, spawns), not on the game's.
-  - The keys: a letter typed does not begin typing in the cell (Enter,
-    F2 or a double click does); a drag selecting cells does not scroll
-    the table when it reaches its edge. (S each)
-  - Edit… › The Table of a hak, in the resource browser, was tried
-    through the functions under it (the hak opened by its file, its
-    table opened in it), not by its menu on a module with a hak. (S)
-  - The hak editor's Edit Table and the Take Rows window against two
-    haks' copies were tried through the functions under them and with
-    the game's copy, not by their own buttons. (S)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -572,21 +574,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
   2DAs and a model the game reads from the hak are shown (2026-10-29).
   (M)
-
-## Getting files out
-
-- **Overridden copies in the resource browser** open read-only as their
-  layer has them (fields, tables, text, a model as its text), copy to
-  the module and save; since 2026-10-29 Preview shows a copy's model or
-  blueprint (`Tab::ModelCopy`) and Export as Files writes the copies
-  listed, each in a folder of its layer's. Left: a plugin's selection
-  sees a copy's tab as nothing (`Moonglow::plugin_open`). Seeing it
-  needs the plugin API to name a layer: an entry with its `layer`
-  (`mg_plugin::Selected` has none) and a way to read that copy
-  (`ctx.game:bytes(name, layer)`, say), documented in the API reference
-  and its tests: an API addition, not a fix. (S–M) (a builder's report
-  on 2.0.0)
-
 
 ## Area visibility
 
@@ -1858,16 +1845,6 @@ viewer under 2). What is left:
 - **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
   13 ms a key: egui lays out the whole text again on each change. An
   editor that lays out the lines in sight would be needed. (L)
-- **The blueprint picker over a large palette** (inventory, store and
-  encounter pages) folds every blueprint once a level of its tree and
-  draws every match: searched for what all of the persistent world's
-  8,000 custom items have, the store's Inventory page takes 8.0 ms a
-  frame (`frame_perf`'s "store inventory, picker searched", 2026-10-29;
-  the budget 6.94). The matches kept by palette and search, and only
-  the rows in view drawn, would cut it. (M) Dragging objects copies the
-  whole area model each frame: not timed, `frame_perf` has no drag of a
-  selection (S to add). (The tiles palette searched as it is typed is
-  timed since: 5.0 ms at worst over area092's 784 tiles, in budget.)
 
 ## Written more than once (the review of 2026-10-21)
 

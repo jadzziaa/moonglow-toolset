@@ -345,11 +345,16 @@ pub enum Selected {
     /// Another resource, in its editor (only as what is open: a script, a
     /// conversation).
     Resource(ResKey),
+    /// A copy of a resource as one layer of the game's load order has it,
+    /// by the layer's label (`hak:castle`, `key:nwn_base`): the resource
+    /// browser's overridden copies, open read-only (only as what is open).
+    Copy { key: ResKey, layer: String },
 }
 
 impl Selected {
     /// What it is, as a command's `for` names it (`placeable`, `area`); a
-    /// resource that is neither, by its type (`nss`, `dlg`).
+    /// resource that is neither, and a layer's copy, by its type (`nss`,
+    /// `dlg`, `utc`).
     pub fn kind(&self) -> String {
         match self {
             Selected::Object { kind, .. } => kind.name().to_string(),
@@ -358,7 +363,9 @@ impl Selected {
                 None => key.restype.extension().unwrap_or_default().to_string(),
             },
             Selected::Area(_) => "area".to_string(),
-            Selected::Resource(key) => key.restype.extension().unwrap_or_default().to_string(),
+            Selected::Resource(key) | Selected::Copy { key, .. } => {
+                key.restype.extension().unwrap_or_default().to_string()
+            }
         }
     }
 
@@ -368,26 +375,46 @@ impl Selected {
             Selected::Object { kind, .. } => Some(Target::Object(*kind)),
             Selected::Blueprint(key) => ObjectKind::from_restype(key.restype).map(Target::Object),
             Selected::Area(_) => Some(Target::Area),
-            Selected::Resource(_) => None,
+            Selected::Resource(_) | Selected::Copy { .. } => None,
         }
     }
 
     /// The resource it is in, and where in it (the root: `""`), as
-    /// `ctx.edit` takes them.
+    /// `ctx.edit` takes them (a layer's copy: the resource it is a copy
+    /// of, which an edit would make the module's own).
     pub fn place(&self) -> (ResKey, GffPath) {
         match self {
             Selected::Object { area, kind, index } => {
                 (ResKey::new(*area, ResType::GIT), GffPath::root().item(kind.list(), *index))
             }
-            Selected::Blueprint(key) | Selected::Resource(key) => (*key, GffPath::root()),
+            Selected::Blueprint(key) | Selected::Resource(key) | Selected::Copy { key, .. } => {
+                (*key, GffPath::root())
+            }
             Selected::Area(area) => (ResKey::new(*area, ResType::ARE), GffPath::root()),
+        }
+    }
+
+    /// The layer whose copy it is (by its label), for a layer's copy.
+    pub fn layer(&self) -> Option<&str> {
+        match self {
+            Selected::Copy { layer, .. } => Some(layer),
+            _ => None,
         }
     }
 
     /// What `mg plugin run --select` takes: a resource's name, and for an
     /// object placed in an area the GIT and the path to it
-    /// (`tavern.git/Placeable List[3]`).
+    /// (`tavern.git/Placeable List[3]`); a layer's copy of a resource, the
+    /// name and the layer's label (`nw_chest.utp@key:nwn_base`).
     pub fn parse(text: &str) -> Result<Selected, String> {
+        if let Some((name, layer)) = text.split_once('@') {
+            let key = ResKey::from_filename(name)
+                .ok_or_else(|| format!("{name:?} is not a resource's name (name.ext)"))?;
+            if layer.is_empty() {
+                return Err(format!("{text:?}: a copy names its layer after the @"));
+            }
+            return Ok(Selected::Copy { key, layer: layer.to_string() });
+        }
         let (name, path) = match text.find('/') {
             Some(at) => (&text[..at], &text[at..]),
             None => (text, ""),

@@ -45,8 +45,6 @@ const MARGIN: f64 = 1.25;
 /// Views known to be over the budget, by a part of their names, and the
 /// entry of `docs/deferred.md` that holds each: named, but not failed.
 const KNOWN_OVER: &[(&str, &str)] = &[
-    // 8.0 ms, 2026-10-29.
-    ("store inventory, picker searched", "The blueprint picker over a large palette"),
     // 13 to 16 ms seen whole, 21 to 28 turning, 2026-10-27.
     ("area woods (", "A dense area seen whole is still slower with the switch on"),
 ];
@@ -64,6 +62,9 @@ enum Pointer {
     Scrolls,
     /// Away from the window: nothing happens.
     Away,
+    /// Pressed at the first point, moved to the second and let go at the
+    /// last frame: a drag (of a selection, in an area's view).
+    Drags(egui::Pos2, egui::Pos2),
 }
 
 struct Report {
@@ -213,6 +214,19 @@ fn frames(
                 });
             }
             Pointer::Away => {}
+            Pointer::Drags(from, to) => {
+                let at = from.lerp(to, n as f32 / (count - 1).max(1) as f32);
+                input.events.push(egui::Event::PointerMoved(at));
+                let last = n + 1 == count;
+                if n == 0 || last {
+                    input.events.push(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed: !last,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+            }
         }
         wait(&device);
         let app = h.state_mut();
@@ -297,33 +311,90 @@ fn view_with(
         // opening, not its frame.)
         frames(h, rect, pointer, 4, &mut each);
         let f = frames(h, rect, pointer, r.count, &mut each);
-        let cpu: Vec<Duration> = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).collect();
-        let (median, worst) = (pick(cpu.clone(), 0.5), pick(cpu, 0.99));
-        let mark = if median > BUDGET {
-            "OVER"
-        } else if worst > BUDGET {
-            "spikes"
-        } else {
-            "ok"
-        };
-        println!(
-            "  {what:44} {how:8} cpu {:6.2} ms (worst {:6.2}; ui {:6.2}, tessellate {:5.2}; \
-             {:6} vertices, {} pass) gpu {:5.2} ms, again {:8} {mark}",
-            ms(median),
-            ms(worst),
-            ms(pick(f.ui.clone(), 0.5)),
-            ms(pick(f.tessellate.clone(), 0.5)),
-            f.vertices,
-            f.passes,
-            ms(pick(f.gpu.clone(), 0.5)),
-            again(f.again),
-        );
-        r.took(format!("{what} ({how})"), median);
-        if r.detail {
-            let each: Vec<String> = f.ui.iter().map(|d| format!("{:.1}", ms(*d))).collect();
-            println!("      frames: {}", each.join(" "));
-            println!("      asked for the next by: {}", f.causes.join("; "));
-        }
+        said(r, what, how, &f);
+    }
+}
+
+/// A line for a view's frames, timed one way (`how`).
+fn said(r: &mut Report, what: &str, how: &str, f: &Frames) {
+    let cpu: Vec<Duration> = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).collect();
+    let (median, worst) = (pick(cpu.clone(), 0.5), pick(cpu, 0.99));
+    let mark = if median > BUDGET {
+        "OVER"
+    } else if worst > BUDGET {
+        "spikes"
+    } else {
+        "ok"
+    };
+    println!(
+        "  {what:44} {how:8} cpu {:6.2} ms (worst {:6.2}; ui {:6.2}, tessellate {:5.2}; \
+         {:6} vertices, {} pass) gpu {:5.2} ms, again {:8} {mark}",
+        ms(median),
+        ms(worst),
+        ms(pick(f.ui.clone(), 0.5)),
+        ms(pick(f.tessellate.clone(), 0.5)),
+        f.vertices,
+        f.passes,
+        ms(pick(f.gpu.clone(), 0.5)),
+        again(f.again),
+    );
+    r.took(format!("{what} ({how})"), median);
+    if r.detail {
+        let each: Vec<String> = f.ui.iter().map(|d| format!("{:.1}", ms(*d))).collect();
+        println!("      frames: {}", each.join(" "));
+        println!("      asked for the next by: {}", f.causes.join("; "));
+    }
+}
+
+/// An object of an area in sight close up selected and dragged a few
+/// meters, and the move taken back: the frames of the
+/// drag (each moves the selection's copies in the area's model).
+fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
+    let tab = Tab::Area(area);
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) || r.shots {
+        return;
+    }
+    let Some(rect) = rect_of(h.state(), &tab) else { return };
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.pitch = 0.7;
+        o.distance = 25.0;
+    }
+    h.run_steps(2);
+    let inner = rect.shrink2(rect.size() * 0.2);
+    let Some(v) = h.state_mut().area_views.get_mut(&area) else { return };
+    let Some(m) = v.model.as_ref() else { return };
+    // (Those picked where they stand: not a sound's or a trigger's.)
+    use mg_area::ObjectKind as K;
+    let seen: Vec<_> = m
+        .objects
+        .iter()
+        .filter(|o| matches!(o.kind, K::Placeable | K::Creature | K::Waypoint | K::Item))
+        .filter(|o| v.screen_pos(o.position).is_some_and(|p| inner.contains(p)))
+        .map(|o| ((o.kind, o.index), o.position))
+        .collect();
+    let Some(&(_, at)) = seen.first() else {
+        println!("  {what}: no object in sight close up");
+        return;
+    };
+    let (Some(from), Some(to)) =
+        (v.screen_pos(at), v.screen_pos(at + glam::Vec3::new(4.0, 3.0, 0.0)))
+    else {
+        return;
+    };
+    // (One: the turning rings of others about it would turn them instead.)
+    v.selection = vec![seen[0].0];
+    let what = format!("{what} (one of {} in sight)", seen.len());
+    h.run_steps(2);
+    let f = frames(h, rect, Pointer::Drags(from, to), r.count, |_, _| {});
+    said(r, &what, "drag", &f);
+    // (The move taken back, the selection let go.)
+    h.run_steps(2);
+    let now = h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
+    assert_eq!(now.as_deref(), Some("Move"), "{what}: the drag moved the selection");
+    h.state_mut().actions.push(Action::Undo);
+    h.run_steps(2);
+    if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+        v.selection.clear();
     }
 }
 
@@ -551,6 +622,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         v.selection.clear();
         v.walkmesh = false;
     }
+    drag_selection(h, r, &format!("{name}, a selection dragged"), area);
     close(h, &tab);
 }
 

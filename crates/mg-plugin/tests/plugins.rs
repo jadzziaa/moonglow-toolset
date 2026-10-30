@@ -567,6 +567,57 @@ fn the_game_s_data_is_read() {
     assert_eq!(outcome.label, "Paladin|true|Paladin|true|false|NW_IT_TORCH001|true");
 }
 
+/// An overridden copy open in the window (the resource browser's) is
+/// `ctx.open` with its layer, and `ctx.game` reads that layer's copy, not
+/// the one the game loads.
+#[test]
+fn a_layer_s_copy_is_open_and_read() {
+    use mg_plugin::{Selected, Selection, run_console};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = &game.resman;
+    // A blueprint of which a lower layer has another copy.
+    let (copy, layers) = rm
+        .every_copy()
+        .into_iter()
+        .find(|(k, layers)| {
+            k.restype.is_gff()
+                && layers.len() > 1
+                && rm.get_in(layers[0], k).ok() != rm.get_in(layers[1], k).ok()
+        })
+        .expect("a resource the game has two copies of");
+    let label = rm.layers()[layers[1]].label.clone();
+    let lower = rm.get_in(layers[1], &copy).unwrap().into_owned();
+    let open = Selected::Copy { key: copy, layer: label.clone() };
+    assert_eq!(Selected::parse(&format!("{copy}@{label}")).unwrap(), open);
+    assert_eq!(open.target(), None);
+    let code = r#"
+        local o = ctx.open
+        local mine = ctx.game:bytes(o.resource, o.layer)
+        local loaded = ctx.game:bytes(o.resource)
+        local gff = ctx.game:gff(o.resource, o.layer)
+        return o.kind, o.layer, tostring(o.module), #mine, mine ~= loaded, type(gff),
+            tostring(select(2, pcall(function() return ctx.game:bytes(o.resource, "no such layer") end))),
+            tostring(select(2, pcall(function() return ctx.module:bytes(o.resource, o.layer) end)))
+    "#;
+    let host = Rc::new(TestHost::default());
+    let selection = Selection { selected: Vec::new(), open: Some(open) };
+    let input = Input { selection, ..Input::new(module(), Some(game.clone())) };
+    run_console(code, input, host.clone()).unwrap();
+    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    // (Strings said as written, quoted.)
+    let ext = format!("{:?}", copy.restype.extension().unwrap());
+    let expected = [ext, format!("{label:?}"), "\"false\"".into(), lower.len().to_string()];
+    assert_eq!(said[..4], expected);
+    assert_eq!(said[4..6], ["true", "\"table\""], "the layer's copy, not the one loaded");
+    assert!(said[6].contains("is not a layer of the game's load order"), "{}", said[6]);
+    assert!(said[7].contains("ctx.module has no layers"), "{}", said[7]);
+}
+
 /// 2DAs and talk tables are made, changed and written as values
 /// (`mg.twoda`, `mg.tlk`), not as text put together by hand.
 #[test]

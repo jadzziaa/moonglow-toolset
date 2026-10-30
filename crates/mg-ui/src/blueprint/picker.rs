@@ -1,7 +1,7 @@
 //! Choosing blueprints from a palette (the encounter's creatures, a store's
 //! items), and what the editors need to know about the chosen ones.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use egui::Ui;
@@ -145,12 +145,33 @@ pub(crate) fn palette_picker(
     let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
     let height =
         height.unwrap_or_else(|| (ui.clip_rect().bottom() - ui.cursor().top() - button).max(200.0));
+    // What the search finds, kept while the palette and the search are the
+    // same: it was worked out again a level of the tree at a time, every
+    // frame (8 ms over 8,000 blueprints).
+    let searched = !mg_core::text::Needle::new(&filter).is_empty();
+    let found = match (&palette, game) {
+        (Some(p), Some(game)) if searched => {
+            let kept = app.palette.kept.found.get(&(kind, custom));
+            Some(match kept {
+                Some((from, search, f)) if Arc::ptr_eq(from, p) && *search == filter => f.clone(),
+                _ => {
+                    let f = Arc::new(Found::new(p, game, &filter));
+                    let keep = (p.clone(), filter.clone(), f.clone());
+                    app.palette.kept.found.insert((kind, custom), keep);
+                    f
+                }
+            })
+        }
+        _ => None,
+    };
+    let game = app.game.as_deref();
     let list = egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(height);
     list.auto_shrink([false, true]).show(ui, |ui| {
         if let (Some(p), Some(game)) = (palette, game) {
-            let filter = mg_core::text::Needle::new(&filter);
+            let mut at =
+                Tree { game, found: found.as_deref(), chosen: &mut chosen, taken: &mut taken };
             for (i, node) in p.nodes.iter().enumerate() {
-                tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i], (kind, add));
+                at.branch(ui, node, state_id, &[i], (kind, add));
             }
         }
     });
@@ -174,6 +195,10 @@ pub(crate) struct Kept {
     /// custom), and the names.
     #[allow(clippy::type_complexity)]
     names: HashMap<BlueprintKind, ([Option<Arc<Palette>>; 2], Arc<HashMap<ResRef, String>>)>,
+    /// By kind and palette (custom or not): what a picker's search found,
+    /// with the palette and the search it was found for.
+    #[allow(clippy::type_complexity)]
+    found: HashMap<(BlueprintKind, bool), (Arc<Palette>, String, Arc<Found>)>,
 }
 
 /// A blueprint's fields: the module's, else the game's.
@@ -201,80 +226,140 @@ pub(crate) fn equip_asked_id() -> egui::Id {
     egui::Id::new("item-picker-equip-asked")
 }
 
-/// A palette branch.
-#[allow(clippy::too_many_arguments)]
-fn tree(
-    ui: &mut Ui,
-    game: &mg_rules::GameData,
-    node: &PaletteNode,
-    filter: &mg_core::text::Needle,
-    chosen: &mut Option<ResRef>,
-    taken: &mut Option<ResRef>,
-    salt: egui::Id,
-    path: &[usize],
-    (kind, add): (BlueprintKind, &str),
-) {
-    // (Every word in its name or its ResRef, as the palettes find them.)
-    let finds = |name: &str, resref: ResRef| {
-        filter.finds_in(&[&mg_core::text::fold(name), &resref.to_string().to_ascii_lowercase()])
-    };
-    fn any(
-        n: &PaletteNode,
-        game: &mg_rules::GameData,
-        finds: &dyn Fn(&str, ResRef) -> bool,
-    ) -> bool {
-        n.blueprints.iter().any(|b| finds(&b.name.text(game), b.resref))
-            || n.children.iter().any(|c| any(c, game, finds))
-    }
-    if !filter.is_empty() && !any(node, game, &finds) {
-        return;
-    }
-    // While filtering, every branch with a match is open.
-    egui::CollapsingHeader::new(node.name.text(game))
-        .id_salt((salt, path))
-        .open((!filter.is_empty()).then_some(true))
-        .show(ui, |ui| {
-            for (i, child) in node.children.iter().enumerate() {
-                let mut p = path.to_vec();
-                p.push(i);
-                tree(ui, game, child, filter, chosen, taken, salt, &p, (kind, add));
+/// What a search finds in a palette: the blueprints, and the branches
+/// that hold one (by their places in the tree).
+#[derive(Debug, Default)]
+pub(crate) struct Found {
+    blueprints: HashSet<ResRef>,
+    branches: HashSet<Vec<usize>>,
+}
+
+impl Found {
+    /// Every word of `typed` in a blueprint's name or its ResRef, as the
+    /// palettes find them.
+    fn new(p: &Palette, game: &mg_rules::GameData, typed: &str) -> Found {
+        fn walk(
+            n: &PaletteNode,
+            path: &mut Vec<usize>,
+            finds: &dyn Fn(&str, ResRef) -> bool,
+            game: &mg_rules::GameData,
+            out: &mut Found,
+        ) -> bool {
+            let mut any = false;
+            for b in &n.blueprints {
+                if finds(&b.name.text(game), b.resref) {
+                    out.blueprints.insert(b.resref);
+                    any = true;
+                }
             }
-            for b in &node.blueprints {
-                let name = b.name.text(game);
-                if !filter.is_empty() && !finds(&name, b.resref) {
-                    continue;
+            for (i, c) in n.children.iter().enumerate() {
+                path.push(i);
+                any |= walk(c, path, finds, game, out);
+                path.pop();
+            }
+            if any {
+                out.branches.insert(path.clone());
+            }
+            any
+        }
+        let filter = mg_core::text::Needle::new(typed);
+        let finds = |name: &str, resref: ResRef| {
+            filter.finds_in(&[&mg_core::text::fold(name), &resref.to_string().to_ascii_lowercase()])
+        };
+        let mut out = Found::default();
+        for (i, n) in p.nodes.iter().enumerate() {
+            walk(n, &mut vec![i], &finds, game, &mut out);
+        }
+        out
+    }
+}
+
+/// A palette's tree as a picker draws it: what the search found (none:
+/// every blueprint), the blueprint chosen and the one taken.
+struct Tree<'a> {
+    game: &'a mg_rules::GameData,
+    found: Option<&'a Found>,
+    chosen: &'a mut Option<ResRef>,
+    taken: &'a mut Option<ResRef>,
+}
+
+impl Tree<'_> {
+    /// A palette branch, at `path` in the tree.
+    fn branch(
+        &mut self,
+        ui: &mut Ui,
+        node: &PaletteNode,
+        salt: egui::Id,
+        path: &[usize],
+        (kind, add): (BlueprintKind, &str),
+    ) {
+        if self.found.is_some_and(|f| !f.branches.contains(path)) {
+            return;
+        }
+        // While searching, every branch with a match is open.
+        egui::CollapsingHeader::new(node.name.text(self.game))
+            .id_salt((salt, path))
+            .open(self.found.is_some().then_some(true))
+            .show(ui, |ui| {
+                for (i, child) in node.children.iter().enumerate() {
+                    let mut p = path.to_vec();
+                    p.push(i);
+                    self.branch(ui, child, salt, &p, (kind, add));
                 }
-                let label = match b.cr {
-                    Some(cr) => format!("{name}  (CR {cr})"),
-                    None => name,
-                };
-                let row = egui::Button::selectable(*chosen == Some(b.resref), label)
-                    .sense(egui::Sense::click_and_drag());
-                let r = ui.add(row).on_hover_text(b.resref.to_string());
-                if r.clicked() {
-                    *chosen = Some(b.resref);
-                }
-                if r.double_clicked() {
-                    *taken = Some(b.resref);
-                }
-                // An item dragged: onto a list of items to add it, onto a
-                // creature's slot to equip it.
-                if kind == BlueprintKind::Item && r.drag_started() {
-                    r.dnd_set_drag_payload(super::inventory::Dragged::Palette(b.resref));
-                }
-                r.context_menu(|ui| {
-                    if ui.button(add).clicked() {
-                        *taken = Some(b.resref);
-                        ui.close();
+                for b in &node.blueprints {
+                    if self.found.is_some_and(|f| !f.blueprints.contains(&b.resref)) {
+                        continue;
                     }
-                    // (Where the page equips: a creature's inventory.)
-                    if ui.data(|d| d.get_temp::<bool>(can_equip_id())).unwrap_or(false)
-                        && ui.button("Equip").clicked()
-                    {
-                        ui.data_mut(|d| d.insert_temp(equip_asked_id(), b.resref));
-                        ui.close();
-                    }
-                });
+                    self.row(ui, b, (kind, add));
+                }
+            });
+    }
+
+    /// A blueprint's row: out of sight, its room only (a branch may hold
+    /// thousands).
+    fn row(
+        &mut self,
+        ui: &mut Ui,
+        b: &mg_module::palette::PaletteBlueprint,
+        (kind, add): (BlueprintKind, &str),
+    ) {
+        let height = ui.spacing().interact_size.y;
+        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
+        if !ui.is_rect_visible(room) {
+            ui.allocate_space(egui::vec2(1.0, height));
+            return;
+        }
+        let name = b.name.text(self.game);
+        let label = match b.cr {
+            Some(cr) => format!("{name}  (CR {cr})"),
+            None => name,
+        };
+        let row = egui::Button::selectable(*self.chosen == Some(b.resref), label)
+            .sense(egui::Sense::click_and_drag());
+        let r = ui.add(row).on_hover_text(b.resref.to_string());
+        if r.clicked() {
+            *self.chosen = Some(b.resref);
+        }
+        if r.double_clicked() {
+            *self.taken = Some(b.resref);
+        }
+        // An item dragged: onto a list of items to add it, onto a
+        // creature's slot to equip it.
+        if kind == BlueprintKind::Item && r.drag_started() {
+            r.dnd_set_drag_payload(super::inventory::Dragged::Palette(b.resref));
+        }
+        r.context_menu(|ui| {
+            if ui.button(add).clicked() {
+                *self.taken = Some(b.resref);
+                ui.close();
+            }
+            // (Where the page equips: a creature's inventory.)
+            if ui.data(|d| d.get_temp::<bool>(can_equip_id())).unwrap_or(false)
+                && ui.button("Equip").clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(equip_asked_id(), b.resref));
+                ui.close();
             }
         });
+    }
 }

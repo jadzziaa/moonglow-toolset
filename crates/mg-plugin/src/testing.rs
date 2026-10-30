@@ -766,6 +766,9 @@ fn held(
     let mut selection = Selection::default();
     for s in &t.select {
         match Selected::parse(s) {
+            Ok(Selected::Copy { .. }) => {
+                return vec![format!("select: {s}: a layer's copy is only `open`")];
+            }
             Ok(s) => selection.selected.push(s),
             Err(e) => return vec![format!("select: {e}")],
         }

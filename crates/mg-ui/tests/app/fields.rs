@@ -445,7 +445,8 @@ fn a_placeable_s_numbers_have_arrows() {
 
 /// A number typed past a field's end is kept at Aurora's limit (measured
 /// in Aurora 89.8193.37 by typing past them, `docs/log.md` 2026-10-29): an
-/// encounter's creatures are 1 to 8.
+/// encounter's creatures are 1 to 8, and a minimum typed above the
+/// maximum raises the maximum to it, as Aurora's does.
 #[test]
 fn a_number_typed_past_aurora_s_limit_is_kept_at_it() {
     let Some((mut h, key)) = blueprint_harness("x2_golem001", "enc_limits", ResType::UTE) else {
@@ -454,6 +455,25 @@ fn a_number_typed_past_aurora_s_limit_is_kept_at_it() {
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     assert_eq!(int(&mut h, "MaxCreatures"), 4, "the golems' encounter, as the game has it");
+    assert_eq!(int(&mut h, "RecCreatures"), 2);
+    // A minimum of 6 raises the maximum of 4 to it, in one command; one
+    // of 3 leaves it.
+    let type_into = |h: &mut Harness<'_, Moonglow>, was: &str, typed: &str| {
+        h.get_all_by_value(was).next().expect("the field").click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.get_all_by_value(was).next().expect("the field in hand").type_text(typed);
+        h.run();
+        h.key_press(egui::Key::Enter);
+        h.run();
+    };
+    type_into(&mut h, "2", "6");
+    assert_eq!((int(&mut h, "RecCreatures"), int(&mut h, "MaxCreatures")), (6, 6));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!((int(&mut h, "RecCreatures"), int(&mut h, "MaxCreatures")), (2, 4));
+    type_into(&mut h, "2", "3");
+    assert_eq!((int(&mut h, "RecCreatures"), int(&mut h, "MaxCreatures")), (3, 4));
     h.get_all_by_value("4").next().expect("Maximum Creatures' field").click();
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);

@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:49:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
 ---
 
 # Differences from Aurora
@@ -88,8 +88,7 @@ it differs, it is on purpose:
 - **The Item Wizard's Magical** gives only properties the base item can
   have: Aurora's tables give ranged weapons Vampiric Regeneration and
   throwing weapons Freedom of Movement, which itemprops.2da doesn't allow
-  them. Gems and gauntlets aren't offered Magical (Aurora offers it, and
-  gives them no properties but makes them unidentified). Its random
+  them. Its random
   choices are Moonglow's own, made as Aurora's made items show (the same
   tables, strengths, number of properties and most an item is worth),
   not draw for draw.
