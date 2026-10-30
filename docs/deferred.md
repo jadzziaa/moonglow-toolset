@@ -1228,14 +1228,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
   its suite passes every probe since 2026-10-29, in Moonglow's tests
-  (`the_model_spec_suite_passes`). Left: a skin vertex with no valid bone
-  keeps its rest pose in Moonglow (`vs_skinned` in `mg-render`'s
-  `shader.wgsl`, its `total <= 0.0` branch), where the game collapses it
-  to clip-space 0 (MDL-SKIN-030; the stock `c_wings2` has 102 such
-  vertices, drawn whole in Moonglow). Waits on the client batch: a
-  creature wearing `c_wings2` in the client, to see what the game draws of
-  them (a collapse to w = 0 is not drawn alike by every GPU), then the
-  shader matched. (S once seen)
+  (`the_model_spec_suite_passes`). A skin vertex with no valid bone,
+  which the game collapses to clip-space 0 (MDL-SKIN-030), was drawn at
+  rest; seen in the client (`reading_wings_without_bones`, 2026-10-29: a
+  human with `c_wings2`, whose right wing, 102 vertices, has no bone
+  that is a node), the wing isn't there, and Moonglow draws none of such
+  a vertex's faces since (`a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn`).
+  Left: the wing it keeps stands otherwise than the client's (spread
+  where the client's hangs, seen from the side; the demon's wings beside
+  it alike in both): its pose, not looked into. (S)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project

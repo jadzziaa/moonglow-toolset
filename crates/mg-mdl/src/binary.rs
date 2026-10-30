@@ -362,7 +362,8 @@ impl<'a> Bin<'a> {
                         let at = (v * 4 + j) * 2;
                         let bone = i16::from_le_bytes([refs[at], refs[at + 1]]);
                         // A few skins (c_wings2) weight bones that map to no
-                        // node: those vertices keep their rest pose.
+                        // node: those vertices are weighed by none, and the
+                        // renderer draws none of their faces, as the client.
                         if bone >= 0 && mapped.get(bone as usize).copied().unwrap_or(false) {
                             *o = (bone as u16, weights[v * 4 + j]);
                         }
