@@ -1186,12 +1186,9 @@ impl AreaScene {
         // The model's `replace_tex`, drawn with the tile's replacement
         // (where the model has one: every tile without the field takes
         // row 0, and the game's models but one have none).
-        let replaced = loaded.gpu.model.nodes.iter().any(|n| {
-            matches!(&n.kind, mg_mdl::NodeKind::Mesh(m)
-                if m.textures[0].as_deref().is_some_and(|t| t.eq_ignore_ascii_case("replace_tex")))
-        });
+        let replaced = loaded.gpu.model.draws_texture(crate::REPLACE_TEX);
         let textures = tile.replace_texture.as_ref().filter(|_| replaced).map(|t| {
-            Arc::new(std::collections::HashMap::from([("replace_tex".to_string(), t.clone())]))
+            Arc::new(std::collections::HashMap::from([(crate::REPLACE_TEX.to_string(), t.clone())]))
         });
         instances.push(Instance {
             pose: posed.pose.clone(),

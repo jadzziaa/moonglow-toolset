@@ -3298,11 +3298,12 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
 
-/// Where the placed sounds are heard (the Sound Ranges switch): around
-/// each positional sound, level at its height, a circle of its
+/// Where the placed sounds are heard (the Sound Ranges switch), as Aurora
+/// draws it (captured 2026-10-29: a sound of distances 3 and 12, from
+/// above and pitched): about each positional sound a dotted sphere of its
 /// `MinDistance` (full volume inside) and one of its `MaxDistance` (silent
-/// outside); the selection's brighter. A sound heard everywhere in the
-/// area has none.
+/// outside), and a level circle at its height of the `MaxDistance`; the
+/// selection's brighter. A sound heard everywhere in the area has none.
 fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown: &AreaModel) {
     if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
         return;
@@ -3332,12 +3333,20 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
                 }
             }
         }
-        for (radius, width) in [(sound.min_distance, 2.0), (sound.max_distance, 1.0)] {
+        let color = Color32::from_rgba_unmultiplied(240, 220, 80, alpha);
+        for (radius, dot) in [(sound.min_distance, 1.6), (sound.max_distance, 1.2)] {
             if radius <= 0.0 {
                 continue;
             }
-            let stroke = Stroke::new(width, Color32::from_rgba_unmultiplied(240, 220, 80, alpha));
-            let points = sound_circle(o.position, radius);
+            for p in sound_sphere(o.position, radius) {
+                if let Some(at) = view.screen_pos(p) {
+                    painter.circle_filled(at, dot, color);
+                }
+            }
+        }
+        if sound.max_distance > 0.0 {
+            let stroke = Stroke::new(1.0, color);
+            let points = sound_circle(o.position, sound.max_distance);
             for k in 0..points.len() {
                 if let Some(line) = view.screen_segment(points[k], points[(k + 1) % points.len()]) {
                     painter.line_segment(line, stroke);
@@ -3359,6 +3368,35 @@ fn random_reach(sound: &mg_gff::Struct) -> Option<glam::Vec2> {
     ) / 2.0;
     (sound.integer("RandomPosition").unwrap_or(0) != 0 && reach.max_element() > 0.0)
         .then_some(reach)
+}
+
+/// The dots of a sphere of `radius` about `centre`, as Sound Ranges draws
+/// a distance: rings of dots at five heights (its middle and 30° and 60°
+/// above and below) and through its poles six ways, about a dot each
+/// 0.6 m along a ring (16 to 240 a ring).
+pub(crate) fn sound_sphere(centre: Vec3, radius: f32) -> Vec<Vec3> {
+    use std::f32::consts::{PI, TAU};
+    let dots = |length: f32| ((length / 0.6) as usize).clamp(16, 240);
+    let mut out = Vec::new();
+    for latitude in [-60f32, -30.0, 0.0, 30.0, 60.0] {
+        let (z, r) = (latitude.to_radians().sin() * radius, latitude.to_radians().cos() * radius);
+        let n = dots(TAU * r);
+        out.extend((0..n).map(|k| {
+            let a = k as f32 / n as f32 * TAU;
+            centre + Vec3::new(a.cos() * r, a.sin() * r, z)
+        }));
+    }
+    // (Each meridian a great circle through the poles.)
+    let n = dots(TAU * radius);
+    for m in 0..6 {
+        let along = m as f32 / 6.0 * PI;
+        let (cx, cy) = (along.cos(), along.sin());
+        out.extend((0..n).map(|k| {
+            let a = k as f32 / n as f32 * TAU;
+            centre + Vec3::new(cx * a.cos(), cy * a.cos(), a.sin()) * radius
+        }));
+    }
+    out
 }
 
 /// The points of a level circle around `centre`.
@@ -6949,6 +6987,25 @@ mod tests {
         let circle = sound_circle(centre, 7.0);
         assert!(circle.len() >= 32);
         assert!(circle.iter().all(|p| p.z == 1.5 && ((*p - centre).length() - 7.0).abs() < 1e-4));
+    }
+
+    /// A sound's distance is a dotted sphere about it, as Aurora draws it:
+    /// every dot on it, above and below its height, about as many as its
+    /// size calls for.
+    #[test]
+    fn a_sound_s_distance_is_a_sphere_of_dots() {
+        let centre = Vec3::new(10.0, 20.0, 1.5);
+        for radius in [3.0, 12.0] {
+            let dots = sound_sphere(centre, radius);
+            assert!(dots.iter().all(|p| ((*p - centre).length() - radius).abs() < 1e-3));
+            let top = dots.iter().map(|p| p.z).fold(f32::MIN, f32::max);
+            let bottom = dots.iter().map(|p| p.z).fold(f32::MAX, f32::min);
+            assert!((top - (1.5 + radius)).abs() < 0.05 && (bottom - (1.5 - radius)).abs() < 0.05);
+            // (Five rings and six meridians.)
+            let around = |r: f32| ((std::f32::consts::TAU * r / 0.6) as usize).clamp(16, 240);
+            assert!(dots.len() >= 6 * around(radius), "{radius}: {}", dots.len());
+        }
+        assert!(sound_sphere(centre, 12.0).len() > 2 * sound_sphere(centre, 3.0).len());
     }
 
     #[test]

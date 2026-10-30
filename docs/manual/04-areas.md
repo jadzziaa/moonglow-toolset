@@ -176,10 +176,12 @@ palette's Gallery is 🖼, the Grid ⊞.
   them. Changes to the shadow fields in Area Properties show at once.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
-- **◎ Sound Ranges**: two circles around each placed sound that is heard
-  from where it stands: at full volume inside the inner one (its minimum
-  distance), not at all outside the outer one (its maximum). The
-  selection's are brighter; a sound heard everywhere in the area has none.
+- **◎ Sound Ranges**: two spheres of dots around each placed sound that
+  is heard from where it stands, as Aurora draws them: at full volume
+  inside the inner one (its minimum distance), not at all outside the
+  outer one (its maximum), with a circle at the sound's height where the
+  outer one meets it. The selection's are brighter; a sound heard
+  everywhere in the area has none.
   A sound that plays from a random place has a rectangle too, where it
   may play: its random ranges wide and deep, about where it stands, as
   Aurora draws it. Areas opened later open as you left it.
@@ -1035,6 +1037,18 @@ goes to every tile that has it, and the ones you don't touch keep each
 tile's own value. Each tile is given only what its own model has: a
 value already in the area for a light the model hasn't is kept as it
 is. **Defaults** puts back the lighting scheme's colors and the loops.
+
+**Replacement Texture**, under the Height, is Enhanced Edition's field
+that Aurora's window hasn't got (`Tile_ReplaceTex`): what a mesh of the
+tile's model drawn with a texture named `replace_tex` is drawn with
+instead, a row of `replacetexture.2da`. It is there for a tile whose
+model has such a mesh, and greyed out for the others (of the game's own
+tiles, only `tms01_c08_01`, which no tileset uses, has one: it is for
+your own tiles). It shows the row the tile is drawn with: a tile without
+the field draws row 0. The game reads the field as the row plus one, and
+Moonglow writes it so; a tile whose value is 0, or past the table, shows
+it in red, as the game crashes as it loads the area (Verify finds such a
+tile: `tile-replace`). **Defaults** leaves it as it is.
 
 Every change in Tile Properties shows in the area **as you make it**: a
 light, a loop, the Height (each click of - or +, and each step of a

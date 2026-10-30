@@ -705,8 +705,8 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    // A replacement texture in the file (BioWare's unused `Tile_ReplaceTex`,
-    // set by hand): kept, and not in the window.
+    // A replacement texture in the file (`Tile_ReplaceTex`, set by hand)
+    // on a tile whose model has no replace_tex: kept, greyed out.
     let set = mg_edit::Edit::SetField {
         key: ResKey::new(area, ResType::ARE),
         path: mg_edit::GffPath::root().item("Tile_List", 5),
@@ -771,7 +771,9 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     // Main light 1 to colour 9, through the colour picker.
     h.state_mut().tile_props.as_mut().unwrap().main[0] = 9;
     h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
-    assert!(h.query_by_label_contains("Replacement Texture").is_none(), "no longer in the window");
+    // (No tic01 tile has a replace_tex texture: Replacement Texture is
+    // greyed out, and the file's value kept.)
+    assert!(h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
     h.run_steps(1);
     h.get_by_label("OK").click();
     h.run_steps(2);
@@ -3139,9 +3141,10 @@ fn tile_properties_changes_show_at_once() {
     h.get_by_label("Defaults").click();
     h.run_steps(2);
     let p = h.state().tile_props.clone().expect("the window stays");
-    assert_eq!(p.touched, [true; 7]);
+    // (Not the replacement texture, which Aurora's Defaults hasn't got.)
+    assert_eq!(p.touched, [true, true, true, true, true, true, true, false]);
     let now = tile_list(&mut h, area);
-    for (k, label) in mg_ui::tile_select::LIGHTS.iter().enumerate() {
+    for (k, label) in mg_ui::tile_select::FIELDS.iter().enumerate().take(7) {
         let (has, value) = match k {
             0 | 1 => (p.has_main[k], p.main[k]),
             2 | 3 => (p.has_source[k - 2], p.source[k - 2]),
@@ -3375,7 +3378,7 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     let now = tile_list(&mut h, area);
     assert_eq!(now[5].integer("Tile_Orientation"), Some(to), "turned at once");
     assert_eq!(now[5].integer("Tile_ID"), list[5].integer("Tile_ID"), "its own tile");
-    for label in mg_ui::tile_select::LIGHTS {
+    for label in mg_ui::tile_select::FIELDS {
         assert_eq!(now[5].get(label), list[5].get(label), "{label} kept");
     }
     only_changed(&list, &now, &[5]);
@@ -4373,4 +4376,135 @@ fn a_tile_s_textures_show_where_the_tile_is_looked_at() {
     h.get_by_label("diffuse of sign");
     let shots = mg_testkit::scratch_dir("ui-tile-textures");
     h.render().unwrap().save(shots.join("tileset-editor.png")).unwrap();
+}
+
+/// A 4 by 4 tms01 area whose tile 5 (tile 0 of the tileset) is the game's
+/// one model with a `replace_tex` texture (`tms01_c08_01`, a flag; its
+/// text renamed into the module) and whose `replacetexture.2da` (the
+/// module's) names three solid textures, blue, green and white; tile 5's
+/// `Tile_ReplaceTex` is `value`.
+fn replacement_area(name: &str, value: Option<u8>) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let solid = |rgb: [u8; 3]| {
+        let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 32, 8];
+        for _ in 0..64 {
+            t.extend([rgb[2], rgb[1], rgb[0], 255]);
+        }
+        t
+    };
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let set = game.resman.get(&ResKey::parse("tms01", ResType::SET).unwrap()).unwrap();
+        let set = mg_set::Tileset::parse(&set, game.language.codepage()).unwrap();
+        let name = set.tiles[0].model.to_ascii_lowercase();
+        let flag = game.resman.get(&ResKey::parse("tms01_c08_01", ResType::MDL).unwrap()).unwrap();
+        let text = String::from_utf8_lossy(&flag)
+            .replace("TMS01_C08_01", &name)
+            .replace("tms01_c08_01", &name);
+        m.set(ResKey::parse(&name, ResType::MDL).unwrap(), text.into_bytes());
+        let table =
+            "2DA V2.0\r\n\r\n   TEXTURENAME\r\n0  mgr_row0\r\n1  mgr_row1\r\n2  mgr_row2\r\n";
+        m.set(ResKey::parse("replacetexture", ResType::TWODA).unwrap(), table.as_bytes().to_vec());
+        let textures =
+            [("mgr_row0", [0, 0, 255]), ("mgr_row1", [0, 255, 0]), ("mgr_row2", [255; 3])];
+        for (t, rgb) in textures {
+            m.set(ResKey::parse(t, ResType::TGA).unwrap(), solid(rgb));
+        }
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        if let Some(v) = value {
+            let tile = &mut are.root.list_mut("Tile_List").unwrap()[5];
+            tile.set("Tile_ReplaceTex", mg_gff::Value::Byte(v));
+        }
+        m.set_gff(key, &are).unwrap();
+    };
+    area_harness_with(name, "tms01", Some(0), 4, None, &prepare)
+}
+
+/// Tile Properties' Replacement Texture (BioWare's `Tile_ReplaceTex`,
+/// back in the window as the client was seen drawing it: a builder's tile
+/// feedback, October 2026): the `replacetexture.2da` rows, the one a tile
+/// draws shown (the value's row before it, row 0 for a tile without the
+/// field), enabled where a tile's model has a `replace_tex` texture.
+#[test]
+fn tile_properties_set_a_tile_s_replacement_texture() {
+    use glam::Vec3;
+    let Some((mut h, area)) = replacement_area("tile-replace", Some(2)) else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[i].clone()
+    };
+    let replace = |h: &mut Harness<'_, Moonglow>, i: usize| tile(h, i).integer("Tile_ReplaceTex");
+    let dir = mg_testkit::scratch_dir("ui-tile-replace");
+    let (one, two) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
+    tile_properties_of(&mut h, area, &[one]);
+    h.run_steps(20);
+    h.render().unwrap().save(dir.join("tile-properties.png")).unwrap();
+    // Value 2: row 1, shown; the table's rows offered, each written as its
+    // number plus one.
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert!(props.has_replace);
+    assert_eq!(props.replace, 2);
+    assert!(!h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
+    h.get_by_value("1: mgr_row1").click();
+    h.run_steps(2);
+    h.get_by_label("2: mgr_row2").click();
+    h.run_steps(3);
+    assert_eq!(replace(&mut h, 5), Some(3), "shown in the area at once");
+    h.get_by_label("Defaults").click();
+    h.run_steps(2);
+    assert_eq!(replace(&mut h, 5), Some(3), "Defaults leaves it as it is");
+    h.get_by_label("OK").click();
+    h.run_steps(20);
+    h.render().unwrap().save(dir.join("row-2-chosen.png")).unwrap();
+    // One step to undo.
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(2);
+    assert_eq!(replace(&mut h, 5), Some(2));
+
+    // With tile 6 (no replace_tex): each tile is written only what its
+    // own model has.
+    let was6 = tile(&mut h, 6);
+    tile_properties_of(&mut h, area, &[one, two]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [5, 6]);
+    assert_eq!(props.has_each.iter().map(|f| f.replace).collect::<Vec<_>>(), [true, false]);
+    {
+        let p = h.state_mut().tile_props.as_mut().unwrap();
+        p.replace = 1;
+    }
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    assert_eq!(replace(&mut h, 5), Some(1), "row 0");
+    assert_eq!(tile(&mut h, 6), was6, "tile 6 has no replace_tex: kept as it was");
+
+    // Tile 6 alone: not enabled.
+    tile_properties_of(&mut h, area, &[two]);
+    assert!(!h.state().tile_props.as_ref().unwrap().has_replace);
+    assert!(h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
+    h.state_mut().tile_props = None;
+    h.run_steps(2);
+
+    // A value the client crashes on (0, or past the table): said so, and
+    // kept until a row is chosen.
+    for bad in [0, 4] {
+        let set = mg_edit::Edit::SetField {
+            key: ResKey::new(area, ResType::ARE),
+            path: mg_edit::GffPath::root().item("Tile_List", 5),
+            label: "Tile_ReplaceTex".into(),
+            value: Some(mg_gff::Value::Byte(bad)),
+        };
+        let set = mg_edit::Command::new("Replacement texture", vec![set]);
+        h.state_mut().actions.push(mg_ui::Action::Apply(set));
+        h.run_steps(2);
+        tile_properties_of(&mut h, area, &[one]);
+        h.get_by_value(&format!("{bad}: no row"));
+        h.get_by_label("crashes the game as the area loads");
+        if bad == 0 {
+            h.render().unwrap().save(dir.join("crash-value.png")).unwrap();
+        }
+        h.get_by_label("OK").click();
+        h.run_steps(2);
+        assert_eq!(replace(&mut h, 5), Some(i64::from(bad)), "kept: nothing chosen");
+    }
 }
