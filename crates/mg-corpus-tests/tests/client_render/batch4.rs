@@ -1000,3 +1000,50 @@ fn reading_static_placeable_emitters() {
     let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.animate = true);
     print_log(&dir);
 }
+
+/// A cut-out that is also see-through as a whole (the deferred list's
+/// "Where a cut-out is cut": Moonglow blends it, rim and all): north of
+/// the player, west to east, 1.5 m cards of `cutouts_look`'s disc (orange,
+/// its rim's alpha falling to nothing over blue) with TXI `blending
+/// punchthrough`: as it is, the mesh's `alpha 0.5`, and the mesh's
+/// `transparencyhint 1`. In the client beside Moonglow's area view.
+///
+/// Seen (2026-10-30, 89.8193.37): the `alpha 0.5` disc opaque in the
+/// client, a quarter lighter than the plain one (156, 99, 40 against 126,
+/// 79, 31 at its middle), where Moonglow blended it, the floor showing
+/// through (solid since); the transparency hint's like the plain one in
+/// both.
+#[test]
+#[ignore]
+fn reading_see_through_cut_out() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let card = |name: &str, extra: &str| {
+        format!(
+            "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+             setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             node trimesh card\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+             ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap mg_cutd\n  \
+             {extra}render 1\n  shadow 0\n  verts 4\n    -0.75 0 0.1\n    0.75 0 0.1\n    \
+             0.75 0 1.6\n    -0.75 0 1.6\n  tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  \
+             faces 2\n    0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\nendnode\n\
+             endmodelgeom {name}\ndonemodel {name}\n"
+        )
+    };
+    let (table, first) = placeables_with(&base, &[("mg_cutp", 0), ("mg_cuta", 0), ("mg_cuth", 0)]);
+    let overrides = [
+        ("mg_cutp.mdl", card("mg_cutp", "").into_bytes()),
+        ("mg_cuta.mdl", card("mg_cuta", "alpha 0.5\n  ").into_bytes()),
+        ("mg_cuth.mdl", card("mg_cuth", "transparencyhint 1\n  ").into_bytes()),
+        ("mg_cutd.tga", disc_tga()),
+        ("mg_cutd.txi", b"blending punchthrough\n".to_vec()),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0x808080, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("see_through_cut_out", "tic01", light, &overrides);
+    for (i, x) in [18.0, 20.0, 22.0].into_iter().enumerate() {
+        r.place(first + i as u32, [x, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    print_log(&dir);
+}
