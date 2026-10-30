@@ -259,8 +259,8 @@ or held by it, is left out too (fighters not carrying an item with a
 property; creatures not in an area with a variable; a blueprint not
 carrying such an item). With any, a Not still leaves out: "Fighters or
 rogues, not with Alertness". The first condition is what is looked
-for (it has no Not). Aurora's Find Instance has neither: this is
-Moonglow's own.
+for (it has no Not). The Aurora toolset's Find Instance has neither:
+this is Moonglow's own.
 
 **Look at** keeps the search to one kind of object (Items include
 those in inventories, equipment and stores) and to blueprints or placed
