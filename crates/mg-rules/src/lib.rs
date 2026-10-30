@@ -604,6 +604,9 @@ mod tests {
         let sorted =
             by_name(vec![c(0, "zarza"), c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque")]);
         assert_eq!(sorted, [c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque"), c(0, "zarza")]);
+        // The same order as indexes, the list left as it is.
+        let kept = vec![c(0, "zarza"), c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque")];
+        assert_eq!(name_order(&kept), [1, 2, 3, 0]);
     }
 
     #[test]
