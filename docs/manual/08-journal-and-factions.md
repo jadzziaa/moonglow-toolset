@@ -50,8 +50,10 @@ member, all the others turn too.
 Creatures, doors, placeables, triggers and encounters belong to a faction
 (their Advanced page). The PC faction isn't offered there: it is the
 players' alone, and the game puts a creature of it in Hostile as it
-loads (a placeable, door or trigger keeps it, and is regarded as players
-are). An object whose file has it keeps it, shown as "PC (not for
+loads, where it fights the players (a placeable, door or trigger keeps
+it, and is regarded as players are; it regards a player as hostile, a
+player it as neutral), and an encounter of it spawns nothing when a
+player enters it. An object whose file has it keeps it, shown as "PC (not for
 objects)", until another is picked, and Verify Module warns of it
 (except on a trigger: Aurora writes faction 0 for one whose blueprint
 has none, so ordinary triggers have it).

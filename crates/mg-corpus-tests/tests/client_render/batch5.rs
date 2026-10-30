@@ -949,3 +949,192 @@ fn reading_see_through_crossing() {
     let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
     eprintln!("{}", dir.display());
 }
+
+/// The entry script of [`joined_pc_faction`]: after a while, every
+/// creature and placeable of the area is written to the server's log with
+/// how it and the player regard each other.
+const PC_FACTION_ENTER: &str = r#"
+void Log(string s) { WriteTimestampedLogEntry(s); }
+void Regards(object pc)
+{
+    object area = GetArea(pc);
+    object o = GetFirstObjectInArea(area);
+    while (GetIsObjectValid(o))
+    {
+        int t = GetObjectType(o);
+        if ((t == OBJECT_TYPE_CREATURE || t == OBJECT_TYPE_PLACEABLE) && o != pc)
+            Log("MG_REGARDS " + GetTag(o) + " " + GetResRef(o)
+                + " same_faction " + IntToString(GetFactionEqual(o, pc))
+                + " it_of_pc " + IntToString(GetReputation(o, pc))
+                + " pc_of_it " + IntToString(GetReputation(pc, o))
+                + " it_enemy " + IntToString(GetIsEnemy(pc, o))
+                + " pc_enemy " + IntToString(GetIsEnemy(o, pc))
+                + " as_pc0 " + IntToString(GetFactionEqual(o, GetObjectByTag("MG_PC0_COMMONER")))
+                + " as_hostile " + IntToString(GetFactionEqual(o, GetObjectByTag("MG_HOSTILE_REF")))
+                + " as_commoner " + IntToString(GetFactionEqual(o, GetObjectByTag("MG_COMMONER_REF"))));
+        o = GetNextObjectInArea(area);
+    }
+}
+// (Read as it runs: a DelayCommand's arguments are taken when it is
+// called.)
+void LogAt(object pc)
+{
+    Log("MG_AT " + FloatToString(GetPosition(pc).x) + " " + FloatToString(GetPosition(pc).y));
+}
+void main()
+{
+    object pc = GetEnteringObject();
+    if (!GetIsPC(pc)) return;
+    Log("MG_ENTERED " + GetName(pc));
+    object area = GetArea(pc);
+    DelayCommand(8.0, LogAt(pc));
+    // (The player kept out of the fight once the encounters have spawned.)
+    DelayCommand(1.5, SetPlotFlag(pc, TRUE));
+    DelayCommand(1.5, ApplyEffectToObject(DURATION_TYPE_PERMANENT, EffectVisualEffect(VFX_DUR_CUTSCENE_INVISIBILITY), pc));
+    DelayCommand(3.0, Log("MG_AT_3"));
+    DelayCommand(3.0, Regards(pc));
+    DelayCommand(12.0, Log("MG_AT_12"));
+    DelayCommand(12.0, Regards(pc));
+    DelayCommand(13.0, Log("MG_DONE"));
+}
+"#;
+
+/// The PC faction with a player (the deferred list's "The PC faction,
+/// what's left"): a player joins a server (`mg_testkit::joined`, the owner's
+/// CD key) whose tic01 area holds, about the start (20, 20): a commoner of
+/// faction 0 (`MG_PC0_COMMONER`) and a chest of faction 0 (`MG_PC0_CHEST`),
+/// and two encounters about the start, where the player enters: kobolds
+/// (`x2_kobold001`) of faction 0 and goblins (`nw_goblingrp`) without a
+/// `Faction` field. Each creature's and placeable's regard of the player
+/// (and the player's of it) is written to the server's log
+/// (`MG_REGARDS`), printed. The character is chosen
+/// by hand (`MG_JOINED_HOLD`, `tools/aurora/xdrive.py`: Play clicked, the
+/// pointer moved off the game at once): the test waits for `MG_DONE` in
+/// the log. Beside them, far off, a goblin of Hostile (`MG_HOSTILE_REF`)
+/// and a commoner of Commoner (`MG_COMMONER_REF`), whose factions each is
+/// compared with. `MG_ENCOUNTERS` picks the encounters.
+///
+/// Seen (2026-10-30, 89.8193.37): the commoner of faction 0 is of the
+/// goblin's faction (Hostile) and regards the player as hostile (0), the
+/// player it too (0); with its scripts it fought the player and died. The
+/// chest of faction 0 regards the player as hostile (0), the player it as
+/// neutral (50), of no creature's faction. The encounter of faction 0
+/// spawns nothing (`faction0` alone too), the same of the kobolds' own
+/// faction (`kobolds`) four kobolds of Hostile, and the one without a
+/// `Faction` field its goblins, of Hostile. (A `DelayCommand`'s arguments
+/// are taken when it is called: `LogAt`.)
+#[test]
+#[ignore]
+fn joined_pc_faction() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_testkit::joined::{self, Join};
+    let Some(_) = joined::cd_key() else {
+        eprintln!("skipped: the sandboxed client has no CD key (MG_CLIENT_CDKEY)");
+        return;
+    };
+    let game = base_game();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let dir = scratch_dir("client_joined_pc_faction");
+    let (mut m, _) = build_module(&game, &dir, light);
+    m.set(
+        ResKey::parse("mg_enter", ResType::NCS).unwrap(),
+        compile(&dir, "mg_enter", PC_FACTION_ENTER),
+    );
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let bp = |name: &str, t: ResType| Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+    let at = |x: f32, y: f32| Placement { position: [x, y, 0.0], rotation: 0.0 };
+    let mut commoner =
+        instance(&placing, ResType::UTC, &bp("nw_commale", ResType::UTC).root, at(20.0, 24.0), &[])
+            .unwrap();
+    commoner.set("FactionID", Value::Word(0));
+    // (Standing still, unkillable: its scripts taken away, plot. With
+    // them, on 2026-10-30, it fought the player and died.)
+    let scripts: Vec<String> = commoner
+        .fields
+        .iter()
+        .map(|f| f.label.to_string_lossy())
+        .filter(|l| l.starts_with("Script"))
+        .collect();
+    for label in scripts {
+        commoner.set(&label, Value::resref(ResRef::EMPTY));
+    }
+    commoner.set("Plot", Value::Byte(1));
+    commoner.set("Tag", Value::String(b"MG_PC0_COMMONER".to_vec()));
+    let mut chest =
+        instance(&placing, ResType::UTP, &bp("plc_chest1", ResType::UTP).root, at(21.5, 24.0), &[])
+            .unwrap();
+    chest.set("Faction", Value::Dword(0));
+    chest.set("Tag", Value::String(b"MG_PC0_CHEST".to_vec()));
+    // References: a goblin of the Hostile faction and a commoner of the
+    // Commoner faction, standing still, unkillable, far off.
+    let reference = |name: &str, tag: &str, x: f32| {
+        let mut c =
+            instance(&placing, ResType::UTC, &bp(name, ResType::UTC).root, at(x, 36.0), &[])
+                .unwrap();
+        let scripts: Vec<String> = c
+            .fields
+            .iter()
+            .map(|f| f.label.to_string_lossy())
+            .filter(|l| l.starts_with("Script"))
+            .collect();
+        for label in scripts {
+            c.set(&label, Value::resref(ResRef::EMPTY));
+        }
+        c.set("Plot", Value::Byte(1));
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        c
+    };
+    let hostile = reference("nw_goblina", "MG_HOSTILE_REF", 6.0);
+    let common = reference("nw_commale", "MG_COMMONER_REF", 34.0);
+    git.root.set("Creature List", Value::List(vec![commoner, hostile, common]));
+    git.root.set("Placeable List", Value::List(vec![chest]));
+    let square = [[-3.0, -3.0, 0.0], [3.0, -3.0, 0.0], [3.0, 3.0, 0.0], [-3.0, 3.0, 0.0]];
+    let encounter = |blueprint: &str, tag: &str, faction: Option<u32>| {
+        let b = bp(blueprint, ResType::UTE);
+        let mut e = instance(&placing, ResType::UTE, &b.root, at(20.0, 20.0), &square).unwrap();
+        e.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        match faction {
+            Some(f) => e.set("Faction", Value::Dword(f)),
+            None => {
+                e.remove("Faction");
+            }
+        }
+        e
+    };
+    // (`MG_ENCOUNTERS`: `faction0`, `none`, `kobolds` (the kobolds' own
+    // faction kept) or `both` (the default), which encounters there are.)
+    let which = std::env::var("MG_ENCOUNTERS").unwrap_or_else(|_| "both".into());
+    let mut encounters = Vec::new();
+    if which == "both" || which == "faction0" {
+        encounters.push(encounter("x2_kobold001", "MG_ENC_FACTION0", Some(0)));
+    }
+    if which == "kobolds" {
+        encounters.push(encounter("x2_kobold001", "MG_ENC_KOBOLDS", Some(1)));
+    }
+    if which == "both" || which == "none" {
+        encounters.push(encounter("nw_goblingrp", "MG_ENC_NONE", None));
+    }
+    git.root.set("Encounter List", Value::List(encounters));
+    m.set_gff(git_key, &git).unwrap();
+    let modules = joined::server_dir(&dir).join("modules");
+    std::fs::create_dir_all(&modules).unwrap();
+    m.save_as(&ModuleLocation::Archive(modules.join("MgJoined.mod"))).unwrap();
+    std::fs::create_dir_all(joined::client_dir(&dir)).unwrap();
+    std::fs::write(
+        joined::client_dir(&dir).join("settings.tml"),
+        format!("{SETTINGS}[client]\n\t[client.identity]\n\t\tname = \"MgTester\"\n"),
+    )
+    .unwrap();
+    let j = joined::start(&dir, "MgJoined", Join::Player, None, &[]).unwrap();
+    let hold = std::env::var("MG_JOINED_HOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(240);
+    let done = j.wait_for("MG_DONE", Duration::from_secs(hold));
+    let _ = j.winshot("pc_faction_end");
+    for line in j.server.log().lines().filter(|l| l.contains("MG_")) {
+        eprintln!("{line}");
+    }
+    eprintln!("{} (done: {done})", dir.display());
+    j.stop();
+}

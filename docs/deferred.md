@@ -179,20 +179,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **The PC faction, what's left** (waits on the client): Moonglow keeps
-  objects out of faction 0 and says so where it is written (the faction
-  lists, the Store Wizard, `mg set`, the raw fields view, Verify's
-  `pc-faction`, an object with no faction too, which the server reads as
-  0: `engine_factions.rs`), as Aurora's faction lists do (a creature's
-  Faction offers Hostile, Commoner, Merchant and Defender, no PC:
-  captured 2026-10-30 in `captures/wave2/before.mod`; Aurora writes
-  faction 0 for a trigger whose blueprint has none, which is why
-  triggers are left out, the owner's decision). Not known: how an
-  object of faction 0 regards a player, or a player it (no player joins
-  a headless server); and what an encounter of faction 0, or of none,
-  gives the creatures it spawns (a player's entering spawns them). A
-  client run with a player entering an encounter settles it. (S)
-  (Jasperre's report, October 2026)
 - **The Visuals page's texture and animation pickers, what's left:**
   waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
