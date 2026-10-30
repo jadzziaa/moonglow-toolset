@@ -135,7 +135,7 @@ fn soft_model(read: bool) -> String {
 /// 200 + 3 × the emitter's number (its colour's red × 16) + a flag (0;
 /// 1: no softness uniform, the shader quality in red / 4; 2: the softness
 /// 64 or more). Number 0 paints black.
-fn patched_fsparticle(game: &GameData) -> String {
+pub(super) fn patched_fsparticle(game: &GameData) -> String {
     let src = game.resman.get_named("fsparticle", ResType::SHD).expect("fsparticle.shd");
     let src = String::from_utf8_lossy(&src).replace("\r\n", "\n");
     let end = "    gl_FragColor = FragmentColor;\n}";
@@ -163,14 +163,14 @@ fn patched_fsparticle(game: &GameData) -> String {
 
 /// What [`read_marks`] found of an emitter: its pixels, the softness's
 /// values with their pixels (the most common first), its largest flag.
-type Marks = (usize, Vec<(f32, usize)>, u8);
+pub(super) type Marks = (usize, Vec<(f32, usize)>, u8);
 
 /// Whether a pixel shows a floor particle (by its colour).
 type Shows = fn(&[u8]) -> bool;
 
 /// What [`patched_fsparticle`] painted: by emitter number, the pixels
 /// seen, the softness's values (the most common first) and the flags.
-fn read_marks(img: &Rgba) -> std::collections::BTreeMap<usize, Marks> {
+pub(super) fn read_marks(img: &Rgba) -> std::collections::BTreeMap<usize, Marks> {
     let mut seen: std::collections::BTreeMap<usize, (usize, HashMap<u32, usize>, u8)> =
         Default::default();
     for p in img.data.chunks(4) {
