@@ -1038,6 +1038,46 @@ fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
     assert!(px[0] > 200 && px[1] < 60 && px[2] < 60, "{px:?}");
 }
 
+/// The horizon's fade is its colour times its texture, laid over the sky by
+/// the texture's alpha, as the client's `fst` draws `skyfade1` (the
+/// deferred sprint's fifth client batch, `reading_sky_fade`: the band of
+/// `skyblurpoly` it shows is white, its alpha falling off; taken by its
+/// red, the band was solid).
+#[test]
+fn the_sky_fade_is_laid_over_the_sky_by_its_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    // White, a quarter opaque.
+    assets.solid("fade", [255, 255, 255, 64]);
+    let quad_with = |bitmap: Option<&str>| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = bitmap.map(Into::into);
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    // A white sky far below the camera, the fade in front of it.
+    let far = |z: f32| {
+        Mat4::from_translation(Vec3::new(0.0, 0.0, z)) * Mat4::from_scale(Vec3::splat(2000.0))
+    };
+    let scene = Scene {
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        sky: Some(Instance::new(quad_with(None), far(-500.0))),
+        sky_fade: Some((Instance::new(quad_with(Some("fade")), far(-400.0)), Vec3::X)),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let px = r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32);
+    // Red over white by a quarter: (255, 191, 191).
+    assert!(px[0] > 245 && (180..205).contains(&px[1]) && (180..205).contains(&px[2]), "{px:?}");
+}
+
 /// The scene's depths stay in the depth buffer: what a caller draws after
 /// it, tested against them, is hidden where the scene is nearer.
 #[test]
