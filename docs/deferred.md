@@ -88,23 +88,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
-  - **Lists merged by place** that have an identity of their own: an
-    inventory (`ItemList`, which could pair by `InventoryRes` and its
-    `Repos_PosX`/`Repos_Posy`), a store's panes, an encounter's
-    creatures, item properties, a creature's special abilities. Two
-    sides adding one each is a conflict today, not both kept. (S)
   - **Conversations** merge their entry and reply lists by place, and the
     links name nodes by number: two builders adding nodes to one
     conversation conflict, where renumbering one side's new nodes (and
-    the links to them) would keep both. (M)
-  - **An object both moved and retagged on one side** is no longer
-    recognized: a removed object and an added one (a conflict if the
-    other side changed it). A nearest-position match could pair it. (S)
-  - **Order:** where both sides changed a list, one side's reordering
-    (a list sorted, an area moved up the area list) is lost; additions
-    go at the end. A sequence merge would keep both. (S)
-  - **Localized strings** merge whole: one side changing the English
-    name and the other the French one is a conflict. (S)
+    the links to them: `RepliesList`, `EntriesList` and `StartingList`
+    `Index`) would keep both; a node deleted on one side renumbers every
+    node after it, so matching by place pairs the wrong nodes too, and
+    nodes would first need matching by what they are. (M)
   - **On a conflict nothing is written** and git leaves ours in the file;
     there is no file of the conflicts to edit, and no way to take one
     side for one conflict and the other for the next but `-o` from

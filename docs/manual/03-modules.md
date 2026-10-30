@@ -546,24 +546,37 @@ with it.
   4. the only object left with its blueprint and tag (so a moved object is
      still that object);
   5. the only object left with its blueprint and position (so a retagged
-     object is too).
+     object is too);
+  6. the only object left with its blueprint (so an object moved *and*
+     retagged on one side is too).
 
-  An object that was moved *and* retagged on one side is taken as
-  removed and another added. If the other side changed it, that is a
-  conflict, not a lost edit.
-- **The module's area list** is a union: the areas the base had, in its
-  order, without those a side removed, then ours' new ones, then theirs'.
+  Where two of a blueprint are left, an object both moved and retagged
+  is taken as removed and another added; if the other side changed it,
+  that is a conflict, not a lost edit.
+- **The module's area list** is a union: the areas the base had, without
+  those a side removed, and each side's new ones.
+- **Localized strings** (names, descriptions) merge language by
+  language: your English and their French of one name are both kept, and
+  a conflict is the one language both changed.
 - **Variables** merge by name and type (an int and a string of one name
   are two variables, as the game keeps them), **haks** and cached scripts
   by name, a creature's feats, classes and spells by what they are,
   equipped items by slot, a journal's quests by tag and their entries by
   number, a faction file's standings by the pair of factions.
-- **Every other list** (tiles, skills, inventories, conversation nodes,
-  item properties) is merged by place: an item is its number in the list,
-  and two items added at one place are a conflict.
+- **Inventories** merge item by item, an item being its blueprint and
+  its place in the grid (two items put in different places are both
+  kept; where they overlap is not looked at), a store's panes by pane,
+  an encounter's creatures by blueprint, an item's properties by
+  property and subtype, a creature's special abilities by spell.
+- **Every other list** (tiles, skills, conversation nodes) is merged by
+  place: an item is its number in the list, and two items added at one
+  place are a conflict.
 - A list only one side changed is that side's list as it is, order and
-  all. Where both changed one, the base's order holds; one side's moving
-  of an item is not kept.
+  all. Where both changed one of those merged item by item, the order
+  one side gave the base's items is kept (the base's, where both moved
+  them, each its own way), and each side's new items go after the item
+  they follow on that side (ours first, where both put one after the
+  same item).
 
 **The merge is written over your file (`%A`) in its own form.** A GFF is
 written as a GFF, and JSON and NWNT as `nasher unpack` writes them: keys
