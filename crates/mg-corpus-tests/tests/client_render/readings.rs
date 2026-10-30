@@ -950,6 +950,18 @@ fn reading_git_sun_uniform() {
 /// whose index lists have more triangles than their face lists, which
 /// Moonglow draws: `Mesh::drawn`) north of the player, as the client and
 /// Moonglow's area view draw them: holes where only the faces were drawn.
+///
+/// Read 2026-10-29 (89.8193.37): with the player at the tiles' corner
+/// (20, 20) the client shows the sky through the cliffs where Moonglow
+/// draws their black caps and upper faces: it fades the `tilefade` meshes
+/// about the player, as the area view's Fade Geometry leaves them out
+/// (`MG_FADE=1` draws Moonglow's so; the client fades fewer, those about
+/// the player). With the player 14 m south (`MG_PC_Y=6`) it fades none,
+/// and the black caps, the cliffs and the band open below them are
+/// Moonglow's, index lists drawn; drawn by their faces alone (the index
+/// lists left out of `mg-mdl`'s reading) the ground under the mounds has
+/// holes the client doesn't have. So the index lists are what the game
+/// draws.
 #[test]
 #[ignore]
 fn reading_facelift_cliffs() {
@@ -959,7 +971,14 @@ fn reading_facelift_cliffs() {
     for (i, id) in [(9usize, 0i32), (10, 1), (13, 2), (14, 3)] {
         tiles[i].set("Tile_ID", Value::Int(id));
     }
-    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    // (`MG_PC_Y`: the player that far north, its camera with it.)
+    if let Some(y) = std::env::var("MG_PC_Y").ok().and_then(|y| y.parse::<f32>().ok()) {
+        let mut info = r.m.info().unwrap();
+        info.root.write(&ifo::MOD_ENTRY_Y, y);
+        r.m.set_info(&info).unwrap();
+    }
+    let fade = std::env::var_os("MG_FADE").is_some();
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.fade = fade);
     eprintln!("{}", dir.display());
 }
 

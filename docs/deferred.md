@@ -1241,17 +1241,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
-- **Index lists against the client:** that the game draws a compiled
-  mesh's index list where it has more triangles than the face list
-  (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
-  files (the list reaches every vertex, the faces are its first
-  triangles, drawing it closes the holes). A client screenshot puts it
-  in doubt (2026-10-29, `reading_facelift_cliffs` with `MG_MAGENTA=1`,
-  ttf02's tiles 0 to 3): the client shows the sky through the cliff
-  tiles in places where Moonglow draws black meshes (both leave the
-  same band open below them). To settle it: Moonglow's picture of the
-  same tiles with the face lists alone beside it (`mg-mdl`, the models
-  package's). (S) (from the research notes)
 
 ## The main window and its panes
 
