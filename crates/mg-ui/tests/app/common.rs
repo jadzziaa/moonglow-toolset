@@ -65,7 +65,16 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
 /// The game's data at `root`, in English, with no user folder: read
 /// before an application is (to make a module for it).
 pub(crate) fn game_data(root: &std::path::Path) -> mg_rules::GameData {
-    mg_rules::GameData::open(&mg_resman::GameInstall::new(root, None, "en")).unwrap()
+    game_data_in(root, None)
+}
+
+/// [`game_data`] with `user` as the game's user folder (its haks and
+/// override read as the application given it reads them).
+pub(crate) fn game_data_in(
+    root: &std::path::Path,
+    user: Option<std::path::PathBuf>,
+) -> mg_rules::GameData {
+    mg_rules::GameData::open(&mg_resman::GameInstall::new(root, user, "en")).unwrap()
 }
 
 /// [`harness`] at kittest's own size, 800 by 600 points: the window as

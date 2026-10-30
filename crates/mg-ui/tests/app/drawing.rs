@@ -361,8 +361,7 @@ fn an_area_read_apart_looks_as_one_read_in_the_frame() {
 #[test]
 fn a_texture_the_gpu_refuses_is_left_out_and_told() {
     let dir = mg_testkit::scratch_dir("ui-gpu-refused");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     // A TGA 16384 pixels wide and one high, gray (uncompressed, 24 bits).
     let width: u16 = 16384;
     let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -410,8 +409,7 @@ fn a_texture_the_gpu_refuses_is_left_out_and_told() {
 #[test]
 fn reload_resources_reads_an_area_again_on_a_thread() {
     let dir = mg_testkit::scratch_dir("ui-reload-apart");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("override")).unwrap();
+    let user = user_folder(&dir, &["override"]);
     let Some((app, rs, area)) =
         area_app("reload-apart", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
     else {
@@ -820,8 +818,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     };
     let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-area-tdod-shaders");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     let names = ["tdod_shaders", "tdod_t_tap"];
     for name in names {
         let file = format!("{name}.hak");
@@ -829,8 +826,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     }
     // A module on a stock tileset, made Medieval Rural's field of TDoD's
     // `mst04` tiles 42 and 48 (trees and plants of the wind shaders).
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data_in(&root, Some(user.clone()));
     let mut rng = fastrand::Rng::with_seed(7);
     let mut m = new_module(&game, "Wind", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -857,7 +853,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     let path = dir.join("wind.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user.clone()));
     app.set_render_state(rs.clone());
     // (Off first, as the test compares the two.)
     app.settings.game_shaders = Some(false);
@@ -927,14 +923,12 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
         return;
     }
     let dir = mg_testkit::scratch_dir("ui-area-tdod-lighting");
-    let user = dir.join("user");
-    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let user = user_folder(&dir, &["hak"]);
     for name in ["tdod_shaders", "tdod_t_tap"] {
         let file = format!("{name}.hak");
         mg_testkit::link_or_copy(&haks.join(&file), &user.join("hak").join(&file)).unwrap();
     }
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data_in(&root, Some(user.clone()));
     // The area: 4 by 4 of mst04's first tiles, in a module listing the
     // haks given.
     let module = |haks: &[&str], file: &str| {
@@ -973,7 +967,7 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
             mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
-        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let mut app = game_app(&root, Some(user.clone()));
         app.set_render_state(rs.clone());
         app.settings.game_shaders = Some(on);
         app.open_module(path);
@@ -1221,7 +1215,7 @@ fn helmets_and_shields_preview_as_worn() {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
     }
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let view = |name: &str| {
         let key = ResKey::parse(name, ResType::UTI).unwrap();

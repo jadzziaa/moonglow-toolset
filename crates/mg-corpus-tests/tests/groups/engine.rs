@@ -65,6 +65,8 @@ mod engine_modules;
 mod engine_new_module;
 #[path = "../engine_object_by_tag.rs"]
 mod engine_object_by_tag;
+#[path = "../engine_placeable_walkmesh.rs"]
+mod engine_placeable_walkmesh;
 #[path = "../engine_rename.rs"]
 mod engine_rename;
 #[path = "../engine_resman.rs"]

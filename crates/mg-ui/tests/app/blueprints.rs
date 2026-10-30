@@ -131,7 +131,7 @@ fn an_area_s_model_files_are_exported() {
     let mut app = game_app_with(&root, None, dialogs);
     app.settings.no_last_area = true;
     app.open_module(&chess);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let area = ResRef::from_str("chess").unwrap();
     h.state_mut().actions.push(mg_ui::Action::ExportAreaFiles(area));
@@ -652,6 +652,62 @@ fn door_editor_sets_appearance_lock_and_transition() {
 /// report: the preview was empty, and nothing said why; Aurora's area view
 /// often crashes on one), as is a reserved row (`USER`); one with a model
 /// is not.
+/// An item's piece whose model isn't there is said under the item's base
+/// type, each one (dansen9191's report: the warning left an item's own
+/// models out), and so is a body's part under the creature's appearance.
+#[test]
+fn an_item_s_and_a_body_s_parts_without_models_are_said() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("ui-bp-part-no-model");
+    let path = sample_module(&dir);
+    let game = game_data(&root);
+    let read =
+        |name: &str, t: ResType| Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+    // The game's longsword, its blade and pommel numbered past its models.
+    let mut sword = read("nw_wswls001", ResType::UTI);
+    sword.root.set("ModelPart2", mg_gff::Value::Byte(251));
+    sword.root.set("ModelPart3", mg_gff::Value::Byte(250));
+    // The game's bandit made a human of parts, his left shin past the body's.
+    let mut man = read("nw_bandit001", ResType::UTC);
+    man.root.set("Appearance_Type", mg_gff::Value::Word(6));
+    man.root.set("BodyPart_LShin", mg_gff::Value::Byte(249));
+    drop(game);
+    let mut m = Module::open(&path).unwrap();
+    let (blade, man_key) = (
+        ResKey::parse("my_blade", ResType::UTI).unwrap(),
+        ResKey::parse("my_man", ResType::UTC).unwrap(),
+    );
+    m.set_gff(blade, &sword).unwrap();
+    m.set_gff(man_key, &man).unwrap();
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(blade)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
+    let mut h = harness(app, 1100.0, 700.0);
+    h.run_steps(3);
+    let shots = mg_testkit::scratch_dir("ui-bp-part-no-model-shot");
+    h.render().expect("render").save(shots.join("item.png")).unwrap();
+    let said = |piece: &str, field: &str| {
+        format!("No model: {piece} (its {field}) isn't in the module, its haks or the game")
+    };
+    assert!(h.query_by_label(&said("wswls_m_251", "ModelPart2")).is_some(), "the blade");
+    assert!(h.query_by_label(&said("wswls_t_250", "ModelPart3")).is_some(), "the pommel");
+    assert!(h.query_by_label_contains("wswls_b_").is_none(), "its hilt is there");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(man_key)));
+    h.run_steps(3);
+    h.render().expect("render").save(shots.join("creature.png")).unwrap();
+    assert!(
+        h.query_by_label(&said("pmh0_shinl249", "BodyPart_LShin")).is_some(),
+        "the shin under the appearance"
+    );
+}
+
 #[test]
 fn a_placeable_s_appearance_without_a_model_is_said() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -2614,8 +2670,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
         eprintln!("skipped: no game install");
         return;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(5);
     let mut m = new_module(&game, "Shop", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -2640,7 +2695,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let path = mg_testkit::scratch_dir("ui-setup-store").join("shop.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
@@ -3546,7 +3601,7 @@ fn armor_and_cloaks_are_shown_on_a_woman_when_asked() {
         eprintln!("skipped: no game install");
         return;
     };
-    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let game = game_data(&root);
     let read = |name: &str| {
         Gff::read(&game.resman.get(&ResKey::parse(name, ResType::UTI).unwrap()).unwrap())
             .unwrap()

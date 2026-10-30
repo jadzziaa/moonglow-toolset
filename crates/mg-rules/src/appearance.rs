@@ -64,6 +64,59 @@ pub enum Problem {
     /// The model the row names (lower case), which the module, its haks
     /// and the game lack.
     Missing(String),
+    /// A body of parts' skeleton (its phenotype's, lower case), which the
+    /// module, its haks and the game lack, as they lack its default
+    /// phenotype's: its parts have nothing to hang on.
+    Skeleton(String),
+    /// A model one of the object's parts names (`field`, with its number),
+    /// which the module, its haks and the game lack ([`crate::models`]).
+    PartMissing(Box<PartModel>),
+    /// A model that is there and can't be read (`field`: a part's; `None`:
+    /// the row's own), and why: what Verify finds reading the module's
+    /// and its haks' models.
+    Unreadable(Box<Unread>),
+}
+
+/// A part's model ([`Problem::PartMissing`]): the object's field with the
+/// part's number, and the model (lower case).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartModel {
+    pub field: &'static str,
+    pub model: String,
+}
+
+/// A model that is there and can't be read ([`Problem::Unreadable`]):
+/// the part's field (`None`: the row's own model), the model and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    pub field: Option<&'static str>,
+    pub model: String,
+    pub why: String,
+}
+
+impl Problem {
+    /// A problem of one of the object's parts (an item's piece, an armor's
+    /// or a body's part), not of its appearance's row: the object is
+    /// drawn, without it.
+    pub fn is_part(&self) -> bool {
+        match self {
+            Problem::PartMissing(_) => true,
+            Problem::Unreadable(u) => u.field.is_some(),
+            _ => false,
+        }
+    }
+}
+
+impl ModelProblem {
+    /// The object's field the problem is read from: a part's, or the
+    /// row's.
+    pub fn field(&self) -> &'static str {
+        match &self.problem {
+            Problem::PartMissing(p) => p.field,
+            Problem::Unreadable(u) => u.field.unwrap_or(self.at.field),
+            _ => self.at.field,
+        }
+    }
 }
 
 /// An appearance with no usable model: where it was read, and why.
@@ -88,6 +141,32 @@ impl std::fmt::Display for ModelProblem {
                 f,
                 "No model: {model} ({table}.2da row {row}, {column}) isn't in the module, its \
                  haks or the game"
+            ),
+            Problem::Skeleton(model) => write!(
+                f,
+                "No model: the skeleton {model} ({table}.2da row {row}, a body of parts) isn't \
+                 in the module, its haks or the game"
+            ),
+            Problem::PartMissing(p) => {
+                let PartModel { field, model } = &**p;
+                write!(
+                    f,
+                    "No model: {model} (its {field}) isn't in the module, its haks or the game"
+                )
+            }
+            Problem::Unreadable(u) if u.field.is_some() => {
+                let Unread { field, model, why } = &**u;
+                let field = field.unwrap_or_default();
+                write!(
+                    f,
+                    "Unreadable model: {model} (its {field}) is there and can't be read: {why}"
+                )
+            }
+            Problem::Unreadable(u) => write!(
+                f,
+                "Unreadable model: {} ({table}.2da row {row}, {column}) is there and can't be \
+                 read: {}",
+                u.model, u.why
             ),
         }
     }
@@ -169,16 +248,114 @@ impl AppearanceRow {
         }
         Ok(Some(model))
     }
+
+    /// The models the object's parts name ([`crate::models`]), of a row
+    /// that is there ([`model`](Self::model)): an item's (its pieces, a
+    /// cloak's, an armor's parts) and a body of parts' (its skeleton, its
+    /// head and parts). Those found, each with its part's field, and
+    /// those that aren't there. `tables` gives the 2DAs by name
+    /// (baseitems, cloakmodel, appearance, gender, phenotype; `None`:
+    /// not there).
+    pub fn parts<'t>(
+        &self,
+        object: &Struct,
+        tables: &dyn Fn(&str) -> Option<&'t TwoDa>,
+        resman: &ResMan,
+    ) -> PartModels {
+        use crate::models;
+        let mut out = PartModels::default();
+        let named = match self.table {
+            "baseitems" => {
+                let Some(baseitems) = tables("baseitems") else { return out };
+                models::item_models(object, baseitems, tables("cloakmodel"))
+            }
+            "appearance" => {
+                let Some(appearance) = tables("appearance") else { return out };
+                let skeletons =
+                    models::skeletons(object, appearance, tables("gender"), tables("phenotype"));
+                let Some(skeletons) = skeletons else { return out };
+                match skeletons.iter().find(|s| models::has_model(resman, s)) {
+                    Some(s) => out.found.push((self.field, s.clone())),
+                    None => {
+                        let problem = Problem::Skeleton(skeletons[0].clone());
+                        out.problems.push(ModelProblem { at: *self, problem });
+                        return out;
+                    }
+                }
+                models::body_models(object, &skeletons)
+            }
+            _ => return out,
+        };
+        let mut missing = Vec::new();
+        for n in named {
+            match n.models.iter().find(|m| models::has_model(resman, m)) {
+                Some(m) => out.found.push((n.field, m.clone())),
+                None => missing.push((n.field, n.models[0].clone())),
+            }
+        }
+        // An item with no model of its own is drawn as its base item's
+        // DefaultModel (not armor: a body wears it).
+        let item = self.table == "baseitems";
+        let armor = item
+            && usize::try_from(self.row)
+                .ok()
+                .and_then(|r| tables("baseitems")?.get(r, "ModelType"))
+                == Some("3");
+        let drawn_instead = (item && !armor && out.found.is_empty())
+            .then(|| {
+                let r = usize::try_from(self.row).ok()?;
+                let d = tables("baseitems")?.get(r, "DefaultModel")?.trim().to_ascii_lowercase();
+                models::has_model(resman, &d).then_some(d)
+            })
+            .flatten();
+        // (An item none of whose own models are there and whose
+        // DefaultModel is, is drawn as that, as the game draws the many of
+        // its own that are so: its potions, most of its miscellaneous
+        // items. Not a problem.)
+        if drawn_instead.is_some() {
+            return out;
+        }
+        for (field, model) in missing {
+            let problem = Problem::PartMissing(Box::new(PartModel { field, model }));
+            out.problems.push(ModelProblem { at: *self, problem });
+        }
+        out
+    }
+}
+
+/// The models of an object's parts ([`AppearanceRow::parts`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PartModels {
+    /// Those that are there: each part's field and its model (lower case).
+    pub found: Vec<(&'static str, String)>,
+    /// Those that aren't.
+    pub problems: Vec<ModelProblem>,
 }
 
 impl crate::GameData {
     /// [`AppearanceRow::of`] the object and [`AppearanceRow::model`] of it
     /// by the game's tables and resources: why its appearance has no
-    /// usable model, if it has none.
+    /// usable model, if it has none; else the first of its parts' models
+    /// that isn't there ([`appearance_problems`](Self::appearance_problems)).
     pub fn appearance_problem(&self, kind: ObjectKind, object: &Struct) -> Option<ModelProblem> {
-        let at = AppearanceRow::of(kind, object)?;
+        self.appearance_problems(kind, object).into_iter().next()
+    }
+
+    /// Why the object's appearance has no usable model (one problem), or
+    /// else which of the models its parts name aren't there
+    /// ([`AppearanceRow::parts`]): what the Properties' warning under its
+    /// Appearance says.
+    pub fn appearance_problems(&self, kind: ObjectKind, object: &Struct) -> Vec<ModelProblem> {
+        let Some(at) = AppearanceRow::of(kind, object) else { return Vec::new() };
         let table = self.table(at.table).ok();
-        at.model(table.as_deref(), &self.resman).err()
+        if let Err(e) = at.model(table.as_deref(), &self.resman) {
+            return vec![e];
+        }
+        let names = ["baseitems", "cloakmodel", "appearance", "gender", "phenotype"];
+        let tables: Vec<(&str, std::sync::Arc<TwoDa>)> =
+            names.iter().filter_map(|n| Some((*n, self.table(n).ok()?))).collect();
+        let lookup = |name: &str| tables.iter().find(|(n, _)| *n == name).map(|(_, t)| &**t);
+        at.parts(object, &lookup, &self.resman).problems
     }
 
     /// `choices`, a list of the rows of an object's appearance (a
@@ -254,10 +431,29 @@ mod tests {
             "appearance",
             ResType::TWODA,
             "2DA V2.0\n\n  LABEL RACE MODELTYPE\n0 Dwarf D P\n1 Badger c_badger S\n\
-             2 Ghost c_ghost99 S\n",
+             2 Ghost c_ghost99 S\n3 Gnome G P\n",
         );
         put("genericdoors", ResType::TWODA, "2DA V2.0\n\n  Label ModelName\n0 Wood door_x\n");
-        put("baseitems", ResType::TWODA, "2DA V2.0\n\n  label\n0 shortsword\n1 ****\n");
+        put(
+            "baseitems",
+            ResType::TWODA,
+            "2DA V2.0\n\n  label ItemClass ModelType DefaultModel\n\
+             0 shortsword WSwSs 2 it_bag\n1 **** **** **** ****\n2 ring IT_Ring 0 it_bag\n\
+             3 armor Armor 3 it_bag\n4 amulet IT_Amul 0 ****\n",
+        );
+        put("gender", ResType::TWODA, "2DA V2.0\n\n  LABEL GENDER\n0 Male M\n1 Female F\n");
+        put("phenotype", ResType::TWODA, "2DA V2.0\n\n  Label DefaultPhenoType\n0 Normal 0\n");
+        for model in [
+            "pmd0",
+            "pmd0_head001",
+            "wswss_b_011",
+            "wswss_m_011",
+            "it_bag",
+            "pfh0_chest012",
+            "it_ring_001",
+        ] {
+            put(model, ResType::MDL, "");
+        }
         put(
             "waypoint",
             ResType::TWODA,
@@ -317,7 +513,11 @@ mod tests {
         let creatures = game.choices("appearance", columns).unwrap();
         let marked = game.appearance_choices(ObjectKind::Creature, &creatures);
         let texts: Vec<&str> = marked.iter().map(|c| c.text.as_str()).collect();
-        assert_eq!(texts, ["Dwarf", "Badger", "Ghost  (no model)"], "a body of parts has one");
+        assert_eq!(
+            texts,
+            ["Dwarf", "Badger", "Ghost  (no model)", "Gnome  (no model)"],
+            "a body of parts by its skeleton"
+        );
         // (Row 0 of the doors is the generic door: another field's model.)
         let doors = vec![crate::Choice { row: 0, text: "Generic".into() }];
         assert_eq!(game.appearance_choices(ObjectKind::Door, &doors)[0].text, "Generic");
@@ -380,5 +580,97 @@ mod tests {
         );
         assert_eq!(problem(w, &[("Appearance", 0)]), "No such row: waypoint.2da has no row 0");
         assert_eq!(AppearanceRow::of(w, &Struct::default()), None);
+    }
+
+    /// An item's own models and a body's skeleton and parts are judged
+    /// past the row: each one that isn't there.
+    #[test]
+    fn an_item_s_and_a_body_s_parts_must_be_there() {
+        let game = crate::GameData::new(resman(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let said = |kind: ObjectKind, fields: &[(&str, i64)]| -> Vec<String> {
+            let mut s = Struct::default();
+            for (label, v) in fields {
+                s.set(label, Value::Dword(*v as u32));
+            }
+            game.appearance_problems(kind, &s).iter().map(|p| p.to_string()).collect()
+        };
+        let i = ObjectKind::Item;
+        // A short sword's top piece; its others are there.
+        let sword = [("BaseItem", 0), ("ModelPart1", 11), ("ModelPart2", 11), ("ModelPart3", 4)];
+        assert_eq!(
+            said(i, &sword),
+            ["No model: wswss_t_004 (its ModelPart3) isn't in the module, its haks or the game"]
+        );
+        // A ring with no model of its own is drawn as its DefaultModel, as
+        // the game draws its own so; an amulet's names none that is there.
+        assert_eq!(said(i, &[("BaseItem", 2), ("ModelPart1", 1)]), Vec::<String>::new());
+        assert_eq!(said(i, &[("BaseItem", 2), ("ModelPart1", 9)]), Vec::<String>::new());
+        assert_eq!(
+            said(i, &[("BaseItem", 4), ("ModelPart1", 2)]),
+            ["No model: it_amul_002 (its ModelPart1) isn't in the module, its haks or the game"]
+        );
+        // Armor: a part a man or a woman has will do; a part 0 is none.
+        let armor = [("BaseItem", 3), ("ArmorPart_Torso", 12), ("ArmorPart_Neck", 0)];
+        assert_eq!(said(i, &armor), Vec::<String>::new());
+        let p = game.appearance_problem(i, &{
+            let mut s = Struct::default();
+            s.set("BaseItem", Value::Int(3));
+            s.set("ArmorPart_RShoul", Value::Byte(7));
+            s
+        });
+        let p = p.expect("a shoulder that isn't there");
+        assert_eq!(p.field(), "ArmorPart_RShoul");
+        assert!(p.problem.is_part());
+        assert_eq!(
+            p.problem,
+            Problem::PartMissing(Box::new(PartModel {
+                field: "ArmorPart_RShoul",
+                model: "pmh0_shor007".into()
+            }))
+        );
+        // (The row first: one with none says only that.)
+        assert_eq!(said(i, &[("BaseItem", 1)]), ["No such row: baseitems.2da has no row 1"]);
+
+        // A body of parts: its skeleton, then its head and parts.
+        let c = ObjectKind::Creature;
+        assert_eq!(
+            said(c, &[("Appearance_Type", 0), ("Appearance_Head", 1)]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            said(c, &[("Appearance_Type", 0), ("Appearance_Head", 2), ("BodyPart_LShin", 1)]),
+            [
+                "No model: pmd0_shinl001 (its BodyPart_LShin) isn't in the module, its haks or the \
+                 game",
+                "No model: pmd0_head002 (its Appearance_Head) isn't in the module, its haks or the \
+                 game"
+            ]
+        );
+        let gnome = game.appearance_problem(c, &{
+            let mut s = Struct::default();
+            s.set("Appearance_Type", Value::Word(3));
+            s.set("Gender", Value::Byte(1));
+            s
+        });
+        let gnome = gnome.expect("no skeleton");
+        assert!(!gnome.problem.is_part() && gnome.field() == "Appearance_Type");
+        assert_eq!(
+            gnome.to_string(),
+            "No model: the skeleton pfg0 (appearance.2da row 3, a body of parts) isn't in the \
+             module, its haks or the game"
+        );
+        let unread = ModelProblem {
+            at: AppearanceRow::of(c, &Struct::default()).unwrap(),
+            problem: Problem::Unreadable(Box::new(Unread {
+                field: Some("Appearance_Head"),
+                model: "pmd0_head009".into(),
+                why: "truncated".into(),
+            })),
+        };
+        assert_eq!(
+            unread.to_string(),
+            "Unreadable model: pmd0_head009 (its Appearance_Head) is there and can't be read: \
+             truncated"
+        );
     }
 }

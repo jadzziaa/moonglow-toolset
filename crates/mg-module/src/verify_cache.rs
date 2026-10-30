@@ -39,6 +39,9 @@ pub(crate) struct Facts {
     /// Its faces past the limit (`Some(n)`), none past it, or why it can't
     /// be read.
     pub(crate) faces: Option<Result<Option<usize>, String>>,
+    /// Whether it was read whole (`Some(None)`) or why it couldn't be
+    /// (an object's appearance's or part's model: `object-row`).
+    pub(crate) read: Option<Option<String>>,
 }
 
 impl Facts {
@@ -48,6 +51,9 @@ impl Facts {
         }
         if other.faces.is_some() {
             self.faces = other.faces;
+        }
+        if other.read.is_some() {
+            self.read = other.read;
         }
     }
 }
@@ -106,7 +112,13 @@ fn read_facts(v: &Value) -> Option<Facts> {
         Some(Value::Object(o)) => Some(Err(o.get("error")?.as_str()?.to_string())),
         Some(_) => return None,
     };
-    Some(Facts { text, faces })
+    let read = match v.get("read") {
+        None => None,
+        Some(Value::String(s)) if s == "whole" => Some(None),
+        Some(Value::Object(o)) => Some(Some(o.get("error")?.as_str()?.to_string())),
+        Some(_) => return None,
+    };
+    Some(Facts { text, faces, read })
 }
 
 fn write_facts(f: &Facts) -> Value {
@@ -132,6 +144,15 @@ fn write_facts(f: &Facts) -> Value {
         }
         Some(Err(e)) => {
             o.insert("faces".into(), json!({ "error": e }));
+        }
+    }
+    match &f.read {
+        None => {}
+        Some(None) => {
+            o.insert("read".into(), json!("whole"));
+        }
+        Some(Some(e)) => {
+            o.insert("read".into(), json!({ "error": e }));
         }
     }
     Value::Object(o)
@@ -237,15 +258,20 @@ mod tests {
     fn facts_read_back_as_written() {
         let all = [
             Facts::default(),
-            Facts { text: Some(None), faces: Some(Ok(None)) },
+            Facts { text: Some(None), faces: Some(Ok(None)), read: Some(None) },
             Facts {
                 text: Some(Some(vec![
                     (Severity::Error, "line 3".into(), "a \"quoted\" word".into()),
                     (Severity::Warning, String::new(), "and 4 more".into()),
                 ])),
                 faces: Some(Ok(Some(12_345))),
+                read: Some(Some("truncated".into())),
             },
-            Facts { text: Some(Some(Vec::new())), faces: Some(Err("can't be read: Empty".into())) },
+            Facts {
+                text: Some(Some(Vec::new())),
+                faces: Some(Err("can't be read: Empty".into())),
+                read: None,
+            },
         ];
         for f in all {
             assert_eq!(read_facts(&write_facts(&f)), Some(f));

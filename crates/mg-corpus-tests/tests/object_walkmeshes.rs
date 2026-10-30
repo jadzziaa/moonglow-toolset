@@ -5,8 +5,9 @@
 //!
 //! Around: within 35 m (Darkness over Daggerford's cliffs reach 31 m).
 //! Tyrants of the Moonsea's `ptm_candle02.pwk` puts its mesh node at
-//! (15, 70): whether the engine honors a placeable walkmesh's node position
-//! isn't tested; Moonglow does, as it does for models.
+//! (15, 70): the engine honors a placeable walkmesh's node position
+//! (`engine_placeable_walkmesh.rs`, creatures' paths), and Moonglow draws
+//! it there, as it does for models.
 
 use glam::Vec3;
 use mg_area::walk::{ObjectWalkmeshes, Walkmesh};

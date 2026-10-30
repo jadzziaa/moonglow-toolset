@@ -650,24 +650,34 @@ impl Form<'_> {
     /// row the table lacks, one that names no model or is reserved
     /// (`USER`), or a model the module, its haks and the game lack, which
     /// Aurora's area view often crashes on.
+    ///
+    /// And past a row that has one, each model the object's parts name
+    /// that the module, its haks and the game lack ([`mg_rules::models`]):
+    /// an item's pieces (where it has a model of its own at all) and an
+    /// armor's parts, a body's skeleton, head and parts.
     pub(crate) fn model_warning(&self, ui: &mut Ui, kind: mg_rules::ObjectKind) {
         let Some(game) = self.app.game.as_deref() else { return };
-        let Some(problem) = game.appearance_problem(kind, &self.root) else { return };
-        crate::widgets::field_label(ui, "");
-        let text = egui::RichText::new(problem.to_string()).color(ui.visuals().error_fg_color);
-        let why = match kind {
-            // (The game draws no waypoint: its flag is the toolset's.)
-            mg_rules::ObjectKind::Waypoint => {
-                "The area view draws no flag for it: choose another appearance, or add the \
-                 model to a hak"
-            }
-            _ => {
-                "The game draws nothing for it, and Aurora's area view may crash on it: choose \
-                 another appearance, or add the model to a hak"
-            }
-        };
-        ui.add(egui::Label::new(text).wrap()).on_hover_text(why);
-        ui.end_row();
+        for problem in game.appearance_problems(kind, &self.root) {
+            crate::widgets::field_label(ui, "");
+            let text = egui::RichText::new(problem.to_string()).color(ui.visuals().error_fg_color);
+            let why = match kind {
+                _ if problem.problem.is_part() => {
+                    "The game draws the rest without it: choose another number for the part, \
+                     or add the model to a hak"
+                }
+                // (The game draws no waypoint: its flag is the toolset's.)
+                mg_rules::ObjectKind::Waypoint => {
+                    "The area view draws no flag for it: choose another appearance, or add the \
+                     model to a hak"
+                }
+                _ => {
+                    "The game draws nothing for it, and Aurora's area view may crash on it: \
+                     choose another appearance, or add the model to a hak"
+                }
+            };
+            ui.add(egui::Label::new(text).wrap()).on_hover_text(why);
+            ui.end_row();
+        }
     }
 
     fn id(&self, name: &str) -> egui::Id {

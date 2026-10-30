@@ -23,6 +23,10 @@ pub struct HakDoc {
     /// The resource clicked last: Shift + click selects from it to the one
     /// clicked.
     anchor: Option<ResKey>,
+    /// The load order with the hak as it is now in it, the model viewer's
+    /// to draw a model of it from ([`resources`]): made when a model is
+    /// shown, let go at a change and when the game data is to change.
+    pub(crate) resources: Option<std::sync::Arc<mg_resman::ResMan>>,
     /// The resource being renamed, and its new name as typed.
     pub rename: Option<(ResKey, String)>,
     /// The description as typed (with plain line ends).
@@ -50,8 +54,10 @@ pub(crate) enum Viewing {
     Picture(egui::TextureHandle),
     Sound(std::sync::Arc<[u8]>),
     Table(Box<mg_module::table_layers::Layered>),
-    /// Drawn in the model viewer, from the load order.
-    Model,
+    /// Drawn in the model viewer: from the load order where the game reads
+    /// this copy (`true`: it can pop out into a tab of its own), else from
+    /// the hak as it is now over the load order ([`resources`]).
+    Model(bool),
     Plain(crate::browser::Plain),
 }
 
@@ -68,7 +74,7 @@ impl Viewing {
             Viewing::Picture(_) => "picture",
             Viewing::Sound(_) => "sound",
             Viewing::Table(_) => "table",
-            Viewing::Model => "model",
+            Viewing::Model(_) => "model",
             Viewing::Plain(_) => "plain",
         }
     }
@@ -128,19 +134,22 @@ fn viewing(
                 Err(_) => plain(&data),
             }
         }
-        // Drawn where the game reads this copy (the hak is one of the
-        // module's, as saved): the viewer draws from the load order.
-        ResType::MDL
-            if app.game.as_deref().is_some_and(|g| {
+        // Drawn: from the load order where the game reads this copy (the
+        // hak is one of the module's, as saved), else from the hak as it
+        // is now over the load order (one the module doesn't list, or
+        // changed and not saved), its supermodels and textures too.
+        // (Without game data, its text: the viewer has nothing to draw
+        // it with.)
+        ResType::MDL if app.game.is_some() && mg_mdl::Model::read(&data).is_ok() => {
+            let read = app.game.as_deref().is_some_and(|g| {
                 let stem = app.haks[doc].hak.path.as_deref().and_then(|p| p.file_stem());
                 let layer = stem.map(|s| format!("hak:{}", s.to_string_lossy()));
                 g.resman.get(&key).is_ok_and(|d| *d == data[..])
                     && layer.is_some_and(|l| {
                         g.resman.origin(&key).is_some_and(|o| o.eq_ignore_ascii_case(&l))
                     })
-            }) =>
-        {
-            Viewing::Model
+            });
+            Viewing::Model(read)
         }
         _ => plain(&data),
     }
@@ -173,6 +182,7 @@ impl HakDoc {
             filter: String::new(),
             selected: BTreeSet::new(),
             anchor: None,
+            resources: None,
             rename: None,
             description: None,
             revision: 0,
@@ -224,13 +234,86 @@ impl HakDoc {
         self.rows.as_ref().map(|r| r.3.clone()).unwrap_or_default()
     }
 
+    /// Whether the load order its models are drawn from holds the game
+    /// data ([`resources`]: made again whenever that changes, so it is
+    /// the window's).
+    pub(crate) fn holds_game(&self) -> bool {
+        self.resources.as_ref().is_some_and(|rm| rm.layers().len() > 1)
+    }
+
     pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.description = None;
         let keys: BTreeSet<ResKey> = self.hak.items().iter().map(|i| i.key).collect();
         self.selected.retain(|k| keys.contains(k));
         self.viewing = None;
+        self.resources = None;
     }
+}
+
+/// A layer of the game data's load order, read through: the game's own
+/// layers under a hak being edited ([`resources`]), all of them holding
+/// the game data once.
+#[derive(Debug)]
+struct LayerOf {
+    game: std::sync::Arc<Held>,
+    at: usize,
+}
+
+/// The game data, held once for all of a load order's [`LayerOf`].
+#[derive(Debug)]
+struct Held(std::sync::Arc<mg_rules::GameData>);
+
+impl mg_resman::Container for LayerOf {
+    fn contains(&self, key: &ResKey) -> bool {
+        self.game.0.resman.layers()[self.at].container.contains(key)
+    }
+
+    fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+        self.game.0.resman.layers()[self.at].container.read(key)
+    }
+
+    fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+        self.game.0.resman.layers()[self.at].container.keys()
+    }
+
+    fn len(&self) -> usize {
+        self.game.0.resman.layers()[self.at].container.len()
+    }
+}
+
+/// The load order with hak `doc` as it is now (saved or not) among the
+/// haks, over the module, `override/` and the game, in place of its saved
+/// copy where the module lists it: what a model of it is drawn from, its
+/// supermodels and textures (`model_view`'s `Source::Hak`). Each of the
+/// game data's layers is read through, keeping its place and kind (a DDS
+/// over a TGA within the archives, as the game finds textures). Made
+/// once until the hak changes; let go with the game data
+/// ([`Moonglow::release_game_data`]), which it holds.
+pub(crate) fn resources(app: &mut Moonglow, doc: usize) -> std::sync::Arc<mg_resman::ResMan> {
+    use mg_resman::{LayerClass, ResMan, priority};
+    if let Some(made) = &app.haks[doc].resources {
+        return made.clone();
+    }
+    let hak = &app.haks[doc].hak;
+    let own = hak.path.as_deref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy());
+    let own = own.map(|s| format!("hak:{s}"));
+    let mut rm = ResMan::new();
+    // (Above the module's haks: as the first of them.)
+    rm.add(priority::HAK_USER + 1, "the hak being edited", LayerClass::Erf, hak.contents());
+    if let Some(game) = &app.game {
+        let held = std::sync::Arc::new(Held(game.clone()));
+        for (at, layer) in game.resman.layers().iter().enumerate() {
+            if own.as_deref().is_some_and(|o| layer.label.eq_ignore_ascii_case(o)) {
+                continue;
+            }
+            let through = LayerOf { game: held.clone(), at };
+            rm.add(layer.priority, layer.label.clone(), layer.class, through);
+        }
+    }
+    let rm = std::sync::Arc::new(rm);
+    app.haks[doc].resources = Some(rm.clone());
+    rm
 }
 
 fn open_tab(app: &mut Moonglow, hak: Hak) -> u32 {
@@ -680,11 +763,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 let label = table.copies[0].0.clone();
                 crate::browser::two_da(app, ui, key, Some(&label), table);
             }
-            Viewing::Model => {
+            Viewing::Model(true) => {
                 use crate::model_view::Source;
                 if crate::model_view::embedded(app, ui, Source::Resource(key)) {
                     app.actions.push(crate::Action::OpenTab(Tab::Model(key)));
                 }
+            }
+            Viewing::Model(false) => {
+                use crate::model_view::Source;
+                resources(app, i);
+                let (hak, revision) = (app.haks[i].id, app.haks[i].revision);
+                // (Its views of the hak as it was, or of a hak closed, go.)
+                let open: Vec<u32> = app.haks.iter().map(|d| d.id).collect();
+                app.model_views.retain(|s, _| match s {
+                    Source::Hak { hak: h, revision: r, .. } => {
+                        open.contains(h) && (*h != hak || *r == revision)
+                    }
+                    _ => true,
+                });
+                crate::model_view::embedded(app, ui, Source::Hak { hak, revision, key });
             }
             Viewing::Plain(plain) => crate::browser::plain_ui(ui, key, plain),
         }

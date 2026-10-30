@@ -552,6 +552,17 @@ impl Hak {
         Ok(path)
     }
 
+    /// The hak's resources as they are now, saved or not, as a layer of a
+    /// load order ([`mg_resman::ResMan::add`]): what the model viewer
+    /// draws a model of a hak the game doesn't read from. Later changes
+    /// to the hak are not in it.
+    pub fn contents(&self) -> Contents {
+        Contents {
+            archive: self.archive.clone(),
+            items: self.items.iter().map(|i| (i.key, i.source.clone())).collect(),
+        }
+    }
+
     /// A resource's bytes.
     pub fn data(&self, key: ResKey) -> Result<Vec<u8>, String> {
         let item = self.item(&key).ok_or("not in the hak")?;
@@ -673,6 +684,44 @@ pub fn write_into(path: &Path, resources: Vec<(ResKey, Source)>) -> Result<Added
     Ok(added)
 }
 
+/// A hak's resources as they were when taken ([`Hak::contents`]).
+#[derive(Debug, Clone)]
+pub struct Contents {
+    archive: Option<Arc<ErfContainer>>,
+    items: HashMap<ResKey, Source>,
+}
+
+impl Container for Contents {
+    fn contains(&self, key: &ResKey) -> bool {
+        self.items.contains_key(key)
+    }
+
+    fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, mg_resman::ResError> {
+        let failed = |message: String| mg_resman::ResError::Container {
+            path: PathBuf::from(key.to_string()),
+            message,
+        };
+        match self.items.get(key).ok_or(mg_resman::ResError::NotFound(*key))? {
+            Source::Archive => match &self.archive {
+                Some(a) => a.read(key),
+                None => Err(failed("no archive".into())),
+            },
+            Source::File(p) => std::fs::read(p)
+                .map(Cow::Owned)
+                .map_err(|e| failed(format!("{}: {e}", p.display()))),
+            Source::Bytes(b) => Ok(Cow::Borrowed(b)),
+        }
+    }
+
+    fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+        Box::new(self.items.keys().copied())
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
 impl Default for Hak {
     fn default() -> Self {
         Hak::new()
@@ -774,6 +823,20 @@ mod tests {
             back.data(ResKey::parse("plc_seat", ResType::TGA).unwrap()).unwrap(),
             b"texture"
         );
+        // Its contents as a load order's layer: the archive's and those
+        // added since, saved or not; not a later change.
+        let mut changing = Hak::open(&path).unwrap();
+        changing.add_files(&[write(&dir, "plc_new.txt", b"new")]);
+        let contents = changing.contents();
+        changing.remove(&[mdl]);
+        let seat = ResKey::parse("plc_seat", ResType::TGA).unwrap();
+        let new = ResKey::parse("plc_new", ResType::TXT).unwrap();
+        assert_eq!(contents.len(), 3);
+        assert_eq!(&*contents.read(&seat).unwrap(), b"texture");
+        assert_eq!(&*contents.read(&new).unwrap(), b"new");
+        assert_eq!(&*contents.read(&mdl).unwrap(), b"model 2", "as it was taken");
+        let none = ResKey::parse("plc_none", ResType::TXT).unwrap();
+        assert!(!contents.contains(&none) && contents.read(&none).is_err());
         let out = dir.join("out");
         assert_eq!(back.extract(&[mdl], &out).unwrap(), 1);
         assert_eq!(std::fs::read(out.join("plc_chair.mdl")).unwrap(), b"model 2");

@@ -639,7 +639,7 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     let mut app = app_with(Vec::new());
     app.area_set_dir = Some(dir.join("area-sets"));
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Edit").click();
     h.run();
@@ -725,7 +725,7 @@ fn several_areas_are_edited_together() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let are = |h: &mut Harness<'_, Moonglow>, name: &str| -> mg_gff::Struct {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -857,7 +857,7 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
     let caves: Vec<ResRef> =
         ["cave1", "cave2", "cave3"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
     app.actions.push(mg_ui::Action::OpenTab(Tab::AreasProperties(caves)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run_steps(3);
     let sources = |h: &mut Harness<'_, Moonglow>, name: &str| -> (Option<i64>, Vec<i64>) {
         let ws = h.state_mut().ws.as_mut().unwrap();

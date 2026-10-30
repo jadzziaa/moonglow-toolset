@@ -179,14 +179,15 @@ fn last_lf(set: &str, n: usize) -> String {
     format!("{}{}", &set[..at], set[at..].replace("\r\n", "\n"))
 }
 
-/// A tileset whose lines end both ways. LF lines at its head or in its
-/// middle (a section, every tile's section: thousands of lines) load and
-/// read as with CRLF. LF lines at its end may stop the module loading as a
-/// file all LF does: ttr01's last 28 lines in LF (264 bytes) did, its last
-/// 27 (251 bytes) didn't; one line of 389 bytes did, followed by 300 blank
-/// lines in CRLF too, where 200 short lines followed so didn't. CRLF in the
-/// first line alone doesn't save it. The rule the server follows is not
-/// known: Verify calls any mix a warning (`set-line-ends`).
+/// A tileset whose lines end both ways, and long lines. The server
+/// refuses (never finishes loading the module) a file with a line of more
+/// than 255 characters (its CR and LF not counted), wherever it is and
+/// however it ends; and one with more than 256 bytes after its last CRLF
+/// (a file all LF is one). Other lines in LF load and read as with CRLF:
+/// at its head, in its middle (a section, every tile's section: thousands
+/// of lines), before a last CRLF line however many. Verify says so
+/// (`set-line-ends`: an error for each of the two, a warning for a mix the
+/// server reads).
 #[test]
 fn a_tileset_whose_lines_end_both_ways() {
     let root = corpus!();
@@ -206,39 +207,76 @@ fn a_tileset_whose_lines_end_both_ways() {
         format!("{}{}", ttr01[..a].replace("\r\n", "\n"), &ttr01[a..])
     };
     let first_crlf = ttr01.replace("\r\n", "\n").replacen('\n', "\r\n", 1);
-    let long = format!("{ttr01}[MGPAD]\nX={}\n", "1".repeat(389 - 3));
+    // After the file, a section of ours: `n` short lines ("X=1"), or one
+    // line of `n` characters, each ending in `end`.
+    let lines = |n: usize, end: &str| format!("X=1{end}").repeat(n);
+    let one = |n: usize, end: &str| format!("X={}{end}", "1".repeat(n - 2));
+    let pad = |tail: String| format!("{ttr01}[MGPAD]\r\n{tail}");
+    let in_middle = |line: String| {
+        let a = ttr01.find("[GROUPS]").unwrap();
+        format!("{}[MGPAD]\r\n{line}{}", &ttr01[..a], &ttr01[a..])
+    };
     let cases = [
+        // Lines in LF: where.
         ("mgtile20", section_in_lf(&ttr01, "TILE20"), true),
         ("mgtiles", tiles_lf, true),
         ("mghead", head_lf, true),
+        ("mgfirst", first_crlf, false),
+        // After the last CRLF: 251 and 256 bytes, 257 and 264.
         ("mglast27", last_lf(&ttr01, 27), true),
         ("mglast28", last_lf(&ttr01, 28), false),
-        ("mglong", long, false),
-        ("mgfirst", first_crlf, false),
+        ("mgshort64", pad(lines(64, "\n")), true),
+        ("mgshort65", pad(lines(65, "\n")), false),
+        ("mgone255", pad(one(255, "\n")), true),
+        ("mgone256", pad(one(256, "\n")), false),
+        // Before a last CRLF line: 600 bytes in LF.
+        ("mgbefore", pad(lines(150, "\n") + "Y=1\r\n"), true),
+        // A long line, however it ends, wherever it is.
+        ("mgcrlf255", pad(one(255, "\r\n")), true),
+        ("mgcrlf256", pad(one(256, "\r\n")), false),
+        ("mgmid300", in_middle(one(300, "\r\n")), false),
+        ("mgmidlf387", in_middle(one(387, "\n")), false),
     ];
-    let mut seen = Vec::new();
-    for (name, text, loads) in cases {
-        let tail = text.len() - text.rfind('\r').unwrap_or(0);
-        let loose = text.matches('\n').count() - text.matches("\r\n").count();
-        let (r, areas) = run(&dir.join(name), &[("ttr01", String::new()), (name, text)], no_load);
-        let tiles = r.values("MG_TILES");
-        seen.push(format!(
-            "{name} ({loose} LF lines, last CR {tail} from the end): loaded {}",
-            r.finished
-        ));
-        if r.finished && loads {
-            // Read as with CRLF: the area's tiles as ttr01's.
-            let of = |a: &str| tiles.iter().find(|l| l.starts_with(&format!("{a} "))).cloned();
-            let (whole, this) = (of("ttr01"), of(&areas[1]));
-            let rest = |l: Option<String>| l.map(|l| l.split_once(' ').unwrap().1.to_string());
-            assert_eq!(rest(whole), rest(this), "{name}: {tiles:?}");
+    // (Each in a server of its own, side by side: a module that doesn't
+    // load is waited on.)
+    let seen = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for (name, text, loads) in &cases {
+            let (dir, seen, ttr01) = (&dir, &seen, &ttr01);
+            s.spawn(move || {
+                let after = text.rfind("\r\n").map_or(text.len(), |at| text.len() - at - 2);
+                let longest = text.split('\n').map(|l| l.trim_end_matches('\r').len()).max();
+                let sets = [("ttr01", String::new()), (*name, text.clone())];
+                let (r, areas) = run(&dir.join(name), &sets, no_load);
+                let mut said = format!(
+                    "{name} ({after} bytes after the last CRLF, the longest line {}): loaded {}",
+                    longest.unwrap_or(0),
+                    r.finished
+                );
+                if r.finished && *loads {
+                    // Read as with CRLF: the area's tiles as ttr01's.
+                    let tiles = r.values("MG_TILES");
+                    let of =
+                        |a: &str| tiles.iter().find(|l| l.starts_with(&format!("{a} "))).cloned();
+                    let rest =
+                        |l: Option<String>| l.map(|l| l.split_once(' ').unwrap().1.to_string());
+                    let (whole, this) = (rest(of("ttr01")), rest(of(&areas[1])));
+                    if whole.is_none() || whole != this {
+                        said += &format!("\n  ^ its tiles {this:?}, ttr01's {whole:?}");
+                    }
+                }
+                if r.finished != *loads {
+                    said += "\n  ^ not as expected";
+                }
+                let _ = ttr01;
+                seen.lock().unwrap().push(said);
+            });
         }
-        if r.finished != loads {
-            seen.push("  ^ not as expected".into());
-        }
-    }
-    let wrong: Vec<&String> = seen.iter().filter(|l| l.contains("not as expected")).collect();
-    assert!(wrong.is_empty(), "{}", seen.join("\n"));
+    });
+    let mut seen = seen.into_inner().unwrap();
+    seen.sort();
+    let wrong = seen.iter().any(|l| l.contains("  ^"));
+    assert!(!wrong, "{}", seen.join("\n"));
 }
 
 #[test]

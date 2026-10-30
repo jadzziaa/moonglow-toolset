@@ -13,7 +13,7 @@ fn insert_and_delete_keys_copy_cut_and_paste_text() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let is_input =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
@@ -87,7 +87,7 @@ fn multi_line_text_keeps_its_line_ends() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Description").click();
     h.run();
@@ -134,8 +134,7 @@ fn module_description_harness(
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h =
-        Harness::builder().with_size(size).build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, size.x, size.y);
     h.run();
     h.get_by_label("Description").click();
     h.run();
@@ -1475,7 +1474,7 @@ fn text_is_edited_in_the_chosen_language() {
 fn enter_does_what_a_dialog_s_main_button_does() {
     let root = mg_testkit::corpus!();
     let app = game_app(&root, None);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let is_input =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
@@ -1505,7 +1504,7 @@ fn enter_does_what_a_dialog_s_main_button_does() {
 fn dialogs_open_with_their_main_field_ready_to_type_in() {
     let root = mg_testkit::corpus!();
     let app = game_app(&root, None);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     // New Module: typed straight away, no click, the name is replaced...
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);

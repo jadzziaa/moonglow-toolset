@@ -35,7 +35,7 @@ fn conversation_editor_builds_and_links() {
     app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("capdlg".into());
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Create").click();
     h.run();
@@ -233,7 +233,7 @@ fn the_conversation_editor_s_text_has_its_own_size() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let heights = |h: &Harness<'_, Moonglow>| {
         let line = h.get_by_label_contains("Hello there.").rect().height();
@@ -266,7 +266,7 @@ fn conversation_search_bookmarks_and_test() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
         h.get_by_label(label).click();
@@ -402,8 +402,7 @@ fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
         eprintln!("skipped: no game install");
         return;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(6);
     let mut m = new_module(&game, "Barrel", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -426,7 +425,7 @@ fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
     let path = mg_testkit::scratch_dir("ui-popup-text").join("barrel.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.popup_text = Some(mg_ui::store_wizard::PopupText {
         area,
@@ -434,7 +433,7 @@ fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
         text: "Just an old barrel.".into(),
         name: "mg_popup".into(),
     });
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("OK").click();
     h.run();
@@ -462,7 +461,7 @@ fn conversation_lines_without_speaker_names_when_chosen() {
     app.settings.dialog_hide_names = true; // Options › Conversation Editor
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Hello there");
     assert!(h.query_by_label("[OWNER] - Hello there").is_none());
@@ -596,8 +595,7 @@ fn speaker_tags_come_from_the_module_s_creatures() {
         eprintln!("skipped: no game install");
         return;
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = game_data(&root);
     let mut rng = fastrand::Rng::with_seed(8);
     let mut m = new_module(&game, "Speakers", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -625,7 +623,7 @@ fn speaker_tags_come_from_the_module_s_creatures() {
     let path = mg_testkit::scratch_dir("ui-speaker-tags").join("speakers.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
@@ -657,7 +655,7 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
     app.open_module(&path);
     app.conversation_backups = dir.join("backups");
     app.new_dialog = Some("optdlg".into());
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = window_harness(app);
     h.run();
     h.get_by_label("Create").click();
     h.run();

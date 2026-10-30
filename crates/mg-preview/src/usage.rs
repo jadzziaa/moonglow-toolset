@@ -577,7 +577,12 @@ impl<'a> Walk<'a> {
                 for ph in &phenotypes {
                     // (A creature's head is a byte.)
                     for n in 1..=255 {
-                        let name = format!("p{g}{letter}{ph}_head{n:03}");
+                        let skeleton = mg_rules::models::skeleton(
+                            &g.to_string(),
+                            &letter.to_string(),
+                            *ph as i64,
+                        );
+                        let name = mg_rules::models::body_part_model(&skeleton, "head", n);
                         if ResKey::parse(&name, ResType::MDL)
                             .is_some_and(|k| self.rm().contains(&k))
                         {
@@ -699,7 +704,8 @@ impl<'a> Walk<'a> {
         }
         if armor {
             // (Its preview is a body wearing it: the body is no part of it.)
-            for (mdl, field) in ARMOR_PARTS {
+            let parts = mg_rules::models::BODY_PARTS.iter().map(|(p, _, a)| (*p, *a));
+            for (mdl, field) in parts.chain([mg_rules::models::ROBE]) {
                 let n = mg_rules::items::part_number(s, field).unwrap_or(0);
                 if n > 0 {
                     self.worn(&format!("{mdl}{n:03}"));
@@ -805,30 +811,6 @@ impl<'a> Walk<'a> {
         self.wearers = Some((races, phenotypes));
     }
 }
-
-/// An armor's parts: each one's model name (capart.2da `MDLNAME`) and
-/// the item's field with its number.
-const ARMOR_PARTS: [(&str, &str); 19] = [
-    ("footr", "ArmorPart_RFoot"),
-    ("footl", "ArmorPart_LFoot"),
-    ("shinr", "ArmorPart_RShin"),
-    ("shinl", "ArmorPart_LShin"),
-    ("legl", "ArmorPart_LThigh"),
-    ("legr", "ArmorPart_RThigh"),
-    ("pelvis", "ArmorPart_Pelvis"),
-    ("chest", "ArmorPart_Torso"),
-    ("belt", "ArmorPart_Belt"),
-    ("neck", "ArmorPart_Neck"),
-    ("forer", "ArmorPart_RFArm"),
-    ("forel", "ArmorPart_LFArm"),
-    ("bicepr", "ArmorPart_RBicep"),
-    ("bicepl", "ArmorPart_LBicep"),
-    ("shor", "ArmorPart_RShoul"),
-    ("shol", "ArmorPart_LShoul"),
-    ("handr", "ArmorPart_RHand"),
-    ("handl", "ArmorPart_LHand"),
-    ("robe", "ArmorPart_Robe"),
-];
 
 /// An armor part's model name, `p` + gender + race + phenotype + `_` +
 /// the part and its number (`pmh0_chest001`), in its pieces.

@@ -332,6 +332,8 @@ pub(crate) enum Keys {
     Table,
     /// A conversation's lines, in the conversation editor.
     Dialog,
+    /// The log, scrolled by them (its lines are text to select and copy).
+    Log,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

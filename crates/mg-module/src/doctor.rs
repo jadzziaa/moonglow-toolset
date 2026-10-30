@@ -180,8 +180,9 @@ impl Check {
             Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
             Check::SetRead => "a tileset can be read",
             Check::SetLineEnds => {
-                "a tileset's lines end in CRLF (with a bare LF the game's server never finishes \
-                 loading a module that uses it; with some lines in LF it may not)"
+                "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
+                 the game's server never finishes loading a module that uses it, nor with more \
+                 than 256 bytes after its last CRLF, nor with a longer line)"
             }
             Check::SetCount => "a tileset's tile and group counts match its sections",
             Check::SetHole => {
@@ -706,6 +707,9 @@ struct Doctor<'a> {
     skip: &'a Skip,
     out: Vec<Finding>,
     tables: HashMap<String, Option<TwoDa>>,
+    /// Why each model an object names couldn't be read (`None`: it was,
+    /// or it is the game's own), read once a run.
+    models_read: HashMap<ResKey, Option<String>>,
 }
 
 /// Nothing left out.
@@ -723,6 +727,7 @@ impl<'a> Doctor<'a> {
             skip: self.skip,
             out: Vec::new(),
             tables: HashMap::new(),
+            models_read: HashMap::new(),
         }
     }
 
@@ -771,6 +776,36 @@ impl<'a> Doctor<'a> {
             self.tables.insert(name.to_string(), t);
         }
         self.tables[name].as_ref()
+    }
+
+    /// Why model `name` (an object's appearance's or one of its parts')
+    /// can't be read, where it is the module's or a hak's (the game's own
+    /// are taken as they are, as a hak left out is): read whole once, and
+    /// not again while its archive is as it was.
+    fn unreadable(&mut self, name: &str) -> Option<String> {
+        let key = ResKey::parse(name, ResType::MDL)?;
+        if let Some(known) = self.models_read.get(&key) {
+            return known.clone();
+        }
+        let why = self.rm.find(&key).and_then(|layer| {
+            let l = &self.rm.layers()[layer];
+            if !is_custom(l) || self.skip.source(&l.label) {
+                return None;
+            }
+            let facts = self.known(layer, &key);
+            if let Some(read) = facts.and_then(|f| f.read.clone()) {
+                return read;
+            }
+            if let Some(Err(e)) = facts.and_then(|f| f.faces.clone()) {
+                return Some(e);
+            }
+            let data = self.rm.get(&key).ok()?;
+            let read = mg_mdl::Model::read(&data).err().map(|e| e.to_string());
+            self.learn(layer, key, Facts { read: Some(read.clone()), ..Facts::default() });
+            read
+        });
+        self.models_read.insert(key, why.clone());
+        why
     }
 
     /// Whether a 2DA row exists: within the table and with something in the
@@ -826,6 +861,7 @@ pub fn examine_groups(
         skip,
         out: Vec::new(),
         tables: HashMap::new(),
+        models_read: HashMap::new(),
     };
     // (Looked up in parallel: a module with a hundred haks has hundreds of
     // thousands, each looked for in the layers above its own. A hak left
@@ -888,6 +924,7 @@ pub fn examine_groups(
                 skip,
                 out: Vec::new(),
                 tables: std::mem::take(tables),
+                models_read: HashMap::new(),
             };
             let source = &layers[layer].label;
             match key.restype {
@@ -1102,10 +1139,19 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         skip: &NOTHING,
         out: Vec::new(),
         tables: HashMap::new(),
+        models_read: HashMap::new(),
     };
     tileset_data(&mut d, "tileset", key, data);
     d.out
 }
+
+/// The longest line of a tileset the game's server loads a module with,
+/// in characters, its CR and LF not counted (`engine_tileset_holes`).
+const MAX_SET_LINE: usize = 255;
+
+/// The most bytes after a tileset's last CRLF (lines ending in LF) the
+/// game's server loads a module with.
+const MAX_SET_TAIL: usize = 256;
 
 fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     use Severity::*;
@@ -1118,14 +1164,42 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     };
     // Lines that end in a bare LF: the game's server never finishes
     // loading the module (`engine_tileset_holes`). Some of them, where
-    // the rest end in CRLF: it loads such a file with LF lines at its head
-    // or in its middle, and not always one with them at its end (the rule
-    // isn't known).
+    // the rest end in CRLF: it reads them as CRLF ones, unless more than
+    // 256 bytes follow the file's last CRLF. And a line of more than 255
+    // characters, however it ends, stops it too.
     let lf =
         data.iter().enumerate().filter(|&(i, &b)| b == b'\n' && (i == 0 || data[i - 1] != b'\r'));
     let (bare, first) = (lf.clone().count(), lf.map(|(i, _)| i).next());
     let crlf = data.windows(2).filter(|w| w == b"\r\n").count();
-    if bare > 0 && crlf == 0 {
+    let long = data
+        .split(|&b| b == b'\n')
+        .enumerate()
+        .map(|(i, l)| (i + 1, l.strip_suffix(b"\r").unwrap_or(l).len()))
+        .find(|&(_, n)| n > MAX_SET_LINE);
+    if let Some((line, n)) = long {
+        let message = format!(
+            "line {line} is {n} characters long: the game's server never finishes loading a \
+             module that uses it (a line has at most {MAX_SET_LINE})"
+        );
+        d.push(Error, Check::SetLineEnds, source, key, format!("line {line}"), message);
+    }
+    let after_crlf = data.windows(2).rposition(|w| w == b"\r\n").map(|at| data.len() - at - 2);
+    if bare > 0
+        && let Some(after) = after_crlf.filter(|&n| n > MAX_SET_TAIL)
+    {
+        d.push(
+            Error,
+            Check::SetLineEnds,
+            source,
+            key,
+            "",
+            format!(
+                "its last {after} bytes, after its last CRLF, end in LF: the game's server \
+                 never finishes loading a module that uses it with more than {MAX_SET_TAIL} \
+                 there (save it with Windows line ends)"
+            ),
+        );
+    } else if bare > 0 && crlf == 0 {
         d.push(
             Error,
             Check::SetLineEnds,
@@ -1145,8 +1219,9 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             "",
             format!(
                 "{bare} of its lines end in LF, not CRLF (the first is line {line}): the game's \
-                 server has failed to load modules whose tileset ends in such lines (save it \
-                 with Windows line ends throughout)"
+                 server reads them as CRLF ones, but not more than {MAX_SET_TAIL} bytes of them \
+                 at the file's end (save it with Windows line ends throughout, as the game's \
+                 own are)"
             ),
         );
     }
@@ -2403,10 +2478,11 @@ fn objects(d: &mut Doctor, module: &Module) {
         walk_objects(d, &gff.root, kind, "", &mut found);
         // Placed, it breaks the area (Aurora's area view crashes on it); a
         // blueprint breaks only when placed, and a waypoint's flag nothing
-        // the game shows.
-        for (path, message) in found {
+        // the game shows. A part with no model (an item's piece, a body's
+        // part) leaves the rest drawn: a warning wherever it is.
+        for (path, message, part) in found {
             let waypoint = path.starts_with("/WaypointList[") || key.restype == ResType::UTW;
-            let severity = match key.restype == ResType::GIT && !waypoint {
+            let severity = match key.restype == ResType::GIT && !waypoint && !part {
                 true => Severity::Error,
                 false => Severity::Warning,
             };
@@ -2914,7 +2990,7 @@ fn walk_objects(
     s: &Struct,
     kind: Option<ResType>,
     path: &str,
-    out: &mut Vec<(String, String)>,
+    out: &mut Vec<(String, String, bool)>,
 ) {
     // The row the object's appearance names must exist, and the model its
     // column names too (a missing one crashes Aurora's area view), as the
@@ -2927,10 +3003,33 @@ fn walk_objects(
         // (A waypoint's flag is the toolset's alone: judged only where
         // there is a waypoint.2da to judge it by, a game.)
         let unjudged = object == Some(mg_rules::ObjectKind::Waypoint) && table.is_none();
-        if let Err(e) = at.model(table, rm)
-            && !unjudged
-        {
-            out.push((format!("{path}/{}", at.field), e.to_string()));
+        match at.model(table, rm) {
+            Err(e) if !unjudged => out.push((format!("{path}/{}", at.field), e.to_string(), false)),
+            Err(_) => {}
+            // Its parts' models (an item's pieces and armor parts, a
+            // body's skeleton and parts) must be there too, and what is
+            // there be readable (one that isn't is found only when drawn).
+            Ok(own) => {
+                let names = ["baseitems", "cloakmodel", "appearance", "gender", "phenotype"];
+                for name in names {
+                    d.table(name);
+                }
+                let tables = &d.tables;
+                let lookup = |name: &str| tables.get(name).and_then(Option::as_ref);
+                let parts = at.parts(s, &lookup, rm);
+                for p in &parts.problems {
+                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                }
+                let models = own.map(|m| (None, m));
+                let found = parts.found.into_iter().map(|(field, m)| (Some(field), m));
+                for (field, model) in models.into_iter().chain(found) {
+                    let Some(why) = d.unreadable(&model) else { continue };
+                    let unread = mg_rules::appearance::Unread { field, model, why };
+                    let problem = mg_rules::appearance::Problem::Unreadable(Box::new(unread));
+                    let p = mg_rules::appearance::ModelProblem { at, problem };
+                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                }
+            }
         }
     }
     if kind == Some(ResType::UTC)
@@ -2943,6 +3042,7 @@ fn walk_objects(
                 out.push((
                     format!("{path}/ClassList[{i}]/Class"),
                     format!("class {v} isn't a classes.2da row; Aurora and the game crash"),
+                    false,
                 ));
             }
         }
@@ -4563,6 +4663,43 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
             "{}",
             lf.message
         );
+        // More than 256 bytes in LF after its last CRLF, or a line of more
+        // than 255 characters: errors, as the server refuses them.
+        let ends = |text: &str| {
+            let rm = resman(&[("tst", ResType::SET, text.as_bytes())]);
+            let f = examine(&Module::new(), &rm, TalkTables::default());
+            let mut found: Vec<(Severity, String, String)> = f
+                .into_iter()
+                .filter(|f| f.check == Check::SetLineEnds.id())
+                .map(|f| (f.severity, f.at, f.message))
+                .collect();
+            found.sort();
+            found
+        };
+        let tail = |n: usize| format!("{set}[MGPAD]\r\n{}", "X=1\n".repeat(n));
+        assert_eq!(ends(&tail(64))[0].0, Severity::Warning, "256 bytes: read");
+        let refused = ends(&tail(65));
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].0, Severity::Error);
+        assert!(refused[0].2.starts_with("its last 260 bytes, after its last CRLF"), "{refused:?}");
+        let before = format!("{}Y=1\r\n", tail(150));
+        assert_eq!(ends(&before)[0].0, Severity::Warning, "before a last CRLF line: read");
+        let long = |n: usize| format!("{set}[MGPAD]\r\nX={}\r\n", "1".repeat(n - 2));
+        assert!(ends(&long(255)).is_empty(), "255 characters: read");
+        let refused = ends(&long(256));
+        let lines = set.matches('\n').count();
+        assert_eq!(
+            refused,
+            [(
+                Severity::Error,
+                format!("line {}", lines + 2),
+                format!(
+                    "line {} is 256 characters long: the game's server never finishes loading \
+                     a module that uses it (a line has at most 255)",
+                    lines + 2
+                )
+            )]
+        );
     }
 
     /// A model kept as text is read as the game would: an emitter that
@@ -4626,8 +4763,10 @@ endmodelgeom fx\ndonemodel fx\n";
     fn a_waypoint_s_flag_is_a_row_with_a_model() {
         let table =
             b"2DA V2.0\n\n   LABEL RESREF STRREF\n0 **** **** ****\n1 blue gi_waypoint01 5\n";
-        let rm =
-            resman(&[("waypoint", ResType::TWODA, table), ("gi_waypoint01", ResType::MDL, b"x")]);
+        let rm = resman(&[
+            ("waypoint", ResType::TWODA, table),
+            ("gi_waypoint01", ResType::MDL, &model_text("gi_waypoint01")),
+        ]);
         let mut m = Module::new();
         let mut utw = Gff::new(*b"UTW ");
         utw.root.set("Appearance", Value::Byte(1));
@@ -4648,6 +4787,93 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(at, ["area › waypoint WP_BAD › Appearance"], "{rows:?}");
         assert!(rows.iter().all(|f| f.severity == Severity::Warning), "{rows:?}");
         assert!(rows[0].message.contains("waypoint.2da has no row 7"), "{rows:?}");
+    }
+
+    /// A model of ours named `name`, which reads.
+    fn model_text(name: &str) -> Vec<u8> {
+        format!(
+            "newmodel {name}\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             endmodelgeom {name}\ndonemodel {name}\n"
+        )
+        .into_bytes()
+    }
+
+    /// Past an appearance's row, the models an object's parts name: an
+    /// item's piece that isn't there is a warning, placed or not (the rest
+    /// is drawn), as is a body's part; a body with no skeleton is as an
+    /// appearance with no model. And a model of a hak's that is there and
+    /// can't be read is said to be, with why: an error placed, as the
+    /// game's area view would find it.
+    #[test]
+    fn an_object_s_parts_and_unreadable_models() {
+        let placeables = b"2DA V2.0\n\n   Label ModelName\n0  Broken plc_broken\n";
+        let baseitems = b"2DA V2.0\n\n   label ItemClass ModelType DefaultModel\n\
+                          0 shortsword WSwSs 2 ****\n";
+        let appearance = b"2DA V2.0\n\n   LABEL RACE MODELTYPE\n0 Dwarf D P\n1 Gnome G P\n";
+        let rm = resman(&[
+            ("placeables", ResType::TWODA, placeables),
+            ("baseitems", ResType::TWODA, baseitems),
+            ("appearance", ResType::TWODA, appearance),
+            ("plc_broken", ResType::MDL, b"not a model"),
+            ("wswss_b_001", ResType::MDL, &model_text("wswss_b_001")),
+            ("wswss_m_001", ResType::MDL, &model_text("wswss_m_001")),
+            ("pmd0", ResType::MDL, &model_text("pmd0")),
+            ("pmd0_head001", ResType::MDL, b"truncated"),
+        ]);
+        let mut m = Module::new();
+        let mut sword = Gff::new(*b"UTI ");
+        for (field, n) in [("BaseItem", 0), ("ModelPart1", 1), ("ModelPart2", 1), ("ModelPart3", 2)]
+        {
+            sword.root.set(field, Value::Int(n));
+        }
+        m.set_gff(key("sword", ResType::UTI), &sword).unwrap();
+        let mut dwarf = Gff::new(*b"UTC ");
+        dwarf.root.set("Appearance_Type", Value::Word(0));
+        dwarf.root.set("Appearance_Head", Value::Byte(1));
+        dwarf.root.set("BodyPart_LShin", Value::Byte(3));
+        m.set_gff(key("dwarf", ResType::UTC), &dwarf).unwrap();
+        let mut gnome = Gff::new(*b"UTC ");
+        gnome.root.set("Appearance_Type", Value::Word(1));
+        m.set_gff(key("gnome", ResType::UTC), &gnome).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut box_ = Struct::new(9);
+        box_.set("Appearance", Value::Dword(0));
+        box_.set("Tag", Value::String(b"BOX".to_vec()));
+        let mut placed = sword.root.clone();
+        placed.id = 0;
+        placed.set("Tag", Value::String(b"SWORD".to_vec()));
+        git.root.set("Placeable List", Value::List(vec![box_]));
+        git.root.set("List", Value::List(vec![placed]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let mut rows: Vec<(Severity, &str, &str)> = f
+            .iter()
+            .filter(|f| f.check == "object-row")
+            .map(|f| (f.severity, f.at.as_str(), f.message.as_str()))
+            .collect();
+        rows.sort();
+        let said = |at: &str| rows.iter().find(|r| r.1 == at).map(|r| (r.0, r.2));
+        let (severity, message) = said("area › placeable BOX › Appearance").expect("the box");
+        assert_eq!(severity, Severity::Error);
+        assert!(
+            message.starts_with(
+                "Unreadable model: plc_broken (placeables.2da row 0, ModelName) is there and \
+                 can't be read: "
+            ),
+            "{message}"
+        );
+        let missing = "No model: wswss_t_002 (its ModelPart3) isn't in the module, its haks or \
+                       the game";
+        assert_eq!(said("sword.uti › ModelPart3"), Some((Severity::Warning, missing)), "{rows:?}");
+        let placed = rows.iter().find(|r| r.1.starts_with("area ›") && r.1.ends_with("ModelPart3"));
+        assert_eq!(placed.map(|r| (r.0, r.2)), Some((Severity::Warning, missing)), "{rows:?}");
+        let (_, shin) = said("dwarf.utc › BodyPart_LShin").expect("the shin");
+        assert!(shin.starts_with("No model: pmd0_shinl003 (its BodyPart_LShin)"), "{shin}");
+        let (_, head) = said("dwarf.utc › Appearance_Head").expect("the head");
+        assert!(head.starts_with("Unreadable model: pmd0_head001 (its Appearance_Head)"), "{head}");
+        let (_, skeleton) = said("gnome.utc › Appearance_Type").expect("the gnome");
+        assert!(skeleton.starts_with("No model: the skeleton pmg0 (appearance.2da row 1"));
+        assert_eq!(rows.len(), 6, "{rows:?}");
     }
 
     /// An object of the PC faction is warned of, blueprint or placed, and

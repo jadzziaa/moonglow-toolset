@@ -24,22 +24,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
-- **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
-  split by subject, with `harness`, `window_harness`, `game_app`,
-  `game_app_with`, `game_data`, `user_folder` and `gpu` in
-  `common.rs`): folded on 2026-10-30 in the files no other package of
-  the fifth wave was in (modules, windows, the tree, options and keys,
-  projects, plugins, resources: 57 harnesses, 13 installs, 15 user
-  folders); left, in the files the wave's area, models, editors and
-  bulk packages change: 40 harnesses at kittest's size
-  (`Harness::new_ui_state`: scripts 18, conversations 6, fields 6,
-  search 4, areas 3, blueprints, drawing, palettes), 18 installs made
-  apart (tables 6, tiles 3, blueprints, conversations, drawing, scripts
-  2 each, looks), 12 user folders made by hand (drawing 4, tables 4,
-  palettes 3, search) and the 6 harnesses with a step of their own.
-  (S once those packages merge: the same three folds, `window_harness`
-  for the first, `game_app_with` or `game_data` for the second,
-  `user_folder` for the third.)
 - **Moonglow Viewer's shader cache across toolset tags:** the libraries
   are 0.0.0 and read the release from the program (`mg_core::release`),
   which the viewer doesn't set, so its compiled-shader cache is named by
@@ -153,23 +137,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **An appearance with no model, what the warning leaves out:** the rule
-  (`mg_rules::appearance`) checks a placeable's, a door's, a
-  single-model creature's and a waypoint's row and model by name (the
-  waypoint's flag since 2026-10-29: Verify warns of it, the preview and
-  the Properties go by it; a waypoint without the field, as 190 of
-  BioWare's blueprints are, is not judged, as Aurora draws it as every
-  waypoint, its yellow arrow, and places it with `Appearance` 1, as
-  Moonglow does: captured 2026-10-30), and an item's base item row. The
-  Properties' Appearance lists mark the rows with no model and the
-  palette's Gallery the blueprints (since 2026-10-30). Not checked by
-  it, each S, about a day together: an item's own models (its parts,
-  `ModelPart1`… and an armor's), whose names mg-preview alone makes (the
-  naming would move down into mg-rules); a body of parts' skeleton and
-  parts, likewise; a model that is there but cannot be read (a broken
-  file is found when it is drawn; reading each appearance's model in
-  Verify was not timed on a large module). (dansen9191's report,
-  October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
@@ -443,28 +410,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     the client batch: read the creation screen's part lists against
     parts_chest.2da and the others.
 
-- **Viewing in the hak editor:** a model of a hak the game doesn't read
-  (not one of the module's, or changed there and not saved) shows as its
-  text. Drawing it wants the model viewer to read its models, supermodels
-  and textures from the hak over the load order: a source of its own
-  (`model_view::Source`, keyed in `model_views`), `compose`'s loader and
-  the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
-  2DAs and a model the game reads from the hak are shown (2026-10-29).
-  (M)
 
 ## Area visibility
 
 
-- **A walkmesh's own node position:** one shipped placeable
-  (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
-  itself. Moonglow draws it there; whether the engine does isn't known.
-  Tried in the server (2026-10-29, a probe not kept): a creature made
-  where the mesh would be, at the placeable or 72 m off, is not moved at
-  either, where one made on a wagon is moved off it; with the module's
-  own copy of the walkmesh twenty times as wide (3.4 m), the same. So
-  the engine ignores this mesh, or a module's copy of it, or making a
-  creature doesn't see it: telling which needs a creature's path across
-  each place, or the client. (M)
 - **Setup Area Transition's Connection Type:** the window picks a door
   or waypoint on the target area's map or in its lists, as Aurora's
   `TdlgAreaTransition` does, but has none of its Connection Type (Both
@@ -1117,12 +1066,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the keys to the next pane, each pane's being what its tab in front
   has (the middle's a talk table's lines, a 2DA's cells at its first
   cell, the resource browser's list, else an area's; a palette's cursor
-  at its first row); in the Gallery Up and Down go a row of pictures at
-  a time (done 2026-10-29). Not done:
-  - The log is not among F6's panes: it has no keys of its own (its
-    lines are text to select and copy); a command a builder already
-    gave F6 to is in conflict with Next Pane (Options › Keyboard lists
-    it; the pane's wins until one is changed). (S)
+  at its first row), the log last, which they scroll (done 2026-10-30);
+  in the Gallery Up and Down go a row of pictures at a time (done
+  2026-10-29). Not done:
+  - A command a builder already gave F6 to is in conflict with Next
+    Pane: Options › Keyboard lists it, and the pane's wins until one is
+    changed. Kept so (settle?: proposed by the sprint on 2026-10-30, the
+    owner's to say): the builder's binding is theirs to change, and
+    Options says the conflict.
   - Down from the hak editor's, the tileset editor's and the Appearance
     Gallery's Find fields goes nowhere: their lists have no keys of
     their own, nor have the tileset's palette and the Prefabs list.
@@ -1431,8 +1382,9 @@ contribution itself states as not done or not checked.
 - **A tileset with holes** (a builder's report: a big old tileset,
   merged by hand, drew no tiles at all) is read tile by tile, as the
   game reads it: a tile without its section or a model draws nothing,
-  the area's problems and Verify (`set-hole`) name the holes, a bare-LF
-  file is an error and a mixed one a warning (`set-line-ends`), the
+  the area's problems and Verify (`set-hole`) name the holes, the line
+  ends and lengths the server refuses are errors and a mix it reads a
+  warning (`set-line-ends`, the rule read in the engine 2026-10-30), the
   tileset editor shows the holes, and a model that is there and can't
   be read is said to be, with why, not "not found". Not done:
   - The builder's own tileset (trf01, 2813 tiles) has no holes and CRLF
@@ -1440,14 +1392,7 @@ contribution itself states as not done or not checked.
     why it draws none of theirs is not known without their hak (its
     models, or the module and the haks it lists). The log now says,
     for each model left out, whether it was found and why it can't be
-    read. (S, once the hak is in hand)
-  - The rule by which the server refuses a file with lines ending both
-    ways is not known (`a_tileset_whose_lines_end_both_ways`): LF lines
-    at its head or in its middle load; at its end, ttr01's last 28 lines
-    (264 bytes) or one line of 389 bytes stop the module loading, its
-    last 27 (251 bytes) don't, and 300 blank CRLF lines after the long
-    line don't save it where they save 200 short ones. Verify warns of
-    any mix. (S, more readings in the engine)
+    read. (S, waits on the builder's hak)
 
 ## The install, starting and crashes
 
