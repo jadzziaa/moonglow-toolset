@@ -599,12 +599,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the engine ignores this mesh, or a module's copy of it, or making a
   creature doesn't see it: telling which needs a creature's path across
   each place, or the client. (M)
-- **Sound ranges:** level circles at the sound's height. Aurora draws
-  each distance as a dotted sphere about the sound, with one level
-  circle at its maximum (captured 2026-10-29, the probe's sound of
-  distances 3 and 12, from above and pitched). The random position's
-  rectangle is as Aurora's now (its ranges wide, half each way). (S: the
-  spheres, drawn as a few rings of dots)
 - **Setup Area Transition's Connection Type:** the window picks a door
   or waypoint on the target area's map or in its lists, as Aurora's
   `TdlgAreaTransition` does, but has none of its Connection Type (Both

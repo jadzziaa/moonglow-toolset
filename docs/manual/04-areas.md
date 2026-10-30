@@ -176,10 +176,12 @@ palette's Gallery is 🖼, the Grid ⊞.
   them. Changes to the shadow fields in Area Properties show at once.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
-- **◎ Sound Ranges**: two circles around each placed sound that is heard
-  from where it stands: at full volume inside the inner one (its minimum
-  distance), not at all outside the outer one (its maximum). The
-  selection's are brighter; a sound heard everywhere in the area has none.
+- **◎ Sound Ranges**: two spheres of dots around each placed sound that
+  is heard from where it stands, as Aurora draws them: at full volume
+  inside the inner one (its minimum distance), not at all outside the
+  outer one (its maximum), with a circle at the sound's height where the
+  outer one meets it. The selection's are brighter; a sound heard
+  everywhere in the area has none.
   A sound that plays from a random place has a rectangle too, where it
   may play: its random ranges wide and deep, about where it stands, as
   Aurora draws it. Areas opened later open as you left it.
