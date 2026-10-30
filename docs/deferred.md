@@ -398,9 +398,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's own categories are named, and the `palcus.itp` built
   on save keeps it. Not seen: the DM Creator showing a module's own
   talk table's line (16777216 and up) as a category's name, in each
-  language. (S) (waits on the client batch: a module with a custom
-  `.tlk` and a category named by its line, the Creator's palette
-  looked at)
+  language. (S) (waits on a CD key for the sandboxed client, to join as
+  a DM: `joined_dm_creator_palette`, `MG_CLIENT_CDKEY`)
 - **A custom palette's names in the game** (a builder: after a save in
   Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
   colors wrong; Aurora's Custom palette showed the same, reading the
@@ -422,9 +421,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
   builds it). Not seen in the game's DM client here (the bytes are
   tested; the client was not run as a DM): the DM client joins a
-  server, so it waits on the harness the NWSync download test needs
-  (`nwserver` and the client started in one sandbox, whose loopback
-  works). Issue 13's other half: with
+  server; the harness is built (`mg_testkit::joined`, the server and the
+  client in one sandbox, `joined_dm_creator_palette`), and the sandboxed
+  client has no CD key to join with, so it waits on one
+  (`MG_CLIENT_CDKEY`, the owner's to give). Issue 13's other half: with
   Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
@@ -811,8 +811,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   wide fog (`new:Mist`) is as dense as the game's (the ground under it
   brightened by 18 of 255, the client's by 17). Left: Magic Sparks
   (`plc_u03`, `render Motion_Blur`, velocity 3) are long bright streaks
-  in the client, from the side and from straight above, where Moonglow
-  draws each spark as a dot of its size laid along its path (the ground
+  in the client, from the side and from its steepest camera (pitch 1
+  asked, which the client clamps), where Moonglow draws each spark as a dot of its size laid along its path (the ground
   under them brightened by 6 against the client's 13): the client
   stretches a motion-blurred particle by its speed, by how much not yet
   measured (a probe emitter at a few velocities, from the side). A tile's
@@ -1740,8 +1740,13 @@ contribution itself states as not done or not checked.
   has no network but a loopback of its own (`bwrap --unshare-net` brings
   `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
   web server, `nwserver` naming it and the client started together in
-  one sandbox would test it; `run-client.sh` starts the client alone,
-  and that harness isn't built. (M)
+  one sandbox test it: built on 2026-10-29 (`mg_testkit::joined`,
+  `tools/nwclient/run-server-and-client.sh`; `joined_nwsync_download`
+  publishes Chess with a hak and a talk table and joins). The sandboxed
+  client has no CD key (no Steam: Multiplayer asks for one, `+connect`
+  ends in "Your CD Key is unauthorized"), so the test skips until
+  `MG_CLIENT_CDKEY` names one. (S, waits on the owner: a `cdkey.ini` for
+  the sandbox, or Steam's API let through in that mode)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
   doesn't. Read in single player (2026-10-29,
   `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a

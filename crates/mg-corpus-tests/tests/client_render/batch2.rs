@@ -278,8 +278,8 @@ fn reading_visual_transform_without_scope_0() {
 /// `tnp_gmist`) west and Magic Sparks (White and Blue, 158 and 159)
 /// east, north of the player on ttr01, from the reference camera beside
 /// Moonglow's area view (Animations on, its emitters run ahead), then
-/// (`MG_TOP=1`) the client's alone from straight above (pitch 1,
-/// distance 20).
+/// (`MG_TOP=1`) the client's alone from its steepest camera (pitch 1
+/// asked, which the client clamps; distance 20).
 #[test]
 #[ignore]
 fn reading_emitters_from_above() {

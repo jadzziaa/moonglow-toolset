@@ -500,9 +500,8 @@ fn nui_readings_in_the_client() {
             .collect();
         eprintln!("{name}: {}", text.join("; "));
         if wins[i].settings.event_function
-            && let Some([l, t, r, b]) = found[0]
+            && let Some([l, t, ..]) = found[0]
         {
-            let _ = (r, b);
             click_in_window(l + 75, t + 20);
             clicked = true;
             std::thread::sleep(Duration::from_secs(6));
