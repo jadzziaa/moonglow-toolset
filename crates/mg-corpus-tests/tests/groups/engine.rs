@@ -25,6 +25,8 @@ mod engine_armor_torso;
 mod engine_big_hak;
 #[path = "../engine_blueprints.rs"]
 mod engine_blueprints;
+#[path = "../engine_custom_light.rs"]
+mod engine_custom_light;
 #[path = "../engine_dialog.rs"]
 mod engine_dialog;
 #[path = "../engine_doctor.rs"]

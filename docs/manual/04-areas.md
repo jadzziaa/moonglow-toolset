@@ -369,6 +369,50 @@ all the way there. These are the game's fixed lights: seven colors, one
 reach. A hak that adds rows of the same kind (a `LightColor`
 on the model `dag_invisible`) adds to the list.
 
+### Lights of any color and reach
+
+With **Options › Areas › Lights of any color and reach, written into a
+hak** on (off by default, so that nobody writes into a persistent
+world's haks without meaning to; a project's `moonglow.toml` can say it
+for the team: `[lights] generated`), **Add Light Here** and the
+palette's **☀ Lights** have **Custom Light…** too. Its window takes the
+light's **Color**, **Radius** (its light ends at twice it), a
+**Multiplier** that lengthens its reach (the game lengthens a model
+light's reach by it, not its brightness), its **Priority** (1 to 5:
+where more lights shine at one place than the game draws, those of
+priority 1 are kept), whether creatures' shadows are cast from it, and
+whether it lights creatures and placeables as well as the ground.
+
+**Written Into** chooses the hak: one of the module's own (not the
+game's), or a new one, by the name typed, made in your user folder's
+`hak` and put at the top of the module's hak list. Nothing is chosen
+at first (but the project's `[lights] hak`, where that is one of the
+module's), and nothing is written until one is. Before anything is
+written the window says what: the model (`mgl_` and twelve letters and
+digits, named by the settings) and placeables.2da with its row, into
+which hak, from which copy of the table, and that the module's players
+must have that hak (a persistent world ships it to them, by NWSync or
+by hand). **Write and Place** writes them (a hak that is there is first
+kept beside itself as `.bak`), has the game data read them again, and
+puts the light where the menu was opened (from the palette: where you
+click next).
+
+The placeables.2da written is the copy the game reads now (another
+hak's, or the game's), with the light's row added at its end, or at the
+project's `[lights] first_row` (a range the team keeps for lights). So
+the hak must be the one whose copy the game reads, or above it: a hak
+below another that has placeables.2da is refused, and the window says
+which to choose. A light of the same settings as one written before is
+the same model and row: nothing is written again. A hak open in the
+hak editor is refused too (close it there first).
+
+A light made so shows as the game's do: a small sun in its color, a
+ring where its light ends when it is selected, and the view lit by it.
+Lights made so are listed on the palette's ☀ Lights, under the game's,
+and on Add Light Here. **Change Light…** on a selected one gives it
+other settings: another row (and model), written as Custom Light writes
+them; Undo gives it its row back (what was written stays in the hak).
+
 **An encounter's spawn points**: with the encounter selected, the tip of
 each spawn point's arrow is a handle. Lead it round the point and what
 spawns there faces that way (**Turn** snaps it). The square at the foot

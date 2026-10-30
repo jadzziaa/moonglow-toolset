@@ -295,6 +295,29 @@ pub struct PackRules {
     pub compile_models: bool,
 }
 
+/// `[lights]`: lights of any color and reach, as content Moonglow writes
+/// ([`crate::lights`]): off unless asked for.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LightRules {
+    /// `generated`: the team's word, which wins over the builder's
+    /// Options › Areas (none: the builder's).
+    pub generated: Option<bool>,
+    /// `hak`: the hak (its name, without `.hak`) the lights go into, the
+    /// one offered first.
+    pub hak: Option<String>,
+    /// `first_row`: the least placeables.2da row a light takes (a range
+    /// the team keeps for them).
+    pub first_row: Option<usize>,
+}
+
+impl LightRules {
+    /// Whether lights are made as content: the project's `generated`
+    /// where it says, else the builder's option.
+    pub fn generated_or(&self, builder: bool) -> bool {
+        self.generated.unwrap_or(builder)
+    }
+}
+
 /// `[used]`: what the Unused report counts as used though nothing in the
 /// module names it, by name or glob: a script `ExecuteScript` runs by a
 /// name made as it runs (`"ai_" + sMode`), a blueprint `CreateObject`
@@ -597,6 +620,8 @@ pub struct ProjectFile {
     pub used: UsedRules,
     /// `[pack]`: what Pack does on the way in.
     pub pack: PackRules,
+    /// `[lights]`: lights made as content.
+    pub lights: LightRules,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
     /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
@@ -1134,6 +1159,35 @@ impl ProjectFile {
                         }
                     }
                 }
+                ("lights", false) => {
+                    for e in r.section(entry) {
+                        match e.0.get_ref().as_ref() {
+                            "generated" => match e.1.get_ref() {
+                                DeValue::Boolean(b) => self.lights.generated = Some(*b),
+                                _ => r.warn(e.1.span().start, "generated is true or false"),
+                            },
+                            "hak" => {
+                                if let Some(t) = r.text(e) {
+                                    self.lights.hak =
+                                        Some(t.trim().trim_end_matches(".hak").into());
+                                }
+                            }
+                            "first_row" => match e.1.get_ref() {
+                                DeValue::Integer(i) if i.radix() == 10 => {
+                                    match i.as_str().parse::<usize>() {
+                                        Ok(n) => self.lights.first_row = Some(n),
+                                        Err(_) => r.warn(
+                                            e.1.span().start,
+                                            "first_row is a row: 0 or more",
+                                        ),
+                                    }
+                                }
+                                _ => r.warn(e.1.span().start, "first_row is a row: 0 or more"),
+                            },
+                            _ => r.unknown(section, e),
+                        }
+                    }
+                }
                 ("store", false) => {
                     let mut store = StoreRules::default();
                     for e in r.section(entry) {
@@ -1622,6 +1676,30 @@ keeper_variable = "tdod_store"
         p
     }
 
+    /// `[lights]`: the team's word on lights made as content wins over the
+    /// builder's option; the hak and the first row are read, and what
+    /// isn't understood said.
+    #[test]
+    fn lights_are_the_team_s_word() {
+        let p = read("[lights]\ngenerated = true\nhak = \"tdod_lights.hak\"\nfirst_row = 20000\n");
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert!(p.lights.generated_or(false));
+        assert_eq!(p.lights.hak.as_deref(), Some("tdod_lights"));
+        assert_eq!(p.lights.first_row, Some(20000));
+        let off = read("[lights]\ngenerated = false\n");
+        assert!(!off.lights.generated_or(true), "the team's off wins");
+        assert!(read("").lights.generated_or(true) && !read("").lights.generated_or(false));
+        let bad = read("[lights]\ngenerated = \"yes\"\nfirst_row = -3\ncolour = 1\n");
+        assert_eq!(
+            bad.warnings,
+            [
+                "moonglow.toml:2: generated is true or false",
+                "moonglow.toml:3: first_row is a row: 0 or more",
+                "moonglow.toml:4: \"colour\" is not a key of [lights]",
+            ]
+        );
+    }
+
     #[test]
     fn the_example_reads_whole() {
         let p = read(EXAMPLE);
@@ -1698,7 +1776,7 @@ keeper_variable = "tdod_store"
     fn what_is_not_understood_is_said_by_line_and_the_rest_read() {
         let p = read(
             "[store]\nopen_script = \"tdod_vendor_open\"\ncolour = 3\n\n[tags]\n\
-             unique = \"TDOD_*\"\npaste_warning = \"loud\"\n[lights]\nx = 1\n\
+             unique = \"TDOD_*\"\npaste_warning = \"loud\"\n[shadows]\nx = 1\n\
              [make_static]\nkeep_tags = [\"A_*\", 4, \"[\"]\n[store2]\n[builder]\ncode = \"x\"\n",
         );
         assert_eq!(
@@ -1707,7 +1785,7 @@ keeper_variable = "tdod_store"
                 "moonglow.toml:3: \"colour\" is not a key of [store]",
                 "moonglow.toml:6: unique is to be a list of names: [\"A_*\", \"B\"]",
                 "moonglow.toml:7: paste_warning \"loud\": \"custom\", \"any\", \"unique\" or \"off\"",
-                "moonglow.toml:8: [lights] is not a section Moonglow reads",
+                "moonglow.toml:8: [shadows] is not a section Moonglow reads",
                 "moonglow.toml:11: keep_tags: not text",
                 "moonglow.toml:11: [: missing ']'",
                 "moonglow.toml:12: [store2] is not a section Moonglow reads",

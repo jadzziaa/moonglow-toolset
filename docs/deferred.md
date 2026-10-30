@@ -750,27 +750,26 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
   the renderer can tell the two apart, so the fix is in `mg-render`'s
   map choice too. (S)
-- **Lights placed on the fly, way B** ([the proposal](lights-proposal.md)):
-  lights of any color and reach by generated content (a model with one
-  light node for each setting, a placeables.2da row for it, both in a
-  hak the module lists). Way A is built whole: the game's seven
-  invisible lights from the area's menu (Add Light Here) and from the
-  palette's ☀ Lights, Light Color, a ring for the reach as the client
-  measured it. Way B is not started. It waits on the owner's answer to
-  the proposal's question (is a hak that Moonglow writes and keeps
-  acceptable, given that a persistent world must ship it?), and on the
-  client for the proposal's two questions not measured: whether a
-  `LightColor` light and a model's light node light creatures and
-  placeables or only tiles, and how many dynamic lights the game draws
-  at one place before dropping some (the client batch can read both as
-  `placeable_light_uniforms` in `client_render.rs` reads a light's
-  reach: the uniforms the client hands its shader, with a creature and
-  a placeable beside the light, and with one to twelve lights). Its
-  row needs no merge of several haks' tables: the way Make a Lighting
-  Scheme adds an environment.2da row (the table opened where the
-  builder chooses, the row added with `Editing::add_row_of`) serves a
-  placeables.2da row as well. The light editor, the generated models
-  and keeping them: (M–L). (from builders' reports after 1.16.2)
+- **Lights placed on the fly, what the client should read** ([the
+  proposal](lights-proposal.md)): way B is built behind its option
+  (Custom Light…, `mg_module::lights`; the server reads the hak, finds
+  the model in it and places the row: `engine_custom_light.rs`). The
+  client batch should read, as `placeable_light_uniforms` in
+  `client_render.rs` reads a light (the uniforms the client hands its
+  shader), a Custom Light's model in a scratch module's hak: whether it
+  lights a creature and a placeable beside it or only the tiles (its
+  node's `affectdynamic` 1, the window's "Lights creatures and
+  placeables too"; and with it 0), and how many such lights the game
+  draws at one place (one to forty within 10 m of the camera, of
+  priorities 1 to 5), which says what the window's Priority should
+  start at. Either answer changes a default of `LightSpec`, not what is
+  written. Not built, waiting on the same reading: a flicker (the
+  node's color or multiplier keyed in the model's `default` animation,
+  which the client may or may not play on a static placeable). Rows
+  and models no light uses any more stay in the hak, as a row's number
+  is what placed lights know it by (settle?: proposed by the sprint on
+  2026-10-29, the owner's to say). (S, waits on the client batch)
+  (from builders' reports after 1.16.2)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for

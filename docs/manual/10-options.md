@@ -50,6 +50,15 @@ the module is opened again from its file.
   is held (see [Areas](04-areas.md)). On by
   default.
 - **Show Door Orientation Arrows**.
+- **Lights of any color and reach, written into a hak** (off by
+  default): Moonglow's own. On, the area's **Add Light Here** and the
+  palette's **☀ Lights** offer **Custom Light…** (see
+  [Areas](04-areas.md#lights-of-any-color-and-reach)), which writes a
+  light's model and a placeables.2da row into a hak you choose, one
+  the module's players must have. Off, nothing is ever written into a
+  hak for a light, and nothing of it shows but this option. A project's
+  `moonglow.toml` can say it for the team (`[lights] generated`), which
+  wins over this.
 - **Allow editing tiles of groups and features** (off by default):
   Moonglow's own. Off, a group or feature (a barn, a gate, a statue) is
   one thing: Next and Previous Tile Appearance, Rotate Tile, Refine

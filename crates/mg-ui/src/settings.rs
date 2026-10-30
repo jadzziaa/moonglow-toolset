@@ -599,6 +599,10 @@ pub struct Settings {
     /// Options > Area: Show the turning and tilt rings around selected
     /// objects is off.
     pub no_turn_ring: bool,
+    /// Options > Area: Lights of any color and reach, as content written
+    /// into a hak ([`mg_module::lights`]); off by default (the project
+    /// file's `[lights] generated` wins).
+    pub generated_lights: bool,
     /// Options > Language: the language text is shown and edited in
     /// (language.2da row); `None`: the default, English.
     pub edit_language: Option<u32>,

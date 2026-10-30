@@ -26,6 +26,7 @@ pub mod haks;
 pub mod instances;
 pub mod journal;
 pub mod lighting;
+pub mod lights;
 pub mod locks;
 pub mod minimap;
 pub mod models;

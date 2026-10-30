@@ -646,15 +646,33 @@ impl AreaScene {
         }
     }
 
-    /// Whether object `i` is only a light: a placeable whose appearance
-    /// has a light (placeables.2da's `LightColor`) and a model too small
-    /// to see, as the game's "Light, White" has. Its color, if
-    /// so (lightcolor.2da's values), and whether it shines (**Illuminated**).
-    pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<(Vec3, bool)> {
+    /// Whether object `i` is only a light: a placeable with a model too
+    /// small to see whose appearance has a light (placeables.2da's
+    /// `LightColor`), as the game's "Light, White" has, or whose model has
+    /// the light node of a light Moonglow made (`mg_module::lights`). Its
+    /// light, if so.
+    pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<BareLight> {
         let shown = self.objects.get(i).and_then(Option::as_ref)?;
         let o = area.objects.get(i)?;
-        let light = o.preview.as_ref()?.lights.first()?;
-        (o.kind == ObjectKind::Placeable && bare(shown.bounds)).then_some((light.color, light.on))
+        if o.kind != ObjectKind::Placeable || !bare(shown.bounds) {
+            return None;
+        }
+        if let Some(light) = o.preview.as_ref()?.lights.first() {
+            let reach = mg_render::PointLight::new(Vec3::ZERO, light.color, light.radius, false, 4);
+            return Some(BareLight {
+                color: light.color,
+                on: light.on,
+                reach: reach.cutoff,
+                stock: true,
+            });
+        }
+        // (A builder's own small lamp model is drawn as it is: a light
+        // Moonglow made is nothing else.)
+        if !mg_module::lights::is_generated(&o.preview.as_ref()?.base.model) {
+            return None;
+        }
+        let lamp = shown.composed.point_lights(glam::Mat4::IDENTITY).into_iter().next()?;
+        Some(BareLight { color: lamp.color, on: true, reach: lamp.cutoff, stock: false })
     }
 
     /// How far along `ray` it meets object `i`'s model itself (its
@@ -1225,6 +1243,20 @@ impl AreaScene {
         u.textures = textures.len();
         u
     }
+}
+
+/// A placed light with nothing to see ([`AreaScene::bare_light`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BareLight {
+    /// Its color: lightcolor.2da's values, or the model's light's.
+    pub color: Vec3,
+    /// It shines (**Illuminated**: a model's light always does).
+    pub on: bool,
+    /// Where its light ends, meters.
+    pub reach: f32,
+    /// Its light is its appearance's (`LightColor`: the game's lights,
+    /// whose color Light Color changes), not its model's.
+    pub stock: bool,
 }
 
 /// An object's models, from `cache` if an object that looks the same

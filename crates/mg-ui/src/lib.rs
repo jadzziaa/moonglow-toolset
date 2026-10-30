@@ -35,6 +35,7 @@ pub mod jobs;
 pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
+pub mod light_maker;
 pub mod lighting;
 mod manual;
 mod minimap;
@@ -599,7 +600,7 @@ pub struct Moonglow {
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
     /// The haks layered into the game data, as the module listed them.
-    haks_layered: Vec<String>,
+    pub(crate) haks_layered: Vec<String>,
     /// The keys of commands (Options › Keyboard), and the settings they
     /// were read from.
     pub keymap: keys::Keymap,
@@ -664,6 +665,10 @@ pub struct Moonglow {
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
     pub adjust: Option<area_tools::AdjustLocation>,
+    /// Custom Light… (`light_maker`), while it is open.
+    pub light_draft: Option<light_maker::LightDraft>,
+    /// The settings Custom Light was last written with, offered next.
+    pub last_light: mg_module::lights::LightSpec,
     /// The Find Instance window.
     pub find_instance: Option<area_tools::FindInstance>,
     /// The Preview window is shown.
@@ -1082,6 +1087,8 @@ impl Moonglow {
             area_contents: Default::default(),
             area_views: HashMap::new(),
             adjust: None,
+            light_draft: None,
+            last_light: Default::default(),
             find_instance: None,
             area_focus: None,
             start_focus: None,
@@ -1553,6 +1560,7 @@ impl Moonglow {
         dialog_view::test_window(self, ui);
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
+        light_maker::window(self, ui);
         area_tools::preview_window(self, ui);
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());

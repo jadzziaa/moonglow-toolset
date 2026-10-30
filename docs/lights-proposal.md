@@ -3,7 +3,7 @@ type: Proposal
 title: 'Lights placed on the fly: a proposal'
 description: Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and two questions not yet measured.
 tags: [proposal, lights, placeables, areas, custom-content]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:19:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T01:34:10Z }
 sources:
   - id: request
     resource: human:august, relaying the builder dafena (Discord, 2026-10-07)
@@ -22,14 +22,15 @@ a custom placeable that carries the light.[^request]
 Three ways were proposed. Way A (the game's stock light placeables) was
 chosen first on 2026-10-07 and is built and measured: see
 [What was built](#what-was-built-way-a). Way B (lights of any color and
-reach, by generated content) is the open proposal and is not started. Way
+reach, by generated content) is built too, on 2026-10-29, behind an option
+that is off by default: see [Way B](#way-b-lights-moonglow-generates). Way
 C (scripted effects) is not recommended. Two questions about the game's
 lights are [not measured yet](#not-measured-yet).
 
 | Way | What the builder gets | What the module needs | State |
 | --- | --- | --- | --- |
 | A. Stock light placeables | Seven colors, fixed reach | Nothing: base game | built |
-| B. Generated content | Any color, reach, brightness, shadows, flicker | A hak Moonglow writes (models and a placeables.2da) | proposed |
+| B. Generated content | Any color, reach, brightness, shadows (no flicker yet) | A hak Moonglow writes (models and a placeables.2da), the builder's choice | built, behind an option off by default |
 | C. Scripted effects | The game's fixed light effects, switchable in play | A script on an invisible object | not recommended |
 
 ## What the game offers
@@ -107,7 +108,21 @@ In the game client, with the oracle the renderer uses:
 
 Both bear on the defaults of way B.
 
-## Way B: lights Moonglow generates (proposed)
+## Way B: lights Moonglow generates
+
+Built on 2026-10-29 as the owner decided it ("As an option, default off
+to prevent unwittingly touching PW haks from maintainers"): Options ›
+Areas, and the project file's `[lights]` (`generated`, `hak`,
+`first_row`), with Custom Light… on the area's menu and the palette
+(`mg_module::lights`, `crates/mg-ui/src/light_maker.rs`; the manual's
+[Areas](manual/04-areas.md#lights-of-any-color-and-reach)). The hak is
+the builder's choice in the window, which says what it writes and that
+the players must have the hak before it writes. The placeables.2da is
+the copy the game reads with the row added, so no merge is needed; a
+hak below another's copy is refused. Not built: the flicker, and taking
+rows and models out that no light uses (the [deferred
+list](deferred.md) has both, with the client's two questions). What
+follows is the proposal as it was.
 
 A light editor (color by picker, radius, multiplier, shadows on or off,
 flicker, height above the ground) whose result Moonglow turns into
@@ -174,18 +189,15 @@ features.
 
 ## Order of what is left
 
-1. Measure the two questions above.
-2. The merge of several haks' copies of a 2DA, as its own feature.
-3. Way B on top of it: the light editor, generated models, the hak.
+1. Measure the two questions above (the next client batch).
 
 ## Decisions wanted
 
-- For B: is a hak that Moonglow writes and keeps acceptable, given that a
-  persistent world must distribute it?
 - Whether C is wanted at all.
 
 Decided already: A was worth shipping first (2026-10-07), and the tool
-lives on the area's right-click menu.
+lives on the area's right-click menu; B as an option, off by default
+(2026-10-29).
 
 ## Not proposed
 

@@ -799,6 +799,36 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             view.placing_light = if on { None } else { Some(light.row) };
         }
     }
+    // Lights of any color and reach, as content: only with the option on
+    // (Options › Areas, or the project's `[lights] generated`).
+    if crate::light_maker::generated_lights(app) {
+        let made = crate::area_view::made_lights(app);
+        if !made.is_empty() {
+            ui.separator();
+            ui.weak("Made by Custom Light, in the module's haks:");
+        }
+        for light in &made {
+            let on = view.placing_light == Some(light.row);
+            if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+                view.placing_light = if on { None } else { Some(light.row) };
+            }
+        }
+        ui.add_space(4.0);
+        let area = view.area.filter(|a| app.area_views.contains_key(a));
+        let r = ui
+            .add_enabled(area.is_some(), egui::Button::new("Custom Light…"))
+            .on_hover_text(
+                "A light of the color, reach and shadows you choose, written into a hak you \
+                 choose (the window says what, before it writes); then click in the area to put \
+                 it there",
+            )
+            .on_disabled_hover_text("Open an area first");
+        if r.clicked()
+            && let Some(area) = area
+        {
+            app.light_draft = Some(crate::light_maker::LightDraft::new(app, area, None));
+        }
+    }
     ui.add_space(4.0);
     ui.weak(
         "Placed, a light is a placeable: move and raise it as any. Light Color on its \

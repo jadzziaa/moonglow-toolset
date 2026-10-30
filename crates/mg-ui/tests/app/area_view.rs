@@ -4543,6 +4543,126 @@ fn a_light_is_placed_from_the_palette() {
         .unwrap();
 }
 
+/// Custom Light (the lights proposal's way B, behind an option off by
+/// default): with the option off the area's menu offers the game's lights
+/// alone; on, **Custom Light…** opens a window that writes nothing until
+/// a hak is chosen, says what it writes where and that the module's
+/// players must have the hak, then writes a model and a placeables.2da
+/// row into it (here a new hak, put at the top of the module's list),
+/// and places a light of that row, which lights the view by its model's
+/// light; Change Light… gives it other settings. Pictures in
+/// `target/test-output/ui-custom-light-pictures/`: `menu.png`, `window.png`,
+/// `placed.png`.
+#[test]
+fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
+    use glam::Vec3;
+    let user = mg_testkit::scratch_dir("ui-custom-light-user");
+    let Some((mut h, area)) =
+        area_harness_with("custom-light", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.run_steps(3);
+    let out = mg_testkit::output_dir("ui-custom-light-pictures");
+    for f in ["menu.png", "window.png", "placed.png"] {
+        let _ = std::fs::remove_file(out.join(f));
+    }
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    // Off (the default): the game's lights alone.
+    assert!(!h.state().settings.generated_lights);
+    right_click(&mut h, at);
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    assert!(h.query_by_label("Custom Light…").is_none(), "nothing of it with the option off");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.state_mut().settings.generated_lights = true;
+    right_click(&mut h, at);
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    h.render().expect("render").save(out.join("menu.png")).unwrap();
+    h.get_by_label("Custom Light…").click();
+    h.run_steps(3);
+    {
+        let d = h.state_mut().light_draft.as_mut().expect("the window");
+        d.spec.color = [255, 40, 10];
+        d.spec.radius = 10.0;
+    }
+    h.run_steps(2);
+    // No hak chosen: nothing to write.
+    h.get_by_label("Choose the hak the light goes into");
+    assert!(h.get_by_label("Write and Place").accesskit_node().is_disabled());
+    h.get_by_label("A new hak:").click();
+    h.run_steps(2);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("mg_lights");
+    h.run_steps(3);
+    let hak = user.join("hak/mg_lights.hak");
+    let said = format!("Writes into {}", hak.display());
+    h.get_by_label_contains(&said);
+    h.get_by_label_contains("The module's players must have this hak");
+    assert!(!hak.exists(), "nothing written yet");
+    h.render().expect("render").save(out.join("window.png")).unwrap();
+    h.get_by_label("Write and Place").click();
+    h.run_steps(6);
+    assert!(hak.is_file(), "the hak written");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
+    assert_eq!(mg_module::haks_of(&info.root).first().map(String::as_str), Some("mg_lights"));
+    let git_key = ResKey::new(area, ResType::GIT);
+    let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    assert_eq!(placed.len(), 1);
+    let row = placed[0].integer("Appearance").unwrap() as usize;
+    let game = h.state().game.clone().unwrap();
+    let table = game.table("placeables").unwrap();
+    let model = table.get(row, "ModelName").unwrap().to_string();
+    assert!(mg_module::lights::is_generated(&model), "{model}");
+    assert!(
+        game.resman
+            .origin(&ResKey::parse(&model, ResType::MDL).unwrap())
+            .is_some_and(|o| o.contains("mg_lights"))
+    );
+    // It is a light in the view: a sun, its reach its model's (radius 10:
+    // 20 m, as the game's own lights).
+    let view = h.state().area_views.get(&area).unwrap();
+    let light = view.bare_light(mg_area::ObjectKind::Placeable, 0).expect("a bare light");
+    assert!(!light.stock && (light.reach - 20.0).abs() < 0.01, "{light:?}");
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.night = true;
+        view.selection = vec![(mg_area::ObjectKind::Placeable, 0)];
+    }
+    h.run_steps(5);
+    h.render().expect("render").save(out.join("placed.png")).unwrap();
+    // Change Light…: another row, the same hak.
+    let on_it = screen(&h, area, Vec3::new(15.0, 15.0, 1.5));
+    right_click(&mut h, on_it);
+    h.get_by_label("Change Light…").click();
+    h.run_steps(3);
+    h.state_mut().light_draft.as_mut().unwrap().spec.color = [40, 80, 255];
+    h.run_steps(2);
+    h.get_by_label("mg_lights.hak").click();
+    h.run_steps(3);
+    h.get_by_label("Write and Change").click();
+    h.run_steps(6);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    assert_eq!(placed[0].integer("Appearance"), Some(row as i64 + 1), "the next row");
+    assert_eq!(ws.can_undo(), Some("Change light"));
+}
+
 /// With Shift held, a selected placeable has a handle that scales its
 /// model about its feet: pulled twice as far from the object, twice the
 /// size, in one undoable step, the handle following the pointer; Escape

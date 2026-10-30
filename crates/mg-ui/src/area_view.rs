@@ -1073,6 +1073,13 @@ impl AreaView {
         self.model.as_ref()?.objects.iter().position(|o| o.kind == kind && o.index == index)
     }
 
+    /// The placed object `index` of `kind` as a light with nothing to see
+    /// ([`AreaScene::bare_light`]), if it is one.
+    pub fn bare_light(&self, kind: ObjectKind, index: usize) -> Option<mg_area::BareLight> {
+        let i = self.object_at(kind, index)?;
+        self.scene.as_ref()?.bare_light(self.model.as_ref()?, i)
+    }
+
     /// Where the selected objects are in `model.objects`, in the order
     /// they were selected.
     fn selected_indices(&self) -> impl Iterator<Item = usize> + '_ {
@@ -2743,7 +2750,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
          (Shift + click: and again); right click or Escape: stop"
             .to_string()
     } else if let Some(light) = app.palette.placing_light {
-        let name = stock_lights(app).into_iter().find(|l| l.row == light).map(|l| l.name);
+        let name = light_of_row(app, light).map(|l| l.name);
         format!(
             "Placing a light ({}): click to put it here (Shift + click: place more); right click \
              or Escape: stop",
@@ -3711,9 +3718,10 @@ fn overlays(
         }
         // A light with nothing to see: a small sun in its color, where it
         // shines from; dark gray with Illuminated off.
-        if let Some((color, on)) = scene.and_then(|s| s.bare_light(shown, i))
+        if let Some(light) = scene.and_then(|s| s.bare_light(shown, i))
             && let Some(c) = at(o.position)
         {
+            let (color, on) = (light.color, light.on);
             let top = color.max_element().max(1e-3);
             let rgb =
                 if on { (color / top * 255.0).to_array().map(|v| v as u8) } else { [70, 70, 70] };
@@ -3728,11 +3736,10 @@ fn overlays(
             // Selected, how far it reaches: where the game's light ends
             // (20 m, further for a color brighter than 1), level with it.
             if selected {
-                let reach = mg_render::PointLight::new(Vec3::ZERO, color, LIGHT_RADIUS, false, 4);
                 let ring: Vec<Pos2> = (0..96)
                     .filter_map(|k| {
                         let a = k as f32 / 96.0 * std::f32::consts::TAU;
-                        at(o.position + Vec3::new(a.cos(), a.sin(), 0.0) * reach.cutoff)
+                        at(o.position + Vec3::new(a.cos(), a.sin(), 0.0) * light.reach)
                     })
                     .collect();
                 if ring.len() == 96 {
@@ -4310,7 +4317,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
-            && let Some(light) = stock_lights(app).into_iter().find(|l| l.row == row)
+            && let Some(light) = light_of_row(app, row)
         {
             add_light(app, view, &light, at);
             if !shift {
@@ -6141,14 +6148,48 @@ fn editing_items(
             .filter(|&(k, i)| {
                 let at = view.object_at(k, i);
                 at.zip(view.scene.as_ref().zip(view.model.as_ref()))
-                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some())
+                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some_and(|l| l.stock))
             })
             .collect();
+        let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
             ui.menu_button("Add Light Here", |ui| {
                 for light in &lights {
                     if light_button(ui, light).clicked() {
                         add_light(app, view, light, at);
+                        ui.close();
+                    }
+                }
+                // (Lights of any color and reach, as content: only with
+                // the option on.)
+                if custom {
+                    let made = made_lights(app);
+                    if !made.is_empty() {
+                        ui.separator();
+                    }
+                    for light in &made {
+                        if light_button(ui, light).clicked() {
+                            add_light_row(
+                                app,
+                                view,
+                                light.row,
+                                &format!("Light, {}", light.name),
+                                at,
+                            );
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
+                    if ui
+                        .button("Custom Light…")
+                        .on_hover_text(
+                            "A light of the color, reach and shadows you choose, written into a \
+                             hak you choose (the window says what, before it writes)",
+                        )
+                        .clicked()
+                    {
+                        let draft = crate::light_maker::LightDraft::new(app, view.area, Some(at));
+                        app.light_draft = Some(draft);
                         ui.close();
                     }
                 }
@@ -6158,6 +6199,27 @@ fn editing_items(
                 "An invisible placeable that lights what is around it, a little above the \
                  ground: move and raise it as any placeable. The game's own, no custom content",
             );
+        }
+        // Lights Moonglow made, selected: other settings (another row).
+        let made: Vec<(ObjectKind, usize)> = view
+            .selection
+            .iter()
+            .copied()
+            .filter(|&(k, i)| {
+                let at = view.object_at(k, i);
+                at.zip(view.scene.as_ref().zip(view.model.as_ref()))
+                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some_and(|l| !l.stock))
+            })
+            .collect();
+        if custom
+            && !made.is_empty()
+            && made.len() == view.selection.len()
+            && ui.button("Change Light…").clicked()
+        {
+            let mut draft = crate::light_maker::LightDraft::new(app, view.area, None);
+            draft.change = made;
+            app.light_draft = Some(draft);
+            ui.close();
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {
             ui.menu_button("Light Color", |ui| {
@@ -6392,10 +6454,6 @@ pub(crate) struct StockLight {
     pub color: Color32,
 }
 
-/// The radius the game gives a placeable's `LightColor` light (its light
-/// ends twice as far out: `placeable_light_uniforms`, in the client).
-const LIGHT_RADIUS: f32 = 10.0;
-
 /// How far above the ground a light is put (a lamp's height).
 const LIGHT_HEIGHT: f32 = 1.5;
 
@@ -6446,16 +6504,57 @@ pub(crate) fn light_toggle(ui: &mut egui::Ui, light: &StockLight, on: bool) -> e
 /// Puts light `light` over the ground point `at`: a plain, static
 /// placeable of that appearance, selected.
 fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Vec3) {
+    add_light_row(app, view, light.row, &format!("Light, {}", light.name), at);
+}
+
+/// Puts a light of placeables.2da row `row` (named `name`) over the ground
+/// point `at`, as [`add_light`] puts one of the game's: a light Moonglow
+/// made too (`mg_module::lights`).
+pub(crate) fn add_light_row(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    row: usize,
+    name: &str,
+    at: Vec3,
+) {
     use mg_module::instances::Placement;
     let at = view.snapped(at) + Vec3::Z * LIGHT_HEIGHT;
-    let dragged = crate::appearance_gallery::DraggedAppearance {
-        row: light.row,
-        name: format!("Light, {}", light.name),
-    };
+    let dragged = crate::appearance_gallery::DraggedAppearance { row, name: name.to_string() };
     let placement = Placement { position: at.to_array(), rotation: 0.0 };
     let Some(item) = appearance_item(app, &dragged, placement) else { return };
     let what = format!("Add {}", dragged.name);
     append_object(app, view, ObjectKind::Placeable, item, what, "light");
+}
+
+/// Gives every selected object placeables.2da row `row` (one command).
+pub(crate) fn set_appearance(app: &mut Moonglow, view: &AreaView, what: &str, row: usize) {
+    set_on_selection(app, view, what, "Appearance", Value::Dword(row as u32));
+}
+
+/// The lights Moonglow made that the game data has (placeables.2da rows
+/// whose model is one of `mg_module::lights`'), each with its color as
+/// its label says.
+pub(crate) fn made_lights(app: &Moonglow) -> Vec<StockLight> {
+    let Some(game) = app.game.as_deref() else { return Vec::new() };
+    let Ok(table) = game.table("placeables") else { return Vec::new() };
+    (0..table.len())
+        .filter(|&row| table.get(row, "ModelName").is_some_and(mg_module::lights::is_generated))
+        .map(|row| {
+            let label = table.get(row, "Label").unwrap_or("Light");
+            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+            let hex = name.strip_prefix('#').and_then(|h| h.get(..6));
+            let rgb = hex.and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
+            let color = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+            StockLight { row, name, color }
+        })
+        .collect()
+}
+
+/// The light of placeables.2da row `row`: one of the game's, or one
+/// Moonglow made.
+fn light_of_row(app: &Moonglow, row: usize) -> Option<StockLight> {
+    let stock = stock_lights(app).into_iter().find(|l| l.row == row);
+    stock.or_else(|| made_lights(app).into_iter().find(|l| l.row == row))
 }
 
 /// Sets a field on every selected object (one command).

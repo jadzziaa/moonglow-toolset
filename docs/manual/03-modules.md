@@ -618,6 +618,11 @@ conversations = []
 [pack]                              # a nasher project's Pack
 compile_models = true               # models kept as text go in compiled
 
+[lights]                            # Custom Light: lights written into a hak
+generated = true                    # on for the team (off unless said)
+hak = "tdod_lights"                 # the hak offered first
+first_row = 20000                   # the least placeables.2da row a light takes
+
 [claims]
 file = "builders/claims.2da"        # who is building which area
 others = "warn"                     # another builder's area: "warn" before a save, or "read-only"
@@ -657,6 +662,9 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
 | `[used] scripts`, `conversations`, `blueprints` | what [Unused](09-build-and-test.md#what-counts-as-used) (Build Module, `mg verify --unused`) counts as used though nothing in the module names it: a script `ExecuteScript` runs by a name made as it runs (`"j_ai_" + sMode`), a blueprint `CreateObject` makes so (any type, by its ResRef), a conversation so started. Build Module's **Mark as Used** and **Counted as Used** write it, and `mg used`; the rest of the file is kept as written. Aurora never touches the file | none |
 | `[pack] compile_models` | a nasher project's **Build › Pack** (and `mg build`) compiles the models kept as text (ASCII `.mdl`) into the target's file on the way in, as **Compile Models** does a hak's: each against its supermodel from the project, its haks or the game; one that can't be (errors in its text, its supermodel found nowhere) goes in as the text it is, and the log says why. The project's sources stay text | the models go in as text |
+| `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
+| `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
+| `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later | the end of the table |
 | `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |

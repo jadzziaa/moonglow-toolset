@@ -119,6 +119,7 @@ pub struct OptionsDraft {
     /// Height and Width, tenths of a metre.
     pub spawn_marker_size: (u8, u8),
     pub door_arrows: bool,
+    pub generated_lights: bool,
     /// Verify: the groups, checks and categories of missing references
     /// left out of its report, by id ([`mg_module::doctor::Skip`]), each a
     /// checkbox...
@@ -258,6 +259,7 @@ impl OptionsDraft {
             spawn_markers: !s.no_spawn_markers,
             spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
             door_arrows: !s.no_door_arrows,
+            generated_lights: s.generated_lights,
             verify_skip: (s.verify_skip.iter()).filter(|w| verify_box(w)).cloned().collect(),
             verify_more: (s.verify_skip.iter())
                 .filter(|w| !verify_box(w))
@@ -353,6 +355,7 @@ impl OptionsDraft {
             spawn_marker_size: (self.spawn_marker_size != crate::area_view::SPAWN_MARKER)
                 .then_some(self.spawn_marker_size),
             no_door_arrows: !self.door_arrows,
+            generated_lights: self.generated_lights,
             verify_skip: {
                 // (What isn't something to leave out is dropped: the page
                 // says so.)
@@ -868,6 +871,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "A ring around the selection: drag it round to turn the objects. \
                                  With Shift held, two rings that tilt their models \
                                  and arrows that move them along one axis",
+                            );
+                            ui.checkbox(
+                                &mut draft.generated_lights,
+                                "Lights of any color and reach, written into a hak",
+                            )
+                            .on_hover_text(
+                                "On, Add Light Here and the palette's Lights offer Custom \
+                                 Light…: a light of the color, reach and shadows you choose, \
+                                 made as content (a model and a placeables.2da row) written \
+                                 into a hak you choose, which the module's players must have. \
+                                 Off, nothing is ever written into a hak for a light. A \
+                                 project's moonglow.toml ([lights] generated) wins over this",
                             );
                             ui.checkbox(&mut draft.merchant_signs, "Show stores as $ signs")
                                 .on_hover_text(
