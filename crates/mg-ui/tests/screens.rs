@@ -3828,6 +3828,107 @@ fn tileset_rules_and_doors() {
     shoot(&mut h, &dir, "tileset-rules-end");
 }
 
+/// A conversation and the Factions in the light theme and the dark (a
+/// senior builder's review: their colors were the dark theme's): the
+/// Prelude's first conversation opened out, and its factions.
+#[test]
+#[ignore]
+fn conversation_and_factions_in_both_themes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-themes");
+    for light in [false, true] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.settings.no_last_area = true;
+        app.settings.light_theme = light;
+        app.open_module(&root.join("data/nwm/Prelude.nwm"));
+        app.open_palette = false;
+        let dlg = ResKey::parse("m0q01a02olge", ResType::DLG).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(dlg)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(5);
+        let theme = if light { "light" } else { "dark" };
+        shoot(&mut h, &dir, &format!("conversation-{theme}"));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Factions));
+        h.run_steps(5);
+        h.get_by_label("Commoner").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("factions-{theme}"));
+    }
+}
+
+/// A tileset with holes in the tileset editor (a builder's big old
+/// tileset, merged by hand): a copy of the rural tileset without its
+/// `[TILE20]`, its tile 101 without `Model=` and without `[TERRAIN1]`,
+/// on its Tiles page at each hole and at a whole tile, its Terrain page and
+/// its Groups page at a group that uses a hole.
+#[test]
+#[ignore]
+fn tileset_with_holes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-tileset-holes");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_resman::ResMan::for_game(&install).unwrap();
+    let set = game.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap().into_owned();
+    let mut set = String::from_utf8_lossy(&set).into_owned();
+    let cut = |set: &mut String, name: &str| {
+        let header = format!("[{name}]\r\n");
+        let at = set.find(&header).unwrap();
+        let rest = at + header.len();
+        let end = set[rest..].find("\r\n[").map_or(set.len(), |e| rest + e + 2);
+        set.replace_range(at..end, "");
+    };
+    cut(&mut set, "TILE20");
+    cut(&mut set, "TERRAIN1");
+    set = set.replacen("Model=ttr01_k01_01\r\n", "", 1);
+    let t = mg_set::Tileset::parse(set.as_bytes(), mg_core::Codepage::default()).unwrap();
+    let group =
+        t.groups.iter().position(|g| g.tiles.contains(&Some(20)) || g.tiles.contains(&Some(101)));
+    let path = dir.join("mghole.set");
+    std::fs::write(&path, &set).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    h.run();
+    shoot(&mut h, &dir, "holes-general");
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+    for (tile, name) in [(20, "holes-tile20"), (101, "holes-tile101"), (19, "holes-tile19")] {
+        h.state_mut().tilesets[0].tile = Some(tile);
+        h.run();
+        shoot(&mut h, &dir, name);
+    }
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Terrain;
+    h.run();
+    shoot(&mut h, &dir, "holes-terrain");
+    if let Some(g) = group {
+        h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Groups;
+        h.state_mut().tilesets[0].group = Some(g);
+        h.run();
+        shoot(&mut h, &dir, "holes-group");
+    }
+}
+
 /// Candidate areas for the README: the first outdoor areas of a campaign
 /// module, from a three-quarter view. `MG_README_MODULE` picks the module
 /// (default Chapter 1).

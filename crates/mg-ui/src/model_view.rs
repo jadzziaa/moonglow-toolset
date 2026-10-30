@@ -207,6 +207,35 @@ pub enum Source {
     },
 }
 
+impl Source {
+    /// What the viewer of a tab shows (`None`: the tab is no model's).
+    pub(crate) fn of_tab(tab: &crate::Tab) -> Option<Source> {
+        Some(match tab {
+            crate::Tab::Model(k) => Source::Resource(*k),
+            crate::Tab::InstanceModel { area, path } => {
+                Source::Instance { area: *area, path: path.clone() }
+            }
+            crate::Tab::ModelCopy { key, layer } => {
+                Source::Copy { key: *key, layer: layer.clone() }
+            }
+            _ => return None,
+        })
+    }
+
+    /// The tab whose viewer shows it.
+    fn tab(&self) -> crate::Tab {
+        match self {
+            Source::Resource(k) => crate::Tab::Model(*k),
+            Source::Instance { area, path } => {
+                crate::Tab::InstanceModel { area: *area, path: path.clone() }
+            }
+            Source::Copy { key, layer } => {
+                crate::Tab::ModelCopy { key: *key, layer: layer.clone() }
+            }
+        }
+    }
+}
+
 impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -833,7 +862,13 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
         }
-        let view = ModelView::open(app, &source);
+        let mut view = ModelView::open(app, &source);
+        // (Its camera as a session left it, a tab opened again.)
+        if !embedded
+            && let Some((orbit, _)) = app.open_tabs.take_view(&source.tab()).and_then(|v| v.orbit())
+        {
+            view.orbit = orbit;
+        }
         app.model_views.insert(key.clone(), view);
     }
     let mut view = app.model_views.remove(&key).expect("just inserted");

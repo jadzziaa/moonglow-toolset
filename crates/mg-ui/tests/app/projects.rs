@@ -661,6 +661,26 @@ fn a_project_s_files_changed_outside_are_read_again() {
     assert!(said(&h, "Read again from the module's files"));
     assert!(h.state().outside_conflicts().is_empty());
 
+    // An area added outside (a pull's, its module.ifo not listing it yet)
+    // joins the area list, as when the project is opened: not unsaved
+    // work, and not written until module.ifo changes here.
+    let ifo_file = dir.join("src/module.ifo.json");
+    let ifo_text = std::fs::read_to_string(&ifo_file).unwrap();
+    for ext in ["are", "git", "gic"] {
+        let from = dir.join(format!("src/{area}.{ext}.json"));
+        std::fs::copy(&from, dir.join(format!("src/mg_pulled.{ext}.json"))).unwrap();
+    }
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    {
+        let ws = h.state().ws.as_ref().unwrap();
+        let pulled = ResRef::from_str("mg_pulled").unwrap();
+        assert!(ws.module.areas().unwrap().contains(&pulled), "listed");
+        assert!(!ws.is_modified(), "read again is not unsaved work");
+    }
+    assert!(said(&h, "areas added to the area list: mg_pulled"));
+    assert_eq!(std::fs::read_to_string(&ifo_file).unwrap(), ifo_text, "not written");
+
     // Changed here (unsaved) and outside both: Moonglow's is kept, and asked.
     let set_tag = |h: &mut Harness<'_, Moonglow>, to: &str| {
         let edit = mg_edit::Edit::SetField {

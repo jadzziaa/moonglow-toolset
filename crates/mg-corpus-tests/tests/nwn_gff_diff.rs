@@ -29,7 +29,7 @@ fn normalize(s: &mut Struct) {
     }
 }
 
-fn has_empty_label(s: &Struct) -> bool {
+pub(crate) fn has_empty_label(s: &Struct) -> bool {
     s.fields.iter().any(|f| {
         f.label.as_bytes().is_empty()
             || match &f.value {
@@ -40,13 +40,13 @@ fn has_empty_label(s: &Struct) -> bool {
     })
 }
 
-fn normalized(mut g: Gff) -> Gff {
+pub(crate) fn normalized(mut g: Gff) -> Gff {
     normalize(&mut g.root);
     g
 }
 
 /// Up to `PER_TYPE` evenly spaced items of each resource type.
-fn sample<T>(items: Vec<(ResType, T)>) -> Vec<(ResType, T)> {
+pub(crate) fn sample<T>(items: Vec<(ResType, T)>) -> Vec<(ResType, T)> {
     let mut by_type: std::collections::BTreeMap<u16, Vec<T>> = Default::default();
     for (t, v) in items {
         by_type.entry(t.0).or_default().push(v);
@@ -59,7 +59,7 @@ fn sample<T>(items: Vec<(ResType, T)>) -> Vec<(ResType, T)> {
     out
 }
 
-fn run(tool: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+pub(crate) fn run(tool: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new(tool).args(args).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned());

@@ -978,9 +978,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "The size of the conversation editor's text: its lines and the \
                                  fields under them",
                             );
+                            // (The defaults of the theme the window shows.)
+                            let (npc, pc) =
+                                crate::dialog_view::default_colors(ui.visuals().dark_mode);
                             for (label, color, default) in [
-                                ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
-                                ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
+                                ("NPC Text Color", &mut draft.dialog_npc_color, npc),
+                                ("Player Text Color", &mut draft.dialog_pc_color, pc),
                             ] {
                                 ui.horizontal(|ui| {
                                     crate::widgets::field_label(ui, label);

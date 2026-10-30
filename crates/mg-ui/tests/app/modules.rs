@@ -947,7 +947,11 @@ fn a_hak_s_encoding_table_reads_and_writes_the_module_s_text() {
     assert!(game.codepage().encode("ð").is_none());
     drop(game);
 
-    // The hak taken off the module: the game's own codepage again.
+    // The hak taken off the module while the tag is being typed in: the
+    // field reads its bytes again by the game's own codepage, and left
+    // untouched, the tag keeps its bytes.
+    h.get_all_by_value("Işık dağı é").find(is_input).expect("the tag").click();
+    h.run();
     let edit = mg_edit::Edit::SetField {
         key: ResKey::parse("module", ResType::IFO).unwrap(),
         path: mg_edit::GffPath::root(),
@@ -958,6 +962,9 @@ fn a_hak_s_encoding_table_reads_and_writes_the_module_s_text() {
     h.run();
     assert!(!h.state().game.as_deref().unwrap().codepage().is_table());
     assert!(h.query_all_by_value("Iþýk daðý é").any(|n| is_input(&n)));
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"I\xfe\xfdk da\xf0\xfd \xe9");
 }
 
 /// Without the table all is as it was: Windows-1252.

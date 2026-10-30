@@ -437,7 +437,8 @@ pub fn default_user_dir() -> Option<PathBuf> {
 
 impl ResMan {
     /// The stack the toolset sees with no module open (see [`priority`]):
-    /// portraits, `development/`, `override/`, ambient and music folders and
+    /// portraits, `development/`, `override/`, ambient and music folders
+    /// (with Steam Workshop items' own under the user's, when read) and
     /// the keys (`nwn_retail*` over `nwn_base*`, localized keys over their
     /// base). The install's `ovr/` is not searched: EE keeps `nwscript.nss`
     /// there for external tools only, and the engine resolves it from the keys.
@@ -449,27 +450,36 @@ impl ResMan {
         let mut rm = ResMan::new();
         let root = &install.root;
         let data = root.join("data");
-        let mut dir = |p: u32, label: &str, path: Option<PathBuf>| {
+        // A Workshop item's folder of a kind, as a layer at `p` (each item
+        // labelled by its number; of two items, the first by number first,
+        // the game's order not being known), added before the install's
+        // own of that priority: under the user's own, over the install's.
+        let workshop = |rm: &mut ResMan, p: u32, sub: &str| {
+            for item in install.workshop(sub) {
+                let id = item.parent().and_then(Path::file_name).unwrap_or_default();
+                let label = format!("workshop:{}", id.to_string_lossy());
+                rm.add(p, label, LayerClass::Directory, DirContainer::open(&item));
+            }
+        };
+        let dir = |rm: &mut ResMan, p: u32, label: &str, path: Option<PathBuf>| {
             if let Some(path) = path {
                 rm.add(p, label, LayerClass::Directory, DirContainer::open(&path));
             }
         };
-        dir(priority::PORTRAITS_USER, "user portraits", install.user("portraits"));
-        dir(priority::PORTRAITS, "portraits", Some(data.join("prt")));
-        dir(priority::DEVELOPMENT_USER, "development", install.user("development"));
-        dir(priority::OVERRIDE, "override", install.user("override"));
+        dir(&mut rm, priority::PORTRAITS_USER, "user portraits", install.user("portraits"));
+        workshop(&mut rm, priority::PORTRAITS, "portraits");
+        dir(&mut rm, priority::PORTRAITS, "portraits", Some(data.join("prt")));
+        dir(&mut rm, priority::DEVELOPMENT_USER, "development", install.user("development"));
+        dir(&mut rm, priority::OVERRIDE, "override", install.user("override"));
         // The Workshop's overrides, under the user's own (the game started
-        // through Steam reads them; which of two items' wins isn't known:
-        // the first by number here).
-        for item in install.workshop("override").into_iter().rev() {
-            let id = item.parent().and_then(Path::file_name).unwrap_or_default();
-            let label = format!("workshop:{}", id.to_string_lossy());
-            dir(priority::WORKSHOP, &label, Some(item));
-        }
-        dir(priority::AMBIENT_USER, "user ambient", install.user("ambient"));
-        dir(priority::MUSIC_USER, "user music", install.user("music"));
-        dir(priority::AMBIENT, "ambient", Some(data.join("amb")));
-        dir(priority::MUSIC, "music", Some(data.join("mus")));
+        // through Steam reads them).
+        workshop(&mut rm, priority::WORKSHOP, "override");
+        dir(&mut rm, priority::AMBIENT_USER, "user ambient", install.user("ambient"));
+        dir(&mut rm, priority::MUSIC_USER, "user music", install.user("music"));
+        workshop(&mut rm, priority::AMBIENT, "ambient");
+        dir(&mut rm, priority::AMBIENT, "ambient", Some(data.join("amb")));
+        workshop(&mut rm, priority::MUSIC, "music");
+        dir(&mut rm, priority::MUSIC, "music", Some(data.join("mus")));
         // userpatch.ini's haks, under the module and its haks, over
         // `override/`; the highest first (an archive that can't be read is
         // left out, as a missing one is).
@@ -611,8 +621,21 @@ mod install_tests {
         std::fs::write(item.join("override/mg_both.2da"), "workshop").unwrap();
         std::fs::write(user.join("override/mg_both.2da"), "user").unwrap();
         std::fs::write(item.join("hak/mg_ws_hak.hak"), "").unwrap();
+        // Its portraits, ambient sounds and music: under the user's, over
+        // the install's.
+        for (sub, name, ext) in [
+            ("portraits", "po_mgws_m", mg_core::ResType::TGA),
+            ("ambient", "al_mg_ws", mg_core::ResType::WAV),
+            ("music", "mus_mg_ws", mg_core::ResType::BMU),
+        ] {
+            std::fs::create_dir_all(item.join(sub)).unwrap();
+            let file = format!("{name}.{}", ext.extension().unwrap());
+            std::fs::write(item.join(sub).join(file), sub).unwrap();
+        }
+        std::fs::create_dir_all(user.join("portraits")).unwrap();
+        std::fs::write(user.join("portraits/po_mgws_m.tga"), "user").unwrap();
         let key = |n: &str| crate::ResKey::parse(n, mg_core::ResType::TWODA).unwrap();
-        let mut install = GameInstall::new(&root, Some(user), "en");
+        let mut install = GameInstall::new(&root, Some(user.clone()), "en");
         let without = ResMan::for_game(&install).unwrap();
         assert!(!without.contains(&key("mg_ws")));
         assert!(install.workshop_items().is_empty());
@@ -621,6 +644,16 @@ mod install_tests {
         assert_eq!(&*with.get(&key("mg_ws")).unwrap(), b"workshop");
         assert_eq!(&*with.get(&key("mg_both")).unwrap(), b"user", "the user's own comes first");
         assert!(install.hak_dirs().contains(&item.join("hak")));
+        let res = |n: &str, t| crate::ResKey::parse(n, t).unwrap();
+        let (tga, wav, bmu) = (mg_core::ResType::TGA, mg_core::ResType::WAV, mg_core::ResType::BMU);
+        assert_eq!(&*with.get(&res("po_mgws_m", tga)).unwrap(), b"user", "the user's portrait");
+        assert_eq!(&*with.get(&res("al_mg_ws", wav)).unwrap(), b"ambient");
+        assert_eq!(&*with.get(&res("mus_mg_ws", bmu)).unwrap(), b"music");
+        assert_eq!(with.origin(&res("mus_mg_ws", bmu)), Some("workshop:123"));
+        std::fs::remove_file(user.join("portraits/po_mgws_m.tga")).unwrap();
+        let with = ResMan::for_game(&install).unwrap();
+        assert_eq!(&*with.get(&res("po_mgws_m", tga)).unwrap(), b"portraits");
+        assert!(!without.contains(&res("mus_mg_ws", bmu)));
         // Not for a game outside a Steam library.
         let elsewhere = GameInstall { root: lib.join("game"), ..install };
         assert!(elsewhere.workshop_items().is_empty());

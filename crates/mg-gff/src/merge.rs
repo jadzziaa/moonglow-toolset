@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use crate::Gff;
 use crate::value::{Label, Struct, Value};
+use mg_core::{LocString, LocStringKey};
 
 /// Whose value a conflict takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,8 +163,45 @@ impl Merger<'_> {
             (Value::List(b), Value::List(o), Value::List(t)) => {
                 Some(Value::List(self.list(path, label, b, o, t)))
             }
+            (Value::LocString(b), Value::LocString(o), Value::LocString(t)) => {
+                Some(Value::LocString(self.locstring(path, b, o, t)))
+            }
             _ => self.conflict(path, Some(b), Some(o), Some(t)),
         }
+    }
+
+    /// A localized string both changed, merged language by language (and
+    /// its talk-table line as a value): one side's English and the other's
+    /// French are both kept; a conflict is the one language's.
+    fn locstring(&mut self, path: &str, b: &LocString, o: &LocString, t: &LocString) -> LocString {
+        let strref = |s: &LocString| Value::Dword(s.strref.0);
+        let strref = match self.scalar(
+            &format!("{path}/(strref)"),
+            Some(&strref(b)),
+            Some(&strref(o)),
+            Some(&strref(t)),
+        ) {
+            Some(Value::Dword(v)) => mg_core::StrRef(v),
+            _ => o.strref,
+        };
+        let text = |s: &LocString, k: LocStringKey| {
+            s.strings.iter().find(|(key, _)| *key == k).map(|(_, t)| Value::String(t.clone()))
+        };
+        let mut keys: Vec<LocStringKey> = Vec::new();
+        for (k, _) in o.strings.iter().chain(&t.strings).chain(&b.strings) {
+            if !keys.contains(k) {
+                keys.push(*k);
+            }
+        }
+        let mut out = LocString { strref, strings: Vec::new() };
+        for k in keys {
+            let (bv, ov, tv) = (text(b, k), text(o, k), text(t, k));
+            let p = format!("{path}/[{}]", k.0);
+            if let Some(Value::String(s)) = self.scalar(&p, bv.as_ref(), ov.as_ref(), tv.as_ref()) {
+                out.strings.push((k, s));
+            }
+        }
+        out
     }
 
     fn strukt(&mut self, path: &str, b: &Struct, o: &Struct, t: &Struct) -> Struct {
@@ -266,6 +304,13 @@ impl Merger<'_> {
         out
     }
 
+    /// A list whose items are told by what they are, merged item by
+    /// item, in sequence: the base's items kept in the order a side that
+    /// reordered them gave (both reordering them, each its own way, is a
+    /// conflict: the order of some lists is the game's, a hak list's
+    /// deciding which hak wins), and each side's new items after the item
+    /// they follow there (at the top where they lead), ours before theirs
+    /// at one place.
     fn by_identity(
         &mut self,
         path: &str,
@@ -277,7 +322,8 @@ impl Merger<'_> {
         let (om, tm) = (matching(rule, b, o), matching(rule, b, t));
         let item_path = |s: &Struct| format!("{path}[{}]", describe(rule, s));
         let as_value = |s: &Struct| Value::Struct(s.clone());
-        let mut out = Vec::new();
+        // The base's items, merged; `None` where gone.
+        let mut kept: Vec<Option<Struct>> = Vec::with_capacity(b.len());
         for (i, bi) in b.iter().enumerate() {
             let p = item_path(bi);
             let item = match (om[i].map(|j| &o[j]), tm[i].map(|j| &t[j])) {
@@ -288,43 +334,102 @@ impl Merger<'_> {
                 (None, Some(ti)) => self.removed_and_changed(&p, bi, None, Some(ti)),
                 (None, None) => None,
             };
-            out.extend(item);
+            kept.push(item);
         }
-        let taken = |m: &[Option<usize>], len: usize| {
-            let mut used = vec![false; len];
-            m.iter().flatten().for_each(|&j| used[j] = true);
-            used
+        // Their order: the base's, unless one side moved them. (An item a
+        // side doesn't have keeps its place; those it has take theirs, in
+        // the places they fill.)
+        let base_order: Vec<usize> = (0..b.len()).filter(|&i| kept[i].is_some()).collect();
+        let order_on = |m: &[Option<usize>]| -> Vec<usize> {
+            let mut moved: Vec<usize> =
+                base_order.iter().copied().filter(|&i| m[i].is_some()).collect();
+            moved.sort_by_key(|&i| m[i]);
+            let mut moved = moved.into_iter();
+            (base_order.iter())
+                .map(|&i| if m[i].is_some() { moved.next().unwrap_or(i) } else { i })
+                .collect()
         };
-        let (o_used, t_used) = (taken(&om, o.len()), taken(&tm, t.len()));
-        let ours_added: Vec<&Struct> =
-            o.iter().zip(&o_used).filter(|(_, u)| !**u).map(|(s, _)| s).collect();
-        let first_added = out.len();
-        out.extend(ours_added.iter().map(|s| (*s).clone()));
-        for ti in t.iter().zip(&t_used).filter(|(_, u)| !**u).map(|(s, _)| s) {
-            // The same object added by both is one.
-            if ours_added.contains(&ti) {
+        let (o_order, t_order) = (order_on(&om), order_on(&tm));
+        let order = match (o_order != base_order, t_order != base_order) {
+            (true, false) => o_order,
+            (false, true) => t_order,
+            (true, true) if o_order == t_order => o_order,
+            (true, true) => {
+                let as_list = |order: &[usize]| {
+                    Value::List(order.iter().filter_map(|&i| kept[i].clone()).collect())
+                };
+                let (bl, ol, tl) = (as_list(&base_order), as_list(&o_order), as_list(&t_order));
+                self.conflict(&format!("{path}/(order)"), Some(&bl), Some(&ol), Some(&tl));
+                match self.prefer {
+                    Prefer::Ours => o_order,
+                    Prefer::Theirs => t_order,
+                }
+            }
+            _ => base_order,
+        };
+        // Each side's new items, with the base item they follow on it.
+        let added = |side: &[Struct], m: &[Option<usize>]| -> Vec<(Option<usize>, usize)> {
+            let mut of_side: Vec<Option<usize>> = vec![None; side.len()];
+            for (i, j) in m.iter().enumerate() {
+                if let Some(j) = j
+                    && kept[i].is_some()
+                {
+                    of_side[*j] = Some(i);
+                }
+            }
+            let used: Vec<bool> = (0..side.len()).map(|j| m.contains(&Some(j))).collect();
+            let mut after = None;
+            let mut out = Vec::new();
+            for j in 0..side.len() {
+                if let Some(i) = of_side[j] {
+                    after = Some(i);
+                } else if !used[j] {
+                    out.push((after, j));
+                }
+            }
+            out
+        };
+        let mut ours_added: Vec<(Option<usize>, Struct)> =
+            added(o, &om).into_iter().map(|(a, j)| (a, o[j].clone())).collect();
+        let mut theirs_added: Vec<(Option<usize>, Struct)> = Vec::new();
+        for (after, j) in added(t, &tm) {
+            let ti = &t[j];
+            // The same item added by both is one.
+            if ours_added.iter().any(|(_, s)| s == ti) {
                 continue;
             }
             let same_key = match rule {
                 ListRule::Placed => None,
                 _ => {
                     let k = key(rule, ti);
-                    (first_added..first_added + ours_added.len())
-                        .find(|&n| k.is_some() && key(rule, &out[n]) == k)
+                    ours_added.iter().position(|(_, s)| k.is_some() && key(rule, s) == k)
                 }
             };
             match same_key {
                 Some(n) => {
                     let p = item_path(ti);
-                    let ours = as_value(&out[n]);
+                    let ours = as_value(&ours_added[n].1);
                     if let Some(Value::Struct(s)) =
                         self.conflict(&p, None, Some(&ours), Some(&as_value(ti)))
                     {
-                        out[n] = s;
+                        ours_added[n].1 = s;
                     }
                 }
-                None => out.push(ti.clone()),
+                None => theirs_added.push((after, ti.clone())),
             }
+        }
+        let mut out = Vec::with_capacity(order.len() + ours_added.len() + theirs_added.len());
+        let mut place = |out: &mut Vec<Struct>, at: Option<usize>| {
+            for list in [&mut ours_added, &mut theirs_added] {
+                let (here, rest): (Vec<_>, Vec<_>) = list.drain(..).partition(|(a, _)| *a == at);
+                out.extend(here.into_iter().map(|(_, s)| s));
+                *list = rest;
+            }
+        };
+        place(&mut out, None);
+        for i in order {
+            out.extend(kept[i].take());
+            place(&mut out, Some(i));
         }
         out
     }
@@ -424,7 +529,9 @@ type KeyOf = fn(&Struct) -> Option<Vec<u8>>;
 
 /// The steps of [`ListRule::Placed`] after the first (the same in every
 /// field), each a key and whether it pairs only where it is the only one
-/// of its key left on both sides.
+/// of its key left on both sides. (Never the blueprint alone: an object
+/// one side removed while it placed another of the blueprint elsewhere
+/// would take the other side's change to the first.)
 fn placed_steps() -> [(KeyOf, bool); 4] {
     fn join(a: Option<Vec<u8>>, b: Option<Vec<u8>>) -> Option<Vec<u8>> {
         Some([a?, b?].concat())
@@ -739,6 +846,56 @@ mod tests {
         assert_eq!(m.gff.root, list(&["START", "town", "x"]));
     }
 
+    /// Where both changed a list, one side's reordering is kept and each
+    /// side's new items stay after the item they follow there.
+    #[test]
+    fn a_list_s_order_merges_in_sequence() {
+        let area = |name: &str| {
+            let mut s = Struct::new(6);
+            s.set("Area_Name", Value::ResRef(name.into()));
+            s
+        };
+        let list = |names: &[&str]| {
+            root(&[("Mod_Area_list", Value::List(names.iter().map(|n| area(n)).collect()))])
+        };
+        let b = list(&["start", "town", "cave"]);
+        // Ours moved the cave up; theirs added a keep after the town.
+        let m = run(
+            &b,
+            &list(&["cave", "start", "town"]),
+            &list(&["start", "town", "keep", "cave"]),
+            Prefer::Ours,
+        );
+        assert!(m.conflicts.is_empty());
+        assert_eq!(m.gff.root, list(&["cave", "start", "town", "keep"]));
+        // Theirs put a new area first and moved the cave up; ours added
+        // one after the cave, which it follows wherever the cave is.
+        let m = run(
+            &b,
+            &list(&["start", "town", "cave", "crypt"]),
+            &list(&["intro", "cave", "start", "town"]),
+            Prefer::Ours,
+        );
+        assert_eq!(m.gff.root, list(&["intro", "cave", "crypt", "start", "town"]));
+        // Both reordered, each its own way: a conflict of the order, the
+        // side preferred taking its own.
+        let (o, t) = (list(&["cave", "start", "town"]), list(&["town", "start", "cave", "x"]));
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert_eq!(m.conflicts.len(), 1);
+        assert_eq!(m.conflicts[0].path, "/Mod_Area_list/(order)");
+        assert_eq!(m.gff.root, list(&["cave", "x", "start", "town"]));
+        let m = run(&b, &o, &t, Prefer::Theirs);
+        assert_eq!(m.gff.root, list(&["town", "start", "cave", "x"]));
+        // New items both put after one: ours first.
+        let m = run(
+            &b,
+            &list(&["start", "a", "town", "cave"]),
+            &list(&["start", "z", "town", "cave"]),
+            Prefer::Ours,
+        );
+        assert_eq!(m.gff.root, list(&["start", "a", "z", "town", "cave"]));
+    }
+
     #[test]
     fn placed_objects_merge_by_object() {
         let list = |objs: &[Struct]| root(&[("Placeable List", Value::List(objs.to_vec()))]);
@@ -855,6 +1012,65 @@ mod tests {
         );
         assert!(m.conflicts.is_empty());
         assert_eq!(m.gff.root, list(&[slot(16, "axe"), slot(32, "shield")]));
+    }
+
+    /// One side's English and the other's French of one name are both
+    /// kept; both changing the English is a conflict of the English alone.
+    #[test]
+    fn localized_strings_merge_by_language() {
+        let name = |pairs: &[(u32, &str)]| {
+            let mut ls = LocString::from_strref(mg_core::StrRef::NONE);
+            for (k, t) in pairs {
+                ls.strings.push((LocStringKey(*k), t.as_bytes().to_vec()));
+            }
+            Value::LocString(ls)
+        };
+        let b = root(&[("Name", name(&[(0, "Chest"), (2, "Coffre")]))]);
+        let o = root(&[("Name", name(&[(0, "Old Chest"), (2, "Coffre")]))]);
+        let t = root(&[("Name", name(&[(0, "Chest"), (2, "Vieux coffre"), (4, "Truhe")]))]);
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(
+            m.gff.root,
+            root(&[("Name", name(&[(0, "Old Chest"), (2, "Vieux coffre"), (4, "Truhe")]))])
+        );
+        let t = root(&[("Name", name(&[(0, "Big Chest"), (2, "Coffre")]))]);
+        let m = run(&b, &o, &t, Prefer::Theirs);
+        assert_eq!(m.conflicts.len(), 1);
+        assert_eq!(m.conflicts[0].path, "/Name/[0]");
+        assert_eq!(m.gff.root, root(&[("Name", name(&[(0, "Big Chest"), (2, "Coffre")]))]));
+        // A language one took away and the other left: gone.
+        let o = root(&[("Name", name(&[(0, "Chest")]))]);
+        let t = root(&[("Name", name(&[(0, "Chest"), (2, "Coffre")])), ("X", Value::Int(1))]);
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert!(m.conflicts.is_empty());
+        assert_eq!(m.gff.root.get("Name"), Some(&name(&[(0, "Chest")])));
+    }
+
+    /// One side removed chest A and placed chest B, of the same blueprint,
+    /// elsewhere with another tag, while the other side changed A: a
+    /// conflict, not the change landing on B (which is a different chest,
+    /// though one moved and retagged would look the same).
+    #[test]
+    fn a_chest_removed_and_another_placed_while_the_first_was_changed_is_a_conflict() {
+        let list = |items: Vec<Struct>| root(&[("Placeable List", Value::List(items))]);
+        let a = placed("plc_chest", "CHEST", 1.0, 1.0);
+        let lamp = placed("plc_lamp", "LAMP", 5.0, 5.0);
+        let b_chest = placed("plc_chest", "RED_CHEST", 3.0, 2.0);
+        let mut lit = a.clone();
+        lit.set("Appearance", Value::Dword(7));
+        let b = list(vec![a.clone(), lamp.clone()]);
+        let o = list(vec![b_chest.clone(), lamp.clone()]);
+        let t = list(vec![lit.clone(), lamp.clone()]);
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert_eq!(m.conflicts.len(), 1, "{:?}", m.conflicts);
+        assert!(m.conflicts[0].path.contains("plc_chest \"CHEST\""), "{}", m.conflicts[0].path);
+        assert_eq!(m.conflicts[0].ours, None, "ours removed A");
+        // Taking ours: A gone, B kept untouched.
+        assert_eq!(m.gff.root, list(vec![b_chest.clone(), lamp.clone()]));
+        // Taking theirs: A as they changed it, and B.
+        let m = run(&b, &o, &t, Prefer::Theirs);
+        assert_eq!(m.gff.root, list(vec![b_chest, lit, lamp]));
     }
 
     #[test]

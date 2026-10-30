@@ -873,6 +873,26 @@ impl Module {
         }
     }
 
+    /// A nasher project's area list settled again after its files changed
+    /// outside Moonglow (areas a pull added that `module.ifo` doesn't list
+    /// yet are listed after the others, as when the project is opened,
+    /// unless its `removeUnusedAreas` is off), counted as read: its
+    /// `module.ifo` as it is now, for the workspace to take as one changed
+    /// outside (`Workspace::adopt`, which puts it in the module); `None`
+    /// where nothing changed. The module itself is left as it is.
+    pub fn area_list_settled(&mut self) -> Option<Arc<[u8]>> {
+        let project = self.project.as_mut()?;
+        let info = Module::info_key();
+        let was = self.resources.get(&info)?.clone();
+        let mut these: nasher::Resources = (self.resources.iter())
+            .filter(|(k, _)| k.restype == ResType::ARE || **k == info)
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        project.settle_area_list(&mut these);
+        let now = these.get(&info)?;
+        (!Arc::ptr_eq(&was, now)).then(|| now.clone())
+    }
+
     /// Puts the locks kept apart from a nasher project's files
     /// ([`locks`]) back on the objects they find, as if the files had them:
     /// the module doesn't count as changed, and a file changed outside

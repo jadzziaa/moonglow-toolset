@@ -3,7 +3,7 @@ type: Proposal
 title: Proposed corrections to nwn.wiki
 description: Proposed corrections to fifteen nwn.wiki pages that say something the game or Aurora does differently - for each, what the page says, what it should say and how that was checked - in order of how much trouble the current text causes.
 tags: [nwn-wiki, corrections, proposal]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:08:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T04:20:30Z }
 sources:
   - id: findings
     resource: findings.md
@@ -30,6 +30,11 @@ findings, including many the wiki does not cover at all (not proposed
 here: only contradictions are).
 
 Entries are in order of how much trouble the current text can cause.
+Each page's edit, ready to paste (the passage to find, the text to put in
+its place, an edit summary and the evidence), is in
+[wiki-corrections/](wiki-corrections/index.md), written against the page
+versions of the mirror's sync of 2026-10-26, which are still those of
+2026-10-03.
 
 ## Wrong, and likely to mislead
 
@@ -75,7 +80,9 @@ table of GFF file types.
 (version 4).
 
 - **Says:** haks should stay under 2 GB because "the Toolset (and other
-  tools like nwsync) doesn't read past 2GB".
+  tools like nwsync) doesn't read past 2GB" (Resource Limits); HAK says
+  only that keeping under 2 GB "helps the Toolset and tools like nwsync
+  work properly".
 - **Proposed:** The limit is the game's as well. A resource whose data
   *starts* at 2³¹ bytes or later in a hak is missing to the game: a 2DA
   reads as empty, a script does not run. A resource that starts before
@@ -285,5 +292,7 @@ table of GFF file types.
   modifier (base Constitution plus the racial adjustment) × total level,
   plus the total level again with the Toughness feat; never below 1. Epic
   Toughness is not included.
-- **Checked:** Aurora, `aurora_creatures.rs` `max_hit_points_match_aurora`;
-  1,520 of the 1,582 base-game creatures store this value.
+- **Checked:** Aurora, `aurora_creatures.rs` `max_hit_points_match_aurora`
+  (22 creatures Aurora saved); `creature_stats.rs`
+  `max_hit_points_match_the_stored_ones`: 1,520 of the 1,582 base-game
+  creatures store this value.

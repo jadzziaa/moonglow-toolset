@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:33:22Z }
 ---
 
 # Modules
@@ -33,7 +33,10 @@ a directory), nasher projects (see below) and the game's campaign files
   its selected line, bookmarks and folded
   branches (if the conversation is as it was: changed since, outside
   Moonglow, they would be on other lines, and are let go), a Properties
-  window (and the Options) its page. A placed object's Properties are
+  window (and the Options) its page, a model view its camera, a hak its
+  selected resources, a 2DA its selected cell, a tileset its page, tile
+  and group, Advanced Search its conditions (what they found is not
+  searched for again: press **Search**). A placed object's Properties are
   found again by the object (its tag, its blueprint and where it
   stands), so that an area changed outside Moonglow since gives the
   same object's, or none; Tile Properties opens once its area's view
@@ -455,8 +458,26 @@ nasher rounds the module's numbers to 4 decimal places (its
 ten-thousandth of a meter from where they were in a `.mod`. In the game
 that can show as a turn of up to a degree. Moonglow uses the project's
 own settings (`.nasher/user.cfg`): the number of places, the codepage and
-whether the area list is kept up to date. It reads projects that keep
-resources as JSON, nasher's default; NWNT format isn't supported yet.
+whether the area list is kept up to date.
+
+**NWNT projects.** A project whose settings say `gffFormat = "nwnt"`
+(nasher with WilliamDraco's `nwn_nwnt` as its `gffUtil`) keeps its GFF
+files as NWNT, a line a field (`Creature List[].Tag$CExoString =
+GUARD`), rather than JSON. Moonglow reads and saves those as it does
+JSON: each `.nwnt` file is written as `nasher unpack` writes it (fields
+sorted, floats to the project's places, line breaks in text as `\n`,
+lines ending in CRLF, without the module's `Mod_ID` and an area's
+`Version`), so an untouched file stays as it is, and a new resource (an
+area, a blueprint) gets a `.nwnt` file. A JSON file the project still
+has (from before it changed format) is read and saved as JSON. Save As
+nasher Project takes in `.nwnt` files instead of `.json` where the
+settings it is saved under (the global `user.cfg`, or one already in the
+folder's `.nasher`) say NWNT. A field whose label has a dot in it can't
+be written as NWNT (`nwn_nwnt` reads the dot as a struct's); the game's
+own files have none. A field with no label at all (BioWare's own
+tileset palettes have one, so a palette copied from the game's may) is
+written, read and packed by Moonglow, but `nwn_nwnt` can't read it
+back, so `nasher pack` fails on that file.
 
 `mg init` and `mg build` do the same from a terminal or a build pipeline
 (see [Command-line tools](11-command-line.md)).
@@ -476,7 +497,7 @@ driver*: in every merge, on every file you assign it to.
 `.gitattributes` (it is committed, so every builder has it):
 
 ```
-# nasher projects: GFF kept as JSON
+# nasher projects: GFF kept as JSON (or as NWNT: *.are.nwnt and so on)
 *.are.json merge=mg-gff
 *.git.json merge=mg-gff
 *.gic.json merge=mg-gff
@@ -530,27 +551,45 @@ with it.
   5. the only object left with its blueprint and position (so a retagged
      object is too).
 
-  An object that was moved *and* retagged on one side is taken as
-  removed and another added. If the other side changed it, that is a
-  conflict, not a lost edit.
-- **The module's area list** is a union: the areas the base had, in its
-  order, without those a side removed, then ours' new ones, then theirs'.
+  An object both moved *and* retagged on one side is taken as removed
+  and another added; if the other side changed it, that is a conflict,
+  not a lost edit. (Matching it by its blueprint alone would put the
+  other side's change on a different object where one side removed an
+  object and placed another of the blueprint elsewhere.)
+- **The module's area list** is a union: the areas the base had, without
+  those a side removed, and each side's new ones.
+- **Localized strings** (names, descriptions) merge language by
+  language: your English and their French of one name are both kept, and
+  a conflict is the one language both changed.
 - **Variables** merge by name and type (an int and a string of one name
   are two variables, as the game keeps them), **haks** and cached scripts
   by name, a creature's feats, classes and spells by what they are,
   equipped items by slot, a journal's quests by tag and their entries by
   number, a faction file's standings by the pair of factions.
-- **Every other list** (tiles, skills, inventories, conversation nodes,
-  item properties) is merged by place: an item is its number in the list,
-  and two items added at one place are a conflict.
+- **Inventories** merge item by item, an item being its blueprint and
+  its place in the grid (two items put in different places are both
+  kept; where they overlap is not looked at), a store's panes by pane,
+  an encounter's creatures by blueprint, an item's properties by
+  property and subtype, a creature's special abilities by spell.
+- **Every other list** (tiles, skills, conversation nodes) is merged by
+  place: an item is its number in the list, and two items added at one
+  place are a conflict.
 - A list only one side changed is that side's list as it is, order and
-  all. Where both changed one, the base's order holds; one side's moving
-  of an item is not kept.
+  all. Where both changed one of those merged item by item, the order
+  one side gave the base's items is kept, and each side's new items go
+  after the item they follow on that side (ours first, where both put
+  one after the same item). Both moving the base's items, each its own
+  way, is a **conflict** of the list's order (`CONFLICT /Mod_HakList/(order)`),
+  for every list: the order of some is the game's (the hak list's
+  decides which hak wins). `--prefer` takes that side's order.
 
 **The merge is written over your file (`%A`) in its own form.** A GFF is
-written as a GFF and JSON as `nasher unpack` writes it: keys sorted,
-floats rounded to the project's places, text in its codepage (read from
-the nasher project the file is in). A merge that equals your file leaves
+written as a GFF, and JSON and NWNT as `nasher unpack` writes them: keys
+sorted, floats rounded to the project's places, text in its codepage.
+Those are read from the nasher project the file is in (above `--path`,
+else above your file), else from the one the working folder is in (git
+runs the driver at the repository's top); `--project DIR` names the
+project where it is somewhere else. A merge that equals your file leaves
 it untouched, byte for byte; one that equals theirs is their file.
 
 **On a conflict** the command exits with an error and writes nothing.
@@ -572,8 +611,7 @@ or take one side's file whole (`git checkout --ours FILE` or `--theirs`),
 or open the module in Moonglow and make the change there.
 
 The command needs no game install, and `--json` prints the conflicts for
-a script or a bot. NWNT files (nasher's other text form) aren't merged
-yet.
+a script or a bot.
 
 ## The project file (moonglow.toml)
 

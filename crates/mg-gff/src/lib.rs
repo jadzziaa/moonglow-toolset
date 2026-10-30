@@ -20,6 +20,7 @@
 mod diff;
 mod json;
 pub mod merge;
+mod nwnt;
 mod read;
 mod value;
 mod write;
@@ -29,6 +30,7 @@ pub use json::{
     JsonError, TextStyle, from_json, struct_from_json, struct_to_json, to_json, to_json_text,
     value_from_json, value_to_json,
 };
+pub use nwnt::{NwntError, from_nwnt, nwnt_unkept_label, to_nwnt};
 pub use read::ReadError;
 pub use value::{Field, FieldAt, FieldType, Label, LabelError, Struct, Value};
 pub use write::WriteError;

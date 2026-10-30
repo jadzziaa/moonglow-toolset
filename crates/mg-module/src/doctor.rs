@@ -181,7 +181,7 @@ impl Check {
             Check::SetRead => "a tileset can be read",
             Check::SetLineEnds => {
                 "a tileset's lines end in CRLF (with a bare LF the game's server never finishes \
-                 loading a module that uses it)"
+                 loading a module that uses it; with some lines in LF it may not)"
             }
             Check::SetCount => "a tileset's tile and group counts match its sections",
             Check::SetHole => {
@@ -1117,8 +1117,15 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
         }
     };
     // Lines that end in a bare LF: the game's server never finishes
-    // loading the module (`engine_tileset_holes`).
-    if data.contains(&b'\n') && !data.windows(2).any(|w| w == b"\r\n") {
+    // loading the module (`engine_tileset_holes`). Some of them, where
+    // the rest end in CRLF: it loads such a file with LF lines at its head
+    // or in its middle, and not always one with them at its end (the rule
+    // isn't known).
+    let lf =
+        data.iter().enumerate().filter(|&(i, &b)| b == b'\n' && (i == 0 || data[i - 1] != b'\r'));
+    let (bare, first) = (lf.clone().count(), lf.map(|(i, _)| i).next());
+    let crlf = data.windows(2).filter(|w| w == b"\r\n").count();
+    if bare > 0 && crlf == 0 {
         d.push(
             Error,
             Check::SetLineEnds,
@@ -1127,6 +1134,20 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             "",
             "its lines end in LF, not CRLF: the game's server never finishes loading a module \
              that uses it (save it with Windows line ends)",
+        );
+    } else if let Some(at) = first {
+        let line = data[..at].iter().filter(|&&b| b == b'\n').count() + 1;
+        d.push(
+            Warning,
+            Check::SetLineEnds,
+            source,
+            key,
+            "",
+            format!(
+                "{bare} of its lines end in LF, not CRLF (the first is line {line}): the game's \
+                 server has failed to load modules whose tileset ends in such lines (save it \
+                 with Windows line ends throughout)"
+            ),
         );
     }
     let declared = |list: &str| {
@@ -4531,6 +4552,17 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         let f = examine(&Module::new(), &rm, TalkTables::default());
         let lf = f.iter().find(|f| f.check == Check::SetLineEnds.id()).expect("line ends named");
         assert_eq!(lf.severity, Severity::Error);
+        // With some lines in LF: a warning, naming the first.
+        let mixed = set.replacen("\r\n", "\n", 2);
+        let rm = resman(&[("tst", ResType::SET, mixed.as_bytes())]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let lf = f.iter().find(|f| f.check == Check::SetLineEnds.id()).expect("line ends named");
+        assert_eq!(lf.severity, Severity::Warning);
+        assert!(
+            lf.message.starts_with("2 of its lines") && lf.message.contains("line 1)"),
+            "{}",
+            lf.message
+        );
     }
 
     /// A model kept as text is read as the game would: an emitter that

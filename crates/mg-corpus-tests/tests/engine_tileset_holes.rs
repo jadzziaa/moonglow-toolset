@@ -4,8 +4,8 @@
 //! exist has none, and the rest of the area is as with the whole tileset;
 //! a model named in capitals is the same model; missing terrain, crosser
 //! and rule sections change nothing the server reads. A tileset whose
-//! lines end in a bare LF, not CRLF, stops the module loading: the server
-//! never gets past "Loading Module".
+//! lines end in a bare LF, not CRLF, stops the module loading (the server
+//! never gets past "Loading Module") where its last 256 bytes hold no CR.
 
 use std::time::Duration;
 
@@ -158,6 +158,87 @@ fn the_game_reads_a_tileset_with_holes_tile_by_tile() {
     // No section, no Model=: no walkmesh; the model in capitals and the
     // tile without a hole as they were.
     assert_eq!(holed, [none[0], none[1], whole[2], whole[3]], "{seen}");
+}
+
+/// `set` with the lines of its `[NAME]` section (header and all) ending in
+/// a bare LF, the rest as they were.
+fn section_in_lf(set: &str, name: &str) -> String {
+    let header = format!("[{name}]\r\n");
+    let at = set.find(&header).unwrap_or_else(|| panic!("no {header}"));
+    let rest = at + header.len();
+    let end = set[rest..].find("\r\n[").map_or(set.len(), |e| rest + e + 2);
+    format!("{}{}{}", &set[..at], set[at..end].replace("\r\n", "\n"), &set[end..])
+}
+
+/// `set` with its last `n` lines ending in a bare LF.
+fn last_lf(set: &str, n: usize) -> String {
+    let mut at = set.len();
+    for _ in 0..n {
+        at = set[..at - 1].rfind('\n').unwrap_or(0);
+    }
+    format!("{}{}", &set[..at], set[at..].replace("\r\n", "\n"))
+}
+
+/// A tileset whose lines end both ways. LF lines at its head or in its
+/// middle (a section, every tile's section: thousands of lines) load and
+/// read as with CRLF. LF lines at its end may stop the module loading as a
+/// file all LF does: ttr01's last 28 lines in LF (264 bytes) did, its last
+/// 27 (251 bytes) didn't; one line of 389 bytes did, followed by 300 blank
+/// lines in CRLF too, where 200 short lines followed so didn't. CRLF in the
+/// first line alone doesn't save it. The rule the server follows is not
+/// known: Verify calls any mix a warning (`set-line-ends`).
+#[test]
+fn a_tileset_whose_lines_end_both_ways() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let Some(ttr01) = ttr01(&root) else { return };
+    let dir = scratch_dir("engine_tileset_mixed");
+    let started = std::time::Instant::now();
+    let (base, _) = run(&dir.join("crlf"), &[("mgcrlf", ttr01.clone())], Duration::from_secs(120));
+    assert!(base.finished, "with CRLF:\n{}", base.log);
+    let no_load = (started.elapsed() * 3).max(Duration::from_secs(20));
+    let tiles_lf = {
+        let (a, b) = (ttr01.find("[TILE0]").unwrap(), ttr01.find("[GROUPS]").unwrap());
+        format!("{}{}{}", &ttr01[..a], ttr01[a..b].replace("\r\n", "\n"), &ttr01[b..])
+    };
+    let head_lf = {
+        let a = ttr01.find("[TILE0]").unwrap();
+        format!("{}{}", ttr01[..a].replace("\r\n", "\n"), &ttr01[a..])
+    };
+    let first_crlf = ttr01.replace("\r\n", "\n").replacen('\n', "\r\n", 1);
+    let long = format!("{ttr01}[MGPAD]\nX={}\n", "1".repeat(389 - 3));
+    let cases = [
+        ("mgtile20", section_in_lf(&ttr01, "TILE20"), true),
+        ("mgtiles", tiles_lf, true),
+        ("mghead", head_lf, true),
+        ("mglast27", last_lf(&ttr01, 27), true),
+        ("mglast28", last_lf(&ttr01, 28), false),
+        ("mglong", long, false),
+        ("mgfirst", first_crlf, false),
+    ];
+    let mut seen = Vec::new();
+    for (name, text, loads) in cases {
+        let tail = text.len() - text.rfind('\r').unwrap_or(0);
+        let loose = text.matches('\n').count() - text.matches("\r\n").count();
+        let (r, areas) = run(&dir.join(name), &[("ttr01", String::new()), (name, text)], no_load);
+        let tiles = r.values("MG_TILES");
+        seen.push(format!(
+            "{name} ({loose} LF lines, last CR {tail} from the end): loaded {}",
+            r.finished
+        ));
+        if r.finished && loads {
+            // Read as with CRLF: the area's tiles as ttr01's.
+            let of = |a: &str| tiles.iter().find(|l| l.starts_with(&format!("{a} "))).cloned();
+            let (whole, this) = (of("ttr01"), of(&areas[1]));
+            let rest = |l: Option<String>| l.map(|l| l.split_once(' ').unwrap().1.to_string());
+            assert_eq!(rest(whole), rest(this), "{name}: {tiles:?}");
+        }
+        if r.finished != loads {
+            seen.push("  ^ not as expected".into());
+        }
+    }
+    let wrong: Vec<&String> = seen.iter().filter(|l| l.contains("not as expected")).collect();
+    assert!(wrong.is_empty(), "{}", seen.join("\n"));
 }
 
 #[test]

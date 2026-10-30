@@ -250,6 +250,8 @@ fn start(app: &mut Moonglow) {
         limit: Some(mg_module::nwsync::FILE_LIMIT),
         force: false,
         dry_run: false,
+        // (The default, 3.)
+        level: 0,
     };
     app.settings.nwsync_repository = Some(folder.clone());
     let at = folder.clone();

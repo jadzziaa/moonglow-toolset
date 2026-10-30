@@ -512,10 +512,14 @@ enum Cmd {
         output: Option<PathBuf>,
         /// The file's path in the repository (git's %P): its name in the
         /// report, and where its nasher project is looked for (the float
-        /// places and codepage JSON is written with; default: OURS's
-        /// folder).
+        /// places and codepage JSON and NWNT are written with; default:
+        /// OURS's folder, then the working folder).
         #[arg(long)]
         path: Option<PathBuf>,
+        /// The nasher project whose settings those are, where it isn't
+        /// above the file (a folder with a nasher.cfg).
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
     },
     /// Write a custom talk table from strings kept by name (a .toml or
     /// .json file: `key = "text"`, in groups if you like), each on a line
@@ -1077,6 +1081,10 @@ enum Cmd {
         /// Work it out; write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The zstd level the data files are compressed at, 1 (fastest) to
+        /// 22 (smallest); 3, the default, is `nwn_nwsync_write`'s.
+        #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(i32).range(1..=22))]
+        level: i32,
         /// Then send the repository to the web server: run this command
         /// (default: the project's [nwsync] upload) in the repository's
         /// folder once for each part, the data, then the manifests, then
@@ -2716,7 +2724,7 @@ fn run(cli: &Cli) -> Result<Output> {
             },
             Codepage::default(),
         )?,
-        Cmd::MergeGff { base, ours, theirs, prefer, output, path } => {
+        Cmd::MergeGff { base, ours, theirs, prefer, output, path, project } => {
             merge::merge_gff(&merge::Args {
                 base,
                 ours,
@@ -2724,6 +2732,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 prefer: prefer.as_deref(),
                 output: output.as_deref(),
                 path: path.as_deref(),
+                project: project.as_deref(),
             })?
         }
         Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against } => {
@@ -4062,6 +4071,7 @@ fn run(cli: &Cli) -> Result<Output> {
             limit_file_size,
             force,
             dry_run,
+            level,
             upload,
         } => {
             let m = crate::open_module(module)?;
@@ -4121,6 +4131,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 limit: (*limit_file_size > 0).then(|| limit_file_size * 1024 * 1024),
                 force: *force,
                 dry_run: *dry_run,
+                level: *level,
             };
             let w = mg_module::nwsync::write(repository, &contents, &o, &mut |_, _| {})
                 .map_err(anyhow::Error::msg)?;

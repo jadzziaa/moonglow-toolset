@@ -91,50 +91,46 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## nasher projects
 
-- **NWNT projects:** projects using NWNT instead of JSON for GFF files
-  are refused with a message. (M)
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
-  - **Lists merged by place** that have an identity of their own: an
-    inventory (`ItemList`, which could pair by `InventoryRes` and its
-    `Repos_PosX`/`Repos_Posy`), a store's panes, an encounter's
-    creatures, item properties, a creature's special abilities. Two
-    sides adding one each is a conflict today, not both kept. (S)
+  - **An object both moved and retagged on one side** is taken as removed
+    and another added (a conflict where the other side changed it):
+    matched by its blueprint alone, an object one side removed while it
+    placed another of the blueprint elsewhere would take the other
+    side's change (the merge review's ruling, 2026-10-30; the chest
+    A / chest B test). (settle?: kept so, proposed by the sprint on
+    2026-10-30, the owner's to say) (S)
   - **Conversations** merge their entry and reply lists by place, and the
     links name nodes by number: two builders adding nodes to one
     conversation conflict, where renumbering one side's new nodes (and
-    the links to them) would keep both. (M)
-  - **An object both moved and retagged on one side** is no longer
-    recognized: a removed object and an added one (a conflict if the
-    other side changed it). A nearest-position match could pair it. (S)
-  - **Order:** where both sides changed a list, one side's reordering
-    (a list sorted, an area moved up the area list) is lost; additions
-    go at the end. A sequence merge would keep both. (S)
-  - **Localized strings** merge whole: one side changing the English
-    name and the other the French one is a conflict. (S)
+    the links to them: `RepliesList`, `EntriesList` and `StartingList`
+    `Index`) would keep both; a node deleted on one side renumbers every
+    node after it, so matching by place pairs the wrong nodes too, and
+    nodes would first need matching by what they are. (M)
   - **On a conflict nothing is written** and git leaves ours in the file;
     there is no file of the conflicts to edit, and no way to take one
     side for one conflict and the other for the next but `-o` from
     git's stages. A conflict file (the edits each side wants, for `mg
     apply`) or a Moonglow window would. (M)
-  - **NWNT files** aren't merged (the projects aren't read either). (S)
-  - **The settings:** a JSON file's float places and codepage come from
-    the nasher project above `--path` (or OURS's folder); a repository
-    whose project sits elsewhere gets nasher's defaults. (S)
   (The Domains of Dread's builder proposal, C9)
 
 ## Modules kept as folders
 
 - **A module's files changed outside, read on a thread of their own**
   (`mg_module::outside`; their reads' allocator arena is Settled): what
-  the entry said besides, as it is and not among the triage's items: a
-  reload that touches resources the undo history has
-  changes to clears the whole history; a script open in the editor with
-  typing not yet applied counts as changed here; the area list isn't
-  settled again for areas added outside; the haks and the `override`,
-  `development` and portrait folders (and the custom talk table) are
-  read again on the window's thread after a change (not measured on a
-  large `override`). (S each)
+  the entry said besides, as it is: a reload that touches resources the
+  undo history has changes to clears the whole history (undoing an
+  earlier change to them could not be done from what they are now; a
+  command's other edits are not taken apart from it); a script open in
+  the editor with typing not yet applied counts as changed here (it is
+  unsaved work, and the window asks which to keep); the haks and the
+  `override`, `development` and portrait folders (and the custom talk
+  table) are read again on the window's thread after a change, measured
+  on an `override` of 20,000 files at 20 ms each time something in it
+  changes (the look that finds the change 7 ms; the machine's load 2.2
+  on 32 CPUs): three frames at 144 a second, once a change. (settle?:
+  the three kept as they are, proposed by the sprint on 2026-10-30, the
+  owner's to say) (S each)
 
 ## Test loop
 
@@ -1190,23 +1186,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
-- **What a module's tabs open again without:** a module opens again with
-  its tabs, side editors and tools, split windows and views as they were
-  (Options › General, `crates/mg-ui/src/open_tabs.rs`), a script's
-  bookmarks, the talk table's line and a Tile Properties still waiting
-  for its area's view among them. Not kept, each an optional field of
-  `open_tabs::View` written by `view_of` and taken at the view's first
-  draw (S each): what a side editor's view showed (a hak's selection, a
-  2DA's cell, a tileset's page) and a model view's camera. Advanced
-  Search's question (the next session's tab is empty) wants its
-  conditions kept as text, nine kinds with their rows, parts and ranges
-  (`search::Condition` has no serde form) (S–M). What is kept as it is
-  by design is Settled. (a builder's report, October 2026)
 - **The light theme's own colors:** it is egui's light theme; the script
-  editor's syntax colors follow it, but conversation and faction colors
-  are the dark theme's (legible on both), and the area view's overlays
-  are drawn for the 3D view. A pass with a builder who uses it would
-  settle the rest. (S–M) (a senior builder's review, October 2026)
+  editor's syntax colors and the conversation editor's line colors
+  follow it, the Factions' sliders keep Aurora's red and blue (legible
+  on both: `conversation_and_factions_in_both_themes`), and the area
+  view's overlays are drawn over the 3D view, whatever the theme. What
+  else a builder who uses it finds wanting waits on such a pass. (S) (a
+  senior builder's review, October 2026)
 - **Panes folded away** (GitHub issue 10, open: waits on its reporter's
   retest of the one-button rule, built on 1.31.0): a View menu (Module
   Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
@@ -1340,8 +1326,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `game.language.codepage`, which the server honors and `mg lsp` reads.
   An exported or imported conversation is spelled over as a whole, its
   punctuation too (of no matter unless a table moves ASCII's own
-  characters). Left: a text field already being typed in when the hak
-  list changes keeps what it showed until it is left. (S)
+  characters). (settle?: the four kept as they are, proposed by the
+  sprint on 2026-10-30, the owner's to say) (S)
 
 ## Remappable keys
 
@@ -1639,10 +1625,6 @@ contribution itself states as not done or not checked.
   the server, shows the character list and ends again; a player in
   the game after a download waits on that restart in
   `tools/nwclient/run-server-and-client.sh`. (S)
-- **Compression:** Moonglow's encoder offers only zstd's fastest level,
-  so the data is about a quarter bigger than
-  `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
-  upload and download. A stronger encoder would be a new dependency. (S)
 
 ## Tileset authoring
 
@@ -1650,20 +1632,22 @@ contribution itself states as not done or not checked.
   merged by hand, drew no tiles at all) is read tile by tile, as the
   game reads it: a tile without its section or a model draws nothing,
   the area's problems and Verify (`set-hole`) name the holes, a bare-LF
-  file is an error (`set-line-ends`: the server never loads the
-  module), and a model that is there and can't be read is said to be,
-  with why, not "not found". Not done:
+  file is an error and a mixed one a warning (`set-line-ends`), the
+  tileset editor shows the holes, and a model that is there and can't
+  be read is said to be, with why, not "not found". Not done:
   - The builder's own tileset (trf01, 2813 tiles) has no holes and CRLF
     line ends, and Moonglow draws its tiles whose models the game has:
     why it draws none of theirs is not known without their hak (its
     models, or the module and the haks it lists). The log now says,
     for each model left out, whether it was found and why it can't be
     read. (S, once the hak is in hand)
-  - A file with lines ending both ways was not run in the engine; only
-    one whose every line ends in LF is called an error. (S)
-  - The tileset editor opens such a file now (it opened none before);
-    how its pages show a hole was not looked at. Painting never chooses
-    one. (S)
+  - The rule by which the server refuses a file with lines ending both
+    ways is not known (`a_tileset_whose_lines_end_both_ways`): LF lines
+    at its head or in its middle load; at its end, ttr01's last 28 lines
+    (264 bytes) or one line of 389 bytes stop the module loading, its
+    last 27 (251 bytes) don't, and 300 blank CRLF lines after the long
+    line don't save it where they save 200 short ones. Verify warns of
+    any mix. (S, more readings in the engine)
 
 ## The install, starting and crashes
 
@@ -1680,12 +1664,13 @@ contribution itself states as not done or not checked.
   and macOS) (Sacha's report, 2026-10-25)
 
 - **Steam Workshop content** is read (Options › General): each item's
-  `override` folder as a layer under the user's own, its `hak` and `tlk`
-  folders searched. Which of two items' overrides wins in the game isn't
-  known (the lower number here), and that the game puts them under the
-  user's override is from how it is described, not measured: the client
-  runs here with Steam hidden. An item's other folders (portraits,
-  modules, music) aren't read. (S) (from builders' reports after 1.14.1)
+  `override` folder as a layer under the user's own, its `portraits`,
+  `ambient` and `music` under the user's and over the game's, its `hak`
+  and `tlk` folders searched. Which of two items' wins in the game isn't
+  known (the lower number here), and where the game puts them against
+  the user's own folders is from how it is described, not measured: the
+  client runs here with Steam hidden, never started, so it waits on a
+  builder's reading with Steam. (S) (from builders' reports after 1.14.1)
 - **Finding the game:** Steam's libraries are read from its
   `libraryfolders.vdf` (a game on a second drive), GOG's usual folders
   tried, Steam's own folder read from Windows' registry (`reg query`
@@ -1792,8 +1777,11 @@ few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
-  all fifteen pages are unchanged upstream. (S)
-  (the documentation audit of 2026-10-12)
+  all fifteen pages are unchanged upstream (the mirror's sync of
+  2026-10-26). Each page's edit is ready to paste in
+  [wiki-corrections/](wiki-corrections/index.md) (the passage, its
+  replacement, an edit summary, the evidence); submitting them waits on
+  the owner. (S) (the documentation audit of 2026-10-12)
 
 ## The code itself (the code review of October 2026)
 

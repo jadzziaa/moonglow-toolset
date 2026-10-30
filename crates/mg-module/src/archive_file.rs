@@ -73,7 +73,7 @@ impl ArchiveFile {
             .map(|(key, file)| Known {
                 key: *key,
                 path: place(&self.path, key).into(),
-                json: false,
+                form: crate::nasher::Form::Plain,
                 file: file.clone(),
                 stamp: self.stamp,
             })

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:15:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:15:28Z }
 ---
 
 # Options
@@ -143,9 +143,10 @@ the module is opened again from its file.
   (a hak, a 2DA, a tileset) and tools open when a module was closed open
   again with it, in their order and places (windows split and where
   they were), the one in front in front, each view as it was left (an
-  area's camera, a script's scroll, cursor and bookmarks, a
-  conversation's selection, bookmarks and folds, the talk table's line,
-  a Properties window's page); kept in
+  area's camera, a model view's, a script's scroll, cursor and
+  bookmarks, a conversation's selection, bookmarks and folds, the talk
+  table's line, a Properties window's page, a hak's selection, a 2DA's
+  cell, a tileset's page and tile, Advanced Search's conditions); kept in
   Moonglow's data folder, not in the module (see
   [Modules](03-modules.md)). With none kept, the module opens
   on the area opened last, as above. Off, a module's tabs are neither
@@ -206,8 +207,11 @@ the module is opened again from its file.
   needs it works only for players who have it too. On, the Steam
   Workshop items you are subscribed to are read with the game's data, as
   the game started through Steam reads them: each item's `override`
-  under your own, its haks and talk tables found by name. Changing it
-  reads the game's data again. `mg --workshop` reads them too.
+  under your own, its haks and talk tables found by name, its
+  `portraits`, `ambient` and `music` under your own and over the
+  game's (an item's module is opened as any module, by File › Open).
+  Changing it reads the game's data again. `mg --workshop` reads them
+  too.
 - **Read userpatch.ini's haks**: off by default, as in Aurora, for the
   same reason. On, the haks your
   `userpatch.ini` names (`PatchFile000=…` and on, the highest number
@@ -321,7 +325,9 @@ the module is opened again from its file.
   conversation opens as a tab of the window one is open in already; off,
   each in a window of its own.
 - **Show speaker name before text**, and the **NPC** and **Player** text
-  colors.
+  colors (by default red and blue, darker in the light theme, where a
+  link's lines are a darker gray too, so that they stand out against
+  white as they do against the dark theme's black).
 - **Font size**: the size of the conversation editor's text (its lines,
   its buttons, the fields under them, and the lists and right-click
   menus opened from it), apart from the rest of the window; **Default**

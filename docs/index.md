@@ -42,3 +42,4 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 * [parity](parity/index.md) - Parity with Aurora: the generated inventory of every Aurora form and control, and the control-by-control checklists of Moonglow against it. (1 Reference, 1 Checklist)
 * [plugins](plugins/index.md) - For plugin authors: the starting page, the API's changes, the example plugins (`examples/`) and the editor type file (`types/moonglow.luau`). (1 Changelog, 1 Guide)
 * [research](research/index.md) - Research behind the code: briefs on NWN:EE's formats, rendering, tilesets and models, what Aurora computes and how that was measured, prior art, and builders' pain points. (18 Research Note, 1 Reference)
+* [wiki-corrections](wiki-corrections/index.md) - The fifteen nwn.wiki edits of the proposal, one file a page, ready to paste: the passage to find, the text to put in its place, the edit summary and how it was checked. (15 Wiki Edit)

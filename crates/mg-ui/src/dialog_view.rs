@@ -1361,7 +1361,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
-    let look = Look::new(&app.settings);
+    let look = Look::new(&app.settings, ui.visuals().dark_mode);
     let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
         // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
@@ -1546,17 +1546,33 @@ struct Look {
     scripts: bool,
     npc: Color32,
     pc: Color32,
+    /// A link's lines.
+    link: Color32,
+}
+
+/// The NPC's and the player's text colors by default, for the dark theme
+/// or the light (darker there, to stand out against white as the dark
+/// theme's do against black).
+pub(crate) fn default_colors(dark: bool) -> ([u8; 3], [u8; 3]) {
+    match dark {
+        true => ([210, 70, 70], [90, 140, 230]),
+        false => ([180, 30, 30], [25, 85, 200]),
+    }
 }
 
 impl Look {
-    fn new(s: &crate::Settings) -> Look {
-        let rgb =
-            |c: Option<[u8; 3]>, d: Color32| c.map_or(d, |[r, g, b]| Color32::from_rgb(r, g, b));
+    fn new(s: &crate::Settings, dark: bool) -> Look {
+        let rgb = |c: Option<[u8; 3]>, [r, g, b]: [u8; 3]| {
+            let [r, g, b] = c.unwrap_or([r, g, b]);
+            Color32::from_rgb(r, g, b)
+        };
+        let (npc, pc) = default_colors(dark);
         Look {
             names: !s.dialog_hide_names,
             scripts: !s.dialog_hide_scripts,
-            npc: rgb(s.dialog_npc_color, Color32::from_rgb(210, 70, 70)),
-            pc: rgb(s.dialog_pc_color, Color32::from_rgb(90, 140, 230)),
+            npc: rgb(s.dialog_npc_color, npc),
+            pc: rgb(s.dialog_pc_color, pc),
+            link: if dark { Color32::GRAY } else { Color32::from_gray(110) },
         }
     }
 }
@@ -1593,7 +1609,7 @@ fn tree(
         let label = row_label(game, g, kind, l, look.names);
         let cond = l.resref("Active").filter(|r| !r.is_empty());
         let color = if linked {
-            Color32::GRAY
+            look.link
         } else if kind == Kind::Entry {
             look.npc
         } else {
@@ -2510,6 +2526,26 @@ mod tests {
     use super::*;
     use egui::Key;
     use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// The light theme's text colors stand out against its white as the
+    /// web asks of text (a contrast of 4.5 or more), and more than the dark
+    /// theme's would there.
+    #[test]
+    fn the_light_theme_s_text_colors_stand_out_against_white() {
+        fn luminance([r, g, b]: [u8; 3]) -> f64 {
+            let c = |v: u8| {
+                let v = f64::from(v) / 255.0;
+                if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b)
+        }
+        let against_white = |c: [u8; 3]| 1.05 / (luminance(c) + 0.05);
+        let (light, dark) = (default_colors(false), default_colors(true));
+        for (l, d) in [(light.0, dark.0), (light.1, dark.1)] {
+            assert!(against_white(l) >= 4.5, "{l:?}: {}", against_white(l));
+            assert!(against_white(l) > against_white(d));
+        }
+    }
 
     /// A conversation's fingerprint, kept with a module's tabs, is fixed:
     /// the same as the records written with Rust's `DefaultHasher` have

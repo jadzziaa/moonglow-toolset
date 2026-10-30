@@ -32,6 +32,9 @@ BUNDLED = ("fonts", "licenses", "licences")
 # Where a -sys crate keeps the C or C++ sources it builds (glslang-sys:
 # native/glslang, with its LICENSE.txt).
 NATIVE = "native"
+# A -sys crate's vendored tree kept under a folder of its own name
+# (zstd-sys: zstd, with its LICENSE and COPYING).
+VENDORED = ("zstd",)
 
 
 def licence_files(root):
@@ -39,6 +42,7 @@ def licence_files(root):
     found = []
     native = root / NATIVE
     vendored = sorted(d for d in native.iterdir() if d.is_dir()) if native.is_dir() else []
+    vendored += [root / v for v in VENDORED if (root / v / "LICENSE").is_file()]
     for d in [root] + [root / b for b in BUNDLED if (root / b).is_dir()] + vendored:
         for f in sorted(d.iterdir()):
             name = f.name.lower()
@@ -99,7 +103,9 @@ def main():
               "Font Licence 1.0, copyright Canonical Ltd) for its labels, Luau (MIT,\n"
               "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins, and\n"
               "glslang (BSD-3-Clause and others, copyright The Khronos Group and\n"
-              "others: its LICENSE.txt, with glslang-sys) for the game's shaders.\n")
+              "others: its LICENSE.txt, with glslang-sys) for the game's shaders, and\n"
+              "Zstandard (BSD-3-Clause, copyright Meta Platforms, Inc. and affiliates:\n"
+              "its LICENSE, with zstd-sys) for NWSync's data.\n")
     dxc = []
     if args.dxc:
         d = pathlib.Path(args.dxc)

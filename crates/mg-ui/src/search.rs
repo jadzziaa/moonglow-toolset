@@ -47,6 +47,21 @@ impl Kind {
         Kind::Field,
     ];
 
+    /// Its name as a session keeps it.
+    fn id(self) -> &'static str {
+        match self {
+            Kind::Variable => "variable",
+            Kind::ItemProperty => "item-property",
+            Kind::Class => "class",
+            Kind::Feat => "feat",
+            Kind::Spell => "spell",
+            Kind::Skill => "skill",
+            Kind::Appearance => "appearance",
+            Kind::Script => "script",
+            Kind::Field => "field",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Kind::Variable => "Variables",
@@ -285,6 +300,101 @@ impl ActDraft {
     }
 }
 
+/// What an appearance is of, as a session keeps it.
+const APPEARANCES: [(AppearanceOf, &str); 6] = [
+    (AppearanceOf::Creature, "creature"),
+    (AppearanceOf::Placeable, "placeable"),
+    (AppearanceOf::Door, "door"),
+    (AppearanceOf::GenericDoor, "generic-door"),
+    (AppearanceOf::Waypoint, "waypoint"),
+    (AppearanceOf::Item, "item"),
+];
+
+/// A condition as a session keeps it (Options › General's tabs opened
+/// again), as text: the kind, what it names and its rows, parts and ranges.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct KeptCondition {
+    kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    name: String,
+    /// A variable's type, as the game numbers it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    var_type: Option<i64>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    value: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    number: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    row: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    subtype: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cost: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    param: Option<usize>,
+    min_rank: u8,
+    levels: [u8; 2],
+    of: String,
+}
+
+/// The Advanced Search window's question, as a session keeps it.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct KeptSearch {
+    /// The first condition, then those the objects must also meet.
+    conditions: Vec<KeptCondition>,
+    /// The kind of object looked at (its extension); none: all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    object: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    placed: Option<bool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    regex: bool,
+}
+
+impl Condition {
+    fn kept(&self) -> KeptCondition {
+        KeptCondition {
+            kind: self.kind.id().into(),
+            name: self.name.clone(),
+            var_type: self.var_type.map(|t| t as i64),
+            value: self.value.clone(),
+            number: self.number,
+            row: self.row,
+            subtype: self.subtype,
+            cost: self.cost,
+            param: self.param,
+            min_rank: self.min_rank,
+            levels: [self.levels.0, self.levels.1],
+            of: APPEARANCES.iter().find(|(a, _)| *a == self.of).map_or("", |a| a.1).into(),
+        }
+    }
+
+    /// The condition kept (`None`: a kind not known).
+    fn from_kept(k: &KeptCondition) -> Option<Condition> {
+        let d = Condition::default();
+        Some(Condition {
+            kind: Kind::ALL.into_iter().find(|kind| kind.id() == k.kind)?,
+            name: k.name.clone(),
+            var_type: k.var_type.and_then(VarType::of),
+            value: k.value.clone(),
+            number: k.number,
+            row: k.row,
+            subtype: k.subtype,
+            cost: k.cost,
+            param: k.param,
+            min_rank: k.min_rank.max(1),
+            levels: match k.levels {
+                [0, 0] => d.levels,
+                [a, b] => (a.clamp(1, TOP_LEVEL), b.clamp(1, TOP_LEVEL)),
+            },
+            of: APPEARANCES.iter().find(|(_, n)| *n == k.of).map_or(d.of, |a| a.0),
+            parts: None,
+        })
+    }
+}
+
 /// The Advanced Search window's state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AdvancedSearch {
@@ -310,6 +420,38 @@ pub struct AdvancedSearch {
 }
 
 impl AdvancedSearch {
+    /// Its question, as a session keeps it (`None`: none asked, the
+    /// window as it opens).
+    pub(crate) fn kept(&self) -> Option<KeptSearch> {
+        let fresh = AdvancedSearch::default();
+        let asked = self.first != fresh.first
+            || !self.and.is_empty()
+            || self.object.is_some()
+            || self.placed.is_some()
+            || self.regex;
+        asked.then(|| KeptSearch {
+            conditions: std::iter::once(&self.first)
+                .chain(&self.and)
+                .map(Condition::kept)
+                .collect(),
+            object: self.object.and_then(|t| t.extension()).map(str::to_string),
+            placed: self.placed,
+            regex: self.regex,
+        })
+    }
+
+    /// Asks the question a session kept again (what it found is not: a
+    /// search of a large module takes a while).
+    pub(crate) fn ask_again(&mut self, k: &KeptSearch) {
+        let mut conditions = k.conditions.iter().filter_map(Condition::from_kept);
+        let Some(first) = conditions.next() else { return };
+        self.first = first;
+        self.and = conditions.collect();
+        self.object = k.object.as_deref().and_then(ResType::from_extension);
+        self.placed = k.placed;
+        self.regex = k.regex;
+    }
+
     /// The query the window asks, or what it still needs.
     pub fn query(&self) -> Result<Query, String> {
         let and = self.and.iter().map(Condition::search).collect::<Result<_, _>>()?;

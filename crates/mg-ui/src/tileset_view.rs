@@ -48,6 +48,9 @@ pub struct TilesetDoc {
     /// index, and the name typed.
     pub renaming: Option<(bool, usize, String)>,
     pub findings: Option<Vec<mg_module::doctor::Finding>>,
+    /// The tile the list was last scrolled to or clicked: a tile chosen
+    /// otherwise (a check's finding, Add Tile) is scrolled into sight.
+    scrolled_to: Option<usize>,
 }
 
 impl TilesetDoc {
@@ -68,7 +71,24 @@ impl TilesetDoc {
             new_type: String::new(),
             renaming: None,
             findings: None,
+            scrolled_to: None,
         }
+    }
+
+    /// Shows the page named `page` (as [`page_name`] names it), the tile
+    /// and the group, as a session kept them (those past the file's end
+    /// left out).
+    pub(crate) fn show(&mut self, page: Option<&str>, tile: Option<usize>, group: Option<usize>) {
+        let pages = [Page::General, Page::Terrain, Page::Rules, Page::Tiles, Page::Groups];
+        if let Some(p) = pages.into_iter().find(|p| Some(page_name(*p)) == page) {
+            self.page = p;
+        }
+        let (tiles, groups) = match &self.set {
+            Ok(t) => (t.tiles.len(), t.groups.len()),
+            Err(_) => (0, 0),
+        };
+        self.tile = tile.filter(|&t| t < tiles);
+        self.group = group.filter(|&g| g < groups);
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -468,8 +488,64 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     });
 }
 
+/// A page's name, as its tab shows it (and a session keeps it).
+pub(crate) fn page_name(page: Page) -> &'static str {
+    match page {
+        Page::General => "General",
+        Page::Terrain => "Terrains and Crossers",
+        Page::Rules => "Painting Rules",
+        Page::Tiles => "Tiles",
+        Page::Groups => "Groups",
+    }
+}
+
+/// Why tile `i` is a hole, as the game reads the tileset (it draws such a
+/// tile as nothing, with no walkmesh; `engine_tileset_holes`): no section
+/// of its own, or no model in it. `None` for a whole tile.
+pub fn tile_hole(t: &Tileset, i: usize) -> Option<String> {
+    let section = format!("TILE{i}");
+    if t.missing_sections.contains(&section) {
+        Some(format!("no [{section}] section"))
+    } else if t.tiles.get(i).is_some_and(|x| x.model.trim().is_empty()) {
+        Some("no Model=".into())
+    } else {
+        None
+    }
+}
+
+/// The holes of the lists whose sections begin with one of `prefixes`
+/// (`TERRAIN`, `PRIMARY RULE`), said under a page: the game leaves each
+/// out, and the numbers the page gives count the entries there are.
+fn list_holes(ui: &mut Ui, t: &Tileset, prefixes: &[&str]) {
+    let gone: Vec<&String> = (t.missing_sections.iter())
+        .filter(|s| {
+            prefixes.iter().any(|p| {
+                s.strip_prefix(p)
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+        })
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    let names: Vec<String> = gone.iter().take(12).map(|s| format!("[{s}]")).collect();
+    let more =
+        if gone.len() > 12 { format!(" and {} more", gone.len() - 12) } else { String::new() };
+    ui.add_space(crate::widgets::SECTION_GAP);
+    ui.add(
+        egui::Label::new(egui::RichText::new(format!(
+            "Holes: the file has no {}{more}. The game leaves them out, and the numbers here count \
+             the entries the file has.",
+            names.join(", ")
+        ))
+        .color(ui.visuals().warn_fg_color))
+        .wrap(),
+    );
+}
+
 fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
     let Ok(t) = d.set.clone() else { return };
+    list_holes(ui, &t, &["TERRAIN", "CROSSER"]);
     ui.columns(2, |cols| {
         for (col, crosser) in [(0, false), (1, true)] {
             let ui = &mut cols[col];
@@ -595,6 +671,7 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
     let note = "Painting a corner Placed beside one Adjacent turns that one into Changed, each at \
                 its height. The terrain brush follows the primary rules.";
     ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
+    list_holes(ui, &t, &["PRIMARY RULE", "SECONDARY RULE"]);
     for secondary in [false, true] {
         let (_, each) = edit::rule_sections(secondary);
         let list = if secondary { &t.secondary_rules } else { &t.primary_rules };
@@ -761,31 +838,36 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         })
         .collect();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-    egui::ScrollArea::vertical().id_salt(("set-tiles", d.id)).max_height(260.0).show_rows(
-        ui,
-        row_height,
-        rows.len(),
-        |ui, range| {
-            for &i in &rows[range] {
-                let tile = &t.tiles[i];
-                let corners: Vec<&str> = tile.corners.iter().map(|(c, _)| c.as_str()).collect();
-                let edges: Vec<&str> =
-                    tile.edges.iter().map(|e| if e.is_empty() { "-" } else { e }).collect();
-                let text = format!(
+    let mut list = egui::ScrollArea::vertical().id_salt(("set-tiles", d.id)).max_height(260.0);
+    if d.tile != d.scrolled_to {
+        d.scrolled_to = d.tile;
+        if let Some(at) = d.tile.and_then(|t| rows.iter().position(|&r| r == t)) {
+            let each = row_height + ui.spacing().item_spacing.y;
+            list = list.vertical_scroll_offset((at as f32 * each - 100.0).max(0.0));
+        }
+    }
+    list.show_rows(ui, row_height, rows.len(), |ui, range| {
+        for &i in &rows[range] {
+            let tile = &t.tiles[i];
+            let corners: Vec<&str> = tile.corners.iter().map(|(c, _)| c.as_str()).collect();
+            let edges: Vec<&str> =
+                tile.edges.iter().map(|e| if e.is_empty() { "-" } else { e }).collect();
+            let text = match tile_hole(&t, i) {
+                Some(why) => egui::RichText::new(format!("{i:>4}  a hole: {why}"))
+                    .color(ui.visuals().warn_fg_color),
+                None => egui::RichText::new(format!(
                     "{i:>4}  {:<16}  {}  [{}]",
                     tile.model,
                     corners.join("/"),
                     edges.join("/")
-                );
-                if ui
-                    .selectable_label(d.tile == Some(i), egui::RichText::new(text).monospace())
-                    .clicked()
-                {
-                    d.tile = Some(i);
-                }
+                )),
+            };
+            if ui.selectable_label(d.tile == Some(i), text.monospace()).clicked() {
+                d.tile = Some(i);
+                d.scrolled_to = Some(i);
             }
-        },
-    );
+        }
+    });
     ui.separator();
     let Some(i) = d.tile.filter(|&i| i < t.tiles.len()) else {
         ui.weak("Choose a tile to edit it.");
@@ -819,6 +901,18 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
             app.actions.push(Action::OpenTab(Tab::Model(k)));
         }
     });
+    if let Some(why) = tile_hole(t, i) {
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!(
+                    "A hole: {why}. The game draws the tile as nothing, with no walkmesh, and \
+                     painting never chooses it; a model typed here fills it in."
+                ))
+                .color(ui.visuals().warn_fg_color),
+            )
+            .wrap(),
+        );
+    }
     egui::Grid::new(("set-tile", d.id)).num_columns(4).spacing([10.0, 4.0]).show(ui, |ui| {
         for (key, label) in [
             ("Model", "Model"),

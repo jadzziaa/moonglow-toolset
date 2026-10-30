@@ -3,6 +3,49 @@
 
 use crate::common::*;
 
+/// A tileset with holes in the tileset editor (a builder's big old
+/// tileset, merged by hand): a tile without its section, and one without
+/// `Model=`, are said to be holes in the list and over their fields, a
+/// terrain's missing section over the Terrains page; a model typed into a
+/// hole fills it in.
+#[test]
+fn a_tileset_s_holes_are_shown_in_its_editor() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-holes");
+    let path = dir.join("zzh01.set");
+    let text = "[GENERAL]\r\nName=zzh01\r\n[TERRAIN TYPES]\r\nCount=3\r\n[TERRAIN0]\r\nName=Grass\r\n[TERRAIN2]\r\nName=Water\r\n\
+                [CROSSER TYPES]\r\nCount=0\r\n[PRIMARY RULES]\r\nCount=0\r\n[SECONDARY RULES]\r\n\
+                Count=0\r\n[TILES]\r\nCount=3\r\n[TILE0]\r\nModel=zzh01_a01_01\r\nTopLeft=Grass\r\n\
+                [TILE2]\r\nWalkMesh=msb01\r\n[GROUPS]\r\nCount=0\r\n";
+    std::fs::write(&path, text).unwrap();
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1300.0, 900.0);
+    h.run();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    h.run();
+    let t = h.state().tilesets[0].tileset().expect("read").clone();
+    assert_eq!(t.missing_sections, ["TERRAIN1", "TILE1"]);
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    assert!(h.query_by_label_contains("the file has no [TERRAIN1]").is_some());
+    h.get_by_label("Tiles").click();
+    h.run();
+    assert!(h.query_by_label_contains("a hole: no [TILE1] section").is_some());
+    assert!(h.query_by_label_contains("a hole: no Model=").is_some());
+    assert!(h.query_by_label_contains("A hole").is_none(), "no tile chosen yet");
+    h.state_mut().tilesets[0].tile = Some(1);
+    h.run();
+    assert!(h.query_by_label_contains("A hole: no [TILE1] section. The game draws").is_some());
+    h.state_mut().tilesets[0].tile = Some(0);
+    h.run();
+    assert!(h.query_by_label_contains("A hole").is_none(), "a whole tile");
+    // A model typed into the hole fills it in.
+    h.state_mut().tilesets[0].change(|f| f.set("TILE1", "Model", "zzh01_a02_01"));
+    h.run();
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    assert_eq!(t.tiles[1].model, "zzh01_a02_01");
+    assert!(mg_ui::tileset_view::tile_hole(&t, 1).is_none());
+    assert_eq!(mg_ui::tileset_view::tile_hole(&t, 2).as_deref(), Some("no Model="));
+}
+
 /// Undo and Redo over a tileset's editor, by their keys and from the Edit
 /// menu, are the tileset's (it shares the hak's path, `side_doc.rs`), and
 /// the menu says plain "Undo": its steps have no names. Away from it, the

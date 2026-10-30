@@ -128,6 +128,62 @@ fn nasher_json_merges_and_keeps_its_bytes() {
     assert_eq!(std::fs::read_to_string(&o).unwrap(), theirs_text);
 }
 
+/// NWNT (a project's with `gffFormat = nwnt`) merges as JSON does, and is
+/// written as `nwn_nwnt` writes it.
+#[test]
+fn nwnt_merges_and_is_written_as_nwnt() {
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-nwnt");
+    let conv = Conversion::default();
+    let nwnt = |areas: &[&str]| conv.to_nwnt_source(ResType::IFO, &module_ifo(areas)).unwrap();
+    let base = put(&dir, "base", nwnt(&["start", "town"]));
+    let ours = put(&dir, "ours", nwnt(&["start", "town", "cave"]));
+    let theirs = put(&dir, "theirs", nwnt(&["start", "town", "keep"]));
+    let (ok, m) = mg(&["merge-gff", &base, &ours, &theirs]);
+    assert!(ok && m["result"] == "merged", "{m}");
+    assert_eq!(std::fs::read_to_string(&ours).unwrap(), nwnt(&["start", "town", "cave", "keep"]));
+    // A conflict is said, as in JSON, and nothing is written.
+    let (red, blue) = (placeable("plc_chest", "RED", 1.0), placeable("plc_chest", "BLUE", 1.0));
+    let git = |o: Struct| conv.to_nwnt_source(ResType::GIT, &area_git(&[o])).unwrap();
+    let b = put(&dir, "b", git(placeable("plc_chest", "CHEST", 1.0)));
+    let (o, t) = (put(&dir, "o", git(red)), put(&dir, "t", git(blue)));
+    let (ok, m) = mg(&["merge-gff", &b, &o, &t]);
+    assert!(!ok && m["conflicts"][0]["theirs"] == "\"BLUE\"", "{m}");
+}
+
+/// The float places a merge is written with come from the nasher project
+/// `--project` names, where it isn't above the file.
+#[test]
+fn a_project_elsewhere_gives_its_settings() {
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-project");
+    let project = dir.join("module");
+    std::fs::create_dir_all(project.join(".nasher")).unwrap();
+    std::fs::write(
+        project.join("nasher.cfg"),
+        "[package]\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+    )
+    .unwrap();
+    std::fs::write(project.join(".nasher/user.cfg"), "truncateFloats = 2\n").unwrap();
+    let files = dir.join("elsewhere");
+    std::fs::create_dir_all(&files).unwrap();
+    let chest = placeable("plc_chest", "CHEST", 1.23456);
+    let git = |o: &[Struct]| json_text(ResType::GIT, &area_git(o));
+    let base = put(&files, "base", git(std::slice::from_ref(&chest)));
+    let ours = put(&files, "ours", git(&[chest.clone(), placeable("plc_lamp", "LAMP", 2.0)]));
+    let theirs = put(&files, "theirs", git(&[chest.clone(), placeable("plc_rug", "RUG", 3.0)]));
+    let ours_text = std::fs::read_to_string(&ours).unwrap();
+    let (ok, m) = mg(&["merge-gff", &base, &ours, &theirs]);
+    assert!(ok, "{m}");
+    assert!(std::fs::read_to_string(&ours).unwrap().contains("1.2346"), "nasher's 4 without one");
+    std::fs::write(&ours, ours_text).unwrap();
+    let p = project.to_str().unwrap();
+    let (ok, m) = mg(&["merge-gff", &base, &ours, &theirs, "--project", p]);
+    assert!(ok, "{m}");
+    let text = std::fs::read_to_string(&ours).unwrap();
+    assert!(text.contains("1.23,") || text.contains("1.23\n"), "{text}");
+    // A folder without a nasher.cfg is refused.
+    assert!(!mg(&["merge-gff", &base, &ours, &theirs, "--project", files.to_str().unwrap()]).0);
+}
+
 #[test]
 fn what_is_no_gff_is_an_error() {
     let dir = mg_testkit::scratch_dir("mg-merge-gff-bad");
