@@ -3265,6 +3265,9 @@ impl Moonglow {
         if keys.iter().any(|k| k.restype == ResType::TWODA) {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
+        } else if keys.iter().any(|k| k.restype == ResType::MDL) {
+            // (The Appearance lists mark the rows whose model is missing.)
+            game.forget_appearance_marks();
         }
         self.load_order_changed();
     }

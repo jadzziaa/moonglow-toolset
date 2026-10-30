@@ -220,6 +220,15 @@ impl crate::GameData {
     }
 }
 
+impl crate::GameData {
+    /// Forgets the Appearance lists' marks (a model added to the
+    /// resources or taken out: a row may have one now, or none), as
+    /// [`invalidate`](Self::invalidate) does with the rest.
+    pub fn forget_appearance_marks(&self) {
+        self.marked.write().expect("marked cache poisoned").clear();
+    }
+}
+
 /// What an Appearance list says after a row with no model to draw.
 pub const NO_MODEL: &str = "  (no model)";
 
@@ -300,6 +309,10 @@ mod tests {
             &marked,
             &game.appearance_choices(ObjectKind::Placeable, &rows)
         ));
+        // (Made anew once a model came or went.)
+        game.forget_appearance_marks();
+        let again = game.appearance_choices(ObjectKind::Placeable, &rows);
+        assert!(!std::sync::Arc::ptr_eq(&marked, &again) && marked == again);
         let columns = crate::ChoiceColumns { name: None, label: Some("LABEL") };
         let creatures = game.choices("appearance", columns).unwrap();
         let marked = game.appearance_choices(ObjectKind::Creature, &creatures);
