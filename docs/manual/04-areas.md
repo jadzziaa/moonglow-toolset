@@ -467,7 +467,9 @@ Aurora):
   a creature's head, tail, wings or cloak transformed alone
   (`SetObjectVisualTransform`'s scopes, kept in a saved game or a
   module made from one), which the area view draws on that part, about
-  the node it hangs from, the rest of the creature as it is; and a lerp
+  the node it hangs from, the rest of the creature as it is, as the game
+  draws them; an item's (a weapon of three parts lying in the area: the
+  whole item, its middle, its top), drawn on those parts; and a lerp
   in progress (a value on its way from one to another over some
   seconds), drawn at its end. Setting that value here ends the lerp; a
   value left as it is keeps it.

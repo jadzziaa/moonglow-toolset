@@ -1067,3 +1067,35 @@ fn a_placeable_s_light_and_reflection_follow_the_client() {
     assert!(default(utp(428, None, 0)));
     assert!(!default(utp(191, None, 0)) && !default(utp(0, None, 0)));
 }
+
+/// A placed composite item's part scopes transform its models as the
+/// client's (`client_render.rs`'s `reading_item_part_scopes`): 255 the
+/// whole item, 254 its middle (a sword's guard), 253 its top (the blade);
+/// 252 and 251 none of them.
+#[test]
+fn an_item_s_part_scopes_transform_its_parts() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let sword = Gff::read(&game.resman.get_named("nw_wswls001", ResType::UTI).unwrap()).unwrap();
+    let which = |scope: i32| -> Vec<String> {
+        let mut uti = sword.root.clone();
+        let mut entry = mg_gff::Struct::new(6);
+        entry.set("Scope", mg_gff::Value::Int(scope));
+        let mut axis = mg_gff::Struct::new(0);
+        axis.set("ValueTo", mg_gff::Value::Float(2.0));
+        entry.set("ScaleX", mg_gff::Value::Struct(axis));
+        uti.set("VisTransformList", mg_gff::Value::List(vec![entry]));
+        let p = item(&game, &uti).unwrap();
+        std::iter::once(&p.base)
+            .chain(&p.parts)
+            .filter(|part| part.local.is_some())
+            .map(|part| part.model.clone())
+            .collect()
+    };
+    assert_eq!(which(255).len(), 3, "the whole sword");
+    assert_eq!(which(254), vec!["wswls_m_011".to_string()]);
+    assert_eq!(which(253), vec!["wswls_t_011".to_string()]);
+    assert!(which(252).is_empty() && which(251).is_empty());
+}
