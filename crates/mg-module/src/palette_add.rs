@@ -96,10 +96,10 @@ pub fn situated_resref_named(
     let bare = naming.strip(without_reserved_prefix(&lower));
     if !bare.is_empty() {
         let own = naming.fit(bare, "");
-        if !taken(&own) {
-            if let Some(r) = ResRef::from_str(&own).ok().filter(|r| !r.is_empty()) {
-                return Some(r);
-            }
+        if !taken(&own)
+            && let Some(r) = ResRef::from_str(&own).ok().filter(|r| !r.is_empty())
+        {
+            return Some(r);
         }
     }
     copy_resref_named(bare, naming, taken)

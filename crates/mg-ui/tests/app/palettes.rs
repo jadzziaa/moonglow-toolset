@@ -887,7 +887,8 @@ fn add_to_palette_create_waypoint_and_set() {
     h.run_steps(3);
     let chest = git(&mut h).list("Placeable List").unwrap()[0].clone();
     let new = chest.resref("TemplateResRef").unwrap();
-    assert!(new.to_string().starts_with("plc_chest"), "{new}");
+    // (`plc_` left off where `chest1` is free, as Aurora names it.)
+    assert_eq!(new.to_string(), "chest1");
     let key = ResKey::new(new, ResType::UTP);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "the new blueprint");
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its editor opens");

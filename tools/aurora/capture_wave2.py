@@ -37,39 +37,64 @@ tables `w2.tlk` and `w2f.tlk` (into the oracle's `tlk/`):
   line 0 (StrRef 16777216), the conversation `w2conv`'s one line is line
   1 (16777217).
 
-Then, in Aurora (tools/aurora/headless.sh, run-aurora.sh; xdrive.py; one
-session unless said), each capture the saved module copied from the
-oracle's `modules/` into `captures/wave2/` (the pictures in
-`target/test-output/wave2/`):
+Then, in Aurora (tools/aurora/headless.sh, run-aurora.sh; xdrive.py), one
+session, in this order, each capture the saved module copied from the
+oracle's `modules/` into `captures/wave2/` (the pictures, which are not
+compared by tests, in `target/test-output/wave2/`):
 
-1. Open `w2probe`. Creature Wizard: the categories offered (Familiars?);
-   the portrait page for Human and Male (`cw-portraits*.png`). Cancel.
-2. A creature's Faction list (`faction-list.png`). `w2prop` > Edit >
-   Properties: the Damage Bonus's Edit Property window, Chance of
-   Appearing typed -5 then 150 (Tab after each), OK, OK, Save:
-   `chance.mod`. Add Property > Damage Bonus > its Select Property
-   Parameters list in Aurora's order (`damagetype.png`), On Hit's.
-3. The item `w2tlk`'s name in the palette and its editor, the
-   conversation `w2conv` (`tlk-*.png`).
-4. Add to Palette, in this order, the offered ResRef read off each
-   dialog: `W2_CHEST` (and its `w2gem`), `W2_GUARD`, `W2_GUARD` again;
-   Save: `add-palette.mod`.
-5. The inventories: `W2_INV_A`'s dagger, hand axe and torch each dropped
-   on the secondary slot (where it goes, Cancel between);
-   `W2_INV_B`'s longsword dragged from the right hand to the left (what
-   is asked) (`inv-*.png`). Save after: `inv.mod`.
-6. Select Terrain: tiles 0 and 1 selected, Tile Properties, Main Light 1
-   changed alone, OK, Save: `tiles-one.mod`; then OK on both with nothing
-   changed, Save: `tiles-ok.mod`.
-7. Setup Area Transition: `W2_D1` Both Ways to `W2_D2`; `W2_D3` Current
-   To Target to `W2_D4`; `W2_D5` Target To Current to `W2_D6`; `W2_T1`
-   Both Ways to `W2_T2` (Target Type Trigger); Save: `transitions.mod`.
-8. Pictures: tile 5 from above with Fade Geometry Always and Never
-   (`fade-*.png`); the waypoints (`waypoints.png`); the armors on the
-   ground (`armors.png`). `nw_waypoint001` (no `Appearance`) painted,
-   Save: `waypoint-painted.mod`.
-9. The tree: F2 on a placed object; the palette's keys on a category
-   with a blueprint chosen (`keys-*.png`).
+1. Open `w2probe` (Ctrl+O), its `field`. The waypoints (`waypoints.png`:
+   none, 0 and 1 alike, the yellow arrow). The armors from above
+   (`armors.png`); a Leather Armor painted beside them. From the
+   waypoint palette `nw_waypoint001`, `nw_mapnote001` and `nw_post001`
+   (no `Appearance`) painted; Save: `waypoint-painted.mod` (each placed
+   with `Appearance` 1).
+2. Creature palette, Custom, a category's New (the Creature Wizard):
+   Human, Next, Next, Select Portrait (Race and Gender ticked: the wizard's
+   list, `cw-portraits*.png`); Select Palette Category (`cw8.png`,
+   `cw9.png`: Monsters, NPCs, Special, Tutorial). Cancel.
+3. `W2_GUARD`'s Properties > Advanced > Faction's list
+   (`faction-list.png`: no PC). Cancel.
+4. `W2_INV_A`'s Inventory: the dagger, then (Cancel, reopened) the hand
+   axe, then the torch dragged onto the secondary slot (`inv-a-*.png`:
+   the missing feat asked, Yes, each in the primary; the torch in the
+   secondary). `W2_INV_B`'s: the longsword dragged from the primary onto
+   the secondary, No, then Yes, then No and OK (`inv-b-*.png`: it stays
+   in the primary).
+5. Add to Palette, the ResRef read off each dialog's field before OK:
+   `W2_CHEST` (w2gem002, w2chest001), `W2_GUARD` (w2guard002), `W2_GUARD`
+   again (w2guard004), `W2_CHEST` again (w2gem004, w2chest002), `W2_D1`
+   (mgp_utd001), `W2_T1` (mgq_utt001: its OK refused, Cancel), the
+   painted `nw_waypoint001` (waypoint001, Cancel), a painted Dye Store
+   (its warning answered No), a painted Bat Cries & Flaps
+   (batcriesflaps001, Cancel), a painted Evil Metal Door; Save:
+   `add-palette.mod`. Then a painted Rubble (`x3_plc_rubble1`, its tag
+   changed: plc_rubble1, OK; again: rubble1, OK; again: rubble002,
+   Cancel) and Skull Pole (`x0_skullpole`: skullpole, OK; again:
+   skullpole001, OK).
+6. `w2prop` (custom palette) > Edit > Properties: Edit Property on its
+   Damage Bonus (`spp1.png`: no Chance of Appearing shown); Damage Bonus
+   vs. Specific Alignment, Chaotic Evil, added (`ip4.png`: the choices by
+   name), its Edit Property (`spp3.png`: Parameter 1 Values in
+   iprp_damagetype's order). OK, Save: `chance.mod`.
+7. `w2conv` opened, its line selected (`tlk-conv2.png`: "W2 MASCULINE
+   LINE"); the palette's `w2tlk` reads "W2 MASCULINE NAME".
+8. Select Terrain: tiles 0 and 1 by a drag, Tile Properties (`tp1.png`),
+   Main Light 1 changed alone (`tp3.png`), OK, Save: `tiles-one.mod`.
+9. Setup Area Transition (Target Area Field 2): `W2_D1` Both Ways to
+   `W2_D2`, `W2_D3` Current To Target to `W2_D4`, `W2_D5` Target To
+   Current to `W2_D6` (the first asks about the current object's tag;
+   each asks to save the area); Save: `transitions.mod`; `W2_D5` again,
+   Save: `transitions2.mod`. `W2_T1`'s Setup Area Transition with Target
+   Type Trigger stopped at "List index out of bounds (-1)".
+10. Fade Geometry (Environment) Never and Always on tile 5, from above
+   (`fade-never.png`, `fade-always.png`) and pitched from the south-west
+   (`fade-*-pitched.png`: Always keeps `Object654`'s black slab, as
+   `mgv render` of the tile with and without it shows, `fade-mgv-ab.png`).
+11. Open `w1probe` (wave 1's). Creature Wizard, Human, Male, Select
+   Portrait, scrolled through (`w1cw*.png`: `w1po_` between `hu_m_53_` and
+   `hu_m_40_`). The tree: F2 on Bandit and on `w1_script` (nothing
+   edited, `keys-f2*.png`); the placeable palette's Arrow-filled corpse
+   chosen, Up to Battlefield: the area still in Paint (`keys-hand*.png`).
 """
 
 import copy

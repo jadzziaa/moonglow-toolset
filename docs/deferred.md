@@ -2531,8 +2531,8 @@ is not taken for a new gap.
   shows disabled as 0 (captured 2026-10-30, `captures/wave2/tiles-one.mod`:
   Main Light 1 changed alone on two tiles of lights 5, 6, 1, 2 and 10,
   11, 3, 4 left both 27, 6, 0, 0, their loops 0); Moonglow keeps its own,
-  from the owner's report on Tile Properties. (Settled by the owner's
-  report.)
+  as the owner's report on Tile Properties asked. (settle?: proposed by
+  the sprint on 2026-10-30, the owner's to say)
 - **The game's text in the language edited, and the feminine talk
   table:** the install is read as that language when its
   `lang/<code>/data/dialog.tlk` is there (its talk table, and the rest
