@@ -620,15 +620,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tiles' trees (`tilefade` 1) go and an interior's black caps (2) stay
   (a City Interior's walls of `tilefade` 1 looked the same in every mode
   at the three cameras tried, so that 1 goes rests on the trees). A
-  mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
-  is still taken from the game's tiles and their names. (S) (from
-  builders' reports after 1.10.1)
+  mesh with `tilefade` 4 wasn't in the tiles captured, and Moonglow
+  fades it as 1. Of the game's tile models (2026-10-30, every mesh
+  read), 1,877 meshes have `tilefade` 4 against 22,879 with 1 and 3,087
+  with 2, and 1,744 of those 4 are black (`tin01_black`,
+  `ttr01_black00`...), as the caps of 2 that Aurora keeps are: that 4
+  stays is as likely. Waits on Aurora (the off-screen display): Fade
+  Geometry Always and Never on `tin01_a01_01` (its `Line773`, 52 faces)
+  or `ttr01_b06_01` (`Object654`) from above; the fix is then one match
+  in `mg-area`'s `scene.rs` (`tilefade` 1 or 4). (S) (from builders'
+  reports after 1.10.1)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
-  same builder's picture: not looked into. The model is chosen by the
-  torso's parts_chest.2da `ACBONUS` (measured with the game's own
-  armors); his armor, or his content's table, may be a case that rule
-  misses. Needs the item. (S) (from builders' reports after 1.19.1)
-
+  same builder's picture. The model is chosen by the torso's
+  parts_chest.2da `ACBONUS` (`mg_preview::item::item_placed`, measured
+  with the game's own armors): a torso the table lacks, or whose
+  `ACBONUS` is blank, lies as cloth (`gi_armor01`), so plate here means
+  the table Moonglow read gives his torso 6 or more; that Aurora shows a
+  tunic says it read another table or another rule. Waits on the
+  builder's item (its torso's number) and his haks' parts_chest.2da.
+  (S) (from builders' reports after 1.19.1)
 ## Editing in the area view
 
 - **Lerps, animation speed and other scopes, how the client draws a
@@ -1162,10 +1172,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Heed's previews after 1.33.0** (not reproduced): the Drow shields of
   the standard palette shown as bags in their thumbnails and the
   palette's hover preview. In the base game they show whole
-  (`item_previews` in `screens.rs`: `x2_adrowshl001`), so his haks are the
-  likely cause (a `baseitems.2da` of their own); his hak list or a
-  blueprint is needed. (His armor showing only a head and pelvis was
-  Beamdog's HD bodies, drawn whole since 1.34.1.) (S–M)
+  (`item_previews` in `screens.rs`: `x2_adrowshl001`). What makes a bag
+  (2026-10-30): the Drow shields are large shields (base item 56,
+  `ItemClass` `AShLw`, `ModelPart1` 33: `ashlw_033`), and baseitems.2da
+  row 56's `DefaultModel` is `it_bag`, which `mg_preview::item_parts`
+  falls to where the class and number name no model in the load order:
+  a hak's `baseitems.2da` whose row 56 names another `ItemClass`, or a
+  load order without `ashlw_033`. Waits on his hak list or a blueprint.
+  (His armor showing only a head and pelvis was Beamdog's HD bodies,
+  drawn whole since 1.34.1.) (S–M)
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
   its suite passes every probe since 2026-10-29, in Moonglow's tests
@@ -1178,9 +1193,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   That a face with one such vertex among weighed ones goes too is taken
   from the collapse, not seen: of the game's 1,778 skins only that wing
   has any such vertex, all of its own.
-  Left: the wing it keeps stands otherwise than the client's (spread
-  where the client's hangs, seen from the side; the demon's wings beside
-  it alike in both): its pose, not looked into. (S)
+  Left: the wing it keeps (`Dragon_Lwing`, a skin on the
+  `Gargoyle_L*` bones) stands otherwise than the client's: spread,
+  broadside, in the client's picture; hanging edge-on in Moonglow's.
+  Looked into (2026-10-30): `c_wings2`'s animations are all a
+  creature's (`cpause1`, `creadyl`...), none `pause1`, which the human
+  stands in; an animated part without the animation asked plays
+  `creadyl`, `cpause1` or `pause1` in `mg_preview::compose` (lines
+  `["creadyl", "cpause1", "pause1"]`, twice), so it plays `creadyl`,
+  while the demon's wings (`c_wingsdm`), which have none of the three,
+  stand as the human's animation leaves them, alike in both. The wing
+  at its bind pose, rendered alone, is spread as the client's looks:
+  the client likely plays none of a part's animations but the one
+  asked. Not changed here: the area view from another camera did not
+  show the client's shape plainly, and the fallback reaches every wing
+  and tail. Waits on the client batch: `reading_wings_without_bones`'s
+  picture beside Moonglow's (`moonglow_beside`) with that fallback
+  taken out. (S)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
