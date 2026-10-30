@@ -212,6 +212,71 @@ impl<'a> LightGrid<'a> {
     }
 }
 
+/// The lights that reached each mesh in the frames before, kept while
+/// the scene's lights stay as they were (their places, how far they reach
+/// and their priorities: all a mesh's choice depends on): a large area's
+/// thousands of meshes, each trying the lights of the squares it stands
+/// on, were the larger part of a frame of the camera turning. A mesh is
+/// known by its ball, to the bit: what one takes is what
+/// [`LightGrid::reaching`] gives it. What no mesh of the last frame took
+/// is let go.
+#[derive(Debug, Default)]
+pub(crate) struct ReachCache {
+    /// The lights the kept choices were made among: each one's place,
+    /// reach and priority, as bits.
+    lights: Vec<[u32; 5]>,
+    /// The choices of this frame's meshes, and of the frame before's.
+    now: crate::game::Fast<[u32; 4], Box<[Reaching]>>,
+    before: crate::game::Fast<[u32; 4], Box<[Reaching]>>,
+}
+
+impl ReachCache {
+    /// Begins a frame of `lights`: what was kept is let go if any of them
+    /// differs from those it was chosen among.
+    pub(crate) fn begin(&mut self, lights: &[PointLight]) {
+        let key = |l: &PointLight| {
+            let p = l.position;
+            [p.x.to_bits(), p.y.to_bits(), p.z.to_bits(), l.cutoff.to_bits(), l.priority]
+        };
+        let same = self.lights.len() == lights.len()
+            && self.lights.iter().zip(lights).all(|(k, l)| *k == key(l));
+        if same {
+            std::mem::swap(&mut self.now, &mut self.before);
+            self.now.clear();
+        } else {
+            self.now.clear();
+            self.before.clear();
+            self.lights.clear();
+            self.lights.extend(lights.iter().map(key));
+        }
+    }
+
+    /// [`LightGrid::reaching`], as it was for the same ball since the
+    /// lights were last as they are (`grid` made of those lights).
+    pub(crate) fn reaching(
+        &mut self,
+        grid: &mut LightGrid<'_>,
+        centre: Vec3,
+        radius: f32,
+        out: &mut Vec<Reaching>,
+    ) {
+        let key = [centre.x, centre.y, centre.z, radius].map(f32::to_bits);
+        if let Some(kept) = self.now.get(&key) {
+            out.clear();
+            out.extend_from_slice(kept);
+            return;
+        }
+        if let Some(kept) = self.before.remove(&key) {
+            out.clear();
+            out.extend_from_slice(&kept);
+            self.now.insert(key, kept);
+            return;
+        }
+        grid.reaching(centre, radius, out);
+        self.now.insert(key, out.as_slice().into());
+    }
+}
+
 /// The eight corners of the box `min`–`max`: corner `i` takes `max`'s x
 /// where bit 0 of `i` is set, its y where bit 1 is, its z where bit 2
 /// is (so 0 is `min` and 7 `max`, and corners one bit apart share an
@@ -309,6 +374,45 @@ mod tests {
             casts_shadows: false,
             shadow_lift: 0.0,
         }
+    }
+
+    /// What a mesh took in the frames before is what it takes again
+    /// while the lights stay where they are, and what every light tried
+    /// gives once one moves, reaches further, changes priority or another
+    /// comes; its colour changes nothing of it.
+    #[test]
+    fn a_mesh_keeps_its_lights_until_they_change() {
+        let mut n = Numbers(11);
+        let mut lights: Vec<PointLight> = (0..300)
+            .map(|_| {
+                let at = Vec3::new(n.next() * 200.0, n.next() * 200.0, n.next() * 6.0);
+                light(at, n.next() * 30.0, 1 + (n.next() * 3.0) as u32)
+            })
+            .collect();
+        let meshes: Vec<(Vec3, f32)> = (0..200)
+            .map(|_| (Vec3::new(n.next() * 200.0, n.next() * 200.0, 0.0), n.next() * 8.0))
+            .collect();
+        let mut cache = ReachCache::default();
+        let mut out = Vec::new();
+        for frame in 0..8 {
+            match frame {
+                3 => lights[17].position.x += 1.0,
+                4 => lights[40].cutoff *= 2.0,
+                5 => lights[90].priority += 1,
+                6 => lights.push(light(Vec3::new(100.0, 100.0, 1.0), 50.0, 1)),
+                7 => lights[3].color = Vec3::new(0.2, 0.4, 0.8),
+                _ => {}
+            }
+            cache.begin(&lights);
+            let mut grid = LightGrid::new(&lights);
+            // (Some meshes of a frame not drawn in the next, some twice.)
+            for (centre, radius) in meshes.iter().skip(frame % 3).chain(&meshes[..5]) {
+                cache.reaching(&mut grid, *centre, *radius, &mut out);
+                assert_eq!(out, every(&lights, *centre, *radius), "frame {frame}");
+            }
+        }
+        // Kept: what the meshes of the last two frames took, no more.
+        assert!(cache.now.len() <= meshes.len() && cache.before.len() <= meshes.len());
     }
 
     #[test]
