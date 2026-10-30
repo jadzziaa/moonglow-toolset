@@ -70,14 +70,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Script intelligence (`mg lsp`, the script editor)
 
-- **A script's codepage** (GitHub issue 27) is the language's of
-  Options › Language, for every script alike; in `mg`, the game
-  client's (`mg lsp`, and the lines `mg refs` and `mg rename` show of
-  scripts). Left: the game reading the compiled strings in
-  Windows-1250 was not seen in a Polish client (the bytes were checked
-  in the compiled script): waits on the client (a scratch module's
-  `SpeakString` with a Polish letter, the sandboxed client's language
-  set to Polish, a screenshot). (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
@@ -389,9 +381,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's own categories are named, and the `palcus.itp` built
   on save keeps it. Not seen: the DM Creator showing a module's own
   talk table's line (16777216 and up) as a category's name, in each
-  language. (S) (waits on the client batch: a module with a custom
-  `.tlk` and a category named by its line, the Creator's palette
-  looked at)
+  language. (S) (waits on a CD key for the sandboxed client, to join as
+  a DM: `joined_dm_creator_palette`, `MG_CLIENT_CDKEY`)
 - **A custom palette's names in the game** (a builder: after a save in
   Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
   colors wrong; Aurora's Custom palette showed the same, reading the
@@ -413,9 +404,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
   builds it). Not seen in the game's DM client here (the bytes are
   tested; the client was not run as a DM): the DM client joins a
-  server, so it waits on the harness the NWSync download test needs
-  (`nwserver` and the client started in one sandbox, whose loopback
-  works). Issue 13's other half: with
+  server; the harness is built (`mg_testkit::joined`, the server and the
+  client in one sandbox, `joined_dm_creator_palette`), and the sandboxed
+  client has no CD key to join with, so it waits on one
+  (`MG_CLIENT_CDKEY`, the owner's to give). Issue 13's other half: with
   Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
@@ -792,19 +784,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file) (from builders' reports after 1.10.1)
-- **Emitters start as they look once going:** left, the client's
-  comparisons. An emitter new to the view, an object's or a tile's, is
-  run twenty seconds ahead so that it shows as it does once going
-  (`scene.rs`, `PARTICLES_AHEAD`), and the nearest 256 objects and 128
-  tiles with emitters are simulated while Animations is on (`nearest`).
-  Not compared with the client: that a wide fog (eight slow particles a
-  second) is as dense from above as the game's, and Magic Sparks, which
-  show faintly from above. A tile's emitters take their keys from the
-  animations playing on it as one animation as long as the longest (the
-  game's tiles' keys are constant; one that changed over a shorter loop
-  would run slow). (S) (waits on a client reading: the fog placeable and
-  Magic Sparks seen from above in the client and in the area view, side
-  by side) (from builders' reports after 1.14.1)
+- **Emitters start as they look once going:** an emitter new to the
+  view, an object's or a tile's, is run twenty seconds ahead so that it
+  shows as it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the
+  nearest 256 objects and 128 tiles with emitters are simulated while
+  Animations is on (`nearest`). Compared with the client on 2026-10-29
+  (`reading_emitters_from_above` in `client_render.rs`'s `batch2.rs`,
+  ttr01, the reference camera, Moonglow's view run ahead beside it): a
+  wide fog (`new:Mist`) is as dense as the game's (the ground under it
+  brightened by 18 of 255, the client's by 17). Left: Magic Sparks
+  (`plc_u03`, `render Motion_Blur`, velocity 3) are long bright streaks
+  in the client, from the side and from its steepest camera (pitch 1
+  asked, which the client clamps), where Moonglow draws each spark as a dot of its size laid along its path (the ground
+  under them brightened by 6 against the client's 13): the client
+  stretches a motion-blurred particle by its speed, by how much not yet
+  measured (a probe emitter at a few velocities, from the side). A tile's
+  emitters take their keys from the animations playing on it as one
+  animation as long as the longest (the game's tiles' keys are
+  constant; one that changed over a shorter loop would run slow).
+  (S, the streaks S–M) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
@@ -1004,11 +1002,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
     `vsvt`/`fst`. (S) (waits on a client reading)
-  - **How the engine blends an additive mesh** (one and one, or by its
-    alpha) is not read: Moonglow adds its colour whole by either path;
-    the same for an opaque texture. A Lighten particle is added by its
-    alpha. (S) (waits on a client reading: an additive card whose
-    texture's alpha runs 0 to 1, over a gray ground)
+  - **How the engine blends an additive mesh**, read in the client
+    (2026-10-29, `reading_additive_blending` in `client_render.rs`'s
+    `batch2.rs`: cards of TXI `blending additive` in gray 64 on tic01,
+    what each adds measured against the area without them): by its
+    alpha (source alpha and one) where its texture has one, the card
+    whose alpha runs 0 to 1 west to east adding 0 at its west edge
+    rising to 24 of 255 at its east; whole where it has none (24 all
+    over). Moonglow, either path, adds the opaque card as the client
+    does (24) and the other 36 at its west falling to 26 at its east:
+    not by its alpha, and more than its colour, the cause not looked
+    into. A Lighten particle is added by its alpha. (S)
   - **Particles' size and turn:** a still emitter's square particles
     are drawn upright, as in the client, 28 pixels a side against the
     client's 30 in `surfaces_in_the_client` (the fitted camera's error,
@@ -1140,19 +1144,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     themselves);
   - with Fade Geometry on, the faded roofs and upper walls cast no
     shadow, where the game's still do (S);
-  - doors cast as placeables do and items on the ground cast none (the
-    game since 8193.35: "non-character models cast shadows only if
-    opaque") (S) (waits on a client reading: a door and an item on the
-    ground in the sun);
-  - the shadow's fade with the height between plane and caster
-    (8193.31's "shadow alpha by vertical distance") and sun shadows
-    never above the camera's height are not drawn (S) (waits on a
-    client reading: a caster raised over the ground in steps, and a tall
-    one seen from below its top). Seen with a sun low in the west (a
-    GIT's direction, `reading_git_sun_direction`): the client leaves a
-    city street lit but for thin spikes, where Moonglow lays the
-    buildings' long shadows over all of it, light showing through in
-    thin lines;
+  - a sun low in the west (a GIT's direction,
+    `reading_git_sun_direction`): the client leaves a city street lit
+    but for thin spikes, where Moonglow lays the buildings' long shadows
+    over all of it, light showing through in thin lines. (The fade with
+    the height between plane and caster that 8193.31 names is not seen:
+    armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
+    and casters above the camera still cast, as in Moonglow:
+    `reading_shadows_of_doors_items_and_heights`, 2026-10-29);
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
@@ -1447,11 +1446,16 @@ contribution itself states as not done or not checked.
     alpha: `mg-image` makes a 5-bit channel 8 bits as `(c << 3) | (c >> 2)`
     and takes the top bit as alpha when the descriptor declares an alpha
     bit; the `image` crate's table is c × 255 / 31 rounded (3 is 25, not
-    24) and it never took the bit as alpha. For the second client batch: a
-    NUI image of a 16-bit TGA whose descriptor declares an alpha bit, with
-    a patch of each of the 32 levels of a channel and pixels with the bit
-    clear, at 100%: read the levels drawn and whether those pixels are
-    transparent. `mg-image` follows the game. (S, waits on the client)
+    24) and it never took the bit as alpha. Read in the client
+    (2026-10-29, `nui_readings_in_the_client` in `client_render.rs`'s
+    `nui.rs`: a NUI image of a 16-bit TGA whose descriptor declares an
+    alpha bit, at its size): the game draws level c as c × 255 / 31
+    rounded down (4 is 32, 8 is 65, 30 is 246, where `mg-image` gives 33,
+    66 and 247 and the `image` crate 33, 66 and 247), and the pixels with
+    the bit clear opaque, as those with it set: it takes no alpha from the
+    bit. `mg-image` differs on both; a model's texture of the same file
+    was not read, and `mg-image` decodes it for the renderer too, so the
+    fix (the table, and the bit not alpha) waits on that one reading. (S)
 - **Where the preview is known to differ from the game** (stated in
   [the manual](manual/18-nui-creator.md);
   `crates/mg-ui/src/nui_view/preview.rs`; `mg nui render` and `layout`
@@ -1461,29 +1465,43 @@ contribution itself states as not done or not checked.
   - *Rows of buttons without widths after a control with a width of its
     own* make the game pick a narrower width than the preview's (308
     against 462 in the case measured, an image 200 wide above a row of two
-    buttons): one case is not the rule. For the second client batch, a
-    column of an image (then a button) 100, 200 and 400 wide over a row of
-    one, two and three buttons without widths, and the same with the row
-    first: read each control's width. (S once measured)
+    buttons). Measured in the client (2026-10-29,
+    `nui_readings_in_the_client`, a window 600 wide; each control's cell,
+    margins of 2 included): a row's buttons without widths are 150 wide
+    (cells of 154, the row's last 152) whatever an image or button 100,
+    200 or 400 wide above them; below them, the row's last button
+    stretches until the row is as wide as that control less 2 where it is
+    wider (one button: 198 under 200, 398 under 400; two under 400: 154
+    and 244; under 100, and three buttons under any, 150 each). The rule
+    is the order: a control with a width counts for the rows above it
+    only. Not done in the preview yet. (S)
   - *Gaps and margins at a UI scale that isn't whole* are scaled as they
-    are: whether the game rounds them down too is not measured. For the
-    second client batch: a column of ten buttons 30 high, with margins 2
-    and 5, at 111% (`ui.unconstrain-scale` set): read each one's top edge.
-    (S)
+    are, where the game rounds each down to whole pixels, as it does a
+    control's size: measured in the client (2026-10-29,
+    `nui_readings_in_the_client` with `MG_NUI_SCALE=1.11`, ten buttons 30
+    high, `ui.unconstrain-scale` set), the buttons' top edges are 34 and
+    40 apart at 100% (margins 2 and 5), 37 and 43 at 111%: 33 for the
+    button (33.3 rounded down) and the margins 2 and 5 (2.22 and 5.55
+    rounded down). Not done in the preview yet. (S)
   - *An encouraged control* shows its hover look and does not pulse; the
     pulse's period is not measured either. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: a still preview shows the
     pulse's peak.)
-  - *Numbers in text* are shown to at most 16 decimal places. For the
-    second client batch: a label bound to 1/3 with `number_precision` 16,
-    17, 20 and 30, and to 0.5 and 2.5 at 0: read the text drawn. (S)
+  - *Numbers in text* are shown to at most 16 decimal places, from the
+    bind's double, ties rounded away from zero (`native_decimal`). Read
+    in the client (2026-10-29, `nui_readings_in_the_client`): a label
+    bound to 1/3 shows the 32-bit float's digits to as many places as
+    `number_precision` says, with no cap (16: 0.3333333432674408; 17:
+    0.33333334326744080; 30: 0.333333343267440795898437500000), and 0.5
+    and 2.5 at 0 show 0 and 2 (ties to even, as C's printf). The preview
+    differs on all three. Not done in the preview yet. (S)
   - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
     places neighbors apart: it finds none but where the game would lay the
     window out otherwise, which it can't know. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: said in the manual's command
     line chapter, as it is.)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
-  (AccessKit and the event function; the asks are the module project's
+  (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
   2026-10-29: a state for one row, variants of several groups, binds held
   to their properties' rules, a list's rows out of view and the title in
@@ -1510,17 +1528,6 @@ contribution itself states as not done or not checked.
     average without the tree, 0.97 with it, the most 0.55 ms more (a
     long script, 0.73 to 1.28); none over the budget. Without one,
     nothing. (S, waits on a screen reader's user)
-  - *The event function in the game*: compiled against the game's
-    `nwscript.nss`, not yet run in the client (`client_nui.rs` builds
-    windows with their own event scripts). For the second client batch:
-    in `client_nui.rs`, a window with `event_function` on, built by
-    `mg_nui::generate` (its `NAME_e.nss` the include of `NAME_OnEvent()`),
-    created without an event script, and the module's OnNuiEvent a script
-    of the test's that includes it and logs what `NAME_OnEvent()`
-    returns; a click on a button whose handler sets a bind: read that the
-    handler ran (the bind's new value), that the function returned TRUE
-    for the window's event and FALSE for another window's. (S, waits on
-    the client)
 
 ## Automation
 
@@ -1713,12 +1720,24 @@ contribution itself states as not done or not checked.
   has no network but a loopback of its own (`bwrap --unshare-net` brings
   `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
   web server, `nwserver` naming it and the client started together in
-  one sandbox would test it; `run-client.sh` starts the client alone,
-  and that harness isn't built. (M)
+  one sandbox test it: built on 2026-10-29 (`mg_testkit::joined`,
+  `tools/nwclient/run-server-and-client.sh`; `joined_nwsync_download`
+  publishes Chess with a hak and a talk table and joins). The sandboxed
+  client has no CD key (no Steam: Multiplayer asks for one, `+connect`
+  ends in "Your CD Key is unauthorized"), so the test skips until
+  `MG_CLIENT_CDKEY` names one. (S, waits on the owner: a `cdkey.ini` for
+  the sandbox, or Steam's API let through in that mode)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
-  doesn't; whether the client would use one isn't known. (S) (waits on
-  the download test above: a `dialogf.tlk` published, a woman's
-  character given its text or not)
+  doesn't. Read in single player (2026-10-29,
+  `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a
+  module's `mg_rtlk` and `mg_rtlkf` with other text, in the module and
+  in the user directory's `tlk`, the player a woman): the client draws a
+  line by StrRef (`FloatingTextStrRefOnCreature`) from the masculine
+  table for her, where the server's `GetStringByStrRef` with
+  `GENDER_FEMALE` reads the feminine one; so the client's own lookups
+  don't use it, and only scripts' would. Whether a client downloading
+  by NWSync is the same waits on the download test above (its CD key).
+  (S)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
   so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to

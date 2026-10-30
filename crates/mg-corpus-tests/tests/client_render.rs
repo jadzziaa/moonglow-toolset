@@ -52,12 +52,18 @@ use common::{SETTINGS, client_capture, client_screenshot, compile, save_png};
 
 #[path = "client_render/armourer.rs"]
 mod armourer;
+#[path = "client_render/batch2.rs"]
+mod batch2;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
 mod heads;
 #[path = "client_render/heed.rs"]
 mod heed;
+#[path = "client_render/joined.rs"]
+mod joined;
+#[path = "client_render/nui.rs"]
+mod nui;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/readings.rs"]

@@ -56,8 +56,9 @@ it differs, it is on purpose:
   hasn't), wherever the view shows grass ground, thinner far off (the
   game draws it within 30 m of its camera by default, fading it in at
   about 24 m). Its tufts gather in clumps with bare ground between them,
-  as the game's do (fitted to the game's picture of a field; how the game
-  places them is not known). Aurora drops an area's own grass when it
+  as the game's do (fitted to the game's picture of a field), as dense
+  near the camera as the game's; the game's sparse grass lies a tuft at
+  a time, where Moonglow's lies in twos and threes. Aurora drops an area's own grass when it
   saves the area ([Areas](04-areas.md#grass)).
 - **Waypoints** are the flags of their appearance (blue, red, green,
   yellow), **sounds** the game's markers for them (a note: heard from

@@ -16,13 +16,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// The player made invisible (a statement of an entry script's body).
-const INVISIBLE: &str = "ApplyEffectToObject(DURATION_TYPE_PERMANENT, \
+pub(super) const INVISIBLE: &str = "ApplyEffectToObject(DURATION_TYPE_PERMANENT, \
                          EffectVisualEffect(VFX_DUR_CUTSCENE_INVISIBILITY), pc);";
 
 /// An entry script: `body` run as the player enters (with `pc`, `area`
 /// and `p`, the start position, in scope), the camera held at `(facing,
 /// distance, pitch)`, `MG_READY` written to the log four seconds after.
-fn enter(body: &str, (facing, distance, pitch): (f32, f32, f32)) -> String {
+pub(super) fn enter(body: &str, (facing, distance, pitch): (f32, f32, f32)) -> String {
     // (Given at once, the client keeps its own camera but for the
     // reference scenes' (which its view was fitted to): another is given a
     // second later, as `save_area_module_facing` does.)
@@ -58,19 +58,24 @@ void main()
 
 /// A reading's module, before it is run: the game (with the scratch user
 /// directory's `override`), the module and its area's ARE and GIT.
-struct Reading {
-    dir: PathBuf,
-    game: GameData,
-    m: mg_module::Module,
-    are: Gff,
-    git: Gff,
+pub(super) struct Reading {
+    pub(super) dir: PathBuf,
+    pub(super) game: GameData,
+    pub(super) m: mg_module::Module,
+    pub(super) are: Gff,
+    pub(super) git: Gff,
 }
 
 impl Reading {
     /// A new module of one 4×4 area of `tileset` lit by `light`, the files
     /// `overrides` in the scratch user directory's `override` (the game
     /// read with them).
-    fn new(name: &str, tileset: &str, light: Lighting, overrides: &[(&str, Vec<u8>)]) -> Reading {
+    pub(super) fn new(
+        name: &str,
+        tileset: &str,
+        light: Lighting,
+        overrides: &[(&str, Vec<u8>)],
+    ) -> Reading {
         let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
         let dir = scratch_dir(&format!("client_reading_{name}"));
         let over = dir.join("user/override");
@@ -87,7 +92,13 @@ impl Reading {
 
     /// A placeable of `appearance` placed in the area (the armoire's
     /// blueprint, made that appearance), with `fields` set.
-    fn place(&mut self, appearance: u32, at: [f32; 3], facing: f32, fields: &[(&str, Value)]) {
+    pub(super) fn place(
+        &mut self,
+        appearance: u32,
+        at: [f32; 3],
+        facing: f32,
+        fields: &[(&str, Value)],
+    ) {
         let bp =
             Gff::read(&self.game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
         let none = |_: ResRef| None;
@@ -105,7 +116,7 @@ impl Reading {
 
     /// Saves the module with the entry script `enter` and the client's
     /// `settings`.
-    fn save(&mut self, enter: &str, settings: &str) {
+    pub(super) fn save(&mut self, enter: &str, settings: &str) {
         let are_key = *self.m.keys_of(ResType::ARE).next().unwrap();
         let git_key = *self.m.keys_of(ResType::GIT).next().unwrap();
         self.m.set_gff(are_key, &self.are).unwrap();
@@ -122,7 +133,7 @@ impl Reading {
 
     /// [`Reading::save`], then the client's picture of the scene, kept as
     /// `client.png` in the scratch directory.
-    fn shoot(mut self, enter: &str, settings: &str) -> (PathBuf, Rgba) {
+    pub(super) fn shoot(mut self, enter: &str, settings: &str) -> (PathBuf, Rgba) {
         self.save(enter, settings);
         let Some(shot) = client_screenshot(&self.dir, "MgScene") else {
             panic!("the client did not reach the scene (see {})", self.dir.display());
@@ -137,7 +148,7 @@ impl Reading {
     /// same camera beside it (`moonglow.png` with its own shader,
     /// `moonglow_on.png` with the game's). `view` changes the area view's
     /// settings.
-    fn shoot_beside(
+    pub(super) fn shoot_beside(
         self,
         body: &str,
         settings: &str,
@@ -185,6 +196,12 @@ fn moonglow_beside(
     let mut v = mg_area::View { fog: false, grass: Some(sight), ..mg_area::View::of(&model) };
     view(&mut v);
     let mut scene = area_scene.scene(&model, &v);
+    // (Animations on: the emitters' particles, run ahead as the area view
+    // runs those new to it.)
+    if v.animate {
+        let mut sims = HashMap::new();
+        scene.particles = area_scene.particles(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+    }
     // (Where nothing is drawn: magenta, told apart from black meshes.)
     if std::env::var_os("MG_MAGENTA").is_some() {
         scene.background = [1.0, 0.0, 1.0];
@@ -194,7 +211,7 @@ fn moonglow_beside(
 
 /// The entry script of [`Reading::shoot_beside`]: the player's place
 /// written to the log, for Moonglow's camera.
-fn logged(body: &str) -> String {
+pub(super) fn logged(body: &str) -> String {
     format!(
         "{body}\n    DelayCommand(3.5, Log(\"MG_PC \" + FloatToString(GetPosition(pc).x, 0, 3) + \" \" \
          + FloatToString(GetPosition(pc).y, 0, 3) + \" \" + FloatToString(GetPosition(pc).z, 0, 3)));"
@@ -202,7 +219,7 @@ fn logged(body: &str) -> String {
 }
 
 /// The lines of the client's log that the entry script wrote (`MG_`).
-fn print_log(dir: &Path) {
+pub(super) fn print_log(dir: &Path) {
     let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
     for line in log.lines().filter(|l| l.contains("MG_")) {
         eprintln!("{line}");
@@ -215,7 +232,7 @@ fn print_log(dir: &Path) {
 /// `then` is given, runs it and, where it says so, screenshots the window
 /// again (`<dir>/client_then.png`). The first picture, and what `then`
 /// said.
-fn client_after(
+pub(super) fn client_after(
     dir: &Path,
     args: &[&str],
     wait: Duration,
@@ -501,7 +518,7 @@ fn reading_tile_heights() {
 }
 
 /// The client's settings with its grass on (Grass Detail: High).
-fn with_grass() -> String {
+pub(super) fn with_grass() -> String {
     let s = SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
     assert!(s.contains("mode = 2"));
     s
@@ -558,7 +575,7 @@ fn slab(name: &str, side: f32) -> (String, String) {
 /// placeables.2da with rows for `models` after the game's (each the
 /// armoire's row with its model and `Static`), and the first new row's
 /// number.
-fn placeables_with(game: &GameData, models: &[(&str, u8)]) -> (String, u32) {
+pub(super) fn placeables_with(game: &GameData, models: &[(&str, u8)]) -> (String, u32) {
     let table = game.resman.get_named("placeables", ResType::TWODA).unwrap();
     let mut table = String::from_utf8_lossy(&table).into_owned();
     let header: Vec<String> =

@@ -152,12 +152,14 @@ impl Transform {
 
 /// The visual transform the placed object `s`'s model is drawn with:
 /// `VisTransformList`'s entry for scope 0 (an entry with no `Scope` is
-/// of 0), else its first; without the list, the older `VisualTransform`.
-/// `None` without either (or with an empty list).
+/// of 0); without the list, the older `VisualTransform`. `None` without
+/// either, or with a list that has no entry of scope 0: the client draws
+/// such a placeable untransformed (`reading_visual_transform_without_scope_0`
+/// in `client_render.rs`, 2026-10-29: a scope 1 or 4 entry alone changes
+/// nothing).
 pub fn visual_transform(s: &Struct) -> Option<Transform> {
     if let Some(list) = s.list("VisTransformList") {
-        let entry =
-            list.iter().find(|e| e.integer("Scope").unwrap_or(0) == 0).or_else(|| list.first())?;
+        let entry = list.iter().find(|e| e.integer("Scope").unwrap_or(0) == 0)?;
         return Some(Transform::of_entry(entry));
     }
     s.child("VisualTransform").map(Transform::of_struct)
@@ -247,7 +249,8 @@ mod tests {
     }
 
     /// One reader, two questions: the transform the model is drawn with
-    /// (scope 0's, else the list's first, else the older struct), and
+    /// (scope 0's, else none where there is a list, else the older
+    /// struct), and
     /// whether any changes how it shows (any scope's, or the struct).
     #[test]
     fn visual_transforms_are_read_one_way() {
@@ -258,9 +261,12 @@ mod tests {
         s.set("VisTransformList", Value::List(vec![entry(Some(1), 2.0), entry(None, 1.5)]));
         assert_eq!(visual_transform(&s).unwrap().scale[0], 1.5, "scope 0's");
         assert!(is_transformed(&s));
-        // Only another scope's: drawn by it, and transformed.
+        // Only another scope's: drawn without it, as the client draws a
+        // placeable so, yet transformed (a part of it would be).
         s.set("VisTransformList", Value::List(vec![entry(Some(4), 2.0)]));
-        assert_eq!(visual_transform(&s).unwrap().scale[0], 2.0, "the first");
+        assert_eq!(visual_transform(&s), None, "no scope 0");
+        s.set("VisTransformList", Value::List(vec![entry(Some(1), 2.0)]));
+        assert_eq!(visual_transform(&s), None, "a head's alone");
         assert!(is_transformed(&s));
         // An identity list beside an older struct that scales: drawn by the
         // list (as before), but transformed.

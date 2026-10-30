@@ -11,6 +11,7 @@ pub mod erf;
 pub mod gpu;
 #[cfg(feature = "hlsl")]
 pub mod hlsl;
+pub mod joined;
 pub mod places;
 
 use std::collections::BTreeMap;
