@@ -491,16 +491,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   beyond its reach and period, and whether the area's wind direction
   turns it, not read)
 
-- **A walkmesh's own node position:** one shipped placeable
-  (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
-  itself. Moonglow draws it there; whether the engine does isn't known.
-  Tried in the server (2026-10-29, a probe not kept): a creature made
-  where the mesh would be, at the placeable or 72 m off, is not moved at
-  either, where one made on a wagon is moved off it; with the module's
-  own copy of the walkmesh twenty times as wide (3.4 m), the same. So
-  the engine ignores this mesh, or a module's copy of it, or making a
-  creature doesn't see it: telling which needs a creature's path across
-  each place, or the client. (M)
 - **Setup Area Transition's Connection Type:** the window picks a door
   or waypoint on the target area's map or in its lists, as Aurora's
   `TdlgAreaTransition` does, but has none of its Connection Type (Both
