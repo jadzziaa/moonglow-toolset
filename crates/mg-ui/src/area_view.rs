@@ -1384,6 +1384,32 @@ impl AreaView {
         self.turn_rings(model).into_iter().map(|r| (r.pivot, r.facing)).collect()
     }
 
+    /// A point on screen where a press and a drag move object `i` (its
+    /// place in the model's objects): on it, as picked, and on none of the
+    /// selection's handles there without a key held (a turning ring, a
+    /// spawn point's arrow or foot); its box's middle first, then about
+    /// it. For the tests that drag one: an object's feet are its ring's.
+    pub fn move_grip(&self, i: usize) -> Option<Pos2> {
+        let (model, scene) = (self.model.as_ref()?, self.scene.as_ref()?);
+        let o = model.objects.get(i)?;
+        let (min, max) = scene.bounds(model, i);
+        let t = o.model_transform();
+        let free = |p: Pos2| {
+            self.rect.contains(p)
+                && self.pick(p) == Some(i)
+                && self.ring_at(p).is_none()
+                && self.spawn_arrow_at(p).is_none()
+                && self.spawn_foot_at(p).is_none()
+        };
+        const ALONG: [f32; 5] = [0.5, 0.35, 0.65, 0.2, 0.8];
+        let points = ALONG.iter().flat_map(|&z| {
+            ALONG.iter().flat_map(move |&y| ALONG.iter().map(move |&x| Vec3::new(x, y, z)))
+        });
+        points
+            .filter_map(|f| self.screen_pos(t.transform_point3(min + (max - min) * f)))
+            .find(|&p| free(p))
+    }
+
     /// The ring whose line `pos` is on (or within [`RING_REACH`] of).
     fn ring_at(&self, pos: Pos2) -> Option<TurnRing> {
         self.turn_rings(self.model.as_ref()?).into_iter().find(|ring| self.on_ring(ring, pos))
