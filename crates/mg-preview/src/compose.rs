@@ -476,8 +476,12 @@ impl Composed {
         t: f32,
         transform: Mat4,
     ) -> Vec<PointLight> {
-        let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
-        let Some(a) = base_anim.filter(|_| self.base_lamps > 0) else {
+        // (Only an object whose base has light nodes looks its animation
+        // up: every frame, for every object.)
+        let base_anim = animation
+            .filter(|_| self.base_lamps > 0)
+            .and_then(|a| playing(a, |n| self.base.animation(n)));
+        let Some(a) = base_anim else {
             return self.point_lights(transform);
         };
         let model = &*self.base.gpu.model;
