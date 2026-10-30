@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:15:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:42:54Z }
 ---
 
 # Build, verify and test
@@ -107,6 +107,15 @@ that web server serves into a folder, as neverwinter.nim's
 - **Group ID:** for servers sharing one repository.
 - **Latest:** **Make it the latest** points the repository's `latest` at
   it; nwserver serves `latest` unless given `-nwsynchash`.
+- **Compression:** the data files are compressed with zstd at level 3,
+  as `nwn_nwsync_write` compresses them (the reference library, built
+  into Moonglow: nothing to install). `mg nwsync --level` takes another,
+  1 (fastest) to 22 (smallest); the game reads every level. Measured on
+  the game's own `potsc_resources.hak` (110 MB), on a lightly loaded
+  machine: level 1, 52.1 MB in 0.4 s; 3, 47.3 MB in 0.5 s
+  (`nwn_nwsync_write`: 47.4 MB in 0.6 s); 9, 45.5 MB in 1.0 s; 15,
+  44.5 MB in 3.6 s; 19, 42.2 MB in 10 s; 22, 42.2 MB in 18 s. A level
+  above 19 saves little more.
 
 Publishing again writes only the changed files. It runs as the other
 long work does (see [Long work](#long-work)): a small window shows how

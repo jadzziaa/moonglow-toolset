@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use mg_core::ResType;
 use mg_core::sha1::{hex, sha1};
-use mg_erf::compressedbuf::{MAGIC_NSYC, compress};
+use mg_erf::compressedbuf::{MAGIC_NSYC, compress_at};
 use mg_resman::{Container, ErfContainer, GameInstall, ResKey, ResMan};
 
 use crate::Module;
@@ -76,6 +76,9 @@ pub struct Options {
     pub force: bool,
     /// Work everything out; write nothing.
     pub dry_run: bool,
+    /// The zstd level the data files are compressed at
+    /// (`mg_erf::compressedbuf::LEVELS`; 0: the default, 3).
+    pub level: i32,
 }
 
 /// A manifest written.
@@ -271,7 +274,10 @@ pub fn write_until(
             match std::fs::metadata(&path) {
                 Ok(meta) if !o.force => on_disk += meta.len(),
                 _ => {
-                    let packed = compress(&data, MAGIC_NSYC);
+                    let level =
+                        if o.level == 0 { mg_erf::compressedbuf::DEFAULT_LEVEL } else { o.level };
+                    let packed =
+                        compress_at(&data, MAGIC_NSYC, level).map_err(|e| format!("{key}: {e}"))?;
                     on_disk += packed.len() as u64;
                     new_files += 1;
                     if !o.dry_run {

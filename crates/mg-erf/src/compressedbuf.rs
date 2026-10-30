@@ -96,14 +96,27 @@ pub fn store(data: &[u8], magic: [u8; 4]) -> Vec<u8> {
     out
 }
 
-/// Compresses bytes with zstd (algorithm 2), as NWSync's data files are.
-/// The frame declares its content size, which one-shot decoders (the
-/// reference library's `ZSTD_decompress`, which neverwinter.nim uses) need.
-pub fn compress(data: &[u8], magic: [u8; 4]) -> Vec<u8> {
+/// The zstd levels data may be compressed at: the reference library's,
+/// 1 (fastest) to 22 (smallest), its own default 3 (`nwn_nwsync_write`'s).
+pub const LEVELS: std::ops::RangeInclusive<i32> = 1..=22;
+/// The level [`compress`] uses.
+pub const DEFAULT_LEVEL: i32 = 3;
+
+/// Compresses bytes with zstd (algorithm 2), as NWSync's data files are,
+/// at [`DEFAULT_LEVEL`].
+pub fn compress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, String> {
+    compress_at(data, magic, DEFAULT_LEVEL)
+}
+
+/// [`compress`] at a zstd level of [`LEVELS`] (one outside them is taken
+/// to the nearest), with the reference library (zstd-sys's own sources,
+/// built in: no system library is needed). The frame declares its content
+/// size, which one-shot decoders (the reference library's
+/// `ZSTD_decompress`, which neverwinter.nim uses) need.
+pub fn compress_at(data: &[u8], magic: [u8; 4], level: i32) -> Result<Vec<u8>, String> {
     use mg_core::bin::WriteLe;
-    let mut frame =
-        ruzstd::encoding::compress_to_vec(data, ruzstd::encoding::CompressionLevel::Fastest);
-    with_content_size(&mut frame, data.len());
+    let level = level.clamp(*LEVELS.start(), *LEVELS.end());
+    let frame = zstd::bulk::compress(data, level).map_err(|e| format!("zstd: {e}"))?;
     let mut out = Vec::with_capacity(24 + frame.len());
     out.put_bytes(&magic);
     out.put_u32(3);
@@ -112,22 +125,7 @@ pub fn compress(data: &[u8], magic: [u8; 4]) -> Vec<u8> {
     out.put_u32(1);
     out.put_u32(0);
     out.put_bytes(&frame);
-    out
-}
-
-/// Adds the content size to a zstd frame header that has none: ruzstd
-/// writes a window descriptor and no size. The header is the magic, a
-/// descriptor byte (bits 7–6 the size field's width: 2 is 4 bytes; bit 5
-/// single segment; bits 1–0 the dictionary id's width), the window
-/// descriptor, then the size.
-fn with_content_size(frame: &mut Vec<u8>, size: usize) {
-    let Ok(size) = u32::try_from(size) else { return };
-    let Some(&descriptor) = frame.get(4) else { return };
-    if frame.len() < 6 || descriptor & 0b1110_0011 != 0 {
-        return;
-    }
-    frame[4] = descriptor | 0b1000_0000;
-    frame.splice(6..6, size.to_le_bytes());
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -140,7 +138,7 @@ mod tests {
     #[test]
     fn bad_buffers_are_errors() {
         let data: Vec<u8> = (0..4096u32).map(|i| (i % 7) as u8).collect();
-        let packed = compress(&data, MAGIC_XRES);
+        let packed = compress(&data, MAGIC_XRES).unwrap();
         for n in [0, 3, 8, 15, 20, 27, packed.len() - 1] {
             assert!(decompress(&packed[..n], MAGIC_XRES).is_err(), "cut at {n}");
         }
@@ -164,15 +162,24 @@ mod tests {
     #[test]
     fn compressed_round_trip() {
         let data: Vec<u8> = (0..20_000u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
-        let buf = compress(&data, MAGIC_NSYC);
+        let buf = compress(&data, MAGIC_NSYC).unwrap();
         assert!(buf.len() < data.len() / 2, "{}", buf.len());
         assert_eq!(decompress(&buf, MAGIC_NSYC).unwrap(), data);
-        assert_eq!(decompress(&compress(b"", MAGIC_NSYC), MAGIC_NSYC).unwrap(), b"");
-        // The frame says how big the content is: the descriptor's size
-        // field is 4 bytes, after the window descriptor.
+        assert_eq!(decompress(&compress(b"", MAGIC_NSYC).unwrap(), MAGIC_NSYC).unwrap(), b"");
+        // The frame says how big the content is.
         let frame = &buf[24..];
-        assert_eq!(frame[4] >> 6, 2);
-        assert_eq!(u32::from_le_bytes(frame[6..10].try_into().unwrap()) as usize, data.len());
+        let size = zstd::zstd_safe::get_frame_content_size(frame).unwrap();
+        assert_eq!(size, Some(data.len() as u64));
+        // Every level reads back; a higher one is no bigger, a level past
+        // them is the nearest.
+        let mut sizes = Vec::new();
+        for level in [1, 3, 9, 19, 22] {
+            let buf = compress_at(&data, MAGIC_NSYC, level).unwrap();
+            assert_eq!(decompress(&buf, MAGIC_NSYC).unwrap(), data, "level {level}");
+            sizes.push(buf.len());
+        }
+        assert!(sizes.windows(2).all(|w| w[1] <= w[0]), "{sizes:?}");
+        assert_eq!(compress_at(&data, MAGIC_NSYC, 99), compress_at(&data, MAGIC_NSYC, 22));
     }
 
     #[test]

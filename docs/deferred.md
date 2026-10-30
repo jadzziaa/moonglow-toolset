@@ -1625,17 +1625,6 @@ contribution itself states as not done or not checked.
   the server, shows the character list and ends again; a player in
   the game after a download waits on that restart in
   `tools/nwclient/run-server-and-client.sh`. (S)
-- **Compression:** Moonglow's encoder offers only zstd's fastest level,
-  so the data is about a quarter bigger than
-  `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
-  upload and download. ruzstd 0.9.1, its newest (2026-10-11), still has
-  only `Fastest` (`Default`, `Better` and `Best` are unimplemented), so
-  a stronger encoder is the `zstd` crate, the reference library's C
-  built by `cc` as glslang's C++ is for `mg-shader` (the encoder only:
-  ruzstd keeps reading, `mg_erf::compressedbuf::compress` the one place
-  to change, its level 3 `nwn_nwsync_write`'s own). Waits on the
-  owner's word on the new native dependency (packaging: the Flatpak's
-  vendored sources, the Windows and macOS builds). (S)
 
 ## Tileset authoring
 
