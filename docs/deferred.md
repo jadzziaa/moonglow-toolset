@@ -736,18 +736,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   include normalizing a zero vector; that half waits on a Windows and a
   Mac client, or the renderer's CI branch). (S) (Heed's report, October
   2026)
-- **A texture's `envmaptexture default` on a placeable whose
-  `Reflection` is `default` too:** Moonglow takes the placeable's map
-  (`chrome1`) for both; the client reflects the area's (the tileset's
-  `EnvMap`, `tcn01__ref01`), read back (2026-10-29,
-  `program_choice_in_the_client` with `MG_LYING_ENVD=1
-  MG_REFLECTION=default`: the lying square's `texUnitEnv` the floor's,
-  not `chrome1`'s; with `MG_REFLECTION=plc_g_env` it is `plc_g_env`'s).
-  So a texture's `default` takes the placeable's named map, else the
-  area's, while a placeable's `default` alone is `chrome1` (notes
-  §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
-  the renderer can tell the two apart, so the fix is in `mg-render`'s
-  map choice too. (S)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).

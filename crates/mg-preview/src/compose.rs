@@ -21,6 +21,7 @@ struct Placed {
     textures: Option<Arc<HashMap<String, String>>>,
     colors: Option<[u8; 10]>,
     env_map: Option<String>,
+    env_map_default: bool,
     animated: bool,
     /// A body part whose skins are bound to the base's skeleton: its
     /// nodes from here on stand for the base's, posed as the base is
@@ -136,6 +137,7 @@ fn place_unguarded(
             .then(|| Arc::new(part.textures.iter().map(|(a, b)| (a.clone(), b.clone())).collect())),
         colors: part.colors,
         env_map: part.env_map.clone(),
+        env_map_default: part.env_map_default,
         animated: part.animated,
         skeleton,
         anims,
@@ -376,6 +378,7 @@ impl Composed {
         let instance = |p: &Placed, transform: Mat4, pose: Option<Arc<Vec<Mat4>>>| Instance {
             pose,
             env_map: p.env_map.clone(),
+            env_map_default: p.env_map_default,
             plt_colors: p.colors,
             textures: p.textures.clone(),
             ..Instance::new(p.gpu.clone(), transform)

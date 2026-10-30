@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:22:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:30:32Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1059,7 +1059,9 @@ appearance.2da's `ENVMAP` (a creature's) it is the area's, its tileset's
 mirror that isn't static is silver; the armoire's texture with
 `envmaptexture default`, and a bone golem, are copper. (Up to 2.5.2
 Moonglow drew the mirror copper too: a builder's armor stand, Heed's
-report.)
+report.) A texture's `envmaptexture default` on a placeable is the map
+the placeable names, else the area's: on a placeable whose `Reflection`
+is `default` too, the area's, not `chrome1`.
 
 - **Checked:** `area_env_map_look` with `MG_ENV_SHAPE=sphere`,
   `MG_ENV_PAINT` and `MG_ENV_CREATURE=24` (2026-10-25): spheres of a gray
@@ -1068,10 +1070,14 @@ report.)
   the map bound to it by the game's `inc_standard` in the scratch
   override; in `tin01` and `tic01`, static and not. Flat cards facing the
   camera, as first tried, reflect one dark spot of any map: they can't
-  tell the maps apart.
+  tell the maps apart. A texture's `default` on a placeable:
+  `program_choice_in_the_client` with `MG_LYING_ENVD=1` and
+  `MG_REFLECTION` `default` (the lying square's `texUnitEnv` the
+  floor's, `tcn01__ref01`) and `plc_g_env` (`plc_g_env`'s), 2026-10-29.
 - **Moonglow:** `crates/mg-preview/src/object.rs`
-  (`PLACEABLE_DEFAULT_ENV_MAP`); a texture's and a creature's `default`
-  in `crates/mg-render/src/renderer.rs`.
+  (`PLACEABLE_DEFAULT_ENV_MAP`, `Part::env_map_default`); a texture's
+  and a creature's `default` in `crates/mg-render/src/renderer.rs`
+  (`Instance::env_map_default`).
 - **Wiki:** missing.
 
 ### The game's shaders and Moonglow's own in stock interiors
