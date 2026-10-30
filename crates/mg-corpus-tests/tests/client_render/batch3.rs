@@ -291,12 +291,17 @@ fn reading_light_shadows() {
         let (w, h) = (best.width as usize, best.height as usize);
         let (mut n, mut sums, mut bbox) = (0usize, [0.0f64; 2], [usize::MAX, usize::MAX, 0, 0]);
         let mut halves = [0usize; 2];
+        // (And the floor's alone, below the ogre's feet: each pixel's.)
+        let mut floor = Vec::new();
         for y in h * 35 / 100..h * 75 / 100 {
             for x in w * 30 / 100..w * 70 / 100 {
                 let i = (y * w + x) * 4;
                 let sum = |p: &[u8]| p[0] as f64 + p[1] as f64 + p[2] as f64;
                 let (b, o) = (sum(&best.data[i..i + 3]), sum(&off.data[i..i + 3]));
                 if o - b >= 6.0 {
+                    if y * 1000 >= h * 505 {
+                        floor.push(1.0 - b / o);
+                    }
                     n += 1;
                     sums[0] += b;
                     sums[1] += o;
@@ -316,5 +321,13 @@ fn reading_light_shadows() {
             halves[0],
             halves[1]
         );
+        floor.sort_by(f64::total_cmp);
+        if !floor.is_empty() {
+            eprintln!(
+                "{case}: the floor below the feet: {} pixels, darker by {:.3} (the median)",
+                floor.len(),
+                floor[floor.len() / 2]
+            );
+        }
     }
 }
