@@ -657,10 +657,32 @@ impl TabViewer for Viewer<'_> {
     /// The script editor scrolls its own text, lists and messages, and fits
     /// its pane (in a pane that scrolled, its side lists ran past the pane's
     /// edge and were cut off); so does the manual, whose text wraps at the
-    /// pane's width, and the Options, whose page scrolls between its panels.
-    /// The others scroll when wider or taller.
+    /// pane's width, and the Options, whose page scrolls between its panels;
+    /// and the properties windows and the journal, conversation and talk
+    /// table editors, whose page scrolls over OK and Cancel at their foot (in a pane that scrolled, at a display scale of 125% the
+    /// pane's scroll bars came and went each frame at some sizes, egui's
+    /// content rounded to pixels a sliver past it, and the foot went up
+    /// and down with them: GitHub issue 38). The others scroll when wider
+    /// or taller.
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        let fits = matches!(tab, Tab::Script(_) | Tab::Nui(_) | Tab::Manual | Tab::Options);
+        let fits = matches!(
+            tab,
+            Tab::Script(_)
+                | Tab::Nui(_)
+                | Tab::Manual
+                | Tab::Options
+                | Tab::ModuleProperties
+                | Tab::AreaProperties(_)
+                | Tab::AreasProperties(_)
+                | Tab::Blueprint(_)
+                | Tab::Blueprints(_)
+                | Tab::Instance { .. }
+                | Tab::Instances { .. }
+                | Tab::Gff(_)
+                | Tab::Journal
+                | Tab::Dialog(_)
+                | Tab::TalkTable
+        );
         [!fits, !fits]
     }
 }

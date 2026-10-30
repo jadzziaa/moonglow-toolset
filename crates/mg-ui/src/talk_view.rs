@@ -697,7 +697,9 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         );
     }
     let mut changed = false;
-    ui.horizontal(|ui| {
+    // (Wrapped in a narrow window, as the rows under it are: a row past
+    // the window's edge would widen theirs.)
+    ui.horizontal_wrapped(|ui| {
         ui.label("Find");
         ui.add(
             egui::TextEdit::singleline(&mut v.filter)
@@ -908,7 +910,9 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     let editor = (available * share).clamp(fewest, most);
     let list_height = (available - editor).max(120.0);
     let box_height = ((available - list_height - fixed) / boxes - gap).max(least);
-    let mut list = egui::ScrollArea::vertical()
+    // (Sideways too, its rows wider than a narrow window: the window fits
+    // its pane, `TabViewer::scroll_bars`.)
+    let mut list = egui::ScrollArea::both()
         .id_salt("talk-rows")
         .max_height(list_height)
         .auto_shrink([false, true]);

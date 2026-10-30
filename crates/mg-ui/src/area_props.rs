@@ -166,7 +166,8 @@ fn pages(
     }
     let also: Vec<(ResKey, GffPath)> =
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
-    let shown = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
+    let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
             crate::blueprint::read_only_look(ui);
         }

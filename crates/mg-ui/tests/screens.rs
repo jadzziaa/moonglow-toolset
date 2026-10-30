@@ -999,6 +999,8 @@ fn talk_table_editor() {
         let line = h.get_by_label(&format!("StrRef {strref}")).rect().top() - 5.0;
         h.hover_at(egui::pos2(520.0, line));
         shoot(&mut h, &dir, &format!("talk-table-{name}-split"));
+        narrow(&mut h, &mg_ui::Tab::TalkTable);
+        shoot(&mut h, &dir, &format!("talk-table-{name}-narrow"));
     }
 }
 
@@ -3860,6 +3862,10 @@ fn conversation_and_factions_in_both_themes() {
         h.run_steps(5);
         let theme = if light { "light" } else { "dark" };
         shoot(&mut h, &dir, &format!("conversation-{theme}"));
+        if !light {
+            narrow(&mut h, &mg_ui::Tab::Dialog(dlg));
+            shoot(&mut h, &dir, "conversation-narrow");
+        }
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Factions));
         h.run_steps(5);
         h.get_by_label("Commoner").click();
@@ -5684,6 +5690,19 @@ fn place(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab, at: (f32, f32), size: 
     if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
         w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
     }
+}
+
+/// `tab` in a narrow window of its own (docked, it is taken out first): a
+/// window that fits its pane scrolls and wraps in it (GitHub issue 38).
+fn narrow(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
+    let path = h.state().dock.find_tab(tab).unwrap();
+    if h.state_mut().dock.get_window_state_mut(path.surface).is_none() {
+        let rect = egui::Rect::from_min_size(egui::pos2(150.0, 60.0), egui::vec2(420.0, 620.0));
+        h.state_mut().dock.detach_tab(path, rect);
+        h.run_steps(3);
+    }
+    place(h, tab, (150.0, 60.0), (420.0, 620.0));
+    h.run_steps(4);
 }
 
 /// The Command Palette over the window, something typed
@@ -7978,6 +7997,10 @@ fn journal_lower_half_kept() {
     h.get_by_label("Add").click();
     h.run_steps(4);
     shoot(&mut h, &out, "journal-category");
+    narrow(&mut h, &mg_ui::Tab::Journal);
+    shoot(&mut h, &out, "journal-narrow");
+    place(&mut h, &mg_ui::Tab::Journal, (60.0, 60.0), (1000.0, 680.0));
+    h.run_steps(4);
     let panel = egui::Id::new("journal-fields");
     let r = egui::containers::panel::PanelState::load(&h.ctx, panel).unwrap().outer_rect;
     let from = egui::pos2(r.center().x, r.top() + 2.0);
@@ -8383,4 +8406,54 @@ fn editors_ok_and_cancel() {
     h.state_mut().talk_view.outside = true;
     only(&mut h, mg_ui::Tab::TalkTable);
     shoot(&mut h, &dir, "talk-table");
+}
+
+/// Area Properties in a window of its own at a display scale of 125%, at a
+/// size where its foot went up and down every frame (GitHub issue 38):
+/// two frames in a row, `properties-125-a` and `-b`, the same.
+#[test]
+#[ignore]
+fn properties_window_at_125_percent() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Props", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("props-125.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.open_palette = false;
+    let tab = mg_ui::Tab::AreaProperties(area);
+    app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .with_pixels_per_point(1.25)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    let found = h.state().dock.find_tab(&tab).unwrap();
+    if h.state_mut().dock.get_window_state_mut(found.surface).is_none() {
+        let rect = egui::Rect::from_min_size(egui::pos2(60.0, 40.0), egui::vec2(600.0, 500.0));
+        h.state_mut().dock.detach_tab(found, rect);
+        h.run_steps(4);
+    }
+    place(&mut h, &tab, (60.0, 40.0), (400.0, 434.8));
+    h.run_steps(6);
+    for frame in ["a", "b"] {
+        h.step();
+        let image = h.render().expect("render");
+        image.save(dir.join(format!("properties-125-{frame}.png"))).unwrap();
+    }
 }

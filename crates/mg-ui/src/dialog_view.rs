@@ -1231,8 +1231,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         });
         ui.separator();
-        // (Shorter than what it shows, it scrolls.)
-        let body = egui::ScrollArea::vertical().id_salt(("dlg-data-body", key)).auto_shrink(false);
+        // (Shorter or narrower than what it shows, it scrolls: the window
+        // fits its pane, `TabViewer::scroll_bars`.)
+        let body = egui::ScrollArea::both().id_salt(("dlg-data-body", key)).auto_shrink(false);
         body.show(ui, |ui| {
             if view.bottom == Bottom::Bookmarks {
                 for (kind, index) in view.bookmarks.clone() {

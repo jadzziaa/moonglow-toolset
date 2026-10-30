@@ -190,18 +190,24 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         // tall as its content, so the pane couldn't be dragged taller
         // than the fields chosen and went back to one line for Root.
         ui.set_min_height(ui.max_rect().height());
-        // A node added this frame appears once the command has run.
-        match view.selected.filter(valid) {
-            Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c]),
-            Some(Node::Entry(c, e)) => entry_fields(app, ui, c, e, &entries(&cats[c])[e]),
-            None => {
-                ui.weak(
-                    "Select a category or an entry. Add with nothing selected adds a category.",
-                );
+        // (Shorter or narrower than what it shows, it scrolls: the window
+        // fits its pane, `TabViewer::scroll_bars`.)
+        let body = egui::ScrollArea::both().id_salt("journal-fields-body").auto_shrink(false);
+        body.show(ui, |ui| {
+            // A node added this frame appears once the command has run.
+            match view.selected.filter(valid) {
+                Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c]),
+                Some(Node::Entry(c, e)) => entry_fields(app, ui, c, e, &entries(&cats[c])[e]),
+                None => {
+                    ui.weak(
+                        "Select a category or an entry. Add with nothing selected adds a \
+                         category.",
+                    );
+                }
             }
-        }
+        });
     });
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         // As in Aurora: select Root to add categories.
         if ui.selectable_label(view.selected.is_none(), "Root").clicked() {
             view.selected = None;

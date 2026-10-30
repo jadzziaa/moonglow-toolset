@@ -2384,3 +2384,106 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
         assert!((rect(&h).height() - highest).abs() < 1.0, "{tab:?}: no higher");
     }
 }
+
+/// GitHub issue 38: a properties window's foot (its OK and Cancel, and
+/// its right edge) went up and down every frame at some sizes, until the
+/// window was resized. Each window with OK and Cancel, at sizes and
+/// display scales where they moved, is drawn a few frames: OK stays where
+/// it is.
+#[test]
+fn a_properties_window_s_buttons_stay_put() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-buttons-put");
+    let path = sample_module(&dir);
+    // (A waypoint's blueprint, as the reporter's waypoint was.)
+    let mut m = Module::open(&path).unwrap();
+    let post = ResKey::parse("post", ResType::UTW).unwrap();
+    m.set(post, Gff::new(*b"UTW ").to_bytes().unwrap());
+    let talk = ResKey::parse("talk", ResType::DLG).unwrap();
+    m.set(talk, Gff::new(*b"DLG ").to_bytes().unwrap());
+    m.save().unwrap();
+    let area = ResRef::from_str("start").unwrap();
+    let mut moving = Vec::new();
+    const SIZES: [(f32, f32); 6] = [
+        (400.0, 434.8),
+        (676.8, 530.7),
+        (728.7, 380.0),
+        (728.7, 654.0),
+        (746.0, 475.9),
+        (746.0, 612.9),
+    ];
+    for scale in [1.0, 1.25, 1.5] {
+        let mut app = game_app(&root, None);
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .with_pixels_per_point(scale)
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(8);
+        // (The editors of files of their own: a talk table and a new hak.)
+        let mut words = mg_module::talk::Table::create("words", &dir, Language::ENGLISH, false);
+        words.source = mg_module::talk::Source::File(dir.join("words.tlk"));
+        h.state_mut().talk = Some(words);
+        h.state_mut().talk_view.outside = true;
+        mg_ui::hak_view::new_hak(h.state_mut());
+        h.run_steps(4);
+        let hak = Tab::Hak(h.state().haks[0].id);
+        let file = dir.join("costs.2da");
+        std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\n0\tBread\t1\n").unwrap();
+        let table = Tab::Table(mg_ui::table_view::open_path(h.state_mut(), &file).unwrap());
+        let set = dir.join(format!("zzz{}.set", (scale * 100.0) as u32));
+        h.state_mut().dialogs = Box::new(NoDialogs { save: vec![set], ..Default::default() });
+        mg_ui::tileset_view::new_tileset(h.state_mut());
+        h.run_steps(4);
+        let tileset = Tab::Tileset(h.state().tilesets[0].id);
+        let are = ResKey::new(area, ResType::ARE);
+        for tab in [
+            Tab::AreaProperties(area),
+            Tab::ModuleProperties,
+            Tab::Blueprint(post),
+            Tab::Gff(are),
+            Tab::Factions,
+            Tab::Journal,
+            Tab::Dialog(talk),
+            Tab::TalkTable,
+            hak,
+            table,
+            tileset,
+        ] {
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            h.run_steps(8);
+            // (A window of its own, as a builder has it.)
+            let path = h.state().dock.find_tab(&tab).unwrap();
+            if h.state_mut().dock.get_window_state_mut(path.surface).is_none() {
+                let rect =
+                    egui::Rect::from_min_size(egui::pos2(60.0, 40.0), egui::vec2(600.0, 500.0));
+                h.state_mut().dock.detach_tab(path, rect);
+                h.run_steps(8);
+            }
+            // (Sizes where every one of them moved at 125%, from a sweep
+            // of 504 sizes at scales 100% to 200%: 124 moved at 125%, none
+            // at another scale.)
+            for (w, ht) in SIZES {
+                let size = egui::vec2(w, ht);
+                let path = h.state().dock.find_tab(&tab).unwrap();
+                let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+                state.set_size(size);
+                h.run_steps(3);
+                let mut at = Vec::new();
+                for _ in 0..4 {
+                    h.run_steps(1);
+                    at.push(h.get_all_by_label("OK").last().unwrap().rect());
+                }
+                if at.windows(2).any(|p| p[0] != p[1]) {
+                    moving.push(format!("{tab:?} x{scale} at {size:?}: {at:?}"));
+                }
+            }
+            close_tab(h.state_mut(), &tab);
+            h.run_steps(3);
+        }
+    }
+    assert!(moving.is_empty(), "{} sizes:\n{}", moving.len(), moving.join("\n"));
+}

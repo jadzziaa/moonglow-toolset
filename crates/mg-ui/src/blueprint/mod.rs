@@ -1771,7 +1771,8 @@ pub(crate) fn edit_many(
     }
     let pending = app.actions.len();
     let mut form = Form { app, key, path, also, root };
-    let shown = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
+    let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
             read_only_look(ui);
         }

@@ -105,7 +105,8 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
     });
     ui.separator();
     let page = app.module_page;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         // (The module's fields as a blueprint's are: `blueprint::Form`'s,
         // their typing kept, a tag of 32 characters, a slider's drag one
         // change.)
