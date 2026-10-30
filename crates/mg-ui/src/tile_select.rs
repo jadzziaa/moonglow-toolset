@@ -1416,14 +1416,22 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
 /// Tile Properties' Replacement Texture: the `replacetexture.2da` row the
 /// tiles' `replace_tex` is drawn with, chosen from the table's rows, each
 /// written as its number plus one (as the client reads the field); a
-/// value the client crashes on (0, or past the table) shown as such, in
-/// the error color. Enabled where a tile's model has `replace_tex`.
+/// value the client crashes on (0, or past the table) shown as such, said
+/// beside it in the error color. Enabled where a tile's model has
+/// `replace_tex`.
 fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
-    let rows: Vec<String> = (app.game.as_deref())
+    let rows: Vec<mg_rules::Choice> = (app.game.as_deref())
         .and_then(|g| g.table("replacetexture").ok())
-        .map(|t| (0..t.len()).map(|r| t.get(r, "TEXTURENAME").unwrap_or("").to_string()).collect())
+        .map(|t| {
+            (0..t.len())
+                .take_while(|&r| mg_area::replacement_value(r).is_some())
+                .map(|r| {
+                    let text = format!("{r}: {}", t.get(r, "TEXTURENAME").unwrap_or(""));
+                    mg_rules::Choice { row: r, text }
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    let name = |row: usize| format!("{row}: {}", rows.get(row).map_or("", String::as_str));
     let enabled = props.has_replace;
     ui.horizontal(|ui| {
         ui.add_enabled(enabled, egui::Label::new("Replacement Texture")).on_hover_text(
@@ -1432,36 +1440,33 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
              got)",
         );
         let row = mg_area::replacement_row(Some(i64::from(props.replace)), rows.len());
-        let shown = match row {
-            Some(r) => egui::RichText::new(name(r)),
-            None => egui::RichText::new(format!(
-                "{}: no row (crashes the game as the area loads)",
-                props.replace
-            ))
-            .color(ui.visuals().error_fg_color),
-        };
         let r = ui.add_enabled_ui(enabled, |ui| {
-            egui::ComboBox::from_id_salt("tile_replace")
-                .selected_text(shown)
-                .show_ui(ui, |ui| {
-                    let mut changed = false;
-                    for r in 0..rows.len() {
-                        let Some(value) = mg_area::replacement_value(r) else { break };
-                        changed |=
-                            ui.selectable_value(&mut props.replace, value, name(r)).changed();
-                    }
-                    changed
-                })
-                .inner
+            let mut list = crate::widgets::row_choice(
+                egui::Id::new("tile_replace"),
+                &rows,
+                row.map(|r| r as i64),
+            )
+            .ordered();
+            if row.is_none() {
+                list = list.shown(format!("{}: no row", props.replace));
+            }
+            list.show(ui)
         });
-        let combo = r.response;
+        if row.is_none() {
+            let red = ui.visuals().error_fg_color;
+            ui.colored_label(red, "crashes the game as the area loads");
+        }
         if !enabled {
-            combo.on_disabled_hover_text(
+            r.response.on_disabled_hover_text(
                 "None of these tiles' models has a mesh drawn with replace_tex (of the game's \
                  tiles, only tms01_c08_01, which no tileset uses)",
             );
         }
-        props.touched[REPLACE] |= r.inner.unwrap_or(false);
+        let chosen = r.inner.and_then(|r| mg_area::replacement_value(usize::try_from(r).ok()?));
+        if let Some(value) = chosen {
+            props.replace = value;
+            props.touched[REPLACE] = true;
+        }
     });
 }
 

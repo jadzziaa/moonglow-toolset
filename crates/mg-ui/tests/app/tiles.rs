@@ -4480,7 +4480,8 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         h.state_mut().actions.push(mg_ui::Action::Apply(set));
         h.run_steps(2);
         tile_properties_of(&mut h, area, &[one]);
-        h.get_by_value(&format!("{bad}: no row (crashes the game as the area loads)"));
+        h.get_by_value(&format!("{bad}: no row"));
+        h.get_by_label("crashes the game as the area loads");
         if bad == 0 {
             h.render().unwrap().save(dir.join("crash-value.png")).unwrap();
         }
