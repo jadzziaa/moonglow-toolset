@@ -15,7 +15,7 @@ use crate::assets::Assets;
 use crate::batch::{Batcher, Bounds};
 use crate::model::{SkinVertex, Vertex};
 use crate::particles::{ParticleBlend, ParticleVertex};
-use crate::reach::{Frustum, LightGrid};
+use crate::reach::{Frustum, LightGrid, ReachCache};
 use crate::scene::{Camera, Instance, Scene};
 use crate::texture::GpuTexture;
 
@@ -462,6 +462,8 @@ pub struct Renderer {
     /// The line shapes' lines, by where their `Arc` points: those of the
     /// last frame's shapes.
     shape_buffers: HashMap<usize, ShapeBuffer>,
+    /// The lights each mesh took, kept from frame to frame.
+    reach_cache: ReachCache,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -1196,6 +1198,7 @@ impl Renderer {
             line_copy_pipeline,
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
             shape_buffers: HashMap::new(),
+            reach_cache: ReachCache::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -1972,6 +1975,9 @@ impl Renderer {
         let on_screen = proj * view;
         let frustum = Frustum::new(on_screen);
         let mut reach = LightGrid::new(&scene.lights);
+        // (What each mesh took in the frames before, while the lights stay.)
+        let mut reach_cache = std::mem::take(&mut self.reach_cache);
+        reach_cache.begin(&scene.lights);
         let mut chosen = Vec::new();
         // (The lights as a game draw's blocks take them.)
         let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
@@ -2110,7 +2116,7 @@ impl Renderer {
                     && !see_through;
                 let discard = ALPHA_DISCARD;
                 // The 32 most important lights that reach the mesh.
-                reach.reaching(centre, radius, &mut chosen);
+                reach_cache.reaching(&mut reach, centre, radius, &mut chosen);
                 let mut light_index = [[0u32; 4]; 8];
                 for (j, (_, _, i)) in chosen.iter().enumerate() {
                     light_index[j / 4][j % 4] = *i;
@@ -3007,6 +3013,7 @@ impl Renderer {
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
+        self.reach_cache = reach_cache;
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn
