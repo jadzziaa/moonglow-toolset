@@ -1856,16 +1856,6 @@ viewer under 2). What is left:
 - **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
   13 ms a key: egui lays out the whole text again on each change. An
   editor that lays out the lines in sight would be needed. (L)
-- **The blueprint picker over a large palette** (inventory, store and
-  encounter pages) folds every blueprint once a level of its tree and
-  draws every match: searched for what all of the persistent world's
-  8,000 custom items have, the store's Inventory page takes 8.0 ms a
-  frame (`frame_perf`'s "store inventory, picker searched", 2026-10-29;
-  the budget 6.94). The matches kept by palette and search, and only
-  the rows in view drawn, would cut it. (M) Dragging objects copies the
-  whole area model each frame: not timed, `frame_perf` has no drag of a
-  selection (S to add). (The tiles palette searched as it is typed is
-  timed since: 5.0 ms at worst over area092's 784 tiles, in budget.)
 
 ## Written more than once (the review of 2026-10-21)
 
