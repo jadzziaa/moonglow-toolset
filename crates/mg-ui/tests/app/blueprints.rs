@@ -2786,6 +2786,11 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     (w.first_name, w.last_name) = ("Hent".into(), "Fynolds".into());
     h.run();
     next(&mut h);
+    // The custom palette's categories, as Aurora's wizard offers them:
+    // no Familiars nor Summoned Monsters (the skeleton's `TYPE` 1 nodes).
+    assert!(h.query_by_label("Monsters").is_some() && h.query_by_label("NPCs").is_some());
+    assert!(h.query_by_label("Familiars").is_none(), "not offered");
+    assert!(h.query_by_label("Summoned Monsters").is_none(), "not offered");
     h.get_by_label("Tutorial").click();
     h.run();
     next(&mut h); // the review
