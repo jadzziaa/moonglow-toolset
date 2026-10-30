@@ -1882,12 +1882,18 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
-  `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
-  `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
-  `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
-  `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
-  `Usage` and `Hit`. (L, mechanical)
+- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:262`,
+  `mg-edit lib.rs:39`, whose `GffPath` writes labels escaped where
+  `walk_fields`' paths don't), hand parsers of a path's text
+  (`search.rs:400` for `Hit::instance`, `rename.rs:68` for
+  `Usage::instance`, `rename.rs:677`, `verify.rs:65`,
+  `references.rs:813`, `mg-edit found.rs:62`), hand walkers beside
+  `Struct::walk_fields` (`rename.rs:171` `fields_with_paths`, the
+  index's tags and StrRefs; `text.rs:415`). `GffPath` into mg-gff,
+  carried by `Reference`, `Usage` and `Hit` (a `Usage` in a script is
+  `line N`, in a 2DA `row R, COLUMN`: a path of its own kind), which
+  `mg refs --json` and the UI read as text. Looked at
+  again 2026-10-30: unchanged in size. (L, mechanical)
 
 ### Settled in the engine or Aurora first
 
