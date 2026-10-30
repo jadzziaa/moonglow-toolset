@@ -256,25 +256,29 @@ impl HakDoc {
 /// the game data once.
 #[derive(Debug)]
 struct LayerOf {
-    game: std::sync::Arc<std::sync::Arc<mg_rules::GameData>>,
+    game: std::sync::Arc<Held>,
     at: usize,
 }
 
+/// The game data, held once for all of a load order's [`LayerOf`].
+#[derive(Debug)]
+struct Held(std::sync::Arc<mg_rules::GameData>);
+
 impl mg_resman::Container for LayerOf {
     fn contains(&self, key: &ResKey) -> bool {
-        self.game.resman.layers()[self.at].container.contains(key)
+        self.game.0.resman.layers()[self.at].container.contains(key)
     }
 
     fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
-        self.game.resman.layers()[self.at].container.read(key)
+        self.game.0.resman.layers()[self.at].container.read(key)
     }
 
     fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
-        self.game.resman.layers()[self.at].container.keys()
+        self.game.0.resman.layers()[self.at].container.keys()
     }
 
     fn len(&self) -> usize {
-        self.game.resman.layers()[self.at].container.len()
+        self.game.0.resman.layers()[self.at].container.len()
     }
 }
 
@@ -298,7 +302,7 @@ pub(crate) fn resources(app: &mut Moonglow, doc: usize) -> std::sync::Arc<mg_res
     // (Above the module's haks: as the first of them.)
     rm.add(priority::HAK_USER + 1, "the hak being edited", LayerClass::Erf, hak.contents());
     if let Some(game) = &app.game {
-        let held = std::sync::Arc::new(game.clone());
+        let held = std::sync::Arc::new(Held(game.clone()));
         for (at, layer) in game.resman.layers().iter().enumerate() {
             if own.as_deref().is_some_and(|o| layer.label.eq_ignore_ascii_case(o)) {
                 continue;
