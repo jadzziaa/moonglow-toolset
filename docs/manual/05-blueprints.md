@@ -774,7 +774,8 @@ has none).
 
 Triggers: Basic (generic, area transition or trap), Area Transition, Trap,
 Scripts, Advanced, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
-respawns), **Creature List** (from the creature palette, with unique
+the fewest and most creatures it spawns, 1 to 8: a minimum typed above the
+maximum raises the maximum to it, as Aurora's does; respawns), **Creature List** (from the creature palette, with unique
 creatures marked), Scripts, Advanced, Comments.
 
 ### Stores

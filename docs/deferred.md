@@ -249,9 +249,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 to 10, a creature's CR adjustment -125 to 125, an area's fog clip
   distance 30 to 9999 m; weather, shadow opacity, fog amounts, a store's
   mark up, mark down and stolen goods' mark down as Moonglow had them)
-  and are Moonglow's now. Left: an item property's Chance of Appearing
-  was not measured, and Aurora's encounter raises its maximum to a
-  minimum typed above it, which Moonglow's doesn't. (S) (a second
+  and are Moonglow's now, as is the encounter's maximum raised to a
+  minimum typed above it (since 2026-10-30). Left, waiting on Aurora: an
+  item property's Chance of Appearing (Moonglow 0 to 100) typed past
+  both ends, -5 and 150, in the property's window (`TDLGPROPEDIT`'s
+  `eChance`), and what the saved `.uti`'s `ChanceAppear` holds; its
+  up-down's form says only Min 0, and the form's limits are not the
+  code's (the encounter's say 0, its code 1 to 8). (S) (a second
   builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
