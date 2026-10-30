@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:58:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -228,7 +228,9 @@ maps, fog, skyboxes, emitters and water; and an area's grass, which Aurora
 draws none of, grown on the tiles' walkmeshes as the game grows it and
 drawn wherever the view shows grass ground (the client draws it within 30 m
 of its camera by default), thinned far off (`mg_area::grass_view`); and the sun's and moon's shadows,
-a shadow map standing in for the game's stencil volumes, laid as its shadow
+a shadow map standing in for the game's stencil volumes (Shadows quality
+Fast, the default) or the stencil volumes themselves (High:
+`mg_render::volume`), laid as its shadow
 plane lays them (`mg_render::shadow`; what is left of them is on the
 [deferred list](deferred.md)). Editor overlays (grid, selection, trigger
 polygons, walkmeshes) are drawn over the scene. Toggles like Aurora's "use area lighting" and day/night stay.

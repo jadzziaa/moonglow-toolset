@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:15:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
 ---
 
 # Options
@@ -44,6 +44,19 @@ the module is opened again from its file.
   of that size, and an arrow the way what spawns there faces.
 - **Show stores as $ signs**: the game's marker for a store, rather
   than an arrow along its facing.
+- **Shadows quality**: how the area view draws the game's shadows (its
+  **◑ Shadows**; also chosen in that button's menu, see
+  [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
+  for the game's shadows, cheap in every area; in a large area seen out
+  to its far side, its edges up close are a little soft and stepped.
+  **High**: stencil shadow volumes, the game's own kind: each mesh
+  flagged `shadow` extruded away from the sun (or a creature's light),
+  edges as sharp as the picture's and smoothed with it, as the game
+  draws them at its highest shadow setting. High costs more where many
+  tiles cast at once (the largest areas seen whole) and keeps a depth
+  and stencil buffer of the view's size (about 160 MB at 3440×1440 with
+  four samples a pixel). Skins (a robe's or a dragon's wings' skinned
+  meshes) cast none with High, as the wiki says of the game, where Fast casts them.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift

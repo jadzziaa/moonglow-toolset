@@ -127,6 +127,7 @@ pub struct OptionsDraft {
     /// ...and the rest, as typed: haks, folders and resources.
     pub verify_more: String,
     pub merchant_signs: bool,
+    pub shadow_quality: crate::settings::ShadowQuality,
     pub edit_group_tiles: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
@@ -267,6 +268,7 @@ impl OptionsDraft {
                 .collect::<Vec<_>>()
                 .join(", "),
             merchant_signs: s.merchant_signs,
+            shadow_quality: s.shadow_quality,
             edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
@@ -364,6 +366,7 @@ impl OptionsDraft {
                 self.verify_skip.iter().cloned().chain(more).collect()
             },
             merchant_signs: self.merchant_signs,
+            shadow_quality: self.shadow_quality,
             edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
@@ -889,6 +892,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "The game's marker for a store, as Aurora shows them, \
                                  rather than an arrow along the store's facing",
                                 );
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Shadows quality");
+                                shadow_quality_choice(ui, &mut draft.shadow_quality);
+                            });
                             ui.checkbox(
                                 &mut draft.edit_group_tiles,
                                 "Allow editing tiles of groups and features",
@@ -1232,6 +1239,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
 /// Options › General › Toolbar buttons: Icons and text, or Icons only
 /// (the main toolbar's and the area view's, at once).
+/// The shadows' quality, Fast or High, to choose (Options › Area and the
+/// area view's Shadows menu): whether it changed.
+pub(crate) fn shadow_quality_choice(
+    ui: &mut Ui,
+    quality: &mut crate::settings::ShadowQuality,
+) -> bool {
+    use crate::settings::ShadowQuality;
+    let fast = ui.radio_value(quality, ShadowQuality::Fast, "Fast").on_hover_text(
+        "A shadow map stands in for the game's shadows: cheap in every area, its edges stepped \
+         where seen up close",
+    );
+    let high = ui.radio_value(quality, ShadowQuality::High, "High").on_hover_text(
+        "Stencil shadow volumes, as the game casts them: edges as sharp as the picture's, \
+         smoothed with it; dearer in the largest areas",
+    );
+    fast.changed() || high.changed()
+}
+
 fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
     let name = |icons_only: &bool| if *icons_only { "Icons only" } else { "Icons and text" };
     ui.horizontal(|ui| {
@@ -1714,9 +1739,13 @@ mod tests {
         assert!(!d.edit_group_tiles, "groups are one thing unless asked");
         assert!(d.turn_ring, "the turning ring shows unless switched off");
         assert_eq!(d.area_background, None, "the fog color by default");
+        use crate::settings::ShadowQuality;
+        assert_eq!(d.shadow_quality, ShadowQuality::Fast, "the shadow map unless asked");
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
         d.edit_group_tiles = true;
+        d.shadow_quality = ShadowQuality::High;
         let t = d.apply(&s);
+        assert_eq!(t.shadow_quality, ShadowQuality::High);
         assert!(t.no_spawn_markers && !t.no_door_arrows);
         assert!(t.edit_group_tiles && OptionsDraft::from_settings(&t).edit_group_tiles);
         assert_eq!(d.spawn_marker_size, (12, 4), "Aurora's Height and Width");

@@ -6,7 +6,8 @@
 //! `MG_FOG=1`; Moonglow's own shader unless `MG_SHADERS=1` (the game's, the
 //! app's default); the area's lighting unless `MG_LIT=0` (the Lighting
 //! switch off); `MG_EYE=x,y,z` and `MG_TARGET=x,y,z` place the camera
-//! instead; `MG_LIGHTS=1` lists the scene's lights; `MG_TIME=<frames>` times
+//! instead; `MG_HIGH_SHADOWS=1` draws the shadows as stencil volumes (High);
+//! `MG_LIGHTS=1` lists the scene's lights; `MG_TIME=<frames>` times
 //! the scene's making over that many frames, the clock moving (the median);
 //! `MG_TIME_RENDER=<frames>` times its making, its drawing (encoded) and the
 //! GPU's work at the frame test's size, the camera turning (the medians).
@@ -94,6 +95,8 @@ fn main() {
     }
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     r.game_shaders = std::env::var("MG_SHADERS").is_ok_and(|v| v == "1");
+    // (`MG_HIGH_SHADOWS=1`: the shadows of High quality, stencil volumes.)
+    r.shadow_volumes = std::env::var("MG_HIGH_SHADOWS").is_ok_and(|v| v == "1");
     // (`MG_TIME_RENDER=<frames>`: the scene made and drawn that many times
     // into a target of the frame test's size (3000 by 1250, 4x MSAA), the
     // camera turning a little each, and the medians printed: the scene's

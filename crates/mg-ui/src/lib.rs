@@ -106,6 +106,9 @@ use mg_rules::GameData;
 
 pub use browser::Browser;
 pub use dialogs::{Dialogs, FileKind, NoDialogs};
+/// The device features asked for where the adapter has them (BC textures,
+/// 32-bit depth with a stencil for the shadow volumes).
+pub use mg_render::OPTIONAL_FEATURES;
 pub use mg_render::backend as graphics;
 /// Direct3D 12's shader compiler (DXC beside the program, else FXC).
 pub use mg_render::dx12;

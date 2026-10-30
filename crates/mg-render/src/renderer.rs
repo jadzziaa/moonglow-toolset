@@ -435,6 +435,14 @@ pub struct Renderer {
     /// The sun's shadow map and what draws and reads it
     /// ([`crate::shadow`]), made at the first frame with shadows.
     shadow_maps: Option<crate::shadow::ShadowMaps>,
+    /// The shadows are the game's own kind, stencil shadow volumes
+    /// ([`crate::volume`]: the area view's Shadows quality High), where
+    /// on; off (the default), a shadow map stands in for them (Fast:
+    /// cheaper, its edges a texel of the map wide).
+    pub shadow_volumes: bool,
+    /// The stencil volumes' target and pipelines, made at the first frame
+    /// with [`Renderer::shadow_volumes`].
+    volumes: Option<crate::volume::ShadowVolumes>,
     /// Shiny water is drawn by the game's programs this frame: they are
     /// on, [`Renderer::game_water`], and the target has its copies.
     water_now: bool,
@@ -1188,6 +1196,8 @@ impl Renderer {
             soft_particles: true,
             copier: None,
             shadow_maps: None,
+            shadow_volumes: false,
+            volumes: None,
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: Default::default(),
@@ -2820,8 +2830,9 @@ impl Renderer {
         }
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        // The shadow maps, before the scene.
-        if shadowing {
+        // The shadow maps, before the scene (none for the volumes).
+        let volumes = self.shadow_volumes;
+        if shadowing && !volumes {
             let maps =
                 self.shadow_maps.get_or_insert_with(|| crate::shadow::ShadowMaps::new(&gpu.device));
             if let Some(plan) = &shadow_plan {
@@ -2864,7 +2875,24 @@ impl Renderer {
                         self.game.draw(&mut pass, received, dynamic, particles, &mut game_bound);
                     drop(pass);
                     let format = (self.color_format, self.sample_count);
-                    if let (Some(plan), Some(maps)) = (&shadow_plan, &mut self.shadow_maps) {
+                    if volumes {
+                        let device = &gpu.device;
+                        self.volumes
+                            .get_or_insert_with(|| crate::volume::ShadowVolumes::new(device))
+                            .lay(
+                                gpu,
+                                &mut encoder,
+                                (target, depth),
+                                format,
+                                (shadow_plan.as_ref(), light_plan.as_ref()),
+                                camera,
+                                size,
+                                scene.fog,
+                            );
+                    }
+                    if let (false, Some(plan), Some(maps)) =
+                        (volumes, &shadow_plan, &mut self.shadow_maps)
+                    {
                         let targets = (target, depth);
                         maps.darken(
                             gpu,
@@ -2877,7 +2905,9 @@ impl Renderer {
                             scene.fog,
                         );
                     }
-                    if let (Some(plan), Some(maps)) = (&light_plan, &mut self.shadow_maps) {
+                    if let (false, Some(plan), Some(maps)) =
+                        (volumes, &light_plan, &mut self.shadow_maps)
+                    {
                         let targets = (target, depth);
                         maps.darken_lights(
                             gpu,

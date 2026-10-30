@@ -60,6 +60,19 @@ pub enum ModuleFolders {
     Module,
 }
 
+/// Options › Area › Shadows quality (and the area view's Shadows menu):
+/// how the area view draws the game's shadows. Fast, a shadow map (its
+/// edges as fine as the map's texels: blocky up close), cheap in every
+/// area; High, stencil shadow volumes as the game casts them (edges as
+/// sharp as the picture's, anti-aliased with it), dearer in the largest
+/// areas.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShadowQuality {
+    #[default]
+    Fast,
+    High,
+}
+
 /// Options › General › Graphics backend: what Moonglow draws with, read
 /// at its start (`apps/moonglow`, before the window has a device;
 /// [`mg_render::backend::pick_adapter`]). Automatic is wgpu's choice, but
@@ -310,6 +323,9 @@ pub struct Settings {
     /// The area view's Light Shadows (in the Shadows button's menu) are
     /// off, in views opened from now on.
     pub no_light_shadows: bool,
+    /// Options › Area › Shadows quality (also in the Shadows button's
+    /// menu): every area view's.
+    pub shadow_quality: ShadowQuality,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -831,15 +847,19 @@ mod tests {
     fn the_shadow_kinds_default_and_are_kept() {
         let old: Settings = serde_json::from_str(r#"{"no_shadows":false}"#).unwrap();
         assert!(!old.no_shadows && !old.no_creature_shadows && !old.no_light_shadows);
+        // (Fast, the shadow map, unless High is chosen.)
+        assert_eq!(old.shadow_quality, ShadowQuality::Fast);
         let chosen = Settings {
             no_shadows: true,
             no_creature_shadows: true,
             no_light_shadows: true,
+            shadow_quality: ShadowQuality::High,
             ..Settings::default()
         };
         let back: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert!(back.no_shadows && back.no_creature_shadows && back.no_light_shadows);
+        assert_eq!(back.shadow_quality, ShadowQuality::High);
     }
 
     #[test]

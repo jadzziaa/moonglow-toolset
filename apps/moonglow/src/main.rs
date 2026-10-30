@@ -435,11 +435,11 @@ fn main() -> eframe::Result<()> {
             wgpu_setup: mg_ui::graphics_setup(egui_wgpu::WgpuSetup::CreateNew(
                 egui_wgpu::WgpuSetupCreateNew {
                     // Game textures are mostly BC-compressed: upload them as
-                    // they are where the GPU can read them.
+                    // they are where the GPU can read them (and the shadow
+                    // volumes' depth as exact as the scene's).
                     device_descriptor: std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
                         label: Some("moonglow"),
-                        required_features: adapter.features()
-                            & wgpu::Features::TEXTURE_COMPRESSION_BC,
+                        required_features: adapter.features() & mg_ui::OPTIONAL_FEATURES,
                         required_limits: adapter.limits(),
                         ..Default::default()
                     }),

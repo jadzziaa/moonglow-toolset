@@ -19,7 +19,9 @@
 //! does while an assistive client is connected (a screen reader, a desktop
 //! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
 //! taken apart at the end, and `FRAME_SHADOWS=sun,creatures,lights`
-//! (any of them, or `off`) draws those kinds of shadow in every area. (With another program drawing, the game say,
+//! (any of them, or `off`) draws those kinds of shadow in every area, and
+//! `FRAME_SHADOW_QUALITY=high` draws them as stencil volumes (Options ›
+//! Area › Shadows quality High). (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
@@ -487,7 +489,12 @@ fn areas(app: &mut Moonglow) -> Vec<(ResRef, i64)> {
     vec![middle, largest]
 }
 
-fn harness<'a>(app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
+fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
+    // (`FRAME_SHADOW_QUALITY=high`: the area views' shadows as stencil
+    // volumes, Options › Area's High.)
+    if std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high")) {
+        app.settings.shadow_quality = mg_ui::settings::ShadowQuality::High;
+    }
     // (A step a 144th of a second, as the window's frames go: with the
     // harness's quarter of a second, every frame of an area's opening
     // was an animation step's, the picture drawn again in each.)
@@ -783,6 +790,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         renderer.game_shaders = on;
         renderer.game_water = water;
         renderer.soft_particles = soft;
+        renderer.shadow_volumes =
+            std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high"));
         let mut first = Duration::ZERO;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();

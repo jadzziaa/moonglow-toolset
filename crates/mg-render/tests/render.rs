@@ -4310,7 +4310,8 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
         mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
     });
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
-    for samples in [1, 4] {
+    // (Fast, the shadow map, and High, the stencil volumes, alike.)
+    for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
         for shaders in [false, true] {
             let assets: &dyn mg_render::Assets = match (&game, shaders) {
                 (Some(rm), true) => rm,
@@ -4319,6 +4320,7 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
             };
             let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
             r.game_shaders = shaders;
+            r.shadow_volumes = volumes;
             let mut draw = |s: &Scene| r.render_image(&gpu, assets, s, &camera, 64, 64);
             let bare = draw(&scene(true, None));
             let half = draw(&scene(true, Some(0.5)));
@@ -4326,14 +4328,14 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
             let elsewhere = draw(&scene(false, Some(0.5)));
             // (With the switch on, the ground by the game's programs.)
             assert_eq!(r.drawn.game > 0, shaders, "{samples} samples");
-            save(&half, &dir.join(format!("shadows_{samples}_{shaders}.png")));
+            save(&half, &dir.join(format!("shadows_{samples}_{shaders}_{volumes}.png")));
             // (The plate's shadow is the middle of the picture; the ground
             // reaches past it.)
             let (under, beside) = ((32, 32), (32, 6));
             let lit = grey(bare.pixel(under.0, under.1));
             assert!(lit > 40.0, "the ground is lit: {lit}");
             let at = |img: &mg_image::Rgba, (x, y): (u32, u32)| grey(img.pixel(x, y));
-            let context = format!("{samples} samples, game shaders {shaders}");
+            let context = format!("{samples} samples, game shaders {shaders}, volumes {volumes}");
             assert!(
                 (at(&half, under) - lit * 0.5).abs() <= 2.0,
                 "{context}: {} of {lit}",
@@ -4579,21 +4581,202 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         far: 100.0,
     };
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
-    let (cast, off, unflagged) =
-        (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
-    save(&cast, &mg_testkit::output_dir("render").join("shadows_light.png"));
-    // From 4 m up and 3 m west, the plate (a metre across, 1 m up) throws
-    // its shadow from 0.33 m to 1.67 m east of its middle; at 6.3 pixels a
-    // metre, the pixel 3 east of the middle is in it, the one 3 west lit.
-    let (east, west) = ((35, 32), (29, 32));
-    let lit = grey(off.pixel(east.0, east.1));
-    assert!(lit > 40.0, "{lit}");
-    let at = |img: &mg_image::Rgba, (x, y): (u32, u32)| grey(img.pixel(x, y));
-    assert!((at(&cast, east) - lit * 0.5).abs() <= 2.0, "{} of {lit}", at(&cast, east));
-    assert!((at(&cast, west) - at(&off, west)).abs() <= 1.0, "west");
-    assert!((at(&unflagged, east) - lit).abs() <= 1.0, "a light that casts none");
+    // (Fast, the lights' maps, and High, their stencil volumes, alike.)
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+        let (cast, off, unflagged) =
+            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let name = format!("shadows_light{}.png", if volumes { "_high" } else { "" });
+        save(&cast, &mg_testkit::output_dir("render").join(name));
+        // From 4 m up and 3 m west, the plate (a metre across, 1 m up)
+        // throws its shadow from 0.33 m to 1.67 m east of its middle; at
+        // 6.3 pixels a metre, the pixel 3 east of the middle is in it, the
+        // one 3 west lit.
+        let (east, west) = ((35, 32), (29, 32));
+        let lit = grey(off.pixel(east.0, east.1));
+        assert!(lit > 40.0, "{lit}");
+        let at = |img: &mg_image::Rgba, (x, y): (u32, u32)| grey(img.pixel(x, y));
+        let context = format!("volumes {volumes}");
+        assert!(
+            (at(&cast, east) - lit * 0.5).abs() <= 2.0,
+            "{context}: {} of {lit}",
+            at(&cast, east)
+        );
+        assert!((at(&cast, west) - at(&off, west)).abs() <= 1.0, "{context}: west");
+        assert!((at(&unflagged, east) - lit).abs() <= 1.0, "{context}: a light that casts none");
+    }
+}
+
+/// A unit cube from 0 to 1, each face's vertices its own (as a model's
+/// are where its texture coordinates part), wound outwards.
+fn cube() -> Model {
+    let faces: [([[f32; 3]; 4], [f32; 3]); 6] = [
+        ([[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]], [0., 0., 1.]),
+        ([[0., 0., 0.], [0., 1., 0.], [1., 1., 0.], [1., 0., 0.]], [0., 0., -1.]),
+        ([[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]], [0., -1., 0.]),
+        ([[1., 1., 0.], [0., 1., 0.], [0., 1., 1.], [1., 1., 1.]], [0., 1., 0.]),
+        ([[0., 1., 0.], [0., 0., 0.], [0., 0., 1.], [0., 1., 1.]], [-1., 0., 0.]),
+        ([[1., 0., 0.], [1., 1., 0.], [1., 1., 1.], [1., 0., 1.]], [1., 0., 0.]),
+    ];
+    let mut mesh = Mesh {
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        render: true,
+        shadow: true,
+        ..Default::default()
+    };
+    for (corners, normal) in faces {
+        let n = mesh.vertices.len() as u32;
+        mesh.vertices.extend(corners);
+        mesh.normals.extend([normal; 4]);
+        mesh.uvs[0].extend([[0.0, 0.0]; 4]);
+        mesh.faces.extend([
+            Face { vertices: [n, n + 1, n + 2], material: 0 },
+            Face { vertices: [n, n + 2, n + 3], material: 0 },
+        ]);
+    }
+    mesh.source = (0..mesh.vertices.len() as u32).collect();
+    let mut root = Node::new("cube", NodeKind::Dummy);
+    root.children = vec![1];
+    let mut m = Node::new("box", NodeKind::Mesh(Box::new(mesh)));
+    m.parent = Some(0);
+    Model { name: "cube".into(), animation_scale: 1.0, nodes: vec![root, m], ..Default::default() }
+}
+
+/// Shadows of High quality (`Renderer::shadow_volumes`: the game's
+/// stencil volumes): a cube a metre over a ground, both receiving (as a
+/// static placeable on a tile), the sun from the north-east and high, seen
+/// from straight above (where the shadow plane fades nothing). Every
+/// pixel of the ground in the cube's shadow (found by a ray from the
+/// ground to the sun through the cube) is darkened by the opacity, every
+/// other one not at all, but at the shadow's edges (a pixel whose corners
+/// disagree); the cube's top, lit, not at all; with one sample a pixel
+/// and four (the stencil counted per sample: the edges' pixels partly
+/// darkened, smooth, where with one they are in or out).
+#[test]
+fn high_shadows_darken_exactly_the_volume_s_footprint() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let cube = Arc::new(GpuModel::new(&gpu, Arc::new(cube())));
+    let sun = Vec3::new(0.8, 0.6, 1.0).normalize();
+    let (low, high) = (Vec3::new(-0.5, -0.5, 1.0), Vec3::new(0.5, 0.5, 2.0));
+    let scene = |opacity: Option<f32>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(8.0)))
+            },
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(cube.clone(), Mat4::from_translation(low))
+            },
+        ],
+        area: AreaLight { ambient: Vec3::splat(0.2), diffuse: Vec3::splat(0.6), direction: sun },
+        shadows: opacity.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (96u32, 96u32);
+    let inverse = (camera.projection(w as f32 / h as f32) * camera.view()).inverse();
+    // (Where a ray meets the box, if it does: the distance along it.)
+    let hits = |from: Vec3, ray: Vec3| {
+        let (mut near, mut far) = (0.0f32, f32::MAX);
+        for k in 0..3 {
+            if ray[k].abs() < 1e-9 {
+                if from[k] < low[k] || from[k] > high[k] {
+                    return None;
+                }
+                continue;
+            }
+            let (a, b) = ((low[k] - from[k]) / ray[k], (high[k] - from[k]) / ray[k]);
+            near = near.max(a.min(b));
+            far = far.min(a.max(b));
+        }
+        (near <= far).then_some(near)
+    };
+    // What a point of the picture (in pixels) sees: the cube's top, or
+    // the ground in shadow or lit.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Seen {
+        Top,
+        Shadowed,
+        Lit,
+    }
+    let seen = |x: f32, y: f32| {
+        let ndc = Vec3::new(x / w as f32 * 2.0 - 1.0, 1.0 - y / h as f32 * 2.0, 0.0);
+        let near = inverse.project_point3(ndc);
+        let ray = (inverse.project_point3(ndc.with_z(0.5)) - near).normalize();
+        if hits(near, ray).is_some() {
+            return Seen::Top;
+        }
+        let on = near + ray * (-near.z / ray.z);
+        if hits(on, sun).is_some() { Seen::Shadowed } else { Seen::Lit }
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let dir = mg_testkit::output_dir("render");
+    for samples in [1, 4] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        let bare = r.render_image(&gpu, &NoAssets, &scene(None), &camera, w, h);
+        r.shadow_volumes = true;
+        let high = r.render_image(&gpu, &NoAssets, &scene(Some(0.5)), &camera, w, h);
+        save(&high, &dir.join(format!("shadows_high_{samples}.png")));
+        let (mut shadowed, mut lit, mut top, mut wrong) = (0, 0, 0, Vec::new());
+        // (The ground's pixels at the shadow's edge, partly darkened: with
+        // a stencil of four samples a pixel, some; with one, none.)
+        let (mut edges, mut partly) = (0, 0);
+        for y in 0..h {
+            for x in 0..w {
+                let (fx, fy) = (x as f32, y as f32);
+                let corners = [(fx, fy), (fx + 1.0, fy), (fx, fy + 1.0), (fx + 1.0, fy + 1.0)];
+                let kinds = corners.map(|(a, b)| seen(a, b));
+                let (was, now) = (grey(bare.pixel(x, y)), grey(high.pixel(x, y)));
+                if kinds.iter().any(|k| *k != kinds[0]) {
+                    if !kinds.contains(&Seen::Top) {
+                        edges += 1;
+                        partly += usize::from(now > was * 0.5 + 4.0 && now < was - 4.0);
+                    }
+                    continue;
+                }
+                let right = match kinds[0] {
+                    Seen::Shadowed => {
+                        shadowed += 1;
+                        (now - was * 0.5).abs() <= 2.0
+                    }
+                    Seen::Lit => {
+                        lit += 1;
+                        (now - was).abs() <= 1.0
+                    }
+                    Seen::Top => {
+                        top += 1;
+                        (now - was).abs() <= 1.0
+                    }
+                };
+                if !right {
+                    wrong.push((x, y, kinds[0], was, now));
+                }
+            }
+        }
+        assert!(shadowed > 100 && lit > 1000 && top > 50, "{shadowed} {lit} {top}");
+        if samples == 1 {
+            assert_eq!(partly, 0, "one sample: an edge pixel is in or out");
+        } else {
+            assert!(partly * 3 > edges, "four samples: smooth edges, {partly} of {edges}");
+        }
+        assert!(
+            wrong.is_empty(),
+            "{samples} samples: {} wrong, {:?}",
+            wrong.len(),
+            &wrong[..wrong.len().min(12)]
+        );
+    }
 }
 
 /// What the lights' shadows cost at their most: as many creatures as cast
