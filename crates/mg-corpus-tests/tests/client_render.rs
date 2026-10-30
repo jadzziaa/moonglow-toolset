@@ -114,6 +114,24 @@ void main()
 }
 "#;
 
+/// [`ENTER`] with the camera `SetCameraFacing(90, distance, pitch)` given a
+/// second after the player enters, which the client takes (given at once
+/// it keeps its own camera, but for the reference scenes' 12 and 45:
+/// [findings](../../../docs/findings.md), "An upright particle turns to the
+/// eye").
+fn enter_with_camera(distance: &str, pitch: &str) -> String {
+    let at_once =
+        "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));";
+    assert!(ENTER.contains(at_once));
+    ENTER.replace(
+        at_once,
+        &format!(
+            "DelayCommand(1.0, AssignCommand(pc, SetCameraFacing(90.0, {distance}, {pitch}, \
+             CAMERA_TRANSITION_TYPE_SNAP)));"
+        ),
+    )
+}
+
 /// Regions compared (fractions of the image, top-left origin), clear of the
 /// game's GUI, with the largest mean difference allowed per channel. Most
 /// match within 1; the far floor, which borders a dark wall, within 5 (the
@@ -1142,10 +1160,10 @@ fn grass_and_sky_look() {
         );
     assert!(settings.contains("mode = 2") && settings.contains("enabled = true"));
     std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
-    // MG_CLOSE=1: the camera low and close, to see the client's grass.
+    // MG_CLOSE=1: the camera low and close, to see the client's grass
+    // (given a second after entry: the fifth client batch).
     if std::env::var_os("MG_CLOSE").is_some() {
-        let enter =
-            ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 3.0, 80.0");
+        let enter = enter_with_camera("3.0", "80.0");
         let ncs = compile(&dir, "mg_enter", &enter);
         m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
     }
@@ -1236,10 +1254,14 @@ fn grass_overrides_look() {
         let settings =
             SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
         std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
-        let camera = format!("SetCameraFacing(90.0, {distance}, {pitch}");
-        let enter = ENTER
-            .replace("SetCameraFacing(90.0, 12.0, 45.0", &camera)
-            .replace("CreateObject(", "if (FALSE) CreateObject(");
+        // (Another camera than the reference's is given a second after
+        // entry, which the client takes: the fifth client batch.)
+        let enter = if (distance.as_str(), pitch.as_str()) == ("12.0", "45.0") {
+            ENTER.to_string()
+        } else {
+            enter_with_camera(&distance, &pitch)
+        };
+        let enter = enter.replace("CreateObject(", "if (FALSE) CreateObject(");
         let ncs = compile(&dir, "mg_enter", &enter);
         m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
         m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
@@ -1627,9 +1649,9 @@ fn particles_look() {
         }
     }
     std::fs::write(user.join("settings.tml"), SETTINGS).unwrap();
-    // From the side, closer and lower than the reference scenes.
-    let enter =
-        ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 9.0, 80.0");
+    // From the side, closer and lower than the reference scenes (given a
+    // second after entry: the fifth client batch).
+    let enter = enter_with_camera("9.0", "80.0");
     let ncs = compile(&dir, "mg_enter", &enter);
     m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
     m.save_as(&ModuleLocation::Archive(user.join("modules/MgScene.mod"))).unwrap();

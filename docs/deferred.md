@@ -926,19 +926,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   entry's question too: M). A model with no mesh to draw (this fog)
   has no bounds of its own to frame a view by. (S) (from builders'
   reports after 1.19.1)
-- **Client tests' scripted cameras:** the client takes a
-  `SetCameraFacing` only when it is set a second after the player
-  enters ([findings](findings.md), "An upright particle turns to the
-  eye"; the module's `Mod_Entry_Dir_X` and `_Y` turn it too, as the
-  program-choice tests do); `particles_look`'s closer camera,
-  `grass_and_sky_look`'s
-  `MG_CLOSE` and `grass_overrides_look`'s `MG_DISTANCE` and `MG_PITCH`
-  set it at once, so their pictures were likely taken from the client's
-  own camera. Not changed: the numbers measured from them (in
-  `docs/research/notes_models.md`) would be taken again with it, in a
-  session that runs the client (the sprint's fix waves of 2026-10-29
-  ran none, other sessions having the off-screen display). (S, waits on
-  a client session)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh

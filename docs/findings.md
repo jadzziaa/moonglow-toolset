@@ -1315,8 +1315,10 @@ view matches the client's picture within 1 px each way.
   and in `particles.rs`'s `an_upright_particle_turns_to_the_eye`. The
   client's scripted camera takes effect only when set a second after
   the player enters: `SetCameraFacing` in the module's OnClientEnter
-  itself left the client's own camera (so `particles_look`'s closer
-  camera was likely never the one drawn).
+  itself left the client's own camera (`particles_look`'s closer
+  camera, `grass_and_sky_look`'s `MG_CLOSE` and `grass_overrides_look`'s
+  `MG_DISTANCE` and `MG_PITCH` are given a second after since
+  2026-10-30, and `particles_look`'s numbers were taken again with it).
 - **Moonglow:** `crates/mg-render/src/particles.rs` (`batches`).
 - **Wiki:** MDL ASCII Emitter Nodes says the particles "face sideways
   from ground plane"; that they turn to the camera is missing.
