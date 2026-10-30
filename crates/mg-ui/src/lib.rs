@@ -3128,12 +3128,15 @@ impl Moonglow {
             let started = std::time::Instant::now();
             let haks = c.module.haks().map_err(|e| e.to_string())?;
             let report = mg_module::haks::hak_report(&install, &haks).map_err(|e| e.to_string())?;
-            let (used, reached) = mg_preview::usage::hak_usage(&install, &c.module, &report)?;
+            let walked = mg_preview::usage::hak_usage(&install, &c.module, &report)?;
+            let (used, reached) = (&walked.haks, walked.reached);
             let mut text = String::from("What the module uses (in the game a player has):\n");
-            for u in &used {
+            for u in used {
                 text.push_str(&format!("  {}\n", mg_preview::usage::line(u)));
             }
-            text.push_str(&format!("  {}\n", mg_preview::usage::total_line(&used)));
+            text.push_str(&format!("  {}\n", mg_preview::usage::total_line(used)));
+            let by_number = mg_preview::usage::by_number_line(&walked.by_number);
+            text.push_str(&format!("  {}\n", by_number));
             text.push_str(&format!(
                 "The walk reached {reached} resources in {:.1} s; {}.",
                 started.elapsed().as_secs_f64(),

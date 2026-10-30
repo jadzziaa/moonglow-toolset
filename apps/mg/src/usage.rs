@@ -4,7 +4,9 @@
 
 use std::collections::BTreeMap;
 
-pub(crate) use mg_preview::usage::{HakUsage, NOT_FOLLOWED, hak_usage, line, total_line};
+pub(crate) use mg_preview::usage::{
+    ByNumber, HakUsage, NOT_FOLLOWED, by_number_line, hak_usage, line, total_line,
+};
 use mg_resman::ResKey;
 
 /// The JSON of `mg haks --usage`, hak by hak.
@@ -43,4 +45,15 @@ pub(crate) fn json(usage: &[HakUsage]) -> serde_json::Value {
             })
             .collect(),
     )
+}
+
+/// What scripts name by a number, in the JSON: the calls followed, and
+/// each script and function whose number is worked out as it runs.
+pub(crate) fn by_number_json(b: &ByNumber) -> serde_json::Value {
+    serde_json::json!({
+        "followed": b.followed,
+        "not_followed": b.not_followed.iter().map(|(k, f)| serde_json::json!({
+            "script": k.to_string(), "function": f,
+        })).collect::<Vec<_>>(),
+    })
 }

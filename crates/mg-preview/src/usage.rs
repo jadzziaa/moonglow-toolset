@@ -15,7 +15,15 @@
 //!   script's `#include`s;
 //! - a script's string literals: a string that is the name of a script,
 //!   blueprint, conversation, sound, music, 2DA, model or texture reaches
-//!   it (the call the string is passed to is not read);
+//!   it (the call the string is passed to is not read), its compiled
+//!   script's as its source's (a hak's script without its source);
+//! - the rows of tables a compiled script names by a number, where the
+//!   number is a constant ([`mg_script::ncs`]): a visual effect's files
+//!   (visualeffects.2da and the progfx.2da rows it names), a spell's
+//!   (spells.2da), an item property's spell (iprp_spells.2da) or weapon
+//!   glow (iprp_visualfx.2da, on every item class), an appearance's look
+//!   (appearance.2da); a number worked out as the script runs is counted
+//!   ([`ByNumber`]), not followed;
 //! - what an area is drawn with: its tileset (its `.set` and palette) and,
 //!   of the tiles, those the area places: each one's model, walkmesh
 //!   (`.wok`) and map image; the tileset's grass texture and environment
@@ -48,9 +56,8 @@
 //! - what players choose at character creation: every head of the player
 //!   races, their portraits and the players' voice sets.
 //!
-//! Not followed, and so not judged by it: what scripts reach by a number
-//! (visual effects, spells, item properties, appearances set by a
-//! script), the body parts players choose, what the game reads by itself
+//! Not followed, and so not judged by it: a row a script works out as it
+//! runs, the body parts players choose, what the game reads by itself
 //! other than its 2DAs (a 2DA of the haks' own nothing names, GUI, fonts,
 //! shaders a material doesn't name, palettes) and a hak's replacements of
 //! the game's own resources other than 2DAs, which the game's own content
@@ -136,7 +143,56 @@ fn judged(t: ResType) -> bool {
 /// What a walk can follow further when it reaches it (a 2DA: the tables
 /// its cells name, as classes.2da names each class's feat table).
 fn followed(t: ResType) -> bool {
-    t.is_gff() || t == ResType::NSS || t == ResType::SSF || t == ResType::TWODA
+    t.is_gff() || matches!(t, ResType::NSS | ResType::NCS | ResType::SSF | ResType::TWODA)
+}
+
+/// The engine functions that take a row of a table by a number, which
+/// argument it is, and the table: what a compiled script reaches by one.
+const BY_NUMBER: [(&str, usize, Row); 9] = [
+    ("EffectVisualEffect", 0, Row::VisualEffect),
+    ("EffectBeam", 0, Row::VisualEffect),
+    ("ActionCastSpellAtObject", 0, Row::Spell),
+    ("ActionCastSpellAtLocation", 0, Row::Spell),
+    ("ActionCastFakeSpellAtObject", 0, Row::Spell),
+    ("ActionCastFakeSpellAtLocation", 0, Row::Spell),
+    ("ItemPropertyVisualEffect", 0, Row::ItemVisualEffect),
+    ("ItemPropertyCastSpell", 0, Row::ItemSpell),
+    ("SetCreatureAppearanceType", 1, Row::Appearance),
+];
+
+/// A table a script names a row of by a number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Row {
+    /// visualeffects.2da (and the progfx.2da rows it names).
+    VisualEffect,
+    /// spells.2da.
+    Spell,
+    /// iprp_visualfx.2da: a weapon's glow, on any weapon.
+    ItemVisualEffect,
+    /// iprp_spells.2da (and the spells.2da row it names).
+    ItemSpell,
+    /// appearance.2da: the creature's look.
+    Appearance,
+}
+
+/// What the walk made of the rows scripts name by a number.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ByNumber {
+    /// Calls whose row was a constant, followed.
+    pub followed: usize,
+    /// Calls whose row the script works out as it runs (a variable, a
+    /// sum, another function's result): each script and function, not
+    /// followed.
+    pub not_followed: Vec<(ResKey, String)>,
+}
+
+/// What the walk made of a module and its haks.
+#[derive(Debug, Default)]
+pub struct Walked {
+    pub haks: Vec<HakUsage>,
+    /// How many resources it reached.
+    pub reached: usize,
+    pub by_number: ByNumber,
 }
 
 /// The types a script's string may name (models and textures are tried
@@ -177,6 +233,12 @@ pub(crate) struct Walk<'a> {
     /// The names of the 2DAs in the load order, once (a table's cells
     /// that are one reach it).
     tables: Option<std::collections::HashSet<ResRef>>,
+    /// The language spec (`nwscript.nss`), once: a compiled script's
+    /// functions by number.
+    spec: Option<Option<Arc<mg_script::spec::Spec>>>,
+    /// The rows followed, once each.
+    rows: std::collections::HashSet<(Row, i64)>,
+    pub(crate) by_number: ByNumber,
 }
 
 fn text(s: &Struct, label: &str) -> Option<String> {
@@ -206,6 +268,9 @@ impl<'a> Walk<'a> {
             wearers: None,
             parts: Default::default(),
             tables: None,
+            spec: None,
+            rows: Default::default(),
+            by_number: ByNumber::default(),
         }
     }
 
@@ -289,6 +354,10 @@ impl<'a> Walk<'a> {
             self.strings(&data);
             return;
         }
+        if key.restype == ResType::NCS {
+            self.compiled(key, &data);
+            return;
+        }
         if key.restype == ResType::SSF {
             if let Ok(ssf) = mg_ssf::Ssf::read(&data) {
                 for e in &ssf.entries {
@@ -326,17 +395,134 @@ impl<'a> Walk<'a> {
     /// A script's string literals that name something.
     fn strings(&mut self, src: &[u8]) {
         for r in mg_module::refs::script_strings(src) {
-            let name = r.to_string().to_ascii_lowercase();
-            for ty in NAMED_IN_SCRIPTS {
-                self.reach(ResKey::new(r, ty));
+            self.named(r);
+        }
+    }
+
+    /// A name a script or a table's cell gives: whatever of the kinds a
+    /// script may name it is (a script, blueprint, conversation, sound,
+    /// 2DA, model or texture).
+    fn named(&mut self, r: ResRef) {
+        let name = r.to_string().to_ascii_lowercase();
+        for ty in NAMED_IN_SCRIPTS {
+            self.reach(ResKey::new(r, ty));
+        }
+        if self.rm().contains(&ResKey::new(r, ResType::MDL)) {
+            self.gather.add_model(&name);
+        }
+        if self.rm().texture_type(r).is_some() || self.rm().contains(&ResKey::new(r, ResType::PLT))
+        {
+            self.gather.add_texture(&name);
+        }
+    }
+
+    /// A compiled script: the strings it pushes, as a source's literals,
+    /// and the rows of tables it names by a number where the number is a
+    /// constant (`mg_script::ncs`: a script with no source, a hak's, is
+    /// read the same way); a row it works out as it runs is counted, not
+    /// followed.
+    fn compiled(&mut self, key: ResKey, data: &[u8]) {
+        let Ok(code) = mg_script::ncs::decode(data) else { return };
+        let names: Vec<ResRef> = mg_script::ncs::strings(&code)
+            .filter_map(|s| std::str::from_utf8(s).ok().and_then(|s| ResRef::from_str(s).ok()))
+            .filter(|r| !r.is_empty())
+            .collect();
+        for r in names {
+            self.named(r);
+        }
+        let spec = self.spec.get_or_insert_with(|| {
+            let src = self.game.resman.get(&ResKey::parse("nwscript", ResType::NSS)?).ok()?;
+            Some(Arc::new(mg_script::spec::Spec::parse(&src)))
+        });
+        let Some(spec) = spec.clone() else { return };
+        for call in mg_script::ncs::calls(&code, &spec) {
+            let name = &spec.functions[usize::from(call.routine)].name;
+            let Some(&(f, arg, row)) = BY_NUMBER.iter().find(|(f, ..)| f == name) else {
+                continue;
+            };
+            match call.args.get(arg) {
+                Some(Some(mg_script::ncs::Const::Int(n))) => {
+                    self.by_number.followed += 1;
+                    self.row(row, i64::from(*n));
+                }
+                // (Fewer arguments than the function has: an old script's,
+                // compiled before the parameter was added.)
+                None => {}
+                Some(_) => self.by_number.not_followed.push((key, f.to_string())),
             }
-            if self.rm().contains(&ResKey::new(r, ResType::MDL)) {
-                self.gather.add_model(&name);
+        }
+    }
+
+    /// A row of a table a script names by a number, followed once.
+    fn row(&mut self, row: Row, n: i64) {
+        if n < 0 || !self.rows.insert((row, n)) {
+            return;
+        }
+        match row {
+            Row::VisualEffect => {
+                let Some(t) = self.table("visualeffects") else { return };
+                self.row_files(&t, n);
+                // Its programmed effects (progfx.2da), by number.
+                let progfx: Vec<i64> = (t.columns().iter())
+                    .filter(|c| c.to_ascii_lowercase().starts_with("progfx"))
+                    .filter_map(|c| cell(&t, n, c)?.parse().ok())
+                    .collect();
+                if !progfx.is_empty()
+                    && let Some(p) = self.table("progfx")
+                {
+                    for r in progfx {
+                        self.row_files(&p, r);
+                    }
+                }
             }
-            if self.rm().texture_type(r).is_some()
-                || self.rm().contains(&ResKey::new(r, ResType::PLT))
-            {
-                self.gather.add_texture(&name);
+            Row::Spell => {
+                let Some(t) = self.table("spells") else { return };
+                self.row_files(&t, n);
+            }
+            Row::ItemSpell => {
+                let Some(t) = self.table("iprp_spells") else { return };
+                self.row_files(&t, n);
+                if let Some(spell) = cell(&t, n, "SpellIndex").and_then(|s| s.parse().ok()) {
+                    self.row(Row::Spell, spell);
+                }
+            }
+            Row::ItemVisualEffect => {
+                let Some(fx) = self.table("iprp_visualfx") else { return };
+                let Some(suffix) = cell(&fx, n, "ModelSuffix") else { return };
+                // (On whatever weapon it is put: every item class's.)
+                let Some(items) = self.table("baseitems") else { return };
+                let classes: std::collections::BTreeSet<String> = (0..items.len() as i64)
+                    .filter_map(|r| cell(&items, r, "ItemClass"))
+                    .map(|c| c.to_ascii_lowercase())
+                    .collect();
+                for class in classes {
+                    let name = format!("{class}_fx{suffix}");
+                    if ResKey::parse(&name, ResType::MDL).is_some_and(|k| self.rm().contains(&k)) {
+                        self.gather.add_model(&name);
+                    }
+                }
+            }
+            Row::Appearance => {
+                let Ok(n) = u16::try_from(n) else { return };
+                self.creature(&crate::CreatureLook::new(n).to_utc());
+            }
+        }
+    }
+
+    /// What a row of a table names, cell by cell (but its label): a
+    /// model, texture, sound, script or table, as a script's string would.
+    fn row_files(&mut self, t: &TwoDa, row: i64) {
+        let Ok(r) = usize::try_from(row) else { return };
+        for c in 0..t.columns().len() {
+            if t.columns()[c].eq_ignore_ascii_case("Label") {
+                continue;
+            }
+            let Some(v) = t.cell(r, c).map(str::trim) else { continue };
+            if v.is_empty() || v == "****" || v.parse::<f64>().is_ok() {
+                continue;
+            }
+            if let Ok(name) = ResRef::from_str(v) {
+                self.named(name);
             }
         }
     }
@@ -843,7 +1029,7 @@ pub fn hak_usage(
     gi: &GameInstall,
     m: &Module,
     report: &mg_module::haks::HakReport,
-) -> Result<(Vec<HakUsage>, usize), String> {
+) -> Result<Walked, String> {
     let game = player_game(gi, m)?;
     let mut walk = Walk::new(&game);
     walk.module(m);
@@ -864,7 +1050,7 @@ pub fn hak_usage(
         u.path.clone_from(path);
         out.push(u);
     }
-    Ok((out, walk.from.len()))
+    Ok(Walked { haks: out, reached: walk.from.len(), by_number: walk.by_number })
 }
 
 /// A hak's resources (`index`, with their sizes) by what the walk made
@@ -942,9 +1128,23 @@ pub fn total_line(haks: &[HakUsage]) -> String {
 }
 
 /// What the walk doesn't follow, said with its results.
-pub const NOT_FOLLOWED: &str = "not followed: what scripts reach by number (effects, spells, \
-    appearances), the body parts players choose, and what the game reads itself other than its \
-    2DAs (\"not judged\")";
+pub const NOT_FOLLOWED: &str = "not followed: a row of a table a script works out as it runs (a \
+    visual effect, spell or appearance in a variable), the body parts players choose, and what the \
+    game reads itself other than its 2DAs (\"not judged\")";
+
+/// The line of what scripts name by a number: how many calls were
+/// followed, and how many weren't, in how many scripts.
+pub fn by_number_line(b: &ByNumber) -> String {
+    let scripts: std::collections::BTreeSet<&ResKey> =
+        b.not_followed.iter().map(|(k, _)| k).collect();
+    format!(
+        "scripts' numbers: {} calls naming a visual effect, spell or appearance followed; {} \
+         working it out as the script runs not followed (in {} scripts)",
+        b.followed,
+        b.not_followed.len(),
+        scripts.len()
+    )
+}
 
 #[cfg(test)]
 mod tests {
@@ -1243,5 +1443,133 @@ mod tests {
         for n in ["pfh0_head300.mdl", "po_wolf_h.tga", "vs_npc.ssf"] {
             assert_eq!(reached(&walk, n), None, "{n}");
         }
+    }
+
+    /// A compiled script's rows named by a number, where the number is a
+    /// constant: a visual effect's models, sounds and programmed effect, a
+    /// spell's icon, script, visuals and sounds, an item's spell (its icon
+    /// and its spell), an appearance's model; and its strings. A number
+    /// worked out as it runs (a variable's) is counted, not followed.
+    #[test]
+    fn a_compiled_script_s_numbers_and_strings() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(
+            key("nwscript.nss"),
+            &b"effect EffectVisualEffect(int nVisualEffectId, int nMissEffect=FALSE);\n\
+               void ActionCastSpellAtObject(int nSpell, object oTarget);\n\
+               void SetCreatureAppearanceType(object oCreature, int nAppearanceType);\n\
+               itemproperty ItemPropertyCastSpell(int nSpell, int nNumUses);\n"[..],
+        );
+        stock.insert(
+            key("visualeffects.2da"),
+            table(
+                " Label Imp_Impact_Node SoundImpact ProgFX_Impact\n0 A vfx_none **** ****\n\
+                 1 B **** **** ****\n2 Heal vfx_heal snd_heal 1\n",
+            ),
+        );
+        stock.insert(key("progfx.2da"), table(" Label Param1\n0 X ****\n1 Glow fx_glowtex\n"));
+        stock.insert(
+            key("spells.2da"),
+            table(
+                " Label IconResRef ImpactScript ConjHeadVisual CastSound\n0 A **** **** **** ****\n\
+                 1 Fire is_fire nw_s0_fire vco_fire sco_fire\n2 B **** **** **** ****\n\
+                 3 Ice is_ice **** **** ****\n",
+            ),
+        );
+        stock
+            .insert(key("iprp_spells.2da"), table(" Label SpellIndex Icon\n0 IceWand 3 is_wand\n"));
+        stock.insert(
+            key("appearance.2da"),
+            table(" LABEL MODELTYPE RACE\n0 Human P H\n1 Wolf F c_wolf\n"),
+        );
+        stock.insert(key("baseitems.2da"), table(" label ItemClass\n0 shortsword WSwSs\n"));
+        let mut haks = MemContainer::new();
+        for n in [
+            "snd_heal.wav",
+            "fx_glowtex.tga",
+            "is_fire.tga",
+            "sco_fire.wav",
+            "is_ice.tga",
+            "is_wand.tga",
+            "mg_ding.wav",
+        ] {
+            haks.insert(key(n), &b"x"[..]);
+        }
+        for n in ["vfx_heal", "vfx_none", "vco_fire", "c_wolf"] {
+            haks.insert(key(&format!("{n}.mdl")), model(n, "x"));
+        }
+        // (A compiled script: the header, then the code.)
+        let ncs = |code: &[&[u8]]| {
+            let code = code.concat();
+            let mut d = b"NCS V1.0\x42".to_vec();
+            d.extend_from_slice(&(13 + code.len() as u32).to_be_bytes());
+            d.extend_from_slice(&code);
+            d
+        };
+        let int = |n: i32| [&[0x04, 0x03][..], &n.to_be_bytes()].concat();
+        let object = [&[0x04, 0x06][..], &0u32.to_be_bytes()].concat();
+        let call = |id: u8, argc: u8| vec![0x05, 0x00, 0x00, id, argc];
+        haks.insert(key("nw_s0_fire.ncs"), ncs(&[&[0x20, 0x00]]));
+        let mut module = MemContainer::new();
+        module.insert(
+            key("mg_fx.ncs"),
+            ncs(&[
+                // EffectVisualEffect(2, FALSE)
+                &int(0),
+                &int(2),
+                &call(0, 2),
+                // ActionCastSpellAtObject(1, OBJECT_SELF)
+                &object,
+                &int(1),
+                &call(1, 2),
+                // SetCreatureAppearanceType(OBJECT_SELF, 1)
+                &int(1),
+                &object,
+                &call(2, 2),
+                // ItemPropertyCastSpell(0, 1)
+                &int(1),
+                &int(0),
+                &call(3, 2),
+                // EffectVisualEffect(nVis): a variable's copy.
+                &[0x03, 0x01, 0xff, 0xff, 0xff, 0xfc, 0x00, 0x04],
+                &call(0, 1),
+                // "mg_ding"
+                &[0x04, 0x05, 0x00, 0x07],
+                b"mg_ding",
+            ]),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+        rm.add(priority::HAK_USER, "hak:mine", LayerClass::Erf, haks);
+        rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut m = Module::new();
+        m.set(key("mg_fx.ncs"), game.resman.get(&key("mg_fx.ncs")).unwrap().into_owned());
+        let mut walk = Walk::new(&game);
+        walk.module(&m);
+        walk.settle();
+        let reached = |w: &Walk<'_>, n: &str| w.from.get(&key(n)).map(|f| f.to_string());
+        for n in [
+            "vfx_heal.mdl",
+            "snd_heal.wav",
+            "fx_glowtex.tga",
+            "is_fire.tga",
+            "nw_s0_fire.ncs",
+            "vco_fire.mdl",
+            "sco_fire.wav",
+            "is_ice.tga",
+            "is_wand.tga",
+            "c_wolf.mdl",
+            "mg_ding.wav",
+        ] {
+            assert_eq!(reached(&walk, n).as_deref(), Some("mg_fx.ncs"), "{n}");
+        }
+        assert_eq!(reached(&walk, "vfx_none.mdl"), None, "row 0, which nothing names");
+        assert_eq!(walk.by_number.followed, 4);
+        assert_eq!(
+            walk.by_number.not_followed,
+            vec![(key("mg_fx.ncs"), "EffectVisualEffect".to_string())]
+        );
     }
 }

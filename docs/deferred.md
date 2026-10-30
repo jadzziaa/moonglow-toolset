@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:18:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -390,25 +390,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Not followed by `--usage`** (and What the Module Uses), what is left
   of it after the sprint followed sounds, icons, visual effect
   properties, 2DAs and the heads, portraits and voice sets players
-  choose (`mg_preview::usage`):
-  - **What scripts reach by a number** (visual effects, spells, item
-    properties, `SetCreatureAppearanceType`): a reader of a script's
-    calls' arguments (an `int` literal, a stock constant from
-    `nwscript.nss`, the module's own `const`s through its includes) by
-    the function and parameter that take a row of a table
-    (`EffectVisualEffect` visualeffects.2da, `ActionCastSpell*`
-    spells.2da, `ItemProperty*` their iprp tables), then each row's
-    files (a visual effect's models, progfx.2da's, its sounds; a
-    spell's icons, models and sounds; an appearance's look through
-    `mg_preview::creature`). In mg-script and `usage.rs`: a day or two
-    (L), larger than the rest of the entry was. (After 3.0.0, the
-    owner's word, 2026-10-30: 1st of 9 by complexity.)
-  - **The body parts players choose** at character creation (tattoos):
-    which part numbers the creation screen offers for a race and
-    phenotype isn't known here (parts_*.2da has no column for it, and
-    every part number would count every armor part as used). Waits on
-    the client batch: read the creation screen's part lists against
-    parts_chest.2da and the others.
+  choose, and after 3.0.0 what scripts name by a number
+  (`mg_preview::usage`): **the body parts players choose** at character
+  creation (tattoos): which part numbers the creation screen offers for
+  a race and phenotype isn't known here (parts_*.2da has no column for
+  it, and every part number would count every armor part as used).
+  Waits on the client batch: read the creation screen's part lists
+  against parts_chest.2da and the others.
 
 
 ## Area visibility

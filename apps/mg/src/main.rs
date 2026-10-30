@@ -2439,14 +2439,16 @@ fn run(cli: &Cli) -> Result<Output> {
             }));
             if *usage {
                 let started = std::time::Instant::now();
-                let (haks, reached) =
-                    usage::hak_usage(&gi, &m, &report).map_err(anyhow::Error::msg)?;
-                for u in &haks {
+                let walked = usage::hak_usage(&gi, &m, &report).map_err(anyhow::Error::msg)?;
+                let (haks, reached) = (&walked.haks, walked.reached);
+                for u in haks {
                     out.line(usage::line(u));
                 }
-                out.line(usage::total_line(&haks));
-                out.json["usage"] = usage::json(&haks);
+                out.line(usage::total_line(haks));
+                out.json["usage"] = usage::json(haks);
                 out.json["reached"] = json!(reached);
+                out.json["by_number"] = usage::by_number_json(&walked.by_number);
+                out.note(usage::by_number_line(&walked.by_number));
                 out.note(format!(
                     "the walk reached {reached} resources in {:.1} s; {}",
                     started.elapsed().as_secs_f64(),

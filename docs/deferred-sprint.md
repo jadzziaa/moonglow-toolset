@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T12:12:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:18:41Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -113,8 +113,9 @@ The large entries (L) stay open for after 3.0.0, to be taken in order
 of complexity, least first (the owner's word, 2026-10-30; each entry of
 the [deferred list](deferred.md) says its place):
 
-1. What scripts reach by a number, followed by the usage walk (Haks in
-   the GUI: a day or two).
+1. ~~What scripts reach by a number, followed by the usage walk (Haks in
+   the GUI: a day or two).~~ Done after 3.0.0 (2026-10-30): read from
+   the compiled scripts (`mg_script::ncs`).
 2. GFF paths as strings, built once (Written more than once: mechanical).
 3. New strings written to a talk-table range from a blueprint
    (Blueprint editors and inventories).

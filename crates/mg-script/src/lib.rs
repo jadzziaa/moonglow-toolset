@@ -4,6 +4,7 @@
 pub mod analysis;
 pub mod compiler;
 pub mod lex;
+pub mod ncs;
 pub mod outline;
 mod return_types;
 pub mod spec;

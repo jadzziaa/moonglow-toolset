@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:03:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:18:22Z }
 ---
 
 # Modules
@@ -1323,7 +1323,21 @@ the game's script), and what that names in turn:
 - **A script's strings**: a string that is the name of a script,
   blueprint, conversation, sound, music, 2DA, model or texture reaches
   it. What the string is passed to isn't read, so a string that happens
-  to spell a name counts.
+  to spell a name counts. The compiled script is read as well as its
+  source, so a hak's script that comes without its source counts too.
+- **What a script names by a number**: a visual effect
+  (`EffectVisualEffect`, `EffectBeam`: its models, sounds and
+  `progfx.2da` effects), a spell (`ActionCastSpellAtObject` and the
+  others that cast one: its icon, impact script, visuals and sounds),
+  an item property's spell (`ItemPropertyCastSpell`: its icon and its
+  spell) or weapon glow (`ItemPropertyVisualEffect`: its model on every
+  kind of weapon) and an appearance (`SetCreatureAppearanceType`: the
+  creature's look). The number is read from the compiled script, where
+  the compiler has put in every constant's value (`VFX_IMP_HEALING_S`,
+  a `const` of an include): a number the script works out as it runs (a
+  variable, a sum) can't be, and is counted instead. The report says how
+  many calls were followed and how many weren't, and `--json` names each
+  script and function not followed (`by_number`).
 - **An area**: its tileset (the `.set` and its palette), and of the
   tiles, those the area places, each with its model, walkmesh and map
   image; the tileset's grass and environment map; the skybox's models,
@@ -1364,10 +1378,9 @@ module, has it: this copy is never loaded), **not judged** or
 server extension may read; GUI, fonts, shaders a material doesn't
 name, palettes, NUI windows) and a hak's replacements of the game's own
 resources other than 2DAs, which the game's own content may use. Not
-followed at all: what scripts reach by a number (visual effects,
-spells, item properties, appearances set by a script) and the body
-parts players choose: a hak of tattoo parts can show as unused and
-still be needed. A script's string that spells a name counts as a use
+followed at all: a number a script works out as it runs (above), and
+the body parts players choose: a hak of tattoo parts can show as unused
+and still be needed. A script's string that spells a name counts as a use
 of it, whatever the string is for: a release cut keeps too much rather
 than too little. The game is taken as a player has
 it: the user's `override` and `development` folders are left out, the

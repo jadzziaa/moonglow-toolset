@@ -18,6 +18,7 @@ mg-module = { workspace = true, optional = true }
 mg-render = { workspace = true, optional = true }
 mg-resman.workspace = true
 mg-rules.workspace = true
+mg-script = { workspace = true, optional = true }
 mg-set.workspace = true
 mg-ssf = { workspace = true, optional = true }
 thiserror.workspace = true
@@ -29,9 +30,10 @@ thiserror.workspace = true
 default = ["render"]
 render = ["dep:mg-render"]
 # What a module uses of its haks (`usage`): the walk from its resources,
-# which reads modules (mg-module). `mg` and the window turn it on; the
-# viewer, which draws previews only, leaves it off.
-usage = ["dep:mg-module", "dep:mg-ssf"]
+# which reads modules (mg-module) and compiled scripts (mg-script). `mg`
+# and the window turn it on; the viewer, which draws previews only, leaves
+# it off.
+usage = ["dep:mg-module", "dep:mg-script", "dep:mg-ssf"]
 
 # (Previews drawn on the GPU.)
 [[test]]
