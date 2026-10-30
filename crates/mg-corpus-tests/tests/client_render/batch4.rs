@@ -218,7 +218,7 @@ fn reading_motion_blur_rule() {
     let light = Lighting { ambient: 0x101010, diffuse: 0, main_light: 0, only_tile: None };
     let mut r = Reading::new("motion_blur_rule", "tic01", light, &overrides);
     r.place(first, [20.0, 23.0, 0.0], 0.0, &[]);
-    let (dir, _) = r.shoot(&enter(INVISIBLE, (90.0, 9.0, 80.0)), SETTINGS);
+    let (dir, _) = shoot_close(r, INVISIBLE, SETTINGS, (90.0, 9.0, 80.0), &|v| v.animate = true);
     print_log(&dir);
 }
 
@@ -730,7 +730,7 @@ fn reading_static_placeable_default_animation() {
         "newanim default {name}\n  length 2\n  transtime 0\n  animroot {name}\n\
          node dummy {name}\n  parent NULL\nendnode\n\
          node trimesh box\n  parent {name}\n  selfillumcolorkey 3\n    0 1 0 0\n    1 0 0 1\n    \
-         2 1 0 0\nendnode\n\
+         2 1 0 0\n  positionkey 3\n    0 0 0 0\n    1 0 0 1\n    2 0 0 0\nendnode\n\
          node light mglight0\n  parent {name}\n  colorkey 3\n    0 1 0 0\n    1 0 0 1\n    \
          2 1 0 0\nendnode\n\
          doneanim default {name}\n"
@@ -744,15 +744,20 @@ fn reading_static_placeable_default_animation() {
     let mut r = Reading::new("static_default_animation", "tic01", light, &overrides);
     r.place(first, [17.5, 23.0, 0.0], 0.0, &[("Static", Value::Byte(1))]);
     r.place(first, [22.5, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
-    r.save(&enter(INVISIBLE, (90.0, 12.0, 45.0)), SETTINGS);
-    let shots = common::client_screenshots(&r.dir, "MgScene", 5, Duration::from_millis(500))
+    // (First Moonglow's area view beside one picture, a second into the
+    // animation, where the dynamic one's keys are blue: `moonglow.png`.)
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| {
+        v.animate = true;
+        v.time = 1.0;
+    });
+    let shots = common::client_screenshots(&dir, "MgScene", 5, Duration::from_millis(500))
         .expect("the client's pictures");
     for (i, (t, img)) in shots.iter().enumerate() {
         let west = mean(img, [0.25, 0.42, 0.4, 0.55]);
         let east = mean(img, [0.6, 0.42, 0.75, 0.55]);
         eprintln!("picture {i} at {t:.2} s: floor west {west:?}, east {east:?}");
     }
-    print_log(&r.dir);
+    print_log(&dir);
 }
 
 /// A sphere a metre across, 1.2 m up, of `texture`, as an ASCII model
@@ -889,5 +894,21 @@ fn reading_missing_helmet_model() {
         }
     }
     let (dir, _) = shoot_close(r, INVISIBLE, SETTINGS, (90.0, 3.5, 75.0), &|_| {});
+    print_log(&dir);
+}
+
+/// Whether a static placeable's emitters run in the client, as its
+/// `default` animation does not ([`reading_static_placeable_default_animation`]):
+/// two braziers (placeables.2da 57, `plc_i05`, whose fire is an emitter)
+/// north of the player, the west one static, the east one not, from the
+/// reference camera beside Moonglow's area view (Animations on).
+#[test]
+#[ignore]
+fn reading_static_placeable_emitters() {
+    let light = Lighting { ambient: 0x404040, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("static_placeable_emitters", "tic01", light, &[]);
+    r.place(57, [18.0, 23.0, 0.0], 0.0, &[("Static", Value::Byte(1))]);
+    r.place(57, [22.0, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.animate = true);
     print_log(&dir);
 }
