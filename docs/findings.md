@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:30:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:45:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1316,6 +1316,91 @@ view matches the client's picture within 1 px each way.
 - **Moonglow:** `crates/mg-render/src/particles.rs` (`batches`).
 - **Wiki:** MDL ASCII Emitter Nodes says the particles "face sideways
   from ground plane"; that they turn to the camera is missing.
+
+### Motion-blurred, spinning and newborn particles
+
+A `Motion_Blur` particle is twice its size across and streaks back
+along its path from its head, brightest there and faded out at its
+tail; the tail follows the particle about `0.76 × blurlength` seconds
+behind, so that a streak grows with its age towards `speed × 0.76 ×
+blurlength` (a 2 m/s particle 1.3 m long at 0.9 s with `blurlength` 1,
+0.56 m with 0.25); with `blurlength` 0 none is drawn. A Fountain's
+`birthrate` under 1 makes no particle at all (0.5 and 0.667, in an
+ASCII model or one compiled by nwnmdlcomp), 1.5 makes one and a half a
+second. A spinning particle (`particleRot`) starts upright and turns
+that many radians a second, anticlockwise as seen. An emitter's
+particles are drawn in the order they were born, the newest over the
+older, whichever is nearer the eye (a rising and a falling column
+alike). A lightning bolt and a `Linked` ribbon are soft as other
+particles, `particleSoftness` 10 over the size.
+
+- **Checked:** game client, `client_render.rs`'s `batch4.rs`
+  (2026-10-30, EE 89.8193.37): `reading_motion_blur_length`, `_rule`
+  and `_single` (columns of 12 cm squares at several speeds, birthrates
+  and blur lengths, seen from the side beside green dots a metre
+  apart), `reading_particle_turn_and_birth`,
+  `reading_particle_spin_and_order` (the four-color texture) and
+  `reading_soft_particles_of_lightning_and_linked` (the marked
+  `fsparticle`). The blur's 0.76 is fitted to those streaks (within
+  0.1 m but for the youngest particles), not taken from the client's
+  code.
+- **Moonglow:** `crates/mg-render/src/particles.rs` (`motion_blur`,
+  `BLUR_SECONDS`, the Fountain's spawn, `batches`).
+- **Wiki:** MDL ASCII Emitter Nodes: `blurlength` "how much a motion
+  blur particles stretches"; the rule, the birthrate's floor and the
+  spin's unit are missing.
+
+### A part's own visual transform, and an item's
+
+A creature's head (scope 254), wings (252) and cloak (243) transformed
+alone are drawn as the whole object's transform is, about the node the
+part hangs from (`head_g`, the wings' dummy; the cloak about the
+creature's feet): scaled, turned about each axis and moved alike in the
+client and Moonglow's area view; a creature of one model (the bandit)
+with its head scaled is drawn unchanged. A weapon of three models
+lying in an area takes 255 as the whole item, 254 as its middle model
+(a sword's guard) and 253 as its top (the blade); 252 and 251 change
+nothing there.
+
+- **Checked:** game client, `batch4.rs`'s `reading_part_scopes` (with
+  `MG_B4_SCOPE` 254, 252 and 243) and `reading_item_part_scopes`
+  (2026-10-30), beside Moonglow's area view.
+- **Moonglow:** `crates/mg-preview/src/creature.rs` and `item.rs`
+  (`scope_matrix`, `Part::local`).
+- **Wiki:** missing.
+
+### A static placeable plays no animation
+
+The client plays no animation of a static placeable: a model whose
+`default` animation keys a card's position and self-illumination and a
+light node's color stood still, static, where a dynamic copy beside it
+played them (its light cycling red and blue over the floor). A static
+placeable's emitters run (a brazier's fire and smoke, either way).
+
+- **Checked:** game client, `batch4.rs`'s
+  `reading_static_placeable_default_animation` (five pictures half a
+  second apart) and `reading_static_placeable_emitters` (2026-10-30).
+- **Moonglow:** `crates/mg-area/src/scene.rs` (`object_time`).
+- **Wiki:** missing.
+
+### A helmet without its model, and bare skin over nothing
+
+A helmet whose `helm_NNN` model isn't there is drawn as its base item's
+`DefaultModel` (the bag, `it_bag`) in the head's place, and no head
+under it. An armor's part 1 (bare skin) shows the wearer's own part,
+and where the wearer has none (no `BodyPart_*` field: a creature of one
+model given a part-based appearance) nothing: a commoner made a human
+in his clothes, whose arms are part 1, has no arms. (A helmet's model
+number is its EE twin `xModelPart1` first, as other part numbers.)
+
+- **Checked:** game client, `batch4.rs`'s
+  `reading_missing_helmet_model` (helmets of `ModelPart1` 1, 2 and 250
+  and none) and `reading_part_scopes` (2026-10-30), beside Moonglow's
+  area view.
+- **Moonglow:** `crates/mg-preview/src/creature.rs`; tests
+  `a_helmet_without_its_model_is_the_bag` and
+  `a_creature_s_own_parts_show_where_its_armor_is_bare`.
+- **Wiki:** missing.
 
 ## Talk tables and 2DAs
 
