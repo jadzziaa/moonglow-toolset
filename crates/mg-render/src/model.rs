@@ -343,13 +343,13 @@ impl GpuModel {
     }
 }
 
-/// Whether a model's render hint (lower case) gives its mesh tangents: only
+/// Whether a model's render hint (any case) gives its mesh tangents: only
 /// `NormalAndSpecMapped` and `NormalTangents`, as the client reads an
 /// ASCII model's (another word, such as `NormalAndSpecMappedMesh`, gives
 /// none: `reading_tangents`, the deferred sprint's fifth client batch),
 /// as the game's compiler takes one and as an MTR's is read.
 pub fn hint_wants_tangents(hint: &str) -> bool {
-    matches!(hint, "normalandspecmapped" | "normaltangents")
+    ["normalandspecmapped", "normaltangents"].iter().any(|h| hint.eq_ignore_ascii_case(h))
 }
 
 /// Tangents for a mesh that has none (each vertex's, and the bitangent's
