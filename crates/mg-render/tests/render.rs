@@ -7,7 +7,8 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
 use mg_render::{
-    AreaLight, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene, Targets,
+    AreaLight, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, LineCopy, LineShape, NoAssets,
+    Renderer, Scene, Targets,
 };
 
 fn gpu() -> Option<Gpu> {
@@ -1179,6 +1180,73 @@ fn lines_hide_behind_meshes_but_not_under_the_ground_they_lie_on() {
     assert!(red_near(Vec3::new(2.0, 0.0, 0.0)));
     // Under the board: hidden.
     assert!(!red_near(Vec3::new(0.0, 0.0, 0.0)));
+}
+
+/// A line shape's copies (`Scene::line_shapes`, Sound Ranges' spheres)
+/// draw what their lines would, moved and scaled, given one by one; the
+/// shape's lines kept on the GPU from frame to frame, and another shape
+/// in their place drawn as it is.
+#[test]
+fn a_line_shape_s_copies_draw_what_their_lines_would() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let ground = Instance::new(model, Mat4::from_scale(Vec3::new(4.0, 4.0, 1.0)));
+    let area = AreaLight { ambient: Vec3::splat(0.3), ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -5.0, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // (Halves, quarters and whole metres: the ends where they are drawn
+    // are the same numbers either way.)
+    let star: Arc<[[Vec3; 2]]> = Arc::new([
+        [Vec3::new(-0.5, 0.0, 0.0), Vec3::new(0.5, 0.0, 0.0)],
+        [Vec3::new(0.0, -0.5, 0.0), Vec3::new(0.0, 0.5, 0.0)],
+        [Vec3::new(-0.25, -0.25, 0.5), Vec3::new(0.25, 0.25, 0.5)],
+    ]);
+    let square: Arc<[[Vec3; 2]]> = Arc::new([
+        [Vec3::new(-0.5, -0.5, 0.0), Vec3::new(0.5, -0.5, 0.0)],
+        [Vec3::new(0.5, -0.5, 0.0), Vec3::new(0.5, 0.5, 0.0)],
+        [Vec3::new(0.5, 0.5, 0.0), Vec3::new(-0.5, 0.5, 0.0)],
+        [Vec3::new(-0.5, 0.5, 0.0), Vec3::new(-0.5, -0.5, 0.0)],
+    ]);
+    let copies = vec![
+        LineCopy { offset: Vec3::new(-2.0, 0.0, 0.0), scale: 2.0, color: [1.0, 0.0, 0.0, 1.0] },
+        LineCopy { offset: Vec3::new(1.0, 1.0, 0.0), scale: 1.0, color: [0.0, 1.0, 0.0, 1.0] },
+        LineCopy { offset: Vec3::new(1.5, -1.5, 0.25), scale: 0.5, color: [1.0, 1.0, 0.0, 0.5] },
+    ];
+    let given = |shape: &Arc<[[Vec3; 2]]>| -> Vec<mg_render::Line> {
+        copies
+            .iter()
+            .flat_map(|c| {
+                shape.iter().map(|[a, b]| mg_render::Line {
+                    from: c.offset + *a * c.scale,
+                    to: c.offset + *b * c.scale,
+                    color: c.color,
+                })
+            })
+            .collect()
+    };
+    let (w, h) = (160, 128);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let base = Scene { instances: vec![ground], area, ..Default::default() };
+    let mut shot = |scene: &Scene| r.render_image(&gpu, &NoAssets, scene, &camera, w, h);
+    let bare = shot(&base);
+    for shape in [&star, &square] {
+        let lines = shot(&Scene { lines: given(shape), ..base.clone() });
+        let shapes = Scene {
+            line_shapes: vec![LineShape { lines: shape.clone(), copies: copies.clone() }],
+            ..base.clone()
+        };
+        let (first, again) = (shot(&shapes), shot(&shapes));
+        assert!(lines.data != bare.data, "the lines are drawn");
+        assert!(first.data == lines.data, "copies of a shape draw its lines");
+        assert!(again.data == lines.data, "and again, its lines kept");
+    }
+    // Drawn no more: nothing of it.
+    assert!(shot(&base).data == bare.data);
 }
 
 #[test]

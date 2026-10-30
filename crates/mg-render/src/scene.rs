@@ -259,6 +259,11 @@ pub struct Scene {
     /// Lines drawn after the meshes, hidden behind them (the area's tile
     /// grid), a pixel wide.
     pub lines: Vec<Line>,
+    /// Lines drawn many times over, after [`Scene::lines`] and as they are:
+    /// each shape's copies (an area's Sound Ranges, a dotted sphere for
+    /// each distance), its lines sent to the GPU once and only the copies
+    /// each frame.
+    pub line_shapes: Vec<LineShape>,
     /// Seconds, for what moves by itself: the game's water ripples, and
     /// the game's shaders' clock (`worldtimerTimeOfDay`,
     /// `sceneCurrentFrame`: wind-swayed grass, flowing water).
@@ -357,6 +362,26 @@ pub fn wind(power: i64) -> Vec3 {
 pub struct Line {
     pub from: Vec3,
     pub to: Vec3,
+    /// Gamma-space colour and alpha.
+    pub color: [f32; 4],
+}
+
+/// Lines drawn many times over ([`Scene::line_shapes`]): the same lines,
+/// moved and scaled, in each copy's colour. The renderer keeps a shape's
+/// lines on the GPU while the shape is drawn, known by its `lines` (the
+/// same `Arc` from frame to frame): only the copies are sent each frame.
+#[derive(Debug, Clone)]
+pub struct LineShape {
+    /// The lines' ends, about the origin.
+    pub lines: Arc<[[Vec3; 2]]>,
+    pub copies: Vec<LineCopy>,
+}
+
+/// One of a [`LineShape`]'s copies: each end at `offset + end * scale`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineCopy {
+    pub offset: Vec3,
+    pub scale: f32,
     /// Gamma-space colour and alpha.
     pub color: [f32; 4],
 }

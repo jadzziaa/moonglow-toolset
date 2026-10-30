@@ -456,6 +456,12 @@ pub struct Renderer {
     particle_buffer: wgpu::Buffer,
     line_pipeline: wgpu::RenderPipeline,
     line_buffer: wgpu::Buffer,
+    line_copy_pipeline: wgpu::RenderPipeline,
+    /// The frame's copies of its line shapes, shape after shape.
+    line_copy_buffer: wgpu::Buffer,
+    /// The line shapes' lines, by where their `Arc` points: those of the
+    /// last frame's shapes.
+    shape_buffers: HashMap<usize, ShapeBuffer>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -552,6 +558,39 @@ struct LineVertex {
     pos: [f32; 3],
     /// Gamma-space colour and alpha.
     color: [f32; 4],
+}
+
+/// A copy of a [`crate::LineShape`]: its offset and scale, its colour.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct LineCopyRaw {
+    offset_scale: [f32; 4],
+    color: [f32; 4],
+}
+
+impl LineCopyRaw {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<LineCopyRaw>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4],
+    };
+}
+
+/// A shape's line ends, as its copies' draws read them.
+const SHAPE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+    array_stride: 12,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+};
+
+/// A [`crate::LineShape`]'s lines on the GPU, kept while it is drawn:
+/// the shape's lines (held, so that what they are known by stays theirs),
+/// their buffer and how many ends it has.
+#[derive(Debug)]
+struct ShapeBuffer {
+    _lines: Arc<[[glam::Vec3; 2]]>,
+    buffer: wgpu::Buffer,
+    ends: u32,
 }
 
 impl LineVertex {
@@ -1065,6 +1104,41 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Copies of a shape's lines: the same, but for where the ends are.
+        let line_copy_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("line copies"),
+            layout: Some(&line_layout),
+            vertex: wgpu::VertexState {
+                module: &line_shader,
+                entry_point: Some("vs_copy"),
+                compilation_options: Default::default(),
+                buffers: &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &line_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -1119,6 +1193,9 @@ impl Renderer {
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_pipeline,
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
+            line_copy_pipeline,
+            line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
+            shape_buffers: HashMap::new(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -2652,6 +2729,9 @@ impl Renderer {
             &line_vertices,
             0,
         );
+        // The line shapes: the lines of those not drawn last frame sent,
+        // and every copy; each shape's copies drawn by one draw.
+        let shapes = self.line_shapes(gpu, &scene.line_shapes);
         // The game's shaders' blocks and bind groups; the solid draws by
         // pipeline and material, each set once for its draws.
         // (Those after the framebuffer's copy, last.)
@@ -2913,10 +2993,66 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.line_buffer.slice(..));
                 pass.draw(0..line_vertices.len() as u32, 0..1);
             }
+            if !shapes.is_empty() {
+                pass.set_pipeline(&self.line_copy_pipeline);
+                pass.set_bind_group(0, &self.particle_frame, &[]);
+                pass.set_vertex_buffer(1, self.line_copy_buffer.slice(..));
+                for (key, copies) in &shapes {
+                    let shape = &self.shape_buffers[key];
+                    pass.set_vertex_buffer(0, shape.buffer.slice(..));
+                    pass.draw(0..shape.ends, copies.clone());
+                }
+            }
         }
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
+    }
+
+    /// The frame's line shapes put on the GPU: the lines of each not drawn
+    /// in the frame before sent (and those of shapes no longer drawn let
+    /// go), and every copy, shape after shape. Each shape's lines (by
+    /// [`Renderer::shape_buffers`]' key) and the range of its copies.
+    fn line_shapes(
+        &mut self,
+        gpu: &Gpu,
+        shapes: &[crate::LineShape],
+    ) -> Vec<(usize, std::ops::Range<u32>)> {
+        use wgpu::util::DeviceExt;
+        let mut copies = Vec::new();
+        let mut drawn = Vec::new();
+        for shape in shapes.iter().filter(|s| !s.lines.is_empty() && !s.copies.is_empty()) {
+            let key = Arc::as_ptr(&shape.lines) as *const () as usize;
+            self.shape_buffers.entry(key).or_insert_with(|| {
+                let ends: Vec<[f32; 3]> =
+                    shape.lines.iter().flat_map(|l| l.map(|p| p.to_array())).collect();
+                ShapeBuffer {
+                    _lines: shape.lines.clone(),
+                    buffer: gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("line shape"),
+                        contents: bytemuck::cast_slice(&ends),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                    ends: ends.len() as u32,
+                }
+            });
+            let first = copies.len() as u32;
+            copies.extend(shape.copies.iter().map(|c| LineCopyRaw {
+                offset_scale: c.offset.extend(c.scale).to_array(),
+                color: c.color,
+            }));
+            drawn.push((key, first..copies.len() as u32));
+        }
+        self.shape_buffers.retain(|key, _| drawn.iter().any(|(k, _)| k == key));
+        upload(
+            gpu,
+            &mut self.line_copy_buffer,
+            "line copies",
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            &copies,
+            0,
+        );
+        drawn
     }
 
     /// Ends the scene's first pass's work: fills `copies` from what is

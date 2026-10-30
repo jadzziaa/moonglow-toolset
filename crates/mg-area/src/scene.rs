@@ -1093,6 +1093,7 @@ impl AreaScene {
                 .and(self.sky_fade.clone())
                 .map(|m| (Instance::new(m, glam::Mat4::IDENTITY), self::fog(l, view.night).color)),
             lines: Vec::new(),
+            line_shapes: Vec::new(),
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,

@@ -58,6 +58,6 @@ pub fn wgsl_sources() -> Vec<(String, String)> {
 }
 
 pub use scene::{
-    AreaLight, Camera, Environment, Fog, Instance, Line, MeshOverride, MeshState, ModuleClock,
-    PointLight, Scene, SunShadows,
+    AreaLight, Camera, Environment, Fog, Instance, Line, LineCopy, LineShape, MeshOverride,
+    MeshState, ModuleClock, PointLight, Scene, SunShadows,
 };
