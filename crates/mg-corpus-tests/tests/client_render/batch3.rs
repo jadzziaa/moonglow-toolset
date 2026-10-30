@@ -82,7 +82,17 @@ fn put_creature(r: &mut Reading, resref: &str, at: [f32; 3], facing: f32) {
     let none = |_: ResRef| None;
     let placing = Placing { game: &r.game, item: &none };
     let at = Placement { position: at, rotation: facing.to_radians() };
-    let c = instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap();
+    let mut c = instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap();
+    // (Standing still: no scripts.)
+    let scripts: Vec<String> = c
+        .fields
+        .iter()
+        .map(|f| f.label.to_string_lossy())
+        .filter(|l| l.starts_with("Script"))
+        .collect();
+    for label in scripts {
+        c.set(&label, Value::resref(ResRef::EMPTY));
+    }
     let mut list = r.git.root.list("Creature List").map(<[_]>::to_vec).unwrap_or_default();
     list.push(c);
     r.git.root.set("Creature List", Value::List(list));
@@ -155,10 +165,156 @@ fn reading_lights_on_creatures_and_placeables() {
         for (what, x, y) in [
             ("floor near", 0.5, 0.75),
             ("floor middle", 0.5, 0.55),
-            ("commoner", 0.40, 0.42),
-            ("armoire", 0.58, 0.42),
+            ("commoner", 0.44, 0.41),
+            ("armoire", 0.56, 0.41),
         ] {
             eprintln!("{case}: {what}: {:?}", count_at(&client, x, y));
         }
+    }
+}
+
+/// An entry script's statements writing where every creature and
+/// placeable of the area stands to the log as the player enters
+/// (`MG_AT <tag> x y z`).
+const WHERE: &str = r#"object o = GetFirstObjectInArea(area);
+    while (GetIsObjectValid(o))
+    {
+        vector v = GetPosition(o);
+        if (GetObjectType(o) == OBJECT_TYPE_CREATURE || GetObjectType(o) == OBJECT_TYPE_PLACEABLE)
+            Log("MG_AT " + GetTag(o) + " " + FloatToString(v.x, 0, 3) + " " + FloatToString(v.y, 0, 3) + " " + FloatToString(v.z, 0, 3));
+        o = GetNextObjectInArea(area);
+    }"#;
+
+/// The client's settings with the environment's shadows on and its
+/// Creature Shadow Detail `mode` (0 Off, 2 Best).
+fn shadow_settings(mode: u8) -> String {
+    SETTINGS
+        .replace(
+            "[graphics.shadows.creatures]\n\t\t\tmode = 0",
+            &format!("[graphics.shadows.creatures]\n\t\t\tmode = {mode}"),
+        )
+        .replace(
+            "[graphics.shadows.environment]\n\t\t\tenabled = false",
+            "[graphics.shadows.environment]\n\t\t\tenabled = true",
+        )
+}
+
+/// How much `best` is darker than `off` in a rectangle (fractions,
+/// top-left origin): 1 less the ratio of their mean brightnesses.
+fn darker(best: &Rgba, off: &Rgba, r: [f32; 4]) -> f32 {
+    let b = |img: &Rgba| {
+        let m = mean(img, r);
+        (m[0] + m[1] + m[2]) / 3.0
+    };
+    1.0 - b(best) / b(off).max(1e-3)
+}
+
+/// The lights' shadows (the shadows entry's two client items): an ogre
+/// standing still at (20, 22) in a dim tic01 room (ambient and diffuse
+/// 0x303030, no sun or moon shadows), lit by lamp posts (placeables.2da
+/// row 73: a `LightColor` light that casts), each case taken with the
+/// client's Creature Shadow Detail Best and Off and the two pictures
+/// compared. `near_<d>`: one lamp `d` m north of the ogre (1.5, 3 and
+/// 5), its shadow falling south towards the camera, measured just south
+/// of the ogre's feet (the same place on the screen in each, so the
+/// shadow plane's fade up the screen is the same) and further along.
+/// `equal_we` and `equal_ew`: two lamps 2.5 m west and east of the ogre
+/// (in that order in the area's placeables, and the other way), whose
+/// shadows would fall east and west: which the client casts.
+/// `equal_ns` and `equal_sn` the same north and south. `MG_B3_CASES`
+/// runs some.
+///
+/// Seen (2026-10-29, 89.8193.37): the floor's darkness in the shadow just
+/// south of the feet (medians, below the ogre's own pixels) 0.50, 0.53
+/// and 0.38 at 1.5, 3 and 5 m, the shadow reaching further each time; of
+/// the equal pairs, in either order, the west lamp's shadow and the
+/// south lamp's (`MG_AT`: the server has the ogre at (20, 22) and the
+/// lamps where they were put).
+#[test]
+#[ignore]
+fn reading_light_shadows() {
+    let cases: [(&str, &[(f32, f32)]); 7] = [
+        ("near_1.5", &[(20.0, 23.5)]),
+        ("near_3", &[(20.0, 25.0)]),
+        ("near_5", &[(20.0, 27.0)]),
+        ("equal_we", &[(17.5, 22.0), (22.5, 22.0)]),
+        ("equal_ew", &[(22.5, 22.0), (17.5, 22.0)]),
+        ("equal_ns", &[(20.0, 24.5), (20.0, 19.5)]),
+        ("equal_sn", &[(20.0, 19.5), (20.0, 24.5)]),
+    ];
+    let only = std::env::var("MG_B3_CASES").ok();
+    for (case, lamps) in cases {
+        if only.as_deref().is_some_and(|o| !o.split(',').any(|c| c == case)) {
+            continue;
+        }
+        let mut pictures = Vec::new();
+        for mode in [2u8, 0] {
+            let light =
+                Lighting { ambient: 0x303030, diffuse: 0x303030, main_light: 0, only_tile: None };
+            let mut r = Reading::new(&format!("light_shadows_{case}_{mode}"), "tic01", light, &[]);
+            for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+                r.are.root.set(label, Value::Byte(v));
+            }
+            put_creature(&mut r, "nw_ogre01", [20.0, 22.0, 0.0], 270.0);
+            for &(x, y) in lamps {
+                r.place(73, [x, y, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+            }
+            // (Where the ogre and the lamps stand in the game, written to
+            // the log: the creature's place is the walkmesh's.)
+            let body = format!("{INVISIBLE}\n{WHERE}");
+            let (dir, client) = r.shoot(&enter(&body, (90.0, 12.0, 45.0)), &shadow_settings(mode));
+            super::readings::print_log(&dir);
+            pictures.push((dir, client));
+        }
+        let (best, off) = (&pictures[0].1, &pictures[1].1);
+        // The difference, for looking at: where Best is darker, white.
+        let mut diff = best.clone();
+        let pairs = best.data.chunks_exact(4).zip(off.data.chunks_exact(4));
+        for (d, (b, o)) in diff.data.chunks_exact_mut(4).zip(pairs) {
+            let sum = |p: &[u8]| p[0] as f32 + p[1] as f32 + p[2] as f32;
+            let v = ((sum(o) - sum(b)).max(0.0) * 2.0).min(255.0) as u8;
+            d[..3].copy_from_slice(&[v, v, v]);
+        }
+        let shown = pictures[0].0.join("darker.png");
+        save_png(&diff, &shown);
+        eprintln!("{case}: where Best is darker: {}", shown.display());
+        for (what, r) in [
+            ("south of the feet", [0.47, 0.50, 0.53, 0.53]),
+            ("further south", [0.47, 0.55, 0.53, 0.58]),
+            ("west of the ogre", [0.36, 0.42, 0.44, 0.47]),
+            ("east of the ogre", [0.56, 0.42, 0.64, 0.47]),
+        ] {
+            eprintln!("{case}: {what}: darker by {:.3}", darker(best, off, r));
+        }
+        // The shadow itself: the pixels about the ogre that Best darkens
+        // (by 2 of 255 a channel or more), where they are and how dark.
+        let (w, h) = (best.width as usize, best.height as usize);
+        let (mut n, mut sums, mut bbox) = (0usize, [0.0f64; 2], [usize::MAX, usize::MAX, 0, 0]);
+        let mut halves = [0usize; 2];
+        for y in h * 35 / 100..h * 75 / 100 {
+            for x in w * 30 / 100..w * 70 / 100 {
+                let i = (y * w + x) * 4;
+                let sum = |p: &[u8]| p[0] as f64 + p[1] as f64 + p[2] as f64;
+                let (b, o) = (sum(&best.data[i..i + 3]), sum(&off.data[i..i + 3]));
+                if o - b >= 6.0 {
+                    n += 1;
+                    sums[0] += b;
+                    sums[1] += o;
+                    bbox = [bbox[0].min(x), bbox[1].min(y), bbox[2].max(x), bbox[3].max(y)];
+                    halves[usize::from(x >= w / 2)] += 1;
+                }
+            }
+        }
+        eprintln!(
+            "{case}: shadow: {n} pixels, darker by {:.3}, from ({}, {}) to ({}, {}); \
+             west of the middle {}, east {}",
+            1.0 - sums[0] / sums[1].max(1.0),
+            bbox[0],
+            bbox[1],
+            bbox[2],
+            bbox[3],
+            halves[0],
+            halves[1]
+        );
     }
 }

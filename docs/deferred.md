@@ -1096,13 +1096,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in `shadows_look`; [the research note](research/notes_shaders.md) §G),
   and creatures' and lights' shadows (the Shadows button's menu, done
   2026-10-28). Left:
-  - the lights' shadows' darkness was measured at one distance from one
-    lamp: the opacity times the plane's fade there, which a fall-off with
-    the distance from the light (`shadowradius`) would look alike to (S)
-    (waits on a client reading: a creature's light shadow at two more
-    distances from the lamp);
-  - which light of two equally near the client takes (Moonglow: the
-    first), how many creatures cast the lights' shadows at once
+  - the lights' shadows fall off with the lamp's distance, where
+    Moonglow's darkness is the opacity times the plane's fade alone: an
+    ogre's shadow from a lamp post (row 73) 1.5, 3 and 5 m north of it
+    darkens the floor just south of its feet (the same place on the
+    screen) by 0.50, 0.53 and 0.38 (medians; `reading_light_shadows` in
+    `client_render.rs`'s `batch3.rs`, 2026-10-29), and grows longer as
+    the lamp goes further (the rule, `shadowradius` or the light's reach,
+    not fitted: S);
+  - which light of two equally near the client takes isn't the first of
+    the area's (Moonglow's): with two lamp posts 2.5 m west and east of
+    the ogre, in either order in the area's file, it cast from the west
+    one, and of two north and south, from the south one (the ogre facing
+    south; the server places all three where they were put, so it likely
+    measures from the creature's model, not its feet: not read further);
+    how many creatures cast the lights' shadows at once
     (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
     PC's own light at night (Moonglow places no PC) (S) (waits on a
     client reading);

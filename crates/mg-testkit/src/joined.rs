@@ -108,7 +108,7 @@ pub fn start(
         env.push(("MG_WEB".into(), web.into()));
         // (The client ends itself after an NWSync download, and its own
         // restart doesn't come back in the sandbox: started once more.)
-        env.push(("MG_CLIENT_RUNS".into(), "3".into()));
+        env.push(("MG_CLIENT_RUNS".into(), "2".into()));
     }
     let server = mg_serve::Server::start(&mg_serve::Options {
         server: repo().join("tools/nwclient/run-server-and-client.sh"),
