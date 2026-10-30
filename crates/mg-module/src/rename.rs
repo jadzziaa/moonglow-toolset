@@ -5,13 +5,13 @@
 //! its name.
 
 use mg_core::{Codepage, Language, ResRef, ResType};
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{Gff, GffPath, Step, Struct, Value};
 use mg_resman::{ResKey, ResMan};
 use mg_rules::ObjectKind;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
-use crate::refs::{RefKind, Reference, rewrite_references};
+use crate::refs::{Location, RefKind, Reference, rewrite_references};
 
 /// The reference kinds that point at a resource of this type; empty if
 /// nothing refers to such resources by name (they can't be renamed here).
@@ -47,9 +47,10 @@ pub fn renamable(restype: ResType) -> bool {
 pub struct Usage {
     /// The resource that names it.
     pub from: ResKey,
-    /// Where in it: a GFF path (`/Creature List[3]/ScriptSpawn`) or, in a
-    /// script, `line N`.
-    pub path: String,
+    /// Where in it: a GFF path (`/Creature List[3]/ScriptSpawn`), in a
+    /// script `line N`, in a 2DA `row R, COLUMN`, in a sound set `entry
+    /// N`.
+    pub path: Location,
     /// Where, for people: `area001 › creature GUARD › OnSpawn`.
     pub place: String,
 }
@@ -57,7 +58,10 @@ pub struct Usage {
 impl Usage {
     /// The line, for a usage in a script.
     pub fn line(&self) -> Option<usize> {
-        self.path.strip_prefix("line ")?.parse().ok()
+        match self.path {
+            Location::Line(n) => Some(n),
+            _ => None,
+        }
     }
 
     /// For a placed object: the GIT list it is in and its index there.
@@ -65,9 +69,7 @@ impl Usage {
         if self.from.restype != ResType::GIT {
             return None;
         }
-        let first = self.path.strip_prefix('/')?.split('/').next()?;
-        let (list, rest) = first.split_once('[')?;
-        Some((list, rest.strip_suffix(']')?.parse().ok()?))
+        self.path.gff()?.first()?.item()
     }
 }
 
@@ -110,13 +112,13 @@ struct Read {
     data: std::sync::Arc<[u8]>,
     refs: Vec<Reference>,
     /// A GFF's fields that name a tag ([`TAG_FIELDS`]): where, and the tag.
-    tags: Vec<(String, Vec<u8>)>,
+    tags: Vec<(GffPath, Vec<u8>)>,
     /// A script's string literals: where each begins (inside the quotes).
     strings: Vec<(usize, usize)>,
     /// The talk-table lines it names: a GFF's localized strings that have
     /// a StrRef, and a 2DA's cells in the columns known to hold one
     /// (`doctor::STRREF_COLUMNS`); where, and the StrRef.
-    strrefs: Vec<(String, u32)>,
+    strrefs: Vec<(Location, u32)>,
 }
 
 impl Read {
@@ -140,13 +142,13 @@ impl Read {
             && let Ok(gff) = Gff::read(data)
         {
             read.refs = crate::refs::gff_references(key, &gff);
-            tag_fields(&gff.root, &mut String::new(), &mut read.tags);
-            strref_fields(&gff.root, key.restype, &mut String::new(), &mut read.strrefs);
+            tag_fields(&gff.root, &mut read.tags);
+            strref_fields(&gff.root, key.restype, &mut read.strrefs);
         } else if key.restype == ResType::SSF
             && let Ok(ssf) = mg_ssf::Ssf::read(data)
         {
             for (i, e) in ssf.entries.iter().enumerate().filter(|(_, e)| !e.strref.is_none()) {
-                read.strrefs.push((format!("entry {i}"), e.strref.0));
+                read.strrefs.push((Location::Entry(i), e.strref.0));
             }
         } else if key.restype == ResType::TWODA
             && let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default())
@@ -156,53 +158,13 @@ impl Read {
                 for row in 0..table.len() {
                     let cell = table.get(row, column).and_then(mg_2da::parse_int);
                     if let Some(n) = cell.and_then(|n| u32::try_from(n).ok()) {
-                        read.strrefs.push((format!("row {row}, {column}"), n));
+                        let at = Location::Cell { row, column: column.to_string() };
+                        read.strrefs.push((at, n));
                     }
                 }
             }
         }
         read
-    }
-}
-
-/// Walks the fields of `s` under `path` (a buffer, each field's path
-/// made in it only as deep as the walk is): `found` says what a field
-/// that is not a struct or a list gives, kept with its path.
-fn fields_with_paths<T>(
-    s: &Struct,
-    path: &mut String,
-    found: &dyn Fn(&mg_gff::Field) -> Option<T>,
-    out: &mut Vec<(String, T)>,
-) {
-    use std::fmt::Write;
-    for f in &s.fields {
-        let len = path.len();
-        let enter = |path: &mut String| {
-            path.push('/');
-            path.push_str(&String::from_utf8_lossy(f.label.as_bytes()));
-        };
-        match &f.value {
-            Value::Struct(c) => {
-                enter(path);
-                fields_with_paths(c, path, found, out);
-            }
-            Value::List(items) => {
-                enter(path);
-                let list = path.len();
-                for (i, c) in items.iter().enumerate() {
-                    let _ = write!(path, "[{i}]");
-                    fields_with_paths(c, path, found, out);
-                    path.truncate(list);
-                }
-            }
-            _ => {
-                if let Some(v) = found(f) {
-                    enter(path);
-                    out.push((path.clone(), v));
-                }
-            }
-        }
-        path.truncate(len);
     }
 }
 
@@ -229,24 +191,28 @@ pub const STRREF_FUNCTIONS: [(&str, usize); 9] = [
 /// The localized strings of `s` that name a talk-table line, and its
 /// fields that hold one as a number ([`STRREF_FIELDS`], of a file of
 /// type `t`), with their paths.
-fn strref_fields(s: &Struct, t: ResType, path: &mut String, out: &mut Vec<(String, u32)>) {
+fn strref_fields(s: &Struct, t: ResType, out: &mut Vec<(Location, u32)>) {
     let plain: Vec<&str> = STRREF_FIELDS.iter().filter(|(ft, _)| *ft == t).map(|f| f.1).collect();
-    let found = |f: &mg_gff::Field| match &f.value {
+    let found = |f: &mg_gff::FieldAt<'_>| match f.value {
         Value::LocString(v) if !v.strref.is_none() => Some(v.strref.0),
-        v if plain.iter().any(|l| l.as_bytes() == f.label.as_bytes()) => {
+        v if plain.contains(&f.label) => {
             let n = u32::try_from(v.as_integer()?).ok()?;
             (n != u32::MAX).then_some(n)
         }
         _ => None,
     };
-    fields_with_paths(s, path, &found, out);
+    s.walk_fields(&mut |f| {
+        if let Some(n) = found(f) {
+            out.push((Location::Gff(f.path.clone()), n));
+        }
+    });
 }
 
 /// The talk-table lines a script names by number: an integer written as
 /// the argument of one of [`STRREF_FUNCTIONS`] that takes one
 /// (`GetStringByStrRef(16777300)`), at `line N`. A number held in a
 /// variable or a constant isn't followed.
-fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(String, u32)> {
+fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(Location, u32)> {
     let text = |t: &mg_script::lex::Token| &src[t.span.clone()];
     let tokens: Vec<&mg_script::lex::Token> =
         tokens.iter().filter(|t| t.kind.is_significant()).collect();
@@ -291,7 +257,7 @@ fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(String, 
         let Some(n) = std::str::from_utf8(text(number)).ok().and_then(parse_int) else { continue };
         let lines = lines.get_or_insert_with(|| line_starts(src));
         let line = lines.partition_point(|&s| s <= number.span.start);
-        out.push((format!("line {line}"), n));
+        out.push((Location::Line(line), n));
     }
     out
 }
@@ -358,14 +324,14 @@ fn parse_int(s: &str) -> Option<u32> {
 }
 
 /// The fields of `s` that name a tag, with their paths.
-fn tag_fields(s: &Struct, path: &mut String, out: &mut Vec<(String, Vec<u8>)>) {
-    let found = |f: &mg_gff::Field| match &f.value {
-        Value::String(v) if TAG_FIELDS.iter().any(|t| t.as_bytes() == f.label.as_bytes()) => {
-            Some(v.clone())
+fn tag_fields(s: &Struct, out: &mut Vec<(GffPath, Vec<u8>)>) {
+    s.walk_fields(&mut |f| {
+        if let Value::String(v) = f.value
+            && TAG_FIELDS.contains(&f.label)
+        {
+            out.push((f.path.clone(), v.clone()));
         }
-        _ => None,
-    };
-    fields_with_paths(s, path, &found, out);
+    });
 }
 
 impl UsageIndex {
@@ -432,7 +398,8 @@ impl UsageIndex {
     /// what [`refresh`](Self::refresh) read.
     pub fn links_into(&self, area: ResRef) -> Vec<Usage> {
         let git = ResKey::new(area, ResType::GIT);
-        let own = |path: &str| path.ends_with("/Tag") && path.matches('/').count() == 2;
+        // (An object's own: a field of a struct the root holds.)
+        let own = |path: &GffPath| matches!(&path.0[..], [_, Step::Field(l)] if l == "Tag");
         let Some(read) = self.seen.get(&git) else { return Vec::new() };
         let mut tags: Vec<&[u8]> = (read.tags.iter())
             .filter(|(path, tag)| own(path) && !tag.is_empty())
@@ -450,7 +417,9 @@ impl UsageIndex {
         tags.sort();
         tags.dedup();
         tags.retain(|t| !elsewhere(t));
-        let leads = |path: &str, tag: &[u8]| path.ends_with("/LinkedTo") && tags.contains(&tag);
+        let leads = |path: &GffPath, tag: &[u8]| {
+            matches!(path.0.last(), Some(Step::Field(l)) if l == "LinkedTo") && tags.contains(&tag)
+        };
         let mut keys: Vec<&ResKey> = (self.seen.iter())
             .filter(|(k, _)| {
                 k.resref != area || !matches!(k.restype, ResType::ARE | ResType::GIT | ResType::GIC)
@@ -465,7 +434,7 @@ impl UsageIndex {
             let gff = Gff::read(&read.data).ok();
             for (path, _) in read.tags.iter().filter(|(p, t)| leads(p, t)) {
                 let place = describe(*key, gff.as_ref(), path);
-                out.push(Usage { from: *key, path: path.clone(), place });
+                out.push(Usage { from: *key, path: Location::Gff(path.clone()), place });
             }
         }
         out
@@ -487,7 +456,7 @@ impl UsageIndex {
             let read = &self.seen[key];
             let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
             for r in read.refs.iter().filter(hit) {
-                let place = describe(*key, gff.as_ref(), &r.path);
+                let place = place_of(*key, gff.as_ref(), &r.path);
                 out.push(Usage { from: *key, path: r.path.clone(), place });
             }
         }
@@ -503,7 +472,10 @@ impl UsageIndex {
         }
         let mut out: Vec<ResKey> = (self.seen.iter())
             .filter(|(k, _)| ObjectKind::from_restype(k.restype).is_some())
-            .filter(|(_, r)| r.tags.iter().any(|(path, t)| path == "/Tag" && t == tag))
+            .filter(|(_, r)| {
+                let own = |path: &GffPath| matches!(&path.0[..], [Step::Field(l)] if l == "Tag");
+                r.tags.iter().any(|(path, t)| own(path) && t == tag)
+            })
             .map(|(k, _)| *k)
             .collect();
         out.sort();
@@ -515,7 +487,7 @@ impl UsageIndex {
         if tag.is_empty() {
             return Vec::new();
         }
-        let hit = |t: &&(String, Vec<u8>)| t.1 == tag.as_bytes();
+        let hit = |t: &&(GffPath, Vec<u8>)| t.1 == tag.as_bytes();
         let mut keys: Vec<&ResKey> = self
             .seen
             .iter()
@@ -529,7 +501,7 @@ impl UsageIndex {
             let gff = Gff::read(&read.data).ok();
             for (path, _) in read.tags.iter().filter(hit) {
                 let place = describe(*key, gff.as_ref(), path);
-                out.push(Usage { from: *key, path: path.clone(), place });
+                out.push(Usage { from: *key, path: Location::Gff(path.clone()), place });
             }
         }
         out
@@ -542,7 +514,7 @@ impl UsageIndex {
     /// [`refresh`](Self::refresh) read; the haks' 2DAs are not the
     /// module's, and not looked in.
     pub fn strref_usages(&self, strref: u32) -> Vec<Usage> {
-        let hit = |t: &&(String, u32)| t.1 == strref;
+        let hit = |t: &&(Location, u32)| t.1 == strref;
         let mut keys: Vec<&ResKey> = (self.seen.iter())
             .filter(|(_, r)| r.strrefs.iter().any(|t| hit(&t)))
             .map(|(k, _)| k)
@@ -553,9 +525,9 @@ impl UsageIndex {
             let read = &self.seen[key];
             let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
             for (path, _) in read.strrefs.iter().filter(hit) {
-                let place = match &gff {
-                    Some(_) => describe(*key, gff.as_ref(), path),
-                    None => format!("{key} › {path}"),
+                let place = match (&gff, path) {
+                    (Some(_), Location::Gff(p)) => describe(*key, gff.as_ref(), p),
+                    _ => format!("{key} › {path}"),
                 };
                 out.push(Usage { from: *key, path: path.clone(), place });
             }
@@ -661,8 +633,17 @@ fn string_literals(src: &[u8], name: &str, ignore_case: bool) -> Vec<(usize, usi
         .collect()
 }
 
+/// A location's place, for people: a GFF field's as [`describe`] says it,
+/// else the resource and the location (`caller.nss › line 3`).
+pub fn place_of(key: ResKey, gff: Option<&Gff>, at: &Location) -> String {
+    match at {
+        Location::Gff(path) => describe(key, gff, path),
+        other => format!("{key} › {other}"),
+    }
+}
+
 /// A path's place, for people (as findings say it: their `at`).
-pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
+pub fn describe(key: ResKey, gff: Option<&Gff>, path: &GffPath) -> String {
     let name = key.resref.to_string();
     let field = |label: &str| -> String {
         match label.strip_prefix("Script") {
@@ -670,13 +651,8 @@ pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
             _ => label.to_string(),
         }
     };
-    let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    let last = steps.last().copied().unwrap_or_default();
-    let last = last.split('[').next().unwrap_or(last);
-    let item = |list: &str| -> Option<(String, usize)> {
-        let (l, rest) = list.split_once('[')?;
-        Some((l.to_string(), rest.strip_suffix(']')?.parse().ok()?))
-    };
+    let steps = &path.0;
+    let last = path.label();
     let string = |s: &Struct, label: &str| -> Option<String> {
         match s.get(label)? {
             Value::String(v) => Some(String::from_utf8_lossy(v).into_owned()),
@@ -684,23 +660,26 @@ pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
         }
     };
     match key.restype {
-        ResType::NSS => format!("{key} › {path}"),
         ResType::IFO => {
-            let what = match steps.first().copied().unwrap_or_default() {
-                s if s.starts_with("Mod_Area_list") => "area list".to_string(),
-                "Mod_Entry_Area" => "start area".to_string(),
-                s if s.starts_with("Mod_CacheNSSList") => "cached scripts".to_string(),
-                s => s.trim_start_matches("Mod_").to_string(),
+            let what = match steps.first() {
+                Some(s) if s.label().starts_with("Mod_Area_list") => "area list".to_string(),
+                Some(Step::Field(l)) if l == "Mod_Entry_Area" => "start area".to_string(),
+                Some(s) if s.label().starts_with("Mod_CacheNSSList") => {
+                    "cached scripts".to_string()
+                }
+                Some(Step::Field(l)) => l.trim_start_matches("Mod_").to_string(),
+                Some(Step::Item(l, i)) => format!("{}[{i}]", l.trim_start_matches("Mod_")),
+                None => String::new(),
             };
             format!("Module › {what}")
         }
         ResType::GIT => {
-            let Some((list, index)) = steps.first().and_then(|s| item(s)) else {
+            let Some((list, index)) = steps.first().and_then(Step::item) else {
                 return format!("{name} › {}", field(last));
             };
-            let kind = ObjectKind::from_list(&list).map_or("object", ObjectKind::name);
+            let kind = ObjectKind::from_list(list).map_or("object", ObjectKind::name);
             let tag = gff
-                .and_then(|g| match g.root.get(&list) {
+                .and_then(|g| match g.root.get(list) {
                     Some(Value::List(items)) => items.get(index),
                     _ => None,
                 })
@@ -708,10 +687,9 @@ pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| format!("#{}", index + 1));
             let inner = if steps.len() > 2 {
-                let what = steps[1].split('[').next().unwrap_or_default();
                 format!(
                     "{} {}",
-                    match what {
+                    match steps[1].label() {
                         "ItemList" | "Equip_ItemList" => "inventory",
                         "CreatureList" => "creatures",
                         other => other,
@@ -725,17 +703,17 @@ pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
         }
         ResType::ARE => format!("{name} (area) › {}", field(last)),
         ResType::DLG => {
-            let Some((list, index)) = steps.first().and_then(|s| item(s)) else {
+            let Some((list, index)) = steps.first().and_then(Step::item) else {
                 return format!("{name} › {}", field(last));
             };
-            let who = match list.as_str() {
+            let who = match list {
                 "EntryList" => "NPC line",
                 "ReplyList" => "PC line",
                 "StartingList" => "start",
-                _ => list.as_str(),
+                _ => list,
             };
             let text = gff
-                .and_then(|g| match g.root.get(&list) {
+                .and_then(|g| match g.root.get(list) {
                     Some(Value::List(items)) => items.get(index),
                     _ => None,
                 })
@@ -1051,8 +1029,12 @@ mod tests {
         root.set("List", Value::List(vec![Struct::new(0), item]));
         root.set("Tag", Value::String(b"R".to_vec()));
         let (mut tags, mut strrefs) = (Vec::new(), Vec::new());
-        tag_fields(&root, &mut String::new(), &mut tags);
-        strref_fields(&root, ResType::UTC, &mut String::new(), &mut strrefs);
+        tag_fields(&root, &mut tags);
+        strref_fields(&root, ResType::UTC, &mut strrefs);
+        let tags: Vec<(String, Vec<u8>)> =
+            tags.into_iter().map(|(p, t)| (p.to_string(), t)).collect();
+        let strrefs: Vec<(String, u32)> =
+            (strrefs.into_iter()).map(|(p, n)| (p.to_string(), n)).collect();
         assert_eq!(
             tags,
             [("/List[1]/Tag".to_string(), b"T".to_vec()), ("/Tag".into(), b"R".to_vec())]
@@ -1225,7 +1207,8 @@ mod tests {
                 "sword.uti › LocalizedName",
             ],
         );
-        let talk = index.strref_usages(16_777_220).into_iter().find(|u| u.path == "line 3");
+        let talk =
+            index.strref_usages(16_777_220).into_iter().find(|u| u.path == Location::Line(3));
         assert_eq!(talk.and_then(|u| u.line()), Some(3), "opened at its line");
         assert!(index.strref_usages(u32::MAX).is_empty(), "a category without one");
         // Set again with the bytes it had: not read again.
@@ -1247,7 +1230,8 @@ mod tests {
                    string s = \"GetStringByStrRef(13)\"; GetStringByStrRef(x + 14);\n\
                    GetStringByStrRef(GetLocalInt(o, \"n\")); SetTlkOverride(0b101, \"x\");\n}\n";
         let found = script_strrefs(src.as_bytes(), &tokenize(src.as_bytes()));
-        let lines: Vec<(&str, u32)> = found.iter().map(|(l, n)| (l.as_str(), *n)).collect();
+        let lines: Vec<(String, u32)> = found.iter().map(|(l, n)| (l.to_string(), *n)).collect();
+        let lines: Vec<(&str, u32)> = lines.iter().map(|(l, n)| (l.as_str(), *n)).collect();
         assert_eq!(
             lines,
             [("line 3", 7), ("line 3", 8), ("line 4", 10), ("line 4", 11), ("line 6", 5)]
@@ -1307,8 +1291,11 @@ mod tests {
         m.set_gff(key("outside", ResType::GIT), &g).unwrap();
         let mut index = UsageIndex::default();
         index.refresh(&m);
-        let places: Vec<(ResKey, String)> =
-            index.links_into(rr("keep")).into_iter().map(|u| (u.from, u.path)).collect();
+        let places: Vec<(ResKey, String)> = index
+            .links_into(rr("keep"))
+            .into_iter()
+            .map(|u| (u.from, u.path.to_string()))
+            .collect();
         // (The keep's own door leads to its guard, and the outside's
         // second door to the guard too: GUARD is the guard's alone, the
         // item's tag in the inventory being no destination.)
@@ -1324,7 +1311,8 @@ mod tests {
         both.root.list_mut("Door List").unwrap()[2].set("Tag", Value::String(b"GATE".to_vec()));
         m.set_gff(key("outside", ResType::GIT), &both).unwrap();
         index.refresh(&m);
-        let paths: Vec<String> = index.links_into(rr("keep")).into_iter().map(|u| u.path).collect();
+        let paths: Vec<String> =
+            index.links_into(rr("keep")).into_iter().map(|u| u.path.to_string()).collect();
         assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
         assert!(index.links_into(rr("outside")).is_empty(), "OUT_1, OUT_2: nothing leads there");
     }

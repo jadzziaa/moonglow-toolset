@@ -21,6 +21,7 @@ mod diff;
 mod json;
 pub mod merge;
 mod nwnt;
+mod path;
 mod read;
 mod value;
 mod write;
@@ -31,6 +32,7 @@ pub use json::{
     value_from_json, value_to_json,
 };
 pub use nwnt::{NwntError, from_nwnt, nwnt_unkept_label, to_nwnt};
+pub use path::{GffPath, Step};
 pub use read::ReadError;
 pub use value::{Field, FieldAt, FieldType, Label, LabelError, Struct, Value};
 pub use write::WriteError;

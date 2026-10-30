@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use mg_2da::{TwoDa, overlong_rows};
 use mg_core::{Codepage, ResRef, ResType};
-use mg_gff::{Struct, Value};
+use mg_gff::{GffPath, Step, Struct, Value};
 use mg_resman::{Layer, LayerClass, ResKey, ResMan, priority};
 use mg_set::Tileset;
 pub use mg_shader::ProgramCache;
@@ -2475,13 +2475,15 @@ fn objects(d: &mut Doctor, module: &Module) {
             ResType::GIT => None,
             t => Some(t),
         };
-        walk_objects(d, &gff.root, kind, "", &mut found);
+        walk_objects(d, &gff.root, kind, &GffPath::root(), &mut found);
         // Placed, it breaks the area (Aurora's area view crashes on it); a
         // blueprint breaks only when placed, and a waypoint's flag nothing
         // the game shows. A part with no model (an item's piece, a body's
         // part) leaves the rest drawn: a warning wherever it is.
         for (path, message, part) in found {
-            let waypoint = path.starts_with("/WaypointList[") || key.restype == ResType::UTW;
+            let in_list =
+                |list: &str| path.first().and_then(Step::item).is_some_and(|(l, _)| l == list);
+            let waypoint = in_list("WaypointList") || key.restype == ResType::UTW;
             let severity = match key.restype == ResType::GIT && !waypoint && !part {
                 true => Severity::Error,
                 false => Severity::Warning,
@@ -2529,14 +2531,14 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
                 };
                 for (i, s) in objects.iter().enumerate() {
                     if let Some((field, none)) = of_pc(kind, s) {
-                        found.push((kind, format!("/{label}[{i}]/{field}"), none));
+                        found.push((kind, GffPath::root().item(&label, i).field(field), none));
                     }
                 }
             }
         } else if let Some(kind) = ObjectKind::from_restype(key.restype)
             && let Some((field, none)) = of_pc(kind, &gff.root)
         {
-            found.push((kind, format!("/{field}"), none));
+            found.push((kind, GffPath::root().field(field), none));
         }
         for (kind, path, none) in found {
             let place = crate::rename::describe(key, Some(&gff), &path);
@@ -2574,8 +2576,8 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
             if s.integer("Static").unwrap_or(0) == 0 || !crate::placement::is_transformed(s) {
                 continue;
             }
-            let place =
-                crate::rename::describe(key, Some(&gff), &format!("/Placeable List[{i}]/Static"));
+            let static_at = GffPath::root().item("Placeable List", i).field("Static");
+            let place = crate::rename::describe(key, Some(&gff), &static_at);
             let message = "static, so the game draws it without its visual transform (its scale, \
                            rotation and translation): untick Static (Properties) to have it drawn \
                            transformed (ticking it again takes the transform off, as Aurora does)"
@@ -2795,7 +2797,8 @@ fn described_variables(d: &mut Doctor, module: &Module) {
                 .map(|f| (f.name.as_str(), f.value.as_str()))
                 .collect();
             for n in vars.missing(&here) {
-                let place = crate::rename::describe(key, Some(&gff), &format!("{path}/VarTable"));
+                let table = var_desc::table_path(path);
+                let place = crate::rename::describe(key, Some(&gff), &table);
                 let why = match &n.is {
                     Some(is) => format!("where {} is {is}", n.by),
                     None => "beside it".to_string(),
@@ -2809,7 +2812,7 @@ fn described_variables(d: &mut Doctor, module: &Module) {
             }
         }
         for f in found {
-            let place = crate::rename::describe(key, Some(&gff), &format!("{}/VarTable", f.path));
+            let place = crate::rename::describe(key, Some(&gff), &var_desc::table_path(&f.path));
             let at = format!("{place} › {}", f.name);
             let Some(desc) = vars.describe(&f.name) else {
                 let message = match vars.unknown(&f.name) {
@@ -2955,7 +2958,7 @@ fn variables_read(d: &mut Doctor, module: &Module) {
                 1 => String::new(),
                 n => format!(" and {} more", n - 1),
             };
-            let place = crate::rename::describe(key, Some(&gff), &format!("{}/VarTable", f.path));
+            let place = crate::rename::describe(key, Some(&gff), &var_desc::table_path(&f.path));
             let message = format!(
                 "{} is {} {} here, and the scripts read it as {} {} ({} in {}.nss line {}{more}): \
                  they read {}",
@@ -2989,8 +2992,8 @@ fn walk_objects(
     d: &mut Doctor,
     s: &Struct,
     kind: Option<ResType>,
-    path: &str,
-    out: &mut Vec<(String, String, bool)>,
+    path: &GffPath,
+    out: &mut Vec<(GffPath, String, bool)>,
 ) {
     // The row the object's appearance names must exist, and the model its
     // column names too (a missing one crashes Aurora's area view), as the
@@ -3004,7 +3007,7 @@ fn walk_objects(
         // there is a waypoint.2da to judge it by, a game.)
         let unjudged = object == Some(mg_rules::ObjectKind::Waypoint) && table.is_none();
         match at.model(table, rm) {
-            Err(e) if !unjudged => out.push((format!("{path}/{}", at.field), e.to_string(), false)),
+            Err(e) if !unjudged => out.push((path.field(at.field), e.to_string(), false)),
             Err(_) => {}
             // Its parts' models (an item's pieces and armor parts, a
             // body's skeleton and parts) must be there too, and what is
@@ -3018,7 +3021,7 @@ fn walk_objects(
                 let lookup = |name: &str| tables.get(name).and_then(Option::as_ref);
                 let parts = at.parts(s, &lookup, rm);
                 for p in &parts.problems {
-                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                    out.push((path.field(p.field()), p.to_string(), p.problem.is_part()));
                 }
                 let models = own.map(|m| (None, m));
                 let found = parts.found.into_iter().map(|(field, m)| (Some(field), m));
@@ -3027,7 +3030,7 @@ fn walk_objects(
                     let unread = mg_rules::appearance::Unread { field, model, why };
                     let problem = mg_rules::appearance::Problem::Unreadable(Box::new(unread));
                     let p = mg_rules::appearance::ModelProblem { at, problem };
-                    out.push((format!("{path}/{}", p.field()), p.to_string(), p.problem.is_part()));
+                    out.push((path.field(p.field()), p.to_string(), p.problem.is_part()));
                 }
             }
         }
@@ -3040,7 +3043,7 @@ fn walk_objects(
                 && !d.row_has("classes", i64::from(*v), "Label")
             {
                 out.push((
-                    format!("{path}/ClassList[{i}]/Class"),
+                    path.item("ClassList", i).field("Class"),
                     format!("class {v} isn't a classes.2da row; Aurora and the game crash"),
                     false,
                 ));
@@ -3053,7 +3056,7 @@ fn walk_objects(
             && let Some(t) = list_type(&label)
         {
             for (i, item) in items.iter().enumerate() {
-                walk_objects(d, item, Some(t), &format!("{path}/{label}[{i}]"), out);
+                walk_objects(d, item, Some(t), &path.item(&label, i), out);
             }
         }
     }
@@ -3594,7 +3597,7 @@ endmodelgeom fx\ndonemodel fx\n";
         let missing = |t: ResType| {
             let reference = crate::refs::Reference {
                 from: key("x", t),
-                path: "Script".into(),
+                path: crate::refs::Location::Gff(GffPath::root().field("Script")),
                 kind: crate::refs::RefKind::Script,
                 target: ResRef::from_str("gone").unwrap(),
             };

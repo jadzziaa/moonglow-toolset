@@ -1314,7 +1314,7 @@ fn verify_says_errors_first_and_gone_blueprints_once_each() {
     let missing = |from: &str, path: &str, kind: RefKind, target: &str| Missing {
         reference: Reference {
             from: ResKey::from_filename(from).unwrap(),
-            path: path.into(),
+            path: mg_module::refs::Location::Gff(path.parse().unwrap()),
             kind,
             target: ResRef::from_str(target).unwrap(),
         },

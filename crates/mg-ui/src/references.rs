@@ -728,10 +728,12 @@ impl Moonglow {
         let codepage = crate::text::script_codepage();
         // (Outside what goes with them; an area's entry in the module's
         // area list goes too.)
-        let outside = |u: &Usage| {
-            !gone.contains(&u.from)
-                && !(u.from.restype == ResType::IFO && u.path.starts_with("/Mod_Area_list"))
+        let area_list = |u: &Usage| {
+            let first = u.path.gff().and_then(mg_edit::GffPath::first);
+            u.from.restype == ResType::IFO
+                && first.is_some_and(|s| s.label().starts_with("Mod_Area_list"))
         };
+        let outside = |u: &Usage| !gone.contains(&u.from) && !area_list(u);
         let mut usages = Vec::new();
         let mut mentions = Vec::new();
         for &key in keys {
@@ -747,7 +749,9 @@ impl Moonglow {
         for &area in &areas {
             usages.extend(index.links_into(area).into_iter().filter(outside));
         }
-        usages.sort_by(|a, b| (a.from, &a.path).cmp(&(b.from, &b.path)));
+        // (In the order of their text, as the window lists them:
+        // `List[10]` before `List[2]`.)
+        usages.sort_by_cached_key(|u| (u.from, u.path.to_string()));
         usages.dedup();
         mentions.dedup();
         self.references.named = Some(Named { keys: keys.to_vec(), revision, usages, mentions });
@@ -808,13 +812,9 @@ impl Moonglow {
 /// itself, for a link's condition).
 fn dialog_row(module: &mg_module::Module, u: &Usage) -> Option<Row> {
     let g = module.gff(&u.from)?.ok()?;
-    let steps: Vec<&str> = u.path.trim_start_matches('/').split('/').collect();
-    let item = |s: &str| -> Option<(String, usize)> {
-        let (l, rest) = s.split_once('[')?;
-        Some((l.to_string(), rest.strip_suffix(']')?.parse().ok()?))
-    };
-    let (list, index) = item(steps.first()?)?;
-    let kind = match list.as_str() {
+    let steps = &u.path.gff()?.0;
+    let (list, index) = steps.first()?.item()?;
+    let kind = match list {
         "EntryList" => Kind::Entry,
         "ReplyList" => Kind::Reply,
         "StartingList" => return Some(Row { parent: Parent::Root, pos: index }),
@@ -822,7 +822,7 @@ fn dialog_row(module: &mg_module::Module, u: &Usage) -> Option<Row> {
     };
     // A link's own field (its condition): that link's row.
     if steps.len() > 2
-        && let Some((_, pos)) = item(steps[1])
+        && let Some((_, pos)) = steps[1].item()
     {
         return Some(Row { parent: Parent::Node(kind, index as u32), pos });
     }

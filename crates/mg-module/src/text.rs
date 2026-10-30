@@ -7,7 +7,7 @@
 //! is found as typed, or by a regular expression (`regex-lite`'s).
 
 use mg_core::LocString;
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{GffPath, Step, Value};
 use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 use regex_lite::Regex;
@@ -257,19 +257,12 @@ impl Finder {
     }
 }
 
-/// A step from a GFF's root to a struct inside it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Step {
-    Field(String),
-    Item(String, usize),
-}
-
 /// A string that has the text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
     pub key: ResKey,
     /// The struct holding the string, from the root.
-    pub path: Vec<Step>,
+    pub path: GffPath,
     /// The string's field.
     pub label: String,
     /// Where, for people: `keep › creature GUARD › FirstName`.
@@ -282,17 +275,10 @@ pub struct Hit {
 }
 
 impl Hit {
-    /// The path as `/List[3]/Field` (as [`crate::rename::Usage`] has it).
-    pub fn path_text(&self) -> String {
-        let mut out = String::new();
-        for s in &self.path {
-            match s {
-                Step::Field(l) => out.push_str(&format!("/{l}")),
-                Step::Item(l, i) => out.push_str(&format!("/{l}[{i}]")),
-            }
-        }
-        out.push_str(&format!("/{}", self.label));
-        out
+    /// The path of the string's field: `/List[3]/Field` (as
+    /// [`crate::rename::Usage`] has it).
+    pub fn field(&self) -> GffPath {
+        self.path.field(&self.label)
     }
 }
 
@@ -407,81 +393,58 @@ pub fn find(module: &Module, query: &str, o: Options, kinds: &[TextKind]) -> Vec
             continue;
         }
         let Some(Ok(gff)) = module.gff(&key) else { continue };
-        walk(&gff, key, &gff.root, &mut Vec::new(), &f, kinds, &mut out);
+        gff.root.walk_fields(&mut |field| {
+            if let Some((kind, text, count)) = found(key, field, &f, kinds) {
+                let path = field.path.parent();
+                let label = field.label.to_string();
+                let place = crate::rename::describe(key, Some(&gff), field.path);
+                out.push(Hit { key, path, label, place, kind, text, count });
+            }
+        });
     }
     out
 }
 
-fn walk(
-    gff: &Gff,
+/// What a field holds of the text, if it is of the kinds asked for: its
+/// kind, the text (a localized string's first variant with it) and how
+/// many times it is there.
+fn found(
     key: ResKey,
-    s: &Struct,
-    path: &mut Vec<Step>,
+    field: &mg_gff::FieldAt<'_>,
     f: &Finder,
     kinds: &[TextKind],
-    out: &mut Vec<Hit>,
-) {
-    for field in &s.fields {
-        let label = field.label.to_string_lossy();
-        let mut hit = |kind: TextKind, text: String, count: usize| {
-            let mut hit = Hit {
-                key,
-                path: path.clone(),
-                label: label.clone(),
-                place: String::new(),
-                kind,
-                text,
-                count,
-            };
-            hit.place = crate::rename::describe(key, Some(gff), &hit.path_text());
-            out.push(hit);
-        };
-        match &field.value {
-            Value::LocString(ls) => {
-                let kind = TextKind::of(key, &label);
-                if !kinds.contains(&kind) {
+) -> Option<(TextKind, String, usize)> {
+    match field.value {
+        Value::LocString(ls) => {
+            let kind = TextKind::of(key, field.label);
+            if !kinds.contains(&kind) {
+                return None;
+            }
+            let mut count = 0;
+            let mut first = None;
+            for (k, _) in &ls.strings {
+                let game = f.o.codepage(k.language());
+                let Some(text) = ls.text_in(k.language(), k.gender(), game) else {
                     continue;
-                }
-                let mut count = 0;
-                let mut first = None;
-                for (k, _) in &ls.strings {
-                    let game = f.o.codepage(k.language());
-                    let Some(text) = ls.text_in(k.language(), k.gender(), game) else {
-                        continue;
-                    };
-                    let n = f.find(&text).len();
-                    if n > 0 && first.is_none() {
-                        first = Some(text.into_owned());
-                    }
-                    count += n;
-                }
-                if let Some(text) = first {
-                    hit(kind, text, count);
-                }
-            }
-            Value::Struct(c) => {
-                path.push(Step::Field(label.clone()));
-                walk(gff, key, c, path, f, kinds, out);
-                path.pop();
-            }
-            Value::List(items) => {
-                for (i, item) in items.iter().enumerate() {
-                    path.push(Step::Item(label.clone(), i));
-                    walk(gff, key, item, path, f, kinds, out);
-                    path.pop();
-                }
-            }
-            v => {
-                let Some(kind) = TextKind::of_plain(key, path, &label, v) else { continue };
-                if !kinds.contains(&kind) {
-                    continue;
-                }
-                let Some(text) = plain_text(v, f.o) else { continue };
+                };
                 let n = f.find(&text).len();
-                if n > 0 {
-                    hit(kind, text, n);
+                if n > 0 && first.is_none() {
+                    first = Some(text.into_owned());
                 }
+                count += n;
             }
+            first.map(|text| (kind, text, count))
+        }
+        Value::Struct(_) | Value::List(_) => None,
+        v => {
+            let owner = &field.path.0[..field.path.0.len() - 1];
+            let kind = TextKind::of_plain(key, owner, field.label, v)?;
+            if !kinds.contains(&kind) {
+                return None;
+            }
+            let text = plain_text(v, f.o)?;
+            let n = f.find(&text).len();
+            (n > 0).then_some((kind, text, n))
         }
     }
 }
@@ -509,7 +472,7 @@ pub fn replace(
     for key in keys {
         let Some(Ok(mut gff)) = module.gff(&key) else { continue };
         for hit in hits.iter().filter(|h| h.key == key) {
-            let Some(s) = struct_at(&mut gff.root, &hit.path) else { continue };
+            let Some(s) = hit.path.get_mut(&mut gff.root) else { continue };
             let Some(v) = s.get(&hit.label).cloned() else { continue };
             match replace_value_by(&v, &f, with, &hit.label) {
                 Ok(Some(new)) => {
@@ -527,17 +490,6 @@ pub fn replace(
     (total, errors)
 }
 
-/// The struct at a path.
-pub fn struct_at<'a>(mut s: &'a mut Struct, path: &[Step]) -> Option<&'a mut Struct> {
-    for step in path {
-        s = match step {
-            Step::Field(l) => s.child_mut(l)?,
-            Step::Item(l, i) => s.list_mut(l)?.get_mut(*i)?,
-        };
-    }
-    Some(s)
-}
-
 /// The value a hit's field takes with `query` replaced by `with` (as
 /// [`replace`] sets it): `None` where it is already so.
 pub fn replaced(
@@ -552,6 +504,7 @@ pub fn replaced(
 #[cfg(test)]
 mod tests {
     use mg_core::{Gender, Language, ResType};
+    use mg_gff::{Gff, Struct};
 
     use super::*;
 
@@ -605,7 +558,7 @@ mod tests {
             (hits[0].label.as_str(), hits[0].count, hits[0].text.as_str()),
             ("FirstName", 2, "Orc Guard")
         );
-        assert_eq!(hits[1].path_text(), "/ItemList[0]/LocalizedName");
+        assert_eq!(hits[1].field().to_string(), "/ItemList[0]/LocalizedName");
         let (n, errors) = replace(&mut m, &hits, "orc", "goblin", o(false, true));
         assert_eq!((n, errors.len()), (3, 0));
         let g = m.gff(&key).unwrap().unwrap();
@@ -699,7 +652,7 @@ mod tests {
         m.set_gff(key, &g).unwrap();
         let o = o(false, false);
         let kinds_of = |kinds: &[TextKind]| -> Vec<(TextKind, String)> {
-            find(&m, "kz_", o, kinds).into_iter().map(|h| (h.kind, h.path_text())).collect()
+            find(&m, "kz_", o, kinds).into_iter().map(|h| (h.kind, h.field().to_string())).collect()
         };
         // Players' text only, unless asked.
         assert!(kinds_of(&TextKind::PLAYERS).is_empty(), "\"kz door\" has no kz_");

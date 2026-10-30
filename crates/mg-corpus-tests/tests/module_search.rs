@@ -124,7 +124,7 @@ fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Ta
         let (spawned, direct): (Vec<&Hit>, Vec<&Hit>) =
             direct.into_iter().partition(|h| h.spawned.is_some());
         let mut got: Vec<(ResKey, String)> =
-            direct.iter().map(|h| (h.key, h.path.clone())).collect();
+            direct.iter().map(|h| (h.key, h.path.to_string())).collect();
         got.sort();
         let mut want = want.clone();
         want.sort();
@@ -139,7 +139,7 @@ fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Ta
         // Each leads where it says, and placed ones to their object.
         for h in &direct {
             let Some(Ok(g)) = m.gff(&h.key) else { continue };
-            if at(&g.root, &h.path).is_none() {
+            if at(&g.root, &h.path.to_string()).is_none() {
                 fails.push(format!("{name}: {} {} leads nowhere", h.key, h.path));
             }
             if h.placed() && h.instance().is_none() {
@@ -170,7 +170,7 @@ fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Ta
             let named = m
                 .gff(&h.key)
                 .and_then(Result::ok)
-                .and_then(|g| at(&g.root, &h.path).and_then(|v| v.as_resref()));
+                .and_then(|g| at(&g.root, &h.path.to_string()).and_then(|v| v.as_resref()));
             if named != h.spawned {
                 fails.push(format!("{name}: {} {} names {named:?}", h.key, h.path));
             }
