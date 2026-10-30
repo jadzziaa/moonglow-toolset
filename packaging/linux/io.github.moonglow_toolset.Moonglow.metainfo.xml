@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.0" date="2026-10-30">
+      <description>
+        <p>What the Module Uses (and mg haks --usage) follows what scripts
+        name by a number: visual effects, spells, item properties and
+        appearances, read from the compiled scripts, a hak's without source
+        too. Properties windows no longer bounce at a 125% display scale, a
+        body part whose material names no texture is drawn in the human's,
+        as the game draws it, and an edit undone leaves its file's bytes as
+        they were.</p>
+      </description>
+    </release>
     <release version="3.0.0" date="2026-10-30">
       <description>
         <p>The release after the deferred sprint: of the 440 things left
