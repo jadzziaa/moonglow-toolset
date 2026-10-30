@@ -345,7 +345,27 @@ impl crate::GameData {
     /// else which of the models its parts name aren't there
     /// ([`AppearanceRow::parts`]): what the Properties' warning under its
     /// Appearance says.
+    /// Judged once for an object of these fields, until the tables or
+    /// resources change ([`invalidate`](Self::invalidate),
+    /// [`forget_appearance_marks`](Self::forget_appearance_marks)): the
+    /// Properties ask each frame, and a body's parts are each looked for
+    /// through every layer of the load order.
     pub fn appearance_problems(&self, kind: ObjectKind, object: &Struct) -> Vec<ModelProblem> {
+        let key = judged_key(kind, object);
+        if let Some(said) = self.judged.read().expect("judged cache poisoned").get(&key) {
+            return said.to_vec();
+        }
+        let said = self.judge_appearance(kind, object);
+        let mut judged = self.judged.write().expect("judged cache poisoned");
+        // (Not without end: an editor's every change is another object.)
+        if judged.len() >= JUDGED_KEPT {
+            judged.clear();
+        }
+        judged.insert(key, std::sync::Arc::new(said.clone()));
+        said
+    }
+
+    fn judge_appearance(&self, kind: ObjectKind, object: &Struct) -> Vec<ModelProblem> {
         let Some(at) = AppearanceRow::of(kind, object) else { return Vec::new() };
         let table = self.table(at.table).ok();
         if let Err(e) = at.model(table.as_deref(), &self.resman) {
@@ -403,7 +423,41 @@ impl crate::GameData {
     /// [`invalidate`](Self::invalidate) does with the rest.
     pub fn forget_appearance_marks(&self) {
         self.marked.write().expect("marked cache poisoned").clear();
+        self.judged.write().expect("judged cache poisoned").clear();
     }
+}
+
+/// What an object's appearance is judged by: its kind and the whole
+/// numbers of the fields that bear on it (the row, a door's generic type,
+/// the gender and phenotype, the model, body and armor parts, their EE
+/// twins), by label.
+pub(crate) type JudgedKey = (ObjectKind, Vec<(String, i64)>);
+
+/// The most objects' verdicts kept at once.
+const JUDGED_KEPT: usize = 4096;
+
+fn judged_key(kind: ObjectKind, object: &Struct) -> JudgedKey {
+    const BEARING: [&str; 11] = [
+        "appearance",
+        "baseitem",
+        "generictype",
+        "gender",
+        "phenotype",
+        "modelpart",
+        "armorpart",
+        "bodypart",
+        "xmodelpart",
+        "xarmorpart",
+        "xbodypart",
+    ];
+    let fields = (object.fields.iter())
+        .filter_map(|f| {
+            let label = f.label.to_string_lossy().to_ascii_lowercase();
+            let bears = BEARING.iter().any(|b| label.starts_with(b));
+            bears.then(|| Some((label, object.integer(&f.label.to_string_lossy())?))).flatten()
+        })
+        .collect();
+    (kind, fields)
 }
 
 /// What an Appearance list says after a row with no model to draw.
@@ -646,6 +700,29 @@ mod tests {
                  game"
             ]
         );
+        // Judged once for an object of those fields (the Properties ask
+        // each frame), anew for other fields, and again once a model came.
+        let shin = |n: u8| {
+            let mut s = Struct::default();
+            s.set("Appearance_Type", Value::Word(0));
+            s.set("BodyPart_LShin", Value::Byte(n));
+            s.set("Tag", Value::String(n.to_string().into_bytes()));
+            s
+        };
+        game.forget_appearance_marks();
+        assert_eq!(game.appearance_problems(c, &shin(1)).len(), 1);
+        assert_eq!(game.appearance_problems(c, &shin(1)).len(), 1);
+        assert_eq!(judged_key(c, &shin(1)), judged_key(c, &shin(1)));
+        assert_ne!(judged_key(c, &shin(1)), judged_key(c, &shin(2)), "its part bears on it");
+        let tagged = {
+            let mut s = shin(1);
+            s.set("Tag", Value::String(b"OTHER".to_vec()));
+            s
+        };
+        assert_eq!(judged_key(c, &shin(1)), judged_key(c, &tagged), "its tag doesn't");
+        assert_eq!(game.judged.read().unwrap().len(), 1);
+        game.forget_appearance_marks();
+        assert!(game.judged.read().unwrap().is_empty());
         let gnome = game.appearance_problem(c, &{
             let mut s = Struct::default();
             s.set("Appearance_Type", Value::Word(3));

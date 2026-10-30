@@ -346,3 +346,87 @@ fn advanced_search_stays_within_budget() {
     check(format!("any variable, after the change ({} found)", d.hits.len()), took, SEARCH);
     assert!(over.is_empty(), "over budget:\n{}", over.join("\n"));
 }
+
+/// A creature's Properties open over a builder's haks (`MOONGLOW_HAKS`:
+/// TDoD's 146): its frames, and the check under its Appearance (the
+/// models its row and its body's skeleton and parts name, each looked for
+/// through every layer: `mg_rules::GameData::appearance_problems`), which
+/// runs each frame the page is drawn.
+#[test]
+#[ignore]
+fn a_creature_s_properties_over_a_builder_s_haks() {
+    use mg_gff::{Gff, Value};
+    use mg_resman::ResKey;
+    let root = mg_testkit::corpus!();
+    let haks: Vec<PathBuf> = mg_testkit::builder_hak_dirs()
+        .iter()
+        .flat_map(|d| mg_testkit::files_with_ext(d, "hak"))
+        .collect();
+    if haks.len() < 10 {
+        println!("skipped: {} haks in MOONGLOW_HAKS", haks.len());
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("campaign-perf-creature");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    std::fs::create_dir_all(user.join("modules")).unwrap();
+    for h in &haks {
+        mg_testkit::link_or_copy(h, &user.join("hak").join(h.file_name().unwrap())).unwrap();
+    }
+    let install = GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m =
+        mg_module::new::new_module(&game, "Haks", &mut fastrand::Rng::with_seed(3)).unwrap();
+    let mut info = m.info().unwrap();
+    let list = haks
+        .iter()
+        .map(|h| {
+            let mut s = mg_gff::Struct::new(8);
+            let name = h.file_stem().unwrap().to_string_lossy();
+            s.set("Mod_Hak", Value::String(name.as_bytes().to_vec()));
+            s
+        })
+        .collect();
+    info.root.set("Mod_HakList", Value::List(list));
+    m.set_info(&info).unwrap();
+    // The game's bandit, a human of parts, his left shin past the body's.
+    let key = ResKey::parse("mg_bandit", ResType::UTC).unwrap();
+    let mut bandit =
+        Gff::read(&game.resman.get_named("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    bandit.root.set("Appearance_Type", Value::Word(6));
+    bandit.root.set("BodyPart_LShin", Value::Byte(249));
+    m.set_gff(key, &bandit).unwrap();
+    let path = user.join("modules/mg_creature.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    drop(game);
+
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let layers = app.game.as_ref().map_or(0, |g| g.resman.layers().len());
+    app.actions.push(Action::OpenTab(Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    let mut frames: Vec<Duration> = (0..120).map(|_| time(|| h.step()).1).collect();
+    frames.sort();
+    let game = h.state().game.clone().unwrap();
+    let kind = mg_rules::ObjectKind::Creature;
+    let said = game.appearance_problems(kind, &bandit.root);
+    assert_eq!(said.len(), 1, "{said:?}");
+    let ((), check) = time(|| {
+        for _ in 0..1000 {
+            std::hint::black_box(game.appearance_problems(kind, &bandit.root));
+        }
+    });
+    println!(
+        "a creature's Properties over {} haks ({layers} layers): a frame's median {:.2?}, \
+         90th {:.2?}; the check under its Appearance {:.1?} a time",
+        haks.len(),
+        frames[frames.len() / 2],
+        frames[frames.len() * 9 / 10],
+        check / 1000
+    );
+}

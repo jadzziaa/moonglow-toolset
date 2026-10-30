@@ -155,6 +155,16 @@ fn viewing(
     }
 }
 
+/// `add` in the part of `ui` that is in sight: a window of the hak
+/// editor scrolls sideways (its list's long paths make it wider than the
+/// window), and a model view as wide as all of it drew its model in the
+/// middle of that, off to the right of the window.
+fn in_sight<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let width = ui.available_width().min(seen).max(32.0);
+    ui.allocate_ui(egui::vec2(width, ui.available_height()), add).inner
+}
+
 /// Files chosen to add to a hak that has some of them already.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Adding {
@@ -765,7 +775,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             }
             Viewing::Model(true) => {
                 use crate::model_view::Source;
-                if crate::model_view::embedded(app, ui, Source::Resource(key)) {
+                let popped =
+                    in_sight(ui, |ui| crate::model_view::embedded(app, ui, Source::Resource(key)));
+                if popped {
                     app.actions.push(crate::Action::OpenTab(Tab::Model(key)));
                 }
             }
@@ -781,7 +793,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     }
                     _ => true,
                 });
-                crate::model_view::embedded(app, ui, Source::Hak { hak, revision, key });
+                let source = Source::Hak { hak, revision, key };
+                in_sight(ui, |ui| crate::model_view::embedded(app, ui, source));
             }
             Viewing::Plain(plain) => crate::browser::plain_ui(ui, key, plain),
         }

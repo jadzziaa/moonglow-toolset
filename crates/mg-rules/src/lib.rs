@@ -141,6 +141,10 @@ pub struct GameData {
     /// ([`appearance_choices`](Self::appearance_choices)), by the kind of
     /// object and the list they were made from.
     marked: RwLock<HashMap<MarkedKey, Arc<Vec<Choice>>>>,
+    /// Objects' appearances judged so far
+    /// ([`appearance_problems`](Self::appearance_problems)), by the kind
+    /// of object and the fields that bear on it.
+    judged: RwLock<HashMap<appearance::JudgedKey, Arc<Vec<appearance::ModelProblem>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -244,6 +248,7 @@ impl GameData {
             tables: RwLock::new(HashMap::new()),
             choices: RwLock::new(HashMap::new()),
             marked: RwLock::new(HashMap::new()),
+            judged: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -279,6 +284,7 @@ impl GameData {
         self.tables.write().expect("table cache poisoned").clear();
         self.choices.write().expect("choice cache poisoned").clear();
         self.marked.write().expect("marked cache poisoned").clear();
+        self.judged.write().expect("judged cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 
