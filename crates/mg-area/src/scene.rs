@@ -978,10 +978,32 @@ impl AreaScene {
             }
         }
         if let Some(sight) = &view.grass {
+            // (The tufts' tops where the wind has them now: a pose of the
+            // grass's sway in each tile's own space, made once for each way
+            // a tile is turned.)
+            let sway = crate::grass::sway(area.lighting.wind_power, view.time);
+            let poses: RefCell<Vec<(usize, Vec3, Arc<Vec<Mat4>>)>> = RefCell::default();
+            let swayed = |model: &GpuModel, transform: Mat4| {
+                let local = transform.inverse().transform_vector3(sway);
+                let nodes = model.rest.len();
+                let mut poses = poses.borrow_mut();
+                if let Some((_, _, pose)) = poses.iter().find(|p| p.0 == nodes && p.1 == local) {
+                    return pose.clone();
+                }
+                let mut pose = model.rest.clone();
+                if let Some(top) = pose.get_mut(crate::grass::SWAY_NODE) {
+                    *top = Mat4::from_translation(local) * *top;
+                }
+                let pose = Arc::new(pose);
+                poses.push((nodes, local, pose.clone()));
+                pose
+            };
             let tile = |i: usize, level: usize| {
                 let grass = self.tile_grass[i].as_ref().filter(|_| !hidden.contains(&i))?;
                 let model = grass.levels[level.min(grass.levels.len() - 1)].clone();
-                Some(Instance { grass: true, ..Instance::new(model, area.tiles[i].transform()) })
+                let transform = area.tiles[i].transform();
+                let pose = (sway != Vec3::ZERO).then(|| swayed(&model, transform));
+                Some(Instance { grass: true, pose, ..Instance::new(model, transform) })
             };
             for draw in self.grass_in_sight(area, sight) {
                 match draw {

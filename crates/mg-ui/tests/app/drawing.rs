@@ -1654,3 +1654,67 @@ fn grass_covers_the_whole_view() {
     }
     assert!(bare.is_empty(), "{bare:#?}");
 }
+
+/// Grass sways in the wind, as the client's does (`mg_area::grass::sway`):
+/// in a rural area of `WindPower` 2, seen low and close, the grass moves
+/// between two moments a second apart, with Moonglow's shader and with
+/// the game's; in one of 0 it stands still (only what else moves,
+/// nothing at all here, changes). The pictures (the first moment, the
+/// second, and what changed, four times as bright) are in
+/// `target/test-output/ui-area-grass-sway/`.
+#[test]
+fn grass_sways_in_the_wind_with_either_shader() {
+    let dir = mg_testkit::output_dir("ui-area-grass-sway");
+    let mut moved = Vec::new();
+    for wind in [0, 2] {
+        let windy = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+            let key = ResKey::new(area, ResType::ARE);
+            let mut are = m.gff(&key).unwrap().unwrap();
+            are.root.set("WindPower", mg_gff::Value::Int(wind));
+            m.set_gff(key, &are).unwrap();
+        };
+        let name = format!("grass-sway-{wind}");
+        let Some((mut h, area)) = area_harness_with(&name, "ttr01", None, 4, None, &windy) else {
+            return;
+        };
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.grid = false;
+        if let Some(o) = &mut view.orbit {
+            o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+            (o.pitch, o.yaw, o.distance) = (0.25, -std::f32::consts::FRAC_PI_2, 6.0);
+        }
+        h.state_mut().settings.no_grass = false;
+        for game in [false, true] {
+            h.state_mut().settings.game_shaders = Some(game);
+            if game {
+                until_the_game_draws(&mut h);
+            }
+            h.run_steps(12);
+            let a = h.render().expect("render");
+            // (A second on: a quarter of the swing.)
+            h.run_steps(60);
+            let b = h.render().expect("render");
+            let shader = if game { "game" } else { "own" };
+            a.save(dir.join(format!("wind{wind}-{shader}-a.png"))).unwrap();
+            b.save(dir.join(format!("wind{wind}-{shader}-b.png"))).unwrap();
+            let mut changed = a.clone();
+            let mut count = 0;
+            for (p, q) in changed.pixels_mut().zip(b.pixels()) {
+                count += usize::from((0..3).any(|c| p[c].abs_diff(q[c]) > 8));
+                for c in 0..3 {
+                    p[c] = (q[c].abs_diff(p[c]) as u32 * 4).min(255) as u8;
+                }
+            }
+            changed.save(dir.join(format!("wind{wind}-{shader}-moved.png"))).unwrap();
+            moved.push((wind, shader, count, a.width() as usize * a.height() as usize));
+        }
+    }
+    eprintln!("pixels changed (wind, shader, changed, of): {moved:?}");
+    for (wind, shader, count, all) in moved {
+        if wind == 0 {
+            assert_eq!(count, 0, "still without wind, {shader}'s shader");
+        } else {
+            assert!(count > all / 100, "the grass sways in wind {wind}, {shader}'s: {count}");
+        }
+    }
+}

@@ -1446,6 +1446,13 @@ fn grass_frames_at_144() {
     };
     let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
     let set = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
+    // (In a strong wind: the grass sways, each tile's posed.)
+    {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.set("WindPower", mg_gff::Value::Int(2));
+        m.set_gff(key, &are).unwrap();
+    }
     if let Some(density) = std::env::var("FRAME_GRASS_DENSITY").ok().and_then(|d| d.parse().ok()) {
         let key = ResKey::new(area, ResType::GIT);
         let mut git = m.gff(&key).unwrap().unwrap();
