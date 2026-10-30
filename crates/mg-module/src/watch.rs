@@ -62,6 +62,8 @@ pub struct Watch {
     /// looked at.
     paths: Vec<PathBuf>,
     heard: Arc<std::sync::Mutex<Heard>>,
+    /// A burst of changes being heard, not yet said ([`Watch::hearing`]).
+    hearing: Arc<std::sync::atomic::AtomicBool>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     /// Whether the system tells of changes (else they are walked for).
     told: bool,
@@ -218,6 +220,7 @@ impl Watch {
     ) -> Watch {
         use std::sync::atomic::{AtomicBool, Ordering};
         let stop = Arc::new(AtomicBool::new(false));
+        let hearing = Arc::new(AtomicBool::new(false));
         // (Looked at once at the start, and only now: what changed before
         // this first look is in it, and would never be said.)
         let first = Heard { changed: true, all: true, ..Heard::default() };
@@ -226,6 +229,7 @@ impl Watch {
         let system = if walk { None } else { system_watch(&paths, deep, send) };
         let is_told = system.is_some();
         let (dirs, said, done) = (paths.clone(), heard.clone(), stop.clone());
+        let in_burst = hearing.clone();
         let say = move |h: Heard| {
             said.lock().unwrap_or_else(|e| e.into_inner()).take(h);
             if let Some(on_change) = &on_change {
@@ -251,11 +255,17 @@ impl Watch {
                         }
                         continue;
                     };
+                    // (Being heard from its first change: a file only read
+                    // is none.)
                     let mut heard = heard_of(event, &dirs, &real, deep);
+                    in_burst.store(heard.changed, Ordering::Relaxed);
                     let began = Instant::now();
                     while began.elapsed() < Duration::from_secs(10) {
                         match told.recv_timeout(Watch::QUIET) {
-                            Ok(event) => heard.take(heard_of(event, &dirs, &real, deep)),
+                            Ok(event) => {
+                                heard.take(heard_of(event, &dirs, &real, deep));
+                                in_burst.store(heard.changed, Ordering::Relaxed);
+                            }
                             Err(_) => break,
                         }
                     }
@@ -265,6 +275,7 @@ impl Watch {
                         walked = Instant::now();
                         say(heard);
                     }
+                    in_burst.store(false, Ordering::Relaxed);
                     continue;
                 }
                 // (In short naps, to end soon after the module closes.)
@@ -276,6 +287,7 @@ impl Watch {
                 if now == last {
                     continue;
                 }
+                in_burst.store(true, Ordering::Relaxed);
                 // A burst of changes (a pull, a checkout) is said once it
                 // is over: when a look a moment later finds the same, or
                 // after a while of changes.
@@ -290,19 +302,27 @@ impl Watch {
                 }
                 last = now;
                 say(Heard { changed: true, all: true, ..Heard::default() });
+                in_burst.store(false, Ordering::Relaxed);
             }
         };
         if std::thread::Builder::new().name("moonglow files".into()).spawn(work).is_err() {
             // (No thread: looked at every time, as before.)
             stop.store(true, Ordering::Relaxed);
         }
-        Watch { paths, heard, stop, told: is_told, _system: system }
+        Watch { paths, heard, hearing, stop, told: is_told, _system: system }
     }
 
     /// What it heard since it was last asked, if anything changed.
     pub fn take(&self) -> Option<Heard> {
         let mut heard = self.heard.lock().unwrap_or_else(|e| e.into_inner());
         heard.changed.then(|| std::mem::take(&mut *heard))
+    }
+
+    /// Whether it is hearing a burst of changes, to be said once it is
+    /// quiet a moment (then [`Watch::pending`]): its first is heard, its
+    /// last not yet.
+    pub fn hearing(&self) -> bool {
+        self.hearing.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether it heard a change, not yet taken.
@@ -499,6 +519,35 @@ mod tests {
         let _ = watch.take();
         std::thread::sleep(Duration::from_millis(300));
         assert!(watch.take().is_none(), "and nothing said after");
+    }
+
+    /// A burst of changes is being heard from its first change until it is
+    /// said, a moment after its last ([`Watch::hearing`]: what the UI tests
+    /// wait for after a save), and not after; nothing heard, nothing being
+    /// heard.
+    #[test]
+    fn a_burst_is_being_heard_until_it_is_said() {
+        let dir = mg_testkit::scratch_dir("watch-hearing");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        let watch = Watch::start(vec![dir.clone()], true, Duration::from_millis(40), false, None);
+        assert!(watch.told, "inotify, FSEvents or ReadDirectoryChangesW watches the folder");
+        heard(&watch).expect("looked at once, at the start");
+        std::thread::sleep(Duration::from_millis(400));
+        let _ = watch.take();
+        assert!(!watch.hearing(), "nothing changed: nothing being heard");
+        std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
+        // (Polled: it is heard for at least Watch::QUIET.)
+        let started = std::time::Instant::now();
+        let mut was_hearing = false;
+        while !watch.pending() {
+            was_hearing |= watch.hearing();
+            assert!(started.elapsed() < Duration::from_secs(5), "the change is said");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(was_hearing, "being heard before it was said");
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!watch.hearing(), "said: no longer being heard");
+        assert!(watch.take().is_some_and(|h| h.paths.contains(&dir.join("src/a.nss"))));
     }
 
     /// What the system says under a folder's real place (macOS says

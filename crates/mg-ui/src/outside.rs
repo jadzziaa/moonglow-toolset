@@ -48,8 +48,9 @@ pub(crate) struct OutsideState {
     /// custom palettes are still to be looked at
     /// ([`Moonglow::look_at_palettes`]).
     palettes: Option<(PathBuf, Vec<ResKey>)>,
-    /// What a watch asks for a frame with, when it hears a change.
-    pub(crate) repaint: Option<egui::Context>,
+    /// What a watch asks for a frame with, when it hears a change, and
+    /// whether at once ([`crate::jobs::wake`]).
+    pub(crate) repaint: Option<(egui::Context, bool)>,
     /// Scripts read again being compiled, a few each frame.
     compiling: Option<Compiling>,
     /// The watches walk the files rather than be told by the system (a
@@ -60,8 +61,8 @@ pub(crate) struct OutsideState {
 impl OutsideState {
     /// What a watch calls when it hears a change: a frame asked for.
     fn on_change(&self) -> Option<mg_module::watch::OnChange> {
-        let ctx = self.repaint.clone()?;
-        Some(Arc::new(move || ctx.request_repaint()))
+        let (ctx, at_once) = self.repaint.clone()?;
+        Some(Arc::new(move || crate::jobs::wake(&ctx, at_once)))
     }
 }
 
@@ -223,6 +224,8 @@ impl Moonglow {
             HashMap::new()
         };
         let (send, done) = std::sync::mpsc::channel();
+        // (A frame asked for once it is done: what it found is taken then.)
+        let wake = self.outside.repaint.clone();
         let work = move || {
             let found = scan.run();
             let mut locks = HashMap::new();
@@ -233,6 +236,9 @@ impl Moonglow {
                     .insert(c.key, (bytes.clone(), mg_module::locks::locks_in(c.key.resref, &git)));
             }
             let _ = send.send(Looked { found, locks });
+            if let Some((ctx, at_once)) = wake {
+                crate::jobs::wake(&ctx, at_once);
+            }
         };
         match std::thread::Builder::new().name("moonglow outside".into()).spawn(work) {
             Ok(_) => {
@@ -255,6 +261,28 @@ impl Moonglow {
     /// Whether the module's files are being read (changed outside).
     pub fn looking_outside(&self) -> bool {
         self.outside.looking.is_some()
+    }
+
+    /// What of the looks at what changed outside is under way
+    /// ([`Moonglow::under_way`]): a look at the module's files, the
+    /// scripts it read still to compile, the palettes of blueprints it
+    /// read to look at, a burst of changes a watch is hearing (said, and
+    /// then looked at, once it is quiet a moment).
+    pub(crate) fn outside_under_way(&self) -> Option<&'static str> {
+        if self.outside.looking.is_some() {
+            Some("a look at the module's files")
+        } else if self.outside.compiling.is_some() {
+            Some("scripts read again to compile")
+        } else if self.outside.palettes.is_some() {
+            Some("palettes of blueprints read again")
+        } else if [&self.outside.watch, &self.outside.content]
+            .iter()
+            .any(|w| w.as_ref().is_some_and(Watch::hearing))
+        {
+            Some("changes outside being heard")
+        } else {
+            None
+        }
     }
 
     /// What the status bar says of a look under way that takes a while,

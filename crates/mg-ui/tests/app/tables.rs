@@ -501,8 +501,11 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     assert_eq!((line(&h).text.as_str(), h.state().talk.as_ref().unwrap().len()), ("Greetings", 1));
 
     // Saving the module saves the table, and the game data reads it.
+    // (What the watches hear of the save is taken now: on a busy machine,
+    // heard and read again in the frames of a later step, it made more of
+    // them than a run's.)
     h.state_mut().actions.push(mg_ui::Action::Save);
-    h.run();
+    settle(&mut h);
     assert!(!h.state().talk.as_ref().unwrap().is_dirty());
     let game = h.state().game.as_deref().unwrap();
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Greetings"));

@@ -821,6 +821,11 @@ impl Watching {
 }
 
 impl AreaView {
+    /// Whether its first reading is under way, on a thread of its own.
+    pub(crate) fn reading(&self) -> bool {
+        self.reading.is_some()
+    }
+
     /// Reads the area's tiles and objects again from the game data (after
     /// Reload Resources), keeping the camera.
     pub(crate) fn reload(&mut self) {

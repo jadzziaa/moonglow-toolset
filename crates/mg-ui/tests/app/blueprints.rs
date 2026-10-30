@@ -3157,8 +3157,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-output/ui-bp-part_colors/sample.mod");
+    let path = mg_testkit::test_output().join("ui-bp-part_colors/sample.mod");
     let saved = mg_module::Module::open(&path).unwrap();
     let uti = saved.gff(&key).unwrap().unwrap().root;
     assert_eq!(uti.integer("Cloth1Color"), Some(pick));

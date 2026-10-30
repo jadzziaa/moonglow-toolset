@@ -216,7 +216,7 @@ impl Moonglow {
         let waited = live.changed.map_or(PAUSE, |t| t.elapsed());
         // (The first look at a script has no pause: `changed` is unset.)
         if waited < PAUSE {
-            ctx.request_repaint_after(PAUSE - waited);
+            self.frame_after(ctx, PAUSE - waited);
             return;
         }
         let name = key.resref.to_lowercase().to_string();

@@ -32,7 +32,13 @@ them. Test files are grouped into a few binaries (`tests/groups/` in
 and one group runs with `--test engine` (a file's tests: `--test engine
 engine_tlk`). mg-ui's UI tests are one binary, `--test app`, a file a
 subject in `crates/mg-ui/tests/app/` (a new file is named in its
-`main.rs`), with the shared set-ups in `app/common.rs`.
+`main.rs`), with the shared set-ups in `app/common.rs`. A UI test waits
+for the window's own work (`Moonglow::under_way`) with `settle`, or for
+what it looks for with a deadline, not for a count of frames: on a busy
+machine (CI's) the same work takes more of them. To try the tests on a
+loaded machine, run a second copy beside them with
+`MOONGLOW_TEST_OUTPUT` set to another folder (`mg_testkit::test_output`):
+two runs in one `target/test-output/` empty each other's scratch folders.
 
 Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default
