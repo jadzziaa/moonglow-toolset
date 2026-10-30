@@ -1116,7 +1116,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the base has its node; a mesh with `bitmap NULL` given the part's own
   texture; a bitmap name over 16 characters cut to 16; a blank line among
   ASCII skin weights read as a vertex without any (a blank line that is
-  only spacing in a list with all its rows would shift the rows). The
+  only spacing in a list with all its rows would shift the rows; such a
+  vertex's faces are not drawn since 2026-10-29, as the game draws none
+  of a vertex no bone weighs). The
   reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
   it animated, with its skin torn by the shifted weights. The model
   viewer's own check of names over 16 characters is as it was. The
@@ -1241,6 +1243,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   human with `c_wings2`, whose right wing, 102 vertices, has no bone
   that is a node), the wing isn't there, and Moonglow draws none of such
   a vertex's faces since (`a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn`).
+  That a face with one such vertex among weighed ones goes too is taken
+  from the collapse, not seen: of the game's 1,778 skins only that wing
+  has any such vertex, all of its own.
   Left: the wing it keeps stands otherwise than the client's (spread
   where the client's hangs, seen from the side; the demon's wings beside
   it alike in both): its pose, not looked into. (S)
