@@ -5425,6 +5425,11 @@ impl Moonglow {
         if let Some(vp) = &mut self.viewport {
             vp.release_game_data();
         }
+        // (And a hak's being edited, the load order its models are drawn
+        // from, made again as they are.)
+        for doc in &mut self.haks {
+            doc.resources = None;
+        }
         // (And the pictures' models waiting to be read apart.)
         self.thumbnails.let_go();
         if self.busy() {

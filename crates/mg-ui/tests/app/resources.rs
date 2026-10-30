@@ -1432,6 +1432,105 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     assert_eq!(shown_as(&mut h), Some("plain"));
 }
 
+/// A model of a hak the game doesn't read (no module lists it) is drawn
+/// in the hak editor, from the hak as it is now over the load order: its
+/// supermodel and a texture from the hak, a texture from the game; and
+/// changed there, not saved, drawn as changed. The pictures go to
+/// `target/test-output/ui-hak-view-model/`.
+#[test]
+fn a_model_of_a_hak_the_game_doesn_t_read_is_drawn() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-hak-view-model");
+    let quad = |name: &str, bitmap: &str, x: f32| {
+        format!(
+            "node trimesh {name}\n  parent mg_hak_box\n  bitmap {bitmap}\n  ambient 1 1 1\n  \
+             diffuse 1 1 1\n  verts 4\n    {x} 0 0\n    {x1} 0 0\n    {x1} 0 1\n    {x} 0 1\n  \
+             tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  \
+             faces 2\n    0 2 1 1 0 2 1 0\n    0 3 2 1 0 3 2 0\nendnode\n",
+            x1 = x + 1.0
+        )
+    };
+    let model = |red: &str| {
+        format!(
+            "newmodel mg_hak_box\nsetsupermodel mg_hak_box mg_hak_super\nclassification \
+             placeable\nbeginmodelgeom mg_hak_box\nnode dummy mg_hak_box\n  parent NULL\n\
+             endnode\n{}{}endmodelgeom mg_hak_box\ndonemodel mg_hak_box\n",
+            quad("red", red, -1.0),
+            quad("floor", "tic01_floor01", 0.0)
+        )
+    };
+    let supermodel = "newmodel mg_hak_super\nsetsupermodel mg_hak_super NULL\nclassification \
+                      placeable\nbeginmodelgeom mg_hak_super\nnode dummy mg_hak_super\n  parent \
+                      NULL\nendnode\nendmodelgeom mg_hak_super\nnewanim mg_wave mg_hak_super\n  \
+                      length 1.0\n  transtime 0.25\n  animroot mg_hak_super\nnode dummy \
+                      mg_hak_super\n  parent NULL\nendnode\ndoneanim mg_wave mg_hak_super\n\
+                      donemodel mg_hak_super\n";
+    // A red picture, 4 by 4 (a TGA of 32 bits, its rows from the top).
+    let tga = |bgra: [u8; 4]| {
+        let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 4, 0, 32, 0x28];
+        for _ in 0..16 {
+            t.extend(bgra);
+        }
+        t
+    };
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    let r = |s: &str| ResRef::from_str(s).unwrap();
+    w.add(r("mg_hak_box"), ResType::MDL, model("mg_hak_red").into_bytes()).unwrap();
+    w.add(r("mg_hak_super"), ResType::MDL, supermodel.as_bytes().to_vec()).unwrap();
+    w.add(r("mg_hak_red"), ResType::TGA, tga([0, 0, 255, 255])).unwrap();
+    w.add(r("mg_hak_blue"), ResType::TGA, tga([255, 0, 0, 255])).unwrap();
+    let hak = dir.join("mg_view.hak");
+    std::fs::write(&hak, w.to_bytes().unwrap()).unwrap();
+    let file = dir.join("mg_hak_box.mdl");
+    let dialogs = NoDialogs { open: vec![hak], open_many: vec![vec![file]], ..Default::default() };
+    let mut app = game_app_with(&root, None, dialogs);
+    app.set_render_state(rs.clone());
+    app.open_palette = false;
+    mg_ui::hak_view::open_hak(&mut app);
+    let mut h = gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(2);
+    let view = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("mg_hak_box.mdl").click_secondary();
+        h.run();
+        h.get_all_by_label("View").last().unwrap().click();
+        h.run_steps(4);
+        h.state().haks[0].viewing().map(|v| v.1)
+    };
+    let shown = view(&mut h);
+    h.run_steps(10);
+    h.render().expect("render").save(dir.join("drawn.png")).unwrap();
+    assert_eq!(shown, Some("model"));
+    assert!(h.query_by_label_contains("not found or not readable").is_none(), "drawn");
+    // Its supermodel's animation, from the hak, is among its animations.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("rest pose")))
+        .map(|n| n.rect().center())
+        .expect("the Animation dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert!(h.query_by_label("mg_wave").is_some(), "the supermodel's animation");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // Changed, not saved: its red side made blue (Add Files…, the hak's
+    // replaced), drawn so.
+    std::fs::write(dir.join("mg_hak_box.mdl"), model("mg_hak_blue")).unwrap();
+    h.get_by_label("Add Files…").click();
+    h.run_steps(2);
+    h.get_by_label("Replace 1").click();
+    h.run_steps(2);
+    assert_eq!(view(&mut h), Some("model"));
+    assert!(h.state().haks[0].hak.is_dirty());
+    h.render().expect("render").save(dir.join("changed.png")).unwrap();
+}
+
 /// Export as Files and Copy to Scratch Folder: a script goes out with its
 /// compiled script, as it is now in the toolset (saved or not), into the
 /// folder chosen; the scratch folder is asked for once, then kept.

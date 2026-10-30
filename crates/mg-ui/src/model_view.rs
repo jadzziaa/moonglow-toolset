@@ -205,6 +205,17 @@ pub enum Source {
         key: ResKey,
         layer: String,
     },
+    /// A model of a hak open in the hak editor (`hak`, its id) that the
+    /// game doesn't read (not one of the module's, or changed and not
+    /// saved): drawn from the hak as it is now, over the load order
+    /// (`hak_view::resources`), in the editor alone.
+    /// (`revision`: the hak's, which it was drawn at: a change to the hak
+    /// draws it anew.)
+    Hak {
+        hak: u32,
+        revision: u64,
+        key: ResKey,
+    },
 }
 
 impl Source {
@@ -232,6 +243,8 @@ impl Source {
             Source::Copy { key, layer } => {
                 crate::Tab::ModelCopy { key: *key, layer: layer.clone() }
             }
+            // (No tab of its own: shown in its editor.)
+            Source::Hak { hak, .. } => crate::Tab::Hak(*hak),
         }
     }
 }
@@ -242,6 +255,7 @@ impl std::fmt::Display for Source {
             Source::Resource(k) => write!(f, "{k}"),
             Source::Instance { area, .. } => write!(f, "an object placed in {area}"),
             Source::Copy { key, layer } => write!(f, "{key} from {layer}"),
+            Source::Hak { key, .. } => write!(f, "{key} of the hak"),
         }
     }
 }
@@ -250,7 +264,9 @@ impl Source {
     /// The resource it is (none for a placed object).
     fn key(&self) -> Option<ResKey> {
         match self {
-            Source::Resource(k) | Source::Copy { key: k, .. } => Some(*k),
+            Source::Resource(k) | Source::Copy { key: k, .. } | Source::Hak { key: k, .. } => {
+                Some(*k)
+            }
             Source::Instance { .. } => None,
         }
     }
@@ -263,7 +279,9 @@ impl Source {
     /// Whether it is an item (shown lying, or worn).
     fn is_item(&self) -> bool {
         match self {
-            Source::Resource(k) | Source::Copy { key: k, .. } => k.restype == ResType::UTI,
+            Source::Resource(k) | Source::Copy { key: k, .. } | Source::Hak { key: k, .. } => {
+                k.restype == ResType::UTI
+            }
             Source::Instance { path, .. } => {
                 crate::blueprint::instance_type(path) == Some(ResType::UTI)
             }
@@ -279,9 +297,17 @@ impl Source {
                 let at = rm.layers().iter().position(|l| l.label == *layer)?;
                 rm.get_in(at, key).ok().map(|d| d.into_owned())
             }
+            Source::Hak { .. } => own_resources(app, self)?.get(key).ok().map(|d| d.into_owned()),
             _ => resource_data(app, key),
         }
     }
+}
+
+/// The load order a source is drawn from where it isn't the game data's:
+/// a hak's being edited, with the hak as it is now in it.
+fn own_resources(app: &Moonglow, source: &Source) -> Option<Arc<mg_resman::ResMan>> {
+    let Source::Hak { hak, .. } = source else { return None };
+    app.haks.iter().find(|d| d.id == *hak)?.resources.clone()
 }
 
 /// What a source looks like: a model, a blueprint's preview, or a placed
@@ -305,7 +331,7 @@ fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Str
     let read = |k: &ResKey| source.data(app, k).and_then(|d| Gff::read(&d).ok());
     Ok(Some(match source {
         _ if source.is_model() => return Ok(None),
-        Source::Resource(key) | Source::Copy { key, .. } => {
+        Source::Resource(key) | Source::Copy { key, .. } | Source::Hak { key, .. } => {
             let gff = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
             (key.restype, gff.root)
         }
@@ -404,7 +430,9 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
         // The blueprint itself (a placed object's: the one it was placed
         // from, where it is found).
         let key = match source {
-            Source::Resource(key) | Source::Copy { key, .. } => Some(*key),
+            Source::Resource(key) | Source::Copy { key, .. } | Source::Hak { key, .. } => {
+                Some(*key)
+            }
             Source::Instance { .. } => {
                 object.resref("TemplateResRef").map(|r| ResKey::new(r, *restype))
             }
@@ -636,12 +664,16 @@ pub(crate) fn previewable(t: ResType) -> bool {
 fn compose(app: &Moonglow, source: &Source, preview: &Preview) -> Result<Composed, String> {
     let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
     let game = app.game.as_deref().ok_or("No game data.")?;
+    let own = own_resources(app, source);
     let load = |name: &str| -> Option<Arc<Model>> {
         let k = ResKey::parse(name, ResType::MDL)?;
         // (A layer's copy of a model: its own, the rest as the game has
-        // them.)
+        // them; a hak's being edited, all from it over the load order.)
         let data = match source {
             Source::Copy { key, .. } if *key == k => source.data(app, &k),
+            Source::Hak { .. } => {
+                own.as_ref().and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned())
+            }
             _ => None,
         };
         let data = data
@@ -827,6 +859,7 @@ fn stood_up(composed: Option<&Composed>, yaw: f32, pitch: f32) -> Mat4 {
 
 fn load_super(
     app: &Moonglow,
+    own: Option<&mg_resman::ResMan>,
     cache: &RefCell<HashMap<String, Option<Arc<Model>>>>,
     name: &str,
 ) -> Option<Arc<Model>> {
@@ -834,10 +867,9 @@ fn load_super(
     if let Some(m) = cache.borrow().get(&name) {
         return m.clone();
     }
-    let m = app
-        .game
-        .as_ref()
-        .and_then(|g| g.resman.get_named(&name, ResType::MDL).ok())
+    let rm = own.or_else(|| app.game.as_deref().map(|g| &g.resman));
+    let m = rm
+        .and_then(|rm| rm.get_named(&name, ResType::MDL).ok())
         .and_then(|d| Model::read(&d).ok())
         .map(Arc::new);
     cache.borrow_mut().insert(name, m.clone());
@@ -883,7 +915,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     };
 
     // Animations: the model's own, then its supermodels'.
-    let anims = anim::animations(&model.model, &|n| load_super(app, &view.supermodels, n));
+    let own = own_resources(app, &source);
+    let anims =
+        anim::animations(&model.model, &|n| load_super(app, own.as_deref(), &view.supermodels, n));
     // Wrapping in a narrow window, so none of it is cut off.
     let mut pop_out = false;
     let mut export = false;
@@ -960,13 +994,13 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         {
             app.set_game_shaders(shaders);
         }
-        if embedded {
+        if embedded && own.is_none() {
             let tip = "Show it in a window of its own";
             pop_out = button(ui, glyph::POP_OUT, "Pop Out", tip).clicked();
         }
         // (Not of an overridden copy: the files it would gather are those
         // the game reads, not the copy's layer's. Its Save As… is there.)
-        let copy = matches!(source, Source::Copy { .. });
+        let copy = matches!(source, Source::Copy { .. } | Source::Hak { .. });
         export = !copy
             && button(
                 ui,
@@ -1039,10 +1073,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             .chunk_models
             .entry(c.model.clone())
             .or_insert_with(|| {
-                let m = app
-                    .game
-                    .as_ref()
-                    .and_then(|g| g.resman.get_named(&c.model, ResType::MDL).ok())
+                let rm = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
+                let m = rm
+                    .and_then(|rm| rm.get_named(&c.model, ResType::MDL).ok())
                     .and_then(|d| Model::read(&d).ok())?;
                 // (One that breaks what builds it is left out.)
                 let name = c.model.clone();
@@ -1090,7 +1123,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         time: view.time,
         ..Default::default()
     };
-    let resman = app.game.as_deref().map(|g| &g.resman);
+    let resman = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
     let assets: &dyn mg_render::Assets = match resman {
         Some(rm) => rm,
         None => &mg_render::NoAssets,

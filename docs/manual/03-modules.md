@@ -1443,9 +1443,14 @@ folder's files, subfolders included, to look over and save.
   list: a picture (a TGA or DDS; a PLT in each layer's first color), a
   sound with **Play**, a 2DA's rows and columns as the resource browser
   shows them, a GFF's fields, a text file's text, else its first bytes.
-  A model is drawn in the model viewer where the game reads this hak's
-  copy (the hak is one of the module's, saved as it is); otherwise it
-  shows as the text it compiles from.
+  A model is drawn in the model viewer: where the game reads this hak's
+  copy (the hak is one of the module's, saved as it is) as the game
+  reads it, with **Pop Out** to a tab of its own; otherwise (a hak the
+  module doesn't list, or changed and not saved) from the hak as it is
+  now, its supermodels and textures from the hak first, then from the
+  module's haks, the module and the game, as the game would read them
+  with this hak among the module's. A model that can't be read shows as
+  its text, or why.
 - **Compile Models** compiles the hak's models kept as text (ASCII),
   each against its supermodel from this hak, the open module's haks or
   the game, as one step to undo (a hak of many models takes a while:

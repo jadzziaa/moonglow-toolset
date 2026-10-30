@@ -469,14 +469,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   was asked. (settle?: both proposed by the sprint on 2026-10-29, the
   owner's to say) (L; the body parts wait on the client batch)
 
-- **Viewing in the hak editor:** a model of a hak the game doesn't read
-  (not one of the module's, or changed there and not saved) shows as its
-  text. Drawing it wants the model viewer to read its models, supermodels
-  and textures from the hak over the load order: a source of its own
-  (`model_view::Source`, keyed in `model_views`), `compose`'s loader and
-  the renderer's `Assets` layered over the hak's bytes. Pictures, sounds,
-  2DAs and a model the game reads from the hak are shown (2026-10-29).
-  (M)
 
 ## Area visibility
 
