@@ -211,7 +211,7 @@ impl GpuModel {
             // (A face naming a vertex the mesh hasn't would draw another
             // mesh's, in the shared buffers: left out.)
             let n = vertices.len() as u32;
-            let indices: Vec<u32> =
+            let mut indices: Vec<u32> =
                 m.triangles().filter(|t| t.iter().all(|&i| i < n)).flatten().collect();
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for p in &m.vertices {
@@ -241,6 +241,27 @@ impl GpuModel {
                 }
                 _ => None,
             };
+            // (A skin's face that has a vertex no bone weighs is not
+            // drawn: the game's programs put such a vertex at clip space's
+            // origin, w 0 (MDL-SKIN-030), and the client shows nothing of
+            // its faces, the stock `c_wings2`'s 102 of them
+            // (`reading_wings_without_bones` in `client_render.rs`).)
+            // (A skin none of whose bones is a node of the model, as
+            // `c_wings2`'s right wing, has none of its faces drawn.)
+            if matches!(&m.extra, MeshExtra::Skin(s) if s.bones.is_empty()) {
+                indices.clear();
+            }
+            if let Some((_, data)) = &skin {
+                let weighed = |i: u32| data[i as usize].weights.iter().any(|w| *w > 0.0);
+                indices = indices
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .filter(|t| t.iter().all(|&i| weighed(i)))
+                    .flatten()
+                    .copied()
+                    .collect();
+            }
             let slot = gpu.pool.put(gpu, &vertices, &indices, skin.as_ref().map(|(_, d)| &d[..]));
             let skin = skin.map(|(s, data)| {
                 let totals = data.iter().map(|v| v.weights.iter().filter(|w| **w > 0.0).sum());

@@ -885,9 +885,11 @@ impl Renderer {
                 Pass::SkyFade | Pass::Blend | Pass::Fringe => {
                     Some(wgpu::BlendState::ALPHA_BLENDING)
                 }
+                // (Added as much as its alpha, as the client adds an
+                // additive mesh: `reading_additive_blending`.)
                 Pass::Additive => Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
                         dst_factor: wgpu::BlendFactor::One,
                         operation: wgpu::BlendOperation::Add,
                     },
@@ -1540,15 +1542,19 @@ impl Renderer {
         // `Reflection`, appearance.2da `ENVMAP`); `default` the area's
         // (the tileset's `EnvMap`), else `chrome1` (a placeable's
         // `Reflection` `default` is `chrome1` whatever the area's, and
-        // comes here so: `mg_preview::placeable`). And the one every lit
+        // comes here so: `mg_preview::placeable`). A texture's `default`
+        // is the object's map where the object names one, else the
+        // area's, on a placeable whose own is `default` too
+        // (`Instance::env_map_default`). And the one every lit
         // mesh's specular light reflects, bound to `texUnitEnv`: its own,
         // else the area's (read from the client:
         // `program_choice_in_the_client` in `client_render.rs`).
         let area = || scene_env.map_or_else(|| "chrome1".to_string(), str::to_string);
         let resolved = |e: String| if e.eq_ignore_ascii_case("default") { area() } else { e };
         let object = inst.env_map.clone().map(resolved);
+        let named = object.clone().filter(|_| !inst.env_map_default);
         let env = match env {
-            Some(e) if e.eq_ignore_ascii_case("default") => Some(object.unwrap_or_else(area)),
+            Some(e) if e.eq_ignore_ascii_case("default") => Some(named.unwrap_or_else(area)),
             Some(e) => Some(e),
             None => object,
         };
@@ -2637,7 +2643,7 @@ impl Renderer {
         // The game's shaders' blocks and bind groups; the solid draws by
         // pipeline and material, each set once for its draws.
         // (Those after the framebuffer's copy, last.)
-        game_draws.sort_by_key(|d| (d.late, !d.receives, d.order()));
+        crate::game::sort(&mut game_draws, |d| (d.late, !d.receives));
         let early = game_draws.iter().take_while(|d| !d.late).count();
         // (Those the shadows fall on, first.)
         let received = game_draws.iter().take_while(|d| !d.late && d.receives).count();

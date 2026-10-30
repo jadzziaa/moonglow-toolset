@@ -927,6 +927,82 @@ fn environment_maps_reflect() {
     }
 }
 
+/// A texture's `envmaptexture default` reflects the object's map where the
+/// object names one, else the area's: on a placeable whose `Reflection`
+/// is `default` (its map `chrome1`, `Instance::env_map_default`), the
+/// area's, as the client draws it (`program_choice_in_the_client` with
+/// `MG_LYING_ENVD=1 MG_REFLECTION=default`); its other meshes reflect
+/// `chrome1`.
+#[test]
+fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    // Two cube maps, red and blue above (the reflected view points up).
+    for (name, up) in [("area_env", [255, 0, 0]), ("chrome1", [0, 0, 255])] {
+        for i in 0..6 {
+            let c = if i == 4 { up } else { [40, 40, 40] };
+            assets.solid(&format!("{name}{i}"), [c[0], c[1], c[2], 255]);
+        }
+        assets.txis.insert(name.into(), txi("cube 1\nfilerange 6\n"));
+    }
+    assets.solid("mirror_default", [128, 128, 128, 0]);
+    assets.txis.insert("mirror_default".into(), txi("envmaptexture default\n"));
+    assets.solid("plain_clear", [128, 128, 128, 0]);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.8, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let quad_with = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let lit =
+        AreaLight { ambient: Vec3::splat(0.05), diffuse: Vec3::splat(0.05), direction: Vec3::Z };
+    let mut shot = |texture: &str, env: Option<&str>, default: bool| {
+        let inst = Instance {
+            env_map: env.map(str::to_string),
+            env_map_default: default,
+            ..Instance::new(quad_with(texture), Mat4::IDENTITY)
+        };
+        let scene = Scene {
+            instances: vec![inst],
+            area: lit,
+            background: [0.0, 1.0, 0.0],
+            env_map: Some("area_env".into()),
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
+    };
+    let red = |p: [u8; 4]| p[0] > p[2] + 8;
+    let blue = |p: [u8; 4]| p[2] > p[0] + 8;
+    // A placeable's `default`: the texture's `default` is the area's, its
+    // plain texture the placeable's `chrome1`.
+    let placeable = shot("mirror_default", Some("chrome1"), true);
+    let plain = shot("plain_clear", Some("chrome1"), true);
+    // A map the object names (here also `chrome1`): the texture's
+    // `default` is it.
+    let named = shot("mirror_default", Some("chrome1"), false);
+    // No map of the object's, or its `default` (a creature's): the area's.
+    let none = shot("mirror_default", None, false);
+    let creature = shot("mirror_default", Some("default"), false);
+    eprintln!(
+        "texture default on: a placeable's default {placeable:?} (its plain texture {plain:?}), \
+         a named map {named:?}, none {none:?}, a creature's default {creature:?}"
+    );
+    assert!(red(placeable), "{placeable:?}");
+    assert!(blue(plain), "{plain:?}");
+    assert!(blue(named), "{named:?}");
+    assert!(red(none), "{none:?}");
+    assert!(red(creature), "{creature:?}");
+}
+
 #[test]
 fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
     let Some(gpu) = gpu() else { return };
@@ -1329,6 +1405,32 @@ fn skinned_quad(x: f32) -> Model {
     model.nodes.insert(1, bone);
     model.nodes.push(skin);
     model
+}
+
+/// A skin's face with a vertex no valid bone weighs is not drawn, as the
+/// game's programs collapse such a vertex (MDL-SKIN-030) and the client
+/// shows nothing of its faces; a skin none of whose bones is a node draws
+/// nothing (the stock `c_wings2`'s right wing, `reading_wings_without_bones`
+/// in `client_render.rs`). The quad's two faces: one with a vertex
+/// unweighed, then a skin of no bones.
+#[test]
+fn a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn() {
+    let Some(gpu) = gpu() else { return };
+    let mut model = skinned_quad(0.0);
+    let NodeKind::Mesh(m) = &mut model.nodes[2].kind else { unreachable!() };
+    let mg_mdl::MeshExtra::Skin(skin) = &mut m.extra else { unreachable!() };
+    // (Faces 0 1 2 and 0 2 3: vertex 3 is the second's alone.)
+    skin.weights[3] = [(0, 0.0); 4];
+    let one = GpuModel::new(&gpu, Arc::new(model.clone()));
+    assert_eq!(one.meshes[0].index_count, 3, "the face of the weighed vertices alone");
+    let NodeKind::Mesh(m) = &mut model.nodes[2].kind else { unreachable!() };
+    m.extra = mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+        bones: Vec::new(),
+        weights: vec![[(0, 0.0); 4]; 4],
+        inverse_bind: Vec::new(),
+    });
+    let none = GpuModel::new(&gpu, Arc::new(model));
+    assert_eq!(none.meshes[0].index_count, 0, "no bones: nothing drawn");
 }
 
 /// A skinned mesh, and one whose vertices an animation replaces, are left
@@ -1911,6 +2013,58 @@ fn the_game_path_draws_opengl_s_clip_space_right() {
         }
     }
     assert!(differ <= 8, "{differ} pixels differ in what they show");
+}
+
+/// Two meshes of one pipeline and material lying in one plane are drawn
+/// by the game's programs in the order of the scene's instances, whatever
+/// their meshes' addresses: one wins where they meet the same each run
+/// (ordered by address, 8 of Tyrants of the Moonsea's 140 areas differed
+/// from run to run by a few pixels). Two quads standing in the same place,
+/// one texture (red on its left, blue on its right) each showing one half.
+#[test]
+fn coplanar_meshes_of_one_material_keep_the_scene_s_order() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let mut halves = Vec::new();
+    for _ in 0..4 {
+        for x in 0..4 {
+            halves.extend(if x < 2 { [255, 0, 0, 255] } else { [0, 0, 255, 255] });
+        }
+    }
+    let t = mg_image::Rgba { width: 4, height: 4, data: halves }.into_texture(false);
+    assets.textures.insert("halves".into(), t);
+    let (_, camera) = clip_space_scene(&gpu);
+    let half = |u: f32| {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("halves".into());
+            m.uvs[0] = vec![[u, 0.5]; 4];
+        }
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+        let t = Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))
+            * Mat4::from_rotation_x(90f32.to_radians())
+            * Mat4::from_scale(Vec3::splat(3.0));
+        Instance::new(model, t)
+    };
+    // (Texel centres: the second, red, and the third, blue.)
+    let (red, blue) = (half(0.375), half(0.625));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let mut shot = |instances: Vec<Instance>| {
+        let scene = Scene { instances, background: [0.0, 0.0, 0.0], ..Default::default() };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
+    };
+    let red_first = shot(vec![red.clone(), blue.clone()]);
+    let blue_first = shot(vec![blue, red]);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 2, "{:?}", r.drawn);
+    eprintln!("red first {red_first:?}, blue first {blue_first:?}");
+    assert_ne!(red_first, blue_first, "the order of the scene's instances decides");
+    assert!(
+        (red_first, blue_first) == ([255, 0, 0, 255], [0, 0, 255, 255])
+            || (red_first, blue_first) == ([0, 0, 255, 255], [255, 0, 0, 255]),
+        "{red_first:?} {blue_first:?}"
+    );
 }
 
 /// The game path on whatever GPU the platform has (CI's Windows runner
@@ -3250,6 +3404,61 @@ fn the_game_s_programs_draw_an_additive_mesh_added() {
     // (Moonglow's own lights it, the authored `fslit` doesn't: added too.)
     let off = pictures[0].pixel(32, 32);
     assert!(off[0] == 255 && off[1] > 100, "Moonglow's own: {off:?}");
+}
+
+/// An additive mesh is added as much as its texture's alpha (source alpha
+/// and one), whole where its texture has none, with either shader: the
+/// client's card of an alpha rising from 0 to 1 adds 0 to 24 of 255 and
+/// its opaque card 24 (`reading_additive_blending` in `client_render.rs`;
+/// Moonglow added the ramp 36 to 26). A glow of alpha a half over red,
+/// beside the same glow opaque.
+#[test]
+fn an_additive_mesh_is_added_by_its_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    // (The authored `fslit` giving its texture's alpha, as the game's do.)
+    let fs = assets.shaders["fslit"].replace("vec4(c, 1.0)", "vec4(c, texture2D(texUnit0, vUv).a)");
+    assets.shaders.insert("fslit".into(), fs);
+    assets.opaque("red", [255, 0, 0]);
+    assets.opaque("glow", [0, 80, 0]);
+    assets.solid("half_glow", [0, 80, 0, 128]);
+    for glow in ["glow", "half_glow"] {
+        assets.txis.insert(glow.into(), mg_image::txi::Txi::parse(b"blending additive\n"));
+    }
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for on in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = on;
+        let mut green = |glow: &str| {
+            let scene = Scene {
+                instances: vec![
+                    standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0),
+                    standing_quad(&gpu, glow, Vec3::new(0.0, -2.0, 1.0), 1.0),
+                ],
+                area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+                background: [0.0, 0.0, 0.0],
+                ..Default::default()
+            };
+            f32::from(r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)[1])
+        };
+        let (whole, half) = (green("glow"), green("half_glow"));
+        eprintln!("the game's programs {on}: opaque adds {whole}, alpha a half {half}");
+        assert!(whole > 40.0 && whole < 250.0, "{whole}");
+        if on {
+            assert!((half / whole - 0.5).abs() < 0.06, "{half} of {whole}");
+        } else {
+            // (Moonglow's own keeps a see-through surface's specular light
+            // whole, as its blending would: its texture's color by half.)
+            assert!(half / whole > 0.4 && half / whole < 0.8, "{half} of {whole}");
+        }
+    }
 }
 
 /// An additive mesh lying on another (a glow on a body) adds to all of it

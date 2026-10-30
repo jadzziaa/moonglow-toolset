@@ -385,3 +385,57 @@ fn reading_additive_blending() {
         }
     }
 }
+
+/// What the client draws of a skin's vertices that no valid bone weighs
+/// (the deferred list's mg-mdl entry, MDL-SKIN-030: the stock `c_wings2`
+/// has 102, which Moonglow draws at rest, `vs_skinned`'s `total <= 0.0`):
+/// a commoner made a human (appearance 6, wearing nothing) with `c_wings2` (a row of wingmodel.2da of the scratch
+/// override's, 7) north of the player, turned a quarter to show the wings
+/// from the side, and one with the demon's (row 1) beside him, in the
+/// client and beside Moonglow's area view.
+#[test]
+#[ignore]
+fn reading_wings_without_bones() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = base.resman.get_named("wingmodel", ResType::TWODA).unwrap();
+    let table = String::from_utf8_lossy(&table).replace(
+        "7      ****                      ****                ****",
+        "7      Wings2                    c_wings2            ****",
+    );
+    assert!(table.contains("c_wings2"));
+    let overrides = [("wingmodel.2da", table.into_bytes())];
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("wings_without_bones", "tic01", light, &overrides);
+    // (`MG_FACING`: the commoners' facing, degrees; 0, east, by default.)
+    let facing = std::env::var("MG_FACING").ok().and_then(|f| f.parse().ok()).unwrap_or(0.0);
+    for (wings, x) in [(7u8, 18.5f32), (1, 22.0)] {
+        put(
+            &mut r,
+            ResType::UTC,
+            "nw_commale",
+            "Creature List",
+            [x, 24.0, 0.0],
+            facing,
+            &[("Wings_New", Value::Dword(u32::from(wings))), ("Appearance_Type", Value::Word(6))],
+        );
+    }
+    // (Standing still: no scripts; and wearing nothing, as clothing may
+    // hide wings.)
+    if let Some(list) = r.git.root.list_mut("Creature List") {
+        for c in list.iter_mut() {
+            c.set("Equip_ItemList", Value::List(Vec::new()));
+            let scripts: Vec<String> = c
+                .fields
+                .iter()
+                .map(|f| f.label.to_string_lossy())
+                .filter(|l| l.starts_with("Script"))
+                .collect();
+            for label in scripts {
+                c.set(&label, Value::resref(ResRef::EMPTY));
+            }
+        }
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    print_log(&dir);
+}

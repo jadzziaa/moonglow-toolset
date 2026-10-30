@@ -1019,4 +1019,9 @@ fn a_placeable_s_light_and_reflection_follow_the_client() {
     assert_eq!(env(utp(428, None, 1)), None, "static");
     // The large treasure: a named map, as it is.
     assert_eq!(env(utp(191, None, 0)).as_deref(), Some("plc_g_env"));
+    // Only the mirror's stands for its `default`, which a texture's own
+    // `envmaptexture default` passes over for the area's.
+    let default = |s| placeable(&game, &s).unwrap().base.env_map_default;
+    assert!(default(utp(428, None, 0)));
+    assert!(!default(utp(191, None, 0)) && !default(utp(0, None, 0)));
 }

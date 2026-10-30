@@ -82,6 +82,11 @@ pub struct Part {
     /// The object's environment map (texture alpha is reflectivity); `None`:
     /// only what its textures ask for.
     pub env_map: Option<String>,
+    /// `env_map` is what the object's own `default` comes to (a
+    /// placeable's `Reflection` `default`: `chrome1`), which a texture's
+    /// `envmaptexture default` passes over for the area's map
+    /// (`mg_render::Instance::env_map_default`).
+    pub env_map_default: bool,
     /// Plays the animation on its own nodes: skinned robes and cloaks (their
     /// bones copy the skeleton's), wings and tails (with their own
     /// animations).
@@ -102,6 +107,7 @@ impl Part {
             textures: BTreeMap::new(),
             colors: None,
             env_map: None,
+            env_map_default: false,
             animated: false,
             local: None,
         }

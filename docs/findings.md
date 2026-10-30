@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:30:32Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1059,7 +1059,9 @@ appearance.2da's `ENVMAP` (a creature's) it is the area's, its tileset's
 mirror that isn't static is silver; the armoire's texture with
 `envmaptexture default`, and a bone golem, are copper. (Up to 2.5.2
 Moonglow drew the mirror copper too: a builder's armor stand, Heed's
-report.)
+report.) A texture's `envmaptexture default` on a placeable is the map
+the placeable names, else the area's: on a placeable whose `Reflection`
+is `default` too, the area's, not `chrome1`.
 
 - **Checked:** `area_env_map_look` with `MG_ENV_SHAPE=sphere`,
   `MG_ENV_PAINT` and `MG_ENV_CREATURE=24` (2026-10-25): spheres of a gray
@@ -1068,10 +1070,14 @@ report.)
   the map bound to it by the game's `inc_standard` in the scratch
   override; in `tin01` and `tic01`, static and not. Flat cards facing the
   camera, as first tried, reflect one dark spot of any map: they can't
-  tell the maps apart.
+  tell the maps apart. A texture's `default` on a placeable:
+  `program_choice_in_the_client` with `MG_LYING_ENVD=1` and
+  `MG_REFLECTION` `default` (the lying square's `texUnitEnv` the
+  floor's, `tcn01__ref01`) and `plc_g_env` (`plc_g_env`'s), 2026-10-29.
 - **Moonglow:** `crates/mg-preview/src/object.rs`
-  (`PLACEABLE_DEFAULT_ENV_MAP`); a texture's and a creature's `default`
-  in `crates/mg-render/src/renderer.rs`.
+  (`PLACEABLE_DEFAULT_ENV_MAP`, `Part::env_map_default`); a texture's
+  and a creature's `default` in `crates/mg-render/src/renderer.rs`
+  (`Instance::env_map_default`).
 - **Wiki:** missing.
 
 ### The game's shaders and Moonglow's own in stock interiors
@@ -1254,6 +1260,26 @@ whatever the TXI says and with an MTR or without. What is left of a
 - **Checked:** `cutouts_look`; the cut with `MG_DISCARD=1`, which paints
   each surface with the value through a patched `inc_standard.shd`.
 - **Moonglow:** `crates/mg-render/src/renderer.rs` (`Slots::twosided`).
+- **Wiki:** not compared.
+
+### A compiled mesh's index list is drawn, and tiles fade about the player
+
+Where a compiled mesh's index list has more triangles than its face
+list, the game draws the list (its first triangles are the faces): most
+of Forest - Facelift's cliff tiles (`ttf02`) are whole only so, their
+faces alone leaving holes in the ground the client doesn't have. The
+client also fades a tile's `tilefade` meshes (black caps, high cliffs,
+canopies) about the player as it plays, a few tiles round them, showing
+the sky through cliffs beside the player that it draws whole from 14 m
+off. The toolset's Fade Geometry is not that: it leaves out every
+fading mesh or none, as Aurora's does.
+
+- **Checked:** `reading_facelift_cliffs` (2026-10-29, 89.8193.37):
+  ttf02's tiles 0 to 3 beside the player, and with `MG_PC_Y=6` the
+  player 14 m south of them, beside Moonglow's area view (`MG_FADE=1`
+  with Fade Geometry on).
+- **Moonglow:** `crates/mg-mdl/src/binary.rs` (`Mesh::drawn`); Fade
+  Geometry in `crates/mg-area/src/scene.rs`.
 - **Wiki:** not compared.
 
 ### Particles: kept, flip-books and ribbons

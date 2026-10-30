@@ -630,7 +630,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   6% of the field's pixels changed in a second and a half at `WindPower`
   2); Moonglow's stand still with either shader: the game's `vsgrass`
   reads no wind, so the engine moves the vertices itself, and the area
-  view would have to as well. (M)
+  view would have to as well. How far and how fast isn't read: the
+  window's pictures come about 0.4 s apart and seconds late (30 taken
+  from the side, `MG_CAMERA=90,4,85 MG_SHOTS=30,0`, 2026-10-29: half of
+  them the same as the one before), too few and too loose to time a
+  sway by. The reading that would: one tuft, a patched `fsgrass`
+  painting its vertices' world place (top against foot, carried as a
+  varying) and `worldtimerTimeOfDay` into the picture, as
+  `light_uniforms_match_the_client` paints its uniforms, at `WindPower`
+  1 and 2; then the tops moved in both of Moonglow's paths (its own
+  grass shader, and the game's `vsgrass` fed moved vertices: a pass of
+  their own over the whole view's grass, as the engine moves them on
+  the CPU). (L: the reading, then the motion in both paths; waits on
+  the client)
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
@@ -738,18 +750,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   include normalizing a zero vector; that half waits on a Windows and a
   Mac client, or the renderer's CI branch). (S) (Heed's report, October
   2026)
-- **A texture's `envmaptexture default` on a placeable whose
-  `Reflection` is `default` too:** Moonglow takes the placeable's map
-  (`chrome1`) for both; the client reflects the area's (the tileset's
-  `EnvMap`, `tcn01__ref01`), read back (2026-10-29,
-  `program_choice_in_the_client` with `MG_LYING_ENVD=1
-  MG_REFLECTION=default`: the lying square's `texUnitEnv` the floor's,
-  not `chrome1`'s; with `MG_REFLECTION=plc_g_env` it is `plc_g_env`'s).
-  So a texture's `default` takes the placeable's named map, else the
-  area's, while a placeable's `default` alone is `chrome1` (notes
-  §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
-  the renderer can tell the two apart, so the fix is in `mg-render`'s
-  map choice too. (S)
 - **Lights placed on the fly, way B** ([the proposal](lights-proposal.md)):
   lights of any color and reach by generated content (a model with one
   light node for each setting, a placeables.2da row for it, both in a
@@ -1009,17 +1009,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
     `vsvt`/`fst`. (S) (waits on a client reading)
-  - **How the engine blends an additive mesh**, read in the client
-    (2026-10-29, `reading_additive_blending` in `client_render.rs`'s
-    `batch2.rs`: cards of TXI `blending additive` in gray 64 on tic01,
-    what each adds measured against the area without them): by its
-    alpha (source alpha and one) where its texture has one, the card
-    whose alpha runs 0 to 1 west to east adding 0 at its west edge
-    rising to 24 of 255 at its east; whole where it has none (24 all
-    over). Moonglow, either path, adds the opaque card as the client
-    does (24) and the other 36 at its west falling to 26 at its east:
-    not by its alpha, and more than its colour, the cause not looked
-    into. A Lighten particle is added by its alpha. (S)
   - **Particles' size and turn:** a still emitter's square particles
     are drawn upright, as in the client, 28 pixels a side against the
     client's 30 in `surfaces_in_the_client` (the fitted camera's error,
@@ -1028,12 +1017,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
-    17.0). How the engine fades its grass in, and the material colours
-    it uploads (`.set` [GRASS]'s), are not read through a patched
-    `vsgrass`; seen in a picture (`reading_grass_tufts`, white opaque
-    tufts of an area override): the client's are half see-through near
-    the camera and end some 15 to 20 m out, where Moonglow's stay opaque
-    to the area's edge. (S)
+    17.0). The material colours the engine uploads (`.set`
+    [GRASS]'s) are not read through a patched `vsgrass`. How far it
+    draws grass is read (`reading_grass_placement` with
+    `MG_GRASS_DISTANCE`, 2026-10-29): the client's Grass Far Render
+    Distance (`graphics.grass.render-distance`, 900 by default and at
+    the least, to 30,000) is in square meters, the grass fading out over
+    the last fifth or so of its root from the eye: at 900 the white
+    tufts are whole to about 22 m and gone by 28 to 30 m (the "15 to 20
+    m out" seen from the player), at 3,600 they reach the horizon of
+    the 4 by 4 area. Moonglow's go on, whole, to the end of the view,
+    as the owner asked of an editor's camera on 2026-10-23 (grass seen
+    only about its target was what he took for a fault; from an
+    editor's height, 30 m from the eye is no grass at all) (settle?:
+    proposed by the sprint on 2026-10-29, the owner's to say: kept to
+    the view's end, not cut at the client's distance). (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough
@@ -1118,7 +1116,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the base has its node; a mesh with `bitmap NULL` given the part's own
   texture; a bitmap name over 16 characters cut to 16; a blank line among
   ASCII skin weights read as a vertex without any (a blank line that is
-  only spacing in a list with all its rows would shift the rows). The
+  only spacing in a list with all its rows would shift the rows; such a
+  vertex's faces are not drawn since 2026-10-29, as the game draws none
+  of a vertex no bone weighs). The
   reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
   it animated, with its skin torn by the shifted weights. The model
   viewer's own check of names over 16 characters is as it was. The
@@ -1154,7 +1154,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - a sun low in the west (a GIT's direction,
     `reading_git_sun_direction`): the client leaves a city street lit
     but for thin spikes, where Moonglow lays the buildings' long shadows
-    over all of it, light showing through in thin lines. (The fade with
+    over all of it, light showing through in thin lines. Read further
+    (2026-10-29, `reading_low_sun_shadow_length`, a sun from the west 14,
+    27 and 45 degrees up): a white pillar's shadow, static or not, 4 m
+    high or 8, is as long in the client as in Moonglow at every height
+    (33 m for the 8 m pillar under the lowest), and so is a rural tile's
+    hill's (ttr01); but tcn01's buildings, whose shadows cover half the
+    street at 45 and 27 degrees in both, cast none on it at 14 in the
+    client, only the posts' and trees' spikes. So a tile's shadows go as
+    the sun sinks, which Moonglow's map (its bias tried at 0.5 m: no
+    change) has no reason to do; the client's rule isn't read: its
+    stencil volumes of these tiles' meshes (open ones, the wiki's
+    "shadow tearing"), or a reach of its tiles' precomputed projections
+    (`ComputeStaticProjections`). (M: the reading, a tcn01 building tile
+    alone on a flat area at a few heights of the sun, its `shadow`
+    meshes looked at, then the rule; waits on the client) (The fade with
     the height between plane and caster that 8193.31 names is not seen:
     armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
     and casters above the camera still cast, as in Moonglow:
@@ -1190,8 +1204,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   texels; Moonglow takes it as a part of `defaultwidth` (64 without one:
   10/64 of the picture here, where 10 of its 256 texels is a quarter as
   far). A ripple moves the picture and doesn't dim it, so the
-  difference may be the blending: Moonglow adds an additive texture
-  whole (One, One), the client may weigh it by its alpha. The game's 39
+  difference may be the blending: Moonglow added an additive texture
+  whole (One, One) when this was seen; it weighs it by its alpha since
+  2026-10-29, as the client does (`reading_additive_blending`), which
+  may dim the zombie as the client's (not looked at again). The game's 39
   arturo TXIs all name a scale and a translation; `distort 2` is only
   `fxpa_globe*`'s, `distortangle` only the decal skins'
   (`c_water_skin`, `vdu_tex_shade`). **What the client batch is to
@@ -1221,14 +1237,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
   its suite passes every probe since 2026-10-29, in Moonglow's tests
-  (`the_model_spec_suite_passes`). Left: a skin vertex with no valid bone
-  keeps its rest pose in Moonglow (`vs_skinned` in `mg-render`'s
-  `shader.wgsl`, its `total <= 0.0` branch), where the game collapses it
-  to clip-space 0 (MDL-SKIN-030; the stock `c_wings2` has 102 such
-  vertices, drawn whole in Moonglow). Waits on the client batch: a
-  creature wearing `c_wings2` in the client, to see what the game draws of
-  them (a collapse to w = 0 is not drawn alike by every GPU), then the
-  shader matched. (S once seen)
+  (`the_model_spec_suite_passes`). A skin vertex with no valid bone,
+  which the game collapses to clip-space 0 (MDL-SKIN-030), was drawn at
+  rest; seen in the client (`reading_wings_without_bones`, 2026-10-29: a
+  human with `c_wings2`, whose right wing, 102 vertices, has no bone
+  that is a node), the wing isn't there, and Moonglow draws none of such
+  a vertex's faces since (`a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn`).
+  That a face with one such vertex among weighed ones goes too is taken
+  from the collapse, not seen: of the game's 1,778 skins only that wing
+  has any such vertex, all of its own.
+  Left: the wing it keeps stands otherwise than the client's (spread
+  where the client's hangs, seen from the side; the demon's wings beside
+  it alike in both): its pose, not looked into. (S)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
@@ -1248,17 +1268,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (proposed by the Moonglow Viewer session, 2026-10-07: its
   `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
   the code named is there)
-- **Index lists against the client:** that the game draws a compiled
-  mesh's index list where it has more triangles than the face list
-  (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
-  files (the list reaches every vertex, the faces are its first
-  triangles, drawing it closes the holes). A client screenshot puts it
-  in doubt (2026-10-29, `reading_facelift_cliffs` with `MG_MAGENTA=1`,
-  ttf02's tiles 0 to 3): the client shows the sky through the cliff
-  tiles in places where Moonglow draws black meshes (both leave the
-  same band open below them). To settle it: Moonglow's picture of the
-  same tiles with the face lists alone beside it (`mg-mdl`, the models
-  package's). (S) (from the research notes)
 
 ## The main window and its panes
 

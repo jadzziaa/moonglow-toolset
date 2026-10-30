@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:15:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:30:32Z }
 ---
 
 # Blueprints
@@ -757,8 +757,9 @@ any placeable without one. A texture's own map (a TXI's `envmaptexture`)
 it keeps. A placeable that isn't static reflects its appearance's map,
 `default` being the game's `chrome1` (silver) wherever it stands, as in
 the game: not the area's map (in the rural interior, `tin01`, a copper
-brown), which a texture's own `envmaptexture default` and a creature's
-appearance reflect.
+brown), which a creature's appearance reflects. A texture's own
+`envmaptexture default` reflects the map its placeable names, and the
+area's where the placeable's is `default` or none, as in the game.
 
 The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the
