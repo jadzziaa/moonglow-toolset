@@ -1524,7 +1524,7 @@ fn undescribed_vars(
             "on": on,
             "places": places.iter().zip(&at).map(|(f, at)| json!({
                 "resource": f.key.to_string(),
-                "path": f.path,
+                "path": f.path.to_string(),
                 "index": f.index,
                 "at": at,
                 "value": f.value,

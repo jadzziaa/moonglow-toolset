@@ -1291,9 +1291,9 @@ impl Lookup for ModuleLookup<'_> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Found {
     pub key: ResKey,
-    /// The path of the object (or the resource's root) whose `VarTable`
-    /// it is in: `/Placeable List[3]`.
-    pub path: String,
+    /// The path of the object (or the resource's root, `/`) whose
+    /// `VarTable` it is in: `/Placeable List[3]`.
+    pub path: mg_gff::GffPath,
     /// Its place in the `VarTable`.
     pub index: usize,
     pub owner: Owner,
@@ -1303,17 +1303,9 @@ pub struct Found {
     pub value: String,
 }
 
-/// The path of the `VarTable` of the object at `path` (a [`Found`]'s:
-/// empty for the resource's root). Its labels are those of the lists
-/// objects are in (`Placeable List`, `ItemList`), which have none of the
-/// characters a path escapes, so it reads as a path; text that doesn't
-/// (none [`variables_of`] writes) is the root's.
-pub fn table_path(path: &str) -> mg_gff::GffPath {
-    let object = match path {
-        "" => mg_gff::GffPath::root(),
-        p => p.parse().unwrap_or_default(),
-    };
-    object.field("VarTable")
+/// The path of the `VarTable` of the object at `path` (a [`Found`]'s).
+pub fn table_path(path: &mg_gff::GffPath) -> mg_gff::GffPath {
+    path.field("VarTable")
 }
 
 /// Every local variable of the module: the module's, the areas' (in
@@ -1336,13 +1328,13 @@ pub fn module_variables(module: &Module) -> Vec<Found> {
 pub fn variables_of(key: ResKey, gff: &mg_gff::Gff) -> Vec<Found> {
     let mut out = Vec::new();
     if let Some(owner) = Owner::of_restype(key.restype) {
-        walk(key, &gff.root, owner, String::new(), &mut out);
+        walk(key, &gff.root, owner, mg_gff::GffPath::root(), &mut out);
     }
     out
 }
 
 /// The variables of a struct that is `owner`, and of those it holds.
-fn walk(key: ResKey, s: &Struct, owner: Owner, path: String, out: &mut Vec<Found>) {
+fn walk(key: ResKey, s: &Struct, owner: Owner, path: mg_gff::GffPath, out: &mut Vec<Found>) {
     if let Some(vars) = s.list("VarTable") {
         for (index, v) in vars.iter().enumerate() {
             let name = String::from_utf8_lossy(v.string("Name").unwrap_or_default()).into_owned();
@@ -1372,13 +1364,13 @@ fn walk(key: ResKey, s: &Struct, owner: Owner, path: String, out: &mut Vec<Found
             _ => continue,
         };
         for (i, item) in items.iter().enumerate() {
-            let at = format!("{path}/{label}[{i}]");
+            let at = path.item(&label, i);
             match held {
                 Some(o) => walk(key, item, o, at, out),
                 None => {
                     if let Some(Value::List(goods)) = item.get("ItemList") {
                         for (j, g) in goods.iter().enumerate() {
-                            walk(key, g, Owner::Item, format!("{at}/ItemList[{j}]"), out);
+                            walk(key, g, Owner::Item, at.item("ItemList", j), out);
                         }
                     }
                 }
@@ -1750,7 +1742,7 @@ on = ["creature", "placeable"]
         let (v, _) = read(EXAMPLE);
         let at = |name: &str, path: &str| Found {
             key: ResKey::parse("tavern", ResType::GIT).unwrap(),
-            path: path.into(),
+            path: path.parse().unwrap(),
             index: 0,
             owner: Owner::Placeable,
             name: name.into(),
@@ -2085,13 +2077,15 @@ on = ["creature", "placeable"]
         git.root.set("Creature List", Value::List(vec![keeper]));
         git.root.set("List", Value::List(vec![item]));
         let key = ResKey::new(ResRef::from_str("krezk").unwrap(), ResType::GIT);
-        let found: Vec<(Owner, String, String)> =
-            variables_of(key, &git).into_iter().map(|f| (f.owner, f.path, f.name)).collect();
+        let found: Vec<(Owner, String, String)> = variables_of(key, &git)
+            .into_iter()
+            .map(|f| (f.owner, f.path.to_string(), f.name))
+            .collect();
         let o = |owner, path: &str, name: &str| (owner, path.to_string(), name.to_string());
         assert_eq!(
             found,
             [
-                o(Owner::Area, "", "on_area"),
+                o(Owner::Area, "/", "on_area"),
                 o(Owner::Store, "/StoreList[0]", "on_store"),
                 o(Owner::Item, "/StoreList[0]/StoreList[0]/ItemList[0]", "on_item"),
                 o(Owner::Creature, "/Creature List[0]", "on_creature"),

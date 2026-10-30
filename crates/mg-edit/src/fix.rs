@@ -146,8 +146,7 @@ fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> 
         format!("{place} › {}", v.name) == f.at
     });
     let v = found.into_iter().nth(nth)?;
-    let path: GffPath = if v.path.is_empty() { GffPath::root() } else { v.path.parse().ok()? };
-    let edits = vec![Edit::remove_item(f.resource, path, "VarTable", v.index)];
+    let edits = vec![Edit::remove_item(f.resource, v.path, "VarTable", v.index)];
     Some(Fix { label: REMOVE_VARIABLE.into(), edits })
 }
 

@@ -2789,11 +2789,11 @@ fn described_variables(d: &mut Doctor, module: &Module) {
         let found = var_desc::variables_of(key, &gff);
         // What each object (by its path) has without what one of its
         // variables needs beside it.
-        let mut objects: Vec<&str> = found.iter().map(|f| f.path.as_str()).collect();
+        let mut objects: Vec<&mg_gff::GffPath> = found.iter().map(|f| &f.path).collect();
         objects.dedup();
         for path in objects {
             let here: Vec<(&str, &str)> = (found.iter())
-                .filter(|f| f.path == path)
+                .filter(|f| f.path == *path)
                 .map(|f| (f.name.as_str(), f.value.as_str()))
                 .collect();
             for n in vars.missing(&here) {

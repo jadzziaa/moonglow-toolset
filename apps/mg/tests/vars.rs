@@ -126,6 +126,8 @@ fn vars_lists_the_module_s_undescribed_variables() {
     assert_eq!(listed[0]["name"], "tdod_settlment");
     assert_eq!(listed[0]["nearest"], "tdod_settlement");
     assert_eq!(listed[0]["places"][0]["resource"], "module.ifo");
+    // (The resource's root as every path writes it, where it was "".)
+    assert_eq!(listed[0]["places"][0]["path"], "/");
     assert_eq!(listed[0]["places"][0]["index"], 1);
 }
 
