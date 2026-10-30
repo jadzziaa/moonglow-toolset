@@ -1426,7 +1426,14 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
         h.state().haks[0].viewing().map(|v| v.1)
     };
     assert_eq!(shown_as(&mut h), Some("model"));
+    // Changed and not saved, it is drawn from the hak as it is now
+    // (`a_model_of_a_hak_the_game_doesn_t_read_is_drawn`); one that can't
+    // be read is its text.
     std::fs::write(content.join("mg_ui_box.mdl"), &bytes[..bytes.len() - 1]).unwrap();
+    h.get_by_label("Update from Folder").click();
+    h.run();
+    assert_eq!(shown_as(&mut h), Some("model"));
+    std::fs::write(content.join("mg_ui_box.mdl"), b"not a model").unwrap();
     h.get_by_label("Update from Folder").click();
     h.run();
     assert_eq!(shown_as(&mut h), Some("plain"));

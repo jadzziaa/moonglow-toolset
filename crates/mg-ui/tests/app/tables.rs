@@ -1757,7 +1757,10 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
         h.run_steps(2);
     };
     let none = egui::Modifiers::NONE;
-    // The tree first, then the middle: the table's first cell.
+    // From the middle's: the log (no palettes here), the tree, then the
+    // middle: the table's first cell.
+    key_(&mut h, none, egui::Key::F6);
+    assert!(h.state().tree_cursor.is_none(), "the log has the keys");
     key_(&mut h, none, egui::Key::F6);
     assert!(h.state().tree_cursor.is_some(), "the tree has the keys");
     key_(&mut h, none, egui::Key::F6);

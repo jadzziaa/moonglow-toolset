@@ -138,7 +138,9 @@ fn viewing(
         // hak is one of the module's, as saved), else from the hak as it
         // is now over the load order (one the module doesn't list, or
         // changed and not saved), its supermodels and textures too.
-        ResType::MDL if mg_mdl::Model::read(&data).is_ok() => {
+        // (Without game data, its text: the viewer has nothing to draw
+        // it with.)
+        ResType::MDL if app.game.is_some() && mg_mdl::Model::read(&data).is_ok() => {
             let read = app.game.as_deref().is_some_and(|g| {
                 let stem = app.haks[doc].hak.path.as_deref().and_then(|p| p.file_stem());
                 let layer = stem.map(|s| format!("hak:{}", s.to_string_lossy()));
@@ -232,6 +234,13 @@ impl HakDoc {
         self.rows.as_ref().map(|r| r.3.clone()).unwrap_or_default()
     }
 
+    /// Whether the load order its models are drawn from holds the game
+    /// data ([`resources`]: made again whenever that changes, so it is
+    /// the window's).
+    pub(crate) fn holds_game(&self) -> bool {
+        self.resources.as_ref().is_some_and(|rm| rm.layers().len() > 1)
+    }
+
     pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.description = None;
@@ -243,10 +252,11 @@ impl HakDoc {
 }
 
 /// A layer of the game data's load order, read through: the game's own
-/// layers under a hak being edited ([`resources`]).
+/// layers under a hak being edited ([`resources`]), all of them holding
+/// the game data once.
 #[derive(Debug)]
 struct LayerOf {
-    game: std::sync::Arc<mg_rules::GameData>,
+    game: std::sync::Arc<std::sync::Arc<mg_rules::GameData>>,
     at: usize,
 }
 
@@ -288,11 +298,12 @@ pub(crate) fn resources(app: &mut Moonglow, doc: usize) -> std::sync::Arc<mg_res
     // (Above the module's haks: as the first of them.)
     rm.add(priority::HAK_USER + 1, "the hak being edited", LayerClass::Erf, hak.contents());
     if let Some(game) = &app.game {
+        let held = std::sync::Arc::new(game.clone());
         for (at, layer) in game.resman.layers().iter().enumerate() {
             if own.as_deref().is_some_and(|o| layer.label.eq_ignore_ascii_case(o)) {
                 continue;
             }
-            let through = LayerOf { game: game.clone(), at };
+            let through = LayerOf { game: held.clone(), at };
             rm.add(layer.priority, layer.label.clone(), layer.class, through);
         }
     }

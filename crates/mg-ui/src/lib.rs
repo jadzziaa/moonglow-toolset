@@ -3042,6 +3042,11 @@ impl Moonglow {
         self.nui_assets.invalidate();
         self.browser.stale = true;
         self.viewed.clear();
+        // (A hak's being edited, the load order its models are drawn
+        // from: made again from the new one.)
+        for doc in &mut self.haks {
+            doc.resources = None;
+        }
     }
 
     /// Reads the module's custom talk table again (after it was saved).
@@ -5454,7 +5459,10 @@ impl Moonglow {
     pub(crate) fn game_data_held(&self) -> bool {
         let Some(game) = &self.game else { return false };
         let views = self.viewport.as_ref().is_some_and(|vp| vp.holds(game));
-        Arc::strong_count(game) - 1 > usize::from(views)
+        // (Each hak being edited whose model is drawn holds it once, let
+        // go with the views: `hak_view::resources`.)
+        let haks = self.haks.iter().filter(|d| d.holds_game()).count();
+        Arc::strong_count(game) - 1 > usize::from(views) + haks
     }
 }
 
