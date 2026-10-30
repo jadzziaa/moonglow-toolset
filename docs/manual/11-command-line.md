@@ -241,8 +241,9 @@ mg areas mymodule.mod --where 'Fog*=0' --where OnEnter=kz_enter
 - **`--lighting NAME`**: lighting kept in Moonglow (Area Properties ›
   Visual › Saved Lighting, by its name: `--lighting "Damp Crypt"`), or a
   file of it (`dusk.lighting.json`, anywhere), as Saved Lighting gives
-  it: the Visual page's settings it keeps, and each tile's lights picked
-  at random from the colors kept with them (`--seed` picks them again).
+  it: the Visual page's settings it keeps; the tiles' lights are left as
+  they are, unless **`--tile-lights`**: each tile's picked at random from
+  the colors kept with them (`--seed` picks them again).
   It is made after `--lighting-scheme` and before `--set`. The kept
   lighting is in Moonglow's data folder, `lighting` (`MOONGLOW_DATA_DIR`
   names another data folder).

@@ -438,8 +438,9 @@ fn a_lighting_scheme_is_given_to_the_areas() {
 }
 
 /// `--lighting`: lighting kept in Moonglow (Saved Lighting), by its name
-/// in the data folder or by its file, gives the areas its fields and each
-/// tile its lights from the colors kept; one not kept changes nothing.
+/// in the data folder or by its file, gives the areas its fields, the
+/// tiles' lights left as they are, and with `--tile-lights` each tile its
+/// lights from the colors kept; one not kept changes nothing.
 #[test]
 fn kept_lighting_is_given_to_the_areas() {
     let dir = mg_testkit::scratch_dir("mg-areas-lighting");
@@ -477,8 +478,12 @@ fn kept_lighting_is_given_to_the_areas() {
         assert!(!ok, "{bad:?}: {err}");
     }
     assert_eq!(std::fs::read(&path).unwrap(), bytes, "a refusal changes nothing");
-    let (ok, out, err) =
-        run(&["cave1", "--lighting", "Damp Crypt", "--seed", "1", "--set", "SunFogAmount=5"]);
+    let (ok, out, err) = run(&["cave1", "--lighting", "Damp Crypt", "--dry-run"]);
+    assert!(ok && out.contains("cave1\tlighting\t") && !out.contains("lights of"), "{out}{err}");
+    let (ok, _, err) = run(&["cave1", "--tile-lights"]);
+    assert!(!ok, "--tile-lights without --lighting: {err}");
+    let lighting = ["cave1", "--lighting", "Damp Crypt", "--tile-lights", "--seed", "1"];
+    let (ok, out, err) = run(&[&lighting[..], &["--set", "SunFogAmount=5"]].concat());
     assert!(ok, "{err}");
     assert!(out.contains("cave1\tlighting\t(none) -> Damp Crypt"), "{out}");
     assert!(out.contains("cave1\tlights of 3 tiles\ttheir own -> Damp Crypt's"), "{out}");

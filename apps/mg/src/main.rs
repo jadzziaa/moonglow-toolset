@@ -848,11 +848,15 @@ enum Cmd {
         /// Lighting kept under a name in Moonglow (Area Properties ›
         /// Visual › Saved Lighting: `Dusk`), or its file
         /// (`dusk.lighting.json`), as Saved Lighting gives it: the Visual
-        /// page's fields it keeps, and each tile's lights picked at random
-        /// from the colors kept with them. After `--lighting-scheme`,
-        /// before `--set`.
+        /// page's fields it keeps; the tiles' lights are left as they are
+        /// unless `--tile-lights`. After `--lighting-scheme`, before
+        /// `--set`.
         #[arg(long, value_name = "NAME_OR_FILE")]
         lighting: Option<String>,
+        /// With `--lighting`: each tile's lights picked at random from the
+        /// colors kept with the lighting, too.
+        #[arg(long, requires = "lighting")]
+        tile_lights: bool,
         /// The tiles' lights of `--lighting-scheme` or `--lighting` picked
         /// as with this number (printed by a run without it, `--dry-run`
         /// too): the same number, the same picks.
@@ -3292,6 +3296,7 @@ fn run(cli: &Cli) -> Result<Output> {
             tileset_grass,
             lighting_scheme,
             lighting,
+            tile_lights,
             seed,
             all,
             dry_run,
@@ -3378,7 +3383,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 let saved = mg_module::lighting::read(dir.as_deref(), name)
                     .map_err(|e| anyhow::anyhow!("--lighting {e}"))?;
                 let at = usize::from(matches!(changes.first(), Some(Change::LightingScheme(_))));
-                changes.insert(at, Change::Lighting(Box::new(saved), name.trim().to_string()));
+                let name = name.trim().to_string();
+                changes.insert(at, Change::Lighting(Box::new(saved), name, *tile_lights));
             }
             if seed.is_some() && lighting_scheme.is_none() && lighting.is_none() {
                 anyhow::bail!("--seed picks the tiles' lights of --lighting-scheme or --lighting");

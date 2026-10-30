@@ -36,7 +36,7 @@ pub mod terrain;
 pub mod walk;
 
 pub use grass_view::{CHUNK, GrassDraw, Grown, chunk_of, grass_chosen};
-pub use scene::{AreaScene, Sight, Usage, View, fog, overview};
+pub use scene::{AreaScene, BareLight, Sight, Usage, View, fog, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;

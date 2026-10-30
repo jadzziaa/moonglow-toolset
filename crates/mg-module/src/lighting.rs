@@ -254,10 +254,16 @@ impl Saved {
         Ok(out)
     }
 
-    /// Gives it to an area (its root, an ARE's): its fields, and each
-    /// tile's lights picked anew from its colors (where it has them).
+    /// Gives it to an area (its root, an ARE's): its fields, and with
+    /// `relight` each tile's lights picked anew from its colors (where it
+    /// has them; without, the tiles' lights are left as they are).
     /// Whether the fields changed, and how many tiles' lights did.
-    pub fn give(&self, are: &mut Struct, rng: &mut fastrand::Rng) -> Result<(bool, usize), String> {
+    pub fn give(
+        &self,
+        are: &mut Struct,
+        rng: &mut fastrand::Rng,
+        relight: bool,
+    ) -> Result<(bool, usize), String> {
         let mut fields_changed = false;
         for (label, value) in self.fields_for(are)? {
             if are.get(label) != Some(&value) {
@@ -266,7 +272,7 @@ impl Saved {
             }
         }
         let mut lit = 0;
-        if let Some(colors) = &self.tiles {
+        if let Some(colors) = self.tiles.as_ref().filter(|_| relight) {
             for tile in are.list_mut("Tile_List").into_iter().flatten() {
                 let mut changed = false;
                 for (label, value) in pick_tile_fields(colors, rng) {
@@ -401,7 +407,7 @@ mod tests {
         assert_eq!(old.tiles(), None);
         let mut area = Struct::new(0);
         area.set("Tile_List", Value::List(vec![tile(9, 9, 9)]));
-        assert_eq!(old.give(&mut area, &mut fastrand::Rng::with_seed(1)), Ok((true, 0)));
+        assert_eq!(old.give(&mut area, &mut fastrand::Rng::with_seed(1), true), Ok((true, 0)));
         assert_eq!(area.list("Tile_List").unwrap()[0], tile(9, 9, 9));
         for bad in [
             "{\"lighting\": {\"SunFogAmount\": \"x\"}}",
@@ -442,7 +448,11 @@ mod tests {
         let saved = Saved::of_area(&from);
         let mut to = Struct::new(0);
         to.set("Tile_List", Value::List(vec![tile(0, 0, 0); 40]));
-        let (fields, lit) = saved.give(&mut to, &mut fastrand::Rng::with_seed(7)).unwrap();
+        // Not asked for: the tiles' lights left as they are.
+        let mut left = to.clone();
+        assert_eq!(saved.give(&mut left, &mut fastrand::Rng::with_seed(7), false), Ok((true, 0)));
+        assert_eq!(left.list("Tile_List"), to.list("Tile_List"));
+        let (fields, lit) = saved.give(&mut to, &mut fastrand::Rng::with_seed(7), true).unwrap();
         assert!(fields);
         assert_eq!(lit, 40);
         for t in to.list("Tile_List").unwrap() {
@@ -453,7 +463,7 @@ mod tests {
         }
         let mut again = Struct::new(0);
         again.set("Tile_List", Value::List(vec![tile(0, 0, 0); 40]));
-        saved.give(&mut again, &mut fastrand::Rng::with_seed(7)).unwrap();
+        saved.give(&mut again, &mut fastrand::Rng::with_seed(7), true).unwrap();
         assert_eq!(again.list("Tile_List"), to.list("Tile_List"));
     }
 
