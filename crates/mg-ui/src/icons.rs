@@ -60,6 +60,9 @@ pub(crate) const CLAIMED_MINE: &str = "✔";
 pub(crate) const MERGED: &str = "📌";
 /// Prefabs: groups of placed objects kept to place again.
 pub(crate) const PREFABS: &str = "🗐";
+/// The palette's lights (the game's invisible light placeables), a sun
+/// as the area view marks them.
+pub(crate) const LIGHTS: &str = "☀";
 /// A window's bar: Maximize, and Restore while it is maximized.
 pub(crate) const MAXIMIZE: &str = "🗖";
 pub(crate) const RESTORE: &str = "🗗";
@@ -343,6 +346,7 @@ impl Tools {
             SNAP,
             TURN,
             PREFABS,
+            LIGHTS,
         ]);
         all.extend(editor::ALL);
         all
@@ -406,6 +410,7 @@ mod tests {
             ONTO_OBJECTS,
             TO_SCRATCH,
             PREFABS,
+            LIGHTS,
         ];
         let shared: Vec<&str> = area.into_iter().filter(|g| main.contains(g)).collect();
         assert_eq!(shared, [GO_TO_START]);

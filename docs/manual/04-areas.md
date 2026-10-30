@@ -356,7 +356,9 @@ A click on a ring or an arrow selects the object under it, if there is
 one; the selection stays otherwise.
 
 **Lights**: right-click the ground and choose **Add Light Here**, then
-a color. Moonglow puts one of the game's invisible light placeables
+a color, or choose a color in the palette's **☀ Lights** and click
+where it goes (Shift + click places more; a right click or Escape over
+the view stops). Moonglow puts one of the game's invisible light placeables
 there ("Light, White" and the six others of placeables.2da), a little
 above the ground: it lights what is around it in the game and needs no
 custom content. It shows as a small sun in its color; select, move and
@@ -414,6 +416,17 @@ Aurora):
   does, so a static placeable with one in its file was made elsewhere:
   the window says so, and Verify warns of it (`static-transform`), with
   a **Take the transform off** button (since Moonglow 2.13.0).
+  **Animation Speed**, beside Scale, is how fast the model's
+  animations play (1 as made, 2 twice as fast: the script's
+  `OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED`). What a script can give an
+  object besides, the window shows under the fields and keeps as it is:
+  a creature's head, tail, wings or cloak transformed alone
+  (`SetObjectVisualTransform`'s scopes, kept in a saved game or a
+  module made from one), which the area view draws on that part, about
+  the node it hangs from, the rest of the creature as it is; and a lerp
+  in progress (a value on its way from one to another over some
+  seconds), drawn at its end. Setting that value here ends the lerp; a
+  value left as it is keeps it.
 - **Random Facing**: turns each selected object to face a way of its
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.
@@ -1148,12 +1161,28 @@ Properties** on the viewer's toolbar:
   the columns, Left and Right to the column beside, Home and End the
   first and last. Under them:
   - **Copy From Area** gives this area what another's Visual page holds
-    (its lighting, fog, shadows, sky and weather), as one undoable step.
+    (its lighting, fog, shadows, sky and weather), and its tiles' lights:
+    each tile's main and source lights picked at random from the colors
+    the other area's tiles have, the colors used most the most often, as
+    a lighting scheme picks them from its own. One undoable step.
   - **Saved Lighting** keeps this page's settings under a name (**Save
-    This Lighting…**) and gives lighting kept so to this area: yours
-    from any module, as small files in Moonglow's data folder
-    (`lighting`), easy to share. A tile's own lights aren't part of it
-    (a scheme picks those).
+    This Lighting…**), with the colors of the area's tiles' lights, and
+    gives lighting kept so to this area: its settings, and each tile's
+    lights picked from those colors. Yours from any module, as small
+    files in Moonglow's data folder (`lighting`), easy to share
+    (`mg areas --lighting` gives them from a terminal). Lighting kept by
+    Moonglow 2.13 or older has no tiles' colors and leaves the tiles'
+    lights as they are. In the same menu, **Rename** and **Delete** (**Undo Delete**
+    there puts the last one deleted back), and **Make a Lighting
+    Scheme**: the lighting as a scheme of the module's own, a row of
+    `environment.2da` added where you choose (the module's own table, a
+    copy of the game's in the module, the table of one of its haks, a hak
+    open in the hak editor, or a file), open in the 2DA editor to look at
+    and save. Saved there (a hak's own Save then writes the hak) and with
+    **Tools › Reload Resources**, it is listed with the schemes by its
+    label (it has no talk-table name), and the game's
+    `SetAreaLightingScheme` takes its row. A scheme has no sky box or fog
+    distance: choosing it sets those back to none and 45 meters.
   With several areas edited together, both give each of them the
   lighting.
 - **Grass**: the grass the area grows, by surface material (see

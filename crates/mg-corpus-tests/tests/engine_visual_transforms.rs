@@ -309,3 +309,185 @@ fn the_engine_reads_visual_transforms_as_adjust_location_writes_them() {
     let dynamic = tagged(b"MG_DYNAMIC").unwrap();
     assert_eq!(VisualTransform::read(dynamic), Some(MIRROR));
 }
+
+/// Logs, for each tag, the scale of scope 0 (the base) and of a
+/// creature's head, tail, wings and cloak (254, 253, 252, 243), the base's
+/// animation speed, and the base's scale as its lerp stands now; then
+/// starts a lerp by script on `MG_LERPER` and gives `MG_SCRIPTED_HEAD`'s
+/// head a scale, for the save to show how the engine writes both.
+const SCOPES: &str = r#"
+void Log(string s) { WriteTimestampedLogEntry(s); }
+
+string F(float f) { return FloatToString(f, 0, 2); }
+
+string Scale(object o, int nScope)
+{
+    return F(GetObjectVisualTransform(o, OBJECT_VISUAL_TRANSFORM_SCALE, FALSE, nScope));
+}
+
+void Seen(string sTag)
+{
+    object o = GetObjectByTag(sTag);
+    Log("MG_SCOPE " + sTag + "|" + IntToString(GetIsObjectValid(o)) + "|"
+        + Scale(o, 0) + "|" + Scale(o, 254) + "|" + Scale(o, 253) + "|" + Scale(o, 252) + "|"
+        + Scale(o, 243) + "|"
+        + F(GetObjectVisualTransform(o, OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED)) + "|"
+        + F(GetObjectVisualTransform(o, OBJECT_VISUAL_TRANSFORM_SCALE, TRUE)));
+}
+
+void main()
+{
+    Seen("MG_HEAD");
+    Seen("MG_SPEED");
+    Seen("MG_LERPING");
+    object o = GetObjectByTag("MG_LERPER");
+    SetObjectVisualTransform(o, OBJECT_VISUAL_TRANSFORM_SCALE, 3.0,
+        OBJECT_VISUAL_TRANSFORM_LERP_LINEAR, 600.0);
+    object h = GetObjectByTag("MG_SCRIPTED_HEAD");
+    SetObjectVisualTransform(h, OBJECT_VISUAL_TRANSFORM_SCALE, 1.5,
+        OBJECT_VISUAL_TRANSFORM_LERP_NONE, 0.0, TRUE, OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_CREATURE_HEAD);
+    Log("MG_DONE");
+    Log("MG_READY");
+}
+"#;
+
+/// A module of the objects [`SCOPES`] asks about: a badger whose head
+/// alone is scaled (no base entry), one whose base plays its animations
+/// at 2.5 times the speed, a barrel given `lerping` as its list (none:
+/// none), and the two the script changes.
+fn scopes_module(
+    game: &GameData,
+    dir: &std::path::Path,
+    lerping: Option<Value>,
+) -> std::path::PathBuf {
+    let mut rng = fastrand::Rng::with_seed(9);
+    let mut m = new_module(game, "Visual Scopes", &mut rng).unwrap();
+    let spec = AreaSpec { name: "Scopes".into(), tileset: r("ttr01"), width: 4, height: 4 };
+    let area = add_area(&mut m, game, &spec, &mut rng).unwrap();
+    let get = |name: &str, t: ResType| -> Struct {
+        Gff::read(&game.resman.get(&ResKey::new(r(name), t)).unwrap()).unwrap().root
+    };
+    let items = |_: ResRef| -> Option<Struct> { None };
+    let placing = Placing { game, item: &items };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let mut add = |t: ResType, s: Struct| {
+        let (list, _) = git_list(t).unwrap();
+        let mut objects = git.root.list(list).unwrap_or(&[]).to_vec();
+        objects.push(s);
+        git.root.set(list, Value::List(objects));
+    };
+    // Adjust Location's entry, of another scope.
+    let entry_of = |v: VisualTransform, scope: i32| -> Struct {
+        let Value::List(mut list) = mg_area::edit::visual_transform_list(v) else { unreachable!() };
+        let mut e = list.remove(0);
+        e.set("Scope", Value::Int(scope));
+        e
+    };
+    let twice = VisualTransform { scale: Vec3::splat(2.0), ..Default::default() };
+    let mut speed = entry_of(VisualTransform::default(), 0);
+    speed.child_mut("AnimationSpeed").unwrap().set("ValueTo", Value::Float(2.5));
+    let objects = [
+        ("nw_badger", ResType::UTC, "MG_HEAD", Some(vec![entry_of(twice, 254)])),
+        ("nw_badger", ResType::UTC, "MG_SPEED", Some(vec![speed])),
+        ("nw_badger", ResType::UTC, "MG_SCRIPTED_HEAD", None),
+        ("plc_barrel", ResType::UTP, "MG_LERPER", None),
+        ("plc_barrel", ResType::UTP, "MG_LERPING", None),
+    ];
+    for (i, (name, t, tag, list)) in objects.into_iter().enumerate() {
+        let mut s = get(name, t);
+        s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        let at = Placement { position: [4.0 + 4.0 * i as f32, 20.0, 0.0], rotation: 0.0 };
+        let mut placed = instance(&placing, t, &s, at, &[]).unwrap();
+        if let Some(list) = list {
+            placed.set("VisTransformList", Value::List(list));
+        }
+        if tag == "MG_LERPING"
+            && let Some(list) = &lerping
+        {
+            placed.set("VisTransformList", list.clone());
+        }
+        add(t, placed);
+    }
+    m.set_gff(git_key, &git).unwrap();
+    let probe = compile(dir, "mg_scopes", SCOPES);
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_MOD_LOAD, r("mg_scopes"));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::new(r("mg_scopes"), ResType::NCS), probe);
+    let user = dir.join("user");
+    m.save_as(&ModuleLocation::Archive(user.join("modules/mg_scopes.mod"))).unwrap();
+    user
+}
+
+/// The engine keeps what Adjust Location shows but does not draw or set
+/// (`mg_module::placement::visual_scopes`): a creature's head scaled
+/// alone leaves its base as it is (scope 0 reads 1: an object without a
+/// base entry is drawn untransformed), an animation speed is read, and a
+/// lerp in progress is saved by the engine with its start, goal,
+/// duration and progress (a fraction), and read back from a module as it
+/// stood (its goal the scale, the scale now where it was).
+#[test]
+fn the_engine_keeps_part_scopes_animation_speed_and_lerps() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_visual_scopes");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let user = scopes_module(&game, &dir, None);
+    let run = run_server(&root, &user, "mg_scopes", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "the server did not finish:\n{}", run.log);
+    // tag | found | scale of base, head, tail, wings, cloak | speed | now
+    let seen = run.values("MG_SCOPE");
+    assert_eq!(
+        seen[..2],
+        [
+            "MG_HEAD|1|1.00|2.00|1.00|1.00|1.00|1.00|1.00".to_string(),
+            "MG_SPEED|1|1.00|1.00|1.00|1.00|1.00|2.50|1.00".to_string(),
+        ],
+        "{}",
+        run.log
+    );
+
+    // The engine's save: the head's scale as an entry of scope 254, and a
+    // lerp in progress with what it adds to the axis.
+    let sav = save_game(&root, &user, "mg_scopes", "MG_READY", Duration::from_secs(120))
+        .unwrap_or_else(|e| panic!("the server did not save the game: {e}"));
+    let data = std::fs::read(&sav).unwrap();
+    let erf = mg_erf::Erf::read(&data).unwrap();
+    let area = erf.entries.iter().find(|e| e.restype == ResType::GIT).map(|e| e.resref).unwrap();
+    let saved = Gff::read(&erf.data(erf.find(&area, ResType::GIT).unwrap()).unwrap()).unwrap().root;
+    let tagged = |list: &str, tag: &[u8]| -> Struct {
+        let objects = saved.list(list).unwrap();
+        objects.iter().find(|p| p.string("Tag") == Some(tag)).unwrap().clone()
+    };
+    let head = tagged("Creature List", b"MG_SCRIPTED_HEAD");
+    let scopes = mg_module::placement::visual_scopes(&head);
+    let of_head = scopes.iter().find(|s| s.scope == 254).expect("a head's entry");
+    assert_eq!(of_head.transform.scale[0], 1.5, "{scopes:#?}");
+    assert!(scopes.iter().all(|s| s.scope != 0 || s.transform.is_identity()), "{scopes:#?}");
+    let lerper = tagged("Placeable List", b"MG_LERPER");
+    let list = lerper.list("VisTransformList").expect("a list");
+    let base = list.iter().find(|e| e.integer("Scope") == Some(0)).expect("scope 0");
+    let scale = base.child("ScaleX").expect("ScaleX");
+    eprintln!("a lerp in progress, as the engine saves it: {scale:#?}");
+    let lerp = mg_module::placement::visual_scopes(&lerper)[0].lerps.clone();
+    let x = lerp.iter().find(|l| l.axis == "ScaleX").expect("ScaleX's lerp");
+    assert_eq!((x.from, x.to, x.duration), (1.0, 3.0, 600.0), "{scale:#?}");
+    assert!((0.0..0.01).contains(&x.progress), "a fraction, barely begun: {scale:#?}");
+
+    // That list in a module: read as the lerp stood.
+    let dir = scratch_dir("engine_visual_scopes_lerping");
+    let user = scopes_module(&game, &dir, lerper.get("VisTransformList").cloned());
+    let run = run_server(&root, &user, "mg_scopes", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "the server did not finish:\n{}", run.log);
+    let seen = run.values("MG_SCOPE");
+    let lerping = seen.iter().find(|l| l.starts_with("MG_LERPING")).unwrap();
+    eprintln!("a lerp read from a module: {lerping}");
+    let parts: Vec<&str> = lerping.split('|').collect();
+    assert_eq!(parts[2], "3.00", "its goal: {lerping}");
+    assert_eq!(parts[8], "1.00", "and now where it stood, about to go on: {lerping}");
+}

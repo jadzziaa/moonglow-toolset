@@ -543,11 +543,20 @@ impl Hak {
         static SWEPT: std::sync::Once = std::sync::Once::new();
         SWEPT.call_once(|| _ = sweep_stashes(&temp));
         let dir = temp.join(format!("{STASH}{}", std::process::id()));
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = dir.join(format!("{n}-{key}"));
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        // (Another hak closed meanwhile takes the folder away when it is
+        // empty, between its making and the write: made again.)
+        let mut tries = 0;
+        loop {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            match std::fs::write(&path, bytes) {
+                Ok(()) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound && tries < 3 => tries += 1,
+                Err(e) => return Err(e.to_string()),
+            }
+        }
         self.stash.0.lock().unwrap_or_else(|e| e.into_inner()).push(path.clone());
         Ok(path)
     }

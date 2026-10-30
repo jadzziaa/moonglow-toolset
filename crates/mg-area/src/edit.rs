@@ -166,11 +166,58 @@ pub fn visual_transform_edits(
     s: &Struct,
     v: crate::VisualTransform,
 ) -> Vec<Edit> {
+    visual_transform_edits_with(git, o, s, v, None)
+}
+
+/// [`visual_transform_edits`], and the animation speed (`AnimationSpeed`,
+/// how fast the model's animations play) set to `speed` where given. An
+/// axis whose value stays keeps all it has (a lerp in progress, its timer):
+/// only those changed are written anew; the entry's other fields and other
+/// scopes' entries stay.
+pub fn visual_transform_edits_with(
+    git: ResKey,
+    o: &AreaObject,
+    s: &Struct,
+    v: crate::VisualTransform,
+    speed: Option<f32>,
+) -> Vec<Edit> {
     let current = crate::VisualTransform::read(s);
-    if current.unwrap_or_default() == v && (current.is_some() || v.is_identity()) {
+    let was = s
+        .list("VisTransformList")
+        .and_then(|l| l.iter().find(|e| e.integer("Scope").unwrap_or(0) == 0).cloned());
+    let speed_was =
+        was.as_ref().and_then(|e| e.child("AnimationSpeed")?.float("ValueTo")).unwrap_or(1.0);
+    let speed = speed.filter(|&x| x != speed_was);
+    if speed.is_none() && current.unwrap_or_default() == v && (current.is_some() || v.is_identity())
+    {
         return Vec::new();
     }
-    let entry = visual_transform_entry(v);
+    let entry = match was {
+        // (The entry as it was, its axes changed one by one.)
+        Some(mut e) => {
+            for (prefix, value) in
+                [("Scale", v.scale), ("Rotate", v.rotate), ("Translate", v.translate)]
+            {
+                for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+                    let label = format!("{prefix}{a}");
+                    if e.child(&label).and_then(|x| x.float("ValueTo")) != Some(value[i]) {
+                        e.set(&label, axis(value[i]));
+                    }
+                }
+            }
+            if let Some(x) = speed {
+                e.set("AnimationSpeed", axis(x));
+            }
+            e
+        }
+        None => {
+            let mut e = visual_transform_entry(v);
+            if let Some(x) = speed {
+                e.set("AnimationSpeed", axis(x));
+            }
+            e
+        }
+    };
     // Other scopes' entries stay.
     let mut list: Vec<Struct> = s
         .list("VisTransformList")
@@ -293,6 +340,7 @@ mod tests {
             outline: Vec::new(),
             laid: 0,
             visual: None,
+            scopes: Vec::new(),
             is_static: false,
             trigger_type: 0,
             conversation: None,
@@ -433,6 +481,61 @@ mod tests {
         // None, and none given: nothing written.
         let bare = Struct::new(9);
         assert!(visual_transform_edits(git(), &o, &bare, Default::default()).is_empty());
+    }
+
+    /// An entry the object has is changed axis by axis: an axis Adjust
+    /// Location leaves as it was keeps what it has (a lerp in progress,
+    /// a speed), and the animation speed is set when asked.
+    #[test]
+    fn adjust_location_keeps_what_it_does_not_change() {
+        let o = object(ObjectKind::Creature, Vec3::ZERO, 0.0);
+        let mut s = Struct::new(4);
+        let Value::List(mut list) = visual_transform_list(crate::VisualTransform::default()) else {
+            unreachable!()
+        };
+        let mut lerp = Struct::new(0);
+        for (label, v) in [("ValueFrom", 0.0), ("ValueTo", 90.0), ("LerpDuration", 60.0)] {
+            lerp.set(label, Value::Float(v));
+        }
+        lerp.set("LerpType", Value::Int(1));
+        list[0].set("RotateX", Value::Struct(lerp.clone()));
+        s.set("VisTransformList", Value::List(list));
+        let apply = |s: &Struct, edits: &[Edit]| {
+            let mut after = s.clone();
+            for e in edits {
+                if let Edit::SetField { label, value: Some(v), .. } = e {
+                    after.set(label, v.clone());
+                }
+            }
+            after
+        };
+        // Scale changed: the lerp's axis kept whole.
+        let mut v = crate::VisualTransform::read(&s).unwrap();
+        assert_eq!(v.rotate.x, 90.0, "the lerp's goal");
+        v.scale = Vec3::splat(2.0);
+        let after = apply(&s, &visual_transform_edits(git(), &o, &s, v));
+        let entry = &after.list("VisTransformList").unwrap()[0];
+        assert_eq!(entry.child("RotateX"), Some(&lerp));
+        assert_eq!(entry.child("ScaleX").and_then(|a| a.float("ValueTo")), Some(2.0));
+        // The speed alone.
+        let edits = visual_transform_edits_with(git(), &o, &after, v, Some(1.5));
+        let sped = apply(&after, &edits);
+        let entry = &sped.list("VisTransformList").unwrap()[0];
+        assert_eq!(entry.child("AnimationSpeed").and_then(|a| a.float("ValueTo")), Some(1.5));
+        assert_eq!(entry.child("RotateX"), Some(&lerp));
+        assert!(visual_transform_edits_with(git(), &o, &sped, v, Some(1.5)).is_empty());
+        // The lerp's axis set to another value: a plain axis from then on.
+        v.rotate.x = 45.0;
+        let set = apply(&sped, &visual_transform_edits(git(), &o, &sped, v));
+        let rotate = set.list("VisTransformList").unwrap()[0].child("RotateX").unwrap().clone();
+        assert_eq!(rotate.float("ValueTo"), Some(45.0));
+        assert!(!rotate.contains("ValueFrom") && !rotate.contains("LerpDuration"));
+        // None before: a new entry with the speed.
+        let bare = Struct::new(4);
+        let edits = visual_transform_edits_with(git(), &o, &bare, Default::default(), Some(2.0));
+        let new = apply(&bare, &edits);
+        let entry = &new.list("VisTransformList").unwrap()[0];
+        assert_eq!(entry.child("AnimationSpeed").and_then(|a| a.float("ValueTo")), Some(2.0));
     }
 
     fn labels(edits: &[Edit]) -> Vec<String> {

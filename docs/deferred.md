@@ -338,14 +338,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   properties, matched by type, subtype and value; inventories
   (`inventory.rs`), items added to each. Several days' work with a
   design of its own for the marks and the guard. (L)
-- **Lighting of one's own:** Saved Lighting and Copy From Area give an
-  area the Visual page's fields; not the tiles' lights (each tile's
-  own, as a scheme picks them at random from its colors), and lighting
-  kept isn't made an environment.2da row of a hak, for the toolset's
-  scheme list and the game's `SetAreaLightingScheme` (`mg areas` takes
-  no saved lighting either). Saved lighting is listed, not renamed or
-  deleted in the toolset (its files are). (S–M) (dansen9191's ask,
-  October 2026)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
@@ -639,8 +631,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2); Moonglow's stand still with either shader: the game's `vsgrass`
   reads no wind, so the engine moves the vertices itself, and the area
   view would have to as well. (M)
-- **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
-  added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't known.
@@ -683,12 +673,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Editing in the area view
 
-- **Lerps, animation speed and other scopes:** Adjust Location edits
-  scope 0's scale, rotation and translation only; a transform's
-  `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
-  and a creature's head, wings, tail or cloak scopes are kept but not
-  shown, and the area view draws scope 0 only. (M) (xtul's report,
-  October 2026)
+- **Lerps, animation speed and other scopes, how the client draws a
+  part's:** Adjust Location shows and sets a transform's animation
+  speed and shows a lerp in progress and other scopes' transforms, kept
+  as they are; the area view draws a creature's head, tail, wings and
+  cloak scopes on those parts (the engine keeps each:
+  `the_engine_keeps_part_scopes_animation_speed_and_lerps`). How the
+  client draws a part's transform is assumed, not read: the part's
+  model placed as the whole object's is (`mg_preview::visual_matrix`),
+  about the node it hangs from (`head_g`, the wings' and the tail's
+  dummies; the cloak, which hangs from none, about the creature's
+  feet). The client batch should read it as `visual_transforms_look`
+  reads the whole object's (`client_render.rs`): a part-based creature
+  (appearance 6, wings 2) with its head scaled 2, then turned 45° about
+  each axis in turn, then moved, and its wings and cloak the same; and
+  a creature of one model (the bandit, appearance 269), whose head
+  scaled Moonglow draws unchanged. An item's part scopes (255 to 251)
+  are shown and not drawn: which of its models each is wants the same
+  reading. (S, waits on the client batch) (xtul's report, October 2026)
 
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
@@ -748,22 +750,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
   the renderer can tell the two apart, so the fix is in `mg-render`'s
   map choice too. (S)
-- **Lights placed on the fly** ([the proposal](lights-proposal.md)):
-  way A is in (the game's seven invisible light placeables from the
-  area's menu, a sun for a marker, Light Color, a ring for the reach).
-  The reach is measured in the client (`placeable_light_uniforms`): a
-  light of radius 10 in the lightcolor.2da color, ending 20 m out
-  (further for a color brighter than 1), static or not, as Moonglow
-  drew it already. Not in: a palette entry beside the menu, and way B (any color and reach, by generated content), which
-  needs generated 2DA rows merged into the module's tables (`mg 2da-diff
-  --base` merges from a terminal; nothing in the window does). An
-  object whose model is too small to see
-  (lying flat and under half a metre across, or empty) is now drawn and
-  picked by a marker's box, lights and the Invisible Object alike. (M)
-  (Small models with height, a potion, a gem or a healer's kit, were
-  taken for it too and had a marker's metre-wide box: a builder's
-  report after 1.32.1.)
-  (from builders' reports after 1.16.2)
+- **Lights placed on the fly, way B** ([the proposal](lights-proposal.md)):
+  lights of any color and reach by generated content (a model with one
+  light node for each setting, a placeables.2da row for it, both in a
+  hak the module lists). Way A is built whole: the game's seven
+  invisible lights from the area's menu (Add Light Here) and from the
+  palette's ☀ Lights, Light Color, a ring for the reach as the client
+  measured it. Way B is not started. It waits on the owner's answer to
+  the proposal's question (is a hak that Moonglow writes and keeps
+  acceptable, given that a persistent world must ship it?), and on the
+  client for the proposal's two questions not measured: whether a
+  `LightColor` light and a model's light node light creatures and
+  placeables or only tiles, and how many dynamic lights the game draws
+  at one place before dropping some (the client batch can read both as
+  `placeable_light_uniforms` in `client_render.rs` reads a light's
+  reach: the uniforms the client hands its shader, with a creature and
+  a placeable beside the light, and with one to twelve lights). Its
+  row needs no merge of several haks' tables: the way Make a Lighting
+  Scheme adds an environment.2da row (the table opened where the
+  builder chooses, the row added with `Editing::add_row_of`) serves a
+  placeables.2da row as well. The light editor, the generated models
+  and keeping them: (M–L). (from builders' reports after 1.16.2)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for

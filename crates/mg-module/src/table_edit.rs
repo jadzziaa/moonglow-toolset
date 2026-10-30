@@ -222,6 +222,21 @@ impl Editing {
         first
     }
 
+    /// Adds a row at the end with `cells` (by column name; a column the
+    /// table lacks is left out, as the game would read nothing there), as
+    /// one step named `label`; the row's number.
+    pub fn add_row_of(&mut self, label: &str, cells: &[(String, String)]) -> usize {
+        let row = self.table.len();
+        self.table.add_row();
+        let cells = (cells.iter())
+            .filter_map(|(name, value)| Some((row, self.table.column(name)?, Some(value.clone()))))
+            .filter(|(_, _, v)| !v.as_ref().is_some_and(|v| v.contains('"')))
+            .collect();
+        let changed = self.put(cells).unwrap_or_default();
+        self.done(label, Change::Rows(1, changed));
+        row
+    }
+
     /// Empties a row's cells; the row stays.
     pub fn clear_row(&mut self, row: usize) {
         let cells = (0..self.table.columns().len()).map(|c| (row, c, None)).collect();
@@ -404,6 +419,31 @@ mod tests {
 
     fn table(text: &str) -> TwoDa {
         TwoDa::parse(format!("2DA V2.0\n\n{text}").as_bytes(), Codepage::default()).unwrap()
+    }
+
+    /// A row added with its cells (by column name) is one step: a column
+    /// the table lacks, and `****`, give nothing; Undo takes the row away
+    /// and Redo puts it back with them.
+    #[test]
+    fn a_row_is_added_with_its_cells_as_one_step() {
+        let mut e = Editing::new(table("  Label Cost\n0 a 1\n"));
+        let cells = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+        };
+        let row =
+            e.add_row_of("Add dusk", &cells(&[("Cost", "5"), ("Label", "Dusk"), ("Nope", "x")]));
+        assert_eq!(row, 1);
+        assert_eq!(
+            (e.table().get(1, "Label"), e.table().get(1, "Cost")),
+            (Some("Dusk"), Some("5"))
+        );
+        assert_eq!(e.undo_label(), Some("Add dusk"));
+        e.undo();
+        assert_eq!(e.table().len(), 1);
+        e.redo();
+        assert_eq!(e.table().get(1, "Label"), Some("Dusk"));
+        e.add_row_of("Empty", &cells(&[("Label", "****")]));
+        assert_eq!((e.table().len(), e.table().get(2, "Label")), (3, None));
     }
 
     #[test]

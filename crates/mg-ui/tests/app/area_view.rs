@@ -3140,6 +3140,114 @@ fn adjust_location_says_an_uneven_scale_is_kept() {
     assert!(v.scale.x != 0.5 && v.scale == Vec3::splat(v.scale.x), "{v:?}");
 }
 
+/// Adjust Location shows what an object's visual transforms have beside
+/// what it sets (xtul's report): its animation speed, set here too, a
+/// lerp in progress (a script's, as the engine saves it) and another
+/// scope's transform. A speed set alone keeps the lerp; the notes say
+/// what is kept. Picture: `target/test-output/ui-adjust-kept/noted.png`.
+#[test]
+fn adjust_location_shows_speed_lerps_and_other_scopes() {
+    use glam::Vec3;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("adjust-kept") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let axis = |v: f32| {
+        let mut a = mg_gff::Struct::new(0);
+        a.set("TimerType", mg_gff::Value::Int(0));
+        a.set("ValueTo", mg_gff::Value::Float(v));
+        a.set("LerpType", mg_gff::Value::Int(0));
+        a
+    };
+    // As the engine saved one (`the_engine_keeps_part_scopes_animation_speed_and_lerps`).
+    let mut lerp = axis(90.0);
+    lerp.set("TimerType", mg_gff::Value::Int(1));
+    lerp.set("LerpType", mg_gff::Value::Int(1));
+    lerp.set("ValueFrom", mg_gff::Value::Float(0.0));
+    lerp.set("LerpProgress", mg_gff::Value::Float(0.25));
+    lerp.set("LerpDuration", mg_gff::Value::Float(60.0));
+    lerp.set("BehaviorFlags", mg_gff::Value::Int(0));
+    lerp.set("RepeatsRemaining", mg_gff::Value::Int(0));
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        item.set("Static", mg_gff::Value::Byte(0));
+        let mg_gff::Value::List(mut list) =
+            mg_area::edit::visual_transform_list(Default::default())
+        else {
+            unreachable!()
+        };
+        list[0].set("AnimationSpeed", mg_gff::Value::Struct(axis(2.0)));
+        list[0].set("RotateX", mg_gff::Value::Struct(lerp.clone()));
+        let mut other = list[0].clone();
+        other.set("Scope", mg_gff::Value::Int(7));
+        other.set("ScaleX", mg_gff::Value::Struct(axis(3.0)));
+        other.set("RotateX", mg_gff::Value::Struct(axis(0.0)));
+        list.push(other);
+        item.set("VisTransformList", mg_gff::Value::List(list));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let chest = &ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[0];
+        chest.list("VisTransformList").unwrap()[0].clone()
+    };
+    let at = screen(&h, area, Vec3::new(12.0, 30.0, 0.3));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let a = h.state().adjust.clone().unwrap();
+    assert_eq!(a.speed, 2.0);
+    assert_eq!(a.visual.rotate.x, 90.0, "the lerp's end");
+    assert_eq!(a.kept.len(), 2, "{:?}", a.kept);
+    assert!(a.kept[0].starts_with("Its X rotation is changing"), "{}", a.kept[0]);
+    assert!(a.kept[0].contains("from 0 to 90 over 60 s, 25% along"), "{}", a.kept[0]);
+    assert!(
+        a.kept[1].starts_with("Its scope 7 has a visual transform of its own (scale 3"),
+        "{}",
+        a.kept[1]
+    );
+    for note in &a.kept {
+        assert!(h.query_by_label(note).is_some(), "the window says so: {note}");
+    }
+    h.get_by_label("Animation Speed");
+    let dir = mg_testkit::output_dir("ui-adjust-kept");
+    let _ = std::fs::remove_file(dir.join("noted.png"));
+    h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    // The speed alone: set, the lerp kept.
+    let a = h.state_mut().adjust.as_mut().unwrap();
+    a.speed = 0.5;
+    a.speed_changed = true;
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let e = entry(&mut h);
+    assert_eq!(e.child("AnimationSpeed").and_then(|x| x.float("ValueTo")), Some(0.5));
+    assert_eq!(e.child("RotateX"), Some(&lerp), "the lerp kept");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+}
+
 /// Placed objects edited together have no pages of lists of their own
 /// (those changed only the first object), as several blueprints have
 /// none: an inventory is edited one object at a time. A field is set on
@@ -4178,6 +4286,106 @@ fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
     assert_eq!((waypoint(&mut h, area, 0), waypoint(&mut h, area, 1)), before);
 }
 
+/// A creature whose head and wings alone have visual transforms (scopes
+/// 254 and 252, as `SetObjectVisualTransform(...,
+/// OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_CREATURE_HEAD)` saves them): its head
+/// is drawn twice the size on its neck and its wings half as large again
+/// on its back, and the rest of it as it is (the engine reads its scope 0
+/// as untransformed; it was drawn whole at the head's scale). Two winged
+/// humans side by side, the one at x 19 transformed. Picture:
+/// `target/test-output/ui-area-head-scope/heads.png`.
+#[test]
+fn a_creature_s_head_scope_is_drawn_on_its_head() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("head-scope") else { return };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    // A bandit made a human of parts (appearance 6, head 1), with wings.
+    let bandit = {
+        let game = h.state().game.as_deref().unwrap();
+        let key = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+        let mut c = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let look = mg_preview::CreatureLook { wings: 2, ..mg_preview::CreatureLook::new(6) };
+        for f in look.to_utc().fields {
+            c.set(&f.label.to_string_lossy(), f.value);
+        }
+        c
+    };
+    let axis = |v: f32| {
+        let mut a = mg_gff::Struct::new(0);
+        a.set("TimerType", mg_gff::Value::Int(0));
+        a.set("ValueTo", mg_gff::Value::Float(v));
+        a.set("LerpType", mg_gff::Value::Int(0));
+        mg_gff::Value::Struct(a)
+    };
+    let scoped = |scope: i32, scale: f32| {
+        let mut e = mg_gff::Struct::new(6);
+        e.set("Scope", mg_gff::Value::Int(scope));
+        for label in ["ScaleX", "ScaleY", "ScaleZ"] {
+            e.set(label, axis(scale));
+        }
+        e
+    };
+    let parts = vec![scoped(254, 2.0), scoped(252, 1.5)];
+    let mut edits = Vec::new();
+    for (i, x) in [19.0f32, 21.0].into_iter().enumerate() {
+        let mut c = bandit.clone();
+        for (label, v) in [("XPosition", x), ("YPosition", 20.0), ("ZPosition", 0.0)] {
+            c.set(label, mg_gff::Value::Float(v));
+        }
+        c.set("XOrientation", mg_gff::Value::Float(0.0));
+        c.set("YOrientation", mg_gff::Value::Float(1.0));
+        if i == 0 {
+            c.set("VisTransformList", mg_gff::Value::List(parts.clone()));
+        }
+        edits.push(mg_edit::Edit::InsertItem {
+            key: ResKey::new(area, ResType::GIT),
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index: i,
+            item: c,
+        });
+    }
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Place", edits)));
+    h.run_steps(5);
+    // From the north, looking at their faces.
+    let orbit = mg_ui::area_view::Orbit {
+        target: Vec3::new(20.0, 20.0, 1.3),
+        yaw: std::f32::consts::FRAC_PI_2,
+        pitch: 0.12,
+        distance: 6.0,
+    };
+    set_orbit(&mut h, area, orbit);
+    h.run_steps(5);
+    let out = mg_testkit::output_dir("ui-area-head-scope");
+    let _ = std::fs::remove_file(out.join("heads.png"));
+    h.render().expect("render").save(out.join("heads.png")).unwrap();
+    let view = h.state().area_views.get(&area).unwrap();
+    let model = view.model.as_ref().unwrap();
+    let creature = |x: f32| {
+        let i = model.objects.iter().position(|o| {
+            o.kind == mg_area::ObjectKind::Creature && (o.position.x - x).abs() < 0.1
+        });
+        view.box_of(i.unwrap()).expect("a box")
+    };
+    let whole = |x: f32| {
+        let o = model.objects.iter().find(|o| (o.position.x - x).abs() < 0.1).unwrap();
+        o.visual
+    };
+    assert_eq!(whole(19.0), None, "the whole of it has no visual transform");
+    let scaled_parts = |x: f32| -> Vec<String> {
+        let o = model.objects.iter().find(|o| (o.position.x - x).abs() < 0.1).unwrap();
+        let p = o.preview.as_ref().unwrap();
+        p.parts.iter().filter(|p| p.local.is_some()).map(|p| p.model.clone()).collect()
+    };
+    let scaled = scaled_parts(19.0);
+    assert!(scaled.len() == 2 && scaled.iter().any(|m| m.contains("wing")), "{scaled:?}");
+    assert!(scaled_parts(21.0).is_empty());
+    let (scaled, plain) = (creature(19.0), creature(21.0));
+    let tall = |b: (Vec3, Vec3)| b.1.z - b.0.z;
+    assert!(tall(scaled) < tall(plain) * 1.4, "not the whole of it: {scaled:?} {plain:?}");
+    assert!(tall(scaled) > tall(plain) + 0.1, "its head larger: {scaled:?} {plain:?}");
+}
+
 /// The game's invisible object is selected by the box its model holds
 /// undrawn (0.6 m across, 0.18 m tall), as Aurora outlines it: it was a
 /// marker's, a metre each way.
@@ -4265,6 +4473,74 @@ fn a_light_is_added_from_the_area_s_menu_and_recolored() {
     h.get_by_label("Red").click();
     h.run_steps(3);
     assert_eq!(placed(&mut h)[0].integer("Appearance"), Some(15111), "Light, Red");
+}
+
+/// The palette's Lights (beside the area's menu's Add Light Here): a
+/// light chosen there is put where the view is clicked, as the menu puts
+/// one, and let go; with Shift held, more of them; Escape stops. Picture:
+/// `target/test-output/ui-area-palette-lights/placed.png`.
+#[test]
+fn a_light_is_placed_from_the_palette() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("palette-lights") else { return };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.run_steps(3);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let placed = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Placeable List").map(<[_]>::to_vec).unwrap_or_default()
+    };
+    h.get_by_label("☀").click();
+    h.run_steps(3);
+    assert!(h.state().palette.lights);
+    h.get_by_label("Blue").click();
+    h.run_steps(2);
+    let blue = h.state().palette.placing_light.expect("about to be placed");
+    let at = screen(&h, area, Vec3::new(14.0, 26.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(3);
+    let lights = placed(&mut h);
+    assert_eq!(lights.len(), 1);
+    assert_eq!(lights[0].integer("Appearance"), Some(blue as i64));
+    let (x, y, z) = (
+        lights[0].float("X").unwrap(),
+        lights[0].float("Y").unwrap(),
+        lights[0].float("Z").unwrap(),
+    );
+    assert!(
+        (x - 14.0).abs() < 0.2 && (y - 26.0).abs() < 0.2 && (z - 1.5).abs() < 0.3,
+        "{x} {y} {z}"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add Light, Blue"));
+    assert_eq!(h.state().palette.placing_light, None, "let go once placed");
+    // With Shift: placed, and still about to be placed; Escape stops.
+    h.get_by_label("Red").click();
+    h.run_steps(2);
+    let shift = egui::Modifiers::SHIFT;
+    h.event(egui::Event::ModifiersChanged(shift));
+    for x in [20.0, 24.0] {
+        let at = screen(&h, area, Vec3::new(x, 20.0, 0.0));
+        h.hover_at(at);
+        h.run_steps(1);
+        for pressed in [true, false] {
+            let button = egui::PointerButton::Primary;
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: shift });
+        }
+        h.run_steps(3);
+    }
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+    assert_eq!(placed(&mut h).len(), 3);
+    assert!(h.state().palette.placing_light.is_some(), "Shift: still placing");
+    h.hover_at(screen(&h, area, Vec3::new(30.0, 30.0, 0.0)));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(h.state().palette.placing_light, None);
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-palette-lights").join("placed.png"))
+        .unwrap();
 }
 
 /// With Shift held, a selected placeable has a handle that scales its

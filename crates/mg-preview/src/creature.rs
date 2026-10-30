@@ -38,6 +38,13 @@ const PARTS: [(&str, &str, &str); 18] = [
 /// The robe, among the armor's parts.
 const ROBE: usize = 18;
 
+/// The visual-transform scopes of a creature's parts
+/// (`OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_CREATURE_*`).
+const HEAD_SCOPE: i64 = 254;
+const TAIL_SCOPE: i64 = 253;
+const WINGS_SCOPE: i64 = 252;
+const CLOAK_SCOPE: i64 = 243;
+
 /// `colors` (by PLT layer) with armor part `part`'s own colors over them.
 fn part_colors(armor: &Struct, part: usize, mut colors: [u8; 10]) -> [u8; 10] {
     for channel in mg_rules::items::ArmorChannel::ALL {
@@ -259,6 +266,7 @@ pub(crate) fn dressed(
                 cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m, "_"))
             {
                 let mut p = with(model, None, true, None);
+                p.local = crate::scope_matrix(utc, CLOAK_SCOPE);
                 let texture =
                     format!("cloak_{:03}", cell_int(&cloaks, row, "TEXTURE").unwrap_or(1));
                 p.textures =
@@ -311,6 +319,8 @@ pub(crate) fn dressed(
                     p.scale = cell_f32(&appearance, r, scale_col).unwrap_or(1.0);
                     p.colors = Some(item_colors(h, colors));
                     p.env_map = Some("chrome1".into());
+                    // (In the head's place, as the head's.)
+                    p.local = crate::scope_matrix(utc, HEAD_SCOPE);
                     preview.parts.push(p);
                 }
             }
@@ -321,7 +331,9 @@ pub(crate) fn dressed(
                 if head > 0
                     && let Some(m) = part_model("head", head, "")
                 {
-                    preview.parts.push(with(m, Some("head_g"), false, None));
+                    let mut p = with(m, Some("head_g"), false, None);
+                    p.local = crate::scope_matrix(utc, HEAD_SCOPE);
+                    preview.parts.push(p);
                 }
             }
             None => {}
@@ -330,9 +342,9 @@ pub(crate) fn dressed(
 
     // Wings and tails at their dummies.
     let scale = cell_f32(&appearance, r, "WING_TAIL_SCALE").unwrap_or(1.0);
-    for (table, fields, node, hide) in [
-        ("wingmodel", ["Wings_New", "Wings"], "wings", hide_wings),
-        ("tailmodel", ["Tail_New", "Tail"], "tail", hide_tail),
+    for (table, fields, node, hide, scope) in [
+        ("wingmodel", ["Wings_New", "Wings"], "wings", hide_wings, WINGS_SCOPE),
+        ("tailmodel", ["Tail_New", "Tail"], "tail", hide_tail, TAIL_SCOPE),
     ] {
         let n = fields.iter().find_map(|f| utc.integer(f)).unwrap_or(0);
         if n <= 0 || hide {
@@ -346,6 +358,7 @@ pub(crate) fn dressed(
             p.colors = Some(colors);
             p.env_map = env_map(cell(&t, n as usize, "ENVMAP"));
             p.animated = true;
+            p.local = crate::scope_matrix(utc, scope);
             preview.parts.push(p);
         }
     }

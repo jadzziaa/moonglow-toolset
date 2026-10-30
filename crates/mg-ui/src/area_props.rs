@@ -13,6 +13,7 @@ use mg_resman::ResKey;
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
 use mg_module::areas::Has;
+use mg_module::lighting::TileColors;
 
 pub(crate) const PAGES: [&str; 7] =
     ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Comments"];
@@ -160,7 +161,7 @@ fn pages(
             ))
             .clicked()
         {
-            give_page(app, area, others, page);
+            give_page(app, area, others, page, false);
         }
     }
     let also: Vec<(ResKey, GffPath)> =
@@ -190,32 +191,8 @@ fn pages(
 }
 
 /// The fields of a page shared by several areas: in the area (`false`),
-/// The Visual page's fields: the lighting scheme, the sun's and the
-/// moon's colors, fog and shadows, day and night, the sky and the weather.
-/// What Give Every Area This Page's Settings, Copy From Area and saved
-/// lighting ([`crate::lighting`]) give an area.
-pub(crate) const VISUAL_FIELDS: &[&str] = &[
-    "ChanceLightning",
-    "ChanceRain",
-    "ChanceSnow",
-    "DayNightCycle",
-    "IsNight",
-    "LightingScheme",
-    "MoonAmbientColor",
-    "MoonDiffuseColor",
-    "MoonFogAmount",
-    "MoonFogColor",
-    "MoonShadows",
-    "SunAmbientColor",
-    "SunDiffuseColor",
-    "SunFogAmount",
-    "SunFogColor",
-    "SunShadows",
-    "ShadowOpacity",
-    "SkyBox",
-    "WindPower",
-    "FogClipDist",
-];
+/// The Visual page's fields ([`mg_module::lighting::VISUAL_FIELDS`]).
+pub(crate) use mg_module::lighting::VISUAL_FIELDS;
 
 /// or in its GIT's `AreaProperties` (`true`).
 fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
@@ -254,7 +231,7 @@ fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
 
 /// Gives the other areas the first one's values of a page's fields (those
 /// it has), in one command.
-fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
+fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str, own_tiles: bool) {
     let (in_git, labels) = page_fields(page);
     let (restype, path) = if in_git {
         (ResType::GIT, GffPath::root().field("AreaProperties"))
@@ -265,28 +242,35 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
     // (The grass the first area lacks, the others lose: what is not there
     // is what grows.)
     let lacking = |l: &'static str| (page == "Grass").then_some((l, None));
-    let (values, scheme_row): (Vec<(&str, Option<Value>)>, Option<i64>) =
-        match ws.doc(&ResKey::new(area, restype)) {
-            Ok(doc) => match path.get(&doc.root) {
-                Some(from) => (
-                    labels
-                        .iter()
-                        .filter_map(|l| {
-                            from.get(l).map(|v| (*l, Some(v.clone()))).or_else(|| lacking(l))
-                        })
-                        .collect(),
-                    from.integer("LightingScheme"),
-                ),
-                None => return,
-            },
-            Err(_) => return,
-        };
+    type Read = (Vec<(&'static str, Option<Value>)>, Option<i64>, Option<TileColors>);
+    let (values, scheme_row, own): Read = match ws.doc(&ResKey::new(area, restype)) {
+        Ok(doc) => match path.get(&doc.root) {
+            Some(from) => (
+                labels
+                    .iter()
+                    .filter_map(|l| {
+                        from.get(l).map(|v| (*l, Some(v.clone()))).or_else(|| lacking(l))
+                    })
+                    .collect(),
+                from.integer("LightingScheme"),
+                mg_module::lighting::tile_colors(from.list("Tile_List").unwrap_or(&[])),
+            ),
+            None => return,
+        },
+        Err(_) => return,
+    };
     // The Visual page: an area of another lighting scheme gets its tiles'
     // lights from the first's, as choosing the scheme gives them (one of
     // the same scheme keeps its own). Without the game's data, none.
-    let scheme = (page == "Visual").then_some(scheme_row).flatten().and_then(|row| {
-        app.game.as_deref().and_then(|g| mg_module::new::Scheme::read(g, row as usize).ok())
-    });
+    // Copied from an area (`own_tiles`): every area's tiles get theirs
+    // from the colors that area's tiles have, as a scheme of its own.
+    let scheme: Option<TileColors> = match own_tiles {
+        true => own.filter(|_| page == "Visual"),
+        false => (page == "Visual").then_some(scheme_row).flatten().and_then(|row| {
+            let g = app.game.as_deref()?;
+            Some(mg_module::new::Scheme::read(g, row as usize).ok()?.tile_colors())
+        }),
+    };
     let mut rng = fastrand::Rng::new();
     let mut edits = Vec::new();
     for other in others {
@@ -301,7 +285,7 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
             value: value.clone(),
         }));
         if let Some(scheme) =
-            scheme.as_ref().filter(|_| there.integer("LightingScheme") != scheme_row)
+            scheme.as_ref().filter(|_| own_tiles || there.integer("LightingScheme") != scheme_row)
         {
             let tiles = there.list("Tile_List").map_or(0, <[_]>::len);
             edits.extend(tile_light_edits(scheme, key, tiles, &mut rng));
@@ -513,14 +497,22 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         None => Vec::new(),
     };
     areas.sort_by_cached_key(|(_, name)| name.to_lowercase());
-    let saved = crate::lighting::list(f.app.lighting_dir.as_deref());
+    let dir = f.app.lighting_dir.clone();
+    let saved = crate::lighting::list(dir.as_deref());
+    // A name being typed: for Save This Lighting (`None`) or to rename the
+    // one named (`Some`).
     let naming = ui.id().with(("lighting-name", f.key.resref));
+    // The one deleted last, which Undo Delete puts back (its file is
+    // Moonglow's, not the module's: Edit › Undo doesn't know it).
+    let deleted_id = egui::Id::new("lighting-deleted");
+    let deleted: Option<(String, String)> = ui.data(|d| d.get_temp(deleted_id));
+    let mut scheme_of = None;
     ui.horizontal(|ui| {
         ui.menu_button("Copy From Area", |ui| {
             egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
                 for (area, name) in &areas {
                     if ui.button(name).clicked() {
-                        give_page(f.app, *area, &targets, "Visual");
+                        give_page(f.app, *area, &targets, "Visual", true);
                         ui.close();
                     }
                 }
@@ -528,9 +520,20 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .response
         .on_hover_text(
-            "This page's settings (the lighting, fog, sky and weather) from another area",
+            "This page's settings (the lighting, fog, sky and weather) from another area, and \
+             its tiles' lights: each tile's picked from the colors that area's tiles have",
         );
         ui.menu_button("Saved Lighting", |ui| {
+            if let Some((name, text)) = &deleted
+                && ui.button(format!("Undo Delete '{name}'")).clicked()
+            {
+                match crate::lighting::restore(dir.as_deref(), name, text) {
+                    Ok(()) => f.app.log.info(format!("Lighting '{name}' put back")),
+                    Err(e) => f.app.log.error(format!("Undo Delete: {e}")),
+                }
+                ui.data_mut(|d| d.remove::<(String, String)>(deleted_id));
+                ui.close();
+            }
             if saved.is_empty() {
                 ui.weak("None saved yet");
             }
@@ -542,66 +545,175 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             }
             ui.separator();
             if ui.button("Save This Lighting…").clicked() {
-                ui.data_mut(|d| d.insert_temp(naming, String::new()));
+                ui.data_mut(|d| d.insert_temp(naming, (None::<String>, String::new())));
                 ui.close();
             }
+            if saved.is_empty() {
+                return;
+            }
+            ui.menu_button("Rename", |ui| {
+                for name in &saved {
+                    if ui.button(name).clicked() {
+                        ui.data_mut(|d| d.insert_temp(naming, (Some(name.clone()), name.clone())));
+                        ui.close();
+                    }
+                }
+            });
+            ui.menu_button("Delete", |ui| {
+                for name in &saved {
+                    if ui
+                        .button(name)
+                        .on_hover_text("Undo Delete, in this menu, puts it back")
+                        .clicked()
+                    {
+                        match crate::lighting::delete(dir.as_deref(), name) {
+                            Ok(text) => {
+                                f.app.log.info(format!("Lighting '{name}' deleted"));
+                                ui.data_mut(|d| d.insert_temp(deleted_id, (name.clone(), text)));
+                            }
+                            Err(e) => f.app.log.error(format!("Delete lighting: {e}")),
+                        }
+                        ui.close();
+                    }
+                }
+            });
+            ui.menu_button("Make a Lighting Scheme", |ui| {
+                ui.weak("A row of environment.2da: the table to add it to");
+                let key =
+                    ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
+                for name in &saved {
+                    ui.menu_button(name, |ui| {
+                        if let Some(home) = crate::browser::table_homes(f.app, ui, key) {
+                            scheme_of = Some((name.clone(), home));
+                            ui.close();
+                        }
+                    });
+                }
+            })
+            .response
+            .on_hover_text(
+                "The lighting as a lighting scheme of the module's own: a row of environment.2da, \
+                 which this page lists and the game's SetAreaLightingScheme takes",
+            );
         })
         .response
         .on_hover_text("Lighting kept under a name, for any area of any module");
     });
-    // Save This Lighting's name.
-    let Some(mut name) = ui.data(|d| d.get_temp::<String>(naming)) else { return };
+    if let Some((name, home)) = scheme_of {
+        make_scheme(f.app, &name, home);
+    }
+    // Save This Lighting's name, or Rename's.
+    let Some((from, mut name)) = ui.data(|d| d.get_temp::<(Option<String>, String)>(naming)) else {
+        return;
+    };
     let mut done = false;
     ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Name");
+        crate::widgets::field_label(ui, if from.is_some() { "Rename to" } else { "Name" });
         let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(200.0));
         crate::widgets::autofocus(ui, &r);
-        let ok = crate::saved::valid_name(&name);
+        let other = |s: &&String| from.as_ref() != Some(*s) && s.eq_ignore_ascii_case(name.trim());
+        let taken = saved.iter().any(|s| other(&s));
+        let ok = crate::saved::valid_name(&name) && !(from.is_some() && taken);
         let entered = r.lost_focus()
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-        if ui.add_enabled(ok, egui::Button::new("Save")).clicked() || (ok && entered) {
-            match crate::lighting::save(f.app.lighting_dir.as_deref(), &name, &f.root) {
-                Ok(p) => f.app.log.info(format!("Lighting saved: {}", p.display())),
-                Err(e) => f.app.log.error(format!("Save This Lighting: {e}")),
+        let button = if from.is_some() { "Rename" } else { "Save" };
+        if ui.add_enabled(ok, egui::Button::new(button)).clicked() || (ok && entered) {
+            match &from {
+                // (The area itself: the form's copy has no tiles.)
+                None => match (f.app.ws.as_mut().map(|ws| ws.doc(&f.key)))
+                    .and_then(Result::ok)
+                    .ok_or_else(|| format!("{} can't be read", f.key))
+                    .and_then(|are| crate::lighting::save(dir.as_deref(), &name, &are.root))
+                {
+                    Ok(p) => f.app.log.info(format!("Lighting saved: {}", p.display())),
+                    Err(e) => f.app.log.error(format!("Save This Lighting: {e}")),
+                },
+                Some(from) => match crate::lighting::rename(dir.as_deref(), from, &name) {
+                    Ok(()) => {
+                        f.app.log.info(format!("Lighting '{from}' renamed to '{}'", name.trim()))
+                    }
+                    Err(e) => f.app.log.error(format!("Rename lighting: {e}")),
+                },
             }
             done = true;
         }
         if ui.button("Cancel").clicked() {
             done = true;
         }
-        if saved.iter().any(|s| s.eq_ignore_ascii_case(name.trim())) {
-            ui.weak("replaces the one of that name");
+        if taken {
+            ui.weak(match from {
+                None => "replaces the one of that name",
+                Some(_) => "another lighting has that name",
+            });
         }
     });
     if done {
-        ui.data_mut(|d| d.remove::<String>(naming));
+        ui.data_mut(|d| d.remove::<(Option<String>, String)>(naming));
     } else {
-        ui.data_mut(|d| d.insert_temp(naming, name));
+        ui.data_mut(|d| d.insert_temp(naming, (from, name)));
     }
 }
 
 /// The lighting kept as `name` given to the area (and those edited with
-/// it), as one step.
+/// it), as one step: the Visual page's fields, and each tile's lights
+/// picked from the colors kept with them.
 fn give_saved(f: &mut Form<'_>, name: &str) {
-    let fields = match crate::lighting::load(f.app.lighting_dir.as_deref(), name, &f.root) {
-        Ok(fields) => fields,
+    let saved = match crate::lighting::read(f.app.lighting_dir.as_deref(), name) {
+        Ok(saved) => saved,
         Err(e) => {
             f.app.log.error(format!("Saved Lighting: {e}"));
             return;
         }
     };
-    let keys = std::iter::once(f.key).chain(f.also.iter().map(|(k, _)| *k));
-    let edits: Vec<Edit> = keys
-        .flat_map(|key| {
-            fields.iter().map(move |(label, value)| Edit::SetField {
-                key,
-                path: GffPath::root(),
-                label: (*label).into(),
-                value: Some(value.clone()),
-            })
-        })
-        .collect();
+    let Some(ws) = f.app.ws.as_mut() else { return };
+    let mut rng = fastrand::Rng::new();
+    let mut edits: Vec<Edit> = Vec::new();
+    for key in std::iter::once(f.key).chain(f.also.iter().map(|(k, _)| *k)) {
+        let Ok(are) = ws.doc(&key) else { continue };
+        let fields = match saved.fields_for(&are.root) {
+            Ok(fields) => fields,
+            Err(e) => {
+                f.app.log.error(format!("Saved Lighting: {name}: {e}"));
+                return;
+            }
+        };
+        let tiles = are.root.list("Tile_List").map_or(0, <[_]>::len);
+        edits.extend(fields.into_iter().map(|(label, value)| Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: label.into(),
+            value: Some(value),
+        }));
+        if let Some(colors) = saved.tiles() {
+            edits.extend(tile_light_edits(colors, key, tiles, &mut rng));
+        }
+    }
     f.app.actions.push(Action::Apply(Command::new(format!("Lighting {name}"), edits)));
+}
+
+/// Make a Lighting Scheme: the lighting kept as `name` added as a row of
+/// environment.2da, in the 2DA editor where `home` says, to be saved
+/// there (a hak's Save writes the hak; Tools › Reload Resources then
+/// lists the scheme).
+fn make_scheme(app: &mut Moonglow, name: &str, home: crate::browser::EditTable) {
+    let saved = match crate::lighting::read(app.lighting_dir.as_deref(), name) {
+        Ok(saved) => saved,
+        Err(e) => {
+            app.log.error(format!("Make a Lighting Scheme: {e}"));
+            return;
+        }
+    };
+    let key = ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
+    let Some(id) = crate::browser::open_table(app, key, home) else { return };
+    let cells = saved.environment_row(&mg_module::lighting::row_label(name));
+    let label = format!("Lighting scheme {name}");
+    if let Some(row) = crate::table_view::add_row_of(app, id, &label, &cells) {
+        app.log.info(format!(
+            "Lighting '{name}' is row {row} of environment.2da: save the table where it is (a \
+             hak's own Save then writes the hak), and Tools › Reload Resources lists it among \
+             the lighting schemes"
+        ));
+    }
 }
 
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
@@ -629,7 +741,7 @@ fn apply_scheme(f: &mut Form<'_>, row: usize) {
             label: label.into(),
             value: Some(value),
         }));
-        edits.extend(tile_light_edits(&scheme, key, tiles, &mut rng));
+        edits.extend(tile_light_edits(&scheme.tile_colors(), key, tiles, &mut rng));
     }
     f.app.actions.push(Action::Apply(Command::new("Lighting scheme", edits)));
 }
@@ -637,14 +749,14 @@ fn apply_scheme(f: &mut Form<'_>, row: usize) {
 /// The edits that give the `tiles` tiles of area `key` (its ARE) the
 /// lights a lighting scheme picks for them.
 fn tile_light_edits(
-    scheme: &mg_module::new::Scheme,
+    colors: &TileColors,
     key: ResKey,
     tiles: usize,
     rng: &mut fastrand::Rng,
 ) -> Vec<Edit> {
     let mut edits = Vec::new();
     for i in 0..tiles {
-        for (label, value) in scheme.tile_fields(rng) {
+        for (label, value) in mg_module::lighting::pick_tile_fields(colors, rng) {
             edits.push(Edit::SetField {
                 key,
                 path: GffPath::root().item("Tile_List", i),

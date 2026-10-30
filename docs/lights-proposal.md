@@ -3,7 +3,7 @@ type: Proposal
 title: 'Lights placed on the fly: a proposal'
 description: Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and two questions not yet measured.
 tags: [proposal, lights, placeables, areas, custom-content]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:30:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:19:10Z }
 sources:
   - id: request
     resource: human:august, relaying the builder dafena (Discord, 2026-10-07)
@@ -69,8 +69,9 @@ light ends. The view is lit by it, as by any placeable with a
 `LightColor`. Nothing is added to the module: the placeables are the
 base game's. The limit is the game's: seven colors, one reach.
 
-Not built of way A as it was proposed: an entry in the palette beside
-the menu (in the [deferred list](deferred.md)).
+The palette has it too (2026-10-29): **☀ Lights**, beside the blueprint
+types, lists the same lights; one chosen is put where the area's view
+is clicked (Shift + click places more). Way A is built whole.
 
 ### Measured
 
@@ -126,8 +127,16 @@ What this needs, and where it is hard:
   writers moved into the Toolset from Moonglow Viewer on 2026-10-09
   (`crates/mg-mdl`: `compile.rs`, `binary_write.rs`, `ascii_write.rs`),
   so this part is at hand. A light-only model is the simplest case.
-- **Owning a placeables.2da.** Only one placeables.2da wins in the load
-  order. If the module's haks already have one (CEP, a server's own),
+- **Owning a placeables.2da.** Since 2026-10-29 there is a way that
+  needs no merge, made for lighting schemes of one's own (Area
+  Properties › Saved Lighting › Make a Lighting Scheme): the table is
+  opened in the 2DA editor where the builder chooses (the module's, a
+  copy in it, the table of a hak of the module, a hak open in the hak
+  editor) and the row added there (`Editing::add_row_of`), to be saved
+  with the hak. A generated light's row could be added so, to the copy
+  of placeables.2da the game reads. What follows is the case of a
+  generated hak of Moonglow's own, beside the others. Only one
+  placeables.2da wins in the load order. If the module's haks already have one (CEP, a server's own),
   Moonglow's must be a merged copy of that one plus its rows, placed
   above it, and re-merged when the other changes. `mg 2da-diff --base`
   merges two tables against the one both were made from, but nothing in
