@@ -325,19 +325,19 @@ fn parse_resref(text: &str) -> Option<ResRef> {
     ResRef::from_str(text).ok()
 }
 
-/// A path to a struct in a GFF: `Creature List#3` for an item of a list,
-/// a field's label, joined by `/`.
+/// A path to a struct in a GFF, as every path is written:
+/// `/Creature List[3]`.
 fn path_text(path: &GffPath) -> String {
-    let steps: Vec<String> = (path.0.iter())
-        .map(|s| match s {
-            Step::Field(label) => label.clone(),
-            Step::Item(label, index) => format!("{label}#{index}"),
-        })
-        .collect();
-    steps.join("/")
+    path.to_string()
 }
 
+/// A path as [`path_text`] writes it, or as Moonglow 3.1.0 and before kept
+/// it (`Creature List#3`, steps joined by `/`, the root empty): a file of
+/// theirs is read, and written anew in the one form.
 fn parse_path(text: &str) -> Option<GffPath> {
+    if text.starts_with('/') {
+        return text.parse().ok();
+    }
     if text.is_empty() {
         return Some(GffPath::root());
     }
@@ -346,6 +346,16 @@ fn parse_path(text: &str) -> Option<GffPath> {
         None => Some(Step::Field(s.to_string())),
     });
     steps.collect::<Option<Vec<_>>>().map(GffPath)
+}
+
+/// An `area:path` key of the objects kept, its path in the one form (a
+/// file 3.1.0 and before wrote has them as they wrote paths).
+fn object_key(text: &str) -> String {
+    let Some((area, path)) = text.split_once(':') else { return text.to_string() };
+    match parse_path(path) {
+        Some(p) => format!("{area}:{}", path_text(&p)),
+        None => text.to_string(),
+    }
 }
 
 fn list<T>(items: &[T], text: impl Fn(&T) -> String) -> String {
@@ -813,6 +823,9 @@ impl Moonglow {
             }
         };
         let mut views = record.views;
+        // (The objects' keys in the one form, as the tabs' are named now.)
+        let kept: BTreeMap<String, Placed> =
+            record.objects.into_iter().map(|(k, p)| (object_key(&k), p)).collect();
         let mut objects = Vec::new();
         let mut found = |text: &str| -> Option<(String, Want)> {
             let passed = |why: &str| trace::note(format!("open tabs: {text} passed over: {why}"));
@@ -825,7 +838,7 @@ impl Moonglow {
                 return None;
             }
             let Want::Tab(tab) = want else { return Some((text.to_string(), want)) };
-            let Some(again) = self.instance_again(tab, &record.objects, &mut objects) else {
+            let Some(again) = self.instance_again(tab, &kept, &mut objects) else {
                 passed("its object is not in its area now");
                 return None;
             };

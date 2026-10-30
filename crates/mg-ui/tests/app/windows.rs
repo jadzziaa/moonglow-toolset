@@ -1943,6 +1943,41 @@ fn a_placed_object_s_properties_find_it_again() {
     assert_eq!(instances, 0);
 }
 
+/// A session kept by Moonglow 3.1.0 or before, which wrote a placed
+/// object's path its own way (`Creature List#1`), opens with its tabs as
+/// before, the object found again by what was kept of it, and is written
+/// anew in the one form paths are written in (`/Creature List[1]`).
+#[test]
+fn a_session_kept_as_3_1_0_kept_it_opens_and_is_written_anew() {
+    let (path, kept) = placed_module("ui-open-tabs-old-paths");
+    let area = ResRef::from_str("start").unwrap();
+    let at = |i| Tab::Instance { area, path: mg_edit::GffPath::root().item("Creature List", i) };
+    let mut h = tabs_session(&path, &kept);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(at(1)));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let new = std::fs::read_to_string(&file).unwrap();
+    assert!(new.contains("instance:start:/Creature List[1]"), "{new}");
+    // As 3.1.0 wrote it (its tab, its view and its object's key).
+    let old = new.replace("/Creature List[1]", "Creature List#1");
+    assert!(!old.contains("List["), "{old}");
+    std::fs::write(&file, &old).unwrap();
+    // Another creature put before it, as above: found by what was kept.
+    let mut m = Module::open(&path).unwrap();
+    set_creatures(&mut m, &[("C", 5.0), ("A", 10.0), ("B", 20.0)]);
+    m.save().unwrap();
+    let mut h = tabs_session(&path, &kept);
+    assert!(h.state().dock.find_tab(&at(2)).is_some(), "B's, found again");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let again = std::fs::read_to_string(&file).unwrap();
+    assert!(again.contains("instance:start:/Creature List[2]"), "{again}");
+    assert!(!again.contains("List#"), "written anew: {again}");
+}
+
 /// A module opened from its recovery copy (Recover Unsaved Work, after a
 /// crash) opens with the tabs it had.
 #[test]
