@@ -168,6 +168,17 @@ fn joined_dm_creator_palette() {
 /// running" and the client ends (exit 0). Started again, it finds the
 /// server, shows the character list and ends again (exit 0): a player in
 /// the game after a download isn't reached in the sandbox.
+///
+/// The fifth client batch (2026-10-30): the client's Downloader asks
+/// first ("You do not have all needed content to play. You are missing
+/// 8.2 MB"), its Download clicked by hand (`xdrive.py`). Published at
+/// zstd level 22 (`MG_NWSYNC_LEVEL=22`) and at 3, all 1,327 data files
+/// were taken into the client's `nwsyncdata_0.sqlite3`, each stored
+/// compressed again by the client (none of level 22's, and 1,318 of
+/// level 3's, the same bytes as served): it reads both levels. Started
+/// again, the client joins and leaves the server within the second
+/// (`Joined as Player 1`, `Left as a Player` in the server's log), its
+/// own logs saying nothing of why.
 #[test]
 #[ignore]
 fn joined_nwsync_download() {
@@ -219,7 +230,9 @@ void main()
         mg_module::nwsync::module_contents(&m, &install, &rm, false, None).unwrap();
     assert!(missing.is_empty(), "{missing:?}");
     let web = dir.join("web");
-    let o = mg_module::nwsync::Options { latest: true, ..Default::default() };
+    // (`MG_NWSYNC_LEVEL`: the data files' zstd level, 3 by default.)
+    let level = std::env::var("MG_NWSYNC_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(0);
+    let o = mg_module::nwsync::Options { latest: true, level, ..Default::default() };
     let w = mg_module::nwsync::write(&web, &contents, &o, &mut |_, _| {}).unwrap();
     let j = joined::start(&dir, "MgJoined", Join::Player, Some(&web), &["-nwsynchash", &w.sha1])
         .unwrap();

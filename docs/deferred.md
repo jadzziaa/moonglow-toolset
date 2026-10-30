@@ -1531,10 +1531,12 @@ contribution itself states as not done or not checked.
   by NWSync is the same isn't read: the download is (2026-10-29,
   `joined_nwsync_download`), but the client then ends itself ("We
   disconnected you from the server while NWSync is running", exit 0,
-  its own restart not seen in the sandbox), and started again it finds
-  the server, shows the character list and ends again; a player in
-  the game after a download waits on that restart in
-  `tools/nwclient/run-server-and-client.sh`. (S)
+  its own restart not seen in the sandbox), and started again it joins
+  and leaves the server within the second (2026-10-30: `Joined as Player
+  1`, `Left as a Player` in the server's log, the client's logs saying
+  nothing of why); a player in the game after a download waits on that
+  restart in `tools/nwclient/run-server-and-client.sh` (what arguments
+  the client restarts itself with, not read). (S)
 
 ## Tileset authoring
 
