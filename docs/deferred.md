@@ -1356,8 +1356,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `game.language.codepage`, which the server honors and `mg lsp` reads.
   An exported or imported conversation is spelled over as a whole, its
   punctuation too (of no matter unless a table moves ASCII's own
-  characters). Left: a text field already being typed in when the hak
-  list changes keeps what it showed until it is left. (S)
+  characters). (settle?: the four kept as they are, proposed by the
+  sprint on 2026-10-30, the owner's to say) (S)
 
 ## Remappable keys
 

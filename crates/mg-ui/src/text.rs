@@ -50,6 +50,19 @@ pub(crate) fn entry_codepage(language: Language) -> Codepage {
     }
 }
 
+/// Text in a field being typed in, read by the game's codepage `was`
+/// (`encoding.2da`), as the codepage `now` reads the bytes it stands for:
+/// what the field shows once the module's haks change the table, so that
+/// it is the same bytes, shown as the game will read them now. Text with a
+/// letter `was` has no byte for stays as it is.
+pub(crate) fn read_again(typed: &str, was: Codepage, now: Codepage) -> String {
+    let (was, now) = (was.for_language(Language::ENGLISH), now.for_language(Language::ENGLISH));
+    match was.encode(typed) {
+        Some(bytes) => now.decode(&bytes).into_owned(),
+        None => typed.to_owned(),
+    }
+}
+
 /// Sets the game's codepage (for the calling thread), as
 /// `GameData::codepage` has it; `None` without a game.
 pub(crate) fn set_game_codepage(codepage: Option<Codepage>) {

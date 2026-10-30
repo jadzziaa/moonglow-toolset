@@ -543,6 +543,10 @@ pub struct Moonglow {
     pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
+    /// The game's codepage the text in [`Moonglow::buffers`] was read by
+    /// (`encoding.2da`): when the module's haks change it, a field being
+    /// typed in is read again by the new one.
+    buffers_codepage: Option<mg_core::Codepage>,
     /// The text field of a Properties window that has the keyboard, and
     /// what it would set if left now. A field that is gone before the
     /// keyboard left it (another page chosen, its window closed) is set
@@ -1029,6 +1033,7 @@ impl Moonglow {
             scripts: HashMap::new(),
             laid_out: HashMap::new(),
             buffers: HashMap::new(),
+            buffers_codepage: None,
             held_text: None,
             tabs_recent: Vec::new(),
             tab_cycle: None,
@@ -1296,7 +1301,16 @@ impl Moonglow {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // (The game's text is read by the open module's table, if its haks
         // have one: `encoding.2da`.)
-        text::set_game_codepage(self.game.as_deref().map(GameData::codepage));
+        let codepage = self.game.as_deref().map(GameData::codepage);
+        if codepage != self.buffers_codepage {
+            if let (Some(was), Some(now)) = (self.buffers_codepage, codepage) {
+                for typed in self.buffers.values_mut() {
+                    *typed = text::read_again(typed, was, now);
+                }
+            }
+            self.buffers_codepage = codepage;
+        }
+        text::set_game_codepage(codepage);
         if let Some(talk) = &mut self.talk {
             talk.game = self.game.as_deref().map(GameData::codepage);
         }
