@@ -839,7 +839,7 @@ impl Project {
     /// areas the tree doesn't have: they may be in a hak (Kingmaker's are).
     /// The change counts as read, so it is written only with other changes
     /// to `module.ifo`.
-    fn settle_area_list(&mut self, resources: &mut Resources) {
+    pub(crate) fn settle_area_list(&mut self, resources: &mut Resources) {
         if !self.settings.remove_unused_areas {
             return;
         }

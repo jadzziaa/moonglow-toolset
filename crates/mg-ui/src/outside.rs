@@ -565,6 +565,19 @@ impl Moonglow {
         if !locks.is_empty() {
             ws.module.restore_locks(&locks);
         }
+        // Areas added outside (a pull's) join a project's area list, as
+        // when it is opened.
+        let added_area =
+            changes.iter().any(|c| c.key.restype == ResType::ARE && c.resource.is_some());
+        let mut keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
+        if added_area && let Some(info) = ws.module.settle_area_list() {
+            let key = mg_module::Module::info_key();
+            if let Err(e) = ws.adopt(&[(key, Some(info))]) {
+                self.log.error(e.to_string());
+            }
+            keys.push(key);
+            self.take_project_warnings();
+        }
         for c in changes {
             // A script's editor reads its text again.
             self.scripts.remove(&c.key);
@@ -586,7 +599,6 @@ impl Moonglow {
         // Names shown from the module are read again.
         self.area_names = Default::default();
         self.area_contents.clear();
-        let keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
         self.update_module_layer(&keys);
         // (A module.ifo read again may list other haks: a pull's.)
         if keys.contains(&mg_module::Module::info_key()) {

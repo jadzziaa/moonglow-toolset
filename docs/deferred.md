@@ -106,14 +106,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **A module's files changed outside, read on a thread of their own**
   (`mg_module::outside`; their reads' allocator arena is Settled): what
-  the entry said besides, as it is and not among the triage's items: a
-  reload that touches resources the undo history has
-  changes to clears the whole history; a script open in the editor with
-  typing not yet applied counts as changed here; the area list isn't
-  settled again for areas added outside; the haks and the `override`,
-  `development` and portrait folders (and the custom talk table) are
-  read again on the window's thread after a change (not measured on a
-  large `override`). (S each)
+  the entry said besides, as it is: a reload that touches resources the
+  undo history has changes to clears the whole history (undoing an
+  earlier change to them could not be done from what they are now; a
+  command's other edits are not taken apart from it); a script open in
+  the editor with typing not yet applied counts as changed here (it is
+  unsaved work, and the window asks which to keep); the haks and the
+  `override`, `development` and portrait folders (and the custom talk
+  table) are read again on the window's thread after a change, measured
+  on an `override` of 20,000 files at 20 ms each time something in it
+  changes (the look that finds the change 7 ms; the machine's load 2.2
+  on 32 CPUs): three frames at 144 a second, once a change. (settle?:
+  the three kept as they are, proposed by the sprint on 2026-10-30, the
+  owner's to say) (S each)
 
 ## Test loop
 
