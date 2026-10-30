@@ -418,7 +418,8 @@ impl Particles {
                     // (A birthrate under 1 a second makes none: the client
                     // drew no particle of 0.5 or 0.667 in ten seconds,
                     // ASCII or compiled, and 1.5 a second of 1.5;
-                    // `reading_particle_turn_and_birth`.)
+                    // `reading_particle_turn_and_birth`. None of the
+                    // game's 9,530 emitters has such a birthrate.)
                     let rate = p("birthrate", 0.0);
                     let rate = if !trail && rate < 1.0 { 0.0 } else { rate.max(0.0) };
                     e.owed += rate * if trail { moved } else { dt };
@@ -527,6 +528,9 @@ impl Particles {
             // (Radians a second: the client turned a 0.25 particle a
             // quarter turn in about 7 s; `reading_particle_spin_and_order`.)
             let rot_speed = p("particlerot", 0.0);
+            // (Absent, 10, as compilers write it; every one of the game's
+            // 332 motion-blurred emitters has its own. Not read in the
+            // client: a hand-written ASCII model without one.)
             let blur = p("blurlength", 10.0);
             let (fps, f0, f1) = (p("fps", 0.0), p("framestart", 0.0), p("frameend", 0.0));
             let (gx, gy) = (em.xgrid.max(1), em.ygrid.max(1));
