@@ -464,6 +464,9 @@ pub struct Renderer {
     shape_buffers: HashMap<usize, ShapeBuffer>,
     /// The lights each mesh took, kept from frame to frame.
     reach_cache: ReachCache,
+    /// The sets of lights the game's draws are lit by, numbered: emptied
+    /// every frame, its room kept (grown a set at a time, it was seen).
+    light_sets: crate::game::Fast<Box<[u32]>, u32>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -1199,6 +1202,7 @@ impl Renderer {
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
             shape_buffers: HashMap::new(),
             reach_cache: ReachCache::default(),
+            light_sets: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -1983,7 +1987,8 @@ impl Renderer {
         let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
         // (The sets of lights the game's draws are lit by, each numbered;
         // and the last draw's, which the next often shares.)
-        let mut light_sets: crate::game::Fast<Box<[u32]>, u32> = Default::default();
+        let mut light_sets = std::mem::take(&mut self.light_sets);
+        light_sets.clear();
         let mut light_set: Vec<u32> = Vec::new();
         let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
@@ -3014,6 +3019,7 @@ impl Renderer {
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
         self.reach_cache = reach_cache;
+        self.light_sets = light_sets;
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn
