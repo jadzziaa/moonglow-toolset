@@ -471,7 +471,10 @@ nasher Project takes in `.nwnt` files instead of `.json` where the
 settings it is saved under (the global `user.cfg`, or one already in the
 folder's `.nasher`) say NWNT. A field whose label has a dot in it can't
 be written as NWNT (`nwn_nwnt` reads the dot as a struct's); the game's
-own files have none.
+own files have none. A field with no label at all (BioWare's own
+tileset palettes have one, so a palette copied from the game's may) is
+written, read and packed by Moonglow, but `nwn_nwnt` can't read it
+back, so `nasher pack` fails on that file.
 
 `mg init` and `mg build` do the same from a terminal or a build pipeline
 (see [Command-line tools](11-command-line.md)).
