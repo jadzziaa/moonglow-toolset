@@ -2310,8 +2310,15 @@ fn run(cli: &Cli) -> Result<Output> {
                 let selected = |n: &String| {
                     mg_plugin::Selected::parse(n).map_err(|e| anyhow::anyhow!("--select {e}"))
                 };
+                // (A layer's copy is only ever open, as the window has it.)
+                let chosen = |n: &String| match selected(n)? {
+                    mg_plugin::Selected::Copy { .. } => {
+                        anyhow::bail!("--select {n}: a layer's copy is only --open")
+                    }
+                    s => Ok(s),
+                };
                 let selection = mg_plugin::Selection {
-                    selected: select.iter().map(selected).collect::<Result<_>>()?,
+                    selected: select.iter().map(chosen).collect::<Result<_>>()?,
                     open: open.as_ref().map(selected).transpose()?,
                 };
                 let what = plugins::What {
