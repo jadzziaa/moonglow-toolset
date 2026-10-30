@@ -47,8 +47,10 @@ palette's Gallery is 🖼, the Grid ⊞.
   (a right click on it) has **Adjust Location…** for its exact X, Y, Z
   and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
-  game to show a character behind them (roofs, upper walls), to see and
-  place what is under them (Aurora's Environment › Fade Geometry):
+  game to show a character behind them (roofs, upper walls, trees'
+  crowns; the black caps and strips under and beside them stay, as in
+  Aurora), to see and place what is under them (Aurora's Environment ›
+  Fade Geometry):
   **Never**, **Object Mode Only** (while you work on objects: not with
   Select Tiles on or a terrain brush chosen) or **Always**. The choice
   is kept for the areas opened after. This list, **Snap** and **Turn**
@@ -514,7 +516,12 @@ Aurora):
   inventory, stores).
 - **Add to Palette**: the instance as a new custom blueprint (its ResRef
   after [your builder code](03-modules.md#your-builder-code), where you
-  have one).
+  have one), named as Aurora names it: a creature's or an item's its
+  blueprint's numbered past those in use (`w2guard` gives `w2guard002`,
+  `nw_wswls001` `wswls003`); a placeable's, door's, trigger's, sound's or
+  waypoint's its blueprint's without a reserved prefix (`nw_`, `plc_`,
+  `x0_`…) where that name is free (`nw_waypoint001` gives
+  `waypoint001`), else numbered (`mgp_utd001`).
 - **Export as Blueprint…**: the instance written into an archive (`.erf`)
   as a blueprint of its own, made and named as Add to Palette makes one
   (with the items it holds, each an item blueprint), but not added to the
