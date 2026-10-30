@@ -1512,8 +1512,9 @@ contribution itself states as not done or not checked.
 - **A tileset with holes** (a builder's report: a big old tileset,
   merged by hand, drew no tiles at all) is read tile by tile, as the
   game reads it: a tile without its section or a model draws nothing,
-  the area's problems and Verify (`set-hole`) name the holes, a bare-LF
-  file is an error and a mixed one a warning (`set-line-ends`), the
+  the area's problems and Verify (`set-hole`) name the holes, the line
+  ends and lengths the server refuses are errors and a mix it reads a
+  warning (`set-line-ends`, the rule read in the engine 2026-10-30), the
   tileset editor shows the holes, and a model that is there and can't
   be read is said to be, with why, not "not found". Not done:
   - The builder's own tileset (trf01, 2813 tiles) has no holes and CRLF
@@ -1521,14 +1522,7 @@ contribution itself states as not done or not checked.
     why it draws none of theirs is not known without their hak (its
     models, or the module and the haks it lists). The log now says,
     for each model left out, whether it was found and why it can't be
-    read. (S, once the hak is in hand)
-  - The rule by which the server refuses a file with lines ending both
-    ways is not known (`a_tileset_whose_lines_end_both_ways`): LF lines
-    at its head or in its middle load; at its end, ttr01's last 28 lines
-    (264 bytes) or one line of 389 bytes stop the module loading, its
-    last 27 (251 bytes) don't, and 300 blank CRLF lines after the long
-    line don't save it where they save 200 short ones. Verify warns of
-    any mix. (S, more readings in the engine)
+    read. (S, waits on the builder's hak)
 
 ## The install, starting and crashes
 

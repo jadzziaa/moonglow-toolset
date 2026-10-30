@@ -31,9 +31,9 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     // A placeable on a reserved placeables.2da row (model USER), placed twice
     // in two areas.
     ("Neverwinter Nights - Doom of Icewind Dale", "object-row", "module", 4),
-    // A blueprint for appearance 15028, past the hak's appearance.2da; two
+    // A blueprint for appearance 15028, past the hak's appearance.2da; three
     // armors of robes 12 and 16, which no body has (the parts' models).
-    ("Neverwinter Nights - Tyrants of the Moonsea", "object-row", "module", 3),
+    ("Neverwinter Nights - Tyrants of the Moonsea", "object-row", "module", 4),
     ("Neverwinter Nights - Tyrants of the Moonsea", "set-data", "hak:tm_race_2da", 2),
     // Placed trees, benches and braziers on placeables.2da rows (500 to 700)
     // that the hak's copy leaves empty, hiding the game's.

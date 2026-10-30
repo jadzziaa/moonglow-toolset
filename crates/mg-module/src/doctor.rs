@@ -180,8 +180,9 @@ impl Check {
             Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
             Check::SetRead => "a tileset can be read",
             Check::SetLineEnds => {
-                "a tileset's lines end in CRLF (with a bare LF the game's server never finishes \
-                 loading a module that uses it; with some lines in LF it may not)"
+                "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
+                 the game's server never finishes loading a module that uses it, nor with more \
+                 than 256 bytes after its last CRLF, nor with a longer line)"
             }
             Check::SetCount => "a tileset's tile and group counts match its sections",
             Check::SetHole => {
@@ -1144,6 +1145,14 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
     d.out
 }
 
+/// The longest line of a tileset the game's server loads a module with,
+/// in characters, its CR and LF not counted (`engine_tileset_holes`).
+const MAX_SET_LINE: usize = 255;
+
+/// The most bytes after a tileset's last CRLF (lines ending in LF) the
+/// game's server loads a module with.
+const MAX_SET_TAIL: usize = 256;
+
 fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     use Severity::*;
     let set = match Tileset::parse(data, Codepage::default()) {
@@ -1155,14 +1164,42 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     };
     // Lines that end in a bare LF: the game's server never finishes
     // loading the module (`engine_tileset_holes`). Some of them, where
-    // the rest end in CRLF: it loads such a file with LF lines at its head
-    // or in its middle, and not always one with them at its end (the rule
-    // isn't known).
+    // the rest end in CRLF: it reads them as CRLF ones, unless more than
+    // 256 bytes follow the file's last CRLF. And a line of more than 255
+    // characters, however it ends, stops it too.
     let lf =
         data.iter().enumerate().filter(|&(i, &b)| b == b'\n' && (i == 0 || data[i - 1] != b'\r'));
     let (bare, first) = (lf.clone().count(), lf.map(|(i, _)| i).next());
     let crlf = data.windows(2).filter(|w| w == b"\r\n").count();
-    if bare > 0 && crlf == 0 {
+    let long = data
+        .split(|&b| b == b'\n')
+        .enumerate()
+        .map(|(i, l)| (i + 1, l.strip_suffix(b"\r").unwrap_or(l).len()))
+        .find(|&(_, n)| n > MAX_SET_LINE);
+    if let Some((line, n)) = long {
+        let message = format!(
+            "line {line} is {n} characters long: the game's server never finishes loading a \
+             module that uses it (a line has at most {MAX_SET_LINE})"
+        );
+        d.push(Error, Check::SetLineEnds, source, key, format!("line {line}"), message);
+    }
+    let after_crlf = data.windows(2).rposition(|w| w == b"\r\n").map(|at| data.len() - at - 2);
+    if bare > 0
+        && let Some(after) = after_crlf.filter(|&n| n > MAX_SET_TAIL)
+    {
+        d.push(
+            Error,
+            Check::SetLineEnds,
+            source,
+            key,
+            "",
+            format!(
+                "its last {after} bytes, after its last CRLF, end in LF: the game's server \
+                 never finishes loading a module that uses it with more than {MAX_SET_TAIL} \
+                 there (save it with Windows line ends)"
+            ),
+        );
+    } else if bare > 0 && crlf == 0 {
         d.push(
             Error,
             Check::SetLineEnds,
@@ -1182,8 +1219,9 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             "",
             format!(
                 "{bare} of its lines end in LF, not CRLF (the first is line {line}): the game's \
-                 server has failed to load modules whose tileset ends in such lines (save it \
-                 with Windows line ends throughout)"
+                 server reads them as CRLF ones, but not more than {MAX_SET_TAIL} bytes of them \
+                 at the file's end (save it with Windows line ends throughout, as the game's \
+                 own are)"
             ),
         );
     }
@@ -4624,6 +4662,43 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
             lf.message.starts_with("2 of its lines") && lf.message.contains("line 1)"),
             "{}",
             lf.message
+        );
+        // More than 256 bytes in LF after its last CRLF, or a line of more
+        // than 255 characters: errors, as the server refuses them.
+        let ends = |text: &str| {
+            let rm = resman(&[("tst", ResType::SET, text.as_bytes())]);
+            let f = examine(&Module::new(), &rm, TalkTables::default());
+            let mut found: Vec<(Severity, String, String)> = f
+                .into_iter()
+                .filter(|f| f.check == Check::SetLineEnds.id())
+                .map(|f| (f.severity, f.at, f.message))
+                .collect();
+            found.sort();
+            found
+        };
+        let tail = |n: usize| format!("{set}[MGPAD]\r\n{}", "X=1\n".repeat(n));
+        assert_eq!(ends(&tail(64))[0].0, Severity::Warning, "256 bytes: read");
+        let refused = ends(&tail(65));
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].0, Severity::Error);
+        assert!(refused[0].2.starts_with("its last 260 bytes, after its last CRLF"), "{refused:?}");
+        let before = format!("{}Y=1\r\n", tail(150));
+        assert_eq!(ends(&before)[0].0, Severity::Warning, "before a last CRLF line: read");
+        let long = |n: usize| format!("{set}[MGPAD]\r\nX={}\r\n", "1".repeat(n - 2));
+        assert!(ends(&long(255)).is_empty(), "255 characters: read");
+        let refused = ends(&long(256));
+        let lines = set.matches('\n').count();
+        assert_eq!(
+            refused,
+            [(
+                Severity::Error,
+                format!("line {}", lines + 2),
+                format!(
+                    "line {} is 256 characters long: the game's server never finishes loading \
+                     a module that uses it (a line has at most 255)",
+                    lines + 2
+                )
+            )]
         );
     }
 
