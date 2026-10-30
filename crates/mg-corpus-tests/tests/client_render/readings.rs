@@ -518,8 +518,14 @@ fn reading_tile_heights() {
 }
 
 /// The client's settings with its grass on (Grass Detail: High).
+/// `MG_GRASS_DISTANCE`: its `graphics.grass.render-distance` (Grass Far
+/// Render Distance: 900, the least and the default, to 30000).
 pub(super) fn with_grass() -> String {
-    let s = SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
+    let on = match std::env::var("MG_GRASS_DISTANCE") {
+        Ok(d) => format!("[graphics.grass]\n\t\tmode = 2\n\t\trender-distance = {d}"),
+        Err(_) => "[graphics.grass]\n\t\tmode = 2".to_string(),
+    };
+    let s = SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", &on);
     assert!(s.contains("mode = 2"));
     s
 }
@@ -670,16 +676,32 @@ fn reading_grass_tufts() {
 fn reading_grass_sway() {
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let overrides = [("mgwhite.tga", white_tga())];
-    let mut r = Reading::new("grass_sway", "ttr01", light, &overrides);
-    r.are.root.set("WindPower", Value::Int(2));
+    // (`MG_WIND`: the area's `WindPower`, 2 by default; `MG_CAMERA`:
+    // facing, distance and pitch, the reference's by default (from the
+    // side: 90,4,85); `MG_SHOTS`: how many pictures and how far apart, ms
+    // (3,1500). Each picture is kept, `sway_<i>.png`, its time printed.)
+    let env = |name: &str, default: &str| -> Vec<f32> {
+        let v = std::env::var(name).unwrap_or_else(|_| default.into());
+        v.split(',').filter_map(|s| s.trim().parse().ok()).collect()
+    };
+    let wind = env("MG_WIND", "2")[0] as i32;
+    let camera = env("MG_CAMERA", "90,12,45");
+    let shots = env("MG_SHOTS", "3,1500");
+    let mut r = Reading::new(&format!("grass_sway_{wind}"), "ttr01", light, &overrides);
+    r.are.root.set("WindPower", Value::Int(wind));
     let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else { panic!() };
     let mut ovr = mg_gff::Struct::new(101);
     let white = grass_override(3, "mgwhite", 0.3, 1.2, [1.0, 1.0, 1.0]);
     ovr.set("GrassOvrList", Value::List(vec![white]));
     props.set("GrassOverrides", Value::Struct(ovr));
-    r.save(&enter(INVISIBLE, (90.0, 12.0, 45.0)), &with_grass());
-    let shots = common::client_screenshots(&r.dir, "MgScene", 3, Duration::from_millis(1500))
+    r.save(&enter(INVISIBLE, (camera[0], camera[1], camera[2])), &with_grass());
+    let gap = Duration::from_millis(shots[1] as u64);
+    let shots = common::client_screenshots(&r.dir, "MgScene", shots[0] as usize, gap)
         .expect("the client's pictures");
+    for (i, (t, shot)) in shots.iter().enumerate() {
+        save_png(shot, &r.dir.join(format!("sway_{i}.png")));
+        eprintln!("sway_{i}.png at {t:.3} s");
+    }
     for (i, pair) in shots.windows(2).enumerate() {
         let (a, b) = (&pair[0].1, &pair[1].1);
         let (w, h) = (a.width as usize, a.height as usize);
@@ -694,7 +716,6 @@ fn reading_grass_sway() {
                 n += 1;
             }
         }
-        save_png(a, &r.dir.join(format!("sway_{i}.png")));
         eprintln!(
             "shots {i} and {}: {:.2}% of the pixels changed",
             i + 1,

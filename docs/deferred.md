@@ -638,7 +638,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   6% of the field's pixels changed in a second and a half at `WindPower`
   2); Moonglow's stand still with either shader: the game's `vsgrass`
   reads no wind, so the engine moves the vertices itself, and the area
-  view would have to as well. (M)
+  view would have to as well. How far and how fast isn't read: the
+  window's pictures come about 0.4 s apart and seconds late (30 taken
+  from the side, `MG_CAMERA=90,4,85 MG_SHOTS=30,0`, 2026-10-29: half of
+  them the same as the one before), too few and too loose to time a
+  sway by. The reading that would: one tuft, a patched `fsgrass`
+  painting its vertices' world place (top against foot, carried as a
+  varying) and `worldtimerTimeOfDay` into the picture, as
+  `light_uniforms_match_the_client` paints its uniforms, at `WindPower`
+  1 and 2; then the tops moved in both of Moonglow's paths (its own
+  grass shader, and the game's `vsgrass` fed moved vertices: a pass of
+  their own over the whole view's grass, as the engine moves them on
+  the CPU). (L: the reading, then the motion in both paths; waits on
+  the client)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -1009,12 +1021,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
-    17.0). How the engine fades its grass in, and the material colours
-    it uploads (`.set` [GRASS]'s), are not read through a patched
-    `vsgrass`; seen in a picture (`reading_grass_tufts`, white opaque
-    tufts of an area override): the client's are half see-through near
-    the camera and end some 15 to 20 m out, where Moonglow's stay opaque
-    to the area's edge. (S)
+    17.0). The material colours the engine uploads (`.set`
+    [GRASS]'s) are not read through a patched `vsgrass`. How far it
+    draws grass is read (`reading_grass_placement` with
+    `MG_GRASS_DISTANCE`, 2026-10-29): the client's Grass Far Render
+    Distance (`graphics.grass.render-distance`, 900 by default and at
+    the least, to 30,000) is in square meters, the grass fading out over
+    the last fifth or so of its root from the eye: at 900 the white
+    tufts are whole to about 22 m and gone by 28 to 30 m (the "15 to 20
+    m out" seen from the player), at 3,600 they reach the horizon of
+    the 4 by 4 area. Moonglow's go on, whole, to the end of the view,
+    as the owner asked of an editor's camera on 2026-10-23 (grass seen
+    only about its target was what he took for a fault; from an
+    editor's height, 30 m from the eye is no grass at all) (settle?:
+    proposed by the sprint on 2026-10-29, the owner's to say: kept to
+    the view's end, not cut at the client's distance). (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough

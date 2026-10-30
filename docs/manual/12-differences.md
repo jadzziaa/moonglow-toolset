@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:49:15Z }
 ---
 
 # Differences from Aurora
@@ -54,8 +54,10 @@ it differs, it is on purpose:
 - **Grass** is drawn in the area viewer, which Aurora does not draw: the
   tileset's and the area's own (Area Properties › Grass, which Aurora
   hasn't), wherever the view shows grass ground, thinner far off (the
-  game draws it within 30 m of its camera by default, fading it in at
-  about 24 m). Its tufts gather in clumps with bare ground between them,
+  game draws it within 30 m of its camera by default, fading it out from
+  about 22 m; its Grass Far Render Distance, in square meters, takes it
+  farther: 3,600 is 60 m). It stands still in the wind, where the
+  game's sways. Its tufts gather in clumps with bare ground between them,
   as the game's do (fitted to the game's picture of a field), as dense
   near the camera as the game's; the game's sparse grass lies a tuft at
   a time, where Moonglow's lies in twos and threes. Aurora drops an area's own grass when it
