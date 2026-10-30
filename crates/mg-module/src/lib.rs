@@ -1044,7 +1044,8 @@ pub fn areas_of(info: &mg_gff::Struct) -> Vec<ResRef> {
 /// [`Module::haks`] reads the module's saved IFO by it, and the window its
 /// IFO with unsaved edits.
 pub fn haks_of(info: &mg_gff::Struct) -> Vec<String> {
-    let text = |s: ExoString| mg_resman::hak_name(s.as_bytes()).trim().to_owned();
+    // (Trimmed of ASCII's spaces alone: 0xA0 is a byte of the name.)
+    let text = |s: ExoString| mg_resman::hak_name(s.as_bytes().trim_ascii());
     let list: Vec<String> = (info.items(&ifo::MOD_HAK_LIST).iter())
         .map(|h| text(h.read(&ifo::mod_hak_list::MOD_HAK)))
         .filter(|h| !h.is_empty())
@@ -1136,8 +1137,9 @@ mod tests {
         list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b" top "), row(b""), row(b"low")]));
         assert_eq!(haks_of(&list), ["top", "low"]);
         // A byte past ASCII is kept, as `mg_resman::hak_name` reads it.
-        list.set(ifo::MOD_HAK_LIST.label, Value::List(vec![row(b"mg_\xf1hak")]));
-        assert_eq!(haks_of(&list), ["mg_ñhak"]);
+        let rows = vec![row(b"mg_\xf1hak"), row(b" mg_x\xa0 ")];
+        list.set(ifo::MOD_HAK_LIST.label, Value::List(rows));
+        assert_eq!(haks_of(&list), ["mg_ñhak", "mg_x\u{a0}"]);
     }
 
     #[test]
