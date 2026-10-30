@@ -1770,9 +1770,16 @@ fn talk_table(path: &Path, make: bool) -> Result<mg_module::talk::Table> {
 fn main() -> ExitCode {
     // (What the libraries write of the release reads it from there.)
     mg_core::release::set(env!("CARGO_PKG_VERSION"));
-    let cli = Cli::parse();
+    let matches = <Cli as clap::CommandFactory>::command().get_matches();
+    let mut cli =
+        <Cli as clap::FromArgMatches>::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let json = cli.json;
-    let result = run(&cli).and_then(|out| {
+    // (Where options were given, which `mg search`'s --not reads.)
+    let order = match (&mut cli.cmd, matches.subcommand()) {
+        (Cmd::Search(a), Some((_, m))) => a.negated_from(m),
+        _ => Ok(()),
+    };
+    let result = order.and_then(|()| run(&cli)).and_then(|out| {
         let failed = out.failed;
         out.print(json)?;
         Ok(failed)

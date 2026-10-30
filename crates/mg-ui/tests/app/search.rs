@@ -472,6 +472,98 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.get_by_label("Edit 1 Together");
 }
 
+/// Advanced Search with a condition ticked Not (fighters without a feat),
+/// then any of its conditions (fighters, or what has the feat): the row
+/// says Not, Or, And as it is, and the window asks all or any.
+#[test]
+fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-any-not");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // A fighter with a feat, one without, and a wizard with it.
+    let creature = |tag: &str, class: i32, feat: bool| {
+        let mut c = Struct::new(4);
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        let mut cl = Struct::new(2);
+        cl.set("Class", Value::Int(class));
+        cl.set("ClassLevel", Value::Short(5));
+        c.set("ClassList", Value::List(vec![cl]));
+        let mut f = Struct::new(1);
+        f.set("Feat", Value::Word(0));
+        c.set("FeatList", Value::List(if feat { vec![f] } else { Vec::new() }));
+        c
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let creatures =
+        vec![creature("GUARD", 4, true), creature("CAPTAIN", 4, false), creature("MAGE", 10, true)];
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Class, row: Some(4), ..Default::default() };
+    h.run();
+    // (One condition: nothing to choose between all and any.)
+    assert!(h.query_by_value("meeting all of the conditions").is_none());
+    h.get_by_label("And…").click();
+    h.run();
+    h.state_mut().advanced_search.and[0].row = Some(0);
+    h.run();
+    h.get_by_value("meeting all of the conditions");
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("Class: row 4, level 5 · Feat: row 0");
+
+    // The feat ticked Not: the fighter without it.
+    h.get_by_label("Not").click();
+    h.run();
+    assert!(h.state().advanced_search.and[0].not);
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("start › creature CAPTAIN");
+    h.get_by_label("Class: row 4, level 5");
+
+    // Any of them: the fighters, and what has the feat (the guard twice:
+    // his class, his feat).
+    h.state_mut().advanced_search.and[0].not = false;
+    h.run();
+    h.get_by_value("meeting all of the conditions").click();
+    h.run();
+    h.get_all_by_label("meeting any of the conditions").last().unwrap().click();
+    h.run();
+    assert!(h.state().advanced_search.any);
+    h.get_by_value("meeting any of the conditions");
+    h.get_by_label("Or…");
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("4 found:");
+    h.get_by_label("start › creature MAGE");
+    // Any of them, less one ticked Not: fighters or mages, without the
+    // feat.
+    let not_feat = Condition { kind: Kind::Feat, row: Some(0), not: true, ..Default::default() };
+    {
+        let d = &mut h.state_mut().advanced_search;
+        d.and =
+            vec![Condition { kind: Kind::Class, row: Some(10), ..Default::default() }, not_feat];
+    }
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("start › creature CAPTAIN");
+}
+
 #[test]
 fn advanced_search_finds_objects_by_what_they_hold() {
     use mg_edit::{Command, Edit};

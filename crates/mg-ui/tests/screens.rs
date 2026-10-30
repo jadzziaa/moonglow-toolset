@@ -6349,6 +6349,22 @@ fn advanced_search() {
     h.query_by_label_contains("Change the ").expect("the change").click();
     h.run();
     shoot(&mut h, &dir, "advanced-search-and");
+    // Fighters of 4 to 10 levels or rogues (class 8), any of them,
+    // without Alertness.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), levels: (4, 10), ..Default::default() },
+        and: vec![
+            Condition { kind: Kind::Class, row: Some(8), ..Default::default() },
+            Condition { kind: Kind::Feat, row: Some(0), not: true, ..Default::default() },
+        ],
+        any: true,
+        placed: Some(true),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    h.run();
+    shoot(&mut h, &dir, "advanced-search-or-not");
 }
 
 /// Edit › Find and Replace Text… over Chapter 1: "Aribeth" found, the
