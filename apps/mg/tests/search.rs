@@ -124,6 +124,17 @@ fn search_a_module_without_the_game() {
     assert_eq!(found(&["--var", "^sdeidad$", "--value", "^e.ra$", "--regex"]).len(), 2);
     assert!(found(&["--var", "^sdeidad$"]).is_empty(), "a * pattern, not an expression");
     assert_eq!(found(&["--field", "^tag$", "--text", "^gua", "--regex"]).len(), 1);
+    // Several conditions, all met: the guard has 3 fighter levels and
+    // appearance 103; nothing has a fighter level and the variable.
+    assert_eq!(found(&["--class", "4", "--appearance", "103"]).len(), 1);
+    assert!(found(&["--class", "4", "--var", "sDeidad"]).is_empty());
+    // A class by its levels, and a number in a range.
+    assert_eq!(found(&["--class", "4", "--levels", "2..3"]).len(), 1);
+    assert_eq!(found(&["--class", "4", "--levels", "3"]).len(), 1);
+    assert!(found(&["--class", "4", "--levels", "4.."]).is_empty());
+    let ranged = found(&["--field", "Appearance_Type", "--number", "100..110"]);
+    assert_eq!(ranged.len(), 1);
+    assert!(found(&["--field", "Appearance_Type", "--number", "..50"]).is_empty());
     // What it can't do.
     let fails = |args: &[&str]| {
         let mut all = vec![p];
@@ -133,7 +144,8 @@ fn search_a_module_without_the_game() {
         json["error"].as_str().unwrap_or_default().to_string()
     };
     assert!(fails(&[]).contains("say what to search for"));
-    assert!(fails(&["--class", "4", "--feat", "1"]).contains("one kind"));
+    assert!(fails(&["--var", "x", "--property", "52", "--value", "3"]).contains("--value"));
+    assert!(fails(&["--class", "4", "--levels", "a..b"]).contains("not a number"));
     assert!(fails(&["--class", "fighter"]).contains("row number"));
     assert!(fails(&["--var", "x", "--var-type", "dog"]).contains("not a variable type"));
     assert!(fails(&["--var", "x", "--type", "nss"]).contains("not a kind of object"));

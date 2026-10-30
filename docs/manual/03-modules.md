@@ -264,7 +264,8 @@ sword.uti`), through bags in bags too (`crate.utp › carries pouch.uti
 the encounters that spawn it, an encounter blueprint's creatures and a
 placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
 CAMP_01 › spawns boss.utc`); a change made to one of those is made to
-the creature blueprint. The command line has the same, one condition at a time:
+the creature blueprint. The command line has the same, a condition of
+each kind at once, class levels and number ranges too:
 `mg search` ([Command-line tools](11-command-line.md)).
 
 Each one found is ticked; untick those to leave out (**Tick All**,

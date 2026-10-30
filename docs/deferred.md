@@ -362,9 +362,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     conditions are all ANDed (no OR, no NOT: the window's conditions
     and `Query` both, each half a day); a conversation's lines and other
     things on no object drop out of a search with more than one
-    condition (there is no object for the others to be found on);
-    `mg search` takes one condition at a time, without class levels or
-    ranges. (S each)
+    condition (there is no object for the others to be found on). (S
+    each) (`mg search` takes a condition of each kind at once, class
+    levels and number ranges too, since 2026-10-30; still one of a kind,
+    two variables not.)
   - The module only: blueprints in haks and the game's own palettes
     aren't searched (`Kept::search` walks `Module::keys`; the haks' and
     palettes' blueprints read as the module's are would be a layer of
