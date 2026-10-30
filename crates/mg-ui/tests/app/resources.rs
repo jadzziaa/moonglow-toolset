@@ -122,6 +122,83 @@ fn module_with_two_tables(dir: &std::path::Path, user: &std::path::Path) -> std:
     path
 }
 
+/// A hak's table is edited by the window's own buttons and menus, on a
+/// module with two haks that have it: the lower copy's Edit in its hak,
+/// the hak editor's Edit Table, Take Rows from the other hak's copy, and
+/// the copy the game reads by Edit… › The Table of its hak.
+#[test]
+fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-table-buttons");
+    let user = dir.join("user");
+    let path = module_with_two_tables(&dir, &user);
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1400.0, 900.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.state_mut().browser.filter = "portraits".into();
+    h.state_mut().browser.restype = Some(ResType::TWODA);
+    h.run();
+    let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
+    let hak_of = |h: &Harness<'_, Moonglow>, name: &str| {
+        let file = user.join(format!("hak/{name}.hak"));
+        h.state().haks.iter().find(|d| d.hak.path.as_deref() == Some(&file)).map(|d| d.id)
+    };
+    let table_in = |h: &Harness<'_, Moonglow>, hak: u32| {
+        let home = mg_ui::table_view::Home::Hak(hak);
+        h.state().tables.iter().find(|d| d.key == key && d.home == home).map(|d| d.id)
+    };
+
+    // The lower hak's copy, opened from its row: Edit in mg_low.hak opens
+    // the hak in the hak editor and its table in the 2DA editor.
+    let rows: Vec<_> = h.get_all_by_label("portraits.2da").collect();
+    rows[1].click_secondary();
+    h.run();
+    h.get_by_label("Open").click();
+    h.run();
+    h.get_by_label("Edit in mg_low.hak").click();
+    h.run_steps(3);
+    let low = hak_of(&h, "mg_low").expect("mg_low in the hak editor");
+    let id = table_in(&h, low).expect("its table in the 2DA editor");
+    assert_eq!(table_of(&h, id).get(0, "LABEL"), Some("mg_low"));
+    // Closed, and opened again by the hak editor's Edit Table.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Hak(low)));
+    h.run_steps(3);
+    assert!(table_in(&h, low).is_none());
+    h.get_all_by_label("portraits.2da").last().expect("the hak's row").click_secondary();
+    h.run();
+    h.get_by_label("Edit Table").click();
+    h.run_steps(3);
+    let id = table_in(&h, low).expect("opened by Edit Table");
+
+    // Take Rows from the other hak's copy (the first offered): its row 0,
+    // changed in both against the game's, ticked and taken.
+    h.get_by_label("Take Rows…").click();
+    h.run_steps(3);
+    // (mg_top's copy has one row: nothing new.)
+    h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
+    h.get_by_label("Row 0").click();
+    h.run_steps(2);
+    h.get_by_label("Take 1 Rows").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "LABEL"), Some("mg_top"), "taken from mg_top's copy");
+
+    // The copy the game reads (mg_top's), opened: Edit… › The Table of
+    // mg_top.hak.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(3);
+    h.get_by_label("Edit…").click();
+    h.run();
+    h.get_by_label("The Table of mg_top.hak").click();
+    h.run_steps(3);
+    let top = hak_of(&h, "mg_top").expect("mg_top in the hak editor");
+    let id = table_in(&h, top).expect("its table in the 2DA editor");
+    assert_eq!(table_of(&h, id).get(0, "LABEL"), Some("mg_top"));
+}
+
 /// The resource browser lists every copy of a resource: the one the game
 /// reads, and under it those it overrides, each opened, copied to the
 /// module and saved as its layer has it (a builder's report: of a

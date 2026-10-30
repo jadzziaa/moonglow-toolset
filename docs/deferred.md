@@ -527,15 +527,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     One builder's view, to weigh the rest by: a spreadsheet does most
     of this already, and the editor earns its place on a module's own
     tables (treasure, spawns), not on the game's.
-  - The keys: a letter typed does not begin typing in the cell (Enter,
-    F2 or a double click does); a drag selecting cells does not scroll
-    the table when it reaches its edge. (S each)
-  - Edit… › The Table of a hak, in the resource browser, was tried
-    through the functions under it (the hak opened by its file, its
-    table opened in it), not by its menu on a module with a hak. (S)
-  - The hak editor's Edit Table and the Take Rows window against two
-    haks' copies were tried through the functions under them and with
-    the game's copy, not by their own buttons. (S)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not

@@ -1470,12 +1470,15 @@ changed:
 The table is a grid: the column names stay at the top and the rows'
 numbers at the left as it scrolls.
 
-- **A click** selects a cell; a double click, Enter or F2 types into it
+- **A click** selects a cell; a double click, Enter or F2 types into it,
+  and a letter or digit typed begins typing in its place, as in a
+  spreadsheet
   (Enter keeps what was typed and goes to the row below, Escape leaves
   the cell as it was); Delete empties it (`****`). The arrow keys, Tab,
   Page Up and Down, Home and End move from cell to cell.
 - **Several cells** are selected as a rectangle: Shift and the arrow
-  keys, Shift and a click, or a drag over the cells. Delete empties them
+  keys, Shift and a click, or a drag over the cells (past the grid's
+  edge, it scrolls on that way). Delete empties them
   all in one step.
 - **Ctrl+C** copies what is selected, **Ctrl+X** empties it too, and
   **Ctrl+V** pastes cells from the selection's first cell on: text with

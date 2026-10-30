@@ -874,6 +874,59 @@ fn the_talk_table_s_split_is_kept_for_each_table() {
     assert!((strref(&h) - fresh).abs() < 1.5, "its own: {} {fresh}", strref(&h));
 }
 
+/// A drag selecting cells past the grid's foot scrolls the table on, the
+/// selection reaching the rows that come into sight, as a spreadsheet's;
+/// past its top, back.
+#[test]
+fn a_drag_past_the_grid_s_edge_scrolls_it() {
+    let dir = mg_testkit::scratch_dir("ui-table-edge-drag");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("longone", ResType::TWODA).unwrap();
+    let mut text = String::from("2DA V2.0\r\n\r\n   Label   Cost\r\n");
+    for r in 0..300 {
+        text.push_str(&format!("{r}  Row{r}  {r}\r\n"));
+    }
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(text.into_bytes()) }],
+    )));
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    let from = h.get_by_label("Row0").rect().center();
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    // Held under the window's foot for a while.
+    let below = egui::pos2(from.x, 699.0);
+    h.hover_at(below);
+    h.run_steps(30);
+    let doc = || h.state().tables.iter().find(|d| d.id == id).unwrap();
+    let reached = doc().area().map(|a| a.1).unwrap();
+    assert!(doc().scrolled().y > 200.0, "scrolled on: {}", doc().scrolled().y);
+    assert!(reached > 40, "the selection reaches the rows come into sight: {reached}");
+    assert_eq!(doc().area().map(|a| a.0), Some(0), "from where it began");
+    // Back up past the top: scrolled back, the selection to the top.
+    let above = egui::pos2(from.x, 1.0);
+    h.hover_at(above);
+    h.run_steps(60);
+    let doc = || h.state().tables.iter().find(|d| d.id == id).unwrap();
+    assert!(doc().scrolled().y < 1.0, "back to the top: {}", doc().scrolled().y);
+    press(&h, above, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let doc = || h.state().tables.iter().find(|d| d.id == id).unwrap();
+    assert_eq!(doc().area().map(|a| (a.0, a.1)), Some((0, 0)));
+    // Let go: no more scrolling.
+    let at = doc().scrolled().y;
+    h.hover_at(below);
+    h.run_steps(10);
+    assert_eq!(h.state().tables.iter().find(|d| d.id == id).unwrap().scrolled().y, at);
+}
+
 /// The 2DA editor's cells are selected several at a time (Shift and the
 /// arrows, Shift and a click, a drag), copied as a spreadsheet's and
 /// emptied in one step; a paste begins at the selection's first cell. A
@@ -1152,6 +1205,19 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.run_steps(2);
     key_(&mut h, egui::Key::Escape);
     assert_eq!(table_of(&h, id).get(0, "Cost"), None, "Escape: not kept");
+    // A digit or letter typed begins typing, in place of what the cell
+    // held, as in a spreadsheet: Cheese's cost 2 typed over as 42.
+    key_(&mut h, egui::Key::ArrowDown);
+    h.event(egui::Event::Text("4".into()));
+    h.run_steps(2);
+    h.event(egui::Event::Text("2".into()));
+    h.run_steps(2);
+    key_(&mut h, egui::Key::Enter);
+    assert_eq!(table_of(&h, id).get(1, "Cost"), Some("42"), "typed over");
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    key_(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some((0, 1)));
     // Add Row puts one at the end; Empty Row empties the selected one,
     // which stays.
     h.get_by_label("Add Row").click();

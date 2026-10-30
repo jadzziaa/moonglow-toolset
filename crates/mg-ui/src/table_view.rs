@@ -62,6 +62,9 @@ pub struct TableDoc {
     anchor: Option<(usize, usize)>,
     /// A drag over the cells is selecting them.
     dragging: bool,
+    /// Such a drag past the grid's edge: how far to scroll it at the
+    /// next frame.
+    edge_scroll: egui::Vec2,
     /// A column's name is being dragged to another place: the column.
     moving: Option<usize>,
     /// What is being typed into the selected cell.
@@ -136,6 +139,7 @@ impl TableDoc {
             selected: None,
             anchor: None,
             dragging: false,
+            edge_scroll: egui::Vec2::ZERO,
             moving: None,
             typing: None,
             filter: String::new(),
@@ -176,6 +180,11 @@ impl TableDoc {
         self.anchor = None;
         self.selected = Some((row, column));
         self.reveal = true;
+    }
+
+    /// How far the grid is scrolled, across and down (points).
+    pub fn scrolled(&self) -> egui::Vec2 {
+        self.scroll
     }
 
     /// The cells selected: the first and last row, the first and last
@@ -1329,6 +1338,15 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     if pressed(ui, none, Key::Enter) || pressed(ui, none, Key::F2) {
         let now = doc.edit.table().cell(row, column).unwrap_or_default().to_string();
         doc.typing = Some(now);
+    } else if let Some(typed) = typed_text(ui) {
+        // A letter typed begins typing: the cell's text replaced by it,
+        // the cursor after it, as a spreadsheet does.
+        let id = egui::Id::new(("table-cell", doc.id));
+        let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+        let end = egui::text::CCursor::new(typed.chars().count());
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+        state.store(ui.ctx(), id);
+        doc.typing = Some(typed);
     }
     if pressed(ui, none, Key::Delete) && doc.edit.clear_cells(&chosen, left, right) > 0 {
         doc.changed();
@@ -1613,6 +1631,14 @@ fn grid(
     }
     let mut list =
         egui::ScrollArea::both().id_salt(("table-rows", doc.id)).auto_shrink([false, false]);
+    // (A drag selecting cells past an edge, the frame before: on that way.)
+    let edge = std::mem::take(&mut doc.edge_scroll);
+    if dragging && edge.y != 0.0 {
+        list = list.vertical_scroll_offset((scroll_y + edge.y).max(0.0));
+    }
+    if dragging && edge.x != 0.0 {
+        list = list.horizontal_scroll_offset((scroll_x + edge.x).max(0.0));
+    }
     if reveal && let Some((row, column)) = selected {
         if let Some(place) = rows.iter().position(|r| *r == row) {
             let above = (ui.available_height() / 2.0 - pitch).max(0.0);
@@ -1765,6 +1791,49 @@ fn grid(
         })
         .inner;
     doc.scroll = shown.state.offset;
+    // A drag selecting cells past the grid's edge scrolls it that way,
+    // the faster the further, and the selection reaches the row and
+    // column at that edge, as a spreadsheet's does.
+    if dragging
+        && let Some(p) = pointer
+        && let Some((_, column)) = doc.selected
+    {
+        let inner = shown.inner_rect;
+        let past = |at: f32, low: f32, high: f32, most: f32| {
+            if at > high {
+                (at - high).min(most)
+            } else if at < low {
+                -(low - at).min(most)
+            } else {
+                0.0
+            }
+        };
+        let by = egui::vec2(
+            past(p.x, inner.left(), inner.right(), 3.0 * CELL),
+            past(p.y, inner.top(), inner.bottom(), 3.0 * pitch),
+        );
+        if by != egui::Vec2::ZERO && !rows.is_empty() {
+            doc.edge_scroll = by;
+            ui.ctx().request_repaint();
+            let (offset, seen) = (doc.scroll, inner.size());
+            let place = match by.y {
+                y if y > 0.0 => ((offset.y + seen.y) / pitch) as usize,
+                y if y < 0.0 => (offset.y / pitch).ceil() as usize,
+                _ => doc.selected.and_then(|(r, _)| rows.iter().position(|x| *x == r)).unwrap_or(0),
+            };
+            let column = match by.x {
+                x if x > 0.0 => {
+                    lefts.iter().rposition(|l| *l < offset.x + seen.x).unwrap_or(column)
+                }
+                x if x < 0.0 => lefts.iter().position(|l| *l >= offset.x).unwrap_or(column),
+                _ => column,
+            };
+            let to = (rows[place.min(rows.len() - 1)], column);
+            if Some(to) != doc.selected {
+                doc.select_to(to);
+            }
+        }
+    }
     crate::palette_view::keys_outline(ui, shown.inner_rect, Keys::Table);
     if done {
         doc.commit();
@@ -1805,6 +1874,25 @@ fn grid(
             doc.typing = Some(now);
         }
     }
+}
+
+/// Text typed this frame (not with Ctrl, Alt or Command), taken from the
+/// input: what begins typing into a cell of the grid.
+fn typed_text(ui: &mut Ui) -> Option<String> {
+    ui.input_mut(|i| {
+        if i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt {
+            return None;
+        }
+        let mut typed = String::new();
+        i.events.retain(|e| match e {
+            egui::Event::Text(t) if !t.chars().any(char::is_control) => {
+                typed.push_str(t);
+                false
+            }
+            _ => true,
+        });
+        (!typed.is_empty()).then_some(typed)
+    })
 }
 
 /// A row's name for a list of rows to choose from: its number and its
