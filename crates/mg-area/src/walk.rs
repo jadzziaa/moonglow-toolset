@@ -257,9 +257,16 @@ impl Ground {
     /// Every walkmesh face of the ground, in the area's space, with its
     /// surface material (surfacemat.2da row).
     pub fn faces(&self) -> impl Iterator<Item = ([Vec3; 3], u32)> + '_ {
-        self.tiles.iter().flatten().flat_map(|(w, to)| {
+        self.tiles().flat_map(|(w, to)| {
             w.faces.iter().map(move |f| (f.corners.map(|c| to.transform_point3(c)), f.material))
         })
+    }
+
+    /// Each tile's walkmesh and where it is placed (its faces' corners
+    /// in the area's space by `transform_point3`), in the order of
+    /// [`Ground::faces`].
+    pub fn tiles(&self) -> impl Iterator<Item = (&Walkmesh, Mat4)> + '_ {
+        self.tiles.iter().flatten().map(|(w, to)| (&**w, *to))
     }
 
     /// Where `ray` first meets the ground.

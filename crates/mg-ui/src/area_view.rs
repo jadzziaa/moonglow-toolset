@@ -589,7 +589,7 @@ struct Drawn {
 }
 
 /// A positional sound's distances as Sound Ranges draws them in the
-/// picture ([`sound_range_lines`]): its place in the GIT's list, its
+/// picture ([`sound_range_shapes`]): its place in the GIT's list, its
 /// `MinDistance` and `MaxDistance`, and whether it is selected.
 #[derive(Debug, Clone, PartialEq)]
 struct SoundRange {
@@ -1035,6 +1035,12 @@ impl AreaView {
 
     /// Where a point shows on screen (last drawn view).
     pub fn screen_pos(&self, p: Vec3) -> Option<Pos2> {
+        self.projector()?.at(p)
+    }
+
+    /// What puts points on screen as [`AreaView::screen_pos`] does, for
+    /// many points: the camera worked out once.
+    fn projector(&self) -> Option<Projector> {
         let (orbit, aspect) = (self.orbit?, self.aspect());
         let (matrix, near) = match self.projection.get() {
             Some((o, a, m, n)) if o == orbit && a == aspect => (m, n),
@@ -1045,8 +1051,7 @@ impl AreaView {
                 (m, camera.near)
             }
         };
-        let at = mg_area::pick::project_by(matrix, near, p)?;
-        Some(self.rect.min + egui::vec2(at.x * self.rect.width(), at.y * self.rect.height()))
+        Some(Projector { matrix, near, rect: self.rect })
     }
 
     /// The selection as a set: the overlays look up every object in it
@@ -3107,7 +3112,7 @@ fn viewport(
             .map(|o| (o.index, o.position))
             .collect();
         let size = (w as f32, h as f32);
-        frame.lines.extend(sound_range_lines(&placed, &sound_ranges, &orbit.camera(), size));
+        frame.line_shapes = sound_range_shapes(&placed, &sound_ranges, &orbit.camera(), size);
         // Options › Area: the background colour, if chosen (gamma space).
         if let Some([r, g, b]) = app.settings.area_background {
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
@@ -3284,14 +3289,93 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 /// The longest side of the view's map, points.
 const MINIMAP_SIDE: f32 = 240.0;
 
+/// Puts points on screen as [`AreaView::screen_pos`] does
+/// ([`AreaView::projector`]).
+#[derive(Clone, Copy)]
+struct Projector {
+    matrix: glam::Mat4,
+    near: f32,
+    rect: Rect,
+}
+
+impl Projector {
+    fn at(&self, p: Vec3) -> Option<Pos2> {
+        let at = mg_area::pick::project_by(self.matrix, self.near, p)?;
+        Some(self.rect.min + egui::vec2(at.x * self.rect.width(), at.y * self.rect.height()))
+    }
+}
+
+/// How far a point is from the eye along the view, less the near
+/// plane's distance, as `mg_area::pick::depth` has it.
+struct NearDepth {
+    eye: Vec3,
+    ahead: Vec3,
+    near: f32,
+}
+
+impl NearDepth {
+    fn of(camera: &Camera) -> NearDepth {
+        let to_target = camera.target - camera.eye;
+        NearDepth {
+            eye: camera.eye,
+            ahead: to_target / to_target.length().max(1e-6),
+            near: camera.near,
+        }
+    }
+
+    fn of_point(&self, p: Vec3) -> f32 {
+        (p - self.eye).dot(self.ahead) - self.near
+    }
+}
+
+/// A triangle on screen, as [`AreaView::screen_polygon`] puts it there
+/// (cut at the near plane: up to four corners, and how many), without
+/// cutting one wholly in front of the eye.
+fn face_on_screen(
+    view: &AreaView,
+    depth: &NearDepth,
+    to_screen: &Projector,
+    corners: [Vec3; 3],
+) -> ([Pos2; 4], usize) {
+    let mut points = [Pos2::ZERO; 4];
+    let mut count = 0;
+    if corners.iter().all(|&c| depth.of_point(c) >= 0.0) {
+        for p in corners.into_iter().filter_map(|c| to_screen.at(c)) {
+            points[count] = p;
+            count += 1;
+        }
+    } else {
+        // (Cut where it passes behind the eye: not left out whole.)
+        for p in view.screen_polygon(&corners, None).into_iter().take(points.len()) {
+            points[count] = p;
+            count += 1;
+        }
+    }
+    (points, count)
+}
+
+/// Whether points on screen all lie beyond one side of `rect` (a shape
+/// with those corners is wholly out of it).
+fn beside(points: &[Pos2], rect: Rect) -> bool {
+    points.iter().all(|p| p.x < rect.min.x)
+        || points.iter().all(|p| p.x > rect.max.x)
+        || points.iter().all(|p| p.y < rect.min.y)
+        || points.iter().all(|p| p.y > rect.max.y)
+}
+
 /// The ground's walkmesh over the view: walkable faces (surfacemat.2da
-/// `Walk`) green, the others red.
+/// `Walk`) green, the others red. (Every face of a large area, each
+/// frame the camera moves: a tile wholly out of the view is passed by,
+/// and a face wholly in front of the eye is put on screen without being
+/// cut, as [`AreaView::screen_polygon`] would leave it.)
 fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     if !view.walkmesh {
         return;
     }
     view.read_walkable(app);
-    let (Some(ground), Some(walkable)) = (view.ground.as_ref(), view.walkable.as_ref()) else {
+    let (Some(ground), Some(walkable), Some(camera), Some(to_screen)) =
+        (view.ground.as_ref(), view.walkable.as_ref(), view.camera(), view.projector())
+    else {
         return;
     };
     let mut mesh = egui::Mesh::default();
@@ -3299,21 +3383,38 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         egui::Color32::from_rgba_unmultiplied(60, 200, 80, 70),
         egui::Color32::from_rgba_unmultiplied(220, 60, 60, 70),
     );
-    for (corners, material) in ground.faces() {
-        let lifted = corners.map(|c| c + Vec3::Z * 0.03);
-        // (Cut where it passes behind the eye: not left out whole.)
-        let points = view.screen_polygon(&lifted, None);
-        if points.len() < 3 {
+    const LIFT: Vec3 = Vec3::new(0.0, 0.0, 0.03);
+    let depth = NearDepth::of(&camera);
+    for (w, to) in ground.tiles() {
+        // A tile wholly in front of the eye and beside the view: none of
+        // its faces show.
+        let corners = mg_render::box_corners(w.min + LIFT, w.max + LIFT)
+            .map(|c| to.transform_point3(c))
+            .map(|c| (depth.of_point(c) >= 0.0).then(|| to_screen.at(c)).flatten());
+        if let Some(points) = corners.into_iter().collect::<Option<Vec<Pos2>>>()
+            && beside(&points, view.rect)
+        {
             continue;
         }
-        let color =
-            if walkable.get(material as usize).copied().unwrap_or(false) { walk } else { wall };
-        let first = mesh.vertices.len() as u32;
-        for p in &points {
-            mesh.colored_vertex(*p, color);
-        }
-        for k in 1..points.len() as u32 - 1 {
-            mesh.add_triangle(first, first + k, first + k + 1);
+        for f in &w.faces {
+            let lifted = f.corners.map(|c| to.transform_point3(c) + LIFT);
+            let (points, count) = face_on_screen(view, &depth, &to_screen, lifted);
+            let points = &points[..count];
+            if points.len() < 3 || beside(points, view.rect) {
+                continue;
+            }
+            let color = if walkable.get(f.material as usize).copied().unwrap_or(false) {
+                walk
+            } else {
+                wall
+            };
+            let first = mesh.vertices.len() as u32;
+            for p in points {
+                mesh.colored_vertex(*p, color);
+            }
+            for k in 1..points.len() as u32 - 1 {
+                mesh.add_triangle(first, first + k, first + k + 1);
+            }
         }
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
@@ -3323,7 +3424,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 /// place is random: a rectangle about where it stands, its ranges wide,
 /// as Aurora draws it; the selection's brighter. Its distances are drawn
 /// in the picture, hidden by what stands in front of them
-/// ([`sound_range_lines`]).
+/// ([`sound_range_shapes`]).
 fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown: &AreaModel) {
     if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
         return;
@@ -3382,21 +3483,25 @@ fn sound_ranges_of(app: &mut Moonglow, view: &AreaView) -> Vec<SoundRange> {
 /// volume inside) and one of its `MaxDistance` (silent outside), and a
 /// level circle at its height of the `MaxDistance`; the selection's
 /// brighter. Lines of the scene, so the ground and what stands in front
-/// hide them (the spheres' lower halves go under the floor), drawn in one
-/// batch; each sphere's rings have as many dots as its size on the
-/// picture calls for (the picture's size in pixels), and those wholly out
-/// of the picture are left out, so an area of hundreds of sounds draws
-/// few.
-fn sound_range_lines(
+/// hide them (the spheres' lower halves go under the floor); each
+/// sphere's rings have as many dots as its size on the picture calls for
+/// (the picture's size in pixels), and those wholly out of the picture
+/// are left out. Each a copy of a sphere or circle of that many dots
+/// ([`sound_shapes`]): an area of hundreds of sounds is a hundred
+/// thousand dashes, which the GPU keeps (sent each frame, they were most
+/// of a frame's time).
+fn sound_range_shapes(
     placed: &[(usize, Vec3)],
     ranges: &[SoundRange],
     camera: &mg_render::Camera,
     (width, height): (f32, f32),
-) -> Vec<mg_render::Line> {
-    let mut out = Vec::new();
+) -> Vec<mg_render::LineShape> {
     if ranges.is_empty() {
-        return out;
+        return Vec::new();
     }
+    let (spheres, circles) = sound_shapes();
+    let mut sphere_copies = vec![Vec::new(); spheres.len()];
+    let mut circle_copies = vec![Vec::new(); circles.len()];
     // (Pixels a metre is across at a metre from the eye.)
     let tan_y = (camera.fov_y / 2.0).tan();
     let tan_x = tan_y * width / height.max(1.0);
@@ -3411,8 +3516,10 @@ fn sound_range_lines(
             |along: f32, tan: f32| along.abs() > depth * tan + radius * (1.0 + tan * tan).sqrt();
         depth < -radius || beside(p.x, tan_x) || beside(p.y, tan_y)
     };
+    let by_index: std::collections::HashMap<usize, &SoundRange> =
+        ranges.iter().map(|r| (r.index, r)).collect();
     for &(index, position) in placed {
-        let Some(range) = ranges.iter().find(|r| r.index == index) else { continue };
+        let Some(&range) = by_index.get(&index) else { continue };
         if out_of_sight(position, range.min.max(range.max)) {
             continue;
         }
@@ -3427,21 +3534,51 @@ fn sound_range_lines(
             if radius <= 0.0 {
                 continue;
             }
-            let dots = ((across(radius) / 18.0) as usize).clamp(8, 32);
-            for [from, to] in sound_sphere(position, radius, dots) {
-                out.push(mg_render::Line { from, to, color });
-            }
+            let dots = ((across(radius) / 18.0) as usize).clamp(SPHERE_DOTS.0, SPHERE_DOTS.1);
+            let copy = mg_render::LineCopy { offset: position, scale: radius, color };
+            sphere_copies[dots - SPHERE_DOTS.0].push(copy);
         }
         if range.max > 0.0 {
-            let steps = ((across(range.max) / 10.0) as usize).clamp(16, 64);
-            let points = sound_circle(position, range.max, steps);
-            for k in 0..points.len() {
-                let (from, to) = (points[k], points[(k + 1) % points.len()]);
-                out.push(mg_render::Line { from, to, color });
-            }
+            let steps = ((across(range.max) / 10.0) as usize).clamp(CIRCLE_STEPS.0, CIRCLE_STEPS.1);
+            let copy = mg_render::LineCopy { offset: position, scale: range.max, color };
+            circle_copies[steps - CIRCLE_STEPS.0].push(copy);
         }
     }
-    out
+    let shapes = spheres.iter().zip(sphere_copies).chain(circles.iter().zip(circle_copies));
+    shapes
+        .filter(|(_, copies)| !copies.is_empty())
+        .map(|(lines, copies)| mg_render::LineShape { lines: lines.clone(), copies })
+        .collect()
+}
+
+/// The dots a ring of a Sound Ranges sphere has, fewest and most.
+const SPHERE_DOTS: (usize, usize) = (8, 32);
+/// The steps of a Sound Ranges circle, fewest and most.
+const CIRCLE_STEPS: (usize, usize) = (16, 64);
+
+/// Sound Ranges' shapes, made once: a sphere a metre across about the
+/// origin ([`sound_sphere`]) for each number of dots a ring
+/// ([`SPHERE_DOTS`]), and a circle ([`sound_circle`]) for each number of
+/// steps ([`CIRCLE_STEPS`]); each sound's are copies of them, moved to it
+/// and scaled to its distance.
+#[allow(clippy::type_complexity)]
+fn sound_shapes() -> &'static (Vec<std::sync::Arc<[[Vec3; 2]]>>, Vec<std::sync::Arc<[[Vec3; 2]]>>) {
+    static SHAPES: std::sync::OnceLock<(
+        Vec<std::sync::Arc<[[Vec3; 2]]>>,
+        Vec<std::sync::Arc<[[Vec3; 2]]>>,
+    )> = std::sync::OnceLock::new();
+    SHAPES.get_or_init(|| {
+        let spheres = (SPHERE_DOTS.0..=SPHERE_DOTS.1)
+            .map(|dots| sound_sphere(Vec3::ZERO, 1.0, dots).into())
+            .collect();
+        let circles = (CIRCLE_STEPS.0..=CIRCLE_STEPS.1)
+            .map(|steps| {
+                let points = sound_circle(Vec3::ZERO, 1.0, steps);
+                (0..points.len()).map(|k| [points[k], points[(k + 1) % points.len()]]).collect()
+            })
+            .collect();
+        (spheres, circles)
+    })
 }
 
 /// How far east or west and north or south of itself a placed sound may
@@ -3723,9 +3860,17 @@ fn overlays(
         let font = egui::FontId::proportional(13.0);
         painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, Color32::WHITE);
     };
-    // (A line is cut where it passes behind the eye.)
+    // (A line is cut where it passes behind the eye, as
+    // `AreaView::screen_segment` cuts it: the camera worked out once for
+    // the thousands of lines of a large selection.)
+    let (camera, to_screen) = (view.camera(), view.projector());
+    let segment = |a: Vec3, b: Vec3| {
+        let (camera, to_screen) = (camera.as_ref()?, to_screen?);
+        let (a, b) = mg_area::pick::clip_segment(camera, a, b, camera.near)?;
+        Some([to_screen.at(a)?, to_screen.at(b)?])
+    };
     let line = |a: Vec3, b: Vec3, stroke: Stroke| {
-        if let Some(points) = view.screen_segment(a, b) {
+        if let Some(points) = segment(a, b) {
             painter.line_segment(points, stroke);
         }
     };
@@ -3887,9 +4032,12 @@ fn overlays(
                 _ => Color32::from_rgb(230, 70, 70),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            for (a, b) in box_edges(transform, min, max) {
-                line(a, b, stroke);
-            }
+            // (Painted together: one at a time, each of thousands took
+            // the window's lock.)
+            let edges = box_edges(transform, min, max).filter_map(|(a, b)| {
+                segment(a, b).map(|points| egui::Shape::LineSegment { points, stroke })
+            });
+            painter.extend(edges.collect::<Vec<_>>());
         }
     }
     if view.pasting
@@ -7064,6 +7212,76 @@ mod tests {
         assert_eq!(o.target.z, TARGET_HEIGHTS.1);
     }
 
+    /// The walkmesh's faces on screen are where
+    /// [`AreaView::screen_polygon`] puts them, those in front of the eye
+    /// and those it cuts; a face beside the view is known to be.
+    #[test]
+    fn walkmesh_faces_are_put_on_screen_as_polygons_are() {
+        let mut view = AreaView::new(ResRef::EMPTY);
+        view.rect = Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(800.0, 500.0));
+        let orbit =
+            Orbit { target: Vec3::new(50.0, 50.0, 0.0), yaw: 0.7, pitch: 0.2, distance: 12.0 };
+        view.orbit = Some(orbit);
+        let camera = view.camera().unwrap();
+        let (depth, to_screen) = (NearDepth::of(&camera), view.projector().unwrap());
+        let mut seed = 5u64;
+        let mut next = || {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            (seed >> 40) as f32 / (1u64 << 24) as f32
+        };
+        let (mut cut, mut whole, mut out) = (0, 0, 0);
+        for _ in 0..2000 {
+            let at = camera.eye + Vec3::new(next() - 0.5, next() - 0.5, next() - 0.5) * 60.0;
+            let corners = [0, 1, 2].map(|_| at + Vec3::new(next(), next(), next() * 0.2) * 8.0);
+            let (points, count) = face_on_screen(&view, &depth, &to_screen, corners);
+            let polygon = view.screen_polygon(&corners, None);
+            assert_eq!(&points[..count], &polygon[..], "{corners:?}");
+            let ahead = corners.iter().filter(|c| depth.of_point(**c) >= 0.0).count();
+            match ahead {
+                3 => whole += 1,
+                0 => {}
+                _ => cut += 1,
+            }
+            out += usize::from(count >= 3 && beside(&polygon, view.rect));
+        }
+        assert!(cut > 100 && whole > 100 && out > 100, "{cut} cut, {whole} whole, {out} beside");
+        let r = view.rect;
+        assert!(beside(
+            &[r.left_top() - egui::vec2(1.0, 0.0), r.left_bottom() - egui::vec2(5.0, 0.0)],
+            r
+        ));
+        assert!(!beside(&[r.left_top() - egui::vec2(1.0, 0.0), r.right_bottom()], r));
+    }
+
+    /// Sound Ranges' copies of its shapes are each sound's spheres and
+    /// circle, moved and scaled to it.
+    #[test]
+    fn sound_ranges_copies_are_its_spheres() {
+        let placed = [(0, Vec3::new(20.0, 20.0, 1.0)), (1, Vec3::new(30.0, 25.0, 0.0))];
+        let ranges = [
+            SoundRange { index: 0, min: 3.0, max: 12.0, chosen: false },
+            SoundRange { index: 1, min: 5.0, max: 20.0, chosen: true },
+        ];
+        let camera = mg_render::Camera::orbit(Vec3::new(25.0, 20.0, 0.0), 60.0, 0.3, 0.8);
+        let shapes = sound_range_shapes(&placed, &ranges, &camera, (1000.0, 1000.0));
+        let mut drawn: Vec<[Vec3; 2]> = Vec::new();
+        for s in &shapes {
+            for c in &s.copies {
+                drawn.extend(s.lines.iter().map(|l| l.map(|p| c.offset + p * c.scale)));
+            }
+        }
+        for (&(_, at), r) in placed.iter().zip(&ranges) {
+            for radius in [r.min, r.max] {
+                let on = |p: Vec3| (p.distance(at) - radius).abs() < 1e-3;
+                let dots = drawn.iter().filter(|[a, b]| on(*a) && on(*b)).count();
+                assert!(dots >= 7 * SPHERE_DOTS.0, "{radius} m about {at}: {dots}");
+            }
+        }
+        let alphas: Vec<f32> =
+            shapes.iter().flat_map(|s| s.copies.iter().map(|c| c.color[3])).collect();
+        assert!(alphas.contains(&1.0) && alphas.contains(&0.8), "the selection's brighter");
+    }
+
     #[test]
     fn a_sounds_circle_is_level_around_it() {
         let centre = Vec3::new(10.0, 20.0, 1.5);
@@ -7099,16 +7317,17 @@ mod tests {
         let ranges = [SoundRange { index: 0, min: 3.0, max: 12.0, chosen: false }];
         let lines = |distance: f32| {
             let camera = mg_render::Camera::orbit(Vec3::new(20.0, 20.0, 0.0), distance, 0.0, 0.8);
-            sound_range_lines(&placed, &ranges, &camera, (1000.0, 1000.0)).len()
+            let shapes = sound_range_shapes(&placed, &ranges, &camera, (1000.0, 1000.0));
+            shapes.iter().map(|s| s.lines.len() * s.copies.len()).sum::<usize>()
         };
         let (near, far) = (lines(20.0), lines(400.0));
         assert!(far < near && far >= 2 * 7 * 8 + 16, "near {near}, far {far}");
         let camera = mg_render::Camera::orbit(Vec3::ZERO, 20.0, 0.0, 0.8);
-        assert!(sound_range_lines(&placed, &[], &camera, (1000.0, 1000.0)).is_empty());
+        assert!(sound_range_shapes(&placed, &[], &camera, (1000.0, 1000.0)).is_empty());
         // (Out of the picture, behind the eye: none.)
         let away =
             mg_render::Camera::orbit(Vec3::new(200.0, 20.0, 0.0), 5.0, std::f32::consts::PI, 0.0);
-        assert!(sound_range_lines(&placed, &ranges, &away, (1000.0, 1000.0)).is_empty());
+        assert!(sound_range_shapes(&placed, &ranges, &away, (1000.0, 1000.0)).is_empty());
     }
 
     #[test]

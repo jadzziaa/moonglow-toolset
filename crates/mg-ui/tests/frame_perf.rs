@@ -294,6 +294,9 @@ fn view_with(
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
     let rect = tab.and_then(|t| rect_of(h.state(), t)).unwrap_or(screen);
     if r.shots {
+        // (The view as its frames have it: its first frame's change made.)
+        each(h.state_mut(), 0);
+        h.run_steps(2);
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-output/frame-shots");
         std::fs::create_dir_all(&dir).unwrap();
