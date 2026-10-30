@@ -111,6 +111,15 @@ fn extent(img: &Rgba, r: [f32; 4], keep: &dyn Fn([u8; 3]) -> bool) -> ([u32; 4],
 /// `Motion_Blur` at velocity 1, 3 and 6 with `blurlength` 1, at 3 with
 /// `blurlength` 0 and 3, and at 3 with 30 cm squares; and green dots, still,
 /// 1 m apart up the last column (the picture's scale).
+///
+/// Seen (2026-10-30, 89.8193.37): the `Normal` column (birthrate 0.667) shows
+/// nothing, nor velocity 1 (the same birthrate): a birthrate under 1
+/// makes no particle ([`reading_particle_turn_and_birth`]). The others
+/// are streaks twice the square's size across (0.24 m; 0.6 m for the 30
+/// cm one), white at the head fading to the tail, each reaching the next
+/// particle 1.5 m below whatever its velocity or `blurlength` (1 or 3):
+/// every column threw one each 1.5 m of its rise, so the next readings
+/// tell the rules apart. `blurlength` 0 draws none.
 #[test]
 #[ignore]
 fn reading_motion_blur_length() {
@@ -157,7 +166,6 @@ fn reading_motion_blur_length() {
     ];
     let light = Lighting { ambient: 0x101010, diffuse: 0, main_light: 0, only_tile: None };
     let mut r = Reading::new("motion_blur_length", "tic01", light, &overrides);
-    // (Facing south: the model's x runs west to east.)
     r.place(first, [20.0, 23.0, 0.0], 0.0, &[]);
     let (dir, client) = r.shoot(&enter(INVISIBLE, (90.0, 9.0, 80.0)), SETTINGS);
     print_log(&dir);
@@ -177,6 +185,14 @@ fn reading_motion_blur_length() {
 /// `blurlength` 0.5 and 0.1 (else 1); at 2 thrown in a cone (`spread`
 /// 0.6); a `Normal` emitter at birthrate 1.5 (the first reading's 0.667
 /// showed nothing); and the green dots, 1 m apart.
+///
+/// Seen (2026-10-30, 89.8193.37): (84 px a metre by the dots) birthrate 4's
+/// streaks reach the next particle 0.5 m below, 2's 1 m, 1's 1.4 m of
+/// its 2 m; lifeExp 0.75's one particle 0.8 m; `blurlength` 0.5 0.93 m,
+/// 0.1 a square twice the size; the cone's streaks tilt along their
+/// paths; birthrate 1.5 makes one and a half a second. Moonglow's area
+/// view beside it (`moonglow.png`): dots before 2026-10-30, streaks
+/// since.
 #[test]
 #[ignore]
 fn reading_motion_blur_rule() {
@@ -227,6 +243,14 @@ fn reading_motion_blur_rule() {
 /// west to east velocity 1, 2 and 4 with `blurlength` 1; 2 with 0.25, 0.5
 /// and 2; 1 with 0.5; and the green dots. Four pictures, about a second
 /// apart (`client_<i>.png`).
+///
+/// Seen (2026-10-30, 89.8193.37): (two of the four pictures alike: the
+/// window's picture lags) at 2 m/s a streak is 0.56, 0.92, 1.3 and 1.58
+/// m long with `blurlength` 0.25, 0.5, 1 and 2 at 0.87 s old, 0.56, 1.0,
+/// 1.55 and 2.0 at 1.34 s, shorter when younger; at 1 m/s 1.0 m with 1
+/// and 0.55 with 0.5 once old. A tail following the particle `0.76 ×
+/// blurlength` s behind fits the older ones within 0.1 m and draws the
+/// youngest up to 0.2 m long (`mg_render`'s `motion_blur`).
 #[test]
 #[ignore]
 fn reading_motion_blur_single() {
@@ -300,6 +324,14 @@ fn nwnmdlcomp(dir: &Path, name: &str, ascii: &str) -> Vec<u8> {
 /// rising 1 m/s, red at `birthrate` 0.5 and blue at 1.5, in an ASCII model
 /// (`mg_rate`, west) and the same compiled by nwnmdlcomp (`mg_ratec`,
 /// east): whether a birthrate under 1, or its fraction, is kept.
+///
+/// Seen (2026-10-30, 89.8193.37): no red particle at all, ASCII or compiled
+/// (birthrate 0.5 makes none), the blue ones one and a half a second;
+/// the spinning squares upright, as the still ones (a start at 0); the
+/// rising squares' upper halves show, each newer one drawn over the older
+/// above it, where Moonglow drew the nearer over (back to front); the
+/// `Linked` column's newest piece shows the cell turned half round, as
+/// Moonglow's, its other pieces mostly the cell's top half.
 #[test]
 #[ignore]
 fn reading_particle_turn_and_birth() {
@@ -368,6 +400,15 @@ fn reading_particle_turn_and_birth() {
 /// other); a `Linked` column of 30 cm squares a metre apart (a piece's
 /// length); and red 12 cm squares at `birthrate` 0.5 rising 0.1 m/s for
 /// 20 s (whether any is born in the scene's seconds).
+///
+/// Seen (2026-10-30, 89.8193.37): the squares start upright and turn
+/// anticlockwise, 0.25's top one (about 7 s old) a quarter turn, 0.05's
+/// about 20°: radians a second (Moonglow turned them a turn a second from
+/// a random start); the falling column, the newest highest and nearest,
+/// shows each newer one over the older below, as the rising one does: in
+/// birth order, not by distance; the `Linked` pieces a metre long show
+/// the cell's top half nearly all their length; no red square (0.5 a
+/// second) in the scene's ten seconds.
 #[test]
 #[ignore]
 fn reading_particle_spin_and_order() {
@@ -424,6 +465,13 @@ fn reading_particle_spin_and_order() {
 /// the player, 50 cm particles: 1 a `Linked` column, 2 a lightning bolt
 /// (`update Lightning`, `sizeStart` 0.5) to a reference node 2 m east, 3 a
 /// plain one (the client's 10 / 0.5 = 20).
+///
+/// Seen (2026-10-30, 89.8193.37): all three painted 20 (79, 175 in red and
+/// green): the `Linked` column, the bolt and the plain one, so a bolt and
+/// a ribbon are soft as others (Moonglow gave the bolt none). The bolt
+/// showed as one square at the emitter in the picture, no jagged line.
+/// (A reference node's `refModel NULL` crashed the client loading the
+/// model, in `CreateReferenceObjects`; `fx_ref` loads.)
 #[test]
 #[ignore]
 fn reading_soft_particles_of_lightning_and_linked() {
@@ -440,10 +488,10 @@ fn reading_soft_particles_of_lightning_and_linked() {
          lightningRadius 0\n  lightningSubDiv 3\n  lightningScale 1",
         sized(2)
     );
-    let target = format!(
+    let target =
         "node reference bolt_end\n  parent bolt\n  position 2 0 0\n  orientation 0 0 0 0\n  \
-         refModel fx_ref\n  reattachable 0\nendnode\n"
-    );
+                  refModel fx_ref\n  reattachable 0\nendnode\n"
+            .to_string();
     let model = probe_model(
         m,
         &[
@@ -541,14 +589,23 @@ fn put_creature(
 
 /// How the client draws a part's visual transform (the deferred list's
 /// "Lerps, animation speed and other scopes, how the client draws a
-/// part's"): north of the player, facing the camera, west to east, a
-/// commoner made a human (appearance 6) with the demon's wings
-/// (wingmodel 2) and a cloak (`nw_maarcl055`), without a transform, then
+/// part's"): north of the player, west to east, a commoner made a
+/// human (appearance 6, head 1) with wings (wingmodel 2) and, for the
+/// cloak's scope, a cloak (`nw_maarcl055`), without a transform, then
 /// with one entry of the scope `MG_B4_SCOPE` (254 the head, by default;
 /// 252 the wings, 243 the cloak): scaled 2; turned 45° about x, about y,
 /// about z; moved 0.3 m along x and z. For the head, a bandit (appearance
 /// 269, one model) with its head scaled 2 at the east end. In the client
 /// beside Moonglow's area view.
+///
+/// Seen (2026-10-30, 89.8193.37): with each scope (254 facing the camera, 252
+/// and 243 from behind, `MG_B4_FACING=0`) the head, the wings and the
+/// cloak scaled, turned about x, y and z and moved as Moonglow draws them,
+/// about the node each hangs from; the moved head floats about a metre
+/// up and aside in both; the bandit's head scaled changes nothing in
+/// either. The commoners, of one model and so without body part fields,
+/// have no arms in the client under their clothes' bare-skin arms, where
+/// Moonglow drew skin (drawn as the client since).
 #[test]
 #[ignore]
 fn reading_part_scopes() {
@@ -600,6 +657,10 @@ fn reading_part_scopes() {
 /// player, west to east, without a transform, then with one entry of scope
 /// 255, 254, 253, 252 and 251, each scaled 2. In the client beside
 /// Moonglow's area view, from close above.
+///
+/// Seen (2026-10-30, 89.8193.37): 255 doubles the whole sword, 254 its guard
+/// alone, 253 its blade alone; 252 and 251 change nothing. Moonglow drew
+/// none before 2026-10-30, as the client since.
 #[test]
 #[ignore]
 fn reading_item_part_scopes() {
@@ -657,7 +718,13 @@ fn from_hak(hak: &str, names: &[&str]) -> Vec<(String, Vec<u8>)> {
 /// client beside Moonglow's area view; `MG_B4_ZOMBIE` picks the case:
 /// `as_is` (default; three pictures a second apart besides,
 /// `client_<i>.png`), `plain` (its glow's TXI without `proceduretype` and
-/// `distort`: still dim, the blending; bright, the ripple).
+/// `distort`: still dim, the blending; bright, the ripple), `dds` (the
+/// TGAs left out, as `as_is` was first run).
+///
+/// Seen (2026-10-30, 89.8193.37): `as_is`: charred bodies with dim orange
+/// veins in the client and in Moonglow alike, the client's veins moving
+/// from picture to picture. `dds`: the client drew the bodies pale gray
+/// and see-through (Moonglow charred, as with the TGA).
 #[test]
 #[ignore]
 fn reading_rippling_glow() {
@@ -700,7 +767,6 @@ fn reading_rippling_glow() {
             &[],
         );
     }
-    let dir = r.dir.clone();
     let (dir, _) = shoot_close(r, INVISIBLE, SETTINGS, (90.0, 4.0, 75.0), &|_| {});
     print_log(&dir);
     if case == "as_is" {
@@ -714,9 +780,16 @@ fn reading_rippling_glow() {
 /// room, north of the player a placeable whose model (`mg_flick`, a small
 /// card and a light node of radius 4) has a `default` animation of 2 s
 /// keying the light's color red, blue, red and the card's
-/// self-illumination the same; west a static one, east a dynamic one.
-/// Five pictures half a second apart (`client_<i>.png`): whether the floor
-/// and the card under each change color.
+/// self-illumination the same, and lifting the card a metre at 1 s;
+/// west a static one, east a dynamic one. Moonglow's area view beside one
+/// picture at 1 s into the animation (`moonglow.png`), then five pictures
+/// half a second apart (`client_<i>.png`): whether the floor and the card
+/// under each change.
+///
+/// Seen (2026-10-30, 89.8193.37): the static one's floor and card stay red, its
+/// card on the floor; the dynamic one's cycle red and blue, its card
+/// rising: the client plays no animation of a static placeable. Moonglow
+/// lifted both cards before 2026-10-30 (it plays neither's colors).
 #[test]
 #[ignore]
 fn reading_static_placeable_default_animation() {
@@ -825,11 +898,16 @@ fn env_paint_shader(game: &GameData) -> String {
 /// reflects"): a rural interior (`tin01`, whose map `tin01__ref01` is a
 /// copper brown) with `inc_standard` painting each environment-mapped
 /// fragment with its map ([`env_paint_shader`]); north of the player, west,
-/// a longsword whose blade (`ModelPart3` 99: `w_swls_t_099`, made a sphere
-/// of a gray texture of alpha 0) reflects by baseitems.2da's
-/// `Part3EnvMap` 1; east, the big mirror (`Reflection` `default`, the
-/// game's `chrome1`) made the same sphere. In the client beside Moonglow's
-/// area view, from close.
+/// a longsword whose blade model (`w_swls_t_011`) is made a sphere of a
+/// gray texture of alpha 0 (baseitems.2da's `Part3EnvMap` 1); east, the
+/// big mirror (`Reflection` `default`, the game's `chrome1`) made the
+/// same sphere. In the client beside Moonglow's area view, from close.
+///
+/// Seen (2026-10-30, 89.8193.37): the mirror's sphere painted with `chrome1`
+/// in both; the sword drew no sphere in either (its blade not there). Run
+/// first with an amulet (`nw_it_mneck001`, `ModelPart1` 99), it lay as
+/// its base item's bag, which the client left unpainted (no map: its
+/// texture has no alpha) and Moonglow painted with `chrome1`.
 #[test]
 #[ignore]
 fn reading_item_env_map() {
@@ -861,9 +939,16 @@ fn reading_item_env_map() {
 /// deferred list's "Dynamic body parts from custom content": the report's
 /// werejackal wears `helm_129`, in neither download): north of the
 /// player, facing the camera, west to east, humans (appearance 6, head 1)
-/// in a helmet (`nw_arhe001`) of `ModelPart1` 1 (`helm_001`), of 250
-/// (no `helm_250` anywhere), and without one. In the client beside
+/// in a helmet (`nw_arhe001`) of `ModelPart1` 1 (`helm_001`), of 2, of
+/// 250 (no `helm_250` anywhere), and without one, each number written to
+/// the EE twin `xModelPart1` too (which the game reads first: set alone,
+/// `ModelPart1` changed nothing in either). In the client beside
 /// Moonglow's area view, from close.
+///
+/// Seen (2026-10-30, 89.8193.37): `helm_001`, `helm_002`, and for 250 the bag
+/// (`it_bag`, the base item's `DefaultModel`) above the neck, no head;
+/// with `MG_B4_NO_TEMPLATE` the same (the item's own fields give its
+/// look). Moonglow drew 250 headless before 2026-10-30, the bag since.
 #[test]
 #[ignore]
 fn reading_missing_helmet_model() {
@@ -902,6 +987,9 @@ fn reading_missing_helmet_model() {
 /// two braziers (placeables.2da 57, `plc_i05`, whose fire is an emitter)
 /// north of the player, the west one static, the east one not, from the
 /// reference camera beside Moonglow's area view (Animations on).
+///
+/// Seen (2026-10-30, 89.8193.37): both braziers' fire and smoke in the client,
+/// as in Moonglow's view.
 #[test]
 #[ignore]
 fn reading_static_placeable_emitters() {
