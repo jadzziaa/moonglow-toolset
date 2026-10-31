@@ -24,7 +24,7 @@ talk › PC line 1 “A friend.” › action	talk.dlg /ReplyList[0]/Script
 talk › start 1 › condition	talk.dlg /StartingList[0]/Active
 caller.nss line 1: #include "hello"
 caller.nss line 4: ExecuteScript("hello", OBJECT_SELF);
-warning: the game's tables not read: NOWHERE is not a game install (no data/nwn_base.key)
+warning: the game's tables not read: NOWHERE is not a game install: no data/nwn_base.key in it
 23 uses, 0 by the game's tables, 2 script strings
 $ mg --json refs MODULE hello.nss
 {
@@ -160,7 +160,7 @@ $ mg --json refs MODULE hello.nss
   "tables": [],
   "marked": null,
   "notes": [
-    "warning: the game's tables not read: NOWHERE is not a game install (no data/nwn_base.key)",
+    "warning: the game's tables not read: NOWHERE is not a game install: no data/nwn_base.key in it",
     "23 uses, 0 by the game's tables, 2 script strings"
   ]
 }

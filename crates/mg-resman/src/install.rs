@@ -91,6 +91,33 @@ impl GameInstall {
         root.join("data").join("nwn_base.key").is_file()
     }
 
+    /// Why `root` is not a game install, for a builder who chose it
+    /// (`None`: it is one). The mistakes builders make are told apart: the
+    /// original game's folder (1.69, the Diamond Edition's: its
+    /// `chitin.key` beside `nwmain.exe`, no `data/nwn_base.key`; GitHub
+    /// issue 39), a folder inside the game's (`bin/win32`, `data`), and
+    /// one above it (Steam's `common`).
+    pub fn why_not(root: &Path) -> Option<String> {
+        if Self::is_install(root) {
+            return None;
+        }
+        if root.join("chitin.key").is_file() {
+            return Some(
+                "this is the original game (1.69, as the Diamond Edition is): Moonglow needs \
+                 Enhanced Edition, whose folder has data/nwn_base.key"
+                    .into(),
+            );
+        }
+        if let Some(game) = root.ancestors().skip(1).take(3).find(|a| Self::is_install(a)) {
+            return Some(format!("this is a folder inside the game's: choose {}", game.display()));
+        }
+        let children = std::fs::read_dir(root).into_iter().flatten().flatten();
+        if let Some(game) = children.map(|e| e.path()).find(|c| Self::is_install(c)) {
+            return Some(format!("the game is in {}: choose that folder", game.display()));
+        }
+        Some("no data/nwn_base.key in it".into())
+    }
+
     /// The game's folder: `NWN_ROOT`, else the first install in the
     /// usual places (each Steam library, then GOG's). The tests find the
     /// game here too, so that they run where the toolset finds it.
@@ -603,6 +630,31 @@ impl ResMan {
 #[cfg(test)]
 mod install_tests {
     use super::*;
+
+    /// Why a folder isn't the game, as a builder who chose it is told: the
+    /// original game's (GitHub issue 39, the Diamond Edition), a folder
+    /// inside the game's or above it, or none of those.
+    #[test]
+    fn a_folder_that_isn_t_the_game_says_why() {
+        let base = env::temp_dir().join(format!("moonglow-why-not-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let ee = base.join("common").join("Neverwinter Nights");
+        std::fs::create_dir_all(ee.join("data")).unwrap();
+        std::fs::create_dir_all(ee.join("bin").join("win32")).unwrap();
+        std::fs::write(ee.join("data").join("nwn_base.key"), b"KEY V1  ").unwrap();
+        let diamond = base.join("NWN Diamond");
+        std::fs::create_dir_all(&diamond).unwrap();
+        std::fs::write(diamond.join("chitin.key"), b"KEY V1  ").unwrap();
+        let why = |p: &Path| GameInstall::why_not(p).unwrap_or_default();
+        assert_eq!(GameInstall::why_not(&ee), None);
+        assert!(why(&diamond).contains("original game (1.69"), "{}", why(&diamond));
+        let inside = why(&ee.join("bin").join("win32"));
+        assert_eq!(inside, format!("this is a folder inside the game's: choose {}", ee.display()));
+        let above = why(&base.join("common"));
+        assert_eq!(above, format!("the game is in {}: choose that folder", ee.display()));
+        assert_eq!(why(&base.join("nowhere")), "no data/nwn_base.key in it");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn steam_s_library_list_is_read() {

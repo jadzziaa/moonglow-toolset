@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-31
+* **Fix**: Options › Folders, and `mg` of its `--root`, say why a folder isn't the game where they said only "no data/nwn_base.key": the original game (1.69, as the Diamond Edition is: its `chitin.key`, GitHub issue 39), a folder inside the game's (`bin/win32`, `data`: choose the one above), or one above it (Steam's `common`: the game's folder in it named). `GameInstall::why_not`, under test (`a_folder_that_isn_t_the_game_says_why`); [troubleshooting](manual/13-troubleshooting.md) says so.
+
 ## 2026-10-30
 * **Change**: The open tabs kept with each module (Moonglow's data folder, `open-tabs`) write a placed object's path as every path is written (`/Creature List[3]`), where they had a form of their own (`Creature List#3`), the owner's word on the GFF paths' leftovers. A file Moonglow 3.1.0 or before kept is read as it was written, its placed objects found again by what was kept of them, and written anew in the one form at the next close (`a_session_kept_as_3_1_0_kept_it_opens_and_is_written_anew`).
 * **Change**: `mg vars --json`'s places say a variable on a resource's root (`module.ifo`, an area's GIT, a blueprint) at the path `/`, as every other path is written, where they said `""` (the owner's word on the GFF paths' leftovers). `var_desc::Found` carries its object's path as a `GffPath`, built as the walk goes, no text read back; Verify's fix that removes a variable takes it as it is.

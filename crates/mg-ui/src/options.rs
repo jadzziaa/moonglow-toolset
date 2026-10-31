@@ -491,13 +491,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         OptionsPage::Folders => {
                             crate::widgets::field_label(ui, "Neverwinter Nights installation");
                             path_row(ui, &mut draft.game_root, &mut browse, Browse::Game);
-                            match path(&draft.game_root) {
-                                Some(p) if GameInstall::is_install(&p) => {
-                                    ui.weak("A game installation.")
-                                }
-                                Some(_) => ui.colored_label(
+                            // (Why not, looked at once per folder: it
+                            // reads the folder.)
+                            let why_not = path(&draft.game_root).map(|p| {
+                                let id = egui::Id::new(("game-folder-why-not", &p));
+                                ui.data(|d| d.get_temp::<Option<String>>(id)).unwrap_or_else(|| {
+                                    let why = GameInstall::why_not(&p);
+                                    ui.data_mut(|d| d.insert_temp(id, why.clone()));
+                                    why
+                                })
+                            });
+                            match why_not {
+                                Some(None) => ui.weak("A game installation."),
+                                Some(Some(why)) => ui.colored_label(
                                     ui.visuals().error_fg_color,
-                                    "Not a game installation (no data/nwn_base.key).",
+                                    format!("Not a game installation: {why}."),
                                 ),
                                 None => match &detected {
                                     Some(d) => {

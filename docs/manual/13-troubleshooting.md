@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:26:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T02:02:20Z }
 ---
 
 # Troubleshooting
@@ -15,7 +15,11 @@ bar "No game install". Choose **Tools › Options… › Folders** and set the
 game's folder: the one with `data/` and `bin/` in it (for Steam,
 `steamapps/common/Neverwinter Nights` in the library you installed it
 to). Moonglow needs Enhanced Edition; the original 1.69 release is not
-supported.
+supported. Under the folder, the page says why one isn't the game: the
+original game's (1.69, as the Diamond Edition is: a `chitin.key` and no
+`data/nwn_base.key`), a folder inside the game's (`bin/win32`, `data`)
+or one above it (Steam's `common`), with the folder to choose. `mg` says
+the same of `--root`.
 
 In the **Flatpak**, the sandbox only sees the game where Steam installs it
 by default. Allow another folder with:

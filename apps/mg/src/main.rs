@@ -1871,8 +1871,8 @@ fn install(cli: &Cli) -> Result<GameInstall> {
             GameInstall::detect().context("no game install found; pass --root or set NWN_ROOT")?
         }
     };
-    if !GameInstall::is_install(&gi.root) {
-        bail!("{} is not a game install (no data/nwn_base.key)", gi.root.display());
+    if let Some(why) = GameInstall::why_not(&gi.root) {
+        bail!("{} is not a game install: {why}", gi.root.display());
     }
     if let Some(u) = &cli.user_dir {
         gi.user_dir = Some(u.clone());

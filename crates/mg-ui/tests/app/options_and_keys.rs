@@ -17,7 +17,7 @@ fn options_choose_the_game_folder() {
     // Browse picks a folder that is not a game install.
     h.get_all_by_label("Browse…").next().unwrap().click();
     h.run();
-    h.get_by_label("Not a game installation (no data/nwn_base.key).");
+    h.get_by_label("Not a game installation: no data/nwn_base.key in it.");
     h.get_by_label("OK").click();
     h.run();
     assert_eq!(h.state().settings.game_root.as_deref(), Some(dir.as_path()));
