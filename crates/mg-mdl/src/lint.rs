@@ -91,7 +91,13 @@ pub struct Diagnostic {
 
 /// Engine limits.
 pub const MAX_BONES: usize = 64;
-pub const MAX_FACES: usize = 21_845;
+/// A mesh's faces: a binary face names its neighbours in 16 bits, signed.
+/// Not 65535 / 3 (nwn.wiki's Models page): the game draws a mesh's index
+/// list, whose count is 32 bits, and a mesh of 29,768 faces was drawn
+/// whole in the client (`placeables_look`, dafena's report after 3.1.2).
+pub const MAX_FACES: usize = 32_767;
+/// A mesh's vertices: their indices are 16 bits.
+pub const MAX_VERTICES: usize = 65_535;
 pub const MAX_RESREF: usize = 16;
 pub const MAX_NODE_NAME: usize = 32;
 pub const MAX_LIGHTNING_SEGMENTS: f32 = 9.0;
@@ -414,7 +420,16 @@ fn node_line(
             return next;
         }
         match key {
-            "verts" => n.verts = Some(rows.len()),
+            "verts" => {
+                n.verts = Some(rows.len());
+                if rows.len() > MAX_VERTICES {
+                    l.push(
+                        at,
+                        Severity::Error,
+                        format!("{} vertices; a mesh has at most {MAX_VERTICES}", rows.len()),
+                    );
+                }
+            }
             "tverts" | "tverts0" => n.tverts = Some(rows.len()),
             "faces" => {
                 if rows.len() > MAX_FACES {
@@ -488,10 +503,23 @@ fn node_line(
             if let Some(name) = w.get(1)
                 && name.len() > MAX_RESREF
             {
+                // A texture's name is cut to 16 characters as the game
+                // looks it up (seen in the client: a `bitmap` of 20 drawn
+                // with the TGA of its first 16; dafena's report after
+                // 3.1.2, Blender's `.014` names); a model's is not known.
+                let texture = !matches!(key, "refmodel" | "chunkname");
+                let cut: String = name.chars().take(MAX_RESREF).collect();
                 l.push(
                     at,
-                    Severity::Error,
-                    format!("{name}: resource names are at most {MAX_RESREF} characters"),
+                    if texture { Severity::Warning } else { Severity::Error },
+                    if texture {
+                        format!(
+                            "{name}: longer than a resource name ({MAX_RESREF} characters): \
+                             the game looks for {cut}"
+                        )
+                    } else {
+                        format!("{name}: resource names are at most {MAX_RESREF} characters")
+                    },
                 );
             }
         }
@@ -691,12 +719,31 @@ donemodel box\n";
                 .iter()
                 .any(|(_, s, m)| *s == Severity::Error && m.contains("constraints"))
         );
+        // A texture's long name: what the game looks for (its first 16
+        // characters), not an error; a model's is one.
         let long = GOOD.replace("bitmap tex", "bitmap a_very_long_texture_name");
+        assert!(messages(&long).iter().any(|(_, s, m)| *s == Severity::Warning
+            && m.contains("the game looks for a_very_long_text")));
+        assert!(!messages(&long).iter().any(|(_, s, _)| *s == Severity::Error));
+        let model = GOOD.replace("bitmap tex", "refmodel a_very_long_model_name");
         assert!(
-            messages(&long)
+            messages(&model)
                 .iter()
                 .any(|(_, s, m)| *s == Severity::Error && m.contains("at most 16"))
         );
+        // More faces than 65535 / 3 (dafena's 24,005): drawn by the game;
+        // more than the format's 32,767 not.
+        let faces = |n: usize| {
+            let rows: String = (0..n).map(|_| "    0 1 2 1 0 1 2 0\n").collect();
+            GOOD.replacen("  faces 1\n", &format!("  faces {}\n{rows}", n + 1), 1)
+        };
+        let too_many = |n| {
+            messages(&faces(n))
+                .iter()
+                .any(|(_, s, m)| *s == Severity::Error && m.contains("faces;"))
+        };
+        assert!(!too_many(22_000), "more than 21845 faces are drawn");
+        assert!(too_many(32_800), "past the binary's 32767");
         let ee = GOOD.replace("  bitmap tex", "  bitmap tex\n  materialname mat");
         assert!(
             messages(&ee).iter().any(|(_, s, m)| *s == Severity::Info && m.contains("nwnmdlcomp"))
@@ -808,7 +855,7 @@ donemodel box\n";
             let text =
                 GOOD.replace("  bitmap tex", &format!("{space}bitmap{space}a234567890123456789"));
             messages(&text).into_iter().any(|(l, s, m)| {
-                l == 10 && s == Severity::Error && m.contains("resource names are at most")
+                l == 10 && s == Severity::Warning && m.contains("longer than a resource name")
             })
         };
         assert!(long("\x0b"), "a vertical tab");
