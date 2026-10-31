@@ -2732,6 +2732,22 @@ fn sent_order(dir: &std::path::Path) -> Vec<String> {
     text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
 }
 
+/// Publish to NWSync's Upload, pressed once the window has settled where
+/// it is drawn. (Nothing else under way: an upload asked for meanwhile is
+/// refused, not queued. And the pointer is brought to the button first, as
+/// a builder's is: a command changed in Options changes the text above it,
+/// and the window took its new size a frame later, the button moved from
+/// under a click made where it was: seen under load in the release
+/// checks.)
+fn upload(h: &mut Harness<'_, Moonglow>) {
+    settle(h);
+    h.get_by_label("Upload").hover();
+    h.run();
+    h.get_by_label("Upload").click();
+    // (Its commands run as a job: waited for, not counted in frames.)
+    settle(h);
+}
+
 /// Opens Build › Publish to NWSync… on `repo`.
 fn publish_window(h: &mut Harness<'_, Moonglow>, repo: &std::path::Path) {
     h.get_by_label("Build").click();
@@ -2755,15 +2771,18 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.settings.nwsync_upload = Some(stand_in_upload(&dir, None));
-    app.open_module(&sample_module(&dir));
+    // (The module in a folder of its own: the stand-in writes what it
+    // sends beside the repository, and the module's folder is watched for
+    // changes from outside, whose reading, a job, an upload asked for
+    // meanwhile is refused for: seen under load in the release checks.)
+    let modules = dir.join("module");
+    std::fs::create_dir_all(&modules).unwrap();
+    app.open_module(&sample_module(&modules));
     let mut h = harness(app, 1100.0, 800.0);
     h.run();
     publish_window(&mut h, &repo);
     h.get_by_label("Set in Options › Folders.");
-    settle(&mut h);
-    h.get_by_label("Upload").click();
-    // (Its commands run as a job: waited for, not counted in frames.)
-    settle(&mut h);
+    upload(&mut h);
     assert_eq!(sent_order(&dir), ["data", "manifests", "latest"], "{:?}", h.state().log.entries);
     assert!(logged(&h, "Uploaded to NWSync: data, manifests, latest sent"));
     assert!(logged(&h, "Sending manifests: "), "each part's command in the log");
@@ -2787,13 +2806,13 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     // A part that fails: nothing after it is sent.
     std::fs::remove_file(dir.join("order.txt")).unwrap();
     h.state_mut().settings.nwsync_upload = Some(stand_in_upload(&dir, Some("manifests")));
-    // (Nothing else under way: an upload asked for meanwhile waits for
-    // nothing, it is refused.)
-    settle(&mut h);
-    h.get_by_label("Upload").click();
-    // (Its commands run as a job: waited for, not counted in frames.)
-    settle(&mut h);
-    assert_eq!(sent_order(&dir), ["data", "manifests"], "latest never sent");
+    upload(&mut h);
+    assert_eq!(
+        sent_order(&dir),
+        ["data", "manifests"],
+        "latest never sent: {:?}",
+        h.state().log.entries
+    );
     assert!(logged(
         &h,
         "NWSync upload: stopped sending manifests; data sent before it, nothing after"
@@ -2803,9 +2822,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     // `latest` naming a manifest that isn't there: nothing is sent.
     std::fs::remove_file(dir.join("order.txt")).unwrap();
     std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
-    settle(&mut h);
-    h.get_by_label("Upload").click();
-    settle(&mut h);
+    upload(&mut h);
     assert!(sent_order(&dir).is_empty());
     let error = h.state().publish.as_ref().unwrap().error.clone().unwrap_or_default();
     assert!(error.contains("isn't in manifests/"), "{error}");
