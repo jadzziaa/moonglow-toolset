@@ -2761,8 +2761,8 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     publish_window(&mut h, &repo);
     h.get_by_label("Set in Options › Folders.");
     h.get_by_label("Upload").click();
-    h.run();
-    h.run();
+    // (Its commands run as a job: waited for, not counted in frames.)
+    settle(&mut h);
     assert_eq!(sent_order(&dir), ["data", "manifests", "latest"], "{:?}", h.state().log.entries);
     assert!(logged(&h, "Uploaded to NWSync: data, manifests, latest sent"));
     assert!(logged(&h, "Sending manifests: "), "each part's command in the log");
@@ -2788,8 +2788,8 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     h.state_mut().settings.nwsync_upload = Some(stand_in_upload(&dir, Some("manifests")));
     h.run();
     h.get_by_label("Upload").click();
-    h.run();
-    h.run();
+    // (Its commands run as a job: waited for, not counted in frames.)
+    settle(&mut h);
     assert_eq!(sent_order(&dir), ["data", "manifests"], "latest never sent");
     assert!(logged(
         &h,
@@ -2801,7 +2801,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     std::fs::remove_file(dir.join("order.txt")).unwrap();
     std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
     h.get_by_label("Upload").click();
-    h.run();
+    settle(&mut h);
     assert!(sent_order(&dir).is_empty());
     let error = h.state().publish.as_ref().unwrap().error.clone().unwrap_or_default();
     assert!(error.contains("isn't in manifests/"), "{error}");
