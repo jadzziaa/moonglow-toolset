@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.2" date="2026-10-31">
+      <description>
+        <p>Metal 2 is drawn and chosen in the game's metal palette, as Metal
+        1 is. No window's scroll bars flicker at a 125% display scale any
+        more. A blueprint shown to look at has its fields copied again, and
+        the palette copies a blueprint's ResRef and Tag. A game folder that
+        isn't Enhanced Edition's says why.</p>
+      </description>
+    </release>
     <release version="3.1.1" date="2026-10-31">
       <description>
         <p>The automatic update check asks at each start, so a new release
