@@ -1294,6 +1294,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         toggle: view.toggle.take(),
         listed: pressed.map(|_| Listed::default()),
         clicked: false,
+        range: None,
         commands: &menu_commands,
     };
     if find.is_in_order() {
@@ -1495,7 +1496,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 }
 
 /// The blueprints picked in a palette: the one clicked, and more chosen
-/// with Ctrl+click (custom palettes).
+/// with Ctrl+click or Shift+click (custom palettes).
 struct Selection {
     selected: Option<ResKey>,
     chosen: Vec<ResKey>,
@@ -1598,6 +1599,10 @@ struct Tree<'a> {
     listed: Option<Listed>,
     /// Something in the tree was clicked: the arrow keys are its own.
     clicked: bool,
+    /// A blueprint Shift+clicked (with Ctrl: added to those chosen): the
+    /// rows from the one selected to it are chosen, once its branch's
+    /// rows are drawn.
+    range: Option<(ResKey, bool)>,
     /// The plugins' commands for right-click menus.
     commands: &'a [crate::plugins::PluginCommand],
 }
@@ -1855,10 +1860,14 @@ impl Tree<'_> {
         });
         if r.clicked() {
             // Ctrl+click chooses several: custom blueprints for bulk
-            // edits, placeables (custom or the game's) to paint.
+            // edits, placeables (custom or the game's) to paint; Shift+click
+            // the rows from the one selected to this one.
+            let several = self.several(b);
+            let (command, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
             let sel = &mut self.sel;
-            let several = mine || kind == BlueprintKind::Placeable;
-            if several && ui.input(|i| i.modifiers.command) {
+            if several && shift && sel.selected.is_some_and(|s| s != key) {
+                self.range = Some((key, command));
+            } else if several && command {
                 if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
                     sel.chosen.remove(at);
                 } else if sel.selected != Some(key) {
@@ -1992,11 +2001,14 @@ impl Tree<'_> {
                     1 => "Update Instances".to_string(),
                     n => format!("Update Instances of {n}"),
                 };
-                if ui
-                    .button(text)
-                    .on_hover_text("Make the objects placed from it again from it")
-                    .clicked()
-                {
+                let tip = if keys.len() == 1 {
+                    "Make the objects placed from it again from it. Ctrl+click or Shift+click \
+                     chooses several blueprints to update together; Edit › Update All \
+                     Instances… updates the whole module's"
+                } else {
+                    "Make the objects placed from them again from them"
+                };
+                if ui.button(text).on_hover_text(tip).clicked() {
                     picks.push(Pick::UpdateInstances(keys));
                     ui.close();
                 }
@@ -2051,6 +2063,45 @@ impl Tree<'_> {
     }
 
     /// A category's blueprints: a list, or in the Gallery a grid.
+    /// Whether `b` can be chosen with others: a custom blueprint the
+    /// module has (for bulk edits), or a placeable (to paint).
+    fn several(&self, b: &PaletteBlueprint) -> bool {
+        (self.custom && self.own.contains(&b.resref)) || self.kind == BlueprintKind::Placeable
+    }
+
+    /// A Shift+click on one of `rows`: the rows from the one selected to
+    /// it are chosen (those that can be), in place of those chosen before
+    /// or, with Ctrl, as well. The one selected stays where a range
+    /// starts; where it is in another branch, the row clicked is selected
+    /// alone.
+    fn choose_range(&mut self, rows: &[&PaletteBlueprint]) {
+        let Some((to, adding)) = self.range else { return };
+        let restype = self.kind.restype();
+        let at = |key: ResKey| rows.iter().position(|b| ResKey::new(b.resref, restype) == key);
+        let Some(end) = at(to) else { return };
+        self.range = None;
+        let Some(start) = self.sel.selected.and_then(at) else {
+            self.sel.selected = Some(to);
+            self.sel.chosen.clear();
+            return;
+        };
+        let span = &rows[start.min(end)..=start.max(end)];
+        let keys: Vec<ResKey> = span
+            .iter()
+            .filter(|b| self.several(b))
+            .map(|b| ResKey::new(b.resref, restype))
+            .filter(|k| Some(*k) != self.sel.selected)
+            .collect();
+        if !adding {
+            self.sel.chosen.clear();
+        }
+        for k in keys {
+            if !self.sel.chosen.contains(&k) {
+                self.sel.chosen.push(k);
+            }
+        }
+    }
+
     fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
         if self.gallery {
             // As many across as fit, grown to fill the palette's width.
@@ -2067,6 +2118,7 @@ impl Tree<'_> {
                 self.row(ui, b, within);
             }
         }
+        self.choose_range(rows);
     }
 
     /// A blueprint in the Gallery: its picture over its name, cut short

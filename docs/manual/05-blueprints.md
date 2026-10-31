@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T03:22:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
 ---
 
 # Blueprints
@@ -302,7 +302,9 @@ The palette's buttons:
 - **Update Instances** (custom blueprints): remake the objects placed
   from the blueprint.
 
-**Ctrl+click** chooses several custom blueprints of one type. With
+**Ctrl+click** chooses several custom blueprints of one type, and
+**Shift+click** those from the one selected to the one clicked, in its
+category (**Ctrl+Shift+click** adds them to those already chosen). With
 several chosen, the right-click menu offers:
 - **Edit N Together**: one editor for all of them. A change is set on
   each, as one undoable step (in Variables: what you add, change or
@@ -312,7 +314,8 @@ several chosen, the right-click menu offers:
 - **Update Instances of N**.
 
 A custom category's right-click menu updates the instances of every
-blueprint in it.
+blueprint in it, and **Edit › Update All Instances…** those of every
+blueprint the module has.
 
 Long lists are in the order of their names: a creature's feats and
 spells, and dropdowns of more than a dozen choices (appearances, base

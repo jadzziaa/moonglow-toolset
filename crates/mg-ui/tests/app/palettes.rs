@@ -1105,6 +1105,80 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(tag(&triggers(&mut h)[1]), tag(&before[1]));
+    // Edit › Update All Instances…: every blueprint of the module, the
+    // objects placed from them listed (silentrocks' ask after 3.1.3).
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Update All Instances…").click();
+    h.run();
+    let draft = h.state().update_draft.clone().expect("the window");
+    let named = |r: &str| draft.blueprints.iter().any(|k| k.resref.to_string() == r);
+    assert!(named("mg_trig_a") && named("mg_trig_b"), "{:?}", draft.blueprints);
+    let labels: Vec<&str> = draft.objects.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels.len(), 2, "{labels:?}");
+    assert!(labels.iter().any(|l| l.ends_with("(mg_trig_b)")), "{labels:?}");
+    h.get_by_label("Update 2").click();
+    h.run();
+    let after = triggers(&mut h);
+    assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), "NEW_1".to_string()));
+}
+
+/// Shift+click chooses the custom blueprints from the one selected to the
+/// one clicked (Ctrl+Shift+click adds them to those chosen), for Update
+/// Instances of N and the other bulk edits.
+#[test]
+fn shift_click_chooses_a_range_of_custom_blueprints() {
+    use mg_edit::{Command, Edit};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-range");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let game = app.game.as_deref().unwrap();
+    let base = Gff::read(&game.resman.get_named("trackstrigger", ResType::UTT).unwrap()).unwrap();
+    let names = ["mg_trig_a", "mg_trig_b", "mg_trig_c", "mg_trig_d"];
+    let mut edits = Vec::new();
+    for name in names {
+        let key = ResKey::parse(name, ResType::UTT).unwrap();
+        let mut bp = base.clone();
+        bp.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+        edits.push(Edit::SetResource { key, data: Some(bp.to_bytes().unwrap()) });
+    }
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.settings.name_resrefs = true;
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Trigger;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    app.palette.filter = "mg_trig".into();
+    let mut h = harness(app, 900.0, 700.0);
+    h.run();
+    let chosen = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let mut c: Vec<String> =
+            h.state().palette.chosen.iter().map(|k| k.resref.to_string()).collect();
+        c.sort();
+        c
+    };
+    h.get_by_label_contains("mg_trig_b").click();
+    h.run();
+    h.get_by_label_contains("mg_trig_d").click_modifiers(egui::Modifiers::SHIFT);
+    h.run();
+    let selected = h.state().palette.selected.map(|k| k.resref.to_string());
+    assert_eq!(selected.as_deref(), Some("mg_trig_b"), "the range starts where it was");
+    assert_eq!(chosen(&h), ["mg_trig_c", "mg_trig_d"]);
+    // Upwards, in place of those chosen.
+    h.get_by_label_contains("mg_trig_a").click_modifiers(egui::Modifiers::SHIFT);
+    h.run();
+    assert_eq!(chosen(&h), ["mg_trig_a"]);
+    // With Ctrl, added to them.
+    let both = egui::Modifiers::SHIFT | egui::Modifiers::COMMAND;
+    h.get_by_label_contains("mg_trig_c").click_modifiers(both);
+    h.run();
+    assert_eq!(chosen(&h), ["mg_trig_a", "mg_trig_c"]);
+    // The menu offers the bulk edits for all of them.
+    h.get_by_label_contains("mg_trig_c").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Update Instances of 3").is_some());
 }
 
 /// A palette's row is one line however narrow the pane: a name too long

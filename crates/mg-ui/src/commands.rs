@@ -38,6 +38,9 @@ pub enum Id {
     FindInstance,
     /// Edit › Edit Areas Together…: the areas to edit as one.
     EditAreasTogether,
+    /// Edit › Update All Instances…: Update Instances for every blueprint
+    /// of the module.
+    UpdateAllInstances,
     ReplaceText,
     FindReferences,
     AdvancedSearch,
@@ -179,6 +182,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::FindInstance),
             Item::Prefabs,
             Do(Id::EditAreasTogether),
+            Do(Id::UpdateAllInstances),
             Do(Id::ReplaceText),
             Do(Id::FindReferences),
             Do(Id::AdvancedSearch),
@@ -368,6 +372,12 @@ impl Id {
                 "Edit Areas Together…",
                 "Choose several areas (by name, tileset, interior, underground…) and set their \
                  lighting, fog, weather, music, scripts and variables at once",
+            ),
+            Id::UpdateAllInstances => (
+                "update-all-instances",
+                "Update All Instances…",
+                "Make every object placed from one of the module's blueprints again from it, \
+                 where it stands (a window lists them first)",
             ),
             Id::ReplaceText => (
                 "replace-text",
@@ -677,6 +687,7 @@ impl Id {
             | Id::ModuleProperties
             | Id::FindInstance
             | Id::EditAreasTogether
+            | Id::UpdateAllInstances
             | Id::ReplaceText
             | Id::FindReferences
             | Id::AdvancedSearch
@@ -772,6 +783,7 @@ impl Id {
                 app.area_chooser.get_or_insert_with(Default::default);
                 return;
             }
+            Id::UpdateAllInstances => return app.update_all_instances(),
             Id::ReplaceText => {
                 app.text_replace.get_or_insert_with(Default::default);
                 return;

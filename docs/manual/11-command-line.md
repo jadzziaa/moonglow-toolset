@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T10:50:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
 ---
 
 # Command-line tools
@@ -110,7 +110,7 @@ switches have the window read them (both off unless given: see
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
 | `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag); of a script, also the cells of the game's 2DAs that run it, as the module sees them (`run by the game\tspells.2da row 12, ImpactScript`, where the game is found), and the project file's `[used]` glob that counts it as used. A script string's line is shown in the codepage the game reads scripts in, as `mg lsp` reads them (your user folder's `settings.tml`: Windows-1250 for a Polish game), or the module's own `encoding.2da` table; the scripts' bytes are not changed |
 | `mg rename MODULE NAME.EXT NEW` | rename a script, area, conversation or blueprint everywhere and save (`--strings` changes script strings too); a NUI window (`NAME.jui`) goes with its settings and its two scripts, the scripts that open it follow, and it is built again under its new name as `mg nui generate` builds (with `--json`: `built`, and `compiled` with what did not compile) |
-| `mg update-instances MODULE [NAME.EXT…]` | remake placed objects from their blueprints (all of the module's if none are named) and save (`--area AREA` for one area) |
+| `mg update-instances MODULE [NAME.EXT…]` | remake placed objects from their blueprints (all of the module's if none are named, as **Edit › Update All Instances…** does) and save (`--area AREA` for one area) |
 | `mg dialog-export MODULE NAME.dlg OUT [--language CODE]…` | write a conversation as plain text, CSV, Twine or Ink, by `OUT`'s extension (`.txt`, `.csv`, `.twee`, `.ink`). A CSV has a column for each language its lines have text in (`text_fr`, `text_de_f`…), and `--language fr` adds one to translate into; `mg dialog-import` reads them back |
 | `mg dialog-import MODULE FILE [--name NAME]` | read a Twine or Ink story into the module as a conversation (replacing one of that name), or a CSV export's text back into its conversation, and save |
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only); `--only` takes `tags`, `resrefs` (not a resource's own name: `mg rename` renames it), `variables` (names and string values), `fields` (the other text fields) and `all` too, and `--regex` makes FIND a regular expression whose groups WITH may name (`--regex '^wp_(.*)_1$' 'WP_${1}_EXIT'`). A tag it makes another object's is warned of, as `mg set` warns of it |

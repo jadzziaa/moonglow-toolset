@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:07:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
 ---
 
 # The main window
@@ -29,7 +29,7 @@ is the area view's Go to Start Location too (the same command).
 | Menu | Commands |
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Export…, Import Conversation…, Close, Exit |
-| Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
+| Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |

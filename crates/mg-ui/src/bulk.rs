@@ -96,11 +96,30 @@ impl Moonglow {
         }
         let names: Vec<String> = blueprints.iter().map(ResKey::to_string).collect();
         if objects.is_empty() {
-            self.log.info(format!("Update Instances: nothing is placed from {}", names.join(", ")));
+            let names = crate::text::some_of(&names, 7);
+            self.log.info(format!("Update Instances: nothing is placed from {names}"));
             return;
         }
         let shown = self.palette.area;
         self.update_draft = Some(UpdateDraft { blueprints, only: None, shown, objects });
+    }
+
+    /// Opens Update Instances for every blueprint of the module (Edit ›
+    /// Update All Instances…), as `mg update-instances` with none named.
+    pub fn update_all_instances(&mut self) {
+        let Some(ws) = self.ws.as_ref() else { return };
+        let mut blueprints: Vec<ResKey> = ws
+            .module
+            .keys()
+            .copied()
+            .filter(|k| ObjectKind::from_restype(k.restype).is_some())
+            .collect();
+        blueprints.sort();
+        if blueprints.is_empty() {
+            self.log.info("Update Instances: the module has no blueprints");
+            return;
+        }
+        self.update_instances_of(blueprints);
     }
 
     /// Makes the ticked objects again from their blueprints, as one
