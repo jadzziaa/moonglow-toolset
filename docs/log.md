@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-31
+* **Fix**: An armor's or item's Metal 2 is drawn in, and chosen from, the game's metal palette, `pal_armor01`, as Metal 1 is (Troubletcat's report: Metal 2's picker showed other colors than Metal 1's, and the item was drawn in colors of neither). Moonglow read `pal_armor02` for it, a lighter palette the game has and never reads: seen in the client with `creatures_look`, `pal_armor01` green and `pal_armor02` red in the override, the armor's Metal 2 drawn green (Moonglow drew it red; now green). `mg_image::plt::PALETTES` and `ArmorChannel::palette`; a [wiki correction](wiki-corrections/14618045-plt-metal-palette.md) for the PLT page, which guesses otherwise.
 * **Fix**: Options › Folders, and `mg` of its `--root`, say why a folder isn't the game where they said only "no data/nwn_base.key": the original game (1.69, as the Diamond Edition is: its `chitin.key`, GitHub issue 39), a folder inside the game's (`bin/win32`, `data`: choose the one above), or one above it (Steam's `common`: the game's folder in it named). `GameInstall::why_not`, under test (`a_folder_that_isn_t_the_game_says_why`); [troubleshooting](manual/13-troubleshooting.md) says so.
 
 ## 2026-10-30

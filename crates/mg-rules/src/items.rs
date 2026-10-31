@@ -543,8 +543,9 @@ impl ArmorChannel {
         match self {
             ArmorChannel::Cloth1 | ArmorChannel::Cloth2 => "pal_cloth01",
             ArmorChannel::Leather1 | ArmorChannel::Leather2 => "pal_leath01",
-            ArmorChannel::Metal1 => "pal_armor01",
-            ArmorChannel::Metal2 => "pal_armor02",
+            // (Both metals: the game never reads `pal_armor02`,
+            // `mg_image::plt::PALETTES`.)
+            ArmorChannel::Metal1 | ArmorChannel::Metal2 => "pal_armor01",
         }
     }
 
@@ -784,6 +785,15 @@ mod tests {
     use mg_tlk::Tlk;
 
     use super::*;
+
+    /// Metal 2 is chosen from Metal 1's palette, as the game draws it and
+    /// Aurora shows it (Troubletcat's report: the picker showed
+    /// `pal_armor02`, which the game never reads).
+    #[test]
+    fn both_metals_are_in_one_palette() {
+        assert_eq!(ArmorChannel::Metal2.palette(), ArmorChannel::Metal1.palette());
+        assert_eq!(ArmorChannel::Metal2.palette(), "pal_armor01");
+    }
 
     fn data() -> GameData {
         let tables: [(&str, &str); 8] = [

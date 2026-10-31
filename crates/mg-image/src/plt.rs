@@ -23,12 +23,17 @@ pub const LAYERS: [&str; 10] = [
     "Tattoo 2",
 ];
 
-/// Each layer's palette (`pal_*.tga`).
+/// Each layer's palette (`pal_*.tga`). Metal 2's is Metal 1's: the game
+/// has a `pal_armor02.tga`, lighter, and never reads it (seen in the
+/// client, `creatures_look` with `pal_armor01` green and `pal_armor02` red
+/// in the user folder's override: the armor's Metal 2 drawn green), and
+/// Aurora's picker shows the one palette for both (Troubletcat's report:
+/// Moonglow's Metal 2 colors were neither the game's nor the picker's).
 pub const PALETTES: [&str; 10] = [
     "pal_skin01",
     "pal_hair01",
     "pal_armor01",
-    "pal_armor02",
+    "pal_armor01",
     "pal_cloth01",
     "pal_cloth01",
     "pal_leath01",
@@ -163,6 +168,8 @@ mod tests {
         );
         assert_eq!(by, img);
         assert_eq!(asked, PALETTES);
+        // (Metal 2 in Metal 1's palette, as the game draws it.)
+        assert_eq!(PALETTES[3], PALETTES[2]);
         let grey = plt.colorize_by(|_| None::<Rgba>, colors);
         assert_eq!((grey.pixel(0, 0), grey.pixel(1, 0)), ([0, 0, 0, 255], [255, 255, 255, 255]));
     }

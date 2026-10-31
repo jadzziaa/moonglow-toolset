@@ -1,9 +1,10 @@
-The fifteen nwn.wiki edits of [the proposal](../wiki-proposal.md), one file a page, ready to paste: the passage to find, the text to put in its place, the edit summary and how it was checked. Written against the page versions of the local mirror's sync of 2026-10-26 (those of 2026-10-03, unchanged). Prepared, not submitted: submitting them is the owner's.
+The nwn.wiki edits, one file a page, ready to paste (the fifteen of [the proposal](../wiki-proposal.md), and the PLT page's metal palette, found 2026-10-31): the passage to find, the text to put in its place, the edit summary and how it was checked. Written against the page versions of the local mirror's sync of 2026-10-26 (those of 2026-10-03, unchanged). Prepared, not submitted: submitting them is the owner's.
 
 <!-- okf index: generated; edit freely, or rerun `okf index` -->
 
 # Wiki Edit
 
+* [PLT: Metal 2 is drawn in pal_armor01, never pal_armor02](14618045-plt-metal-palette.md) - Ready-to-paste edit for the nwn.wiki PLT page, whose palette table guesses Metal 2 is drawn lighter in the game from pal_armor02.tga; the client draws Metal 2 from pal_armor01.tga and never reads pal_armor02. (draft)
 * [SET File Format: primary rules are in use, and declared counts are not always counts](195362833-set-primary-rules.md) - Ready-to-paste edit for the nwn.wiki SET File Format page, saying that base-game tilesets use primary rules and how the toolset's terrain brush applies them, and that declared counts in custom tilesets are not always reliable. (draft)
 * [MDL ASCII Emitter Nodes: mass, bounce_co, m_isTinted and twosidedtex as the game draws them](26738875-emitter-nodes.md) - Ready-to-paste edit for the nwn.wiki MDL ASCII Emitter Nodes page, making mass, bounce_co, m_isTinted and twosidedtex precise from what the game client was seen to draw. (draft)
 * [Resource Limits: the 2 GB hakpack limit is the game's too](26738887-resource-limits.md) - Ready-to-paste edit for the nwn.wiki Resource Limits page, saying that the game itself cannot read a resource that starts past 2 GiB in a hak, not only the toolset and nwsync. (draft)
