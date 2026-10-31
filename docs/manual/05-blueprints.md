@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T03:22:57Z }
 ---
 
 # Blueprints
@@ -202,11 +202,13 @@ The palette's buttons:
   area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
   as its editor shows it (or double-click it). It can't be changed
-  there: its fields are dimmed and take no typing (a click in one leaves
-  the keyboard where it was; a list's **Find** is still typed in), its
-  pages and lists can still be looked
+  there: its fields are dimmed and take no typing, but their text can
+  be chosen and copied (a click in one, Ctrl+A, Ctrl+C; a list's
+  **Find** is still typed in), its pages and lists can still be looked
   through, and a change tried is refused with a note that offers **Edit
   Copy…**.
+- **Copy ResRef** and **Copy Tag**: the blueprint's, to paste (in a
+  script), without opening it.
 - **Export…** (a custom blueprint, or the several selected): the Export
   window with them chosen, as File › Export.
 - **Lists of choices** (an appearance, a race, a part, a palette

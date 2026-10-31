@@ -2101,14 +2101,6 @@ pub(crate) struct SearchField<'a> {
     width: Option<f32>,
 }
 
-/// Whether the widget `id` is the text field of a [`SearchField`] shown
-/// this frame so far ([`search_field_shown`]): what is typed there finds,
-/// and changes nothing.
-pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
-    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id()))
-        .is_some_and(|d| d.searches.iter().any(|(s, _)| *s == id))
-}
-
 /// What a [`SearchField`] did: the field's response, and how its keys
 /// left it, if they did.
 pub(crate) struct Searched {
@@ -2323,6 +2315,13 @@ pub(crate) fn dialogs_end(ctx: &egui::Context) {
         d.searching = typed.is_some();
         d.searching_text = typed.is_some_and(|(_, text)| *text);
     });
+}
+
+/// Whether a search field had the keyboard as the last frame ended: what
+/// is typed now is the search's, before this frame's fields are drawn
+/// ([`crate::blueprint::typing_kept_out`]).
+pub(crate) fn search_has_keyboard(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.searching)
 }
 
 /// A search field (`id`, its text field's) shown this frame, `typed` in or

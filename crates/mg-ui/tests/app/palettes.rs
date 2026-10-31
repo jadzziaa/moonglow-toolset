@@ -2125,3 +2125,42 @@ fn the_palette_s_gallery_marks_a_blueprint_with_no_model() {
         assert!(!h.state().thumbnails.blueprint_has_no_model(other), "{other} is not marked");
     }
 }
+
+/// A blueprint's menu in the palette copies its ResRef and its Tag, the
+/// game's as the module's, without opening it (Troubletcat's ask after
+/// 3.1.0: they opened the game's blueprints to copy them for a script).
+#[test]
+fn a_blueprint_s_resref_and_tag_are_copied_from_the_palette() {
+    let Some(mut h) = game_harness("palette-copy") else { return };
+    let torch = ResKey::parse("nw_it_torch001", ResType::UTI).unwrap();
+    let tag = {
+        let game = h.state().game.clone().unwrap();
+        let g = Gff::read(&game.resman.get(&torch).unwrap()).unwrap();
+        String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    {
+        let app = h.state_mut();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = mg_module::palette::BlueprintKind::Item;
+        app.palette.tiles = false;
+        app.palette.custom = false;
+        app.palette.filter = "Torch".into();
+    }
+    settle(&mut h);
+    let copied = |h: &mut Harness<'_, Moonglow>, label: &str| -> Vec<String> {
+        h.get_all_by_label("Torch").next().expect("the torch listed").click_secondary();
+        h.run_steps(3);
+        h.get_by_label(label).click();
+        h.step();
+        let out: Vec<String> = (h.output().platform_output.commands.iter())
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        h.run_steps(2);
+        out
+    };
+    assert_eq!(copied(&mut h, "Copy ResRef"), ["nw_it_torch001"]);
+    assert_eq!(copied(&mut h, "Copy Tag"), [tag]);
+}

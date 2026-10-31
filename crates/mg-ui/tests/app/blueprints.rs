@@ -3480,10 +3480,13 @@ fn the_gallery_opens_at_a_far_appearance() {
     assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
 }
 
-/// The game's blueprint, viewed, takes no typing: a click in a field
-/// doesn't keep the keyboard there, so nothing typed waits to be dropped
-/// when the field is left. Its pages still open, and a list's search
-/// still takes what is typed.
+/// The game's blueprint, viewed, takes no typing, and its fields' text is
+/// still chosen and copied (Troubletcat's report after 3.1.0: a base
+/// item's ResRef, copied for a script, couldn't be once its fields stopped
+/// keeping the keyboard): a click in a field keeps the keyboard there;
+/// typing, Backspace and pasting change nothing; Ctrl+A and Copy give its
+/// text. Its pages still open, and a list's search still takes what is
+/// typed.
 #[test]
 fn a_viewed_blueprint_s_fields_take_no_typing() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -3507,12 +3510,27 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
     assert!(h.query_by_label_contains("shown to look at").is_some(), "viewed");
     h.get_all_by_value(&tag).next().unwrap().click();
     h.run();
-    assert!(h.ctx.memory(|m| m.focused()).is_none(), "the field doesn't keep the keyboard");
+    assert!(h.ctx.memory(|m| m.focused()).is_some(), "the field keeps the keyboard");
     h.event(egui::Event::Text("X".into()));
+    h.event(egui::Event::Paste("Y".into()));
+    h.run();
+    press_now(&mut h, egui::Modifiers::NONE, egui::Key::Backspace);
     h.run();
     assert_eq!(h.get_all_by_value(&tag).count(), 2, "nothing typed in it");
     assert!(h.query_by_value(&format!("{tag}X")).is_none());
     assert!(h.query_by_label_contains("Not changed").is_none(), "nothing tried to change");
+    // Its text chosen and copied.
+    press_now(&mut h, egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Copy);
+    h.step();
+    let copied: Vec<String> = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(copied, std::slice::from_ref(&tag), "its text copied");
+    h.run();
     // Its pages open.
     h.get_by_label("Advanced").click();
     h.run();

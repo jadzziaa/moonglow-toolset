@@ -666,6 +666,8 @@ enum Pick {
     /// (keeping their own tags, names, scripts and variables).
     Replace(ResKey, bool),
     References(ResKey),
+    /// Its Tag to the clipboard (its ResRef is copied from the menu).
+    CopyTag(ResKey),
     UpdateInstances(Vec<ResKey>),
     EditTogether(Vec<ResKey>),
     /// The Export window, for these blueprints of the module's.
@@ -678,6 +680,19 @@ enum Pick {
     Favorite(ResKey, bool),
     /// A plugin's command (its place among those for menus) run on these.
     Plugin(usize, Vec<ResKey>),
+}
+
+/// A blueprint's Tag: the module's as it is now (edits not yet saved in
+/// it), else the game's (the load order's).
+fn blueprint_tag(app: &mut Moonglow, key: ResKey) -> Option<String> {
+    let tag = |g: &Gff| g.root.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    if let Some(ws) = app.ws.as_mut()
+        && ws.module.contains(&key)
+    {
+        return ws.doc(&key).ok().and_then(tag);
+    }
+    let data = app.game.as_ref()?.resman.get(&key).ok()?;
+    tag(&Gff::read(&data).ok()?)
 }
 
 /// Expand All and Collapse All as two small buttons, for a list's toolbar.
@@ -1438,6 +1453,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 None => app.log.warn("Open an area and select what to replace first"),
             },
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
+            Pick::CopyTag(key) => match blueprint_tag(app, key) {
+                Some(tag) => ui.ctx().copy_text(tag),
+                None => app.log.warn(format!("{key}: its Tag couldn't be read")),
+            },
             Pick::Plugin(i, keys) => {
                 let on = keys.into_iter().map(mg_plugin::Selected::Blueprint).collect();
                 app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
@@ -1954,6 +1973,17 @@ impl Tree<'_> {
                 .clicked()
             {
                 picks.push(Pick::References(key));
+                ui.close();
+            }
+            // (For a script, without opening the blueprint: Troubletcat's
+            // ask after 3.1.0, the game's blueprints' fields copied from
+            // View.)
+            if ui.button("Copy ResRef").on_hover_text("Its ResRef, to paste").clicked() {
+                ui.ctx().copy_text(key.resref.to_string());
+                ui.close();
+            }
+            if ui.button("Copy Tag").on_hover_text("Its Tag, to paste").clicked() {
+                picks.push(Pick::CopyTag(key));
                 ui.close();
             }
             if mine {

@@ -1770,9 +1770,12 @@ pub(crate) fn edit_many(
         ui.colored_label(ui.visuals().warn_fg_color, note);
     }
     let pending = app.actions.len();
+    if viewed {
+        typing_kept_out(ui, ui.available_rect_before_wrap());
+    }
     let mut form = Form { app, key, path, also, root };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
-    let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
             read_only_look(ui);
         }
@@ -1791,7 +1794,7 @@ pub(crate) fn edit_many(
     });
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
-    if viewed && look_only(form.app, ui, shown.inner_rect, pending, &|k| *k == key) {
+    if viewed && look_only(form.app, pending, &|k| *k == key) {
         let now = ui.input(|i| i.time);
         ui.data_mut(|d| d.insert_temp(refused_id, now));
         ui.ctx().request_repaint();
@@ -1826,29 +1829,18 @@ pub(crate) fn edit_many(
 
 /// A form only looked at (the game's blueprint, opened by View; what an
 /// area another builder holds has, in a project that keeps those
-/// read-only), drawn in `shown` with [`read_only_look`]: its fields don't
-/// keep the keyboard (nothing is typed into them, to be dropped when the
-/// field is left), and the changes to what `changes` says that were asked
-/// for since `pending` are dropped. Its lists still scroll, its pages
-/// open and its lists' searches take what is typed. Whether a change was
-/// tried (for its note to say so).
+/// read-only), drawn with [`read_only_look`]: the changes to
+/// what `changes` says that were asked for since `pending` are dropped.
+/// Its fields still take the keyboard, for their text to be chosen and
+/// copied, but nothing typed reaches them ([`typing_kept_out`], before the
+/// form is drawn). Its lists still scroll, its pages open and its lists'
+/// searches take what is typed. Whether a change was tried (for its note
+/// to say so).
 pub(crate) fn look_only(
     app: &mut Moonglow,
-    ui: &Ui,
-    shown: egui::Rect,
     pending: usize,
     changes: &dyn Fn(&ResKey) -> bool,
 ) -> bool {
-    let ctx = ui.ctx();
-    let layer = ui.layer_id();
-    let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
-    if let Some((id, r)) = focused
-        && r.layer_id == layer
-        && shown.intersects(r.rect)
-        && !crate::widgets::is_search_field(ctx, id)
-    {
-        ctx.memory_mut(|m| m.surrender_focus(id));
-    }
     let mut tried = false;
     let mut i = pending;
     while i < app.actions.len() {
@@ -1883,6 +1875,42 @@ const MIXED_TIP: &str = "The objects edited together differ here: this shows the
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.
 /// It still scrolls, and its lists and pages can be looked through.
+/// Before a form only looked at is drawn in `within`: while a field of it
+/// has the keyboard (not a list's search), what would change its text
+/// doesn't reach it (typing, pasting, cutting, Backspace and Delete,
+/// Enter, its own undo and redo), and what chooses and copies its text
+/// does. A field of the game's blueprint once didn't keep the keyboard at
+/// all, so nothing of it could be copied (Troubletcat's report after
+/// 3.1.0: a base item's ResRef, copied for a script).
+pub(crate) fn typing_kept_out(ui: &Ui, within: egui::Rect) {
+    let ctx = ui.ctx();
+    let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
+    let Some((_, r)) = focused else { return };
+    // (A search field is told by the last frame: this one's aren't drawn
+    // yet.)
+    if r.layer_id != ui.layer_id()
+        || !within.intersects(r.rect)
+        || crate::widgets::search_has_keyboard(ctx)
+    {
+        return;
+    }
+    ctx.input_mut(|i| {
+        i.events.retain(|e| match e {
+            egui::Event::Text(_)
+            | egui::Event::Paste(_)
+            | egui::Event::Cut
+            | egui::Event::Ime(_) => false,
+            egui::Event::Key { key, modifiers, .. } => {
+                let changes =
+                    matches!(key, egui::Key::Backspace | egui::Key::Delete | egui::Key::Enter);
+                let undo = modifiers.command && matches!(key, egui::Key::Z | egui::Key::Y);
+                !changes && !undo
+            }
+            _ => true,
+        });
+    });
+}
+
 pub(crate) fn read_only_look(ui: &mut Ui) {
     let v = ui.visuals_mut();
     let quiet = v.widgets.noninteractive;
