@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.1" date="2026-10-31">
+      <description>
+        <p>The automatic update check asks at each start, so a new release
+        is told the next time Moonglow starts. With Shaders on, a tile
+        brush's preview and a blueprint about to be placed are drawn by the
+        game's shaders like the rest of the area. The tileset editor no
+        longer bounces at a 125% display scale, and the paths mg prints
+        and Moonglow keeps are written one way.</p>
+      </description>
+    </release>
     <release version="3.1.0" date="2026-10-30">
       <description>
         <p>What the Module Uses (and mg haks --usage) follows what scripts
