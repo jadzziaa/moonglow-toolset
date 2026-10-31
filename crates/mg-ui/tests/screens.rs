@@ -3871,6 +3871,12 @@ fn conversation_and_factions_in_both_themes() {
         h.get_by_label("Commoner").click();
         h.run_steps(3);
         shoot(&mut h, &dir, &format!("factions-{theme}"));
+        // (Not one that fits its pane: it scrolls in Moonglow's own scroll
+        // area, both ways, in a narrow window.)
+        if !light {
+            narrow(&mut h, &mg_ui::Tab::Factions);
+            shoot(&mut h, &dir, "factions-narrow");
+        }
     }
 }
 

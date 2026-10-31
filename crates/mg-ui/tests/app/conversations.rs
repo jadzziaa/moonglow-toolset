@@ -1799,3 +1799,62 @@ fn undo_in_a_conversation_line_s_text_is_the_text_s() {
     }
     assert_eq!(dialog_lines(&mut h, key), BRANCHING, "the module's undo, down to the delete");
 }
+
+/// The window holds still as a conversation's line is switched to its
+/// Actions Taken page (Troubletcat's report after 3.1.0: the jittering
+/// came back there). At 125%, at some sizes, the area view beside it, in
+/// egui_dock's scroll area, never settled: its scroll bars came and went
+/// every frame. At each size of a sweep and the display scales builders
+/// have, the window ends its repaints and its controls stay put.
+#[test]
+fn a_line_s_actions_taken_page_holds_still() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-actions-still");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there, traveller. What brings you to these parts?");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut moving = Vec::new();
+    for scale in [1.0, 1.25, 1.5] {
+        let mut app = app_with(Vec::new());
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1200.0, 900.0))
+            .with_pixels_per_point(scale)
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(6);
+        h.get_by_label_contains("Hello there, traveller").click();
+        h.run_steps(3);
+        h.get_by_label("Actions Taken").click();
+        h.run_steps(3);
+        for w in (6000..=13000).step_by(431) {
+            for ht in (5000..=9500).step_by(377) {
+                let size = egui::vec2(w as f32 / 10.0, ht as f32 / 10.0);
+                h.set_size(size);
+                h.run_steps(10);
+                // Switched to the page: it settles (its repaints end) and
+                // stays where it settled.
+                h.get_by_label("Text Appears When…").click();
+                h.run_steps(3);
+                h.get_by_label("Actions Taken").click();
+                let settled = (0..3).any(|_| h.try_run().is_ok());
+                let mut at = Vec::new();
+                for _ in 0..6 {
+                    h.run_steps(1);
+                    let rects: Vec<egui::Rect> = (h.get_all_by_role(egui::accesskit::Role::Button))
+                        .map(|n| n.rect())
+                        .collect();
+                    at.push(rects);
+                }
+                if !settled || at.windows(2).any(|p| p[0] != p[1]) {
+                    moving.push(format!("x{scale} at {size:?}: settled {settled}"));
+                }
+            }
+        }
+    }
+    assert!(moving.is_empty(), "{} sizes moved:\n{}", moving.len(), moving.join("\n"));
+}
