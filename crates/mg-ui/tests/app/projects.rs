@@ -2760,6 +2760,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     h.run();
     publish_window(&mut h, &repo);
     h.get_by_label("Set in Options › Folders.");
+    settle(&mut h);
     h.get_by_label("Upload").click();
     // (Its commands run as a job: waited for, not counted in frames.)
     settle(&mut h);
@@ -2786,7 +2787,9 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     // A part that fails: nothing after it is sent.
     std::fs::remove_file(dir.join("order.txt")).unwrap();
     h.state_mut().settings.nwsync_upload = Some(stand_in_upload(&dir, Some("manifests")));
-    h.run();
+    // (Nothing else under way: an upload asked for meanwhile waits for
+    // nothing, it is refused.)
+    settle(&mut h);
     h.get_by_label("Upload").click();
     // (Its commands run as a job: waited for, not counted in frames.)
     settle(&mut h);
@@ -2800,6 +2803,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     // `latest` naming a manifest that isn't there: nothing is sent.
     std::fs::remove_file(dir.join("order.txt")).unwrap();
     std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
+    settle(&mut h);
     h.get_by_label("Upload").click();
     settle(&mut h);
     assert!(sent_order(&dir).is_empty());
