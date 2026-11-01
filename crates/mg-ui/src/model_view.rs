@@ -1133,7 +1133,11 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     }
     // Keep drawing while something moves: an animation, live particles or
     // dangly meshes.
-    if (pose.is_some() || live || dangly.moving()) && view.playing {
+    // (Behind another program's window, the picture kept as it is.)
+    if (pose.is_some() || live || dangly.moving())
+        && view.playing
+        && crate::area_view::animates_now(ui, true, false)
+    {
         ui.ctx().request_repaint();
     }
 
@@ -1180,7 +1184,10 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // A program of the game's that reads the clock moves what it draws:
     // drawn again as the area view's animations step, while the view plays;
     // and, while its pipelines are made, until they are.
-    if (vp.renderer.drawn.timed > 0 && view.playing) || vp.renderer.drawn.game_pending > 0 {
+    let focused = crate::area_view::animates_now(ui, true, false);
+    if (vp.renderer.drawn.timed > 0 && view.playing && focused)
+        || vp.renderer.drawn.game_pending > 0
+    {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
     }
     let response = ui.add(

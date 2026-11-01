@@ -80,7 +80,13 @@ palette's Gallery is 🖼, the Grid ⊞.
   do once going from the moment the area is shown, a forge's fire as
   much as a campfire's. Switched off, they hold
   still (tiles' water and flames go on), in every area view; it stays as
-  you leave it.
+  you leave it. While Moonglow's window is behind another program's
+  (it has not the focus), the views hold still and draw nothing, and go
+  on as you come back to it: an area left open costs the GPU nothing in
+  the background. An area whose tab is closed, or behind another tab,
+  lets go of what its picture took of the GPU's memory after a couple of
+  seconds, and of its models too once closed (it is read again, where
+  its camera was, when it is opened again).
 - **🌿 Grass**: the grass the area grows, as the game grows it on the
   tiles' walkmesh faces: the tileset's, and the area's own (Area
   Properties › Grass). It is drawn wherever the view shows grass ground,

@@ -1,5 +1,5 @@
-//! What the window holds on the GPU: the 3D views' targets and scenes let
-//! go of when they are not shown.
+//! What the window asks of the GPU: the 3D views' targets and scenes let
+//! go of when they are not shown, and no frames behind another window.
 
 use crate::common::*;
 
@@ -53,4 +53,27 @@ fn an_area_behind_another_tab_lets_go_of_its_targets_only() {
     h.run_steps(3);
     let v = &h.state().area_views[&area];
     assert!(v.holds_targets() && v.pictures > pictures, "drawn again at once");
+}
+
+/// How soon the window asks to be drawn again after its last frame.
+fn again(h: &Harness<'_, Moonglow>) -> std::time::Duration {
+    let out = &h.output().viewport_output;
+    out.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay)
+}
+
+/// An area's view steps its animations 25 times a second while the window
+/// has the focus; behind another program's window it asks for no frame
+/// (its picture kept as it is), and steps again once it has the focus.
+#[test]
+fn an_area_s_animations_wait_while_the_window_has_not_the_focus() {
+    let Some((mut h, _)) = area_harness("unfocused-area") else { return };
+    settle(&mut h);
+    h.run_steps(3);
+    assert!(again(&h) <= std::time::Duration::from_millis(40), "focused: {:?}", again(&h));
+    h.input_mut().focused = false;
+    h.run_steps(3);
+    assert!(again(&h) > std::time::Duration::from_secs(1), "in the background: {:?}", again(&h));
+    h.input_mut().focused = true;
+    h.run_steps(3);
+    assert!(again(&h) <= std::time::Duration::from_millis(40), "focused again: {:?}", again(&h));
 }

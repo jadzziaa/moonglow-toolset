@@ -3219,6 +3219,8 @@ fn viewport(
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }
+    // (What the picture still waits for: drawn again when it comes.)
+    let pending = vp.renderer.drawn.textures_pending > 0 || vp.renderer.drawn.game_pending > 0;
     let watch_failed = view.watching.read(vp, &view.area.to_string());
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
@@ -3290,12 +3292,24 @@ fn viewport(
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     crate::tile_select::refused_overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen, when their
-    // next step is due.
-    let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
-    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    // next step is due; while the window has the focus (behind another
+    // program's, the picture is kept as it is, until a frame comes or the
+    // window is gone back to: a toolset left open drew 25 pictures a
+    // second that no one looked at, an integrated GPU's every moment).
+    if animates_now(ui, view.drawn.is_some(), pending) {
+        let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    }
     // (The map last: over the rest, and the pointer's there.)
     minimap_overlay(app, ui, view);
     input(app, ui, view, &response);
+}
+
+/// Whether a 3D view's animations step now: while the window has the
+/// focus, or its picture is still to be drawn whole (`drawn` is false, or
+/// it waits for textures or the game's programs: `pending`).
+pub(crate) fn animates_now(ui: &egui::Ui, drawn: bool, pending: bool) -> bool {
+    !drawn || pending || ui.input(|i| i.focused)
 }
 
 /// The area's map in the view's top right corner (the toolbar's
