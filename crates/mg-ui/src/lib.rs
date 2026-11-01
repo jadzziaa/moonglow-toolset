@@ -1665,6 +1665,11 @@ impl Moonglow {
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
+        // The 3D views not drawn lately: their targets let go of (and a
+        // closed area's scene).
+        let now = ui.input(|i| i.time);
+        area_view::let_go_of_unseen(self, now);
+        model_view::let_go_of_unseen(self, now);
         // A Properties text field that was typed in and is not drawn any
         // more: set now, as it would have been when left, and among what
         // its window's Cancel sets back.
@@ -3263,6 +3268,7 @@ impl Moonglow {
         self.talk_view = Default::default();
         // (Its views, kept by name: another module's area, conversation or
         // window of the same name is its own; Jasperre's report.)
+        self.let_go_of_view_targets();
         self.area_views.clear();
         self.area_contents.clear();
         self.dialog_views.clear();
@@ -4807,6 +4813,18 @@ impl Moonglow {
         self.log.info(format!("Reloaded {}", changed.join(", ")));
     }
 
+    /// The 3D views' targets let go of, with egui's textures that show
+    /// them (which held them on the GPU after the views were gone).
+    fn let_go_of_view_targets(&mut self) {
+        let Some(vp) = &self.viewport else { return };
+        for view in self.area_views.values_mut() {
+            view.let_go_of_targets(vp);
+        }
+        for view in self.model_views.values_mut() {
+            view.let_go_of_targets(vp);
+        }
+    }
+
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
         self.release_game_data();
@@ -4821,6 +4839,7 @@ impl Moonglow {
         self.palettes = Default::default();
         self.palette.forget_game_data();
         self.search_kept = Default::default();
+        self.let_go_of_view_targets();
         self.model_views.clear();
         for view in self.area_views.values_mut() {
             view.reload();

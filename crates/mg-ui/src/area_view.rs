@@ -856,6 +856,49 @@ impl AreaView {
         self.drawn = None;
     }
 
+    /// Lets go of its picture's targets (drawn anew into new ones).
+    pub(crate) fn let_go_of_targets(&mut self, vp: &crate::model_view::Viewport3d) {
+        vp.let_go_of_targets(&mut self.targets);
+        self.drawn = None;
+    }
+
+    /// Whether its picture's targets are held (drawn into, and shown).
+    pub fn holds_targets(&self) -> bool {
+        self.targets.is_some()
+    }
+
+    /// Whether its scene is on the GPU (its tiles' and objects' models).
+    pub fn holds_scene(&self) -> bool {
+        self.scene.is_some()
+    }
+}
+
+/// After a frame: the area views not drawn for
+/// [`UNSEEN_AFTER`](crate::model_view::UNSEEN_AFTER) let go of their
+/// picture's targets (their tab is behind another, or closed); and those
+/// whose tab is closed, of their scene too (its models and their meshes on
+/// the GPU, the particles, the grass): the view keeps its camera,
+/// selection and tools, and is read again when its tab opens again, as
+/// Reload Resources reads it. (Kept, every area opened in a session held
+/// its targets and scene until the module closed.)
+pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
+    let Some(vp) = app.viewport.as_ref() else { return };
+    let after = crate::model_view::UNSEEN_AFTER;
+    for (area, view) in app.area_views.iter_mut() {
+        if view.last_frame.is_some_and(|t| now - t <= after) {
+            continue;
+        }
+        if view.targets.is_some() {
+            view.let_go_of_targets(vp);
+        }
+        if view.scene.is_some() && app.dock.find_tab(&crate::Tab::Area(*area)).is_none() {
+            view.reload();
+            view.particles.clear();
+        }
+    }
+}
+
+impl AreaView {
     /// The area's tiles were laid out anew (another size, turned, another
     /// tileset, the file read again): the tile tools let go of the corners
     /// and tiles they held of the ground as it was, the pointer's (until
