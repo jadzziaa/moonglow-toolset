@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:46:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:04:28Z }
 ---
 
 # Areas
@@ -106,8 +106,11 @@ palette's Gallery is 🖼, the Grid ⊞.
   as water, a road runs out to the horizon, and a city's houses or a
   dungeon's floor go on past the edge; an interior's walls have a black
   cap there, as in the game. They are lit as the area is, in half its
-  sun's (or moon's) light, as the game lights them: off, nothing is
-  drawn past the edge, as in Aurora. They can't be selected or painted.
+  sun's (or moon's) light, as the game lights them. Beyond them is the
+  area's skybox, if it has one, and otherwise its fog color, as in the
+  game (whatever the fog's amount, and whether or not **Fog** is on).
+  Off, nothing is drawn past the edge and it is black, as in Aurora.
+  They can't be selected or painted.
   Off by default, as Aurora shows the edge; in every area view, and it
   stays as you leave it.
 - **🎨 Shaders**: draws with the game's own shaders, compiled on your

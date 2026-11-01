@@ -100,7 +100,8 @@ pub struct View {
     /// Point lights flagged `shadow` cast shadows (`mg_render::LightShadows`).
     pub light_shadows: bool,
     /// The tile border is drawn past the area's edge, as the game client
-    /// draws it ([`crate::border`]); else nothing is, as in Aurora.
+    /// draws it ([`crate::border`]), the fog's color past it; else nothing
+    /// is, as in Aurora.
     pub border: bool,
 }
 
@@ -1134,7 +1135,15 @@ impl AreaScene {
             }
         }
         let fog = view.fog.then(|| fog(l, view.night));
-        let background = fog.map_or([0.0; 3], |f| f.color.to_array());
+        // What lies past everything drawn: the fog's color, as the client
+        // clears to it (an area without a skybox shows it past its tile
+        // border, whatever its fog amount: `notes_tile_border.md`), where
+        // the fog or the tile border is shown; else black, as in Aurora.
+        let background = if view.fog || view.border {
+            self::fog(l, view.night).color.to_array()
+        } else {
+            [0.0; 3]
+        };
         Scene {
             instances,
             lights,

@@ -3,7 +3,7 @@ type: Research Note
 title: 'The tile border: what the client draws past an area''s edge'
 description: What the NWN:EE client draws past an area's edge (its tile border, the "void" that Aurora and Moonglow drew black), read from the client's pictures and its shader uniforms - which edge tile goes where, how it is turned, how deep, how it is lit - and how Moonglow's area view draws it (Tile Border, off by default).
 tags: [research, tilesets, rendering, client, area-view]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:54:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:04:28Z }
 verified:
   - { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:54:51Z }
 sources:
@@ -123,8 +123,12 @@ its ambient and diffuse), casting and taking no shadow. Beside the
 client's pictures it measures within 0.2 of 255 over the border's grass,
 water and trees and the area (`top3`, the game's shaders). At night (the
 moon's light) the border measures 4.2 of 255 against the client's 4.5.
-Not done: the client's fog color past the border (Moonglow's background
-is black, or the fog's with Fog on). Not read in the client: a side
+Past the border is the area's skybox, or without one its fog color: the
+client clears to it whatever the fog's amount (the scratch area of the
+slanted rural pictures has no skybox, a fog amount of 0 and a fog color
+of 917E68, and the client's sky there is 104, 126, 145, that color).
+Moonglow clears to the fog's color with the Tile Border on, as with Fog
+on, and draws the skybox as it does without it. Not read in the client: a side
 whose corners no row fits (Moonglow draws nothing there), a crosser with
 no row of its own (Moonglow takes the row of the corners alone), and how
 the corner squares are turned (their models are even all over).

@@ -333,7 +333,8 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
 /// the sun's diffuse; off, nothing past the edge; the area's own the same
 /// either way. A city's (tcn01) has its edge tiles too, and an
 /// interior's walls (tic01's `Wall`) the wall's black cap
-/// (`tic01_o20_01`), as the client draws black past them.
+/// (`tic01_o20_01`), as the client draws black past them. Past the border
+/// is the fog's color, as the client clears to it.
 #[test]
 fn the_tile_border_is_drawn_past_the_edge_when_asked_for() {
     use mg_module::new::{AreaSpec, add_area, new_module};
@@ -379,6 +380,11 @@ fn the_tile_border_is_drawn_past_the_edge_when_asked_for() {
         let material = mg_area::border::material(on.area.diffuse);
         assert!(past.iter().all(|i| i.material == Some(material) && i.tile), "{name}");
         assert_eq!(on.instances.len() - past.len(), off.instances.len(), "{name}: the area's own");
+        // Past it, the fog's color, as the client clears to it (with the
+        // fog itself not shown); black with the border off, as in Aurora.
+        let fog = mg_area::fog(&model.lighting, view(true).night).color.to_array();
+        assert_eq!(on.background, fog, "{name}: the fog's color past the border");
+        assert_eq!(off.background, [0.0; 3], "{name}: black without it");
     }
 }
 
