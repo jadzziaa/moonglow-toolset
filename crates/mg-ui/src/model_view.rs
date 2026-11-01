@@ -1073,7 +1073,10 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // Animation time.
     let now = ui.input(|i| i.time);
     let dt = match (view.last_frame, view.playing) {
-        (Some(last), true) => (now - last) as f32,
+        // (At most a quarter of a second, as the area view's: frames stop
+        // while the window has not the focus, and an hour away is no
+        // step of an hour for the particles.)
+        (Some(last), true) => ((now - last) as f32).min(0.25),
         _ => 0.0,
     };
     view.time += dt;

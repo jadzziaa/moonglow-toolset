@@ -120,3 +120,26 @@ fn the_area_view_resolution_draws_the_picture_at_a_share_of_its_pixels() {
     h.run_steps(3);
     assert_eq!(size(&h), (w, hh));
 }
+
+/// The model viewer playing an animation asks for frames while the window
+/// has the focus, and none behind another program's window.
+#[test]
+fn a_playing_model_waits_while_the_window_has_not_the_focus() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    h.run_steps(3);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let view = h.state_mut().model_views.get_mut(&source).unwrap();
+    (view.animation, view.playing) = (Some("open".into()), true);
+    h.run_steps(3);
+    assert!(again(&h) <= std::time::Duration::from_millis(40), "playing: {:?}", again(&h));
+    h.input_mut().focused = false;
+    h.run_steps(3);
+    assert!(again(&h) > std::time::Duration::from_secs(1), "in the background: {:?}", again(&h));
+}
