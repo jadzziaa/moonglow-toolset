@@ -3,7 +3,7 @@ type: Report
 title: 'Audit: frames and GPU memory after 3.0.0, and on weaker hardware'
 description: A dated record (2026-11-01, develop at 3.1.4) of an audit prompted by reports that performance fell and video memory rose since 3.0.0 - how frames and the GPU's memory were measured (v2.13.3, v3.0.0 and develop side by side; a discrete and an integrated GPU), what was found (no frame or memory regression since 2.13.3; views, textures and memory blocks held for good, an idle window drawing 25 pictures a second, a fill-bound picture on an integrated GPU), what was fixed with numbers before and after, and what is left with its cost.
 tags: [performance, gpu, memory, renderer, area-view, audit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T18:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:40:41Z }
 sources:
   - id: owner
     resource: human:august
@@ -72,7 +72,7 @@ asks for BC, takes **870 MB**. Large areas were timed in a card that was
 full (the framebuffer learning's "16.8 of 17.1 GB" was this). The test's
 device now asks for what the app's does, and the app's descriptor is a
 function with a test (`the_device_asks_for_bc_textures_and_small_blocks`).
-Every number below is with BC textures.
+Every number below is with BC textures, but the row that says otherwise.
 
 ## Versions side by side
 
@@ -82,10 +82,17 @@ Every number below is with BC textures.
 | TotM, area026 close, left alone (CPU ms, GPU ms; two runs) | 1.9–4.2, 1.8–1.9 | 1.5, 1.9 | 1.6–2.2, 1.8 |
 | TotM, area092 turning, left alone | 1.9–2.0, 2.5–2.6 | 1.8–2.3, 2.5–2.6 | 1.7–1.9, 2.6 |
 | TotM, area092's opening, until drawn whole (ms) | 112–119 | 164–168 | 165–221 |
-| Integrated GPU, area026 picture: overview / close (GPU ms) | 26.7 / 79.7 | 27.2 / 80.5 | 26.3 / 80.3 |
-| Integrated GPU, area092 picture: overview / close | 30.7 / 63.4 | 28.4 / 57.1 | 28.9 / 58.1 |
-| Grass field across, grass on (GPU ms) | 2.33 | 2.45 | 2.69 |
+| Integrated GPU, area026 picture: overview / close (GPU ms) | 25.9 / 78.2 | 25.4 / 78.0 | 30.3 / 79.5 |
+| Integrated GPU, area092 picture: overview / close | 28.0 / 52.8 | 28.8 / 55.3 | 28.0 / 57.7 |
+| Grass field across / orbiting, grass on (GPU ms)* | 7.9 / 6.0 | 8.7 / 6.7 | 8.7 / 6.8 |
 | TDoD woods (uncompressed, before the device fix): textures | 4438 MiB | – | 4438 MiB |
+
+(*The grass rows were run while something else used the RX 9070 XT:
+the same field without grass took 2.0 ms where it took 0.5 an hour
+before, alike for the three versions. Their ratios hold; their times
+don't.) The integrated GPU's rows were run again with BC textures, and
+before the device fix without them: the three versions alike either
+way.
 
 The views of editors, palettes, galleries and menus took the same within
 0.05 ms (0.15 to 0.30 ms of CPU a frame), the stock and TDoD areas with the
@@ -123,9 +130,10 @@ too.
    **the GPU never idle**, and every other frame of the window waiting
    behind them.
 5. **On an integrated GPU the picture is bound by its pixels.** A quarter
-   of the pixels took a quarter of the time (area026 close up 79.7 ms at
-   3000×1250, 22.5 at 1500×625). Shadows off changed nothing; MSAA off
-   saved about 10% (25.7 to 23.2 ms).
+   of the pixels took a third to two fifths of the time (area026 close up
+   79.5 ms at 3000×1250, 27.4 at 1500×625; seen whole 25.9 and 10.2).
+   Shadows off changed nothing; MSAA off saved about 10% (25.9 to 23.6
+   ms).
 6. **A builder's textures are large.** TDoD's woods use 965 textures, 791
    of them 1024 pixels (BC3, BC4, BC5): **868 MiB**, and the woods' view
    1456 MiB in all (meshes about 370 MB of chunks). On a card of 2 to 4 GB
