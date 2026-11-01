@@ -57,6 +57,18 @@ the module is opened again from its file.
   and stencil buffer of the view's size (about 160 MB at 3440×1440 with
   four samples a pixel). Skins (a robe's or a dragon's wings' skinned
   meshes) cast none with High, as the wiki says of the game, where Fast casts them.
+- **Largest textures**: for a GPU with little memory (an integrated one,
+  or a card of 2 to 4 GB). **As they are** (the default) draws every
+  texture at its own size; **1024**, **512** or **256 pixels** draws a
+  larger one at that size, its larger levels left out as the game's
+  lower texture quality leaves them (the textures are read again when
+  this changes). Each halving takes a quarter of the memory: The
+  Domains of Dread's woods, whose textures are mostly 1024 pixels, take
+  870 MB of textures as they are and 240 MB at 512; the stock game's
+  are mostly 512 pixels or less. Textures not drawn for a while (those
+  of areas closed, of pictures scrolled past) are let go of once they
+  take more than a gigabyte (a quarter of one on an integrated GPU),
+  and read again when drawn again.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift

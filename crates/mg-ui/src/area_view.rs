@@ -862,6 +862,12 @@ impl AreaView {
         self.drawn = None;
     }
 
+    /// Its picture drawn anew at the next frame (what it was drawn with
+    /// changed: the textures read again).
+    pub(crate) fn redraw_picture(&mut self) {
+        self.drawn = None;
+    }
+
     /// Whether its picture's targets are held (drawn into, and shown).
     pub fn holds_targets(&self) -> bool {
         self.targets.is_some()

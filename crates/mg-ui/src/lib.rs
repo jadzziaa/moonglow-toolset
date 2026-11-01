@@ -1368,6 +1368,19 @@ impl Moonglow {
         if self.viewport.as_ref().is_some_and(|vp| vp.renderer.game_shaders != shaders) {
             self.thumbnails.forget(self.viewport.as_ref());
         }
+        // (Options › Area › Largest textures changed: the textures read
+        // again at the new size, and the pictures made anew.)
+        let limit = self.settings.texture_limit.map(u32::from);
+        if self.viewport.as_ref().is_some_and(|vp| vp.gpu.texture_limit() != limit) {
+            if let Some(vp) = self.viewport.as_mut() {
+                vp.gpu.set_texture_limit(limit);
+                vp.renderer.clear_textures();
+            }
+            self.thumbnails.forget(self.viewport.as_ref());
+            for view in self.area_views.values_mut() {
+                view.redraw_picture();
+            }
+        }
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = shaders;
             // (Once: the programs' cache folder, and a frame asked for when

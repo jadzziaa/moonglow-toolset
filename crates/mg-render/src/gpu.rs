@@ -20,11 +20,31 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     /// Where the meshes uploaded through it lie (`pool.rs`).
     pub(crate) pool: std::sync::Arc<crate::pool::MeshPool>,
+    /// The largest side a texture is uploaded at, pixels (0: as it is):
+    /// [`Gpu::set_texture_limit`].
+    texture_limit: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Gpu {
-        Gpu { device, queue, pool: Default::default() }
+        Gpu { device, queue, pool: Default::default(), texture_limit: Default::default() }
+    }
+
+    /// Textures uploaded from now on through this device (and its
+    /// clones) are at most `limit` pixels a side: the levels of their
+    /// mip chain larger than that are left out, as a game's lower texture
+    /// quality leaves them (a quarter of the memory a level). `None`: as
+    /// they are. A BC texture without the smaller levels is uploaded as
+    /// it is (made smaller, as RGBA8, it would take more). Those uploaded
+    /// before stay as they are: read them again (`Renderer::clear_textures`).
+    pub fn set_texture_limit(&self, limit: Option<u32>) {
+        let limit = limit.unwrap_or(0);
+        self.texture_limit.store(limit, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The largest side a texture is uploaded at ([`Gpu::set_texture_limit`]).
+    pub fn texture_limit(&self) -> Option<u32> {
+        Some(self.texture_limit.load(std::sync::atomic::Ordering::Relaxed)).filter(|&l| l > 0)
     }
 
     /// A headless device (BC textures when available), or `None` without

@@ -326,6 +326,10 @@ pub struct Settings {
     /// Options › Area › Shadows quality (also in the Shadows button's
     /// menu): every area view's.
     pub shadow_quality: ShadowQuality,
+    /// Options › Area › Largest textures: the most pixels a side the 3D
+    /// views upload a texture at (its larger levels left out:
+    /// [`mg_render::Gpu::set_texture_limit`]); `None`, as it is.
+    pub texture_limit: Option<u16>,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -860,6 +864,18 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert!(back.no_shadows && back.no_creature_shadows && back.no_light_shadows);
         assert_eq!(back.shadow_quality, ShadowQuality::High);
+    }
+
+    /// The largest textures are as they are unless a limit is chosen, and
+    /// a limit chosen is kept.
+    #[test]
+    fn the_texture_limit_is_none_until_chosen_and_kept() {
+        let old: Settings = serde_json::from_str(r#"{"no_shadows":false}"#).unwrap();
+        assert_eq!(old.texture_limit, None);
+        let chosen = Settings { texture_limit: Some(512), ..Settings::default() };
+        let back: Settings =
+            serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
+        assert_eq!(back.texture_limit, Some(512));
     }
 
     #[test]

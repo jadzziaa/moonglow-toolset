@@ -24,7 +24,8 @@
 //! Area › Shadows quality High), `FRAME_MEMORY=1` (or `labels`) says what
 //! the GPU holds after each view (and what of it), `FRAME_KEEP_TEXTURES=1`
 //! keeps the textures of what was shown before an area opens, and
-//! `FRAME_STALE_KEPT=<MiB>` keeps that much of those not drawn lately.
+//! `FRAME_STALE_KEPT=<MiB>` keeps that much of those not drawn lately, and
+//! `FRAME_TEXTURE_LIMIT=<pixels>` is Options › Area › Largest textures.
 //! (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
@@ -566,6 +567,13 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
     // volumes, Options › Area's High.)
     if std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high")) {
         app.settings.shadow_quality = mg_ui::settings::ShadowQuality::High;
+    }
+    // (`FRAME_TEXTURE_LIMIT=<pixels>`: Options › Area › Largest textures.)
+    if let Some(px) = std::env::var("FRAME_TEXTURE_LIMIT").ok().and_then(|p| p.parse().ok()) {
+        app.settings.texture_limit = Some(px);
+        if let Some(vp) = app.viewport.as_ref() {
+            vp.gpu.set_texture_limit(Some(u32::from(px)));
+        }
     }
     // (A step a 144th of a second, as the window's frames go: with the
     // harness's quarter of a second, every frame of an area's opening

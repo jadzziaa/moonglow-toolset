@@ -77,3 +77,27 @@ fn an_area_s_animations_wait_while_the_window_has_not_the_focus() {
     h.run_steps(3);
     assert!(again(&h) <= std::time::Duration::from_millis(40), "focused again: {:?}", again(&h));
 }
+
+/// Options › Area › Largest textures: the area's textures read again at
+/// most so large a side, taking less of the GPU's memory, and its picture
+/// drawn anew with them.
+#[test]
+fn the_largest_textures_option_reads_the_textures_again_smaller() {
+    let Some((mut h, area)) = area_harness("texture-limit") else { return };
+    settle(&mut h);
+    let memory =
+        |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.texture_memory();
+    let (before, pictures) = (memory(&h), h.state().area_views[&area].pictures);
+    assert!(before.bytes > 0, "{before:?}");
+    h.state_mut().settings.texture_limit = Some(64);
+    settle(&mut h);
+    h.run_steps(3);
+    assert_eq!(h.state().viewport.as_ref().unwrap().gpu.texture_limit(), Some(64));
+    let after = memory(&h);
+    assert!(after.bytes > 0 && after.bytes < before.bytes / 2, "{after:?} of {before:?}");
+    assert!(h.state().area_views[&area].pictures > pictures, "drawn again");
+    h.state_mut().settings.texture_limit = None;
+    settle(&mut h);
+    h.run_steps(3);
+    assert_eq!(memory(&h).bytes, before.bytes, "as they were");
+}
