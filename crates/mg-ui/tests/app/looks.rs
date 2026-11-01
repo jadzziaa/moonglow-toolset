@@ -164,6 +164,42 @@ fn look_gallery_water_with_game_shaders() {
     h.render().expect("render").save(out.join("gallery-water-placeables.png")).unwrap();
 }
 
+/// The area view past the area's north edge, the Tile Border off (black,
+/// as Aurora draws it) and on (the tileset's edge tiles, as the client
+/// draws them): `MG_TILESET` (ttr01), with the game's shaders. Writes
+/// `tile-border-<tileset>-off.png` and `-on.png` to
+/// `target/test-output/screens/`; run by hand.
+#[test]
+#[ignore]
+fn look_tile_border() {
+    use glam::Vec3;
+    let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "ttr01".into());
+    let Some((mut h, area)) = area_harness_on("tile-border", &tileset, None) else { return };
+    h.set_size(egui::vec2(1400.0, 900.0));
+    h.state_mut().set_game_shaders(true);
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) =
+            (Vec3::new(20.0, 34.0, 0.0), -std::f32::consts::FRAC_PI_2, 0.45, 42.0);
+    }
+    let out = mg_testkit::scratch_dir("screens-tile-border").parent().unwrap().join("screens");
+    std::fs::create_dir_all(&out).unwrap();
+    for on in [false, true] {
+        h.state_mut().settings.tile_border = on;
+        for _ in 0..200 {
+            h.run_steps(1);
+            let r = &h.state().viewport.as_ref().unwrap().renderer;
+            if r.drawn.game_pending == 0 && r.drawn.textures_pending == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(4);
+        let name = format!("tile-border-{tileset}-{}.png", if on { "on" } else { "off" });
+        h.render().expect("render").save(out.join(name)).unwrap();
+    }
+}
+
 /// A look at Options › Area's marks: a door's orientation arrow and an
 /// encounter's spawn point posts. Writes
 /// `target/test-output/ui-area-marks/marks.png`; run by hand.

@@ -25,6 +25,7 @@ use mg_rules::GameData;
 use mg_set::Tileset;
 
 pub mod arrange;
+pub mod border;
 pub mod edit;
 pub mod grass;
 mod grass_view;
@@ -581,6 +582,9 @@ pub struct AreaModel {
     /// What grass grows on the tiles' walkmesh faces, by surface material
     /// (the tileset's and the area's overrides: [`grass::AreaGrass`]).
     pub grass: Vec<(u32, grass::GrassLook)>,
+    /// What the game client draws past the area's edge, the tile border
+    /// ([`border`]): none where the tileset has no edge table.
+    pub border: Vec<border::BorderTile>,
     /// What could not be read: a missing tileset, unknown tiles.
     pub problems: Vec<String>,
 }
@@ -664,6 +668,12 @@ impl AreaModel {
             });
         }
         let hooks = tiles_hooks(&tiles, tileset);
+        let border = match (tileset, tileset_ref) {
+            (Some(set), Some(name)) => (game.table(&format!("{name}_edge")))
+                .map(|t| border::border(set, &border::edge_rows(&t), &tiles, (width, height), step))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
         let mut objects = Vec::new();
         for kind in ObjectKind::ALL {
             for (i, s) in git.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
@@ -680,6 +690,7 @@ impl AreaModel {
             hooks,
             lighting: Lighting::read_with(are, git, tileset),
             grass: grass::AreaGrass::read(git).growing(tileset),
+            border,
             problems,
         }
     }

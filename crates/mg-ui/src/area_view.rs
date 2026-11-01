@@ -2537,6 +2537,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_grass = !grass;
         }
+        tools.toggle(
+            ui,
+            &mut app.settings.tile_border,
+            icons::TILE_BORDER,
+            "Tile Border",
+            "Past the area's edge, what the game draws there: the tileset's edge tiles, five \
+             deep and darkened, carrying on the area's terrain, roads and streams (the game's \
+             Enable Tile Border); off, nothing, as in Aurora (in every area view)",
+        );
         let mut shaders = app.game_shaders();
         if tools
             .toggle(
@@ -2938,6 +2947,7 @@ fn viewport(
         shadows: view.shadows,
         creature_shadows: view.creature_shadows,
         light_shadows: view.light_shadows,
+        border: app.settings.tile_border,
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),

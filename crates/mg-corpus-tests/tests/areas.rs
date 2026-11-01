@@ -327,6 +327,61 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
     assert!(mg_render::guard::take_failures().is_empty(), "told once");
 }
 
+/// The Tile Border: with it on, the scene holds the tileset's edge tiles
+/// past the area's edge (ttr01's grass, five deep on each side and five
+/// by five past each corner) in the material the client gives them, half
+/// the sun's diffuse; off, nothing past the edge; the area's own the same
+/// either way. A city's (tcn01) has its edge tiles too, and an
+/// interior's walls (tic01's `Wall`) the wall's black cap
+/// (`tic01_o20_01`), as the client draws black past them.
+#[test]
+fn the_tile_border_is_drawn_past_the_edge_when_asked_for() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Border", &mut rng).unwrap();
+    // (Three by three: three tiles a side, five deep, and four corners'
+    // squares of 25.)
+    let expected = 4 * 3 * 5 + 4 * 25;
+    for name in ["ttr01", "tcn01", "tic01"] {
+        let tileset = ResRef::from_str(name).unwrap();
+        let spec = AreaSpec { name: name.into(), tileset, width: 3, height: 3 };
+        let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+        let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+        let objects = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+        let set = mg_area::tileset(&game, tileset).unwrap();
+        let model = AreaModel::read(&game, &are.root, &objects.root, Some(&set));
+        assert_eq!(model.border.len(), expected, "{name}: its border's tiles");
+        if name == "tic01" {
+            assert!(model.border.iter().all(|b| b.model == "tic01_o20_01"), "the wall's cap");
+        }
+        let loaded = AreaScene::new(&gpu, &game, &model);
+        let outside = |i: &&mg_render::scene::Instance| {
+            let at = i.transform.w_axis;
+            !(0.0..=30.0).contains(&at.x) || !(0.0..=30.0).contains(&at.y)
+        };
+        let view = |border: bool| View { fog: false, border, ..View::of(&model) };
+        let off = loaded.scene(&model, &view(false));
+        let on = loaded.scene(&model, &view(true));
+        assert_eq!(
+            off.instances.iter().filter(outside).count(),
+            0,
+            "{name}: nothing past the edge"
+        );
+        let past: Vec<_> = on.instances.iter().filter(outside).collect();
+        assert_eq!(past.len(), expected, "{name}: the border drawn");
+        let material = mg_area::border::material(on.area.diffuse);
+        assert!(past.iter().all(|i| i.material == Some(material) && i.tile), "{name}");
+        assert_eq!(on.instances.len() - past.len(), off.instances.len(), "{name}: the area's own");
+    }
+}
+
 /// Fade Geometry: a tile's fading meshes (`tilefade` 1: an interior's
 /// upper walls) are given no alpha, so they aren't drawn; the others stay,
 /// the black strips of `tilefade` 4 too, as Aurora draws them (its Fade

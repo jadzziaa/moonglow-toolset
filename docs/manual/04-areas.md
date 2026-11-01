@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:46:00Z }
 ---
 
 # Areas
@@ -96,6 +96,20 @@ palette's Gallery is 🖼, the Grid ⊞.
   some 8 cm either way in a strong wind and half that in a weak one; in
   no wind it stands still. Switched off, in every area view; it stays as
   you leave it.
+- **🌄 Tile Border**: past the area's edge, what the game draws there
+  (its Enable Tile Border option, on by default in the game; a module
+  turns it off for an area with `SetAreaTileBorderDisabled`): the
+  tileset's edge tiles (`<tileset>_edge.2da`), five deep beyond each
+  edge tile and five by five beyond each corner, darkened. Each carries
+  on the edge tile's side, its two corners' terrains and the road,
+  stream or wall that crosses it, so that grass goes on as grass, water
+  as water, a road runs out to the horizon, and a city's houses or a
+  dungeon's floor go on past the edge; an interior's walls have a black
+  cap there, as in the game. They are lit as the area is, in half its
+  sun's (or moon's) light, as the game lights them: off, nothing is
+  drawn past the edge, as in Aurora. They can't be selected or painted.
+  Off by default, as Aurora shows the edge; in every area view, and it
+  stays as you leave it.
 - **🎨 Shaders**: draws with the game's own shaders, compiled on your
   machine from the game and the module's haks, as the game draws: a
   material's custom shaders (its MTR's `customshaderVS` and

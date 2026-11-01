@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)'
 description: The NWN:EE tileset system for the area editor - the SET format, the corner and edge model and terrain painting, ARE and GIT tile data, walkmesh and pathing, tile lights, minimap and palette - with citations and open questions.
 tags: [tilesets, set, terrain, areas]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:40:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:46:00Z }
 ---
 
 # NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)
@@ -214,7 +214,7 @@ Verified by `tools/aurora/capture_terrain.py`: 54 scripted steps in ttr01, ttz01
 - "Border" terrain is the terrain of boundary vertices [I from name; D Tilesets "default terrain type used around the border of your map"]. It is unclear whether the toolset forces boundary vertices to Border or only initialises them [?].
 - Beyond the area the **game** (not the ARE) draws edge tiles 5 tiles deep (50 m), using `<tileset>_edge.2da` [D Tutorial, Render Distance page]. Columns: `Corner1, Edge, Corner2, Height, Model` [V].
   Example ttr01_edge rows: `Grass **** Water 0 TTR01_Z05_01`, `Grass+ **** Grass 0 TTR01_Z06_01` (`+` = raised corner), `Grass+ **** Grass+ 1 TTR01_Z01_01`, `Grass Road Grass 0 TTR01_Z12_01` (a crosser leaving the map), `Grass **** **** 0 TTR01_Z01_01` (one-corner piece).
-  Inference [I]: for each boundary edge, look up (boundary vertex 1, crosser on the boundary-perpendicular edge, boundary vertex 2). `Corner2=****` rows serve outer area corners, and Height is the height level of the edge piece. Corner1/Corner2 order and orientation are [?].
+  Read in the client [V] ([the tile border](notes_tile_border.md)): each edge tile's side looks up (its left corner, its crosser on that side, its right corner), either way round, the models made for the east side (`Corner1` north); `Corner2=****` rows fill the 5×5 squares past the area's corners; the border's material is half the sun's diffuse.
   Every base set ships an `_edge.2da` (EE added dag01, tcm02, trm02, trs02, ttf02, tts02 in 1.81.8193.16 and tss13 in 1.81.8193.17/1.82.8193.20) [V, D]. `ReloadAreaBorder()` and `SETTILE_FLAG_RELOAD_BORDER` exist [D]. Whether the Aurora area view draws edge tiles is [?].
 
 ---

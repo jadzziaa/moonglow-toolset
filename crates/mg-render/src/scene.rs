@@ -66,6 +66,10 @@ pub struct Instance {
     /// ([`Scene::light_shadows`]): a creature, as the client's do where
     /// the area has no sun or moon shadows at the time.
     pub casts_light_shadows: bool,
+    /// Its meshes' material ambient and diffuse (linear) in place of their
+    /// own: the tile border past an area's edge, which the client draws
+    /// in half the sun's diffuse color (`mg_area::border::material`).
+    pub material: Option<Vec3>,
 }
 
 impl Instance {
@@ -87,6 +91,7 @@ impl Instance {
             receives_shadows: false,
             casts_shadows: true,
             casts_light_shadows: false,
+            material: None,
         }
     }
 }

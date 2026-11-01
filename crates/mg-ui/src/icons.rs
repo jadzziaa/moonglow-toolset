@@ -16,6 +16,8 @@ pub(crate) const ROTATE: &str = "↺";
 pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";
+/// The area view's Tile Border (what the game draws past the edge).
+pub(crate) const TILE_BORDER: &str = "🌄";
 /// The area view's Shadows switch.
 pub(crate) const SHADOWS: &str = "◑";
 pub(crate) const GRID: &str = "⊞";
@@ -319,6 +321,7 @@ impl Tools {
             LIGHTING,
             SHADOWS,
             FOG,
+            TILE_BORDER,
             ANIMATIONS,
             GRASS,
             SHADERS,
@@ -389,6 +392,7 @@ mod tests {
             LIGHTING,
             SHADOWS,
             FOG,
+            TILE_BORDER,
             ANIMATIONS,
             GRASS,
             SHADERS,

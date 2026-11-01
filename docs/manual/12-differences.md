@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:46:00Z }
 ---
 
 # Differences from Aurora
@@ -51,6 +51,9 @@ it differs, it is on purpose:
   satisfy.
 - **Environment maps** on creatures and items are always drawn, as the
   game draws them.
+- **The tile border** past an area's edge, which the game draws and
+  Aurora doesn't, can be drawn in the area viewer: the toolbar's **Tile
+  Border**, off by default ([Areas](04-areas.md#the-toolbar)).
 - **Grass** is drawn in the area viewer, which Aurora does not draw: the
   tileset's and the area's own (Area Properties › Grass, which Aurora
   hasn't), wherever the view shows grass ground, thinner far off (the

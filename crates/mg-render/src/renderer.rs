@@ -2108,6 +2108,8 @@ impl Renderer {
                 // (Linear: the material's as worked out once, else as an
                 // animation has it now.)
                 let [ambient, diffuse, emissive] = surface.linear;
+                // (The instance's own material: the tile border's.)
+                let (ambient, diffuse) = inst.material.map_or((ambient, diffuse), |m| (m, m));
                 let emissive = replaced.and_then(|r| r.selfillum).map_or(emissive, lin);
                 let dynamic_range = moved.map(|v| {
                     let size = std::mem::size_of::<Vertex>() as u64;
