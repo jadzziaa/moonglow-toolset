@@ -783,14 +783,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         // Resized as a builder likes (GitHub issue 40: an archive of
         // hundreds of resources), the list of those the module has taking
-        // the room. (Held by its top left corner, not its middle: the
-        // corner dragged stays under the pointer.)
-        let size = egui::vec2(440.0, 480.0);
-        let window = crate::widgets::modal(&ctx, "Import Resources")
-            .resizable(true)
-            .pivot(egui::Align2::LEFT_TOP)
-            .default_pos(ctx.content_rect().center() - size / 2.0)
-            .default_size(size)
+        // the room.
+        let window = crate::widgets::modal(&ctx, "Import Resources");
+        let window = crate::widgets::resizable(&ctx, window, egui::vec2(440.0, 480.0))
             .min_size([320.0, 200.0]);
         window.show(&ctx, |ui| {
             ui.label(format!("{name}: {} resources", draft.resources.len()));

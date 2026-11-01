@@ -2581,6 +2581,23 @@ pub(crate) fn modal<'a>(
     centered(ctx, title).collapsible(false).resizable(false)
 }
 
+/// `window` resized by its edges and corners, opening `size` in the middle
+/// of the application's window. It is held by its top left corner, so the
+/// corner dragged stays under the pointer: one held by its middle, as
+/// [`centered`] holds a dialog, moved half of each resize away from it
+/// (Import Resources, Select Token, Conversation Test).
+pub(crate) fn resizable<'a>(
+    ctx: &egui::Context,
+    window: egui::Window<'a>,
+    size: egui::Vec2,
+) -> egui::Window<'a> {
+    window
+        .resizable(true)
+        .pivot(egui::Align2::LEFT_TOP)
+        .default_pos(ctx.content_rect().center() - size / 2.0)
+        .default_size(size)
+}
+
 /// A dialog that its close button or Escape closes (`open`), as well as
 /// what it has to answer it: [`centered`].
 pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {

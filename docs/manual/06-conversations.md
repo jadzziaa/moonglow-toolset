@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T22:04:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:59:00Z }
 ---
 
 # Conversations
@@ -126,7 +126,8 @@ replies whose conditions pass, numbered.
   until you click it to make it FALSE. Lines passed over show as not said
   or hidden.
 - **What happens:** each line's actions and journal updates are listed.
-  A transcript keeps what was said; **Back** goes back a turn.
+  A transcript keeps what was said; **Back** goes back a turn. Drag the
+  window's edges or corners to make it larger: the transcript takes the room.
 
 (Aurora's Test shows every line, whatever its condition.)
 
@@ -149,7 +150,7 @@ replies whose conditions pass, numbered.
 can have tokens of its own (the game's Polish has many English doesn't):
 Token… lists those of the language you edit (Options › General), and in
 the **…** window for a text in several languages each language's row has
-its own **Token…**. A token goes in where the caret was last in the
+its own **Token…** (its list resizes with its window). A token goes in where the caret was last in the
 text, in place of what was selected (at the end, if the caret was never
 there).
 

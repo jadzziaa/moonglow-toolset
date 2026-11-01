@@ -1858,3 +1858,69 @@ fn a_line_s_actions_taken_page_holds_still() {
     }
     assert!(moving.is_empty(), "{} sizes moved:\n{}", moving.len(), moving.join("\n"));
 }
+
+/// Select Token and Conversation Test resize from a corner that stays under
+/// the pointer, their top left where it was (the owner's ask after GitHub
+/// issue 40's Import Resources: held by their middle, they moved half of
+/// each resize away from it).
+#[test]
+fn select_token_and_conversation_test_resize_from_the_corner_dragged() {
+    let dir = mg_testkit::scratch_dir("ui-dialog-resize");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_talk", ResType::DLG).unwrap();
+    let mut g = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there");
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.dialog_hide_names = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = harness(app, 1100.0, 800.0);
+    settle(&mut h);
+    let is_window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let window = |h: &Harness<'_, Moonglow>, title: &str| {
+        h.get_all_by_label(title).find(is_window).expect("the window").rect()
+    };
+    // Its bottom right corner dragged down and right by `by`.
+    let drag = |h: &mut Harness<'_, Moonglow>, title: &str, by: egui::Vec2| {
+        let was = window(h, title);
+        let corner = was.right_bottom() - egui::vec2(3.0, 3.0);
+        h.hover_at(corner);
+        h.run_steps(2);
+        press(h, corner, true, egui::Modifiers::NONE);
+        for k in 1..=6 {
+            h.hover_at(corner + by * k as f32 / 6.0);
+            h.run_steps(1);
+        }
+        press(h, corner + by, false, egui::Modifiers::NONE);
+        settle(h);
+        let now = window(h, title);
+        assert!(now.height() > was.height() + by.y - 10.0, "{title} resized: {now:?} from {was:?}");
+        assert!((now.left_top() - was.left_top()).length() < 2.0, "{title}'s top left stays");
+        let pointer = corner + by;
+        assert!((now.right_bottom() - pointer).length() < 12.0, "{title}'s corner at the pointer");
+    };
+    h.get_by_label("Hello there").click();
+    settle(&mut h);
+    h.get_by_label("Token…").click();
+    settle(&mut h);
+    drag(&mut h, "Select Token", egui::vec2(60.0, 120.0));
+    let picker = window(&h, "Select Token");
+    let cancel = h.get_all_by_label("Cancel").find(|n| picker.contains(n.rect().center()));
+    cancel.expect("Select Token's Cancel").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Select Token").is_none());
+    h.get_by_label("Test").click();
+    settle(&mut h);
+    let title = format!("Conversation Test: {key}");
+    drag(&mut h, &title, egui::vec2(80.0, 100.0));
+    // (A picture to look at, where there is a GPU.)
+    if adapter() {
+        mg_testkit::gpu::hold();
+        let img = h.render().expect("render");
+        img.save(mg_testkit::output_dir("ui-dialog-resize").join("conversation-test.png")).unwrap();
+    }
+}

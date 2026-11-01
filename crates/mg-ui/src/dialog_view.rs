@@ -1869,8 +1869,16 @@ fn text_panel(
         // (Those of the language edited: Options › General.)
         let tokens = crate::widgets::language_tokens(app, crate::text::edit_language());
         let mut close = false;
-        crate::widgets::modal(ui.ctx(), "Select Token").resizable(true).show(ui.ctx(), |ui| {
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+        let ctx = ui.ctx().clone();
+        let window = crate::widgets::modal(&ctx, "Select Token");
+        let window = crate::widgets::resizable(&ctx, window, egui::vec2(260.0, 340.0))
+            .min_size([180.0, 160.0]);
+        window.show(&ctx, |ui| {
+            // The list takes the room above Cancel.
+            let cancel = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
+            let height = (ui.available_height() - cancel).max(60.0);
+            let list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
+            list.show(ui, |ui| {
                 for t in &tokens {
                     if ui.selectable_label(false, t).clicked() {
                         let v = crate::widgets::with_token(ui.ctx(), id, &shown, t);
@@ -2418,94 +2426,126 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
         let mut assume = view.assume.clone();
         let title = format!("Conversation Test: {key}");
         let mut close = crate::widgets::escape_closes(ui.ctx(), &title);
-        crate::widgets::modal(ui.ctx(), title).resizable(true).show(ui.ctx(), |ui| {
-            // What was said so far.
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for (k, i) in &path {
-                    if let Some(n) = node(&g, *k, *i) {
-                        let who = if *k == Kind::Entry { "NPC" } else { "You" };
-                        ui.weak(format!("{who}: {}", line_text(game, n)));
-                    }
-                }
-            });
-            ui.separator();
-            // The NPC's turn: from the root, or after the last reply.
-            let parent = match path.last() {
-                None => Parent::Root,
-                Some(&(k, i)) => Parent::Node(k, i),
-            };
-            let candidates = links(&g, parent).to_vec();
-            let spoken = npc_line(&g, parent, &assume);
-            // The NPC lines before the one said were passed over.
-            for l in &candidates {
-                let i = link_index(l);
-                let Some(n) = node(&g, Kind::Entry, i) else { continue };
-                ui.horizontal(|ui| {
-                    if Some(i) == spoken {
-                        ui.label(RichText::new(format!("NPC: {}", line_text(game, n))).strong());
-                    } else {
-                        ui.weak(format!("(not said) {}", line_text(game, n)));
-                    }
-                    if let Some(c) = condition(l) {
-                        condition_toggle(ui, &c, &mut assume);
-                    }
-                });
-                if Some(i) == spoken {
-                    let e = effects(l, n);
-                    if !e.is_empty() {
-                        ui.weak(e);
-                    }
-                    break;
-                }
-            }
-            let Some(entry) = spoken else {
-                ui.weak(if candidates.is_empty() {
-                    "[END DIALOGUE]"
-                } else {
-                    "[END DIALOGUE: no NPC line's condition passes]"
-                });
-                footer(ui, &mut path, &mut close);
-                return;
-            };
-            ui.separator();
-            // The player's replies.
-            let replies = links(&g, Parent::Node(Kind::Entry, entry)).to_vec();
-            if replies.is_empty() {
-                ui.weak("[END DIALOGUE]");
-            }
-            // Numbered as the game numbers the ones it offers.
-            let mut number = 0;
-            for l in &replies {
-                let i = link_index(l);
-                let Some(n) = node(&g, Kind::Reply, i) else { continue };
-                let t = line_text(game, n);
-                let t = if t.is_empty() { "[CONTINUE]".to_string() } else { t };
-                let shown = passes(l, &assume);
-                number += usize::from(shown);
-                let label = if shown { format!("{number}. {t}") } else { t };
-                ui.horizontal(|ui| {
-                    if shown {
-                        if ui.button(&label).clicked() {
-                            path.push((Kind::Entry, entry));
-                            path.push((Kind::Reply, i));
+        let ctx = ui.ctx().clone();
+        let window = crate::widgets::modal(&ctx, title);
+        let window = crate::widgets::resizable(&ctx, window, egui::vec2(480.0, 420.0))
+            .min_size([300.0, 200.0]);
+        window.show(&ctx, |ui| {
+            // What was said so far, taking the room the window has over the
+            // turn under it (that turn's height the frame before).
+            let under_id = ui.id().with("test-under-history");
+            let under_was: Option<f32> = ui.data(|d| d.get_temp(under_id));
+            let row = ui.spacing().interact_size.y;
+            let height = (ui.available_height() - under_was.unwrap_or(8.0 * row)).max(3.0 * row);
+            egui::ScrollArea::vertical()
+                .auto_shrink(false)
+                .max_height(height)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for (k, i) in &path {
+                        if let Some(n) = node(&g, *k, *i) {
+                            let who = if *k == Kind::Entry { "NPC" } else { "You" };
+                            ui.weak(format!("{who}: {}", line_text(game, n)));
                         }
-                    } else {
-                        ui.weak(format!("(hidden) {label}"));
-                    }
-                    if let Some(c) = condition(l) {
-                        condition_toggle(ui, &c, &mut assume);
-                    }
-                    let e = effects(l, n);
-                    if !e.is_empty() {
-                        ui.weak(e);
                     }
                 });
+            let from = ui.min_rect().bottom();
+            ui.scope(|ui| turn(ui, &g, game, &mut path, &mut assume, &mut close));
+            let under = ui.min_rect().bottom() - from + ui.spacing().item_spacing.y;
+            if under_was.is_none_or(|was| (was - under).abs() > 0.5) {
+                ui.data_mut(|d| d.insert_temp(under_id, under));
+                ui.ctx().request_repaint();
             }
-            footer(ui, &mut path, &mut close);
         });
         view.test = if close { None } else { Some(path) };
         view.assume = assume;
     }
+}
+
+/// Conversation Test's turn: the NPC's line (those passed over shown), the
+/// player's replies to it, and Back and Done.
+fn turn(
+    ui: &mut Ui,
+    g: &Gff,
+    game: Option<&mg_rules::GameData>,
+    path: &mut Vec<(Kind, u32)>,
+    assume: &mut std::collections::BTreeMap<String, bool>,
+    close: &mut bool,
+) {
+    ui.separator();
+    // The NPC's turn: from the root, or after the last reply.
+    let parent = match path.last() {
+        None => Parent::Root,
+        Some(&(k, i)) => Parent::Node(k, i),
+    };
+    let candidates = links(g, parent).to_vec();
+    let spoken = npc_line(g, parent, assume);
+    // The NPC lines before the one said were passed over.
+    for l in &candidates {
+        let i = link_index(l);
+        let Some(n) = node(g, Kind::Entry, i) else { continue };
+        ui.horizontal(|ui| {
+            if Some(i) == spoken {
+                ui.label(RichText::new(format!("NPC: {}", line_text(game, n))).strong());
+            } else {
+                ui.weak(format!("(not said) {}", line_text(game, n)));
+            }
+            if let Some(c) = condition(l) {
+                condition_toggle(ui, &c, assume);
+            }
+        });
+        if Some(i) == spoken {
+            let e = effects(l, n);
+            if !e.is_empty() {
+                ui.weak(e);
+            }
+            break;
+        }
+    }
+    let Some(entry) = spoken else {
+        ui.weak(if candidates.is_empty() {
+            "[END DIALOGUE]"
+        } else {
+            "[END DIALOGUE: no NPC line's condition passes]"
+        });
+        footer(ui, path, close);
+        return;
+    };
+    ui.separator();
+    // The player's replies.
+    let replies = links(g, Parent::Node(Kind::Entry, entry)).to_vec();
+    if replies.is_empty() {
+        ui.weak("[END DIALOGUE]");
+    }
+    // Numbered as the game numbers the ones it offers.
+    let mut number = 0;
+    for l in &replies {
+        let i = link_index(l);
+        let Some(n) = node(g, Kind::Reply, i) else { continue };
+        let t = line_text(game, n);
+        let t = if t.is_empty() { "[CONTINUE]".to_string() } else { t };
+        let shown = passes(l, assume);
+        number += usize::from(shown);
+        let label = if shown { format!("{number}. {t}") } else { t };
+        ui.horizontal(|ui| {
+            if shown {
+                if ui.button(&label).clicked() {
+                    path.push((Kind::Entry, entry));
+                    path.push((Kind::Reply, i));
+                }
+            } else {
+                ui.weak(format!("(hidden) {label}"));
+            }
+            if let Some(c) = condition(l) {
+                condition_toggle(ui, &c, assume);
+            }
+            let e = effects(l, n);
+            if !e.is_empty() {
+                ui.weak(e);
+            }
+        });
+    }
+    footer(ui, path, close);
 }
 
 /// Back (a turn: the reply and the NPC line before it) and Done.
