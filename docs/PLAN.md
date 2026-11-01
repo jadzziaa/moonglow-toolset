@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:11:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:59:13Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -240,10 +240,11 @@ GLSL shaders draw the 3D views by default (the Shaders switch): the install's
 programs, a hak's overrides and the custom shaders MTRs name, compiled by
 `mg-shader` (glslang, naga) and drawn by `mg-render`, each mesh with the
 program the engine chooses for it. Moonglow's own WGSL shaders draw where the
-switch is off and where a program fails (reported), and water stays theirs
-with the switch on (the proposal's M5: the game's `fswater` without the
-framebuffer is farther from the client). Both paths are compared with the
-client's reference scenes.
+switch is off and where a program fails (reported). Shiny water is drawn by
+the game's `fswater` with copies of the picture drawn so far (the
+[framebuffer proposal](framebuffer-proposal.md); the shaders proposal's M5
+had kept it Moonglow's, as `fswater` without them was farther from the
+client). Both paths are compared with the client's reference scenes.
 The renderer also runs offscreen for image tests (§7, L5): reference scenes are
 compared, within a tolerance, with screenshots of the same area, camera and
 time of day taken in the real client (`nwmain` with a test user directory).

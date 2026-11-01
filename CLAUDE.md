@@ -176,7 +176,8 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
 - The renderer is wgpu. The 3D views are drawn with the game's own shaders
   by default (the Shaders switch; `mg-shader`, loaded from the user's
   install), and with Moonglow's own WGSL shaders, approximating EE's
-  lighting, where it is off or a program fails; water stays Moonglow's
-  with the switch on (`docs/shaders-proposal.md`, M5). Every view and
-  preview draws as the area view does, and both paths are validated
-  against client screenshots.
+  lighting, where it is off or a program fails. Shiny water is the game's
+  `fswater` too, given copies of the picture drawn so far
+  (`docs/framebuffer-proposal.md`; the shaders proposal's M5 had kept it
+  Moonglow's). Every view and preview draws as the area view does, and
+  both paths are validated against client screenshots.
