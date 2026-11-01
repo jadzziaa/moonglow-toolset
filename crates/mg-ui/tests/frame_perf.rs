@@ -588,6 +588,12 @@ fn render_state() -> egui_wgpu::RenderState {
             label: Some("moonglow"),
             required_features: adapter.features() & mg_ui::OPTIONAL_FEATURES,
             required_limits: adapter.limits(),
+            // (`FRAME_MEMORY_HINTS=performance`: wgpu's default, blocks of
+            // 128 to 256 MB.)
+            memory_hints: match std::env::var("FRAME_MEMORY_HINTS").as_deref() {
+                Ok("performance") => wgpu::MemoryHints::Performance,
+                _ => wgpu::MemoryHints::MemoryUsage,
+            },
             ..Default::default()
         });
     }
