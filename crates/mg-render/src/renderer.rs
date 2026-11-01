@@ -1847,6 +1847,26 @@ impl Renderer {
         self.draw_scene(gpu, assets, scene, camera, target, resolve, depth, size, None);
     }
 
+    /// [`Renderer::render`] with framebuffer copies of `target`'s size
+    /// (a [`Targets`]' own, drawn into with another resolve: a gallery's
+    /// pictures, each kept in a texture of its own), so that shiny water
+    /// is drawn as [`Renderer::render_targets`] draws it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_with_copies(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        scene: &Scene,
+        camera: &Camera,
+        target: &wgpu::TextureView,
+        resolve: Option<&wgpu::TextureView>,
+        depth: &wgpu::TextureView,
+        size: (u32, u32),
+        copies: &crate::framebuffer::Copies,
+    ) {
+        self.draw_scene(gpu, assets, scene, camera, target, resolve, depth, size, Some(copies));
+    }
+
     /// Draws a scene into `targets`, as [`Renderer::render`] does, with
     /// their framebuffer copies for the game's programs that read them
     /// (shiny water through `fswater`, where [`Renderer::game_water`]).
