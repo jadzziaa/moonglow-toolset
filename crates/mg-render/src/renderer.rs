@@ -119,10 +119,18 @@ enum Pass {
     Additive,
 }
 
+mod kept;
+pub use kept::{STALE_TEXTURES_KEPT, STALE_TEXTURES_KEPT_INTEGRATED, TextureMemory};
+
 /// A texture as the renderer uses it.
 #[derive(Debug)]
 struct TextureEntry {
     gpu: GpuTexture,
+    /// What it takes on the GPU, bytes.
+    bytes: u64,
+    /// When it was last looked up ([`kept::Kept`]'s seconds): by a
+    /// material made of it, or by a draw.
+    used: std::sync::atomic::AtomicU32,
     /// Its alpha means something: an alpha channel with texels below
     /// opaque in it (a 32-bit picture all opaque has none, as the game
     /// takes it), or a BioWare DDS's alpha mean below 1.
@@ -494,6 +502,9 @@ pub struct Renderer {
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
+    /// When the materials and textures were last drawn, and how much of
+    /// what isn't drawn lately is kept ([`kept`]).
+    kept: kept::Kept,
     slots: HashMap<SlotKey, Arc<Slots>>,
     /// The materials' bind groups, and each material's place among them.
     materials: HashMap<MaterialKey, u32>,
@@ -647,6 +658,8 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
         if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
             let gpu = refused(name, GpuTexture::try_upload_cube(gpu, name, &faces))?;
             return Some(TextureEntry {
+                bytes: gpu.bytes(),
+                used: Default::default(),
                 gpu,
                 alpha: false,
                 cut: false,
@@ -665,6 +678,8 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
     let gpu = refused(name, uploaded)?;
     let alpha = alpha_in(&t.texture);
     Some(TextureEntry {
+        bytes: gpu.bytes(),
+        used: Default::default(),
         cube: false,
         alpha,
         cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
@@ -1232,6 +1247,7 @@ impl Renderer {
                 std::array::from_fn(|_| face.clone())
             })),
             textures: HashMap::new(),
+            kept: Default::default(),
             slots: HashMap::new(),
             materials: HashMap::new(),
             groups: Vec::new(),
@@ -1259,6 +1275,7 @@ impl Renderer {
         self.textures.clear();
         self.slots.clear();
         self.materials.clear();
+        self.kept.materials.clear();
         self.groups.clear();
         self.material_keys.clear();
         self.surfaces.clear();
@@ -1724,13 +1741,20 @@ impl Renderer {
     }
 
     fn texture(&mut self, gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<Arc<TextureEntry>> {
+        let now = self.kept.now;
+        let stamped = |t: &Option<Arc<TextureEntry>>| {
+            if let Some(t) = t {
+                t.used.store(now, std::sync::atomic::Ordering::Relaxed);
+            }
+            t.clone()
+        };
         if let Some(t) = self.textures.get(name) {
-            return t.clone();
+            return stamped(t);
         }
         // (A texture that breaks what reads it is none, as on the threads
         // that read them apart.)
         let entry = crate::guard::guarded(name, || load_texture(gpu, assets, name).map(Arc::new));
-        let entry = entry.flatten();
+        let entry = stamped(&entry.flatten());
         self.textures.insert(name.to_string(), entry.clone());
         entry
     }
@@ -1801,6 +1825,9 @@ impl Renderer {
             }
             r.asked.remove(&name);
             r.taken += 1;
+            if let Some(e) = &entry {
+                e.used.store(self.kept.now, std::sync::atomic::Ordering::Relaxed);
+            }
             self.textures.insert(name, entry);
         }
     }
@@ -1904,6 +1931,9 @@ impl Renderer {
         size: (u32, u32),
         copies: Option<&crate::framebuffer::Copies>,
     ) {
+        // (What isn't drawn lately let go of, where it is too much.)
+        self.begin_kept();
+        self.let_go_of_stale_textures();
         // (A target's copies of its own size only.)
         let copies = copies.filter(|_| self.game_shaders);
         self.water_now = self.game_water && copies.is_some();
@@ -2518,6 +2548,8 @@ impl Renderer {
         keys.sort_unstable();
         let mut draws: Vec<Draw<'_>> = keys.iter().map(|&(_, i)| draws[i as usize]).collect();
         drop(keys);
+        let used = draws.iter().map(|d| d.material);
+        self.kept.drawn(used.chain(game_draws.iter().chain(&game_blended).map(|d| d.material)));
 
         // Draws of one mesh become one draw of as many instances, where
         // that takes no draw past one it meets (`batch.rs`): solid meshes
@@ -2701,6 +2733,7 @@ impl Renderer {
                 }
                 None => particle_vertices.extend_from_slice(&b.vertices),
             }
+            self.kept.drawn([group]);
             particle_draws.push((b.blend, group, start..particle_vertices.len() as u32, None));
             particle_softness.push(if self.soft_particles { b.softness } else { 0.0 });
         }

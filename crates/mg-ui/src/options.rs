@@ -128,6 +128,8 @@ pub struct OptionsDraft {
     pub verify_more: String,
     pub merchant_signs: bool,
     pub shadow_quality: crate::settings::ShadowQuality,
+    pub texture_limit: Option<u16>,
+    pub area_resolution: Option<u8>,
     pub edit_group_tiles: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
@@ -269,6 +271,8 @@ impl OptionsDraft {
                 .join(", "),
             merchant_signs: s.merchant_signs,
             shadow_quality: s.shadow_quality,
+            texture_limit: s.texture_limit,
+            area_resolution: s.area_resolution,
             edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
@@ -367,6 +371,8 @@ impl OptionsDraft {
             },
             merchant_signs: self.merchant_signs,
             shadow_quality: self.shadow_quality,
+            texture_limit: self.texture_limit,
+            area_resolution: self.area_resolution,
             edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
@@ -904,6 +910,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 crate::widgets::field_label(ui, "Shadows quality");
                                 shadow_quality_choice(ui, &mut draft.shadow_quality);
                             });
+                            texture_limit_choice(ui, &mut draft.texture_limit);
+                            area_resolution_choice(ui, &mut draft.area_resolution);
                             ui.checkbox(
                                 &mut draft.edit_group_tiles,
                                 "Allow editing tiles of groups and features",
@@ -1263,6 +1271,59 @@ pub(crate) fn shadow_quality_choice(
          smoothed with it; dearer in the largest areas",
     );
     fast.changed() || high.changed()
+}
+
+/// The choices of Options › Area › Largest textures: as they are, or at
+/// most so many pixels a side.
+pub(crate) const TEXTURE_LIMITS: [Option<u16>; 4] = [None, Some(1024), Some(512), Some(256)];
+
+/// Options › Area › Largest textures: the most pixels a side the 3D views
+/// draw a texture at, for a GPU with little memory.
+fn texture_limit_choice(ui: &mut Ui, limit: &mut Option<u16>) {
+    let name = |l: &Option<u16>| match l {
+        None => "As they are".to_string(),
+        Some(px) => format!("{px} pixels"),
+    };
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Largest textures");
+        crate::widgets::dropdown("texture-limit")
+            .selected_text(name(limit))
+            .show(ui, limit, &TEXTURE_LIMITS, name)
+            .on_hover_text(
+                "For a GPU with little memory (an integrated one, or 2 to 4 GB): the areas, \
+                 models and pictures draw a texture larger than this at this size, its larger \
+                 levels left out as the game's lower texture quality leaves them. Each halving \
+                 takes a quarter of the memory: The Domains of Dread's woods, whose textures \
+                 are 1024 pixels, take 870 MB of them as they are and 240 MB at 512. Stock \
+                 textures are mostly 512 or less",
+            );
+    });
+}
+
+/// The choices of Options › Area › Area view resolution: every pixel, or
+/// so many of a hundred each way.
+pub(crate) const AREA_RESOLUTIONS: [Option<u8>; 3] = [None, Some(75), Some(50)];
+
+/// Options › Area › Area view resolution: the share of the screen's pixels
+/// the area views draw at, for a GPU that draws them slowly.
+fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
+    let name = |r: &Option<u8>| match r {
+        None => "Full".to_string(),
+        Some(p) => format!("{p}%"),
+    };
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Area view resolution");
+        crate::widgets::dropdown("area-resolution")
+            .selected_text(name(resolution))
+            .show(ui, resolution, &AREA_RESOLUTIONS, name)
+            .on_hover_text(
+                "For a GPU that draws the areas slowly (an integrated one): the area views \
+                 draw their pictures at this share of the screen's pixels each way, stretched \
+                 to the view, softer for it; what is drawn over them (outlines, handles, the \
+                 map) stays sharp. A picture takes about as long as its pixels: at 50% a \
+                 quarter of the time and of the memory its targets take",
+            );
+    });
 }
 
 fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
@@ -1752,8 +1813,13 @@ mod tests {
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
         d.edit_group_tiles = true;
         d.shadow_quality = ShadowQuality::High;
+        assert_eq!(d.texture_limit, None, "textures as they are unless asked");
+        d.texture_limit = Some(512);
+        assert_eq!(d.area_resolution, None, "every pixel unless asked");
+        d.area_resolution = Some(75);
         let t = d.apply(&s);
         assert_eq!(t.shadow_quality, ShadowQuality::High);
+        assert_eq!((t.texture_limit, t.area_resolution), (Some(512), Some(75)));
         assert!(t.no_spawn_markers && !t.no_door_arrows);
         assert!(t.edit_group_tiles && OptionsDraft::from_settings(&t).edit_group_tiles);
         assert_eq!(d.spawn_marker_size, (12, 4), "Aurora's Height and Width");

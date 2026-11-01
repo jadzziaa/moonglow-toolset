@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:32:20Z }
 ---
 
 # Options
@@ -57,6 +57,27 @@ the module is opened again from its file.
   and stencil buffer of the view's size (about 160 MB at 3440×1440 with
   four samples a pixel). Skins (a robe's or a dragon's wings' skinned
   meshes) cast none with High, as the wiki says of the game, where Fast casts them.
+- **Largest textures**: for a GPU with little memory (an integrated one,
+  or a card of 2 to 4 GB). **As they are** (the default) draws every
+  texture at its own size; **1024**, **512** or **256 pixels** draws a
+  larger one at that size, its larger levels left out as the game's
+  lower texture quality leaves them (the textures are read again when
+  this changes). Each halving takes a quarter of the memory: The
+  Domains of Dread's woods, whose textures are mostly 1024 pixels, take
+  870 MB of textures as they are and 240 MB at 512; the stock game's
+  are mostly 512 pixels or less. Textures not drawn for a while (those
+  of areas closed, of pictures scrolled past) are let go of once they
+  take more than a gigabyte (a quarter of one on an integrated GPU),
+  and read again when drawn again.
+- **Area view resolution**: for a GPU that draws the areas slowly (an
+  integrated one). **Full** (the default) draws the area views' pictures
+  at every pixel of the screen; **75%** or **50%** at that share of them
+  each way, stretched to the view and softer for it, while what is
+  drawn over them (outlines, handles, Sound Ranges' rings, the map)
+  stays sharp. A picture takes about as long as its pixels: on the
+  integrated GPU of a Ryzen 9 9950X, Tyrants of the Moonsea's largest
+  area turning took 80 ms a picture at Full, 45 at 75% and 20 at 50%,
+  and the view's targets a quarter of the memory at 50%.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift

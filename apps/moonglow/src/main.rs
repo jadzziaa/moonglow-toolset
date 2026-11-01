@@ -434,14 +434,10 @@ fn main() -> eframe::Result<()> {
             // program, else FXC: `mg_render::dx12`.)
             wgpu_setup: mg_ui::graphics_setup(egui_wgpu::WgpuSetup::CreateNew(
                 egui_wgpu::WgpuSetupCreateNew {
-                    // Game textures are mostly BC-compressed: upload them as
-                    // they are where the GPU can read them (and the shadow
-                    // volumes' depth as exact as the scene's).
-                    device_descriptor: std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
-                        label: Some("moonglow"),
-                        required_features: adapter.features() & mg_ui::OPTIONAL_FEATURES,
-                        required_limits: adapter.limits(),
-                        ..Default::default()
+                    // (BC textures where the GPU reads them, the GPU's
+                    // memory in small blocks: `device_descriptor`.)
+                    device_descriptor: std::sync::Arc::new(|adapter| {
+                        device_descriptor(adapter.features(), adapter.limits())
                     }),
                     // The instance keeps every backend (or `WGPU_BACKEND`'s),
                     // so that a backend chosen with no adapter can fall back.
@@ -543,8 +539,41 @@ fn main() -> eframe::Result<()> {
     result
 }
 
+/// The window's device, of an adapter with `features` and `limits`: BC
+/// textures where it reads them (the game's are mostly BC: uploaded as
+/// they are, else as RGBA8 four to eight times their size) and the shadow
+/// volumes' depth as exact as the scene's; the GPU's memory taken in
+/// blocks of 8 to 64 MB, not wgpu's default 128 to 256 (a block is held
+/// while anything is in it, and what the views and textures let go of
+/// stayed held: 768 MB held for 270 used after Tyrants of the Moonsea's
+/// frame test, 524 with these, no frame slower).
+fn device_descriptor(
+    features: wgpu::Features,
+    limits: wgpu::Limits,
+) -> wgpu::DeviceDescriptor<'static> {
+    wgpu::DeviceDescriptor {
+        label: Some("moonglow"),
+        required_features: features & mg_ui::OPTIONAL_FEATURES,
+        required_limits: limits,
+        memory_hints: wgpu::MemoryHints::MemoryUsage,
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// The window's device asks for BC textures where the adapter has
+    /// them (without, the frame test's took four times the memory), and
+    /// for the GPU's memory in small blocks.
+    #[test]
+    fn the_device_asks_for_bc_textures_and_small_blocks() {
+        let all = wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        let d = super::device_descriptor(all, wgpu::Limits::default());
+        assert!(d.required_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
+        assert!(matches!(d.memory_hints, wgpu::MemoryHints::MemoryUsage));
+        let none = super::device_descriptor(wgpu::Features::empty(), wgpu::Limits::default());
+        assert!(none.required_features.is_empty(), "only what the adapter has");
+    }
     /// On Windows a window left maximized is created unmaximized, to be
     /// maximized once drawn; elsewhere, and a window not maximized, as it
     /// was left.

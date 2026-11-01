@@ -5501,3 +5501,104 @@ fn a_cut_out_s_mesh_alpha_does_not_blend_it() {
         assert_ne!(shot(1.0, 0.5), solid, "an instance at half opacity is blended ({game})");
     }
 }
+
+/// Textures no frame has drawn for a while are let go of once there is
+/// more of them than is kept (`Renderer::set_stale_textures_kept`), the
+/// longest unused first, with what binds them; one drawn again is read
+/// again and drawn as before, and what a frame draws is never let go of.
+#[test]
+fn textures_not_drawn_lately_are_let_go_of_past_what_is_kept() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("red", [230, 30, 30, 255]);
+    assets.solid("blue", [30, 30, 230, 255]);
+    let scene = |textures: &[&str]| Scene {
+        instances: (textures.iter().enumerate())
+            .map(|(i, t)| standing_quad(&gpu, t, Vec3::new(i as f32 * 1.2 - 0.6, 0.0, 0.0), 1.0))
+            .collect(),
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -4.0, 0.5),
+        target: Vec3::new(0.0, 0.0, 0.5),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (red, blue) = (scene(&["red"]), scene(&["blue"]));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let red_first = r.render_image(&gpu, &assets, &red, &camera, 32, 32);
+    r.render_image(&gpu, &assets, &blue, &camera, 32, 32);
+    let both = r.texture_memory();
+    assert!(both.textures >= 2 && both.bytes > 0, "{both:?}");
+    // Frames of `scene` for 40 s of the clock, one every 10 s.
+    let frames = |r: &mut Renderer, scene: &Scene| {
+        for _ in 0..4 {
+            r.age_textures(std::time::Duration::from_secs(10));
+            r.render_image(&gpu, &assets, scene, &camera, 32, 32);
+        }
+    };
+    // Kept as long as no more is stale than is kept (by default, a GB).
+    frames(&mut r, &blue);
+    assert_eq!(r.texture_memory().let_go, 0, "within what is kept");
+    // None kept stale: red goes, blue (drawn) stays.
+    r.set_stale_textures_kept(0);
+    frames(&mut r, &blue);
+    let after = r.texture_memory();
+    assert_eq!(after.let_go, 1, "red let go of: {after:?}");
+    assert_eq!(after.textures, both.textures - 1);
+    assert_eq!(after.stale, 0);
+    // Red drawn again: read again, the picture as before.
+    let red_again = r.render_image(&gpu, &assets, &red, &camera, 32, 32);
+    assert_eq!(red_again.data, red_first.data, "drawn as before");
+    assert_eq!(r.texture_memory().textures, both.textures);
+    // Both drawn in every frame: neither goes, however long.
+    let together = scene(&["red", "blue"]);
+    frames(&mut r, &together);
+    assert_eq!(r.texture_memory().let_go, 1, "what is drawn is kept");
+}
+
+/// A texture limit (`Gpu::set_texture_limit`) uploads a texture at most
+/// so large a side: an RGBA8 one made smaller with its smaller levels
+/// below, a BC one from the first of its own levels within the limit; a
+/// BC one without its smaller levels as it is; none larger than it is.
+#[test]
+fn a_texture_limit_leaves_out_the_levels_over_it() {
+    let Some(gpu) = gpu() else { return };
+    let gpu = Gpu::new(gpu.device.clone(), gpu.queue.clone());
+    let rgba = mg_image::Rgba { width: 64, height: 32, data: vec![200; 64 * 32 * 4] };
+    let rgba = rgba.into_texture(false);
+    let bc = |levels: usize| mg_image::Texture {
+        width: 64,
+        height: 64,
+        format: mg_image::Format::Bc1,
+        mips: (0..levels).map(|i| vec![0u8; ((64 >> i) / 4usize).max(1).pow(2) * 8]).collect(),
+        has_alpha: false,
+        alpha_mean: None,
+    };
+    let up = |t: &mg_image::Texture, mipmaps| {
+        let g = mg_render::texture::GpuTexture::upload(&gpu, "limited", t, mipmaps);
+        (g.texture.width(), g.texture.height(), g.texture.mip_level_count(), g.bytes())
+    };
+    let whole = up(&rgba, true);
+    assert_eq!((whole.0, whole.1, whole.2), (64, 32, 7));
+    gpu.set_texture_limit(Some(16));
+    assert_eq!(gpu.texture_limit(), Some(16));
+    let small = up(&rgba, true);
+    assert_eq!((small.0, small.1, small.2), (16, 8, 5), "64 and 32 left out");
+    assert!(small.3 * 15 < whole.3, "a sixteenth of the memory: {small:?} of {whole:?}");
+    let one = up(&rgba, false);
+    assert_eq!((one.0, one.1, one.2), (16, 8, 1), "one level, within the limit");
+    if gpu.bc_textures() {
+        // (Levels of 64, 32, 16, 8, 4: from 16.)
+        let b = up(&bc(5), true);
+        assert_eq!((b.0, b.1, b.2), (16, 16, 3));
+        let b = up(&bc(1), true);
+        assert_eq!((b.0, b.1, b.2), (64, 64, 1), "no smaller level: as it is");
+    }
+    gpu.set_texture_limit(Some(4096));
+    assert_eq!(up(&rgba, true), whole, "within the limit: as it is");
+    gpu.set_texture_limit(None);
+    assert_eq!(up(&rgba, true), whole);
+}

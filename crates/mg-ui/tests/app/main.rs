@@ -14,6 +14,7 @@ mod blueprints;
 mod conversations;
 mod drawing;
 mod fields;
+mod gpu_memory;
 mod inventories;
 mod looks;
 mod modules;

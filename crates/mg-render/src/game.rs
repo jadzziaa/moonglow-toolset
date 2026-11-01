@@ -2047,6 +2047,14 @@ impl GameShaders {
         self.failures.clear();
     }
 
+    /// Forgets what was made of the renderer's materials (their places
+    /// among its groups are given anew): the bind groups of their textures
+    /// and the values they decide.
+    pub(crate) fn forget_materials(&mut self) {
+        self.groups.clear();
+        self.templates.clear();
+    }
+
     pub(crate) fn fail(&mut self, what: &str, why: String) {
         if !self.failures.iter().any(|(w, _)| w == what) {
             // (A warning: in the debug log, where Windows has no console.)

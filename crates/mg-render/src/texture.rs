@@ -99,19 +99,34 @@ impl GpuTexture {
     }
 
     /// Uploads a texture; `mipmaps` false keeps one level (TXI `mipmap 0`).
+    /// At most [`Gpu::texture_limit`] pixels a side.
     pub fn upload(gpu: &Gpu, label: &str, tex: &Texture, mipmaps: bool) -> GpuTexture {
         let compressed = tex.format != Format::Rgba8;
         let bc_ok = compressed
             && gpu.bc_textures()
             && tex.width.is_multiple_of(4)
             && tex.height.is_multiple_of(4);
+        let limit = gpu.texture_limit();
         let (format, levels): (Format, Vec<(Vec<u8>, u32, u32)>) = if bc_ok {
-            let n = if mipmaps { tex.mips.len() } else { 1 };
-            let levels = tex.mips[..n]
+            // (The first level within the limit, of those stored, whose
+            // sides are still whole blocks.)
+            let skip = limit.map_or(0, |l| {
+                (0..tex.mips.len())
+                    .take_while(|&i| {
+                        let (w, h) = tex.level_dims(i);
+                        w.max(h) > l
+                            && tex.level_dims(i + 1).0.is_multiple_of(4)
+                            && tex.level_dims(i + 1).1.is_multiple_of(4)
+                            && i + 1 < tex.mips.len()
+                    })
+                    .count()
+            });
+            let n = if mipmaps { tex.mips.len() } else { skip + 1 };
+            let levels = tex.mips[skip..n]
                 .iter()
                 .enumerate()
                 .map(|(i, m)| {
-                    let (w, h) = tex.level_dims(i);
+                    let (w, h) = tex.level_dims(skip + i);
                     (m.clone(), w, h)
                 })
                 .collect();
@@ -119,16 +134,24 @@ impl GpuTexture {
         } else {
             let rgba = tex.to_rgba();
             let mut levels = vec![(rgba.data, rgba.width, rgba.height)];
-            if mipmaps {
-                while let Some((d, w, h)) = levels.last().filter(|(_, w, h)| *w > 1 || *h > 1) {
-                    let next = half(d, *w, *h);
-                    levels.push(next);
-                }
+            let over = |w: u32, h: u32| limit.is_some_and(|l| w.max(h) > l);
+            while let Some((d, w, h)) =
+                levels.last().filter(|(_, w, h)| (mipmaps || over(*w, *h)) && (*w > 1 || *h > 1))
+            {
+                let next = half(d, *w, *h);
+                levels.push(next);
+            }
+            // (Those over the limit left out: the first within it is the
+            // largest.)
+            let skip = levels.iter().take_while(|(_, w, h)| over(*w, *h)).count();
+            levels.drain(..skip.min(levels.len() - 1));
+            if !mipmaps {
+                levels.truncate(1);
             }
             (Format::Rgba8, levels)
         };
-        let size =
-            wgpu::Extent3d { width: tex.width, height: tex.height, depth_or_array_layers: 1 };
+        let (width, height) = (levels[0].1, levels[0].2);
+        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size,
@@ -218,11 +241,34 @@ impl GpuTexture {
         GpuTexture { texture, view, has_alpha: false }
     }
 
+    /// What it takes on the GPU, bytes: every level of every layer, as its
+    /// format stores it (a BC format's blocks, 4 bytes a pixel for RGBA8).
+    pub fn bytes(&self) -> u64 {
+        texture_bytes(&self.texture)
+    }
+
     /// A 1×1 texture of one colour.
     pub fn solid(gpu: &Gpu, label: &str, rgba: [u8; 4]) -> GpuTexture {
         let tex = mg_image::Rgba { width: 1, height: 1, data: rgba.to_vec() }.into_texture(true);
         GpuTexture::upload(gpu, label, &tex, false)
     }
+}
+
+/// What a texture takes on the GPU, bytes ([`GpuTexture::bytes`]).
+pub fn texture_bytes(t: &wgpu::Texture) -> u64 {
+    let format = t.format();
+    let (bw, bh) = format.block_dimensions();
+    let block = u64::from(format.block_copy_size(None).unwrap_or(4));
+    let layers = u64::from(t.depth_or_array_layers());
+    let samples = u64::from(t.sample_count());
+    (0..t.mip_level_count())
+        .map(|level| {
+            let (w, h) = ((t.width() >> level).max(1), (t.height() >> level).max(1));
+            u64::from(w.div_ceil(bw)) * u64::from(h.div_ceil(bh)) * block
+        })
+        .sum::<u64>()
+        * layers
+        * samples
 }
 
 #[cfg(test)]

@@ -21,7 +21,12 @@
 //! taken apart at the end, and `FRAME_SHADOWS=sun,creatures,lights`
 //! (any of them, or `off`) draws those kinds of shadow in every area, and
 //! `FRAME_SHADOW_QUALITY=high` draws them as stencil volumes (Options ›
-//! Area › Shadows quality High). (With another program drawing, the game say,
+//! Area › Shadows quality High), `FRAME_MEMORY=1` (or `labels`) says what
+//! the GPU holds after each view (and what of it), `FRAME_KEEP_TEXTURES=1`
+//! keeps the textures of what was shown before an area opens, and
+//! `FRAME_STALE_KEPT=<MiB>` keeps that much of those not drawn lately, and
+//! `FRAME_TEXTURE_LIMIT=<pixels>` is Options › Area › Largest textures.
+//! (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
@@ -278,6 +283,66 @@ fn frames(
     out
 }
 
+/// What the GPU holds of one kind: its name, MiB and how many.
+type Held = (String, f64, usize);
+
+/// What the GPU's allocator holds (wgpu's report: Vulkan and Direct3D 12),
+/// MiB in all, and by what it is, largest first: a game texture under its
+/// own name is counted among "textures by name", egui's textures together,
+/// the rest by their labels (render targets, shadow maps, the meshes'
+/// chunks, the draws' buffers).
+fn vram(h: &App<'_>) -> Option<(f64, f64, Vec<Held>)> {
+    let device = &h.state().viewport.as_ref()?.gpu.device;
+    let report = device.generate_allocator_report()?;
+    let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+    let mut by: std::collections::HashMap<String, (u64, usize)> = Default::default();
+    for a in &report.allocations {
+        let words = ["color", "msaa", "depth", "thumbnail", "watch", "white", "game", "readback"];
+        let what = if a.name.starts_with("egui") {
+            "egui".to_string()
+        } else if a.name.contains(' ') || words.contains(&a.name.as_str()) || a.name.is_empty() {
+            a.name.clone()
+        } else {
+            "textures by name".to_string()
+        };
+        let e = by.entry(what).or_default();
+        e.0 += a.size;
+        e.1 += 1;
+    }
+    let mut by: Vec<(String, f64, usize)> =
+        by.into_iter().map(|(k, (b, n))| (k, mib(b), n)).collect();
+    by.sort_by(|a, b| b.1.total_cmp(&a.1));
+    Some((mib(report.total_allocated_bytes), mib(report.total_reserved_bytes), by))
+}
+
+/// `FRAME_MEMORY=1`: a line of what the GPU holds after each view, and with
+/// `FRAME_MEMORY=labels` what it is.
+fn said_memory(h: &App<'_>, what: &str) {
+    let Ok(how) = std::env::var("FRAME_MEMORY") else { return };
+    let Some((allocated, reserved, by)) = vram(h) else {
+        println!("  {what:44} memory: no allocator report on this backend");
+        return;
+    };
+    println!("  {what:44} memory: {allocated:7.1} MiB allocated ({reserved:.1} MiB reserved)");
+    if let Some(vp) = h.state().viewport.as_ref() {
+        let t = vp.renderer.texture_memory();
+        let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        println!(
+            "      textures: {} of {:.1} MiB, {:.1} MiB uncompressed, {:.1} MiB stale, {} let go",
+            t.textures,
+            mib(t.bytes),
+            mib(t.uncompressed),
+            mib(t.stale),
+            t.let_go
+        );
+    }
+    if how == "labels" {
+        for (label, mib, n) in by.iter().take(14) {
+            println!("      {mib:8.1} MiB  {label} ({n})");
+        }
+    }
+}
+
 fn again(d: Duration) -> String {
     match d {
         Duration::ZERO => "at once".into(),
@@ -326,6 +391,7 @@ fn view_with(
         let f = frames(h, rect, pointer, r.count, &mut each);
         said(r, what, how, &f);
     }
+    said_memory(h, what);
 }
 
 /// A line for a view's frames, timed one way (`how`).
@@ -490,10 +556,29 @@ fn areas(app: &mut Moonglow) -> Vec<(ResRef, i64)> {
 }
 
 fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
+    // (`FRAME_STALE_KEPT=<MiB>`: so much of the textures not drawn lately
+    // kept, as `Renderer::set_stale_textures_kept`.)
+    if let Some(mib) = std::env::var("FRAME_STALE_KEPT").ok().and_then(|m| m.parse::<u64>().ok())
+        && let Some(vp) = app.viewport.as_mut()
+    {
+        vp.renderer.set_stale_textures_kept(mib << 20);
+    }
     // (`FRAME_SHADOW_QUALITY=high`: the area views' shadows as stencil
     // volumes, Options › Area's High.)
     if std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high")) {
         app.settings.shadow_quality = mg_ui::settings::ShadowQuality::High;
+    }
+    // (`FRAME_AREA_RESOLUTION=<percent>`: Options › Area › Area view
+    // resolution.)
+    if let Some(p) = std::env::var("FRAME_AREA_RESOLUTION").ok().and_then(|p| p.parse().ok()) {
+        app.settings.area_resolution = Some(p);
+    }
+    // (`FRAME_TEXTURE_LIMIT=<pixels>`: Options › Area › Largest textures.)
+    if let Some(px) = std::env::var("FRAME_TEXTURE_LIMIT").ok().and_then(|p| p.parse().ok()) {
+        app.settings.texture_limit = Some(px);
+        if let Some(vp) = app.viewport.as_ref() {
+            vp.gpu.set_texture_limit(Some(u32::from(px)));
+        }
     }
     // (A step a 144th of a second, as the window's frames go: with the
     // harness's quarter of a second, every frame of an area's opening
@@ -505,9 +590,28 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
 }
 
+/// A device as the desktop app asks for one (`apps/moonglow`): with BC
+/// textures, which the game's are mostly (without, each was uploaded as
+/// RGBA8, four to eight times its size: The Domains of Dread's woods took
+/// 4.4 GB of textures here, where the app takes a quarter of it).
 fn render_state() -> egui_wgpu::RenderState {
+    let mut setup = egui_kittest::wgpu::default_wgpu_setup();
+    if let egui_wgpu::WgpuSetup::CreateNew(new) = &mut setup {
+        new.device_descriptor = std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
+            label: Some("moonglow"),
+            required_features: adapter.features() & mg_ui::OPTIONAL_FEATURES,
+            required_limits: adapter.limits(),
+            // (`FRAME_MEMORY_HINTS=performance`: wgpu's default, blocks of
+            // 128 to 256 MB.)
+            memory_hints: match std::env::var("FRAME_MEMORY_HINTS").as_deref() {
+                Ok("performance") => wgpu::MemoryHints::Performance,
+                _ => wgpu::MemoryHints::MemoryUsage,
+            },
+            ..Default::default()
+        });
+    }
     egui_kittest::wgpu::create_render_state(
-        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        mg_ui::graphics_setup(setup),
         egui_wgpu::RendererOptions::PREDICTABLE,
     )
 }
@@ -527,8 +631,12 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     let background = h.state().background_jobs;
     h.state_mut().background_jobs = true;
     // (Its textures read anew, as the first time an area is opened: the
-    // area a module opens itself was drawn as it opened.)
-    if let Some(vp) = h.state_mut().viewport.as_mut() {
+    // area a module opens itself was drawn as it opened. With
+    // `FRAME_KEEP_TEXTURES`, those of what was shown before kept, as a
+    // session keeps them.)
+    if let Some(vp) = h.state_mut().viewport.as_mut()
+        && std::env::var_os("FRAME_KEEP_TEXTURES").is_none()
+    {
         vp.renderer.clear_textures();
     }
     h.state_mut().actions.push(Action::OpenTab(tab.clone()));
@@ -663,6 +771,9 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     }
     drag_selection(h, r, &format!("{name}, a selection dragged"), area);
     close(h, &tab);
+    if r.only.as_ref().is_none_or(|only| name.contains(only.as_str())) {
+        said_memory(h, &format!("{name}, closed"));
+    }
 }
 
 /// `FRAME_HARD_PARTICLES=1`: particles without their fade too

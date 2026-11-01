@@ -865,6 +865,60 @@ impl AreaView {
         self.drawn = None;
     }
 
+    /// Lets go of its picture's targets (drawn anew into new ones).
+    pub(crate) fn let_go_of_targets(&mut self, vp: &crate::model_view::Viewport3d) {
+        vp.let_go_of_targets(&mut self.targets);
+        self.drawn = None;
+    }
+
+    /// Its picture drawn anew at the next frame (what it was drawn with
+    /// changed: the textures read again).
+    pub(crate) fn redraw_picture(&mut self) {
+        self.drawn = None;
+    }
+
+    /// The size its picture is drawn at, pixels, while its targets are held.
+    pub fn picture_size(&self) -> Option<(u32, u32)> {
+        self.targets.as_ref().map(|(t, _)| t.size)
+    }
+
+    /// Whether its picture's targets are held (drawn into, and shown).
+    pub fn holds_targets(&self) -> bool {
+        self.targets.is_some()
+    }
+
+    /// Whether its scene is on the GPU (its tiles' and objects' models).
+    pub fn holds_scene(&self) -> bool {
+        self.scene.is_some()
+    }
+}
+
+/// After a frame: the area views not drawn for
+/// [`UNSEEN_AFTER`](crate::model_view::UNSEEN_AFTER) let go of their
+/// picture's targets (their tab is behind another, or closed); and those
+/// whose tab is closed, of their scene too (its models and their meshes on
+/// the GPU, the particles, the grass): the view keeps its camera,
+/// selection and tools, and is read again when its tab opens again, as
+/// Reload Resources reads it. (Kept, every area opened in a session held
+/// its targets and scene until the module closed.)
+pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
+    let Some(vp) = app.viewport.as_ref() else { return };
+    let after = crate::model_view::UNSEEN_AFTER;
+    for (area, view) in app.area_views.iter_mut() {
+        if view.last_frame.is_some_and(|t| now - t <= after) {
+            continue;
+        }
+        if view.targets.is_some() {
+            view.let_go_of_targets(vp);
+        }
+        if view.scene.is_some() && app.dock.find_tab(&crate::Tab::Area(*area)).is_none() {
+            view.reload();
+            view.particles.clear();
+        }
+    }
+}
+
+impl AreaView {
     /// The area's tiles were laid out anew (another size, turned, another
     /// tileset, the file read again): the tile tools let go of the corners
     /// and tiles they held of the ground as it was, the pointer's (until
@@ -3111,7 +3165,10 @@ fn viewport(
         return;
     };
     let size = ui.available_size().max(egui::vec2(32.0, 32.0));
-    let ppp = ui.ctx().pixels_per_point();
+    // (Options › Area › Area view resolution: so many of a hundred pixels
+    // each way, the picture stretched to the view.)
+    let share = app.settings.area_resolution.map_or(1.0, |p| f32::from(p.clamp(25, 100)) / 100.0);
+    let ppp = ui.ctx().pixels_per_point() * share;
     let (w, h) = ((size.x * ppp).round() as u32, (size.y * ppp).round() as u32);
     let (w, h) = (w.clamp(16, 8192), h.clamp(16, 8192));
 
@@ -3242,6 +3299,8 @@ fn viewport(
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }
+    // (What the picture still waits for: drawn again when it comes.)
+    let pending = vp.renderer.drawn.textures_pending > 0 || vp.renderer.drawn.game_pending > 0;
     let watch_failed = view.watching.read(vp, &view.area.to_string());
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
@@ -3313,12 +3372,24 @@ fn viewport(
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     crate::tile_select::refused_overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen, when their
-    // next step is due.
-    let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
-    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    // next step is due; while the window has the focus (behind another
+    // program's, the picture is kept as it is, until a frame comes or the
+    // window is gone back to: a toolset left open drew 25 pictures a
+    // second that no one looked at, an integrated GPU's every moment).
+    if animates_now(ui, view.drawn.is_some(), pending) {
+        let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    }
     // (The map last: over the rest, and the pointer's there.)
     minimap_overlay(app, ui, view);
     input(app, ui, view, &response);
+}
+
+/// Whether a 3D view's animations step now: while the window has the
+/// focus, or its picture is still to be drawn whole (`drawn` is false, or
+/// it waits for textures or the game's programs: `pending`).
+pub(crate) fn animates_now(ui: &egui::Ui, drawn: bool, pending: bool) -> bool {
+    !drawn || pending || ui.input(|i| i.focused)
 }
 
 /// The area's map in the view's top right corner (the toolbar's
