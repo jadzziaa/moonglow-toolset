@@ -1398,33 +1398,17 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             }
                             let p = crate::claims::of(&app.ws);
                             crate::claims::menu_items(p, &mut app.actions, ui, k.resref);
-                            if ui
-                                .button("Export Minimap…")
-                                .on_hover_text("The area's map as the game shows it, as a PNG")
-                                .clicked()
-                            {
-                                app.actions.push(Action::ExportMinimap(k.resref));
-                            }
-                            if ui
-                                .button("Make Placeables Static")
-                                .on_hover_text(STATIC_TIP)
-                                .clicked()
-                            {
-                                app.actions.push(Action::StaticPlaceables(vec![k.resref]));
-                            }
-                            if ui
-                                .button("Make Placeables Dynamic")
-                                .on_hover_text("Clears Static on every placeable of the area")
-                                .clicked()
-                            {
-                                app.actions.push(Action::DynamicPlaceables(vec![k.resref]));
-                            }
-                            for t in [ResType::ARE, ResType::GIT] {
-                                let g = ResKey::new(k.resref, t);
-                                if ui.button(format!("Fields of {g}")).clicked() {
-                                    app.actions.push(Action::OpenTab(Tab::Gff(g)));
+                            let areas = [k.resref];
+                            placeables_menu(ui, &areas, "of the area", &mut app.actions);
+                            // Its two files' fields, as the game reads them.
+                            ui.menu_button("Fields", |ui| {
+                                for t in [ResType::ARE, ResType::GIT] {
+                                    let g = ResKey::new(k.resref, t);
+                                    if ui.button(format!("Fields of {g}")).clicked() {
+                                        app.actions.push(Action::OpenTab(Tab::Gff(g)));
+                                    }
                                 }
-                            }
+                            });
                             ui.separator();
                         }
                         if mg_module::rename::renamable(k.restype) {
@@ -1454,50 +1438,61 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         if ui.button("Delete…").clicked() {
                             app.actions.push(Action::DeleteDialog(k));
                         }
-                        if ui.button("Export…").clicked() {
-                            app.actions.push(Action::ExportDialog(vec![k]));
-                        }
-                        let with = match k.restype {
-                            ResType::NSS => " (with its compiled script)",
-                            ResType::ARE => " (with its .git and .gic)",
-                            _ => "",
-                        };
-                        if ui
-                            .button("Export as Files…")
-                            .on_hover_text(format!("Write {k} into a folder{with}"))
-                            .clicked()
-                        {
-                            app.actions.push(Action::ExportFiles {
-                                keys: vec![k],
-                                dependencies: false,
-                                scratch: false,
-                            });
-                        }
-                        if k.restype == ResType::ARE
-                            && ui
-                                .button("Export Model Files…")
-                                .on_hover_text(
-                                    "Write the files the game draws the area with into a \
-                                     folder: its tileset, its tiles' models, walkmeshes and \
-                                     textures, its skybox, and the models of what is placed in \
-                                     it, from the haks and wherever else they are (the game's \
-                                     own are left out, unless all of it is the game's)",
-                                )
+                        // The ways of writing it out, together.
+                        ui.menu_button("Export", |ui| {
+                            if ui.button("Export…").clicked() {
+                                app.actions.push(Action::ExportDialog(vec![k]));
+                            }
+                            let with = match k.restype {
+                                ResType::NSS => " (with its compiled script)",
+                                ResType::ARE => " (with its .git and .gic)",
+                                _ => "",
+                            };
+                            if ui
+                                .button("Export as Files…")
+                                .on_hover_text(format!("Write {k} into a folder{with}"))
                                 .clicked()
-                        {
-                            app.actions.push(Action::ExportAreaFiles(k.resref));
-                        }
-                        let tip = crate::transfer::scratch_tip(
-                            app.settings.scratch_dir.as_deref(),
-                            &format!("{k}{with}"),
-                        );
-                        if ui.button("Copy to Scratch Folder").on_hover_text(tip).clicked() {
-                            app.actions.push(Action::ExportFiles {
-                                keys: vec![k],
-                                dependencies: false,
-                                scratch: true,
-                            });
-                        }
+                            {
+                                app.actions.push(Action::ExportFiles {
+                                    keys: vec![k],
+                                    dependencies: false,
+                                    scratch: false,
+                                });
+                            }
+                            if k.restype == ResType::ARE
+                                && ui
+                                    .button("Export Model Files…")
+                                    .on_hover_text(
+                                        "Write the files the game draws the area with into a \
+                                         folder: its tileset, its tiles' models, walkmeshes and \
+                                         textures, its skybox, and the models of what is placed in \
+                                         it, from the haks and wherever else they are (the game's \
+                                         own are left out, unless all of it is the game's)",
+                                    )
+                                    .clicked()
+                            {
+                                app.actions.push(Action::ExportAreaFiles(k.resref));
+                            }
+                            let tip = crate::transfer::scratch_tip(
+                                app.settings.scratch_dir.as_deref(),
+                                &format!("{k}{with}"),
+                            );
+                            if k.restype == ResType::ARE
+                                && ui
+                                    .button("Export Minimap…")
+                                    .on_hover_text("The area's map as the game shows it, as a PNG")
+                                    .clicked()
+                            {
+                                app.actions.push(Action::ExportMinimap(k.resref));
+                            }
+                            if ui.button("Copy to Scratch Folder").on_hover_text(tip).clicked() {
+                                app.actions.push(Action::ExportFiles {
+                                    keys: vec![k],
+                                    dependencies: false,
+                                    scratch: true,
+                                });
+                            }
+                        });
                         // The plugins' commands for it (an area, a
                         // blueprint), before an area's Properties.
                         let target = match k.restype {
@@ -1995,18 +1990,7 @@ fn several_menu(
             actions.push(Action::OpenTab(Tab::AreasProperties(areas.clone())));
             ui.close();
         }
-        if ui.button("Make Placeables Static").on_hover_text(STATIC_TIP).clicked() {
-            actions.push(Action::StaticPlaceables(areas.clone()));
-            ui.close();
-        }
-        if ui
-            .button("Make Placeables Dynamic")
-            .on_hover_text("Clears Static on every placeable of the areas")
-            .clicked()
-        {
-            actions.push(Action::DynamicPlaceables(areas));
-            ui.close();
-        }
+        placeables_menu(ui, &areas, "of the areas", actions);
         ui.separator();
     } else if one_type
         && mg_area::ObjectKind::from_restype(first).is_some()
@@ -2015,22 +1999,25 @@ fn several_menu(
         actions.push(Action::OpenTab(Tab::Blueprints(keys.to_vec())));
         ui.close();
     }
-    if ui.button("Export…").clicked() {
-        actions.push(Action::ExportDialog(keys.to_vec()));
-        ui.close();
-    }
-    let files = "Write them into a folder (a script with its compiled script, an area with its \
-                 .git and .gic)";
-    if ui.button("Export as Files…").on_hover_text(files).clicked() {
-        let keys = keys.to_vec();
-        actions.push(Action::ExportFiles { keys, dependencies: false, scratch: false });
-        ui.close();
-    }
-    if ui.button("Copy to Scratch Folder").clicked() {
-        let keys = keys.to_vec();
-        actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
-        ui.close();
-    }
+    // The ways of writing them out, together (as one's menu has them).
+    ui.menu_button("Export", |ui| {
+        if ui.button("Export…").clicked() {
+            actions.push(Action::ExportDialog(keys.to_vec()));
+            ui.close();
+        }
+        let files = "Write them into a folder (a script with its compiled script, an area with \
+                     its .git and .gic)";
+        if ui.button("Export as Files…").on_hover_text(files).clicked() {
+            let keys = keys.to_vec();
+            actions.push(Action::ExportFiles { keys, dependencies: false, scratch: false });
+            ui.close();
+        }
+        if ui.button("Copy to Scratch Folder").clicked() {
+            let keys = keys.to_vec();
+            actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
+            ui.close();
+        }
+    });
     let delete = "Delete them from the module, as one step (asked first, with what names them)";
     if ui.button("Delete…").on_hover_text(delete).clicked() {
         actions.push(Action::DeleteChosenDialog(keys.to_vec()));
@@ -2044,6 +2031,26 @@ fn several_menu(
         t => mg_area::ObjectKind::from_restype(t).map(mg_plugin::Target::Object),
     };
     target.and_then(|t| crate::plugins::menu_commands(ui, commands, &[t]))
+}
+
+/// Make Placeables Static and Make Placeables Dynamic on `areas`, in a
+/// submenu of their own (an area's menu, and several areas'): `whose`
+/// ends the second's tip ("of the area").
+fn placeables_menu(ui: &mut Ui, areas: &[ResRef], whose: &str, actions: &mut Vec<Action>) {
+    ui.menu_button("Placeables", |ui| {
+        if ui.button("Make Placeables Static").on_hover_text(STATIC_TIP).clicked() {
+            actions.push(Action::StaticPlaceables(areas.to_vec()));
+            ui.close();
+        }
+        if ui
+            .button("Make Placeables Dynamic")
+            .on_hover_text(format!("Clears Static on every placeable {whose}"))
+            .clicked()
+        {
+            actions.push(Action::DynamicPlaceables(areas.to_vec()));
+            ui.close();
+        }
+    });
 }
 
 /// A named resource in the tree: its name, and its ResRef in parentheses

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Blueprints
@@ -160,17 +160,17 @@ The palette's buttons:
   faces its bearer), and a thing made for a wall from the side that
   shows it; the light goes round with the view. Each fills its picture
   as it stands, a long or tall thing too (a dragon, a banner).
-- **Replace Selected with This** (a blueprint's right-click menu): the
-  objects of that type selected in the area become ones of this
-  blueprint, made as [Update Instances](#update-instances) makes them
+- **Replace Selected › Replace Selected with This** (a blueprint's
+  right-click menu): the objects of that type selected in the area become
+  ones of this blueprint, made as [Update Instances](#update-instances) makes them
   (Aurora has no command to replace; its Update Instances is the same
   remaking): where they stand, facing as they face, with their visual
   transform (a tilt, a scale), a trigger's or an encounter's outline and
   an encounter's spawn points. Their tag, name, scripts and variables
-  become the blueprint's; **Replace Selected, Keeping Tags and Scripts**
-  keeps each one's own instead (a placeholder replaced by the real thing
-  keeps the tag its scripts know it by), the rest coming from the
-  blueprint. A placeable the blueprint makes static loses
+  become the blueprint's; **Replace Selected › Replace Selected, Keeping
+  Tags and Scripts** keeps each one's own instead (a placeholder replaced
+  by the real thing keeps the tag its scripts know it by), the rest coming
+  from the blueprint. A placeable the blueprint makes static loses
   its transform, as ticking Static does. Locked objects are left. One
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.
@@ -207,8 +207,8 @@ The palette's buttons:
   **Find** is still typed in), its pages and lists can still be looked
   through, and a change tried is refused with a note that offers **Edit
   Copy…**.
-- **Copy ResRef** and **Copy Tag**: the blueprint's, to paste (in a
-  script), without opening it.
+- **Copy › Copy ResRef** and **Copy › Copy Tag**: the blueprint's, to
+  paste (in a script), without opening it.
 - **Export…** (a custom blueprint, or the several selected): the Export
   window with them chosen, as File › Export.
 - **Lists of choices** (an appearance, a race, a part, a palette
@@ -850,6 +850,6 @@ the module places or names it.
 
 An object placed in an area has the same pages as its blueprint
 (double-click it, or right-click › **Properties**). Changing an instance
-changes neither its blueprint nor other instances. **Add to Palette**
-turns an instance into a new custom blueprint, and **Update Instances**
-on a blueprint remakes its instances from it.
+changes neither its blueprint nor other instances. **Reuse › Add to
+Palette** (its right-click menu) turns an instance into a new custom
+blueprint, and **Update Instances** on a blueprint remakes its instances from it.

@@ -17,6 +17,7 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.run();
     h.get_by_label("CHESS").click_secondary();
     h.run();
+    open_submenu(&mut h, "Export");
     h.get_by_label("Export Minimap…").click();
     h.run();
     let data = std::fs::read(&png).expect("the minimap is saved");

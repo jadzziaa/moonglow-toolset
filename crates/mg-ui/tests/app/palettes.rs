@@ -882,6 +882,7 @@ fn add_to_palette_create_waypoint_and_set() {
 
     // Add to Palette on the chest: a new blueprint, which the chest names.
     right_click(&mut h, Vec3::new(12.0, 30.0, 0.3));
+    open_submenu(&mut h, "Reuse");
     h.get_by_label("Add to Palette").click();
     h.run_steps(3);
     let chest = git(&mut h).list("Placeable List").unwrap()[0].clone();
@@ -1946,6 +1947,7 @@ fn the_palette_replaces_the_selected_object() {
     let (first, second) = (read(&mut h, 0), read(&mut h, 1));
     h.get_by_label(&tavern).click_secondary();
     h.run_steps(2);
+    open_submenu(&mut h, "Replace Selected");
     h.get_by_label("Replace Selected with This").click();
     h.run_steps(3);
     let now = read(&mut h, 0);
@@ -1965,6 +1967,7 @@ fn the_palette_replaces_the_selected_object() {
     let own = tag(&mut h);
     h.get_by_label(&tavern).click_secondary();
     h.run_steps(2);
+    open_submenu(&mut h, "Replace Selected");
     h.get_by_label("Replace Selected, Keeping Tags and Scripts").click();
     h.run_steps(3);
     assert_eq!(read(&mut h, 0).0.as_deref(), Some("nw_wp_tavern"), "of the blueprint");
@@ -2224,6 +2227,7 @@ fn a_blueprint_s_resref_and_tag_are_copied_from_the_palette() {
     let copied = |h: &mut Harness<'_, Moonglow>, label: &str| -> Vec<String> {
         h.get_all_by_label("Torch").next().expect("the torch listed").click_secondary();
         h.run_steps(3);
+        open_submenu(h, "Copy");
         h.get_by_label(label).click();
         h.step();
         let out: Vec<String> = (h.output().platform_output.commands.iter())
@@ -2237,4 +2241,69 @@ fn a_blueprint_s_resref_and_tag_are_copied_from_the_palette() {
     };
     assert_eq!(copied(&mut h, "Copy ResRef"), ["nw_it_torch001"]);
     assert_eq!(copied(&mut h, "Copy Tag"), [tag]);
+}
+
+/// A blueprint's menu in the palette keeps its related commands in
+/// submenus of one level (the owner's ask after 3.1.4, as the area
+/// toolbar's Shadows and Walkmesh… keep theirs behind one button): the two
+/// Replace Selected and the two Copy, every command still offered.
+#[test]
+fn the_palette_s_blueprint_menu_groups_its_commands_in_submenus() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-submenus");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let game = app.game.as_deref().unwrap();
+    let mut g = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let key = ResKey::parse("mg_gate_a", ResType::UTW).unwrap();
+    g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+    let name = LocString::from_text(Language::ENGLISH, Gender::Male, "Gate A");
+    g.root.set("LocalizedName", mg_gff::Value::LocString(name));
+    g.root.set("Tag", mg_gff::Value::String(b"MG_GATE_A".to_vec()));
+    let made = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(mg_edit::Command::new("setup", vec![made])).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    (app.palette.tiles, app.palette.custom) = (false, true);
+    app.palette.filter = "Gate A".into();
+    let mut h = harness(app, 900.0, 700.0);
+    settle(&mut h);
+    h.get_by_label("Gate A").click_secondary();
+    h.run_steps(3);
+    let top = menu_items(&h, "Delete");
+    assert!(top[0].starts_with("New "), "the type's wizard first: {top:?}");
+    assert_eq!(
+        top[1..],
+        [
+            "Edit",
+            "Export…",
+            "Edit Copy…",
+            "Replace Selected ⏵",
+            "Add to Favorites",
+            "Find References",
+            "Copy ⏵",
+            "Update Instances",
+            "Delete"
+        ],
+        "{top:?}"
+    );
+    assert_eq!(
+        submenu_items(&mut h, "Replace Selected", "Replace Selected with This"),
+        ["Replace Selected with This", "Replace Selected, Keeping Tags and Scripts"]
+    );
+    assert_eq!(submenu_items(&mut h, "Copy", "Copy Tag"), ["Copy ResRef", "Copy Tag"]);
+    // An item of a submenu does what it did, and closes the menu.
+    h.get_by_label("Copy Tag").click();
+    h.step();
+    let copied: Vec<String> = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(copied, ["MG_GATE_A"]);
+    h.run_steps(2);
+    assert!(h.query_by_label("Copy ResRef").is_none(), "the menu closed");
+    assert!(h.query_by_label("Edit Copy…").is_none(), "the menu closed");
 }

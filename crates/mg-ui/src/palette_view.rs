@@ -1948,29 +1948,32 @@ impl Tree<'_> {
                 picks.push(Pick::Preview(key));
                 ui.close();
             }
-            if ui
-                .button("Replace Selected with This")
-                .on_hover_text(
-                    "The objects of this type selected in the area become ones of this \
-                     blueprint, where they stand",
-                )
-                .clicked()
-            {
-                picks.push(Pick::Replace(key, false));
-                ui.close();
-            }
-            if ui
-                .button("Replace Selected, Keeping Tags and Scripts")
-                .on_hover_text(
-                    "The objects of this type selected in the area become ones of this \
-                     blueprint, where they stand, each keeping its own tag, name, scripts and \
-                     variables (a placeholder keeps what the scripts know it by)",
-                )
-                .clicked()
-            {
-                picks.push(Pick::Replace(key, true));
-                ui.close();
-            }
+            // The two ways of replacing the area's selection, together.
+            ui.menu_button("Replace Selected", |ui| {
+                if ui
+                    .button("Replace Selected with This")
+                    .on_hover_text(
+                        "The objects of this type selected in the area become ones of this \
+                         blueprint, where they stand",
+                    )
+                    .clicked()
+                {
+                    picks.push(Pick::Replace(key, false));
+                    ui.close();
+                }
+                if ui
+                    .button("Replace Selected, Keeping Tags and Scripts")
+                    .on_hover_text(
+                        "The objects of this type selected in the area become ones of this \
+                         blueprint, where they stand, each keeping its own tag, name, scripts \
+                         and variables (a placeholder keeps what the scripts know it by)",
+                    )
+                    .clicked()
+                {
+                    picks.push(Pick::Replace(key, true));
+                    ui.close();
+                }
+            });
             let text = if favorite { "Remove from Favorites" } else { "Add to Favorites" };
             if ui.button(text).clicked() {
                 picks.push(Pick::Favorite(key, !favorite));
@@ -1986,15 +1989,17 @@ impl Tree<'_> {
             }
             // (For a script, without opening the blueprint: Troubletcat's
             // ask after 3.1.0, the game's blueprints' fields copied from
-            // View.)
-            if ui.button("Copy ResRef").on_hover_text("Its ResRef, to paste").clicked() {
-                ui.ctx().copy_text(key.resref.to_string());
-                ui.close();
-            }
-            if ui.button("Copy Tag").on_hover_text("Its Tag, to paste").clicked() {
-                picks.push(Pick::CopyTag(key));
-                ui.close();
-            }
+            // View.) Its names to paste, together.
+            ui.menu_button("Copy", |ui| {
+                if ui.button("Copy ResRef").on_hover_text("Its ResRef, to paste").clicked() {
+                    ui.ctx().copy_text(key.resref.to_string());
+                    ui.close();
+                }
+                if ui.button("Copy Tag").on_hover_text("Its Tag, to paste").clicked() {
+                    picks.push(Pick::CopyTag(key));
+                    ui.close();
+                }
+            });
             if mine {
                 let keys = sel.bulk(key);
                 let text = match keys.len() {

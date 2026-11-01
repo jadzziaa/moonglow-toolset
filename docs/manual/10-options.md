@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T23:50:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Options
@@ -25,7 +25,7 @@ the module is opened again from its file.
   says so; what you set here is kept for the next start. A shortcut for
   each user folder you test with can name its folder this way.
 - **Scratch folder**: where **To Scratch** (the script editor, the area
-  view) and **Copy to Scratch Folder** (the module tree) copy a script
+  view) and **Export › Copy to Scratch Folder** (the module tree) copy a script
   with its compiled script, or an area, as loose files. Empty: asked for
   the first time. See [Modules](03-modules.md).
 - **NWSync upload command**: what **Upload** in Build › Publish to

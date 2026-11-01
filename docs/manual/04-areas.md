@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T13:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:35:56Z }
 ---
 
 # Areas
@@ -227,10 +227,10 @@ palette's Gallery is 🖼, the Grid ⊞.
 
 ## Minimaps
 
-**Export Minimap…** (an area's right-click menu in the module tree) saves
-the area's map as a PNG, as the game's map draws it: each tile's picture
-(the tileset's `ImageMap2D`) turned as the tile is, north up, unsaved
-tiles included. A tile without a picture is black, as in the game. `mg
+**Export › Export Minimap…** (an area's right-click menu in the module
+tree) saves the area's map as a PNG, as the game's map draws it: each
+tile's picture (the tileset's `ImageMap2D`) turned as the tile is, north
+up, unsaved tiles included. A tile without a picture is black, as in the game. `mg
 minimap` does the same from the command line. Each picture keeps its own
 size unless `--size` sets one; the game's are mostly 16 pixels.
 
@@ -489,17 +489,20 @@ Aurora):
   in progress (a value on its way from one to another over some
   seconds), drawn at its end. Setting that value here ends the lerp; a
   value left as it is keeps it.
-- **Random Facing**: turns each selected object to face a way of its
-  own, at random (by the snap angle, if one is set): for trees and rocks
-  placed in numbers.
-- **Drop to Ground** (G): puts raised objects back on the ground under
-  them. A trigger or an encounter comes down (or up) as a whole, until
-  its lowest corner is on the ground.
-- **Drop onto Object** (Shift+G): sets each selected object on the
-  placeable or door below its center (a skull on an altar, a book on a
-  table), by that object's model, up to 2 m above it; with nothing there,
-  on the ground. Not creatures, which the game stands on the ground.
-  **Onto Objects** on the toolbar places them so in the first place.
+- **Position**, the quick ways of setting where the selection stands
+  and how it faces:
+  - **Position › Drop to Ground** (G): puts raised objects back on the
+    ground under them. A trigger or an encounter comes down (or up) as a
+    whole, until its lowest corner is on the ground.
+  - **Position › Drop onto Object** (Shift+G): sets each selected object
+    on the placeable or door below its center (a skull on an altar, a
+    book on a table), by that object's model, up to 2 m above it; with
+    nothing there, on the ground. Not creatures, which the game stands on
+    the ground. **Onto Objects** on the toolbar places them so in the
+    first place.
+  - **Position › Random Facing**: turns each selected object to face a
+    way of its own, at random (by the snap angle, if one is set): for
+    trees and rocks placed in numbers.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.
@@ -516,34 +519,38 @@ Aurora):
   keeps the project's locks in its own folder (see
   [nasher projects](03-modules.md#nasher-projects-version-control)), so
   locking never shows in a diff.
-- **Save as Prefab…**: the selected objects, kept under a name to place
-  again (see below): a group of placeables to copy around, in this area
-  or another.
 - Doors: **Reverse Door**, **Initial State** (open or closed, locked).
   Placeables: **Initial State** (open, active…). Sounds: **Mute** or
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
   **Add Spawn Point** (at the point you right-clicked).
 - **Conversation**, **Inventory** (creatures, placeables with an
   inventory, stores).
-- **Add to Palette**: the instance as a new custom blueprint (its ResRef
-  after [your builder code](03-modules.md#your-builder-code), where you
-  have one), named as Aurora names it: a creature's or an item's its
-  blueprint's numbered past those in use (`w2guard` gives `w2guard002`,
-  `nw_wswls001` `wswls003`); a placeable's, door's, trigger's, sound's or
-  waypoint's its blueprint's without a reserved prefix (`nw_`, `plc_`,
-  `x0_`…) where that name is free (`nw_waypoint001` gives
-  `waypoint001`), else numbered (`mgp_utd001`).
-- **Export as Blueprint…**: the instance written into an archive (`.erf`)
-  as a blueprint of its own, made and named as Add to Palette makes one
-  (with the items it holds, each an item blueprint), but not added to the
-  module; with the module's resources it uses (its scripts, its
-  conversation), for another module's **File › Import…**. The module
-  tree's menu of a placed object has it too.
-- **Test From Here**: starts the game at the point you right-clicked,
-  facing the way the camera looks, with the module as it is now (see
-  [Build, verify and test](09-build-and-test.md)). **Test From Here,
-  Choose Character** does the same through the game's character
-  selection.
+- **Reuse**, what is selected kept to place again:
+  - **Reuse › Add to Palette**: the instance as a new custom blueprint
+    (its ResRef after [your builder
+    code](03-modules.md#your-builder-code), where you have one), named as
+    Aurora names it: a creature's or an item's its blueprint's numbered
+    past those in use (`w2guard` gives `w2guard002`, `nw_wswls001`
+    `wswls003`); a placeable's, door's, trigger's, sound's or waypoint's
+    its blueprint's without a reserved prefix (`nw_`, `plc_`, `x0_`…)
+    where that name is free (`nw_waypoint001` gives `waypoint001`), else
+    numbered (`mgp_utd001`).
+  - **Reuse › Export as Blueprint…**: the instance written into an
+    archive (`.erf`) as a blueprint of its own, made and named as Add to
+    Palette makes one (with the items it holds, each an item blueprint),
+    but not added to the module; with the module's resources it uses (its
+    scripts, its conversation), for another module's **File › Import…**.
+    The module tree's menu of a placed object has it too (at its top level).
+  - **Reuse › Save as Prefab…**: the selected objects, kept under a name
+    to place again (see below): a group of placeables to copy around, in
+    this area or another.
+
+  Add to Palette and Export as Blueprint… are for one object at a time.
+- **Test › Test From Here**: starts the game at the point you
+  right-clicked, facing the way the camera looks, with the module as it
+  is now (see [Build, verify and test](09-build-and-test.md)). **Test ›
+  Test From Here, Choose Character** does the same through the game's
+  character selection.
 - **Create Waypoint**: a waypoint where the object stands. **Create Set…**
   (waypoints): name the selected waypoints `<name>_01`, `<name>_02`…
 - **Levelup Wizard…** (creatures), **Setup Store…** (a creature or
@@ -629,9 +636,9 @@ camp, a market stall or a furnished room: the way to copy a group of
 placeables around.
 - **Saving one:** select the objects (a click, Ctrl+click for more, or a
   box dragged around them), then **Save N as Prefab…** on the area's
-  toolbar (it shows when several are selected), **Save as Prefab…** on
-  the selection's right-click menu, or **Save Selection as Prefab…** in
-  the palette's **Prefabs**.
+  toolbar (it shows when several are selected), **Reuse › Save as
+  Prefab…** on the selection's right-click menu, or **Save Selection as
+  Prefab…** in the palette's **Prefabs**.
 - **Placing one:** choose it in the palette's **🗐 Prefabs** (beside the
   blueprint types), or under **Edit › Prefabs**. It follows the pointer
   like a paste. A click places it, with the objects in their places
@@ -1419,8 +1426,9 @@ chooser, Tick Shown, Edit Together, then Audio. From the command line,
 
 The game merges an area's **static** placeables into its tiles when the
 area loads, so they cost less to load and draw than dynamic ones. An
-area's right-click menu in the module tree has **Make Placeables
-Static**, and the **Areas** group's has **Make Placeables Static in Every
+area's right-click menu in the module tree has **Placeables › Make
+Placeables Static** (several areas chosen there: the same, on them all),
+and the **Areas** group's has **Make Placeables Static in Every
 Area**: each sets Static on the placeables that lose nothing by it, as
 one undoable step, and the log says how many it made static and how many
 it left, and why. Left dynamic are placeables that:
@@ -1449,7 +1457,7 @@ it left, and why. Left dynamic are placeables that:
 A tag a script makes up as it runs (`"LAMP_" + IntToString(n)`), or one
 named only in a compiled script with no source (a hak's), can't be seen:
 name such tags in the project file's `keep_tags`, or make the placeable
-dynamic again from its menu in the area view. **Make
+dynamic again from its menu in the area view. **Placeables › Make
 Placeables Dynamic**, on the same menus, clears Static on every
 placeable of the area or the module. From the command line, `mg areas
 --static-placeables` and `--dynamic-placeables` do the same.

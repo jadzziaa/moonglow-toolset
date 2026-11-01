@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:18:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Scripts
@@ -242,7 +242,7 @@ The buttons:
   would still run, or the debug file of an older compile; the Compiler
   tab and the log name what was removed. A compiled
   script the module has from before is not copied with a script that no
-  longer compiles. The module tree's Copy to Scratch Folder follows the
+  longer compiles. The module tree's Export › Copy to Scratch Folder follows the
   same rule (see [Modules](03-modules.md), also for exporting files
   elsewhere).
 

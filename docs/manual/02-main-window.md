@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # The main window
@@ -231,20 +231,24 @@ and has a × to clear it.
 
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
-offers **View Area** and the raw fields of its `.are` and `.git` files,
+offers **View Area**, **Placeables** (Make Placeables Static and
+Dynamic), **Fields** (the raw fields of its `.are` and `.git` files),
 and last, as in Aurora, **Properties** (Area Properties); on a script,
 area, conversation or blueprint, **Find References** and **Rename…** (see
-[Modules](03-modules.md)); on any resource, **Copy…**, **Delete…**,
-**Export…**, **Export as Files…** and **Copy to Scratch Folder**.
+[Modules](03-modules.md)); on any resource, **Copy…**, **Delete…** and
+**Export**: **Export › Export…**, **Export › Export as Files…** and
+**Export › Copy to Scratch Folder** (an area's adds **Export Model
+Files…** and **Export Minimap…**).
 
 **Several resources at once:** Ctrl and a click adds a row to those
 chosen (or takes it away), Shift and a click chooses those from the row
 clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
 of one kind, or areas: one Properties window, what you change set on
-each), **Export…**, **Export as Files…**, **Copy to Scratch Folder**,
-**Delete…** (and the Delete key on one of them), for areas **Make
-Placeables Static** and **Dynamic**, and the plugins' commands for them.
+each), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
+Folder**), **Delete…** (and the Delete key on one of them), for areas
+**Placeables › Make Placeables Static** and **Dynamic**, and the
+plugins' commands for them.
 A click alone chooses one row again.
 
 **Copy…** makes a copy in the module under a ResRef you give (a free one

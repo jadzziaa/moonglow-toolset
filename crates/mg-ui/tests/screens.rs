@@ -8463,3 +8463,112 @@ fn properties_window_at_125_percent() {
         image.save(dir.join(format!("properties-125-{frame}.png"))).unwrap();
     }
 }
+
+/// The right-click menus whose related commands are submenus (the
+/// owner's ask after 3.1.4), each submenu opened: a waypoint's in the area
+/// view (`menu-area-*`: Position, Reuse, Test), a blueprint's in the
+/// palette (`menu-palette-*`: Replace Selected, Copy) and an area's in the
+/// module tree (`menu-tree-*`: Placeables, Fields, Export).
+#[test]
+#[ignore]
+fn grouped_context_menus() {
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Menus", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let bp = mg_gff::Gff::read(&bp).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [20.0, 20.0, 0.0], rotation: 0.3 };
+    let waypoint = instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap();
+    git.root.set("WaypointList", mg_gff::Value::List(vec![waypoint]));
+    m.set_gff(git_key, &git).unwrap();
+    let path = dir.join("menus.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let tavern = game.string(mg_core::StrRef(69068)).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    (app.palette.tiles, app.palette.custom) = (false, false);
+    app.palette.filter = "nw_wp_tavern".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 820.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(8);
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    // (A submenu opens with the pointer on it, as a builder's.)
+    let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let at = h.get_by_label(&format!("{name} ⏵")).rect().center();
+        h.hover_at(at);
+        h.run_steps(4);
+    };
+    let close = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..2 {
+            h.key_press(egui::Key::Escape);
+            h.run_steps(2);
+        }
+    };
+    let waypoint = |h: &Harness<'_, Moonglow>| {
+        h.state().area_views[&area].screen_pos(glam::Vec3::new(20.0, 20.0, 0.0)).unwrap()
+    };
+    for name in ["Position", "Reuse", "Test"] {
+        let at = waypoint(&h);
+        right_click(&mut h, at);
+        open(&mut h, name);
+        shoot(&mut h, &dir, &format!("menu-area-{}", name.to_lowercase()));
+        close(&mut h);
+    }
+    for (name, file) in [("Replace Selected", "replace"), ("Copy", "copy")] {
+        let row = h.get_by_label(&tavern).rect().center();
+        right_click(&mut h, row);
+        open(&mut h, name);
+        shoot(&mut h, &dir, &format!("menu-palette-{file}"));
+        close(&mut h);
+    }
+    let row = h
+        .get_all_by_label(&area.to_string())
+        .map(|n| n.rect())
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .expect("the area's row in the module tree");
+    for name in ["Placeables", "Fields", "Export"] {
+        right_click(&mut h, row.center());
+        open(&mut h, name);
+        shoot(&mut h, &dir, &format!("menu-tree-{}", name.to_lowercase()));
+        close(&mut h);
+    }
+}

@@ -1255,6 +1255,7 @@ fn several_resources_are_chosen_in_the_tree_and_exported_together() {
     h.run_steps(2);
     h.get_by_label("3 resources chosen");
     assert!(h.query_by_label("Rename…").is_none(), "not one's own menu");
+    open_submenu(&mut h, "Export");
     h.get_by_label("Export as Files…").click();
     h.run_steps(3);
     let mut written: Vec<String> = std::fs::read_dir(&out)
@@ -1265,6 +1266,7 @@ fn several_resources_are_chosen_in_the_tree_and_exported_together() {
     assert_eq!(written, ["s1.nss", "s3.nss", "s5.nss"]);
     h.get_by_label("s5").click_secondary();
     h.run_steps(2);
+    open_submenu(&mut h, "Export");
     h.get_by_label("Export…").click();
     h.run_steps(2);
     let export = h.state().export.as_ref().expect("the Export window");
