@@ -2473,8 +2473,7 @@ fn the_turning_ring_spins_the_selection() {
     let view = &h.state().area_views[&area];
     let pivot =
         view.model.as_ref().unwrap().objects.iter().find(|o| o.index == 0).unwrap().position;
-    let eye = view.orbit.unwrap().camera().eye;
-    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let radius = view.handle_radius_at(pivot).unwrap();
     // (A little outside its line.)
     let ring = |a: f32| pivot + Vec3::new(a.cos(), a.sin(), 0.0) * radius * 1.06;
     let from = before + 2.0;
@@ -2571,8 +2570,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     };
     // Leads the ring about X a twelfth of the way round, Shift held.
     let lead = |h: &mut Harness<'_, Moonglow>, pivot: Vec3, shot: bool| {
-        let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
-        let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+        let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
         let ring = |a: f32| pivot + Vec3::new(0.0, a.cos(), a.sin()) * radius;
         let shift = egui::Modifiers::SHIFT;
         h.event(egui::Event::ModifiersChanged(shift));
@@ -2656,8 +2654,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
         git.root.list("Placeable List").unwrap()[1].float("Z").unwrap()
     };
     let z0 = height(&mut h);
-    let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
-    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
     let shift = egui::Modifiers::SHIFT;
     let left = |pos, pressed| egui::Event::PointerButton {
         pos,
@@ -3451,8 +3448,7 @@ fn rings_and_arrows_are_led_from_straight_above() {
         h.run_steps(3);
     };
     // The camera looks straight down, as the view opens.
-    let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
-    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
 
     // The up arrow, end on: up the screen raises the chest.
     let head = screen(&h, area, pivot + Vec3::Z * radius * 1.45);
@@ -3967,8 +3963,7 @@ fn each_selected_object_has_a_ring_and_any_turns_them_all() {
     let view = &h.state().area_views[&area];
     let second = view.model.as_ref().unwrap().objects.iter().find(|o| o.index == 1).unwrap();
     let pivot = second.position;
-    let eye = view.orbit.unwrap().camera().eye;
-    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let radius = view.handle_radius_at(pivot).unwrap();
     let ring = |a: f32| pivot + Vec3::new(a.cos(), a.sin(), 0.0) * radius;
     let from = before[1] + 2.0;
     let quarter = std::f32::consts::FRAC_PI_2;
@@ -4717,7 +4712,7 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     h.run_steps(2);
     // The handle: up and to the camera's right of the chest's feet.
     let camera = h.state().area_views[&area].orbit.unwrap().camera();
-    let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
+    let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
     let right = (camera.target - camera.eye).cross(Vec3::Z).normalize();
     let handle = screen(&h, area, pivot + (right + Vec3::Z).normalize() * radius * 1.25);
     let middle = screen(&h, area, pivot);
@@ -5821,4 +5816,92 @@ fn what_follows_the_pointer_stops_under_a_window() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(!h.state().area_views[&area].tile_pasting, "Escape over the view");
+}
+
+/// The selection's handles seen from close by (a builder placing fruit
+/// on a table, after 3.1.4: the Shift handles ran out of the view): the
+/// turning ring, and with Shift the tilt rings, the arrows and the scale
+/// handle, keep about the size on screen they have from farther off, all
+/// in the view; at a usual distance as large as they were. The pictures
+/// are in `target/test-output/ui-area-handles-close/`.
+#[test]
+fn the_handles_fit_the_view_when_the_camera_is_close() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("handles-close") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let pivot = Vec3::new(20.0, 12.0, 0.0);
+    {
+        // A chest that isn't static: it has every handle.
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: pivot.to_array(), rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        item.set("Static", mg_gff::Value::Byte(0));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    let dir = mg_testkit::output_dir("ui-area-handles-close");
+    // How far the handles reach from the chest on screen, at each
+    // distance, with Shift and without.
+    let (mut reach, mut out) = (Vec::new(), Vec::new());
+    for (name, distance) in [("usual", 14.0), ("close", 1.2)] {
+        {
+            let view = h.state_mut().area_views.get_mut(&area).unwrap();
+            view.selection = vec![(ObjectKind::Placeable, 0)];
+            let o = view.orbit.as_mut().unwrap();
+            (o.target, o.yaw, o.pitch, o.distance) = (pivot + Vec3::Z * 0.4, 0.3, 0.5, distance);
+        }
+        for shift in [false, true] {
+            let modifiers = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+            h.event(egui::Event::ModifiersChanged(modifiers));
+            h.run_steps(3);
+            let img = h.render().expect("render");
+            let shot = format!("{name}_{}.png", if shift { "shift" } else { "ring" });
+            img.save(dir.join(&shot)).unwrap();
+            let view = &h.state().area_views[&area];
+            let (rect, middle) = (view.rect, view.screen_pos(pivot).expect("the chest in view"));
+            let points = view.handle_points(shift);
+            assert!(!points.is_empty(), "{shot}: the handles shown");
+            let mut far = 0.0f32;
+            for p in points {
+                match p.filter(|p| rect.contains(*p)) {
+                    Some(p) => far = far.max(p.distance(middle)),
+                    None => out.push(format!("{shot}: a handle at {p:?} out of the view {rect:?}")),
+                }
+            }
+            reach.push((shot, far));
+        }
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(1);
+    }
+    assert!(out.is_empty(), "{} handles out of the view: {:?}", out.len(), out.first());
+    // About as large close by as from farther off.
+    for k in 0..2 {
+        let ((usual, a), (close, b)) = (&reach[k], &reach[k + 2]);
+        assert!(*b > a * 0.5 && *b < a * 2.0, "{close} reaches {b}, {usual} {a}");
+    }
+    // At a usual distance, as large as they were: a fourteenth of the
+    // distance, about.
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.orbit.as_mut().unwrap().distance = 14.0;
+    }
+    h.run_steps(2);
+    let view = &h.state().area_views[&area];
+    let eye = view.orbit.unwrap().camera().eye;
+    let radius = view.handle_radius_at(pivot).unwrap();
+    assert!((radius - eye.distance(pivot) * 0.0765).abs() < 1e-3, "{radius} m");
 }

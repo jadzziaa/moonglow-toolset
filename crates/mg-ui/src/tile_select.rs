@@ -1,8 +1,10 @@
 //! Selecting tiles in the area viewer (Aurora's Select Terrain mode), and
 //! the Tile Properties window.
 //!
-//! - In tile mode a click selects the tile under the pointer (Ctrl + click
-//!   adds or removes it) and a drag selects a box of tiles.
+//! - In tile mode a click selects the tile under the pointer (Shift + click
+//!   adds it, Ctrl + click adds or removes it; past the area's edge, none)
+//!   and a drag selects a box of tiles (those of the area it covers; with
+//!   Shift, added to those selected).
 //! - Delete takes the selected tiles' crossers away (and a group or a
 //!   feature whole); Shift + right click steps the tile under the pointer
 //!   through the tiles that fit (Aurora's order: each tile's turns, then
@@ -285,6 +287,25 @@ pub(crate) fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
         .then_some((x as u32, y as u32))
 }
 
+/// The tiles a box dragged from `from` to `to` on screen covers, row by
+/// row: those of the area between the ground points under its corners,
+/// a corner past the area's edge taking the tiles up to it (none for a
+/// box wholly past it). `None` where a corner is on the sky.
+fn boxed_tiles(view: &AreaView, from: Pos2, to: Pos2) -> Option<Vec<(u32, u32)>> {
+    let model = view.model.as_ref()?;
+    let (a, b) = (view.ground_at(from, 0.0)?, view.ground_at(to, 0.0)?);
+    let cell = |v: f32| (v / mg_area::TILE_SIZE).floor();
+    let (x0, x1) = (cell(a.x.min(b.x)), cell(a.x.max(b.x)));
+    let (y0, y1) = (cell(a.y.min(b.y)), cell(a.y.max(b.y)));
+    let (w, h) = (model.width as f32, model.height as f32);
+    if x1 < 0.0 || y1 < 0.0 || x0 >= w || y0 >= h {
+        return Some(Vec::new());
+    }
+    let (x0, x1) = (x0.max(0.0) as u32, x1.min(w - 1.0) as u32);
+    let (y0, y1) = (y0.max(0.0) as u32, y1.min(h - 1.0) as u32);
+    Some((y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect())
+}
+
 /// Tile mode's input; `false` when the view is not in tile mode.
 pub(crate) fn input(
     app: &mut Moonglow,
@@ -300,6 +321,7 @@ pub(crate) fn input(
     {
         let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
         view.tile_box = Some((from, from));
+        view.tile_box_adds = shift;
     }
     if let Some((from, _)) = view.tile_box {
         // (Until the left button is let go, whatever the others do.)
@@ -311,21 +333,27 @@ pub(crate) fn input(
             view.tile_box = None;
         } else if !held.by(egui::PointerButton::Primary) {
             view.tile_box = None;
-            let (a, b) = (tile_at(view, from), held.pos().and_then(|p| tile_at(view, p)));
-            if let (Some(a), Some(b)) = (a, b) {
-                view.tile_selection.clear();
-                for y in a.1.min(b.1)..=a.1.max(b.1) {
-                    for x in a.0.min(b.0)..=a.0.max(b.0) {
-                        view.tile_selection.push((x, y));
+            // (With Shift, held as it began or as it ends: added to those
+            // selected, as Shift + click adds a tile.)
+            let adds = std::mem::take(&mut view.tile_box_adds) || shift;
+            if let Some(tiles) = held.pos().and_then(|to| boxed_tiles(view, from, to)) {
+                if !adds {
+                    view.tile_selection.clear();
+                }
+                for t in tiles {
+                    if !view.tile_selection.contains(&t) {
+                        view.tile_selection.push(t);
                     }
                 }
             }
         }
     }
     // A click on an object: back to the objects, that one selected (the
-    // tiles under one are still taken by a box dragged over them).
+    // tiles under one are still taken by a box dragged over them, and a
+    // click with Shift or Ctrl stays with the tiles).
     if response.clicked()
         && !command
+        && !shift
         && let Some(pos) = response.interact_pointer_pos()
         && let Some(i) = view.pick(pos)
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
@@ -337,17 +365,26 @@ pub(crate) fn input(
         return true;
     }
     if response.clicked()
-        && let Some(t) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
+        && let Some(pos) = response.interact_pointer_pos()
     {
-        if command {
-            match view.tile_selection.iter().position(|s| *s == t) {
+        match tile_at(view, pos) {
+            Some(t) if command => match view.tile_selection.iter().position(|s| *s == t) {
                 Some(i) => {
                     view.tile_selection.remove(i);
                 }
                 None => view.tile_selection.push(t),
+            },
+            // Shift: added to those selected (kept, if it was).
+            Some(t) if shift => {
+                if !view.tile_selection.contains(&t) {
+                    view.tile_selection.push(t);
+                }
             }
-        } else {
-            view.tile_selection = vec![t];
+            Some(t) => view.tile_selection = vec![t],
+            // Past the area's edge (or on the sky): no tile, as a click on
+            // the ground where no object is selects none.
+            None if !command && !shift => view.tile_selection.clear(),
+            None => {}
         }
     }
     if response.secondary_clicked()

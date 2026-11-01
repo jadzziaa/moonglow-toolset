@@ -4598,3 +4598,128 @@ fn a_brush_s_tiles_are_drawn_by_the_game_s_shaders() {
         "the brush's water tiles, by the game's programs: {brush:?} (the area's: {area_alone:?})"
     );
 }
+
+/// A click at `at` in an area's view, `modifiers` held.
+fn click_with(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui::Modifiers) {
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    h.hover_at(at);
+    h.run_steps(1);
+    press(h, at, true, modifiers);
+    press(h, at, false, modifiers);
+    h.run_steps(2);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+}
+
+/// A drag in an area's view from `from` to `to`, `modifiers` held.
+fn drag_with(
+    h: &mut Harness<'_, Moonglow>,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    modifiers: egui::Modifiers,
+) {
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    h.hover_at(from);
+    h.run_steps(1);
+    press(h, from, true, modifiers);
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    press(h, to, false, modifiers);
+    h.run_steps(2);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+}
+
+/// Select Tiles on, the area seen from above.
+fn select_tiles_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (mut h, area) = area_harness(name)?;
+    if !h.state().area_views[&area].tile_mode {
+        h.get_by_label("⛶ Select Tiles").click();
+        h.run_steps(2);
+    }
+    assert!(h.state().area_views[&area].tile_mode);
+    Some((h, area))
+}
+
+/// A point of the ground in the view, past the area's edge or not.
+fn on_ground(h: &Harness<'_, Moonglow>, area: ResRef, x: f32, y: f32) -> egui::Pos2 {
+    let at = screen(h, area, glam::Vec3::new(x, y, 0.0));
+    assert!(h.state().area_views[&area].rect.contains(at), "({x}, {y}) in view at {at:?}");
+    at
+}
+
+/// With Select Tiles, a click past the area's edge (the builder's "void")
+/// selects no tile, as a click on bare ground selects no object; with
+/// Ctrl it leaves the selection be. A box begun past the edge takes the
+/// tiles it covers, and one wholly past it selects none.
+#[test]
+fn select_tiles_a_click_past_the_area_s_edge_selects_none() {
+    let Some((mut h, area)) = select_tiles_harness("tiles-void-click") else { return };
+    let none = egui::Modifiers::NONE;
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].tile_selection.clone();
+    let middle = on_ground(&h, area, 15.0, 15.0);
+    click_with(&mut h, middle, none);
+    assert_eq!(selection(&h), [(1, 1)]);
+    let void = on_ground(&h, area, -4.0, 20.0);
+    click_with(&mut h, void, egui::Modifiers::COMMAND);
+    assert_eq!(selection(&h), [(1, 1)], "Ctrl + click past the edge leaves it be");
+    click_with(&mut h, void, none);
+    assert!(selection(&h).is_empty(), "a click past the edge selects none");
+    // A box from past the west edge to the second column, rows 2 and 3.
+    let (from, to) = (on_ground(&h, area, -4.0, 25.0), on_ground(&h, area, 15.0, 35.0));
+    drag_with(&mut h, from, to, none);
+    assert_eq!(selection(&h), [(0, 2), (1, 2), (0, 3), (1, 3)], "the tiles it covers");
+    // One wholly past the edge: none.
+    let (from, to) = (on_ground(&h, area, -8.0, 5.0), on_ground(&h, area, -3.0, 30.0));
+    drag_with(&mut h, from, to, none);
+    assert!(selection(&h).is_empty(), "a box past the edge selects none");
+}
+
+/// With Select Tiles, Shift adds to the tiles selected, as the builder
+/// asked after 3.1.4 ("Select Tiles does not support shift selections"):
+/// Shift + click adds a tile (one selected stays so; Ctrl + click takes
+/// one out), Shift + drag adds a box's tiles; a plain click or drag
+/// starts the selection anew. A Shift + click past the edge, or on an
+/// object, leaves the tiles selected as they were.
+#[test]
+fn select_tiles_shift_adds_to_the_selection() {
+    let Some((mut h, area)) = select_tiles_harness("tiles-shift") else { return };
+    let (none, shift) = (egui::Modifiers::NONE, egui::Modifiers::SHIFT);
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].tile_selection.clone();
+    let tile = |h: &Harness<'_, Moonglow>, x: u32, y: u32| {
+        on_ground(h, area, x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0)
+    };
+    let at = tile(&h, 0, 0);
+    click_with(&mut h, at, none);
+    let at = tile(&h, 3, 0);
+    click_with(&mut h, at, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0)], "Shift + click adds one");
+    click_with(&mut h, at, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0)], "and again keeps it");
+    // A box with Shift: its tiles added, those selected kept.
+    let (from, to) = (tile(&h, 1, 2), tile(&h, 2, 3));
+    drag_with(&mut h, from, to, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0), (1, 2), (2, 2), (1, 3), (2, 3)]);
+    // Past the edge, or on a waypoint (at 20, 20): as they were.
+    let void = on_ground(&h, area, -4.0, 20.0);
+    click_with(&mut h, void, shift);
+    let waypoint = on_ground(&h, area, 20.0, 20.0);
+    click_with(&mut h, waypoint, shift);
+    assert!(h.state().area_views[&area].tile_mode, "still Select Tiles");
+    let added = selection(&h);
+    assert!(added.starts_with(&[(0, 0), (3, 0), (1, 2), (2, 2), (1, 3), (2, 3)]), "{added:?}");
+    // Ctrl + click takes one out.
+    let at = tile(&h, 3, 0);
+    click_with(&mut h, at, egui::Modifiers::COMMAND);
+    assert!(!selection(&h).contains(&(3, 0)), "Ctrl + click takes it out");
+    // Without Shift, a click and a box start anew.
+    let at = tile(&h, 3, 3);
+    click_with(&mut h, at, none);
+    assert_eq!(selection(&h), [(3, 3)]);
+    let (from, to) = (tile(&h, 0, 0), tile(&h, 1, 0));
+    drag_with(&mut h, from, to, none);
+    assert_eq!(selection(&h), [(0, 0), (1, 0)]);
+}

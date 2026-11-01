@@ -426,6 +426,106 @@ fn export_then_import_into_another_module() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&area));
 }
 
+/// GitHub issue 40 (ELadner): Import Resources of an archive with many
+/// resources the module has. Select All and Select None tick and clear
+/// every one to overwrite at once, as Aurora's Overwrite page's do; the
+/// window is resized by its corner, the list taking the room; and the
+/// import overwrites those ticked.
+#[test]
+fn import_resources_chooses_every_overwrite_at_once_and_resizes() {
+    let dir = mg_testkit::scratch_dir("ui-import-overwrites");
+    let source = sample_module(&dir);
+    let erf = dir.join("many.erf");
+    let mut app = Moonglow::new(
+        None,
+        Box::new(NoDialogs {
+            save: vec![erf.clone()],
+            open: vec![erf.clone()],
+            ..Default::default()
+        }),
+    );
+    app.open_module(&source);
+    // Sixty scripts, exported, then changed in the module: the archive's
+    // are those it has.
+    let keys: Vec<ResKey> =
+        (0..60).map(|i| ResKey::parse(&format!("mg_many_{i:02}"), ResType::NSS).unwrap()).collect();
+    let script = |text: &str| {
+        let edits = keys
+            .iter()
+            .map(|k| mg_edit::Edit::SetResource { key: *k, data: Some(text.as_bytes().to_vec()) })
+            .collect();
+        mg_edit::Command::new("scripts", edits)
+    };
+    app.actions.push(mg_ui::Action::Apply(script("void main() {}\n")));
+    let mut h = harness(app, 1000.0, 900.0);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(keys.clone()));
+    settle(&mut h);
+    h.get_by_label("Export 60…").click();
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Apply(script("// changed\nvoid main() {}\n")));
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    settle(&mut h);
+    let ticked = |h: &Harness<'_, Moonglow>| {
+        let draft = h.state().import.as_ref().expect("Import Resources open");
+        (draft.overwrites.iter().filter(|(_, on)| *on).count(), draft.overwrites.len())
+    };
+    assert_eq!(ticked(&h), (0, 60), "none to overwrite at first");
+    h.get_by_label("Select All").click();
+    settle(&mut h);
+    assert_eq!(ticked(&h), (60, 60));
+    h.get_by_label("60 of 60 to overwrite");
+    h.get_by_label("Select None").click();
+    settle(&mut h);
+    assert_eq!(ticked(&h), (0, 60));
+    // Its corner dragged down and right: a larger window, the list in it
+    // longer (the buttons under it as far down).
+    let is_window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let window = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_label("Import Resources").find(is_window).expect("the window").rect()
+    };
+    let (was, import_was) = (window(&h), h.get_by_label("Import").rect());
+    let corner = was.right_bottom() - egui::vec2(3.0, 3.0);
+    h.hover_at(corner);
+    h.run_steps(2);
+    press(&h, corner, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(corner + egui::vec2(10.0, 25.0) * k as f32);
+        h.run_steps(1);
+    }
+    press(&h, corner + egui::vec2(60.0, 150.0), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let now = window(&h);
+    assert!(now.height() > was.height() + 130.0, "resized: {now:?} from {was:?}");
+    assert!(now.width() > was.width() + 40.0, "wider: {now:?} from {was:?}");
+    let import_now = h.get_by_label("Import").rect();
+    assert!(
+        import_now.top() > import_was.top() + 130.0,
+        "the list takes the room: Import at {import_now:?}, was {import_was:?}; {now:?} from {was:?}"
+    );
+    assert!(now.contains(import_now.center()), "the buttons in the window: {import_now:?}");
+    assert!((now.top() - was.top()).abs() < 2.0, "its top stays: {now:?} from {was:?}");
+    let pointer = corner + egui::vec2(60.0, 150.0);
+    assert!((now.right_bottom() - pointer).length() < 12.0, "its corner at the pointer: {now:?}");
+    // (A picture to look at, where there is a GPU.)
+    if adapter() {
+        mg_testkit::gpu::hold();
+        let img = h.render().expect("render");
+        img.save(mg_testkit::output_dir("ui-import-overwrites").join("resized.png")).unwrap();
+    }
+    // Imported with every one ticked: the archive's scripts in the module.
+    h.get_by_label("Select All").click();
+    settle(&mut h);
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    for k in &keys {
+        assert_eq!(ws.module.get(k).unwrap(), b"void main() {}\n", "{k}");
+    }
+}
+
 /// An area's `.are` exported without the resources it uses still takes
 /// its `.git` and `.gic` (the builders' reports on 1.25.1: the window
 /// lists the three apart, and the archive held the `.are` alone, which

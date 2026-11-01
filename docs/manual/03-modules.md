@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:38:58Z }
 ---
 
 # Modules
@@ -1860,7 +1860,11 @@ plugin reads a description with `mg.twoda.describe`
 - A module opened as a folder (**File › Open Folder…**) or kept as a
   nasher project has its resources as files already.
 - **File › Import…** adds an `.erf`'s resources to the module; for those
-  the module already has, you choose which to overwrite. It also lists
+  the module already has, you choose which to overwrite (none are, until
+  ticked): **Select All** ticks every one and **Select None** clears
+  them, as Aurora's Overwrite page has them, and the count beside says
+  how many will be. The window resizes by its edges and corners, the
+  list taking the room, for an archive of hundreds. It also lists
   what the imported resources refer to that neither the module nor the
   game has. An archive Moonglow exported says what it was made from, and
   where the module's git checkout is at another commit now, the window

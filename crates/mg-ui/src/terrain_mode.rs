@@ -1835,9 +1835,11 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
     match item {
         PaletteItem::Folder { label, items } => {
             // (What the search finds shows, opened out.)
+            // (Its own while a search is typed: the search cleared, the
+            // heading is open or closed as it was before.)
             let open = if searching { Some(true) } else { at.fold };
             egui::CollapsingHeader::new(label.as_str())
-                .id_salt((tileset, depth, label.as_str()))
+                .id_salt((tileset, depth, label.as_str(), searching))
                 .default_open(
                     depth == 0
                         && items
@@ -1907,7 +1909,8 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             // In the Gallery, a terrain or crosser is a heading its tiles
             // open and close under, as a category of blueprints; its name
             // chooses the brush.
-            let id = ui.make_persistent_id((tileset, "tile-heading", label.as_str()));
+            // (Its own while a search is typed, as a folder's.)
+            let id = ui.make_persistent_id((tileset, "tile-heading", label.as_str(), searching));
             let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id,

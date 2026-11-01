@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:35:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:44:26Z }
 ---
 
 # Areas
@@ -309,6 +309,11 @@ encounter turns by its outline: alone about the outline's middle (an
 encounter's spawn points go round with it), and with the others when
 they turn together. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
+The ring, and the tilt rings, arrows and scale handle below, keep their
+size on screen however near or far the camera is (about a tenth of the
+view's height, or of its width where it is narrower): looking closely
+at something small, a piece of fruit on a table, they are as small as
+it and stay in the view.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning
 ring's place, red and green. Lead the red one round to tip the model
@@ -900,7 +905,8 @@ as Aurora's Terrain tab does:
 - The Tiles palette has the blueprint palettes' tools: a **search** (a
   brush's name, or a tile's model: a group or feature is found by the
   models of its tiles too, and shows as itself, one picture in the
-  Gallery), **Expand All** and **Collapse All**,
+  Gallery; what it finds shows opened out, and cleared, each heading is
+  open or closed again as it was before), **Expand All** and **Collapse All**,
   how many there are, and **List** (☰) or **Gallery** (🖼), the same switch
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and
@@ -1015,8 +1021,13 @@ same strokes give the same tiles, heights and crossers.
 
 ## Tiles
 
-With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
-and a drag selects a box of them. **Delete** takes the selected tiles'
+With **Select Tiles** on, a click selects a tile (a click past the
+area's edge selects none, as a click on bare ground does objects),
+**Shift + click** adds one to those selected, Ctrl + click adds one or
+takes it out, and a drag selects a box of them (one begun or ended past
+the edge, the tiles it covers); **Shift + drag** adds the box's tiles to
+those selected. (With Shift or Ctrl, a click on an object stays with
+the tiles: without, it selects the object, back to objects.) **Delete** takes the selected tiles'
 crossers away, and a group or a feature with a tile among them whole, as
 the Eraser does (Aurora's Delete takes the tile alone, leaving the rest
 of the group: Moonglow does so with **Allow editing tiles of groups and
