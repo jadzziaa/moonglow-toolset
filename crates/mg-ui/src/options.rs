@@ -130,6 +130,7 @@ pub struct OptionsDraft {
     pub shadow_quality: crate::settings::ShadowQuality,
     pub texture_limit: Option<u16>,
     pub area_resolution: Option<u8>,
+    pub animate_unfocused: bool,
     pub edit_group_tiles: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
@@ -273,6 +274,7 @@ impl OptionsDraft {
             shadow_quality: s.shadow_quality,
             texture_limit: s.texture_limit,
             area_resolution: s.area_resolution,
+            animate_unfocused: s.animate_unfocused,
             edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
@@ -373,6 +375,7 @@ impl OptionsDraft {
             shadow_quality: self.shadow_quality,
             texture_limit: self.texture_limit,
             area_resolution: self.area_resolution,
+            animate_unfocused: self.animate_unfocused,
             edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
@@ -912,6 +915,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             });
                             texture_limit_choice(ui, &mut draft.texture_limit);
                             area_resolution_choice(ui, &mut draft.area_resolution);
+                            ui.checkbox(
+                                &mut draft.animate_unfocused,
+                                "Keep animating behind other windows",
+                            )
+                            .on_hover_text(
+                                "The area views and the model viewer go on playing their \
+                                 animations while another program's window has the focus. \
+                                 Off, they hold still there until Moonglow's window has it \
+                                 again, which spares the GPU",
+                            );
                             ui.checkbox(
                                 &mut draft.edit_group_tiles,
                                 "Allow editing tiles of groups and features",

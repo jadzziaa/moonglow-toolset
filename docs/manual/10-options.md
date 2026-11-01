@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:32:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:53:35Z }
 ---
 
 # Options
@@ -78,6 +78,11 @@ the module is opened again from its file.
   integrated GPU of a Ryzen 9 9950X, Tyrants of the Moonsea's largest
   area turning took 80 ms a picture at Full, 45 at 75% and 20 at 50%,
   and the view's targets a quarter of the memory at 50%.
+- **Keep animating behind other windows** (off by default): the area
+  views and the model viewer go on playing their animations while
+  another program's window has the focus, for watching an area on one
+  screen while working in another program. Off, they hold still until
+  Moonglow's window has the focus again, which spares the GPU.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift

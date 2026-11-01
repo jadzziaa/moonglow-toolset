@@ -334,6 +334,10 @@ pub struct Settings {
     /// pixels the area views draw their pictures at, percent (shown
     /// stretched to the view); `None`, all of them.
     pub area_resolution: Option<u8>,
+    /// Options › Area › Keep animating behind other windows: the 3D views'
+    /// animations go on while another program's window has the focus
+    /// (else they hold still there, sparing the GPU).
+    pub animate_unfocused: bool,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -899,6 +903,11 @@ mod tests {
         let back: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert_eq!((back.texture_limit, back.area_resolution), (Some(512), Some(50)));
+        // Animations hold still behind other windows unless kept going.
+        assert!(!old.animate_unfocused);
+        let kept = Settings { animate_unfocused: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&kept).unwrap()).unwrap();
+        assert!(back.animate_unfocused);
     }
 
     #[test]

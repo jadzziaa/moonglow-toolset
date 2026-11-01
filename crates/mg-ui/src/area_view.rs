@@ -3376,7 +3376,7 @@ fn viewport(
     // program's, the picture is kept as it is, until a frame comes or the
     // window is gone back to: a toolset left open drew 25 pictures a
     // second that no one looked at, an integrated GPU's every moment).
-    if animates_now(ui, view.drawn.is_some(), pending) {
+    if animates_now(ui, app.settings.animate_unfocused, view.drawn.is_some(), pending) {
         let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
     }
@@ -3386,10 +3386,12 @@ fn viewport(
 }
 
 /// Whether a 3D view's animations step now: while the window has the
-/// focus, or its picture is still to be drawn whole (`drawn` is false, or
-/// it waits for textures or the game's programs: `pending`).
-pub(crate) fn animates_now(ui: &egui::Ui, drawn: bool, pending: bool) -> bool {
-    !drawn || pending || ui.input(|i| i.focused)
+/// focus or the builder keeps them going behind other windows (`always`:
+/// Options › Area › Keep animating behind other windows), or its picture
+/// is still to be drawn whole (`drawn` is false, or it waits for textures
+/// or the game's programs: `pending`).
+pub(crate) fn animates_now(ui: &egui::Ui, always: bool, drawn: bool, pending: bool) -> bool {
+    !drawn || pending || always || ui.input(|i| i.focused)
 }
 
 /// The area's map in the view's top right corner (the toolbar's
