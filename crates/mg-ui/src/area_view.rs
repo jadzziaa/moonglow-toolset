@@ -325,6 +325,13 @@ const TOOLS_MAX: usize = 32;
 /// target otherwise.
 const RING_REACH: f32 = 11.5;
 
+/// The handles' radius by the eye's distance from what they are about:
+/// with the view's 40° field, about a tenth of its height.
+const HANDLE_SHARE: f32 = 0.0765;
+
+/// The least radius of the handles, meters: for an object at the eye.
+const HANDLE_LEAST: f32 = 0.005;
+
 /// Half the side of a scale handle's square, points.
 const SCALE_HANDLE: f32 = 5.0;
 
@@ -1362,6 +1369,51 @@ impl AreaView {
             .take(TOOLS_MAX)
     }
 
+    /// The radius of the handles about a selected object at `at` (its
+    /// rings; its arrows and scale handle reach out from it by so much),
+    /// meters, seen by `camera`: the same share of the view on screen at
+    /// any distance (about a tenth of its height, the arrows' heads ending
+    /// at a sixth), so that from close by (fruit placed on a table) they
+    /// are as small as the object and stay in the view; a view narrower
+    /// than it is tall takes that share of its width. (They were half a
+    /// meter at the least, which from a meter away ran out of the view.)
+    fn handle_radius(&self, camera: &Camera, at: Vec3) -> f32 {
+        let size = self.rect.size();
+        let narrow = if size.x > 0.0 && size.y > 0.0 { (size.x / size.y).min(1.0) } else { 1.0 };
+        ((camera.eye - at).length() * HANDLE_SHARE * narrow).max(HANDLE_LEAST)
+    }
+
+    /// The radius of the handles of a selected object at `at`, as the
+    /// view draws them now: for the tests.
+    pub fn handle_radius_at(&self, at: Vec3) -> Option<f32> {
+        Some(self.handle_radius(&self.camera()?, at))
+    }
+
+    /// Where the selection's handles are on screen, as the view would draw
+    /// them now (with Shift held, `shift`; `None` behind the eye): the
+    /// turning rings' pieces' ends, or the tilt rings', the arrows' heads
+    /// and the scale handles.
+    /// For the tests.
+    pub fn handle_points(&self, shift: bool) -> Vec<Option<Pos2>> {
+        let Some(model) = self.model.as_ref() else { return Vec::new() };
+        let mut points: Vec<Vec3> = Vec::new();
+        if shift {
+            for ring in self.tilt_rings(model) {
+                points.extend((0..RING_SEGMENTS).map(|k| ring.segment(k).0));
+            }
+            for arrow in self.axis_arrows(model) {
+                let (neck, tip) = arrow.head();
+                points.extend([neck, tip]);
+            }
+            points.extend(self.scale_handles(model).into_iter().map(|(_, handle)| handle));
+        } else {
+            for ring in self.turn_rings(model) {
+                points.extend((0..RING_SEGMENTS).map(|k| ring.segment(k).0));
+            }
+        }
+        points.into_iter().map(|p| self.screen_pos(p)).collect()
+    }
+
     /// The rings for turning the selection, one around each selected
     /// object that turns (as `model` has it): about the same size on
     /// screen however far the camera is.
@@ -1370,7 +1422,7 @@ impl AreaView {
         self.chosen(model)
             .filter(|o| turns(o.kind))
             .map(|o| {
-                let radius = ((camera.eye - pivot(o)).length() * 0.0765).max(0.5);
+                let radius = self.handle_radius(&camera, pivot(o));
                 TurnRing { pivot: pivot(o), radius, facing: ring_mark(o) }
             })
             .collect()
@@ -1441,7 +1493,7 @@ impl AreaView {
                 let about_x = stands * glam::Quat::from_rotation_z(r.x);
                 let about_y = about_x * glam::Quat::from_rotation_x(r.y);
                 let pivot = o.transform().transform_point3(visual.translate);
-                let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
+                let radius = self.handle_radius(&camera, pivot);
                 let ring = |axis: usize, n: Vec3| {
                     let u = n.any_orthonormal_vector();
                     TiltRing { axis, pivot, radius, u, v: n.cross(u) }
@@ -1462,7 +1514,7 @@ impl AreaView {
         self.chosen(model)
             .filter(|o| o.takes_visual_transform())
             .map(|o| {
-                let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+                let radius = self.handle_radius(&camera, o.position);
                 (o.position, o.position + out * radius * 1.25)
             })
             .collect()
@@ -1543,7 +1595,7 @@ impl AreaView {
         let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
         let mut arrows = Vec::new();
         for o in self.chosen(model) {
-            let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+            let radius = self.handle_radius(&camera, o.position);
             let axes = if lifts(o.kind) { 0..3 } else { 0..2 };
             arrows.extend(axes.map(|axis| AxisArrow { axis, pivot: o.position, radius }));
         }
