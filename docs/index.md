@@ -34,6 +34,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 # Report
 
 * [Audit: the documentation at 1.21.3](docs-audit.md) - An audit of all 46 documents in docs/ against the code at 1.21.3 - per document, whether it is correct, what was wrong and fixed, what is wrong and left, and whether it is still worth keeping (keep, update, trim, deprecate) - with the decisions it leaves to the owner.
+* [Audit: frames and GPU memory after 3.0.0, and on weaker hardware](performance-audit.md) - A dated record (2026-11-01, develop at 3.1.4) of an audit prompted by reports that performance fell and video memory rose since 3.0.0 - how frames and the GPU's memory were measured (v2.13.3, v3.0.0 and develop side by side; a discrete and an integrated GPU), what was found (no frame or memory regression since 2.13.3; views, textures and memory blocks held for good, an idle window drawing 25 pictures a second, a fill-bound picture on an integrated GPU), what was fixed with numbers before and after, and what is left with its cost.
 * [Review: test necessity, test speed and codebase cleanliness](test-review.md) - A dated record (2026-10-11, version 1.21.1) of where the time between a finished change and a release went, the decisions taken about it, the measurements before and after, and the state of the code by size and shape. How the tests run today is in the plan's §7 and CLAUDE.md.
 
 # Subdirectories
