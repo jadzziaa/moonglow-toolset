@@ -568,6 +568,11 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
     if std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high")) {
         app.settings.shadow_quality = mg_ui::settings::ShadowQuality::High;
     }
+    // (`FRAME_AREA_RESOLUTION=<percent>`: Options › Area › Area view
+    // resolution.)
+    if let Some(p) = std::env::var("FRAME_AREA_RESOLUTION").ok().and_then(|p| p.parse().ok()) {
+        app.settings.area_resolution = Some(p);
+    }
     // (`FRAME_TEXTURE_LIMIT=<pixels>`: Options › Area › Largest textures.)
     if let Some(px) = std::env::var("FRAME_TEXTURE_LIMIT").ok().and_then(|p| p.parse().ok()) {
         app.settings.texture_limit = Some(px);

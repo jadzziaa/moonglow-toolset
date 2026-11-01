@@ -69,6 +69,15 @@ the module is opened again from its file.
   of areas closed, of pictures scrolled past) are let go of once they
   take more than a gigabyte (a quarter of one on an integrated GPU),
   and read again when drawn again.
+- **Area view resolution**: for a GPU that draws the areas slowly (an
+  integrated one). **Full** (the default) draws the area views' pictures
+  at every pixel of the screen; **75%** or **50%** at that share of them
+  each way, stretched to the view and softer for it, while what is
+  drawn over them (outlines, handles, Sound Ranges' rings, the map)
+  stays sharp. A picture takes about as long as its pixels: on the
+  integrated GPU of a Ryzen 9 9950X, Tyrants of the Moonsea's largest
+  area turning took 80 ms a picture at Full, 45 at 75% and 20 at 50%,
+  and the view's targets a quarter of the memory at 50%.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt
   its models, with the arrows that move it along one axis, while Shift

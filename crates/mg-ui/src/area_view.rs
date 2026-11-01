@@ -868,6 +868,11 @@ impl AreaView {
         self.drawn = None;
     }
 
+    /// The size its picture is drawn at, pixels, while its targets are held.
+    pub fn picture_size(&self) -> Option<(u32, u32)> {
+        self.targets.as_ref().map(|(t, _)| t.size)
+    }
+
     /// Whether its picture's targets are held (drawn into, and shown).
     pub fn holds_targets(&self) -> bool {
         self.targets.is_some()
@@ -3094,7 +3099,10 @@ fn viewport(
         return;
     };
     let size = ui.available_size().max(egui::vec2(32.0, 32.0));
-    let ppp = ui.ctx().pixels_per_point();
+    // (Options › Area › Area view resolution: so many of a hundred pixels
+    // each way, the picture stretched to the view.)
+    let share = app.settings.area_resolution.map_or(1.0, |p| f32::from(p.clamp(25, 100)) / 100.0);
+    let ppp = ui.ctx().pixels_per_point() * share;
     let (w, h) = ((size.x * ppp).round() as u32, (size.y * ppp).round() as u32);
     let (w, h) = (w.clamp(16, 8192), h.clamp(16, 8192));
 

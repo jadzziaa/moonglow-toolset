@@ -101,3 +101,22 @@ fn the_largest_textures_option_reads_the_textures_again_smaller() {
     h.run_steps(3);
     assert_eq!(memory(&h).bytes, before.bytes, "as they were");
 }
+
+/// Options › Area › Area view resolution: the area's picture drawn at that
+/// share of the view's pixels each way (shown stretched over the same
+/// view), and at all of them again once Full is chosen.
+#[test]
+fn the_area_view_resolution_draws_the_picture_at_a_share_of_its_pixels() {
+    let Some((mut h, area)) = area_harness("area-resolution") else { return };
+    settle(&mut h);
+    let size = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].picture_size().unwrap();
+    let (rect, (w, hh)) = (h.state().area_views[&area].rect, size(&h));
+    h.state_mut().settings.area_resolution = Some(50);
+    h.run_steps(3);
+    let (w2, h2) = size(&h);
+    assert!(w2.abs_diff(w / 2) <= 1 && h2.abs_diff(hh / 2) <= 1, "{w2}x{h2} of {w}x{hh}");
+    assert_eq!(h.state().area_views[&area].rect, rect, "over the same view");
+    h.state_mut().settings.area_resolution = None;
+    h.run_steps(3);
+    assert_eq!(size(&h), (w, hh));
+}
