@@ -2171,7 +2171,11 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
     // apart too, the picture waiting for them: made in the frame, one
     // took 13 to 27 ms.)
     vp.renderer.game_background = apart;
-    vp.renderer.render(
+    // (With the targets' framebuffer copies: shiny water drawn by the
+    // game's `fswater` where the Shaders switch is on, as the area view
+    // and the model view draw it; without them it was Moonglow's own pale
+    // water, a builder's report on 3.1.4.)
+    vp.renderer.render_with_copies(
         &vp.gpu,
         assets,
         scene,
@@ -2180,6 +2184,7 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
         resolve,
         &targets.depth,
         (size, size),
+        &targets.copies,
     );
     vp.renderer.textures_apart = false;
     vp.renderer.game_background = false;
@@ -2287,5 +2292,45 @@ mod tests {
             pictured_look(&app, (Pictured::Look(mg_preview::CreatureLook::new(4)), false)).unwrap();
         assert!(bare.parts.iter().any(|p| p.model.ends_with("_chest001")), "a plain body's own");
         assert_ne!(dressed, bare);
+    }
+
+    /// With the Shaders switch on, a gallery's picture draws shiny water
+    /// as the area view does, by the game's `fswater` through the
+    /// pictures' framebuffer copies (a builder's report on 3.1.4: the
+    /// pictures drew it with Moonglow's own pale water, with no copies to
+    /// read). (A placeable's water, as the fountain's, is no shiny water:
+    /// `fslit`, in the area as in its picture.)
+    #[test]
+    fn a_picture_s_water_is_drawn_as_the_area_view_draws_it() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        mg_testkit::gpu::hold();
+        if mg_render::Gpu::headless().is_none() {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        }
+        let rs = egui_kittest::wgpu::create_render_state(
+            crate::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(crate::NoDialogs::default()));
+        app.set_render_state(rs);
+        app.set_game_shaders(true);
+        // A rural and a city water tile.
+        for model in ["ttr01_b20_01", "tcn01_b02_01"] {
+            let key = ResKey::parse(model, ResType::MDL).unwrap();
+            let source = Source::Resource(key);
+            let preview = preview_of(&app, &source).unwrap();
+            app.viewport.as_mut().unwrap().renderer.game_programs = Some(Vec::new());
+            let picture = draw_thumbnail(&mut app, Pictured::Tile(key, 0), &source, &preview);
+            assert!(picture.is_some(), "{model}: drawn");
+            let r = &app.viewport.as_ref().unwrap().renderer;
+            let programs = r.game_programs.as_deref().unwrap_or_default();
+            let fs: Vec<&str> = programs.iter().map(|p| p.fs.as_str()).collect();
+            assert!(fs.contains(&"fswater"), "{model}: its water by fswater, not {fs:?}");
+        }
     }
 }

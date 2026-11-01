@@ -110,6 +110,96 @@ fn look_tile_brush_with_game_shaders() {
     h.render().expect("render").save(out.join("tile-brush-shaders-slant.png")).unwrap();
 }
 
+/// Gallery pictures of water with the game's shaders on, beside the area
+/// view's water (a builder's report on 3.1.4: a gallery's water was
+/// sometimes Moonglow's, sometimes the game's): water laid in the area,
+/// the Tiles palette's Gallery of ttr01's water tiles, then the
+/// Placeable Gallery's fountains. Writes `gallery-water-tiles.png` and
+/// `gallery-water-placeables.png` to `target/test-output/screens/`; run
+/// by hand.
+#[test]
+#[ignore]
+fn look_gallery_water_with_game_shaders() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("gallery-water") else { return };
+    h.set_size(egui::vec2(1400.0, 900.0));
+    h.state_mut().set_game_shaders(true);
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().settings.gallery_tile = Some(160);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    for at in [Vec3::new(10.0, 10.0, 0.0), Vec3::new(20.0, 10.0, 0.0)] {
+        let at = screen(&h, area, at);
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(4);
+    }
+    h.hover_at(egui::pos2(5.0, 5.0));
+    // The water tiles (`b`: water and grass, and all water) as pictures.
+    h.state_mut().palette.filter = "ttr01_b".into();
+    let wait = |h: &mut Harness<'static, Moonglow>| {
+        for _ in 0..600 {
+            h.run_steps(1);
+            let game = h.state().viewport.as_ref().unwrap().renderer.drawn.game_pending;
+            if h.state().thumbnails.waiting() == 0 && game == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(4);
+    };
+    wait(&mut h);
+    let out = mg_testkit::scratch_dir("screens-gallery-water").parent().unwrap().join("screens");
+    std::fs::create_dir_all(&out).unwrap();
+    h.render().expect("render").save(out.join("gallery-water-tiles.png")).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+    h.run_steps(5);
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter = "fountain".into();
+    wait(&mut h);
+    h.render().expect("render").save(out.join("gallery-water-placeables.png")).unwrap();
+}
+
+/// The area view past the area's north edge, the Tile Border off (black,
+/// as Aurora draws it) and on (the tileset's edge tiles, as the client
+/// draws them): `MG_TILESET` (ttr01), with the game's shaders. Writes
+/// `tile-border-<tileset>-off.png` and `-on.png` to
+/// `target/test-output/screens/`; run by hand.
+#[test]
+#[ignore]
+fn look_tile_border() {
+    use glam::Vec3;
+    let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "ttr01".into());
+    let Some((mut h, area)) = area_harness_on("tile-border", &tileset, None) else { return };
+    h.set_size(egui::vec2(1400.0, 900.0));
+    h.state_mut().set_game_shaders(true);
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) =
+            (Vec3::new(20.0, 34.0, 0.0), -std::f32::consts::FRAC_PI_2, 0.45, 42.0);
+    }
+    let out = mg_testkit::scratch_dir("screens-tile-border").parent().unwrap().join("screens");
+    std::fs::create_dir_all(&out).unwrap();
+    for on in [false, true] {
+        h.state_mut().settings.tile_border = on;
+        for _ in 0..200 {
+            h.run_steps(1);
+            let r = &h.state().viewport.as_ref().unwrap().renderer;
+            if r.drawn.game_pending == 0 && r.drawn.textures_pending == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(4);
+        let name = format!("tile-border-{tileset}-{}.png", if on { "on" } else { "off" });
+        h.render().expect("render").save(out.join(name)).unwrap();
+    }
+}
+
 /// A look at Options › Area's marks: a door's orientation arrow and an
 /// encounter's spawn point posts. Writes
 /// `target/test-output/ui-area-marks/marks.png`; run by hand.

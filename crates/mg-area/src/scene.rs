@@ -99,6 +99,9 @@ pub struct View {
     pub creature_shadows: bool,
     /// Point lights flagged `shadow` cast shadows (`mg_render::LightShadows`).
     pub light_shadows: bool,
+    /// The tile border is drawn past the area's edge, as the game client
+    /// draws it ([`crate::border`]); else nothing is, as in Aurora.
+    pub border: bool,
 }
 
 impl View {
@@ -117,6 +120,7 @@ impl View {
             shadows: true,
             creature_shadows: true,
             light_shadows: true,
+            border: false,
         }
     }
 
@@ -268,6 +272,8 @@ pub struct Usage {
 pub struct AreaScene {
     /// By tile index.
     tiles: Vec<Option<Arc<Loaded>>>,
+    /// The tile border's models, as [`AreaModel::border`] lists them.
+    border: Vec<Option<Arc<Loaded>>>,
     /// By object (as in [`AreaModel::objects`]).
     objects: Vec<Option<Arc<Shown>>>,
     tile_cache: HashMap<String, Option<Arc<Loaded>>>,
@@ -436,6 +442,18 @@ impl AreaScene {
                         }
                         l
                     })
+                    .clone()
+            })
+            .collect();
+        // The tile border's (a model not found or broken is left out, and
+        // not counted among the area's missing ones: the area names none).
+        self.border = area
+            .border
+            .iter()
+            .map(|b| {
+                tile_cache
+                    .entry(b.model.clone())
+                    .or_insert_with(|| built(&b.model).flatten().map(Arc::new))
                     .clone()
             })
             .collect();
@@ -1099,12 +1117,28 @@ impl AreaScene {
         }
         let l = &area.lighting;
         let sky = l.sky(view.night);
+        let light = area_light(sky, l.direction(view.night), view.lit);
+        // The tile border: in the area's light, in half its sun's diffuse
+        // color, as the client draws it; casting no shadow, nor receiving
+        // one (the sun's shadow map is for the area).
+        if view.border {
+            let material = crate::border::material(light.diffuse);
+            for (b, loaded) in area.border.iter().zip(&self.border) {
+                let Some(loaded) = loaded else { continue };
+                instances.push(Instance {
+                    tile: true,
+                    casts_shadows: false,
+                    material: Some(material),
+                    ..Instance::new(loaded.gpu.clone(), b.transform)
+                });
+            }
+        }
         let fog = view.fog.then(|| fog(l, view.night));
         let background = fog.map_or([0.0; 3], |f| f.color.to_array());
         Scene {
             instances,
             lights,
-            area: area_light(sky, l.direction(view.night), view.lit),
+            area: light,
             fog,
             background,
             particles: Vec::new(),
@@ -1443,6 +1477,7 @@ mod tests {
             shadows: false,
             creature_shadows: false,
             light_shadows: false,
+            border: false,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
@@ -1497,6 +1532,7 @@ mod tests {
             shadows: true,
             creature_shadows: true,
             light_shadows: false,
+            border: false,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));

@@ -1126,3 +1126,106 @@ fn reading_exact_tile_seams() {
     let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
     eprintln!("{}", dir.display());
 }
+
+/// What the client draws past an area's edge: its tile border (Options'
+/// "Enable Tile Border", on by default; `SETTINGS` turns it off for the
+/// other readings), here on. A 4×4 area of `MG_TILESET` (ttr01), the
+/// tiles `MG_TILES` sets (`index:id[:turns[:height]]`, comma-separated),
+/// the player at `MG_PC` (`x,y`; the middle), the camera `MG_CAMERA`
+/// (`facing,distance,pitch`: 90,40,70, looking north past the north edge;
+/// the camera's limits lifted for it), `MG_BORDER=0` the border off for a
+/// picture without it. Moonglow's area view beside it (`moonglow.png`,
+/// `moonglow_on.png`). Seen (2026-11-01) in
+/// `docs/research/notes_tile_border.md`.
+#[test]
+#[ignore]
+fn reading_tile_border() {
+    let env = |name: &str, default: &str| -> Vec<f32> {
+        let v = std::env::var(name).unwrap_or_else(|_| default.into());
+        v.split(',').filter_map(|s| s.trim().parse().ok()).collect()
+    };
+    let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "ttr01".into());
+    let camera = env("MG_CAMERA", "90,40,70");
+    let pc = env("MG_PC", "20,20");
+    let border = std::env::var("MG_BORDER").map_or(true, |b| b != "0");
+    let name = std::env::var("MG_NAME").unwrap_or_default();
+    // (`MG_LIGHT`: the sun's ambient and diffuse, as hex RGB.)
+    let lit: Vec<u32> = std::env::var("MG_LIGHT")
+        .unwrap_or_else(|_| "606060,C0C0C0".into())
+        .split(',')
+        .filter_map(|s| u32::from_str_radix(s.trim(), 16).ok())
+        .collect();
+    let light = Lighting { ambient: lit[0], diffuse: lit[1], main_light: 0, only_tile: None };
+    // (`MG_MATERIAL=1`: the lit program paints the material's colors the
+    // engine gives each mesh instead of its picture: its ambient in the
+    // left third of the window, its diffuse in the middle, its emissive
+    // in the right.)
+    let material = std::env::var_os("MG_MATERIAL").is_some().then(|| {
+        let root = mg_testkit::nwn_root().expect("the game");
+        let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+        let src = base.resman.get_named("inc_standard", ResType::SHD).expect("inc_standard");
+        let mut src = String::from_utf8_lossy(&src).replace("\r\n", "\n");
+        let end = "\tApplyDebugModeOutput(FragmentColor);\n}";
+        let at = src.rfind(end).expect("ApplyDebugModeOutput");
+        // (`MG_MATERIAL=2`: the area's light instead: its ambient, its
+        // diffuse, and the number of lights a tenth a step.)
+        let paint = if std::env::var("MG_MATERIAL").is_ok_and(|m| m == "2") {
+            "mgThird < 0.333 ? lightAreaAmbient.rgb : (mgThird < 0.667 ? \
+             lightAreaDiffuse.rgb : vec3(float(numLights) * 0.1))"
+        } else {
+            "mgThird < 0.333 ? materialFrontAmbient.rgb : (mgThird < 0.667 ? \
+             materialFrontDiffuse.rgb : materialFrontEmissive.rgb)"
+        };
+        src.insert_str(
+            at + end.len() - 1,
+            &format!(
+                "#if SHADER_TYPE == 2 && LIGHTING == 1\n\
+                 \tfloat mgThird = gl_FragCoord.x / screenParams.x;\n\
+                 \tFragmentColor.rgb = {paint};\n\
+                 \tFragmentColor.a = 1.0;\n#endif\n"
+            ),
+        );
+        src.into_bytes()
+    });
+    let overrides: Vec<(&str, Vec<u8>)> =
+        material.into_iter().map(|m| ("inc_standard.shd", m)).collect();
+    let mut r = Reading::new(&format!("tile_border_{tileset}{name}"), &tileset, light, &overrides);
+    // (Tiles are drawn as far as the area's fog clip distance, 45 m by
+    // default: `MG_CLIP`, 150 m here, so that the camera sees the whole
+    // border from afar.)
+    let clip = env("MG_CLIP", "150")[0];
+    r.are.root.set("FogClipDist", Value::Float(clip));
+    // (`MG_MOON`: night, the moon's diffuse this hex BGR color.)
+    if let Some(moon) = std::env::var("MG_MOON").ok().and_then(|m| u32::from_str_radix(&m, 16).ok())
+    {
+        r.are.root.set("IsNight", Value::Byte(1));
+        r.are.root.set("MoonDiffuseColor", Value::Dword(moon));
+    }
+    if let Ok(set) = std::env::var("MG_TILES") {
+        let tiles = r.are.root.list_mut("Tile_List").unwrap();
+        for one in set.split(',').filter(|s| !s.is_empty()) {
+            let v: Vec<i32> = one.split(':').filter_map(|s| s.parse().ok()).collect();
+            let t = &mut tiles[v[0] as usize];
+            t.set("Tile_ID", Value::Int(v[1]));
+            t.set("Tile_Orientation", Value::Int(v.get(2).copied().unwrap_or(0)));
+            t.set("Tile_Height", Value::Int(v.get(3).copied().unwrap_or(0)));
+        }
+    }
+    {
+        let mut info = r.m.info().unwrap();
+        info.root.write(&ifo::MOD_ENTRY_X, pc[0]);
+        info.root.write(&ifo::MOD_ENTRY_Y, pc[1]);
+        r.m.set_info(&info).unwrap();
+    }
+    let on = if border { "enabled = true" } else { "enabled = false" };
+    let settings = SETTINGS.replace(
+        "[graphics.tile-borders]\n\t\tenabled = false",
+        &format!("[graphics.tile-borders]\n\t\t{on}"),
+    );
+    let body = format!("{INVISIBLE}\n    SetCameraLimits(pc, 1.0, 89.0, 1.0, 200.0);");
+    let (dir, _) =
+        super::batch4::shoot_close(r, &body, &settings, (camera[0], camera[1], camera[2]), &|v| {
+            v.border = border
+        });
+    eprintln!("{}", dir.display());
+}

@@ -2537,6 +2537,7 @@ version = "0.0.0"
 dependencies = [
  "fastrand",
  "glam",
+ "mg-2da",
  "mg-core",
  "mg-edit",
  "mg-gff",
