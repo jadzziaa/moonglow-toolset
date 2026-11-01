@@ -4677,3 +4677,49 @@ fn select_tiles_a_click_past_the_area_s_edge_selects_none() {
     drag_with(&mut h, from, to, none);
     assert!(selection(&h).is_empty(), "a box past the edge selects none");
 }
+
+/// With Select Tiles, Shift adds to the tiles selected, as the builder
+/// asked after 3.1.4 ("Select Tiles does not support shift selections"):
+/// Shift + click adds a tile (one selected stays so; Ctrl + click takes
+/// one out), Shift + drag adds a box's tiles; a plain click or drag
+/// starts the selection anew. A Shift + click past the edge, or on an
+/// object, leaves the tiles selected as they were.
+#[test]
+fn select_tiles_shift_adds_to_the_selection() {
+    let Some((mut h, area)) = select_tiles_harness("tiles-shift") else { return };
+    let (none, shift) = (egui::Modifiers::NONE, egui::Modifiers::SHIFT);
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].tile_selection.clone();
+    let tile = |h: &Harness<'_, Moonglow>, x: u32, y: u32| {
+        on_ground(h, area, x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0)
+    };
+    let at = tile(&h, 0, 0);
+    click_with(&mut h, at, none);
+    let at = tile(&h, 3, 0);
+    click_with(&mut h, at, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0)], "Shift + click adds one");
+    click_with(&mut h, at, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0)], "and again keeps it");
+    // A box with Shift: its tiles added, those selected kept.
+    let (from, to) = (tile(&h, 1, 2), tile(&h, 2, 3));
+    drag_with(&mut h, from, to, shift);
+    assert_eq!(selection(&h), [(0, 0), (3, 0), (1, 2), (2, 2), (1, 3), (2, 3)]);
+    // Past the edge, or on a waypoint (at 20, 20): as they were.
+    let void = on_ground(&h, area, -4.0, 20.0);
+    click_with(&mut h, void, shift);
+    let waypoint = on_ground(&h, area, 20.0, 20.0);
+    click_with(&mut h, waypoint, shift);
+    assert!(h.state().area_views[&area].tile_mode, "still Select Tiles");
+    let added = selection(&h);
+    assert!(added.starts_with(&[(0, 0), (3, 0), (1, 2), (2, 2), (1, 3), (2, 3)]), "{added:?}");
+    // Ctrl + click takes one out.
+    let at = tile(&h, 3, 0);
+    click_with(&mut h, at, egui::Modifiers::COMMAND);
+    assert!(!selection(&h).contains(&(3, 0)), "Ctrl + click takes it out");
+    // Without Shift, a click and a box start anew.
+    let at = tile(&h, 3, 3);
+    click_with(&mut h, at, none);
+    assert_eq!(selection(&h), [(3, 3)]);
+    let (from, to) = (tile(&h, 0, 0), tile(&h, 1, 0));
+    drag_with(&mut h, from, to, none);
+    assert_eq!(selection(&h), [(0, 0), (1, 0)]);
+}

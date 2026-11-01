@@ -407,6 +407,8 @@ pub struct AreaView {
     pub tile_selection: Vec<(u32, u32)>,
     /// The box being dragged to select tiles (screen points).
     pub(crate) tile_box: Option<(Pos2, Pos2)>,
+    /// That box adds its tiles to those selected (Shift held as it began).
+    pub(crate) tile_box_adds: bool,
     /// Copied tiles follow the pointer, to be placed with a click.
     pub tile_pasting: bool,
     /// Where the tile menu was opened.
@@ -901,6 +903,7 @@ impl AreaView {
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
+            tile_box_adds: false,
             tile_pasting: false,
             tile_menu_at: None,
             group_turns: 0,
@@ -2828,7 +2831,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     } else if view.tile_mode {
         // (And why a step was refused, as a brush's line says it: first,
         // where a narrow view doesn't cut it short.)
-        let how = "Select Tiles: click a tile (Ctrl + click: add one), drag a box; Shift + right \
+        let how = "Select Tiles: click a tile (Shift + click: add one, Ctrl + click: add or take \
+                   it out), drag a box (with Shift: add it); Shift + right \
                    click: its next tile; right click: the tile menu";
         match &view.notice {
             Some(n) => format!("{n} · {how}"),

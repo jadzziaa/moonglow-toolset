@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:28:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:33:24Z }
 ---
 
 # Areas
@@ -1011,8 +1011,11 @@ same strokes give the same tiles, heights and crossers.
 
 With **Select Tiles** on, a click selects a tile (a click past the
 area's edge selects none, as a click on bare ground does objects),
-Ctrl + click adds one, and a drag selects a box of them (one begun or
-ended past the edge, the tiles it covers). **Delete** takes the selected tiles'
+**Shift + click** adds one to those selected, Ctrl + click adds one or
+takes it out, and a drag selects a box of them (one begun or ended past
+the edge, the tiles it covers); **Shift + drag** adds the box's tiles to
+those selected. (With Shift or Ctrl, a click on an object stays with
+the tiles: without, it selects the object, back to objects.) **Delete** takes the selected tiles'
 crossers away, and a group or a feature with a tile among them whole, as
 the Eraser does (Aurora's Delete takes the tile alone, leaving the rest
 of the group: Moonglow does so with **Allow editing tiles of groups and

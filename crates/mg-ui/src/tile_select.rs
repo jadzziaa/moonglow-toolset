@@ -1,9 +1,10 @@
 //! Selecting tiles in the area viewer (Aurora's Select Terrain mode), and
 //! the Tile Properties window.
 //!
-//! - In tile mode a click selects the tile under the pointer (Ctrl + click
-//!   adds or removes it; past the area's edge, none) and a drag selects a
-//!   box of tiles (those of the area it covers).
+//! - In tile mode a click selects the tile under the pointer (Shift + click
+//!   adds it, Ctrl + click adds or removes it; past the area's edge, none)
+//!   and a drag selects a box of tiles (those of the area it covers; with
+//!   Shift, added to those selected).
 //! - Delete takes the selected tiles' crossers away (and a group or a
 //!   feature whole); Shift + right click steps the tile under the pointer
 //!   through the tiles that fit (Aurora's order: each tile's turns, then
@@ -320,6 +321,7 @@ pub(crate) fn input(
     {
         let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
         view.tile_box = Some((from, from));
+        view.tile_box_adds = shift;
     }
     if let Some((from, _)) = view.tile_box {
         // (Until the left button is let go, whatever the others do.)
@@ -331,15 +333,27 @@ pub(crate) fn input(
             view.tile_box = None;
         } else if !held.by(egui::PointerButton::Primary) {
             view.tile_box = None;
+            // (With Shift, held as it began or as it ends: added to those
+            // selected, as Shift + click adds a tile.)
+            let adds = std::mem::take(&mut view.tile_box_adds) || shift;
             if let Some(tiles) = held.pos().and_then(|to| boxed_tiles(view, from, to)) {
-                view.tile_selection = tiles;
+                if !adds {
+                    view.tile_selection.clear();
+                }
+                for t in tiles {
+                    if !view.tile_selection.contains(&t) {
+                        view.tile_selection.push(t);
+                    }
+                }
             }
         }
     }
     // A click on an object: back to the objects, that one selected (the
-    // tiles under one are still taken by a box dragged over them).
+    // tiles under one are still taken by a box dragged over them, and a
+    // click with Shift or Ctrl stays with the tiles).
     if response.clicked()
         && !command
+        && !shift
         && let Some(pos) = response.interact_pointer_pos()
         && let Some(i) = view.pick(pos)
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
@@ -360,10 +374,16 @@ pub(crate) fn input(
                 }
                 None => view.tile_selection.push(t),
             },
+            // Shift: added to those selected (kept, if it was).
+            Some(t) if shift => {
+                if !view.tile_selection.contains(&t) {
+                    view.tile_selection.push(t);
+                }
+            }
             Some(t) => view.tile_selection = vec![t],
             // Past the area's edge (or on the sky): no tile, as a click on
             // the ground where no object is selects none.
-            None if !command => view.tile_selection.clear(),
+            None if !command && !shift => view.tile_selection.clear(),
             None => {}
         }
     }
