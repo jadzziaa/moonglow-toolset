@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.2.0" date="2026-11-01">
+      <description>
+        <p>The area view can draw the tile border past an area's edge, as
+        the game does. Gallery pictures draw water as the area view does.
+        Closed and hidden views give back the GPU's memory, and Options
+        has two settings for weaker GPUs. Right-click menus keep related
+        commands in submenus. Select Tiles takes Shift, Import Resources
+        resizes and selects every overwrite at once, and handles stay in
+        view up close.</p>
+      </description>
+    </release>
     <release version="3.1.4" date="2026-10-31">
       <description>
         <p>Shift+click chooses a range of blueprints in the palette, and
