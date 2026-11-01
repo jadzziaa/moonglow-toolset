@@ -382,7 +382,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     // Off: not in the menu.
     h.get_by_label("guard.utc").click_secondary();
     h.run();
-    h.get_by_label("Copy to Scratch Folder");
+    h.get_by_label("Delete…");
     assert!(h.query_by_label("Set Local Variable…").is_none());
     h.key_press(egui::Key::Escape);
     h.run();

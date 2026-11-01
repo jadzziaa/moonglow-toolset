@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T05:42:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Build, verify and test
@@ -418,12 +418,12 @@ steadier.
 - **Test Module, Choose Character** (Shift+F9) opens the game's
   character selection for the module instead, so you can test with any
   of your characters. You no longer need to rename one to sort it first.
-- **Test From Here** (an area's right-click menu) starts the game at the
+- **Test › Test From Here** (an area's right-click menu) starts the game at the
   point you clicked, facing the way the camera looks, using the module as
   it is now, without saving it. It writes the module to `modules` as
   `moonglow-test.mod`, replaced each time, so your module and its start
   location are left as they are.
-  **Test From Here, Choose Character**, below it, opens the game's
+  **Test › Test From Here, Choose Character**, below it, opens the game's
   character selection first, as Test Module, Choose Character does.
 
 Moonglow starts the game as a separate program (`nwmain +TestNewModule`),

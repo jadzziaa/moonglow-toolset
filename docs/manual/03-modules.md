@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T20:18:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Modules
@@ -804,7 +804,7 @@ kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 
 - the Area Wizard (which then shows the ResRef under the name), the
   Creature Wizard and every blueprint wizard (the ResRef field's hint);
-- **Add to Palette** (`ab_wswls003` for a placed `nw_wswls001`);
+- **Reuse › Add to Palette** (`ab_wswls003` for a placed `nw_wswls001`);
 - **Setup Store**'s conversation and script (`ab_store001`,
   `ab_openstore001`);
 - **Copy…** and **Edit Copy…** (`ab_nw_chicken001`);
@@ -1767,12 +1767,12 @@ plugin reads a description with `mg.twoda.describe`
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
-  Right-click a resource in the tree to export it (several, chosen with
-  Ctrl and Shift, together); a placed object's **Export as Blueprint…**
-  writes it as a blueprint of its own ([Areas](04-areas.md)). An area's
-  `.are` takes its `.git` and `.gic` with it, the resources it uses or
-  not (without them, Import would bring the area with nothing placed in
-  it). The window lists the
+  Right-click a resource in the tree to export it (**Export ›
+  Export…**; several, chosen with Ctrl and Shift, together); a placed
+  object's **Export as Blueprint…** writes it as a blueprint of its own
+  ([Areas](04-areas.md)). An area's `.are` takes its `.git` and `.gic`
+  with it, the resources it uses or not (without them, Import would bring
+  the area with nothing placed in it). The window lists the
   module kind by kind (areas, conversations, scripts, the blueprints,
   then the rest by extension); **Kind** lists one kind alone, **Filter**
   those whose names hold what is typed, and **Select the Listed** and
@@ -1809,12 +1809,12 @@ plugin reads a description with `mg.twoda.describe`
   its archives the same way. Import says when the base is older than
   the module; bringing the archive in on a branch from that base, and
   merging, is git's (as the warning says).
-- **Export as Files…** (in the Export window, and on a resource's
-  right-click menu in the module tree) writes resources as loose files,
-  `name.ext`, into a folder you choose: as they are now in the toolset,
-  saved or not. A script goes with its compiled script (`.ncs`, and
-  `.ndb` if it has one), an area with its `.git` and `.gic`. From the
-  window, **Include the resources they use** applies too.
+- **Export as Files…** (in the Export window, and **Export › Export as
+  Files…** on a resource's right-click menu in the module tree) writes
+  resources as loose files, `name.ext`, into a folder you choose: as they
+  are now in the toolset, saved or not. A script goes with its compiled
+  script (`.ncs`, and `.ndb` if it has one), an area with its `.git` and
+  `.gic`. From the window, **Include the resources they use** applies too.
 - **Export Files…** (over the picture of a placeable, door, item or
   creature in its editor, and in the model viewer) writes the files the
   game draws it with into a folder you choose: its models, their
@@ -1835,14 +1835,14 @@ plugin reads a description with `mg.twoda.describe`
   the hak it came from, and names what the model names and the load
   order has nowhere (a texture the game draws it without). Where the
   folder has files of those names already, it asks first: replace them,
-  skip those, or cancel. **Export Model Files…** on an area's
+  skip those, or cancel. **Export › Export Model Files…** on an area's
   right-click menu in the module tree does the same for the area: its
   `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes
   and minimap pictures, its skybox and loading screen, and the models of
   every creature, door, placeable and item placed in it. `mg
   model-files` does both from a terminal.
-- **Copy to Scratch Folder** (the same right-click menu; **To Scratch** in
-  the script editor and the area view) writes them into the scratch
+- **Copy to Scratch Folder** (the same right-click menu's **Export**; **To
+  Scratch** in the script editor and the area view) writes them into the scratch
   folder: one you choose the first time, kept from then on (Tools ›
   Options › Folders changes it). Make it the game's or a server's
   `development` folder, which the game loads before the module's own

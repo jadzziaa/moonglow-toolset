@@ -4201,6 +4201,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     // Save as Prefab, then place it again elsewhere.
     let b = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     right_click(&mut h, b);
+    open_submenu(&mut h, "Reuse");
     h.get_by_label("Save as Prefab…").click();
     h.run_steps(3);
     // The name field has the focus; Enter saves.
@@ -5265,6 +5266,7 @@ fn replaced_objects_keep_their_outline_and_transform() {
         h.run_steps(3);
         h.get_by_label(name).click_secondary();
         h.run_steps(2);
+        open_submenu(h, "Replace Selected");
         h.get_by_label("Replace Selected with This").click();
         h.run_steps(3);
     };
@@ -5466,7 +5468,9 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     let items = menu_items(&h, "Properties");
     assert_eq!(tail(&items, 2), ["Variables…", "Properties"], "{items:?}");
     assert!(items.contains(&"Delete".to_string()), "{items:?}");
-    assert!(items.contains(&"Export as Blueprint…".to_string()), "{items:?}");
+    assert!(items.contains(&"Reuse ⏵".to_string()), "{items:?}");
+    let reuse = submenu_items(&mut h, "Reuse", "Export as Blueprint…");
+    assert!(reuse.contains(&"Export as Blueprint…".to_string()), "{reuse:?}");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // Its row in the module tree.
@@ -5509,6 +5513,134 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
             "Tile Properties…"
         ]
     );
+}
+
+/// The area view's menu on a placed object and an area's menu in the
+/// module tree keep runs of related commands in submenus of one level
+/// (the owner's ask after 3.1.4, as the toolbar's Shadows and Walkmesh…
+/// keep theirs behind one button): every command still offered, and one
+/// of a submenu doing what it did.
+#[test]
+fn the_area_menus_group_related_commands_in_submenus() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("menu-submenus") else { return };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let close = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..2 {
+            h.key_press(egui::Key::Escape);
+            h.run_steps(2);
+        }
+    };
+    // A waypoint in the area view.
+    let on_it = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    right_click(&mut h, on_it);
+    let top = menu_items(&h, "Properties");
+    assert_eq!(
+        top,
+        [
+            "Preview",
+            "Adjust Location…",
+            "Position ⏵",
+            "Arrange ⏵",
+            "Lock",
+            "Add Light Here ⏵",
+            "Reuse ⏵",
+            "Create Set…",
+            "Delete",
+            "Set Start Location Here",
+            "Test ⏵",
+            "Variables…",
+            "Properties"
+        ]
+    );
+    assert_eq!(
+        submenu_items(&mut h, "Position", "Random Facing"),
+        ["Drop to Ground (G)", "Drop onto Object (Shift+G)", "Random Facing"]
+    );
+    assert_eq!(
+        submenu_items(&mut h, "Reuse", "Save as Prefab…"),
+        ["Add to Palette", "Export as Blueprint…", "Save as Prefab…"]
+    );
+    assert_eq!(
+        submenu_items(&mut h, "Test", "Test From Here"),
+        ["Test From Here", "Test From Here, Choose Character"]
+    );
+    // Position › Random Facing turns it, as the item did at the top.
+    let git = ResKey::new(area, ResType::GIT);
+    let facing = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let w = &ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0];
+        (w.float("XOrientation"), w.float("YOrientation"))
+    };
+    let before = facing(&mut h);
+    open_submenu(&mut h, "Position");
+    h.get_by_label("Random Facing").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Random Facing"));
+    assert_ne!(facing(&mut h), before);
+    assert!(h.query_by_label("Drop to Ground (G)").is_none(), "the menu closed");
+    // Both waypoints: Arrange's six, and Reuse has a prefab of them alone.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0), (mg_area::ObjectKind::Waypoint, 1)];
+    h.run_steps(2);
+    right_click(&mut h, on_it);
+    assert_eq!(submenu_items(&mut h, "Arrange", "Face Alike").len(), 6);
+    assert_eq!(submenu_items(&mut h, "Reuse", "Save as Prefab…"), ["Save as Prefab…"]);
+    close(&mut h);
+    // The area's row in the module tree (left of the area's tab).
+    let name = area.to_string();
+    let row =
+        h.get_all_by_label(&name).map(|n| n.rect()).min_by(|a, b| a.left().total_cmp(&b.left()));
+    right_click(&mut h, row.expect("the area's row").center());
+    let top = menu_items(&h, "Properties");
+    assert_eq!(
+        top,
+        [
+            "New Area…",
+            "Edit Areas Together…",
+            "View Area",
+            "Placeables ⏵",
+            "Fields ⏵",
+            "Find References",
+            "Rename…",
+            "Copy…",
+            "Delete…",
+            "Export ⏵",
+            "Properties"
+        ]
+    );
+    assert_eq!(
+        submenu_items(&mut h, "Placeables", "Make Placeables Dynamic"),
+        ["Make Placeables Static", "Make Placeables Dynamic"]
+    );
+    let fields = submenu_items(&mut h, "Fields", &format!("Fields of {name}.git"));
+    assert_eq!(fields, [format!("Fields of {name}.are"), format!("Fields of {name}.git")]);
+    assert_eq!(
+        submenu_items(&mut h, "Export", "Copy to Scratch Folder"),
+        [
+            "Export…",
+            "Export as Files…",
+            "Export Model Files…",
+            "Export Minimap…",
+            "Copy to Scratch Folder"
+        ]
+    );
+    // Fields › Fields of the .git opens its fields.
+    open_submenu(&mut h, "Fields");
+    h.get_by_label(&format!("Fields of {name}.git")).click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Gff(git)).is_some());
 }
 
 /// Area Properties' shadow fields show in the view at once (the area read

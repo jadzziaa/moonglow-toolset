@@ -6168,10 +6168,12 @@ fn set_locked(
     }
 }
 
-/// The context menu of the selection: Preview, Adjust Location, what the
-/// object's type offers (Aurora's `pmViewerArea`), Delete, the start
-/// location and tests from here; last, as in Aurora, Variables and
-/// Properties.
+/// The context menu of the selection: Preview, Adjust Location, Position
+/// (the drops, Random Facing), what the object's type offers (Aurora's
+/// `pmViewerArea`), Reuse, Delete, the start location and Test (from
+/// here); last, as in Aurora, Variables and Properties. Runs of related
+/// commands are submenus of one level, as the toolbar's Shadows and
+/// Walkmesh… keep theirs behind one button.
 fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     let single = match view.selection.as_slice() {
         [one] => Some(*one),
@@ -6249,6 +6251,8 @@ fn editing_items(
     preview_item(app, view, ui, single);
     let any = !view.selection.is_empty();
     let start = view.start_is_selected().then(|| start_location(app, view.area)).flatten();
+    // (Adjust Location…, the start location's too, at the top as in
+    // Aurora's menu.)
     if ui.add_enabled(any || start.is_some(), egui::Button::new("Adjust Location…")).clicked() {
         app.adjust = match start {
             Some(at) => Some(crate::area_tools::adjust_start(view.area, at)),
@@ -6256,32 +6260,41 @@ fn editing_items(
         };
         ui.close();
     }
-    if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
-        drop_to_ground(app, view);
-        ui.close();
-    }
-    if ui
-        .add_enabled(any, egui::Button::new("Drop onto Object (Shift+G)"))
-        .on_hover_text(
-            "Set each selected object on the placeable or door below it (a skull on an altar, \
-             a book on a table), up to 2 m above it; else on the ground",
-        )
-        .clicked()
-    {
-        drop_onto_objects(app, view);
-        ui.close();
-    }
-    if ui
-        .add_enabled(any, egui::Button::new("Random Facing"))
-        .on_hover_text(
-            "Turn each selected object to face a way of its own, at random (trees and rocks \
-             placed in a row no longer all face alike); by the snap angle, if one is set",
-        )
-        .clicked()
-    {
-        random_facing(app, view);
-        ui.close();
-    }
+    // The quick ways of setting where the selection stands and which way
+    // it faces, together.
+    ui.add_enabled_ui(any, |ui| {
+        ui.menu_button("Position", |ui| {
+            if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
+                drop_to_ground(app, view);
+                ui.close();
+            }
+            if ui
+                .add_enabled(any, egui::Button::new("Drop onto Object (Shift+G)"))
+                .on_hover_text(
+                    "Set each selected object on the placeable or door below it (a skull on an \
+                     altar, a book on a table), up to 2 m above it; else on the ground",
+                )
+                .clicked()
+            {
+                drop_onto_objects(app, view);
+                ui.close();
+            }
+            if ui
+                .add_enabled(any, egui::Button::new("Random Facing"))
+                .on_hover_text(
+                    "Turn each selected object to face a way of its own, at random (trees and \
+                     rocks placed in a row no longer all face alike); by the snap angle, if one \
+                     is set",
+                )
+                .clicked()
+            {
+                random_facing(app, view);
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text("Drop to Ground, Drop onto Object, Random Facing");
+    });
     // Placeables: static (part of the scenery; the game gives those no
     // visual transform, so they don't tilt) or dynamic.
     let placeables: Vec<(usize, bool, bool)> = view.model.as_ref().map_or_else(Vec::new, |m| {
@@ -6391,10 +6404,6 @@ fn editing_items(
         .unwrap_or_default();
     if !locked.is_empty() && ui.button(format!("Unlock All ({})", locked.len())).clicked() {
         set_locked(app, view, &locked, false);
-        ui.close();
-    }
-    if ui.add_enabled(any, egui::Button::new("Save as Prefab…")).clicked() {
-        app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         ui.close();
     }
     let kinds: Vec<ObjectKind> = view.selection.iter().map(|(k, _)| *k).collect();
@@ -6586,24 +6595,40 @@ fn editing_items(
         app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));
         ui.close();
     }
-    if let Some((kind, index)) = single
-        && ui.button("Add to Palette").clicked()
-    {
-        add_to_palette(app, view, kind, index);
-        ui.close();
-    }
-    if let Some((kind, index)) = single
-        && ui
-            .button("Export as Blueprint…")
-            .on_hover_text(
-                "Write it into an archive (.erf) as a blueprint of its own, with the items it \
-                 holds, as Add to Palette makes one: for another module's Import",
-            )
-            .clicked()
-    {
-        app.actions.push(Action::ExportObject { area: view.area, kind, index });
-        ui.close();
-    }
+    // What is selected kept to place again: a blueprint of one (in the
+    // palette, or in an archive for another module), a prefab of them.
+    ui.add_enabled_ui(any, |ui| {
+        ui.menu_button("Reuse", |ui| {
+            if let Some((kind, index)) = single
+                && ui.button("Add to Palette").clicked()
+            {
+                add_to_palette(app, view, kind, index);
+                ui.close();
+            }
+            if let Some((kind, index)) = single
+                && ui
+                    .button("Export as Blueprint…")
+                    .on_hover_text(
+                        "Write it into an archive (.erf) as a blueprint of its own, with the \
+                         items it holds, as Add to Palette makes one: for another module's \
+                         Import",
+                    )
+                    .clicked()
+            {
+                app.actions.push(Action::ExportObject { area: view.area, kind, index });
+                ui.close();
+            }
+            if ui.button("Save as Prefab…").clicked() {
+                app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(
+            "Kept to place again: Add to Palette and Export as Blueprint… (one object), Save \
+             as Prefab… (what is selected)",
+        );
+    });
     if let Some((ObjectKind::Creature, index)) = single
         && let Some(at) = view.menu_at
         && ui.button("Create Waypoint").clicked()
@@ -6670,14 +6695,19 @@ fn editing_items(
                 true,
             ),
         ];
-        for (label, tip, choose) in tests {
-            if ui.button(label).on_hover_text(tip).clicked() {
-                let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-                let area = view.area;
-                app.actions.push(Action::TestFromHere { area, at: at.to_array(), facing, choose });
-                ui.close();
+        ui.menu_button("Test", |ui| {
+            for (label, tip, choose) in tests {
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+                    let area = view.area;
+                    let at = at.to_array();
+                    app.actions.push(Action::TestFromHere { area, at, facing, choose });
+                    ui.close();
+                }
             }
-        }
+        })
+        .response
+        .on_hover_text("Test From Here, and Test From Here, Choose Character");
     }
     // The plugins' commands for what is selected (with nothing selected,
     // for the area), run on it.

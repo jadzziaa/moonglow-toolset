@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:26:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
 ---
 
 # Coming from Aurora
@@ -81,8 +81,8 @@ Each names what Aurora does, then what Moonglow does instead.
 - **Testing.** Aurora's F9 has problems the wiki warns about, always
   picks the first character, and needs a restart to see a changed hak.
   Moonglow starts the game the way the wiki recommends, offers **Test
-  Module, Choose Character** (Shift+F9) and **Test From Here** (an area's
-  right-click menu), and reloads changed haks and 2DAs as you work.
+  Module, Choose Character** (Shift+F9) and **Test › Test From Here** (an
+  area's right-click menu), and reloads changed haks and 2DAs as you work.
 - **Outside editors.** Scripts edited in another editor have to be copied
   into `temp0`. Moonglow's **External Editor** opens the script in your
   editor, and its saves come straight back into the module.

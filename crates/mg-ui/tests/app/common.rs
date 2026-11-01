@@ -700,6 +700,25 @@ pub(crate) fn drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Po
     h.run_steps(3);
 }
 
+/// Opens the submenu `name` of the right-click menu that is open (the
+/// palette's Copy, the area view's Position…): the pointer brought to it
+/// and a frame run, as a builder's would be, then a click. (egui names a
+/// submenu's button with its arrow: "Copy ⏵".)
+pub(crate) fn open_submenu(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let label = format!("{name} ⏵");
+    h.get_by_label(&label).hover();
+    h.run_steps(1);
+    h.get_by_label(&label).click();
+    h.run_steps(2);
+}
+
+/// The items of submenu `name` of the open right-click menu, top to
+/// bottom, opened first: `item`, one of them, finds its popup.
+pub(crate) fn submenu_items(h: &mut Harness<'_, Moonglow>, name: &str, item: &str) -> Vec<String> {
+    open_submenu(h, name);
+    menu_items(h, item)
+}
+
 /// The items of the open right-click menu whose last item is `last`, top
 /// to bottom: the buttons of the popup `last` is in (the menu, drawn
 /// above the rest, is the last listed).
