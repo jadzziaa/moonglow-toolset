@@ -218,11 +218,34 @@ impl GpuTexture {
         GpuTexture { texture, view, has_alpha: false }
     }
 
+    /// What it takes on the GPU, bytes: every level of every layer, as its
+    /// format stores it (a BC format's blocks, 4 bytes a pixel for RGBA8).
+    pub fn bytes(&self) -> u64 {
+        texture_bytes(&self.texture)
+    }
+
     /// A 1×1 texture of one colour.
     pub fn solid(gpu: &Gpu, label: &str, rgba: [u8; 4]) -> GpuTexture {
         let tex = mg_image::Rgba { width: 1, height: 1, data: rgba.to_vec() }.into_texture(true);
         GpuTexture::upload(gpu, label, &tex, false)
     }
+}
+
+/// What a texture takes on the GPU, bytes ([`GpuTexture::bytes`]).
+pub fn texture_bytes(t: &wgpu::Texture) -> u64 {
+    let format = t.format();
+    let (bw, bh) = format.block_dimensions();
+    let block = u64::from(format.block_copy_size(None).unwrap_or(4));
+    let layers = u64::from(t.depth_or_array_layers());
+    let samples = u64::from(t.sample_count());
+    (0..t.mip_level_count())
+        .map(|level| {
+            let (w, h) = ((t.width() >> level).max(1), (t.height() >> level).max(1));
+            u64::from(w.div_ceil(bw)) * u64::from(h.div_ceil(bh)) * block
+        })
+        .sum::<u64>()
+        * layers
+        * samples
 }
 
 #[cfg(test)]

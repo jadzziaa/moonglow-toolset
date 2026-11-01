@@ -5501,3 +5501,60 @@ fn a_cut_out_s_mesh_alpha_does_not_blend_it() {
         assert_ne!(shot(1.0, 0.5), solid, "an instance at half opacity is blended ({game})");
     }
 }
+
+/// Textures no frame has drawn for a while are let go of once there is
+/// more of them than is kept (`Renderer::set_stale_textures_kept`), the
+/// longest unused first, with what binds them; one drawn again is read
+/// again and drawn as before, and what a frame draws is never let go of.
+#[test]
+fn textures_not_drawn_lately_are_let_go_of_past_what_is_kept() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("red", [230, 30, 30, 255]);
+    assets.solid("blue", [30, 30, 230, 255]);
+    let scene = |textures: &[&str]| Scene {
+        instances: (textures.iter().enumerate())
+            .map(|(i, t)| standing_quad(&gpu, t, Vec3::new(i as f32 * 1.2 - 0.6, 0.0, 0.0), 1.0))
+            .collect(),
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -4.0, 0.5),
+        target: Vec3::new(0.0, 0.0, 0.5),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (red, blue) = (scene(&["red"]), scene(&["blue"]));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let red_first = r.render_image(&gpu, &assets, &red, &camera, 32, 32);
+    r.render_image(&gpu, &assets, &blue, &camera, 32, 32);
+    let both = r.texture_memory();
+    assert!(both.textures >= 2 && both.bytes > 0, "{both:?}");
+    // Frames of `scene` for 40 s of the clock, one every 10 s.
+    let frames = |r: &mut Renderer, scene: &Scene| {
+        for _ in 0..4 {
+            r.age_textures(std::time::Duration::from_secs(10));
+            r.render_image(&gpu, &assets, scene, &camera, 32, 32);
+        }
+    };
+    // Kept as long as no more is stale than is kept (by default, a GB).
+    frames(&mut r, &blue);
+    assert_eq!(r.texture_memory().let_go, 0, "within what is kept");
+    // None kept stale: red goes, blue (drawn) stays.
+    r.set_stale_textures_kept(0);
+    frames(&mut r, &blue);
+    let after = r.texture_memory();
+    assert_eq!(after.let_go, 1, "red let go of: {after:?}");
+    assert_eq!(after.textures, both.textures - 1);
+    assert_eq!(after.stale, 0);
+    // Red drawn again: read again, the picture as before.
+    let red_again = r.render_image(&gpu, &assets, &red, &camera, 32, 32);
+    assert_eq!(red_again.data, red_first.data, "drawn as before");
+    assert_eq!(r.texture_memory().textures, both.textures);
+    // Both drawn in every frame: neither goes, however long.
+    let together = scene(&["red", "blue"]);
+    frames(&mut r, &together);
+    assert_eq!(r.texture_memory().let_go, 1, "what is drawn is kept");
+}
