@@ -1,24 +1,24 @@
 ---
 type: Research Note
-title: "The tile border: what the client draws past an area's edge"
+title: 'The tile border: what the client draws past an area''s edge'
 description: What the NWN:EE client draws past an area's edge (its tile border, the "void" that Aurora and Moonglow drew black), read from the client's pictures and its shader uniforms - which edge tile goes where, how it is turned, how deep, how it is lit - and how Moonglow's area view draws it (Tile Border, off by default).
 tags: [research, tilesets, rendering, client, area-view]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:45:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:54:50Z }
 verified:
-  - { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:45:02Z }
+  - { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:54:51Z }
 sources:
   - id: request
     resource: human:august (2026-11-01), passing on a builder's request on 3.1.4
-    title: "An option to simulate what the client draws for the void: faded geometry depending on tileset"
+    title: 'An option to simulate what the client draws for the void: faded geometry depending on tileset'
   - id: wiki-tutorial
     resource: https://nwn.wiki/spaces/NWN1/pages/72417345/Tileset+Construction+Tutorial
-    title: "nwn.wiki: Tileset Construction Tutorial, Edge Tiles"
+    title: 'nwn.wiki: Tileset Construction Tutorial, Edge Tiles'
   - id: wiki-options
     resource: https://nwn.wiki/spaces/NWN1/pages/38175230
-    title: "nwn.wiki: Game Options (Enable Tile Border)"
+    title: 'nwn.wiki: Game Options (Enable Tile Border)'
   - id: wiki-render
     resource: https://nwn.wiki/spaces/NWN1/pages/38175000/Render+Distance+with+Fog+and+Skyboxes
-    title: "nwn.wiki: Render Distance with Fog and Skyboxes"
+    title: 'nwn.wiki: Render Distance with Fog and Skyboxes'
   - id: nwscript
     resource: the install's nwscript.nss (89.8193.37), SetAreaTileBorderDisabled and ReloadAreaBorder
     title: The game's script functions for the border
@@ -97,13 +97,15 @@ patched `inc_standard` in the scratch override (`MG_MATERIAL=1` and `2`):
 | 808080 | 000000 | 12 | 12.2 |
 | 20 40 FF (B G R) | 000000 | 1, 3, 55 | 0.6, 2.7, 55.5 |
 | 000000 | FFFFFF or 203040 | 0 | 0 |
+| C0C0C0, at night with the moon's 404040 | 606060 | 3 | 2.7 |
 
 The area's own tiles have 255 there. So a border with no sun diffuse is
 black whatever the ambient, and under the usual light it shows at about
 0.38 of the area's brightness: the "faded" ground. Far off, the client's
 own fog (always on, from 30 m before the clip distance) blends it into
-the fog's color; past the border is the fog's or sky's color. Whether the
-moon's diffuse takes the sun's place at night was not read.
+the fog's color; past the border is the fog's or sky's color. At night
+the moon's diffuse takes the sun's place (`MG_MOON`: 3 of 255 for a moon
+of 404040 under a sun of C0C0C0).
 
 **Tilesets.** Rural (ttr01): grass, trees, water, roads and streams
 carried on. City (tcn01): its houses, walls and water past the edge,
@@ -119,10 +121,13 @@ and its edge table (`AreaModel::border`); the area scene draws it, with
 (`Instance::material`, which both of the renderer's paths give a mesh as
 its ambient and diffuse), casting and taking no shadow. Beside the
 client's pictures it measures within 0.2 of 255 over the border's grass,
-water and trees and the area (`top3`, the game's shaders). Not done:
-the client's fog color past the border (Moonglow's background is black,
-or the fog's with Fog on), and the moon's light at night (taken to be as
-the sun's).
+water and trees and the area (`top3`, the game's shaders). At night (the
+moon's light) the border measures 4.2 of 255 against the client's 4.5.
+Not done: the client's fog color past the border (Moonglow's background
+is black, or the fog's with Fog on). Not read in the client: a side
+whose corners no row fits (Moonglow draws nothing there), a crosser with
+no row of its own (Moonglow takes the row of the corners alone), and how
+the corner squares are turned (their models are even all over).
 
 **Off by default**: Aurora draws nothing past the edge, where the area
 ends shows plainest so, and a builder asked for it as an option. On, an

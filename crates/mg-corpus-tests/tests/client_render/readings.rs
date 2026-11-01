@@ -1195,6 +1195,12 @@ fn reading_tile_border() {
     // border from afar.)
     let clip = env("MG_CLIP", "150")[0];
     r.are.root.set("FogClipDist", Value::Float(clip));
+    // (`MG_MOON`: night, the moon's diffuse this hex BGR color.)
+    if let Some(moon) = std::env::var("MG_MOON").ok().and_then(|m| u32::from_str_radix(&m, 16).ok())
+    {
+        r.are.root.set("IsNight", Value::Byte(1));
+        r.are.root.set("MoonDiffuseColor", Value::Dword(moon));
+    }
     if let Ok(set) = std::env::var("MG_TILES") {
         let tiles = r.are.root.list_mut("Tile_List").unwrap();
         for one in set.split(',').filter(|s| !s.is_empty()) {
