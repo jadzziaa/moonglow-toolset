@@ -86,7 +86,7 @@ Captures that tests compare against go to `~/.local/share/moonglow-oracle/captur
 (`mg_testkit::aurora_capture!`); like game data, they are not committed.
 
 The game client is the renderer's oracle (`crates/mg-corpus-tests/tests/client_render.rs`,
-ignored: `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render -- --ignored`).
+ignored, on the off-screen display: `DISPLAY=$D cargo test -p mg-corpus-tests --test client_render -- --ignored`).
 It starts a scratch module with `+TestNewModule` and screenshots the client's
 window. To read what the client actually computes, put a patched copy of the
 game's own shader include in the scratch user directory's `override` (as
@@ -173,6 +173,10 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
 - Moonglow is GPL-3.0: GPL code (the official NWScript compiler, GPL crates)
   may be built in. Game assets, including Beamdog's shaders, are only ever
   loaded from the user's install.
-- The renderer is wgpu with Moonglow's own shaders approximating EE lighting
-  (validated against client screenshots); exact stock-shader parity is not a
-  goal (`docs/PLAN.md` §5.5).
+- The renderer is wgpu. The 3D views are drawn with the game's own shaders
+  by default (the Shaders switch; `mg-shader`, loaded from the user's
+  install), and with Moonglow's own WGSL shaders, approximating EE's
+  lighting, where it is off or a program fails; water stays Moonglow's
+  with the switch on (`docs/shaders-proposal.md`, M5). Every view and
+  preview draws as the area view does, and both paths are validated
+  against client screenshots.
