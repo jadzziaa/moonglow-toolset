@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:20:33Z }
 ---
 
 # Blueprints
@@ -27,7 +27,10 @@ the top:
   palettes open on the next time Moonglow starts, with what was typed
   in the search and the categories left open.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
-- **The search**, the pane's width; **×** clears it.
+- **The search**, the pane's width; **×** clears it. What is typed opens
+  every category with a match (close one again as you look); cleared,
+  each category is open or closed again as it was before the search,
+  in the List and the Gallery alike.
 - **The list's toolbar**, right over the list: the two arrows open and
   close every category, the count says how many blueprints the list has
   (or the search found), the two view buttons are **List** and

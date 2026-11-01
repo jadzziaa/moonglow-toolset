@@ -1732,10 +1732,14 @@ impl Tree<'_> {
         // through `fold`: they can be closed again after.)
         // (Open as it was left at the last start, until it is opened or
         // closed: `Tree::remember`.)
+        // (While a search is typed, the categories are open or closed on
+        // their own, apart: the search cleared, each is again as it was
+        // before it.)
         let remembered = self.remembered_key(path);
+        let searching = self.found.is_some();
         let shown = egui::CollapsingHeader::new(title)
-            .id_salt(("palette", kind, custom, path))
-            .default_open(self.open.contains(&remembered))
+            .id_salt(("palette", kind, custom, path, searching))
+            .default_open(searching || self.open.contains(&remembered))
             .open(self.asked(&branch))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
