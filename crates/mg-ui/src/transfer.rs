@@ -781,7 +781,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let name =
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        crate::widgets::modal(&ctx, "Import Resources").show(&ctx, |ui| {
+        // Resized as a builder likes (GitHub issue 40: an archive of
+        // hundreds of resources), the list of those the module has taking
+        // the room. (Held by its top left corner, not its middle: the
+        // corner dragged stays under the pointer.)
+        let size = egui::vec2(440.0, 480.0);
+        let window = crate::widgets::modal(&ctx, "Import Resources")
+            .resizable(true)
+            .pivot(egui::Align2::LEFT_TOP)
+            .default_pos(ctx.content_rect().center() - size / 2.0)
+            .default_size(size)
+            .min_size([320.0, 200.0]);
+        window.show(&ctx, |ui| {
             ui.label(format!("{name}: {} resources", draft.resources.len()));
             match &draft.stamp {
                 Some(s) => ui.label(format!("Made from {s}")),
@@ -790,17 +801,49 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             if let Some(w) = &draft.base_warning {
                 ui.colored_label(ui.visuals().warn_fg_color, format!("Careful: {w}."));
             }
+            // (What is under the list: its height the frame before.)
+            let under_id = ui.id().with("import-under-list");
+            let under_was: Option<f32> = ui.data(|d| d.get_temp(under_id));
+            let mut under_from = None;
             if !draft.overwrites.is_empty() {
                 ui.add_space(6.0);
                 ui.label("The module already has these; overwrite:");
-                egui::ScrollArea::vertical().id_salt("overwrites").max_height(180.0).show(
-                    ui,
-                    |ui| {
-                        for (k, on) in &mut draft.overwrites {
+                let row = ui.spacing().interact_size.y;
+                let under = under_was.unwrap_or(4.0 * row);
+                let height = (ui.available_height() - under).max(4.0 * row);
+                egui::ScrollArea::vertical()
+                    .id_salt("overwrites")
+                    .auto_shrink([false, true])
+                    .max_height(height)
+                    .show_rows(ui, row, draft.overwrites.len(), |ui, range| {
+                        for (k, on) in &mut draft.overwrites[range] {
                             ui.checkbox(on, k.to_string());
                         }
-                    },
-                );
+                    });
+                under_from = Some(ui.min_rect().bottom());
+                // Every one at once, as Aurora's Overwrite page has them.
+                ui.horizontal(|ui| {
+                    let all = draft.overwrites.iter().all(|(_, on)| *on);
+                    let tip = format!("Overwrite all {}", draft.overwrites.len());
+                    if ui
+                        .add_enabled(!all, egui::Button::new("Select All"))
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        draft.overwrites.iter_mut().for_each(|(_, on)| *on = true);
+                    }
+                    let any = draft.overwrites.iter().any(|(_, on)| *on);
+                    let tip = "Overwrite none of them: the module keeps its own";
+                    if ui
+                        .add_enabled(any, egui::Button::new("Select None"))
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        draft.overwrites.iter_mut().for_each(|(_, on)| *on = false);
+                    }
+                    let n = draft.overwrites.iter().filter(|(_, on)| *on).count();
+                    ui.weak(format!("{n} of {} to overwrite", draft.overwrites.len()));
+                });
             }
             if !draft.missing.is_empty() {
                 ui.add_space(6.0);
@@ -821,6 +864,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     close = true;
                 }
             });
+            if let Some(from) = under_from {
+                let under = ui.min_rect().bottom() - from + ui.spacing().item_spacing.y;
+                if under_was.is_none_or(|was| (was - under).abs() > 0.5) {
+                    ui.data_mut(|d| d.insert_temp(under_id, under));
+                    ui.ctx().request_repaint();
+                }
+            }
         });
         if close {
             app.import = None;
