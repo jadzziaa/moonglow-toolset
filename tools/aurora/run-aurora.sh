@@ -4,9 +4,10 @@
 # It runs in its own Wine prefix with its own NWN user directory, so it never
 # touches the real NWN user folder (~/.local/share/Neverwinter Nights).
 #
-#   tools/aurora/run-aurora.sh            # start the toolset
 #   DISPLAY=$(tools/aurora/headless.sh start) tools/aurora/run-aurora.sh
-#                                         # ... off-screen, to drive with xdrive.py
+#                                         # start the toolset off-screen, to
+#                                         # drive with xdrive.py (no other
+#                                         # display: headless.sh check)
 #   tools/aurora/run-aurora.sh kill       # stop it (and the prefix's wineserver)
 #   tools/aurora/run-aurora.sh extract-forms OUTDIR   # decode its VCL forms to text
 #
@@ -24,6 +25,7 @@ EXE="$NWN_ROOT/bin/win32/nwtoolset.exe"
 
 case "${1:-run}" in
   run)
+    "$(dirname "$0")/headless.sh" check
     mkdir -p "$ORACLE/userdir" "$WINEPREFIX"
     [[ -f "$WINEPREFIX/system.reg" ]] || wineboot -i
     cd "$NWN_ROOT/bin/win32"

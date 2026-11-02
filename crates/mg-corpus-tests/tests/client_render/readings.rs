@@ -8,7 +8,7 @@
 //! change of Moonglow's beside it).
 //!
 //! Needs the game and the off-screen display; run by hand:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render reading -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render reading -- --ignored --nocapture`.
 
 use super::*;
 use mg_module::instances::{Placement, Placing, instance};

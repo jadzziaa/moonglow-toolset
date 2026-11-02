@@ -92,8 +92,9 @@ impl Pairs {
 const CHEST_SLOT: u32 = 0x2;
 
 /// Why a PLT texture has no replacement to pick.
-const PLT_WHY: &str = "A PLT texture: the game draws it in the object's colors and doesn't \
-    replace it (ReplaceObjectTexture draws with simple textures, DDS or TGA, not PLTs)";
+const PLT_WHY: &str = "A PLT texture, drawn in the object's colors: a replacement draws \
+    it with the texture picked instead, as it is, as the game does (a creature's head \
+    replaced so in the client)";
 
 /// Why a texture with a name longer than a resref has no replacement.
 const TOO_LONG: &str = "The model names it by more than 16 characters: a replacement names \
@@ -294,9 +295,6 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                 if long {
                     ui.add_enabled(false, egui::Button::new("Select Texture…"))
                         .on_disabled_hover_text(TOO_LONG);
-                } else if plt.is_some() && row.entry.is_none() {
-                    ui.add_enabled(false, egui::Button::new("Select Texture…"))
-                        .on_disabled_hover_text(PLT_WHY);
                 } else {
                     if let Some(v) = crate::widgets::commit_text_in(
                         &mut f.app.buffers,
@@ -310,13 +308,8 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                     {
                         set_new = Some((row.entry, row.name.clone(), r));
                     }
-                    let button =
-                        ui.add_enabled(plt.is_none(), egui::Button::new("Select Texture…"));
-                    if button
-                        .on_hover_text("Pick the texture to draw it with")
-                        .on_disabled_hover_text(PLT_WHY)
-                        .clicked()
-                    {
+                    let button = ui.button("Select Texture…");
+                    if button.on_hover_text("Pick the texture to draw it with").clicked() {
                         pick = Some((row.entry, row.name.clone(), new.clone()));
                     }
                 }

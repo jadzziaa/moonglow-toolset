@@ -9,16 +9,20 @@
 # - Steam is hidden (~/.steam and the Steam folder, except the game install),
 #   so the client runs without the Steam API: no presence, no cloud sync.
 # - No network, no D-Bus session, no audio (the runtime directory is empty).
-# - It draws on $DISPLAY (default :1, the off-screen display from
-#   tools/aurora/headless.sh), never on the desktop.
+# - It draws on $DISPLAY, the off-screen display from
+#   tools/aurora/headless.sh, never on the desktop: on any other display,
+#   or none, it does not start (a default once sent clients to the
+#   desktop's Xwayland, which holds :1 here, when the off-screen display
+#   failed to start).
 #
 # The game install comes from $NWN_ROOT (default: the Steam path).
 set -e
 SCRATCH=$(realpath "$1")
 shift
 NWN=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
-DISP=${DISPLAY:-:1}
-[ "$DISP" = ":0" ] && { echo "refusing to run on the desktop display :0" >&2; exit 1; }
+DISP=${DISPLAY:-}
+# Only the running off-screen session's display (headless.sh check).
+"$(dirname "$0")/../aurora/headless.sh" check "$DISP"
 SOCKET=/tmp/.X11-unix/X${DISP#:}
 mkdir -p "$SCRATCH/home" "$SCRATCH/user" "$SCRATCH/run"
 exec bwrap \

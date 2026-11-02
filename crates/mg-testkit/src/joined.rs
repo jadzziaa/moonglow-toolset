@@ -85,7 +85,11 @@ pub fn start(
     })?;
     let root = crate::nwn_root()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no game install (NWN_ROOT)"))?;
-    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":1".into());
+    // (The off-screen display, given: none is assumed, as a default once
+    // sent the client to the desktop's.)
+    let display = std::env::var("DISPLAY").ok().filter(|d| !d.is_empty()).ok_or_else(|| {
+        io::Error::other("DISPLAY is not set: give the off-screen display (headless.sh start)")
+    })?;
     if display == ":0" {
         return Err(io::Error::other("refusing the desktop display :0"));
     }

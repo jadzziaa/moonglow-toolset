@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1406,6 +1406,211 @@ number is its EE twin `xModelPart1` first, as other part numbers.)
 - **Moonglow:** `crates/mg-preview/src/creature.rs`; tests
   `a_helmet_without_its_model_is_the_bag` and
   `a_creature_s_own_parts_show_where_its_armor_is_bare`.
+- **Wiki:** missing.
+
+### A PLT is replaced by name; a creature's items are not
+
+An object's texture replacement (`TextureReplace`, which
+`ReplaceObjectTexture` sets) replaces a PLT texture by its name as it
+does a DDS or TGA: a human's head `pmh0_head001` replaced by a red TGA is
+drawn plain red, without the object's colors, by the field and by the
+script call alike. A creature's replacements don't reach the items it
+wears: its helmet's `helm_001` and its cloak's `cloak_003` (both PLTs)
+stay as they are, by the field or the script call.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_replaced_textures`
+  (2026-11-01, 89.8193.37), beside Moonglow's area view.
+- **Moonglow:** `crates/mg-preview/src/lib.rs` (`replaced`,
+  `Part::item`); the Visuals page offers Select Texture for PLTs; tests
+  `a_creature_s_replacements_leave_its_items_alone` and
+  `visuals_page_lists_a_creature_s_plt_textures_with_a_gallery`.
+- **Wiki:** the Lexicon's `ReplaceObjectTexture` asks for a "simple"
+  new texture; that the old one may be a PLT, and that a creature's
+  items are not reached, is missing.
+
+### An animated part plays only the animation asked
+
+Wings or a tail whose model lacks the animation the creature plays play
+none of their own: the game's `c_wings2` (all of whose animations are a
+creature's) on a human standing in `pause1` is spread as at rest, not in
+its `creadyl`.
+
+- **Checked:** game client, `batch2.rs`'s `reading_wings_without_bones`
+  from the side and from behind (2026-11-01), beside Moonglow's area
+  view before and after the change.
+- **Moonglow:** `crates/mg-preview/src/compose.rs`; test
+  `an_animated_part_without_the_animation_plays_none_of_its_own`.
+- **Wiki:** missing.
+
+### An item on the ground reflects the area's map
+
+An item lying in an area as its own model (a small shield, base item
+14, whose `Part1EnvMap` is 1) reflects the area's environment map (the
+tileset's `EnvMap`: `tin01__ref01`, copper), not `chrome1`.
+
+- **Checked:** game client, `batch6.rs`'s
+  `batch6_item_env_map_own_model` (2026-11-01: the shield's model made a
+  sphere of a texture of alpha 0, `inc_standard` painting each
+  environment-mapped fragment with its map).
+- **Moonglow:** `crates/mg-preview/src/item.rs` (`item_placed`); test
+  `what_is_only_worn_lies_in_an_area_as_aurora_shows_it`.
+- **Wiki:** missing.
+
+### 15- and 16-bit TGAs
+
+A 16-bit TGA is opaque wherever it is drawn: its top bit is no alpha,
+even where the descriptor declares an alpha bit. Its five-bit levels are
+`(c << 3) | (c >> 2)` as a model's texture (4 is 33, 30 is 247) and
+`c × 255 / 31` rounded down as a NUI image (4 is 32, 30 is 246). Seen
+once: a 16-bit TGA named only by a material's `texture0` drew as
+uninitialized texture memory, and drew right in the next run, where a
+mesh named it as its `bitmap` too.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_tga16_texture`
+  (2026-11-01: custom programs painting the texture as sampled, its
+  lowest bit and its alpha) and `nui.rs`'s `nui_readings_in_the_client`
+  (2026-10-29).
+- **Moonglow:** `crates/mg-image/src/tga.rs` (`color`, `read_picture`);
+  test `a_16_bit_tga_is_opaque_and_its_levels_are_the_client_s`.
+- **Wiki:** missing.
+
+### A shader's includes: indented, missing, deep
+
+The engine splices an `#include` indented by spaces or a tab, as it
+splices one at the line's start. A program that includes a file that is
+nowhere fails, and the client draws its meshes magenta. Includes nest at
+least 1,000 deep (a chain of 1,000 files, each including the next,
+compiled and drew).
+
+- **Checked:** game client, `batch6.rs`'s `batch6_include_splicing`
+  (2026-11-01, with `MG_DEPTHS` 15 to 18, 24 to 250 and 1,000).
+- **Moonglow:** `crates/mg-shader/src/assemble.rs`: indentation and a
+  missing include as the engine; its depth limit of 16 refuses deeper
+  chains (the deferred list's M0).
+- **Wiki:** missing.
+
+### An animation played through a chain of supermodels is scaled by each link
+
+A model playing an animation one of its supermodels owns moves the
+animation's positions by its own `setanimationscale` times that of each
+supermodel between it and the owner: a model of scale 2 on one of 3 on
+the owner plays it at 6, and one of 1 on one of 3 at 3. The owner's own
+scale doesn't count (an owner of 0.5 or of 1, alike), nor does a model's
+own animation take its scale.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_supermodel_chain`
+  (2026-11-01, with `MG_CHAIN_OWNER` 1 and 0.5: dynamic placeables whose
+  green card the owner's `default` holds 0.4 m up).
+- **Moonglow:** `crates/mg-render/src/anim.rs` takes the playing model's
+  scale alone (the deferred list's custom creatures entry).
+- **Wiki:** missing.
+
+### A DDS with a rippling procedure loses its picture
+
+A texture with a TXI `proceduretype arturo` whose file is a DDS is
+drawn as a flat light gray (about 89, 82, 78 over the reference room,
+the same for a DDS of glowing coals and one of floor stones), its
+picture lost; the same TXI on a TGA ripples the picture. The DDS itself
+is not at fault: BioWare's DXT1 and DXT5, under BioWare's header or the
+standard one, draw whole without the procedure. This is The Domains of
+Dread's burning zombie's pallor: its glow `dd_ce3_txhotcoal` is an
+additive DDS with the ripple, drawn as a gray wash over the body when
+the hak's TGA of it isn't there.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_bioware_dxt1` and
+  `batch6_procedure_on_dds` (2026-11-01).
+- **Moonglow:** ripples a DDS as a TGA (the deferred list's M4 entry).
+- **Wiki:** missing.
+
+### How far and how fast a texture ripples
+
+With `distort 1`, a rippling texture's picture is pushed about by about
+0.82 × `distortionamplitude` texels of the texture itself (RMS over the
+picture; its 95th percentile 1.25 ×), whatever its size (64 and 128
+texels alike) and whatever `defaultwidth` says (16, 64 or none, alike).
+The ripple changes by about 12 texels a second at `speed` 16 and 4.5 at
+4, and a picture of it is unlike itself after about 4.5 seconds. With
+`distort 0` the channels are `c × channelscale + channeltranslate`: the
+zombie's scale 0 and translation 1 draw white.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_ripple` (2026-11-01:
+  cards of a texture whose red is its u and green its v, painted as
+  sampled, the client's clock along their feet, 60 to 80 pictures over
+  20 s; the texel each pixel samples less its mean over the pictures).
+- **Moonglow:** `crates/mg-render/src/shader.wgsl`'s own approximation
+  (the deferred list's "A rippling glow").
+- **Wiki:** says the amplitude is in texels; that `defaultwidth`
+  changes nothing is missing.
+
+### A light's shadow takes the light's share
+
+A creature's shadow from a lamp darkens the floor by the lamp's share of
+the light falling there, at most about 0.53: an ogre's shadow from a
+lamp post (radius 10) darkens the floor by 0.50, 0.52, 0.53, 0.47, 0.38,
+0.29, 0.21, 0.13, 0.11 and 0.08 at 1.5, 2, 3 … 10 m and nothing at 11
+and 12, where the lamp's share of the floor's light (its brightness less
+the room's without the lamp, over its brightness) is 0.58, 0.54, 0.48,
+0.40, 0.33, 0.27, 0.20, 0.15, 0.11 and 0.07. Every creature in a lamp's
+reach casts at once (eight ogres in a row, each its shadow), and a
+player's own light casts the shadows of the creatures about the player.
+
+- **Checked:** game client, `batch3.rs`'s `reading_light_shadows` (the
+  distances between added 2026-11-01), `batch6.rs`'s
+  `batch6_light_shadow_casters` and `batch6_player_light_at_night`.
+- **Moonglow:** `crates/mg-render/src/shadow.rs` darkens by the opacity
+  and the plane's fade alone (the deferred list's "Shadows").
+- **Wiki:** missing.
+
+### The grass's material: linear colors, and a fade by distance
+
+The engine gives the grass's draws the `.set`'s [GRASS] ambient and
+diffuse colors made linear (ttr01's 0.5, 0.6, 0.3 as 0.218, 0.325,
+0.071), no emissive, and a diffuse alpha that falls with the tufts'
+distance from the camera, batch by batch: about 0.94 at 17 m, 0.87 at
+18, 0.79 at 19, 0.71 at 20, 0.56 at 22.5 and 0.49 at 24 (about
+`(32 − d) / 16`), which `inc_standard` multiplies into the tufts' alpha.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_grass_material`
+  (2026-11-01, `fsgrass` patched to paint each; `fade` paints the alpha
+  beside the distances from the camera and from the player, which it
+  doesn't follow).
+- **Moonglow:** the colors as the engine's; the alpha 1 (the deferred
+  list's M5).
+- **Wiki:** missing.
+
+### A see-through cut-out is lit through from behind
+
+A mesh of `alpha 0.5` with a cut-out texture is drawn opaque, but lit
+as see-through: the game's lighting passes `1 − alpha` of the light
+falling on its back through it (`inc_lighting`'s
+`LIGHT_TRANSLUCENCE_VALUE`, the fragment's alpha the mesh's times the
+texel's), so a disc lit from behind is a quarter lighter than the same
+disc of alpha 1 (its lighting 156 against 126 of 255; its color before
+lighting the same; no blending). Moonglow's game path draws it so; its
+own shader doesn't.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_cut_out_lighter`
+  (2026-11-01, `fslit` patched to paint the color before lighting, the
+  lighting, the alpha, and black with the fragment's alpha).
+- **Moonglow:** `crates/mg-render/src/shader.wgsl` (the deferred list's
+  "Where a cut-out is cut").
+- **Wiki:** missing.
+
+### A `Linked` ribbon's cell runs half a particle past the next
+
+A ribbon's piece starts its texture's cell at its older particle and
+reaches the next particle at `gap / (gap + size / 2)` of the cell: at a
+metre's gap within 0.01 at particle sizes 0.15, 0.3, 0.45, 0.6, 0.9 and
+1.2 m (0.93 to 0.63); at half a metre's gap less far (0.85 at 0.3 m and
+0.67 at 0.6, where the rule says 0.77 and 0.63). A see-through mesh of
+another model in front of a ribbon hides it, as one of its own model
+does.
+
+- **Checked:** game client, `batch5.rs`'s
+  `reading_ribbon_pieces_and_order` (2026-10-30) and `batch6.rs`'s
+  `batch6_ribbon_sizes` (2026-11-01).
+- **Moonglow:** `crates/mg-render/src/particles.rs` runs the cell from
+  one particle to the next (the deferred list's ribbon entry).
 - **Wiki:** missing.
 
 ## Talk tables and 2DAs

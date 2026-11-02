@@ -12,32 +12,32 @@
 //!
 //! Needs the game and the off-screen display; run by hand, one client at a
 //! time:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render batch5 -- --ignored --nocapture --test-threads 1`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render batch5 -- --ignored --nocapture --test-threads 1`.
 
 use super::readings::{INVISIBLE, Reading, placeables_with};
 use super::*;
 
 /// The game's program `name` (a `.shd`), its line ends Unix's.
-fn program(game: &GameData, name: &str) -> String {
+pub(super) fn program(game: &GameData, name: &str) -> String {
     let src =
         game.resman.get_named(name, ResType::SHD).unwrap_or_else(|e| panic!("{name}.shd: {e}"));
     String::from_utf8_lossy(&src).replace("\r\n", "\n")
 }
 
 /// `src` with `find` (which must be there) replaced by `with`.
-fn patched(src: &str, find: &str, with: &str) -> String {
+pub(super) fn patched(src: &str, find: &str, with: &str) -> String {
     assert!(src.contains(find), "{find:?} not in the program");
     src.replacen(find, with, 1)
 }
 
 /// The game read with no user directory of ours.
-fn base_game() -> GameData {
+pub(super) fn base_game() -> GameData {
     let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
     GameData::open(&GameInstall::new(&root, None, "en")).unwrap()
 }
 
 /// The client's settings with skyboxes on.
-fn with_skybox(settings: &str) -> String {
+pub(super) fn with_skybox(settings: &str) -> String {
     let s = settings.replace(
         "[graphics.skyboxes]\n\t\tenabled = false",
         "[graphics.skyboxes]\n\t\tenabled = true",
@@ -48,7 +48,7 @@ fn with_skybox(settings: &str) -> String {
 
 /// The mean colour of `r` (fractions, top-left origin) in each picture of
 /// `dir` named in `names` (those there), printed after `what`.
-fn region_means(dir: &Path, what: &str, r: [f32; 4], names: &[&str]) -> Vec<[f32; 3]> {
+pub(super) fn region_means(dir: &Path, what: &str, r: [f32; 4], names: &[&str]) -> Vec<[f32; 3]> {
     let mut out = Vec::new();
     let mut line = format!("{what:28}");
     for name in names {
@@ -784,7 +784,7 @@ fn sway_of(img: &Rgba) -> (Option<u32>, [f32; 2], usize) {
 /// A texture 64 square, blue, its green the texture's v (0 at the bottom,
 /// 252 at the top) and its red the u in four steps: what part of it a
 /// pixel shows.
-fn gradient_tga() -> Vec<u8> {
+pub(super) fn gradient_tga() -> Vec<u8> {
     // (Bottom row first, BGRA.)
     let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, 0];
     for y in 0..64u8 {

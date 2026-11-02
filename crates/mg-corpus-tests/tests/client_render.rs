@@ -27,7 +27,7 @@
 //! the image, and they are compared with what Moonglow uploads.
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -60,6 +60,8 @@ mod batch3;
 mod batch4;
 #[path = "client_render/batch5.rs"]
 mod batch5;
+#[path = "client_render/batch6.rs"]
+mod batch6;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
@@ -2575,10 +2577,10 @@ fn tdod_custom_shaders_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let draw = |git: &Gff, on: bool, water: bool| {
+    let draw_fogged = |git: &Gff, on: bool, water: bool, fog: bool| {
         let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
         let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
-        let view = mg_area::View { fog: false, time: 4.0, ..mg_area::View::of(&model) };
+        let view = mg_area::View { fog, time: 4.0, ..mg_area::View::of(&model) };
         let scene = area_scene.scene(&model, &view);
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.game_shaders = on;
@@ -2586,12 +2588,19 @@ fn tdod_custom_shaders_look() {
         let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
         (img, r.drawn, r.game_shader_failures().to_vec())
     };
+    let draw = |git: &Gff, on: bool, water: bool| draw_fogged(git, on, water, false);
     let (bare, _, _) = draw(&empty, false, false);
     let (off, _, _) = draw(&git, false, false);
     // (The basin's water by `fswater` with the framebuffer's copies, as the
     // client draws it, while `GAME_WATER`; and by Moonglow's own water.)
     let (on, drawn, failures) = draw(&git, true, mg_render::GAME_WATER);
     let (water, _, _) = draw(&git, true, false);
+    // (And with the area's fog, which the client lays over the far floor
+    // and water at a fog amount of 0 too: `reading_far_water_by_part`.)
+    let (fogged, _, _) = draw_fogged(&git, true, mg_render::GAME_WATER, true);
+    let (fogged_off, _, _) = draw_fogged(&git, false, false, true);
+    save_png(&fogged, &dir.join("moonglow_on_fog.png"));
+    save_png(&fogged_off, &dir.join("moonglow_off_fog.png"));
     save_png(&off, &dir.join("moonglow_off.png"));
     save_png(&on, &dir.join("moonglow_on.png"));
     save_png(&water, &dir.join("moonglow_ownwater.png"));
@@ -2617,9 +2626,12 @@ fn tdod_custom_shaders_look() {
     let (d_off, n) = over(&off);
     let (d_on, _) = over(&on);
     let (d_water, _) = over(&water);
+    let (d_fog, _) = over(&fogged);
+    let (d_fog_off, _) = over(&fogged_off);
     eprintln!(
         "fountain ({n} pixels): Moonglow's own shader differs from the client by {d_off:.1} of 255 \
-         on average, the game's shaders by {d_on:.1}, and with Moonglow's water by {d_water:.1}"
+         on average, the game's shaders by {d_on:.1}, and with Moonglow's water by {d_water:.1}; \
+         with the fog, the game's shaders by {d_fog:.1} and Moonglow's own by {d_fog_off:.1}"
     );
     for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
         let c = mean(&client, *r);

@@ -258,7 +258,7 @@ fn evented() -> Win {
 /// alpha bit: a white band (rows 0 to 7, the bit set), then red level `c`
 /// in columns 8c to 8c + 7 (rows 8 to 35, the bit set), then green level
 /// `c` with the bit clear (rows 36 to 63).
-fn tga16() -> Vec<u8> {
+pub(super) fn tga16() -> Vec<u8> {
     let (w, h) = (256u16, 64u16);
     let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     out.extend(w.to_le_bytes());
@@ -372,7 +372,7 @@ fn winshot(path: &Path) -> Option<Rgba> {
 
 /// A click at (x, y) of the client's window, the pointer moved there
 /// first (a bare click is not taken).
-fn click_in_window(x: u32, y: u32) {
+pub(super) fn click_in_window(x: u32, y: u32) {
     let xdrive = common::repo().join("tools/aurora/xdrive.py");
     let out = Command::new("python3").arg(&xdrive).arg("windows").output().unwrap();
     let listed = String::from_utf8_lossy(&out.stdout).into_owned();

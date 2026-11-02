@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:41:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -154,16 +154,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The model viewer playing an animation** asks for a frame at once,
     every frame, while the window has the focus (144 a second here),
     where a step as the area view's would do. (S)
-
-## EE fields Aurora hides
-
-- **The Visuals page's texture and animation pickers, what's left:**
-  waiting on the client: whether the game replaces a PLT texture by name (the page and the
-  preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
-  that the new one must be simple), and whether a creature's replacement
-  reaches what it holds, its helmet or cloak (left out of its list). A
-  client screenshot of `ReplaceObjectTexture` on each settles it. (S)
-  (GitHub issue 32)
 
 ## Blueprint editors and inventories
 
@@ -344,8 +334,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   creation (tattoos): which part numbers the creation screen offers for
   a race and phenotype isn't known here (parts_*.2da has no column for
   it, and every part number would count every armor part as used).
-  Waits on the client batch: read the creation screen's part lists
-  against parts_chest.2da and the others.
+  The creation screen can be reached in the sandboxed client (Test
+  Module's Choose Character, `+LoadNewModule`, offers New:
+  `reading_choose_character`), but its Appearance step lies behind the
+  gender, race, portrait, class, alignment, abilities and package
+  steps, each a click on a picture whose places are not known; driving
+  it was not done in the sixth client batch, whose time went to the
+  readings that each settle an item. Waits on that: the part lists read
+  off the screen against parts_chest.2da and the others. (S)
 
 
 ## Area visibility
@@ -461,15 +457,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     program (Verify, which asks glslang alone, takes them), and
     `customShaderGS` (a geometry shader) is not read; no shader seen has
     either. (S)
-  - What the engine does is assumed in three places, none checked in the
-    client: an indented `#include` is spliced (14 of the stock ones
-    are), a missing include fails the program, and splicing stops 16
-    deep (`mg_shader::assemble`, `MAX_DEPTH`). (S) (waits on a session
-    that runs the client: three programs put in a scratch user
-    directory's `override`, as `light_uniforms_match_the_client` puts
-    its, one with an indented include, one naming an include that isn't
-    there and one at the end of a chain 17 deep, each drawn magenta or
-    not)
+  - **Includes nest deeper than 16:** read in the client (2026-11-01,
+    `batch6_include_splicing`): an indented `#include` (spaces or a tab)
+    is spliced, as `mg_shader::assemble` splices it, and a missing
+    include fails the program (the client draws its meshes magenta;
+    Moonglow draws its own shader and reports it); but chains of 17, 18,
+    24 … 250 and 1,000 includes compile and draw in the client, where
+    `MAX_DEPTH` (16) refuses them. The fix (mg-shader, another package's
+    this round): splice without a depth limit, refusing only a loop (an
+    include of a file already being spliced, which would never end), or
+    with a limit far past 1,000. (S)
   - A uniform that is a struct is described as `Other`, without its
     members (none in the stock blocks). (Locations, which glslang numbers
     in the order a stage first uses them, are settled in M1: vertex
@@ -500,16 +497,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
     starts both at 0 when the scene's time does. The client's timer is a
     count taken within the module's day (24 × its minutes an hour ×
-    60,000 ms), whatever the module's start hour, day or dawn, but the
-    count moves: about 17,697,400 as the player entered an area in 16
-    runs until after 12:09 on 2026-10-29 (and on 2026-10-21), two hours
-    more by 13:11 (`time_uniforms_in_the_client`), and 17,697,400 again
-    at 23:10 that day (two runs, 30 and 2 minutes an hour: 17,704,328 at
-    the first picture, seven seconds in), so not the time of day; what
-    gave the 13:11 count is not known. It is the phase of the falling
-    water's flow and the grass's sway, which are not compared with the
-    client frame by frame until it is. (S: the timer read back over a
-    few runs an hour apart, and after a long-running client)
+    60,000 ms), whatever the module's start hour, day or dawn. Its value
+    as the player enters an area (U, before the module's day is taken
+    from it) was 17,697,400 (A) in 16 runs until after 12:09 EDT on
+    2026-10-29 (16:09 UTC), on 2026-10-21 and at 23:10 EDT that day
+    (03:10 UTC on the 30th), and 24,897,600 (B, A plus 7,200,200: two
+    hours) at 13:11 EDT on the 29th (17:11 UTC) and in every run of
+    2026-11-02 from 04:10 to 05:43 UTC (the sixth client batch: TZ=UTC
+    and TZ=Asia/Tokyo the same). Held 30 minutes in one run
+    (`batch6_timer_held`) it runs with the wall clock to within 60 ms,
+    without a jump. So it is not the time of day, the time zone or the
+    module, and within a run it is real time; what sets the start (A or
+    B) is not known. It is the phase of the falling water's flow and the
+    grass's sway, which are not compared with the client frame by frame
+    until it is. (S: more runs spread over a day, recording UTC and the
+    value, `time_uniforms_in_the_client` with `MG_TIME_CASES=13:30:1:6`)
   - The game's programs draw on CI's Metal and Direct3D 12 (the
     renderer's CI branch, 2026-10-29: three draws, no failures), but a
     discarding one's depth is not tested there: naga's `discard` from
@@ -521,12 +523,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     draws Moonglow's, on the renderer's CI branch)
   - The Domains of Dread's fountain is 10.6 of 255 from the client on
     average with the Shaders switch on (the game's `fswater` with the
-    framebuffer's copies; 11.7 with Moonglow's own water). The rural
-    lake's 10.9 was Moonglow drawn without fog (the fifth client batch,
-    2026-10-30: with fog it matches within 0.6); the fountain's is not
-    explained by that: read beside the client with fog, as
-    `reading_far_water_by_part` reads the lake. (S, waits on a client
-    reading)
+    framebuffer's copies; 11.7 with Moonglow's own water; 13.7 with
+    Moonglow's own shader). Not the fog: drawn with the area's fog
+    (2026-11-01, `tdod_custom_shaders_look`, `moonglow_on_fog.png`) it is
+    10.6 again (the fountain is within the fog's start). Beside the
+    client the difference is the falling water (`dd_tap_flow_vs`/`_fs`):
+    the client's streams show as lines down into the basin, Moonglow's
+    fainter, and their phase is the timer's (`worldtimerTimeOfDay`,
+    above), so they are compared when the timer's start is known. (S,
+    waits on the timer)
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
@@ -614,36 +619,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     red alpha 0.5` alpha-tested static, blended dynamic; `envmap` the
     other way, beside `envmap+mesh alpha`); which mesh of a bucket
     gives its value isn't plain from these (the first of `mgp_plain`'s
-    and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
-  - Not read in the client: which map a reflecting item on the ground
-    takes. Read on 2026-10-30 (`reading_item_env_map`, the fourth client
-    batch, `inc_standard` painting each environment-mapped fragment with
-    its map in `tin01`): an amulet lies as `it_bag`, whose texture has no
-    alpha, and the client draws it with no map (not painted) where
-    Moonglow's game path binds `chrome1`, which shows nothing either way;
-    a longsword whose blade model was made a sphere drew no sphere in
-    either. (`cameraFocus` was read back as the player's place, (20, 20,
-    0) with the player there, in four runs on 2026-10-29: what Moonglow
-    uploads, its camera's target.) (S) (waits on a client reading: an
-    item of its own model, a texture with alpha, under the painting
-    include)
-  - Moonglow's own shader draws as the client does since M4 (Settled),
-    not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
-    with their transparent texels black, and its 21 materials naming
-    maps without a render hint. Seen on 2026-10-30
-    (`reading_rippling_glow` with `MG_B4_ZOMBIE=dds`): TDoD's
-    `dd_ce3_txburneds.dds` (a BioWare DXT1 of 512², three channels,
-    alpha mean 1, no transparent texel, its levels whole) alone in the
-    override drew the zombie a pale gray, see-through, where its TGA
-    beside it (as the hak has both) draws it charred as Moonglow draws
-    the DDS. Not the file (2026-10-30, `MG_B4_ZOMBIE=stockdds`): the
-    game's own `tic01_floor01.dds` (a BioWare DXT1 alike, 512², alpha
-    mean 1) in its place draws the zombie pale white and opaque, not its
-    stones: the client shows neither DDS's picture (TDoD's pale and
-    see-through, the stock one pale and not), Moonglow both as decoded
-    (what the client makes of a BioWare DXT1 here, not read; TDoD's areas, which
-    the module on this machine doesn't hold (`tdod.mod`: three staging
-    areas), wait on their files). (S)
+    and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles (the
+    reading: `program_choice_in_the_client`'s marked programs with its
+    cards as a tile's model in the scratch override, as a tile of the
+    area; not made in the sixth client batch, whose time went to the
+    others). (S)
+  - **A DDS with a rippling procedure loses its picture** in the
+    client (read on 2026-11-01, `batch6_bioware_dxt1` and
+    `batch6_procedure_on_dds`; [the findings](findings.md), "A DDS with
+    a rippling procedure loses its picture"): BioWare's DXT1 draws whole
+    (the stock `tic01_floor01.dds` and TDoD's `dd_ce3_txburneds.dds` on a
+    card, in the override under another name, under the standard header:
+    all as the TGA), but a texture with TXI `proceduretype arturo` whose
+    file is a DDS draws flat light gray (89, 82, 78 here, the coals' DDS
+    and the floor's alike), where the TXI on a TGA ripples the picture.
+    The zombie's pallor was its glow, `dd_ce3_txhotcoal.dds` with its
+    TXI (additive), washed over the body. The fix (mg-render, another
+    package's this round): a texture rippling by `proceduretype arturo`
+    whose file is a DDS is drawn as a flat color, not its picture (the
+    gray's value is the client's: about 0.35 of white, added for an
+    additive one). (S) Moonglow's own shader in the builders' areas
+    (TDoD's 690 DXT1 textures with transparent texels black, its 21
+    materials naming maps without a render hint) waits on those areas'
+    files (`tdod.mod` here holds three staging areas). (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
@@ -664,8 +662,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
-    17.0). The material colours the engine uploads (`.set`
-    [GRASS]'s) are not read through a patched `vsgrass`. (S)
+    17.0). The material the engine gives them, read on 2026-11-01
+    (`batch6_grass_material`, `fsgrass` painting each; [the
+    findings](findings.md), "The grass's material"): the [GRASS]
+    ambient and diffuse made linear and no emissive, as Moonglow gives
+    them; but the diffuse's alpha falls with the tufts' distance from
+    the camera, batch by batch (about `(32 − d) / 16`: 0.94 at 17 m,
+    0.71 at 20, 0.49 at 24; not the player's distance), and Moonglow
+    gives 1. The fix (mg-render, another package's this round): the
+    grass's draws get that alpha by their batch's distance from the
+    camera. (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough
@@ -700,19 +706,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   turned half round in both, its pieces drawn newest last). Read on
   2026-10-30 (`reading_ribbon_pieces_and_order`, the fifth client batch,
   a texture whose green is its v): a client piece starts its cell at its
-  older particle and stretches it past the next, which starts again:
-  the cell runs over the gap and about 0.1 m more at 30 cm particles,
-  0.25 at 60 cm (alike at 0.5 and 1 m gaps; the rule in the particles'
-  size not fitted from two sizes), where Moonglow's runs from one
-  particle to the next exactly (S). Among see-through meshes: a mesh of
-  `alpha 0.5` in front of a ribbon hides it entirely in the client (in
-  the ribbon's own model: it writes the depth the particles are drawn
-  against; across models not read), where Moonglow
-  draws the ribbon over it whole, its see-through part writing no
-  depth (`alpha 0.5` meshes writing depth is the see-through meshes
-  entry's question too: M). A model with no mesh to draw (this fog)
-  has no bounds of its own to frame a view by. (S) (from builders'
-  reports after 1.19.1)
+  older particle and stretches it past the next, which starts again; the
+  rule, fitted on 2026-11-01 (`batch6_ribbon_sizes`, sizes 0.15 to 1.2
+  m; [the findings](findings.md), "A `Linked` ribbon's cell runs half a
+  particle past the next"): the cell reaches the next particle at
+  `gap / (gap + size / 2)` (within 0.01 at a metre's gap; at half a
+  metre it reaches 0.85 and 0.67 at 0.3 and 0.6 m, where the rule says
+  0.77 and 0.63), where Moonglow's runs from one particle to the next
+  exactly. The fix (mg-render, another package's this round): a piece's
+  v runs to `gap / (gap + size / 2)` at its newer particle. (S) Among
+  see-through meshes: a mesh of `alpha 0.5` in front of a ribbon hides
+  it entirely in the client, of the ribbon's own model or of another
+  (2026-11-01: a placeable's card 0.6 m before another's ribbon), where
+  Moonglow draws the ribbon over it whole, its see-through part writing
+  no depth (`alpha 0.5` meshes writing depth is the see-through meshes
+  entry's question too: M). A model with no mesh to draw (this fog) has
+  no bounds of its own to frame a view by. (S) (from builders' reports
+  after 1.19.1)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
@@ -765,13 +775,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   none of a vertex no bone weighs), and since 2026-10-30 as spacing only
   in a list that has all its rows without it. The reporter's "stopped
   animating" (Mindwitness) wasn't seen as such: here it animated, with
-  its skin torn by the shifted weights. Left, each waiting: which scale
-  a chain of scaled supermodels plays its animation at (the playing
-  model's alone, or each link's together: a client reading of a model,
-  its supermodel and theirs, each scaled); the model viewer's own check
-  of names over 16 characters (the Moonglow Viewer session's); and the
-  Mindwitness's pose, other than in Aurora and the game (the builder's
-  model). (S)
+  its skin torn by the shifted weights. Left: a chain of scaled
+  supermodels, read on 2026-11-01 (`batch6_supermodel_chain`; [the
+  findings](findings.md), "An animation played through a chain of
+  supermodels is scaled by each link"): the client scales an animation a
+  supermodel owns by the playing model's `setanimationscale` times each
+  supermodel's between it and the owner (2 on 3 on the owner: 6; the
+  owner's own scale not counted, nor a model's own animation scaled),
+  where Moonglow takes the playing model's alone (2). The fix (mg-render's
+  `anim.rs`, another package's this round): a binding's scale is the
+  product of the scales of the chain from the playing model down to,
+  not including, the model whose animation it is (S). Waiting: the model
+  viewer's own check of names over 16 characters (the Moonglow Viewer
+  session's); and the Mindwitness's pose, other than in Aurora and the
+  game (the builder's model). (S)
 - **Shadows:** the area view draws the sun's and moon's shadows
   (2026-10-28: a shadow map standing in for the game's stencil volumes,
   laid as the game's shadow plane lays them, checked against the client
@@ -780,15 +797,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2026-10-28); since 2026-10-30 also as the game's own stencil volumes
   (Shadows quality High: [the notes](research/notes_shaders.md) §G.2),
   beside the client in `high_shadows_beside_the_client`. Left:
-  - with High: skins cast none, as the wiki says of the game ("only
-    Trimesh nodes"), where Fast casts them posed (the game's own horse,
-    `c_horse1`, carries `render 0` trimeshes beside its `HorseBody`
-    skin, as a stand-in would be: not read in the client, where Fast and
-    High would show the same shape); and where the sun's volume of what
-    is not a tile ends (the game's `projectionWorldZClip` for a
-    placeable or a creature; Moonglow's: the lowest receiver seen: a
-    placeable at a cliff's edge would show it) (S, each waits on a
-    client reading not made in this session). The wiki's "finhead" (three
+  - with High: the game's own horse (`c_horse1`, its `HorseBody` skin
+    beside `render 0` trimeshes) casts its shape in the client, as
+    Moonglow's Fast and High draw it (2026-11-01,
+    `high_shadows_beside_the_client` case `horse`: the shadows' pixels
+    agree 0.57 and 0.62 with the client's). Where the sun's volume of
+    what is not a tile ends (the game's `projectionWorldZClip`;
+    Moonglow's: the lowest receiver seen) was tried on a cliff made by
+    raising the area's north row of ttr01's plain tiles a level (case
+    `cliff`): the client drew no cliff to fall down (the raised plain
+    tiles drew level with the rest), so it waits on a tileset's own
+    cliff tiles placed as a builder places them (S). The wiki's "finhead" (three
     fins on one edge, which it says tears the volumes) was read on
     2026-10-30 (`high_shadows_beside_the_client`, case `finhead`, the
     sun 23 and 43 degrees up): the client draws it welded as it draws
@@ -800,19 +819,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     within the budget (a frame's GPU time 0.1 to 1 ms more than Fast's,
     3.3 ms more in area026 seen close, 6.7 ms of 6.9). Making them
     apart, as textures are read, goes beyond what was asked (M);
-  - the lights' shadows fall off with the lamp's distance, where
-    Moonglow's darkness is the opacity times the plane's fade alone: an
-    ogre's shadow from a lamp post (row 73, radius 10) 1.5, 3, 5, 7, 9
-    and 12 m north of it darkens the floor just south of its feet by
-    0.50, 0.53, 0.38, 0.21, 0.11 and nothing (medians;
-    `reading_light_shadows` in `client_render.rs`'s `batch3.rs`,
-    2026-10-29 and 2026-10-30), Moonglow's by 0.53 to 0.60 at every
-    distance (`moonglow_light_shadows`, `batch5.rs`), the shadows' lengths
-    alike; flat to about 3 m, then nearly straight down to none by about
-    11 m, not the light's own attenuation (the rule not fitted: S); how
-    many creatures cast the lights' shadows at once (`max-casting-lights`
-    changed nothing with one; Moonglow: 16), and a PC's own light at
-    night (Moonglow places no PC) (S) (waits on a client reading);
+  - the lights' shadows take the casting light's share of the floor's
+    light, where Moonglow's darkness is the opacity times the plane's
+    fade alone (0.53 to 0.60 at every distance, `moonglow_light_shadows`):
+    fitted on 2026-11-01 (`reading_light_shadows` at 1.5 to 12 m; [the
+    findings](findings.md), "A light's shadow takes the light's share"),
+    the floor darkens by the lamp's share of the light falling there
+    (its brightness with the lamp, less without, over with), at most
+    about 0.53: 0.50, 0.52, 0.53, 0.47, 0.38, 0.29, 0.21, 0.13, 0.11, 0.08
+    at 1.5, 2, 3 … 10 m against shares 0.58, 0.54, 0.48, 0.40, 0.33,
+    0.27, 0.20, 0.15, 0.11, 0.07; nothing past the light's reach. The fix
+    (mg-render's `shadow.rs`, another package's this round): a light's
+    shadow darkens a receiver by min(that light's contribution there over
+    all the light there, about 0.53 × the shadow opacity) (S–M). Every
+    creature in a lamp's reach casts at once (eight ogres in a row, each
+    its shadow: `batch6_light_shadow_casters`), as Moonglow casts up to
+    16; and a player's own light casts the shadows of the creatures
+    about the player (`batch6_player_light_at_night`), which the toolset,
+    placing no player, has nothing of;
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -836,7 +860,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     the client leaves out in the city comes from that area's other tiles
     (their heights, which tiles receive, or casters two tiles off), not
     read (M: the city area's tiles taken one by one, then the rule;
-    waits on the client) (The fade with the height between plane and
+    waits on the client: not made in the sixth client batch, whose time
+    went to the readings that each settle an item) (The fade with the height between plane and
     caster that 8193.31 names is not seen: armoires raised 0, 1.5 and 3
     m darken the ground alike, 0.44 to 0.49, and casters above the camera
     still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
@@ -849,15 +874,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   [the findings](findings.md) ("Two-sided faces, cut-outs and decals").
   A cut-out whose mesh's alpha is under 1 is drawn solid and cut, as the
   client draws one, and a transparency hint changes nothing in either
-  (2026-10-30, `reading_see_through_cut_out`). Left, waiting on a client
-  reading: why that disc of mesh `alpha 0.5` is a quarter lighter in the
-  client than the plain one (156, 99, 40 against 126, 79, 31). The
-  game's programs multiply only the fragment's alpha by the mesh's
-  (`inc_standard`'s `SetupStandardShaderInputs`), not its color: the
-  difference is in how the engine draws it (another pass, other lights
-  or no shadow), not in `fslit`. The reading: `fslit` patched to paint
-  each disc's color before its lighting and its lighting apart, and the
-  tiles' and armoires' programs (not painted by the probe) likewise. (S)
+  (2026-10-30, `reading_see_through_cut_out`). Why that disc of mesh
+  `alpha 0.5` is a quarter lighter in the client than the plain one
+  (156, 99, 40 against 126, 79, 31), read on 2026-11-01
+  (`batch6_cut_out_lighter`; [the findings](findings.md), "A
+  see-through cut-out is lit through from behind"): its color before
+  lighting is the plain one's and it is drawn without blending, but the
+  game's lighting passes `1 − alpha` of the light on its back through it
+  (`inc_lighting`'s `LIGHT_TRANSLUCENCE_VALUE`, the alpha the mesh's
+  times the texel's): lit 156 against 126. Moonglow's game path draws it
+  so, to the pixel; Moonglow's own shader lights it as the plain one
+  (126). The fix (mg-render's `shader.wgsl`, another package's this
+  round): a cut-out's translucence takes `1 − mesh alpha × texel alpha`
+  though the fragment is drawn solid. (S)
   (asked by the Domains of Dread module session; checked in the client,
   2026-10-09)
 - **A rippling glow (TXI `proceduretype arturo`), how far and how fast it
@@ -869,17 +898,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (`reading_rippling_glow`, the fourth client batch: two of the zombies
   from close, the model, textures and appearance.2da out of the haks),
   the body charred with dim orange veins in both, the client's veins
-  moving from picture to picture. Not compared: the ripple itself,
-  ported as Moonglow's reading (the amplitude a part of `defaultwidth`,
-  64 without one; the wiki: with `distort 1` the channels' scale and
-  translation are ignored and the amplitude is in texels): a flat card
-  with probe TXIs, one keyword changed at a time (`distort 0` with this
-  scale and translation; `distortionamplitude` 10 against 40, with and
-  without `defaultwidth`; `speed`), for how far and how fast it ripples.
-  (The client binary's symbols name the procedure,
-  `ArturoTextureController`: reading its code, where the client's
-  pictures are what Moonglow reads, is the owner's to say.) (M: the
-  reading, then the port) (from the Domains of Dread's report on the
+  moving from picture to picture. The ripple itself, read on
+  2026-11-01 (`batch6_ripple`: cards of a texture whose red is its u and
+  green its v, painted as sampled, the client's clock along their feet,
+  60 to 80 pictures over 20 s; [the findings](findings.md), "How far and
+  how fast a texture ripples"): the picture is pushed about by 0.82 ×
+  `distortionamplitude` texels of the texture itself (RMS; its 95th
+  percentile 1.25 ×) at 64 and 128 texels alike, `defaultwidth` (16, 64
+  or none) changing nothing, where Moonglow takes the amplitude as a part
+  of `defaultwidth` (64 without one: right for a 64-texel texture, twice
+  too far at 128, four times at `defaultwidth 16`); it changes by about
+  12 texels a second at `speed` 16 and 4.5 at 4, unlike itself after
+  about 4.5 s; `distort 0` draws `c × channelscale + channeltranslate`
+  (white for the zombie's 0 and 1), where Moonglow draws the texture
+  unrippled. Not read: the client binary's code (the owner's to say).
+  Left: the port (mg-render's `shader.wgsl` and `Txi::ripple`, another
+  package's this round: the amplitude as a part of the texture's width,
+  the rate to those numbers, `distort 0`'s channels) (M) (from the
+  Domains of Dread's report on the
   flickering zombie, 2026-10-22; seen in the client, `creatures_look`)
 
 ## Models and textures
@@ -896,57 +932,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   load order without `ashlw_033`. Waits on his hak list or a blueprint.
   (His armor showing only a head and pelvis was Beamdog's HD bodies,
   drawn whole since 1.34.1.) (S–M)
-- **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
-  the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
-  its suite passes every probe since 2026-10-29, in Moonglow's tests
-  (`the_model_spec_suite_passes`). A skin vertex with no valid bone,
-  which the game collapses to clip-space 0 (MDL-SKIN-030), was drawn at
-  rest; seen in the client (`reading_wings_without_bones`, 2026-10-29: a
-  human with `c_wings2`, whose right wing, 102 vertices, has no bone
-  that is a node), the wing isn't there, and Moonglow draws none of such
-  a vertex's faces since (`a_skin_s_faces_with_a_vertex_no_bone_weighs_are_not_drawn`).
-  That a face with one such vertex among weighed ones goes too is taken
-  from the collapse, not seen: of the game's 1,778 skins only that wing
-  has any such vertex, all of its own.
-  Left: the wing it keeps (`Dragon_Lwing`, a skin on the
-  `Gargoyle_L*` bones) stands otherwise than the client's: spread,
-  broadside, in the client's picture; hanging edge-on in Moonglow's.
-  Looked into (2026-10-30): `c_wings2`'s animations are all a
-  creature's (`cpause1`, `creadyl`...), none `pause1`, which the human
-  stands in; an animated part without the animation asked plays
-  `creadyl`, `cpause1` or `pause1` in `mg_preview::compose` (lines
-  `["creadyl", "cpause1", "pause1"]`, twice), so it plays `creadyl`,
-  while the demon's wings (`c_wingsdm`), which have none of the three,
-  stand as the human's animation leaves them, alike in both. The wing
-  at its bind pose, rendered alone, is spread as the client's looks:
-  the client likely plays none of a part's animations but the one
-  asked. Not changed here: the area view from another camera did not
-  show the client's shape plainly, and the fallback reaches every wing
-  and tail. Waits on the client batch: `reading_wings_without_bones`'s
-  picture beside Moonglow's (`moonglow_beside`) with that fallback
-  taken out. (S)
-- **Animations bind by part number, not by name:** done (by name
-  where either is from text, and for a worn cloak or robe).
-  Seen in the viewer session's client pictures (a
-  skeleton numbered afresh under the same names leaves its creatures
-  unposed), not measured again here; a human and an elf in armor and
-  cloak still stand as the client draws them. A node an animation
-  numbers −1 is not moved, on the reading that the game moves none for
-  it. Of the game's 647 compiled models with a compiled supermodel, 70
-  have nodes the two ways move differently (152 nodes:
-  `binding_by_part_number_and_by_name` in `models.rs`, run again on
-  2026-10-30), of two kinds: a node of the supermodel's name numbered −1
-  or afresh in the model (`c_blade_m`'s `head_g`, not moved by number,
-  turned 10 to 20° by name in `a_ba`'s walks; `impact` in a dozen), and
-  old models whose own numbers fall on nodes a later supermodel gained
-  (`c_mohrg`'s `dangles04`, `01` and `05` moved by `a_ba`'s cloak bones'
-  keys; `a_gnome`, `c_oldwara` and `c_sahuagin` alike). Left, waiting
-  on a client reading: `c_mohrg` and `c_blade_m` walking in the client
-  beside Moonglow's model viewer, to see the game move those by number
-  as Moonglow does. (S)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
 
 ## The main window and its panes
 
@@ -1080,21 +1065,6 @@ contribution itself states as not done or not checked.
   window's are (a portrait added to the module shows once the game data is
   reloaded); and JPEG and BMP are still read with the `image` crate
   (nothing else here reads them). (S)
-  - *15- and 16-bit TGAs*, read with the `image` crate before, come out of
-    `mg-image` a level off in places and with their attribute bit as
-    alpha: `mg-image` makes a 5-bit channel 8 bits as `(c << 3) | (c >> 2)`
-    and takes the top bit as alpha when the descriptor declares an alpha
-    bit; the `image` crate's table is c × 255 / 31 rounded (3 is 25, not
-    24) and it never took the bit as alpha. Read in the client
-    (2026-10-29, `nui_readings_in_the_client` in `client_render.rs`'s
-    `nui.rs`: a NUI image of a 16-bit TGA whose descriptor declares an
-    alpha bit, at its size): the game draws level c as c × 255 / 31
-    rounded down (4 is 32, 8 is 65, 30 is 246, where `mg-image` gives 33,
-    66 and 247 and the `image` crate 33, 66 and 247), and the pixels with
-    the bit clear opaque, as those with it set: it takes no alpha from the
-    bit. `mg-image` differs on both; a model's texture of the same file
-    was not read, and `mg-image` decodes it for the renderer too, so the
-    fix (the table, and the bit not alpha) waits on that one reading. (S)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
@@ -1327,9 +1297,16 @@ contribution itself states as not done or not checked.
   its own restart not seen in the sandbox), and started again it joins
   and leaves the server within the second (2026-10-30: `Joined as Player
   1`, `Left as a Player` in the server's log, the client's logs saying
-  nothing of why); a player in the game after a download waits on that
-  restart in `tools/nwclient/run-server-and-client.sh` (what arguments
-  the client restarts itself with, not read). (S)
+  nothing of why). The client starts no other program as it ends: read
+  on 2026-11-01 (`joined_nwsync_download` with `MG_NWSYNC_CLICK=1`, the
+  Download clicked, under `tools/nwclient/execlog.c` preloaded, which
+  logs every `execve`, `posix_spawn` and `system` of the sandbox's
+  programs): the download stored (5.8 MB), the client ended with 0,
+  having started nothing; the harness's second start (the same
+  arguments) joined and left within the second again. So there are no
+  restart arguments to give it: what makes the second join leave is what
+  is left, not read (the client's logs silent; a third start, or one
+  without `+connect` joining from the server list, untried). (S)
 
 ## Tileset authoring
 

@@ -44,7 +44,7 @@
 //! Needs the game, a GPU and the off-screen display; takes two and a half
 //! minutes;
 //! run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --release --test client_nui -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_nui -- --ignored --nocapture`.
 
 use std::path::Path;
 use std::process::{Child, Command, Stdio};

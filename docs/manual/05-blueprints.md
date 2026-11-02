@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
 ---
 
 # Blueprints
@@ -509,9 +509,9 @@ Shared parts:
     area map's tiles and the GUI's own: more than three quarters of the
     game's textures), are left out unless **Interface textures too** is
     ticked. The name can also be typed after **Drawn as**.
-    **Reset** removes a replacement. PLT textures are listed but have
-    nothing to pick: the game keeps their colors and doesn't replace
-    them. A texture whose name is longer than 16 characters is listed
+    **Reset** removes a replacement. PLT textures are marked *PLT*: a
+    replacement draws the texture picked in their place, as it is,
+    without the object's colors, as the game does. A texture whose name is longer than 16 characters is listed
     *(name too long)* with nothing to pick: a replacement names a
     texture by a resref, which holds 16. A replacement of a texture the model lacks is kept and shown
     *(not in the model)*; **Any name** adds one for any two names. The
@@ -522,7 +522,8 @@ Shared parts:
       a body of parts, the parts its armor (or, without one, its own
       fields) names, its head, wings and tail. Body parts and heads are
       mostly PLTs. What it holds and its helmet and cloak are items'
-      models, not listed.
+      models, not listed: the game doesn't replace their textures for
+      the creature, by the field or the script call.
   - **Animation replacements**: an animation played as another. Both
     are picked from the animations of the object's model and its
     supermodels (a list with **Filter** when there are many); **Add**
