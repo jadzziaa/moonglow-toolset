@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:57:56Z }
 ---
 
 # Blueprints
@@ -326,10 +326,56 @@ category (**Ctrl+Shift+click** adds them to those already chosen). With
 several chosen, the right-click menu offers:
 - **Edit N Together**: one editor for all of them. A change is set on
   each, as one undoable step (in Variables: what you add, change or
-  delete, each blueprint keeping its other variables). Inventories, classes, skills, feats, spells
-  and item properties are edited one blueprint at a time, so those pages
-  aren't offered.
+  delete, each blueprint keeping its other variables). Every page is
+  offered, the lists too (below).
 - **Update Instances of N**.
+
+#### Lists edited together
+
+A page of a list (skills, feats, special abilities, classes, spells,
+item properties, an encounter's creatures, a store's restrictions, an
+inventory) shows, for several blueprints or placed objects, every
+entry any of them has. One all of them have shows as it does for one;
+one only some have is marked **≠ 2 of 3** (how many of how many), and
+a value where those that have it differ (a rank, a level, the uses) is
+marked **≠** and shows the first one's.
+
+- **Adding** an entry adds it to each that lacks it, at the end of its
+  own list, and leaves those that have it. **Give to All**, beside or
+  under an entry some have, does the same; a half-ticked box (a feat
+  some have, a spell some know) gives it to the rest.
+- **Removing** an entry (×, **Remove**) takes it, every copy of it,
+  from each that has it.
+- **A value** typed or picked (a skill's rank, a class's level, an
+  ability's uses, a property's parameters, an item's flags) is set on
+  each that has the entry.
+- Each change is one step, which Undo takes back whole, and the line
+  under the window's heading says what it did: "Add feat: Added to 2;
+  left: mg_b: has it already."
+
+The rules still hold, and what one of them can't take is left, and
+said: a creature takes up to 8 classes, and keeps its last one; a class
+changed into one a creature has already leaves that creature; an item
+property goes only to an item whose base item takes it. Item properties
+are told apart by their type, subtype and value: an Enhancement Bonus
++1 and a +2 are two entries, and +1 added to an item with +2 gives it
+both. Spells are edited per class: the class buttons are the
+spellcasting classes any of them has (≠ with how many), and the page
+edits that class's lists on each creature that has it; Save Class
+Spell List saves one creature's, so it is grayed. A store's
+restrictions show the first one's mode (≠ where others are in the
+other); a base item added goes to the stores in that mode, and a mode
+clicked moves each store's items to it. An inventory lists each item
+blueprint they hold, with how many the first holds: an item picked in
+the palette (**Add Item**), pasted (**Paste**) or dropped from the
+palette goes to each at its own first free place (a store's on the
+page of its kind; a placeable without an inventory is left); a
+creature's equipment shows each slot's item, ≠
+where they wear others, and **Equip** there puts the item chosen in the
+palette on each (what each wore goes to its backpack; the question
+about a feat it lacks is asked of one creature only). The Levelup
+Wizard levels one creature at a time. Moving an item from one of them
+to another, and a held item's own Properties, are for one at a time.
 
 A custom category's right-click menu updates the instances of every
 blueprint in it, and **Edit › Update All Instances…** those of every

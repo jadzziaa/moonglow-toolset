@@ -13,6 +13,7 @@ use thiserror::Error;
 
 pub mod fix;
 pub mod found;
+pub mod lists;
 pub mod tags;
 pub mod terrain;
 pub mod wire;

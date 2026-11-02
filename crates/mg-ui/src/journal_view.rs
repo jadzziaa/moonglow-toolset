@@ -289,7 +289,14 @@ fn category_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, cat: &Struct) {
     let path = GffPath::root().item(jrl::CATEGORIES.label, c);
     // (A category's fields as a blueprint's are: `blueprint::Form`'s, their
     // typing kept, its tag of 32 characters.)
-    let mut form = Form { app, key: key(), path, also: Vec::new(), root: cat.clone() };
+    let mut form = Form {
+        app,
+        key: key(),
+        path,
+        also: Vec::new(),
+        root: cat.clone(),
+        together: Default::default(),
+    };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("jrl-cat-grid", c)).num_columns(2).spacing([10.0, 6.0]).show(
@@ -328,7 +335,14 @@ fn entry_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, e: usize, entry: &Str
     use jrl::categories::entry_list as f;
     let path =
         GffPath::root().item(jrl::CATEGORIES.label, c).item(jrl::categories::ENTRY_LIST.label, e);
-    let mut form = Form { app, key: key(), path, also: Vec::new(), root: entry.clone() };
+    let mut form = Form {
+        app,
+        key: key(),
+        path,
+        also: Vec::new(),
+        root: entry.clone(),
+        together: Default::default(),
+    };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("jrl-entry-grid", c, e)).num_columns(2).spacing([10.0, 6.0]).show(

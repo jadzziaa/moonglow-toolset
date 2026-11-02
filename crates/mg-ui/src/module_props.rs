@@ -114,7 +114,14 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             return custom_content(app, ui, &root);
         }
         let key = info_key();
-        let mut f = Form { app, key, path: GffPath::root(), also: Vec::new(), root };
+        let mut f = Form {
+            app,
+            key,
+            path: GffPath::root(),
+            also: Vec::new(),
+            root,
+            together: Default::default(),
+        };
         match page {
             Page::Basic => basic(&mut f, ui),
             Page::Events => events(&mut f, ui),

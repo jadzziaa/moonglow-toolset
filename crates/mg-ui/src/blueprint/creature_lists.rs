@@ -4,7 +4,7 @@
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_module::script_set::ListedSpell;
@@ -180,13 +180,20 @@ fn row_line(t: &mg_2da::TwoDa, table: &str, row: usize) -> String {
     line
 }
 
+/// The Feats page: the feats to choose from beside those the creature
+/// has. Several creatures edited together: a feat all have is ticked, one
+/// some have half-ticked and marked ≠ with how many; ticking gives it to
+/// those that lack it, unticking takes it from all.
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
-    let base = f.path.clone();
     let key = f.key;
     let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")).to_vec());
-    let list: Vec<i64> =
-        f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
+    let targets = f.list_targets();
+    let total = targets.len();
+    // Each feat any of them has, and how many have it.
+    let merged = lists::merged(&targets, "FeatList", lists::feat);
+    let having =
+        |row: usize| merged.iter().find(|m| m.key == row as i64).map_or(0, |m| m.having.len());
     let id = egui::Id::new(("utc-feats", key));
     let mut assigned_only: bool = ui.data(|d| d.get_temp(id.with("only"))).unwrap_or(false);
     let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
@@ -197,7 +204,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             let t = filter(ui, id);
             let c = category_filter(ui, id.with("category"), &categories);
             ui.checkbox(&mut assigned_only, "Assigned only");
-            ui.label(format!("{} feats assigned", list.len()));
+            if total > 1 {
+                ui.label(format!("{} feats among them", merged.len()));
+            } else {
+                ui.label(format!("{} feats assigned", merged.len()));
+            }
             (t, c)
         })
         .inner;
@@ -217,21 +228,24 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             ui,
             |ui| {
                 for c in &all {
-                    let on = list.contains(&(c.row as i64));
+                    let n = having(c.row);
                     let offer =
                         feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
-                    if (assigned_only && !on)
-                        || (!on && !offer)
+                    if (assigned_only && n == 0)
+                        || (n == 0 && !offer)
                         || !needle.finds(&c.text)
                         || !in_category(c.row)
                     {
                         continue;
                     }
-                    let mut v = on;
-                    let r = ui.checkbox(&mut v, &c.text);
+                    // (Half-ticked where some have it: ticked, it is given
+                    // to the others.)
+                    let mut v = n == total;
+                    let some = n > 0 && n < total;
+                    let r = ui.add(egui::Checkbox::new(&mut v, &c.text).indeterminate(some));
                     if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
                     {
-                        toggle = Some((c.row, v));
+                        toggle = Some((c.row, v || some));
                     }
                 }
             },
@@ -243,28 +257,34 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             |ui| {
                 // By name, as the list beside it; one the table has no
                 // name for by its row.
-                let mut assigned: Vec<(String, usize)> = list
+                let mut assigned: Vec<(String, usize, usize)> = merged
                     .iter()
-                    .filter_map(|&row| usize::try_from(row).ok())
-                    .map(|row| {
+                    .filter_map(|m| Some((usize::try_from(m.key).ok()?, m.having.len())))
+                    .map(|(row, n)| {
                         let name = all
                             .iter()
                             .find(|c| c.row == row)
                             .map_or_else(|| format!("Feat {row}"), |c| c.text.clone());
-                        (name, row)
+                        (name, row, n)
                     })
                     .collect();
-                assigned.sort_by_key(|(name, _)| name.to_lowercase());
+                assigned.sort_by_key(|(name, _, _)| name.to_lowercase());
                 if assigned.is_empty() {
                     ui.weak("None: tick a feat to give it to the creature.");
                 }
-                for (name, row) in assigned {
+                for (name, row, n) in assigned {
                     ui.horizontal(|ui| {
                         if ui.small_button("×").on_hover_text("Take this feat away").clicked() {
                             toggle = Some((row, false));
                         }
                         let r = ui.label(name);
                         described(r, described_by.as_deref(), "feat", "DESCRIPTION", row);
+                        super::entry_mark(ui, n, total);
+                        if n < total
+                            && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
+                        {
+                            toggle = Some((row, true));
+                        }
                     });
                 }
             },
@@ -272,18 +292,20 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     });
     match toggle {
         Some((row, true)) => {
-            let mut s = Struct::new(FEAT_ID);
-            s.set("Feat", Value::Word(row as u16));
-            apply(f, "Add feat", vec![insert(key, base, "FeatList", list.len(), s)]);
+            let out = lists::add_feat(&targets, row as u16);
+            f.apply_each("Add feat", out, "Added to");
         }
         Some((row, false)) => {
-            if let Some(i) = list.iter().position(|&r| r == row as i64) {
-                apply(f, "Remove feat", vec![remove(key, base, "FeatList", i)]);
-            }
+            let out = lists::remove_feat(&targets, row as u16);
+            f.apply_each("Remove feat", out, "Taken from");
         }
         None => {}
     }
 }
+
+/// The tip of Give to All, beside an entry some of the objects edited
+/// together have.
+pub(super) const GIVE_TIP: &str = "Add it to those of them that lack it";
 
 /// A class's spells: (spell row, name, level), from its spells.2da column.
 fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
@@ -385,6 +407,10 @@ fn spell_entry(spell: usize, metamagic: u8) -> Struct {
 /// class to choose from (by level, name and category) beside those it
 /// knows or has prepared, by level, with how many it may have of each.
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        spells_together(f, ui);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     let Some(game) = f.app.game.clone() else { return };
@@ -750,54 +776,9 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
-/// Special abilities as the game has them: a spell used so many times at
-/// a caster level. The file keeps an entry for each use.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AbilityGroup {
-    pub spell: i64,
-    pub caster_level: i64,
-    pub flags: i64,
-    /// The entries of `SpecAbilityList` that are its uses.
-    pub entries: Vec<usize>,
-}
-
-/// The list's entries grouped into abilities, in the order each first
-/// appears: entries of one spell and caster level that are ready (or
-/// spent) alike are uses of one ability. (The game reads the flags as
-/// yes or no: entries flagged 1 and 5 are the same to it. The group has
-/// its first entry's flags.)
-pub(crate) fn ability_groups(list: &[Struct]) -> Vec<AbilityGroup> {
-    let mut groups: Vec<AbilityGroup> = Vec::new();
-    for (i, s) in list.iter().enumerate() {
-        let n = |label: &str, default: i64| s.integer(label).unwrap_or(default);
-        let (spell, caster_level, flags) =
-            (n("Spell", 0), n("SpellCasterLevel", 1), n("SpellFlags", 1));
-        match groups
-            .iter_mut()
-            .find(|g| (g.spell, g.caster_level, g.flags != 0) == (spell, caster_level, flags != 0))
-        {
-            Some(g) => g.entries.push(i),
-            None => groups.push(AbilityGroup { spell, caster_level, flags, entries: vec![i] }),
-        }
-    }
-    groups
-}
-
-/// The edits that make an ability of `entries` (its uses now) have `uses`:
-/// more are copies of `first` after its last, fewer drop its last ones (0
-/// removes it).
-fn set_uses(
-    key: ResKey,
-    base: &GffPath,
-    first: &Struct,
-    entries: &[usize],
-    uses: usize,
-) -> Vec<Edit> {
-    set_count(key, base, "SpecAbilityList", first, entries, uses)
-}
-
-/// [`set_uses`] for any list: the edits that make `entries` of `list`
-/// (copies of one thing) `count`.
+/// The edits that make `entries` of `list` (copies of one thing)
+/// `count`: more are copies of `first` after its last, fewer drop its
+/// last ones (0 removes them all).
 fn set_count(
     key: ResKey,
     base: &GffPath,
@@ -817,6 +798,453 @@ fn set_count(
     }
 }
 
+/// One of several creatures edited together that has the class the
+/// Spells page shows: the creature, its class's entry as the target of
+/// that class's lists, and what it may have.
+struct Caster {
+    creature: lists::Target,
+    class: lists::Target,
+    slots: mg_rules::SpellSlots,
+}
+
+/// The [`SpellKey`] of an entry of a class's spell list: its spell and
+/// metamagic.
+type SpellKey = (i64, u8);
+
+fn spell_key(s: &Struct) -> SpellKey {
+    let metamagic = s.integer("SpellMetaMagic").unwrap_or(0).clamp(0, 255) as u8;
+    (s.integer("Spell").unwrap_or(0), metamagic)
+}
+
+/// The Spells page of several creatures edited together: the spellcasting
+/// classes any of them has (≠ with how many where some do), and for the
+/// one chosen, its lists on each creature that has it, merged: a spell
+/// known by some is half-ticked, a count of a prepared spell is the
+/// first's (≠ where they differ). A spell given, a count typed, a spell
+/// taken, Clear and Load Class Spell List are made on each that has the
+/// class.
+fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
+    let key = f.key;
+    let Some(game) = f.app.game.clone() else { return };
+    let game = game.as_ref();
+    let Ok(classes) = game.table("classes") else { return };
+    let targets = f.list_targets();
+    // The spellcasting classes any of them has, in the first one's order,
+    // then the others', with how many have each.
+    let mut caster_classes: Vec<(i64, usize)> = Vec::new();
+    for t in &targets {
+        for c in t.list("ClassList") {
+            let Some(row) = lists::class(c) else { continue };
+            if game.spell_slots(&t.at, c).is_none() {
+                continue;
+            }
+            match caster_classes.iter_mut().find(|(r, _)| *r == row) {
+                Some((_, n)) => *n += 1,
+                None => caster_classes.push((row, 1)),
+            }
+        }
+    }
+    if caster_classes.is_empty() {
+        ui.weak("None of the creatures' classes casts spells.");
+        return;
+    }
+    let class_name = |row: i64| {
+        let r = row.max(0) as usize;
+        classes
+            .get_int(r, "Name")
+            .and_then(|s| game.string(mg_core::StrRef(s as u32)))
+            .unwrap_or_else(|| classes.get(r, "Label").unwrap_or_default().to_string())
+    };
+    // Each creature's spell warnings, named.
+    if !f.app.settings.no_spell_warning {
+        let color = ui.visuals().warn_fg_color;
+        let mut any = false;
+        for t in &targets {
+            for w in game.spell_warnings(&t.at) {
+                let text = statement(&game.spell_warning_text(&w)).to_string();
+                ui.colored_label(color, format!("{}: {text}", t.name));
+                any = true;
+            }
+        }
+        if any
+            && ui
+                .small_button("Never warn again")
+                .on_hover_text("Options › General: Show invalid creature spell assignment warning")
+                .clicked()
+        {
+            f.app.settings.no_spell_warning = true;
+        }
+    }
+    let total = targets.len();
+    let id = egui::Id::new(("utc-spells", key));
+    let (mut which, mut level): (usize, Option<usize>) =
+        ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    which = which.min(caster_classes.len() - 1);
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Class");
+        for (n, (row, having)) in caster_classes.iter().enumerate() {
+            ui.radio_value(&mut which, n, class_name(*row));
+            super::entry_mark(ui, *having, total);
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Spell Level");
+        ui.selectable_value(&mut level, None, "All");
+        for l in 0..=9 {
+            ui.selectable_value(&mut level, Some(l), l.to_string());
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, (which, level)));
+    let class = caster_classes[which].0;
+    // Those that have the class, each with its lists.
+    let casters: Vec<Caster> = targets
+        .iter()
+        .filter_map(|t| {
+            let (i, c) = t
+                .list("ClassList")
+                .iter()
+                .enumerate()
+                .find(|(_, c)| lists::class(c) == Some(class))?;
+            let slots = game.spell_slots(&t.at, c)?;
+            let target = lists::Target {
+                key: t.key,
+                path: t.path.clone().item("ClassList", i),
+                at: c.clone(),
+                name: t.name.clone(),
+            };
+            Some(Caster { creature: t.clone(), class: target, slots })
+        })
+        .collect();
+    let class_targets: Vec<lists::Target> = casters.iter().map(|c| c.class.clone()).collect();
+    let n = casters.len();
+    let prepares = casters[0].slots.prepares;
+    // Meta-Magic: the metamagic feats every one of them has.
+    let metamagics: Vec<u8> = std::iter::once(0)
+        .chain(
+            METAMAGIC
+                .iter()
+                .filter(|m| {
+                    casters.iter().all(|c| {
+                        let feats = c.creature.list("FeatList");
+                        feats.iter().any(|s| s.integer("Feat") == Some(m.1 as i64))
+                    })
+                })
+                .map(|m| m.0),
+        )
+        .collect();
+    let mut metamagic: u8 = ui.data(|d| d.get_temp(id.with("metamagic"))).unwrap_or(0);
+    if !metamagics.contains(&metamagic) || !prepares {
+        metamagic = 0;
+    }
+    let meta_name = |m: &u8| if *m == 0 { "None".to_string() } else { metamagic_name(game, *m) };
+    ui.add_enabled_ui(prepares, |ui| {
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Meta-Magic");
+            crate::widgets::dropdown(id.with("metamagic-list"))
+                .selected_text(meta_name(&metamagic))
+                .width(160.0)
+                .show(ui, &mut metamagic, &metamagics, meta_name)
+                .on_hover_text("The metamagic feats all of them have: spells are prepared with it");
+        });
+    });
+    ui.data_mut(|d| d.insert_temp(id.with("metamagic"), metamagic));
+    let raised = mg_module::script_set::metamagic_levels(metamagic) as usize;
+    let (mut clear, mut load) = (false, false);
+    ui.horizontal_wrapped(|ui| {
+        clear = ui.button("Clear Class Spell List").clicked();
+        ui.add_enabled(false, egui::Button::new("Save Class Spell List"))
+            .on_disabled_hover_text("It saves one creature's list: open one to save it");
+        load = ui.button("Load Class Spell List").clicked();
+    });
+    let spells = class_spells(game, class.max(0) as usize);
+    let innate = game.table("spells").ok();
+    let names = game
+        .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
+        .map(mg_rules::by_name)
+        .unwrap_or_default();
+    let categories = spell_categories(game);
+    let (needle, category) = ui
+        .horizontal_wrapped(|ui| {
+            let t = filter(ui, id.with("find"));
+            (t, category_filter(ui, id.with("category"), &categories))
+        })
+        .inner;
+    let in_category = |row: usize| {
+        category.is_none_or(|c| innate.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c))
+    };
+    let list_of = |l: usize| casters[0].slots.list(l);
+    // How many entries of `k` a creature's list of level `l` has.
+    let count = |c: &lists::Target, l: usize, k: SpellKey| {
+        c.list(&list_of(l)).iter().filter(|e| spell_key(e) == k).count()
+    };
+    let mut change: Option<(&str, lists::Outcome, &str)> = None;
+    ui.columns(2, |columns| {
+        let ui = &mut columns[0];
+        egui::ScrollArea::vertical()
+            .id_salt(("utc-spell-list", key, which))
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let cols = if raised > 0 { 3 } else { 2 };
+                egui::Grid::new(("utc-spell-grid", key, which))
+                    .num_columns(cols)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong(if prepares { "Spell" } else { "Known Spell" });
+                        ui.strong("Level");
+                        if raised > 0 {
+                            ui.strong("Casting");
+                        }
+                        ui.end_row();
+                        for (row, name, l) in &spells {
+                            if level.is_some_and(|x| x != *l)
+                                || !needle.finds(name)
+                                || !in_category(*row)
+                            {
+                                continue;
+                            }
+                            let cast = if prepares { l + raised } else { *l };
+                            let k = (*row as i64, if prepares { metamagic } else { 0 });
+                            let counts: Vec<usize> =
+                                class_targets.iter().map(|c| count(c, cast.min(9), k)).collect();
+                            let having = counts.iter().filter(|c| **c > 0).count();
+                            let r = if prepares {
+                                let text = match counts[0] {
+                                    0 => name.clone(),
+                                    c => format!("{name}  ×{c}"),
+                                };
+                                let r = ui
+                                    .add_enabled(
+                                        cast <= 9,
+                                        egui::Button::selectable(having > 0, text),
+                                    )
+                                    .on_hover_text("Prepare one more, on each")
+                                    .on_disabled_hover_text("Cast above level 9");
+                                if r.clicked() {
+                                    let mut out = lists::Outcome::default();
+                                    for c in &class_targets {
+                                        let list = list_of(cast);
+                                        let at = c.list(&list).len();
+                                        let item = spell_entry(*row, metamagic);
+                                        out.edits.push(insert(
+                                            c.key,
+                                            c.path.clone(),
+                                            &list,
+                                            at,
+                                            item,
+                                        ));
+                                        out.changed += 1;
+                                    }
+                                    change = Some(("Prepare spell", out, "Prepared on"));
+                                }
+                                r
+                            } else {
+                                let mut known = having == n;
+                                let some = having > 0 && having < n;
+                                let r = ui
+                                    .add(egui::Checkbox::new(&mut known, name).indeterminate(some));
+                                if r.changed() {
+                                    let list = list_of(*l);
+                                    let is = move |e: &Struct| spell_key(e).0 == k.0;
+                                    change = Some(if known || some {
+                                        let out = lists::add(&class_targets, &list, is, |_| {
+                                            Ok(spell_entry(*row, 0))
+                                        });
+                                        ("Add known spell", out, "Added to")
+                                    } else {
+                                        let out =
+                                            lists::remove(&class_targets, &list, is, |_| None);
+                                        ("Remove known spell", out, "Taken from")
+                                    });
+                                }
+                                r
+                            };
+                            described(r, Some(game), "spells", "SpellDesc", *row);
+                            ui.label(l.to_string());
+                            if raised > 0 {
+                                ui.label(cast.to_string());
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        let ui = &mut columns[1];
+        ui.strong(if prepares { "Prepared" } else { "Known" });
+        egui::ScrollArea::vertical()
+            .id_salt(("utc-spell-assigned", key, which))
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let warn = ui.visuals().warn_fg_color;
+                for l in 0..=9 {
+                    let list = list_of(l);
+                    let lens: Vec<usize> =
+                        class_targets.iter().map(|c| c.list(&list).len()).collect();
+                    let first = &casters[0].slots;
+                    if lens.iter().all(|x| *x == 0) && casters.iter().all(|c| l >= c.slots.levels) {
+                        continue;
+                    }
+                    let text = if l < first.levels {
+                        format!("Level {l}: {} of {}", lens[0], first.max[l])
+                    } else {
+                        format!("Level {l}: {}, a level the class doesn't cast yet", lens[0])
+                    };
+                    let over = casters
+                        .iter()
+                        .zip(&lens)
+                        .any(|(c, len)| l >= c.slots.levels || *len > c.slots.max[l]);
+                    let differ = lens.iter().any(|x| *x != lens[0])
+                        || casters.iter().any(|c| c.slots.max[l] != first.max[l]);
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if over {
+                            ui.colored_label(warn, egui::RichText::new(text).strong());
+                        } else {
+                            ui.label(egui::RichText::new(text).strong());
+                        }
+                        if differ {
+                            ui.colored_label(warn, super::MIXED).on_hover_text(
+                                "The creatures edited together have other counts here: this \
+                                 shows the first one's",
+                            );
+                        }
+                    });
+                    let merged = lists::merged(&class_targets, &list, |e| Some(spell_key(e)));
+                    let mut rows: Vec<(String, &lists::Merged<SpellKey>)> = merged
+                        .iter()
+                        .map(|m| {
+                            let name = mg_rules::choice_text(&names, m.key.0);
+                            (with_metamagic(game, &name, m.key.1), m)
+                        })
+                        .collect();
+                    rows.sort_by_key(|(name, _)| name.to_lowercase());
+                    for (name, m) in rows {
+                        let k = m.key;
+                        let is = move |e: &Struct| spell_key(e) == k;
+                        ui.horizontal(|ui| {
+                            let tip = if prepares {
+                                "Prepare none of it, on each"
+                            } else {
+                                "Forget it, on each"
+                            };
+                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                                let out = lists::remove(&class_targets, &list, is, |_| None);
+                                change = Some(("Remove spell", out, "Taken from"));
+                            }
+                            if prepares {
+                                let counts: Vec<usize> =
+                                    class_targets.iter().map(|c| count(c, l, k)).collect();
+                                let shown = counts[m.having[0]] as i64;
+                                if counts.iter().any(|c| *c as i64 != shown) {
+                                    ui.colored_label(warn, super::MIXED).on_hover_text(
+                                        "They prepare it so many times each: this shows the first \
+                                         one's that has it, and a count typed is set on each",
+                                    );
+                                }
+                                if let Some(v) = spin_number(ui, shown, 1..=99) {
+                                    let entry = m.entry.clone();
+                                    let out = lists::set_count(
+                                        &class_targets,
+                                        &list,
+                                        is,
+                                        v as usize,
+                                        |_| entry.clone(),
+                                    );
+                                    change = Some(("Prepared spells", out, "Set on"));
+                                }
+                            }
+                            let row = usize::try_from(k.0).unwrap_or(usize::MAX);
+                            let r = ui.label(name);
+                            described(r, Some(game), "spells", "SpellDesc", row);
+                            super::entry_mark(ui, m.having.len(), n);
+                            if m.having.len() < n
+                                && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
+                            {
+                                let entry = m.entry.clone();
+                                let out =
+                                    lists::add(&class_targets, &list, is, |_| Ok(entry.clone()));
+                                change = Some(("Add spell", out, "Added to"));
+                            }
+                        });
+                    }
+                }
+            });
+    });
+    // Each one's class's lists emptied.
+    let cleared = |out: &mut lists::Outcome| {
+        for c in &class_targets {
+            for l in 0..=9 {
+                let list = list_of(l);
+                let len = c.list(&list).len();
+                for i in (0..len).rev() {
+                    out.edits.push(remove(c.key, c.path.clone(), &list, i));
+                }
+            }
+        }
+    };
+    if clear {
+        let mut out = lists::Outcome { changed: class_targets.len(), ..Default::default() };
+        cleared(&mut out);
+        change = Some(("Clear class spell list", out, "Cleared on"));
+    }
+    if load {
+        let start = f.app.install.as_ref().map(|i| i.root.join("data").join("scr"));
+        if let Some(file) = f.app.dialogs.open_file(FileKind::SpellList, start.as_deref()) {
+            let listed = std::fs::read(&file).map_err(|e| e.to_string()).map(|b| {
+                mg_module::script_set::read_spells(&crate::text::decode(&b), class as u32)
+            });
+            match listed {
+                Err(e) => f.app.log.error(format!("{}: {e}", file.display())),
+                Ok(None) => {
+                    f.app.log.warn(format!("{}: no spell list for this class", file.display()))
+                }
+                Ok(Some(listed)) => {
+                    // Each one's lists replaced by the file's, each spell at
+                    // its level for the class (raised by its metamagic).
+                    let mut out =
+                        lists::Outcome { changed: class_targets.len(), ..Default::default() };
+                    cleared(&mut out);
+                    for c in &class_targets {
+                        let mut counts = [0usize; 10];
+                        for s in &listed {
+                            let base = spells
+                                .iter()
+                                .find(|(row, _, _)| *row == usize::from(s.spell))
+                                .map(|x| x.2);
+                            let base = base.or_else(|| {
+                                let t = innate.as_ref()?;
+                                t.get_int(usize::from(s.spell), "Innate")
+                                    .map(|l| l.clamp(0, 9) as usize)
+                            });
+                            let Some(base) = base else { continue };
+                            let extra = if prepares {
+                                mg_module::script_set::metamagic_levels(s.metamagic)
+                            } else {
+                                0
+                            };
+                            let l = (base + extra as usize).min(9);
+                            let mut item = Struct::new(SPELL_ID);
+                            item.set("Spell", Value::Word(s.spell));
+                            item.set("SpellFlags", Value::Byte(s.flags));
+                            item.set("SpellMetaMagic", Value::Byte(s.metamagic));
+                            out.edits.push(insert(
+                                c.key,
+                                c.path.clone(),
+                                &list_of(l),
+                                counts[l],
+                                item,
+                            ));
+                            counts[l] += 1;
+                        }
+                    }
+                    change = Some(("Load class spell list", out, "Loaded on"));
+                }
+            }
+        }
+    }
+    if let Some((what, out, done)) = change {
+        f.apply_each(what, out, done);
+    }
+}
+
 /// A special ability's `SpellFlags` for a use the creature has: BioWare's
 /// creature format names the byte's bits Ready (1), Spontaneous (2) and
 /// Unlimited (4), but the game reads it as yes or no (any bit: a use it
@@ -824,25 +1252,47 @@ fn set_count(
 /// has the one switch, and writes Ready.
 const ABILITY_READY: i64 = 0x1;
 
+/// Special abilities as the game has them: a spell used so many times at
+/// a caster level, the file keeping an entry for each use. An ability's
+/// key: its spell, caster level and whether its uses are ready. Entries
+/// of one key are uses of one ability. (The game reads the flags as yes
+/// or no: entries flagged 1 and 5 are the same to it.)
+type AbilityKey = (i64, i64, bool);
+
+/// The [`AbilityKey`] of a `SpecAbilityList` entry.
+fn ability_key(s: &Struct) -> AbilityKey {
+    let n = |label: &str, default: i64| s.integer(label).unwrap_or(default);
+    (n("Spell", 0), n("SpellCasterLevel", 1), n("SpellFlags", 1) != 0)
+}
+
+/// A creature's level: its classes' levels (1 at the least), the caster
+/// level of an ability added to it.
+fn creature_level(c: &Struct) -> i64 {
+    let classes = c.list("ClassList").unwrap_or(&[]);
+    classes.iter().filter_map(|c| c.integer("ClassLevel")).sum::<i64>().max(1)
+}
+
+/// The Special Abilities page: the spells to choose from beside the
+/// creature's abilities (so many uses of a spell at a caster level).
+/// Several creatures edited together: the abilities any has, ≠ with how
+/// many where some do; a spell clicked adds a use to each (at its own
+/// level), and the uses, caster level and Ready set are set on each that
+/// has the ability.
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
-    let base = f.path.clone();
     let key = f.key;
     let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")).to_vec());
     let name_of = |row: i64| mg_rules::choice_text(&names, row);
-    let list: Vec<Struct> = f.root.list("SpecAbilityList").unwrap_or(&[]).to_vec();
-    let level: i64 = f
-        .root
-        .list("ClassList")
-        .unwrap_or(&[])
-        .iter()
-        .filter_map(|c| c.integer("ClassLevel"))
-        .sum::<i64>()
-        .max(1);
+    let targets = f.list_targets();
+    let total = targets.len();
     let categories = f.app.game.as_deref().map(spell_categories).unwrap_or_default();
     let spell_table = f.app.game.as_ref().and_then(|g| g.table("spells").ok());
-    let groups = ability_groups(&list);
-    let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
+    // The abilities any of them has, in the first one's order.
+    let merged = lists::merged(&targets, "SpecAbilityList", |e| Some(ability_key(e)));
+    let uses_of = |t: &lists::Target, k: AbilityKey| {
+        t.list("SpecAbilityList").iter().filter(|e| ability_key(e) == k).count()
+    };
+    let mut change: Option<(&str, lists::Outcome, &str)> = None;
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             ui.strong("Spells");
@@ -867,14 +1317,20 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                             ui.selectable_label(false, &c.text).on_hover_text("Add a use of it");
                         let game = described_by.as_deref();
                         if described(r, game, "spells", "SpellDesc", c.row).clicked() {
-                            let mut s = Struct::new(SPECIAL_ID);
-                            s.set("Spell", Value::Word(c.row as u16));
-                            s.set("SpellCasterLevel", Value::Byte(level.min(255) as u8));
-                            s.set("SpellFlags", Value::Byte(1));
-                            edits.push((
-                                "Add special ability",
-                                vec![insert(key, base.clone(), "SpecAbilityList", list.len(), s)],
-                            ));
+                            // A use more on each, at its own level.
+                            let mut out = lists::Outcome::default();
+                            for t in &targets {
+                                let mut s = Struct::new(SPECIAL_ID);
+                                s.set("Spell", Value::Word(c.row as u16));
+                                let level = creature_level(&t.at).min(255) as u8;
+                                s.set("SpellCasterLevel", Value::Byte(level));
+                                s.set("SpellFlags", Value::Byte(1));
+                                let at = t.list("SpecAbilityList").len();
+                                let list = "SpecAbilityList";
+                                out.edits.push(insert(t.key, t.path.clone(), list, at, s));
+                                out.changed += 1;
+                            }
+                            change = Some(("Add special ability", out, "Added to"));
                         }
                     }
                 },
@@ -883,7 +1339,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             // As the game has them: so many uses of a spell at a caster
             // level (the file keeps an entry for each use).
             ui.strong("Special Abilities");
-            egui::Grid::new(("utc-special", key)).num_columns(5).striped(true).show(ui, |ui| {
+            egui::Grid::new(("utc-special", key)).num_columns(6).striped(true).show(ui, |ui| {
                 ui.strong("Ability");
                 ui.strong("Uses");
                 ui.strong("Caster Level");
@@ -893,51 +1349,84 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                      or no: nothing makes an ability's uses unlimited.)",
                 );
                 ui.label("");
+                ui.label("");
                 ui.end_row();
-                for g in &groups {
-                    let first = &list[g.entries[0]];
-                    let r = ui.label(name_of(g.spell));
-                    let row = usize::try_from(g.spell).unwrap_or(usize::MAX);
-                    described(r, described_by.as_deref(), "spells", "SpellDesc", row);
-                    let uses = g.entries.len() as i64;
+                for m in &merged {
+                    let k = m.key;
+                    let is = move |e: &Struct| ability_key(e) == k;
+                    let having: Vec<lists::Target> =
+                        m.having.iter().map(|&i| targets[i].clone()).collect();
+                    let first = &targets[m.having[0]];
+                    ui.horizontal(|ui| {
+                        let r = ui.label(name_of(k.0));
+                        let row = usize::try_from(k.0).unwrap_or(usize::MAX);
+                        described(r, described_by.as_deref(), "spells", "SpellDesc", row);
+                        super::entry_mark(ui, m.having.len(), total);
+                    });
+                    let uses = uses_of(first, k) as i64;
+                    let differs = having.iter().any(|t| uses_of(t, k) as i64 != uses);
+                    f.mark_if(ui, &format!("Uses#{k:?}"), differs);
                     if let Some(v) = commit_number(ui, uses, 1..=99) {
-                        edits.push(("Uses", set_uses(key, &base, first, &g.entries, v as usize)));
+                        let entry = m.entry.clone();
+                        let out =
+                            lists::set_count(&having, "SpecAbilityList", is, v as usize, |_| {
+                                entry.clone()
+                            });
+                        change = Some(("Uses", out, "Set on"));
                     }
-                    if let Some(v) = commit_number(ui, g.caster_level, 1..=60) {
-                        let set = |&i: &usize| Edit::SetField {
-                            key,
-                            path: base.clone().item("SpecAbilityList", i),
-                            label: "SpellCasterLevel".into(),
-                            value: Some(Value::Byte(v as u8)),
-                        };
-                        edits.push(("Caster level", g.entries.iter().map(set).collect()));
+                    if let Some(v) = commit_number(ui, k.1, 1..=60) {
+                        let out = lists::set(
+                            &having,
+                            "SpecAbilityList",
+                            is,
+                            &["SpellCasterLevel"],
+                            |e, l| Some(lists::like(e.get(l), v, Value::Byte(0))),
+                        );
+                        change = Some(("Caster level", out, "Set on"));
                     }
                     // (Flags a file has besides stay as they are until
                     // the switch is turned.)
-                    let mut on = g.flags != 0;
+                    let mut on = k.2;
                     if ui.checkbox(&mut on, "").changed() {
                         let flags = if on { ABILITY_READY } else { 0 };
-                        let set = |&i: &usize| Edit::SetField {
-                            key,
-                            path: base.clone().item("SpecAbilityList", i),
-                            label: "SpellFlags".into(),
-                            value: Some(Value::Byte(flags as u8)),
-                        };
-                        edits.push(("Ready", g.entries.iter().map(set).collect()));
+                        let out =
+                            lists::set(&having, "SpecAbilityList", is, &["SpellFlags"], |e, l| {
+                                Some(lists::like(e.get(l), flags, Value::Byte(0)))
+                            });
+                        change = Some(("Ready", out, "Set on"));
                     }
                     if ui.small_button("Remove").clicked() {
-                        edits.push((
-                            "Remove special ability",
-                            set_uses(key, &base, first, &g.entries, 0),
-                        ));
+                        let out = lists::remove(&targets, "SpecAbilityList", is, |_| None);
+                        change = Some(("Remove special ability", out, "Taken from"));
+                    }
+                    // Given to those that lack it, with as many uses as
+                    // the first that has it.
+                    if m.having.len() < total {
+                        if ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked() {
+                            let lacking: Vec<lists::Target> = (0..total)
+                                .filter(|i| !m.having.contains(i))
+                                .map(|i| targets[i].clone())
+                                .collect();
+                            let entry = m.entry.clone();
+                            let out = lists::set_count(
+                                &lacking,
+                                "SpecAbilityList",
+                                is,
+                                uses as usize,
+                                |_| entry.clone(),
+                            );
+                            change = Some(("Add special ability", out, "Added to"));
+                        }
+                    } else {
+                        ui.label("");
                     }
                     ui.end_row();
                 }
             });
         }
     });
-    for (what, e) in edits {
-        apply(f, what, e);
+    if let Some((what, out, done)) = change {
+        f.apply_each(what, out, done);
     }
 }
 
@@ -947,7 +1436,7 @@ const SECONDARY: u32 = 0x20;
 
 /// Equipment slots: (bit, name). The last four are the creature's natural
 /// equipment.
-const SLOTS: [(u32, &str); 18] = [
+pub(super) const SLOTS: [(u32, &str); 18] = [
     (0x1, "Helmet"),
     (0x2, "Armor"),
     (0x4, "Boots"),
@@ -1102,7 +1591,7 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
 /// A creature's items' flags (Aurora's Options, under its palette): each
 /// field, labeled as Aurora labels it, and Aurora's tip with what the game
 /// does with it.
-const ITEM_FLAGS: [(&str, &str); 2] = [
+pub(super) const ITEM_FLAGS: [(&str, &str); 2] = [
     (
         "Dropable",
         "Specify if selected item can be dropped: the game leaves it on the creature's remains \
@@ -1211,7 +1700,7 @@ fn item_options(
 
 /// The slots an item can go in (its base item's `EquipableSlots`): a
 /// whole item's own base item (`item`, one moved), else its blueprint's.
-fn item_slots(f: &mut Form<'_>, resref: ResRef, item: Option<&Struct>) -> u32 {
+pub(super) fn item_slots(f: &mut Form<'_>, resref: ResRef, item: Option<&Struct>) -> u32 {
     let base = match item.and_then(|s| s.integer("BaseItem")) {
         Some(b) => Some(b),
         None => f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem")),
@@ -1253,7 +1742,7 @@ fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
 /// another object's inventory): itself, and the edits that take it from
 /// there (none for a copy), made with the equipping as one step.
 #[derive(Debug, Clone, PartialEq)]
-struct Moving {
+pub(super) struct Moving {
     item: Struct,
     taken: Vec<Edit>,
 }
@@ -1277,7 +1766,7 @@ fn after_taken(f: &Form<'_>, items: &[Struct], of: &str, taken: &[Edit]) -> Vec<
 /// The edits that equip `r` in slot `bit`: `moving` taken from where it
 /// was and put there as it is, else a new item of blueprint `r`. What
 /// the slot held goes to the end of the backpack (`backpack`), as it is.
-fn equip_edits(
+pub(super) fn equip_edits(
     f: &mut Form<'_>,
     (equipped, backpack): (&[Struct], &[Struct]),
     bit: u32,
@@ -1316,6 +1805,10 @@ fn equip_edits(
 }
 
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        super::inventory_together::page(f, ui, super::inventory_together::Holder::Creature);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     if !f.app.settings.no_inventory_warning {
@@ -1787,17 +2280,19 @@ mod tests {
         // Three entries of one spell at one level are three uses of it; the
         // same spell at another level is another ability.
         let list = [ability(10, 5), ability(20, 5), ability(10, 5), ability(10, 9), ability(10, 5)];
-        let groups = ability_groups(&list);
-        let shape: Vec<(i64, i64, &[usize])> =
-            groups.iter().map(|g| (g.spell, g.caster_level, g.entries.as_slice())).collect();
-        assert_eq!(shape, [(10, 5, &[0, 2, 4][..]), (20, 5, &[1]), (10, 9, &[3])]);
+        let groups = lists::merge(&[&list], |e| Some(ability_key(e)));
+        let shape: Vec<AbilityKey> = groups.iter().map(|g| g.key).collect();
+        assert_eq!(shape, [(10, 5, true), (20, 5, true), (10, 9, true)]);
 
         let key = ResKey::parse("c", ResType::UTC).unwrap();
-        let base = GffPath::root();
-        let entries = &groups[0].entries;
+        let mut creature = Struct::new(0);
+        creature.set("SpecAbilityList", Value::List(list.to_vec()));
+        let t = [lists::Target::new(key, GffPath::root(), creature)];
+        let is = |e: &Struct| ability_key(e) == (10, 5, true);
+        let uses = |n: usize| lists::set_count(&t, "SpecAbilityList", is, n, |_| list[0].clone());
         // More uses: copies after its last entry.
-        let more = set_uses(key, &base, &list[0], entries, 5);
-        let inserted: Vec<usize> = more
+        let inserted: Vec<usize> = uses(5)
+            .edits
             .iter()
             .map(|e| match e {
                 Edit::InsertItem { index, item, .. } if *item == list[0] => *index,
@@ -1806,8 +2301,8 @@ mod tests {
             .collect();
         assert_eq!(inserted, [5, 6]);
         // Fewer: its last entries go, the last first.
-        let fewer = set_uses(key, &base, &list[0], entries, 1);
-        let removed: Vec<usize> = fewer
+        let removed: Vec<usize> = uses(1)
+            .edits
             .iter()
             .map(|e| match e {
                 Edit::RemoveItem { index, .. } => *index,
@@ -1816,8 +2311,8 @@ mod tests {
             .collect();
         assert_eq!(removed, [4, 2]);
         // None: all of them; as many: nothing.
-        assert_eq!(set_uses(key, &base, &list[0], entries, 0).len(), 3);
-        assert!(set_uses(key, &base, &list[0], entries, 3).is_empty());
+        assert_eq!(uses(0).edits.len(), 3);
+        assert!(uses(3).edits.is_empty());
 
         // Uses flagged otherwise but ready all the same are one ability (the
         // game reads the flags as yes or no); spent ones are another.
@@ -1826,10 +2321,13 @@ mod tests {
             s.set("SpellFlags", Value::Byte(flags));
             s
         };
-        let groups = ability_groups(&[flagged(1), flagged(5), flagged(0), flagged(2)]);
-        let shape: Vec<(bool, &[usize])> =
-            groups.iter().map(|g| (g.flags != 0, g.entries.as_slice())).collect();
-        assert_eq!(shape, [(true, &[0, 1, 3][..]), (false, &[2])]);
+        let flags = [flagged(1), flagged(5), flagged(0), flagged(2)];
+        let groups = lists::merge(&[&flags], |e| Some(ability_key(e)));
+        let shape: Vec<(bool, usize)> = groups
+            .iter()
+            .map(|g| (g.key.2, flags.iter().filter(|e| ability_key(e) == g.key).count()))
+            .collect();
+        assert_eq!(shape, [(true, 3), (false, 1)]);
     }
 
     #[test]

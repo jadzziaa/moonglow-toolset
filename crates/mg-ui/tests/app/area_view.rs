@@ -3252,12 +3252,12 @@ fn adjust_location_shows_speed_lerps_and_other_scopes() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
 }
 
-/// Placed objects edited together have no pages of lists of their own
-/// (those changed only the first object), as several blueprints have
-/// none: an inventory is edited one object at a time. A field is set on
-/// each.
+/// Placed objects edited together have their pages of lists, as several
+/// blueprints have (`docs/lists-together-proposal.md`): an item pasted
+/// into their Inventory goes to each, as a whole item at its own place,
+/// in one step. A field is set on each.
 #[test]
-fn placed_objects_edited_together_leave_their_lists_alone() {
+fn placed_objects_edited_together_have_their_lists_edited_on_each() {
     use mg_module::instances::{Placement, Placing, instance};
     let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -3287,19 +3287,35 @@ fn placed_objects_edited_together_leave_their_lists_alone() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
     h.run_steps(4);
     assert!(h.query_by_label("Basic").is_some(), "the window is open");
-    assert!(h.query_by_label("Inventory").is_none(), "no Inventory page");
-    assert!(h.query_by_label_contains("edited one object at a time").is_some());
-    assert!(h.get_by_label("Inventory…").accesskit_node().is_disabled());
+    assert!(h.query_by_label_contains("at a time").is_none());
+    assert!(!h.get_by_label("Inventory…").accesskit_node().is_disabled());
     h.get_by_label("Plot").click();
     h.run_steps(3);
-    let ws = h.state_mut().ws.as_mut().unwrap();
-    let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    let chests = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec()
+    };
+    let list = chests(&mut h);
     assert_eq!(list.iter().map(|p| p.integer("Plot")).collect::<Vec<_>>(), [Some(1); 2]);
-    // One of them alone has its Inventory page.
-    let one = mg_edit::GffPath::root().item("Placeable List", 0);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: one }));
+    // The Inventory page: a longsword pasted goes into both, whole.
+    h.get_by_label("Inventory…").click();
+    h.run_steps(3);
+    let mut sword = mg_gff::Struct::new(0);
+    sword.set("InventoryRes", mg_gff::Value::resref(ResRef::from_str("nw_wswls001").unwrap()));
+    h.state_mut().item_clip = vec![sword];
+    h.run_steps(2);
+    h.get_by_label("Paste").click();
     h.run_steps(4);
-    assert!(h.query_by_label("Inventory").is_some());
+    for chest in chests(&mut h) {
+        let items = chest.list("ItemList").unwrap_or(&[]).to_vec();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].integer("BaseItem").is_some(), "a whole item, as a placed one holds");
+        assert_eq!(
+            items[0].resref("TemplateResRef").map(|r| r.to_string()).as_deref(),
+            Some("nw_wswls001")
+        );
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add item"));
 }
 
 /// Static ticked in the Properties of two placed placeables edited

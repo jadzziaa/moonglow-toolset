@@ -99,16 +99,9 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let has =
                 ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has Inventory", "HasInventory")).inner;
-            // (Several edited together: an inventory is one's own.)
-            let one = f.also.is_empty();
             let button = ui
-                .add_enabled(has && one, egui::Button::new("Inventory…"))
+                .add_enabled(has, egui::Button::new("Inventory…"))
                 .on_hover_text("Edit inventory contents");
-            let button = if one {
-                button
-            } else {
-                button.on_disabled_hover_text("Inventories are edited one at a time")
-            };
             if button.clicked() {
                 f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
             }
@@ -176,6 +169,11 @@ fn illumination(f: &mut Form<'_>, ui: &mut Ui) {
 /// The items the placeable holds.
 fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
+    // (Several: those without an inventory are left, and said.)
+    if f.several() {
+        super::inventory_together::page(f, ui, super::inventory_together::Holder::Placeable);
+        return;
+    }
     if f.int("HasInventory") == 0 {
         ui.weak("The placeable has no inventory (Basic › Has Inventory).");
         return;

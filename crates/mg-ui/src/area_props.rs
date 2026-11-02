@@ -182,7 +182,8 @@ fn pages(
             crate::area_grass::page(app, ui, area, others);
             return;
         }
-        let mut f = Form { app, key: are, path: GffPath::root(), also, root };
+        let mut f =
+            Form { app, key: are, path: GffPath::root(), also, root, together: Default::default() };
         match page {
             "Basic" => basic(&mut f, ui),
             "Visual" => visual(&mut f, ui),
@@ -819,7 +820,7 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
         Some("Description"),
         Some("Label"),
     );
-    let mut f = Form { app, key: git, path, also, root };
+    let mut f = Form { app, key: git, path, also, root, together: Default::default() };
     egui::Grid::new(("are-audio", git)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, label, list) in [
             ("Ambient Sound, Day", "AmbientSndDay", &sounds),

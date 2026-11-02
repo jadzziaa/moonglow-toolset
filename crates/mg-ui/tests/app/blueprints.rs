@@ -2115,9 +2115,10 @@ fn several_blueprints_are_edited_together() {
     h.get_by_label("Edit 2 Together").click();
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Blueprints(keys.clone())).is_some());
-    // Lists are edited one at a time: no Inventory page.
-    assert!(h.query_by_label_contains("edited one blueprint at a time").is_some());
-    assert!(h.query_by_label("Inventory").is_none());
+    // Lists are edited on each too: the Inventory page is offered
+    // (`lists_together.rs`).
+    assert!(h.query_by_label_contains("at a time").is_none());
+    assert!(h.query_by_label("Inventory").is_some());
     h.get_by_label("Plot").click();
     h.run();
     for k in &keys {
