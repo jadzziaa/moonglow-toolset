@@ -2124,7 +2124,16 @@ impl Renderer {
                     let around = turned.x_axis.abs() * half.x
                         + turned.y_axis.abs() * half.y
                         + turned.z_axis.abs() * half.z;
-                    if frustum.hides(centre, around.length()) {
+                    // (A material's own programs may offset the mesh by its
+                    // MTR's `…Offset…` parameters, out of its box: its ball
+                    // grown by as far. TDoD's grass, lifted 2 m, was left
+                    // out where its box was below the view.)
+                    let offset = if self.game_shaders && surface.slots.custom.is_some() {
+                        crate::game::offset_of(&surface.slots.params, crate::game::is_offset)
+                    } else {
+                        0.0
+                    };
+                    if frustum.hides(centre, around.length() + offset) {
                         bones.truncate(bone_base as usize);
                         hidden += 1;
                         continue;
@@ -2262,12 +2271,13 @@ impl Renderer {
                     };
                     if let Some((p, fringe)) = pipelines {
                         // (A program that moves the mesh's vertices, a
-                        // sway, takes them out of its box: on the screen,
-                        // its box grown by as far as they go.)
+                        // sway or an offset, takes them out of its box: on
+                        // the screen, its box grown by as far as they go.)
                         if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
+                            let by = p.moved_by(MOVED, &slots.params);
                             let grown = |b: Bounds| Bounds {
-                                min: b.min - Vec3::splat(MOVED),
-                                max: b.max + Vec3::splat(MOVED),
+                                min: b.min - Vec3::splat(by),
+                                max: b.max + Vec3::splat(by),
                             };
                             bounds = world_bounds.map(|b| screen_box(on_screen, &grown(b)));
                         }
@@ -3405,7 +3415,9 @@ pub fn tint_light(scene: &Scene, at: Vec3) -> Vec3 {
 /// others ([`crate::batch`]): The Domains of Dread's sway shaders move a
 /// vertex by at most `fSwayStrength` / 100 · 5 · √2 each way, 0.35 m at the
 /// strongest they use (5). Taken as its box, a leaf's soft edge was blended
-/// in another order where it swayed past it.
+/// in another order where it swayed past it. A program that offsets the
+/// mesh by an MTR's parameter besides (`…Offset…`: TDoD's grass lifted
+/// 2 m) adds the parameter's value ([`crate::game::GamePipeline::moved_by`]).
 const MOVED: f32 = 1.0;
 
 /// The depth buffer's format.

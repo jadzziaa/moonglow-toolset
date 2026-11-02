@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:09:43Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -591,10 +591,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     swaying program's box grown by a meter joins fewer). `NO_DISCARD` 0
     for every material (notes §M.10) not looked at. ([the frames
     note](research/notes_frames.md), 27 October) (M)
-  - **A program that moves its vertices farther than a meter** is batched
-    by its box grown by `MOVED` (1 m): TDoD's grass lifted by
-    `fTilesetMeshOffsetZ` (2 m) could be blended in another order where
-    it reaches past it. Its MTR's parameters could say how far. (S)
   - **An area changes its look a moment after it opens**, the first time
     its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
     250–277 ms) and, with them cached, while naga reads them and the

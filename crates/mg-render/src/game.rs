@@ -1102,9 +1102,14 @@ pub(crate) struct GamePipeline {
     /// `sceneCurrentFrame`): what it draws moves by itself.
     pub(crate) timed: bool,
     /// The vertex program may move a mesh's vertices out of its box: it
-    /// reads the clock or the wind (a sway), or samples a texture (a
-    /// height map).
+    /// reads the clock or the wind (a sway), samples a texture (a height
+    /// map), or reads an offset ([`GamePipeline::offsets`]).
     pub(crate) moves: bool,
+    /// The uniforms its vertex program reads that offset a mesh by a
+    /// distance an MTR's parameter gives, in meters: those named
+    /// `…Offset…` (The Domains of Dread's `fTilesetMeshOffsetZ` lifts its
+    /// grass 2 m, `fRoofOffsetZ` its roofs).
+    pub(crate) offsets: Vec<String>,
     /// Its fragment program reads the framebuffer's copies (`texFBColor`,
     /// `texFBDepth`; `docs/framebuffer-proposal.md`): bound in its group 1,
     /// with the bones ([`FB_BINDING`]), white without them.
@@ -1585,6 +1590,7 @@ struct Built {
     zero_slot: Option<u32>,
     timed: bool,
     moves: bool,
+    offsets: Vec<String>,
     reads_fb: bool,
     wants_fb: bool,
 }
@@ -1773,12 +1779,24 @@ impl Worker {
             .filter(|m| m.name.starts_with("windPointSource"))
             .map(|m| m.name.clone())
             .collect();
+        // (A part's members are those the program reads; the whole
+        // block, a program not split, has every one it declares.)
+        let offsets: Vec<String> = vs
+            .reflection
+            .uniforms
+            .iter()
+            .flat_map(|b| b.members.iter().map(move |m| (b.part, m)))
+            .filter(|(_, m)| is_offset(&m.name))
+            .filter(|(part, m)| *part != Part::Whole || vs.reads_uniform(&m.name))
+            .map(|(_, m)| m.name.clone())
+            .collect();
         let moves = ["worldtimerTimeOfDay", "sceneCurrentFrame", "areaGlobalWind"]
             .iter()
             .copied()
             .chain(winds.iter().map(String::as_str))
             .any(|u| vs.reads_uniform(u))
-            || !stages[0].textures.is_empty();
+            || !stages[0].textures.is_empty()
+            || !offsets.is_empty();
         let visibility = [wgpu::ShaderStages::VERTEX, wgpu::ShaderStages::FRAGMENT];
         // (The same for every pipeline, its elements' sizes checked as it
         // draws: one group of the draws' values for all, bound once while
@@ -1972,10 +1990,40 @@ impl Worker {
             zero_slot,
             timed,
             moves,
+            offsets,
             reads_fb,
             wants_fb,
         })
     }
+}
+
+impl GamePipeline {
+    /// How far its vertex program may move a mesh's vertices out of its
+    /// box, in meters each way: `sway` (a sway's reach), and the largest of
+    /// the offsets ([`GamePipeline::offsets`]) the MTR's parameters give
+    /// (`params`), added.
+    pub(crate) fn moved_by(&self, sway: f32, params: &[(String, MtrParam)]) -> f32 {
+        sway + offset_of(params, |n| self.offsets.iter().any(|o| o.eq_ignore_ascii_case(n)))
+    }
+}
+
+/// The largest of an MTR's parameters `named` takes, in meters (a vector's
+/// largest component), as an offset: 0 for none.
+pub(crate) fn offset_of(params: &[(String, MtrParam)], named: impl Fn(&str) -> bool) -> f32 {
+    params
+        .iter()
+        .filter(|(n, _)| named(n))
+        .map(|(_, v)| match v {
+            MtrParam::Float(f) => f.iter().fold(0.0f32, |a, x| a.max(x.abs())),
+            MtrParam::Int(i) => i.unsigned_abs() as f32,
+        })
+        .fold(0.0f32, f32::max)
+}
+
+/// Whether an MTR's parameter is named as an offset (`…Offset…`): a
+/// distance a program may move the mesh by ([`GamePipeline::offsets`]).
+pub(crate) fn is_offset(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("offset")
 }
 
 impl GameShaders {
@@ -2205,6 +2253,7 @@ impl GameShaders {
                     zero_slot: b.zero_slot,
                     timed: b.timed,
                     moves: b.moves,
+                    offsets: b.offsets,
                     reads_fb: b.reads_fb,
                     wants_fb: b.wants_fb,
                 }))

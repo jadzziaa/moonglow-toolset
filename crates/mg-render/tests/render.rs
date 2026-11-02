@@ -3215,6 +3215,71 @@ fn a_program_in_the_screen_s_pixels_counts_from_the_bottom() {
     }
 }
 
+/// A see-through mesh whose vertex program lifts it by an MTR's offset
+/// (`…Offset…`, meters: The Domains of Dread's grass by
+/// `fTilesetMeshOffsetZ`) is blended in its place among the others where
+/// it is drawn, not where its box is: lifted in front of another
+/// see-through mesh, it is blended over that one, though a mesh of its
+/// material that comes before both would take it into its draw (its box
+/// grown by the offset meets the other's); and lifted into the view from
+/// below it, it is drawn (its box was out of the camera's sight).
+#[test]
+fn a_mesh_lifted_by_its_mtr_s_offset_is_blended_where_it_is_drawn() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let vs = |offset: bool| {
+        format!(
+            "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\n{}\
+             attribute vec4 vPos;\nattribute vec2 vTcIn;\nvarying vec2 vUv;\nvoid main ()\n{{\n    \
+             vUv = vTcIn;\n    vec4 p = vPos;\n    {}\n    gl_Position = m_proj * (m_mv * p);\n}}\n",
+            if offset { "uniform float fTestOffsetZ;\n" } else { "" },
+            if offset { "p.y += fTestOffsetZ;" } else { "" },
+        )
+    };
+    let fs = "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nvarying vec2 vUv;\n\
+        void main ()\n{\n    gl_FragColor = texture2D(texUnit0, vUv);\n}\n";
+    assets.shaders.insert("vs_lifted".into(), vs(true));
+    assets.shaders.insert("vs_still".into(), vs(false));
+    assets.shaders.insert("fs_plain".into(), fs.into());
+    assets.solid("lifted", [255, 0, 0, 128]);
+    assets.solid("still", [0, 0, 255, 128]);
+    // (A quad a meter a side, of 2 at 0.5: 10 of its y is 5 m up.)
+    let lifted = "customshadervs vs_lifted\ncustomshaderfs fs_plain\n\
+        parameter float fTestOffsetZ 10.0\n";
+    let still = "customshadervs vs_still\ncustomshaderfs fs_plain\n";
+    assets.materials.insert("lifted".into(), mg_image::mtr::Mtr::parse(lifted.as_bytes()));
+    assets.materials.insert("still".into(), mg_image::mtr::Mtr::parse(still.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 5.0),
+        target: Vec3::new(0.0, 0.0, 5.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // Back to front: one of the lifted material far off to the side, the
+    // still one 5 m up, the other lifted one nearer, lifted in front of
+    // the still one (a sway's meter round its box would not reach it).
+    let scene = Scene {
+        instances: vec![
+            standing_quad(&gpu, "lifted", Vec3::new(3.0, 2.0, 0.0), 0.5),
+            standing_quad(&gpu, "still", Vec3::new(0.0, 0.0, 5.0), 0.5),
+            standing_quad(&gpu, "lifted", Vec3::new(0.0, -1.0, 0.0), 0.5),
+        ],
+        background: [0.0, 0.0, 0.0],
+        area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&img, &mg_testkit::output_dir("render").join("game_lifted_order.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert!(r.drawn.game >= 3, "{:?}", r.drawn);
+    // Where the two overlap, the nearer lifted one is over the still one.
+    let p = img.pixel(32, 32);
+    assert!(p[0] > p[2], "the lifted mesh blended over the other: {p:?}");
+}
+
 /// Made while the frames go on (`game_background`, the area view's): the
 /// first frame draws the mesh with Moonglow's own shader and says a
 /// pipeline is being made; the window is woken when it is; then the
