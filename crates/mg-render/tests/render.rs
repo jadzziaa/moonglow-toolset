@@ -4917,6 +4917,78 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// A mesh left out of the picture (a tile's roof with Fade Geometry on:
+/// [`mg_render::scene::MeshOverride::hidden`]) still casts its shadow, as
+/// the game's faded roofs do: a red roof a metre over the ground, hidden,
+/// isn't drawn, and its shadow darkens the ground under it as a roof that
+/// is drawn darkens what is beside it.
+#[test]
+fn a_mesh_left_out_by_fade_geometry_still_casts_its_shadow() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let mut roof = quad();
+    if let NodeKind::Mesh(mesh) = &mut roof.nodes[1].kind {
+        mesh.shadow = true;
+        mesh.diffuse = [1.0, 0.0, 0.0];
+        mesh.ambient = [1.0, 0.0, 0.0];
+    }
+    let roof = Arc::new(GpuModel::new(&gpu, Arc::new(roof)));
+    let mut hidden = mg_render::scene::MeshState::new(&roof);
+    hidden.meshes[0].hidden = true;
+    let hidden = Arc::new(hidden);
+    let scene = |state: Option<Arc<mg_render::scene::MeshState>>, shadows: bool| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance {
+                state,
+                ..Instance::new(
+                    roof.clone(),
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::splat(0.5),
+                        glam::Quat::IDENTITY,
+                        Vec3::new(0.0, 0.0, 1.0),
+                    ),
+                )
+            },
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+        let (shown, faded) = (draw(&scene(None, true)), draw(&scene(Some(hidden.clone()), true)));
+        let bare = draw(&scene(Some(hidden.clone()), false));
+        let under = (32, 32);
+        let p = shown.pixel(under.0, under.1);
+        assert!(p[0] > 2 * p[1].max(1), "the roof drawn, red: {p:?}");
+        let (lit, dark) = (grey(bare.pixel(under.0, under.1)), faded.pixel(under.0, under.1));
+        assert!(lit > 40.0, "{lit}");
+        assert!(dark[0] < dark[1] + 10, "volumes {volumes}: the roof not drawn: {dark:?}");
+        assert!(
+            (grey(dark) - lit * 0.5).abs() <= 2.0,
+            "volumes {volumes}: its shadow: {dark:?} of {lit}"
+        );
+    }
+}
+
 /// A material that samples the framebuffer (its MTR's `sample_framebuffer
 /// 2`, as The Domains of Dread's flow materials, whose programs read
 /// nothing of it) is drawn late, after the framebuffer's copy and after

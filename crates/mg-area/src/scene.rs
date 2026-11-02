@@ -1194,7 +1194,8 @@ impl AreaScene {
         // Source lights: the flame at the tile's `sl1`/`sl2` node.
         let sources = loaded.sources;
         let mut state = (!layers.is_empty()).then(|| playing.mesh_state(&loaded.gpu));
-        // Fade Geometry: the fading meshes aren't drawn.
+        // Fade Geometry: the fading meshes aren't drawn, but cast their
+        // shadows (as the game's faded roofs still do).
         if view.fade {
             let fades = |m: &mg_render::model::GpuMesh| {
                 matches!(&model.nodes[m.node].kind,
@@ -1204,7 +1205,7 @@ impl AreaScene {
                 let s = state.get_or_insert_with(|| mg_render::scene::MeshState::new(&loaded.gpu));
                 for (o, m) in s.meshes.iter_mut().zip(&loaded.gpu.meshes) {
                     if fades(m) {
-                        o.alpha = Some(0.0);
+                        o.hidden = true;
                     }
                 }
             }

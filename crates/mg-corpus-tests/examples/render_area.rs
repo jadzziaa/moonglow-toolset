@@ -7,6 +7,7 @@
 //! app's default); the area's lighting unless `MG_LIT=0` (the Lighting
 //! switch off); `MG_EYE=x,y,z` and `MG_TARGET=x,y,z` place the camera
 //! instead; `MG_HIGH_SHADOWS=1` draws the shadows as stencil volumes (High);
+//! `MG_FADE=1` leaves out what Fade Geometry fades (roofs, upper walls);
 //! `MG_LIGHTS=1` lists the scene's lights; `MG_TIME=<frames>` times
 //! the scene's making over that many frames, the clock moving (the median);
 //! `MG_TIME_RENDER=<frames>` times its making, its drawing (encoded) and the
@@ -49,7 +50,8 @@ fn main() {
     eprintln!("missing models: {:?}", scene.missing);
     let fog = std::env::var_os("MG_FOG").is_some();
     let lit = std::env::var("MG_LIT").ok().is_none_or(|v| v != "0");
-    let view = View { fog, lit, ..View::of(&model) };
+    let fade = std::env::var_os("MG_FADE").is_some();
+    let view = View { fog, lit, fade, ..View::of(&model) };
     // (`MG_TIME=<frames>`: the scene made that many times, the clock
     // moving on by a 144th of a second each, and the median printed.)
     if let Some(frames) = std::env::var("MG_TIME").ok().and_then(|n| n.parse::<usize>().ok()) {

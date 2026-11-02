@@ -2199,8 +2199,9 @@ impl Renderer {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
                 let alpha =
                     replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
-                // (Wholly see-through: nothing to draw.)
-                if alpha <= 0.0 {
+                // (Wholly see-through, or left out (Fade Geometry's): nothing
+                // to draw.)
+                if alpha <= 0.0 || replaced.is_some_and(|r| r.hidden) {
                     continue;
                 }
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);

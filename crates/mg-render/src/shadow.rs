@@ -269,7 +269,10 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
             }
             let world = node(mesh.node);
             let bounds = world_box(world, mesh);
-            if inst.receives_shadows && inst.opacity >= 1.0 {
+            // (One left out, Fade Geometry's, casts but isn't drawn to
+            // receive.)
+            let hidden = replaced.is_some_and(|r| r.hidden);
+            if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
                 (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
             }
             if casts(inst, mesh, alpha) {
