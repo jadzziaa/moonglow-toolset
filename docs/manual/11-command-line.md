@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:37Z }
 ---
 
 # Command-line tools
@@ -517,6 +517,14 @@ farewell = { text = "Farewell, sir.", feminine = "Farewell, my lady." }
   constants are as they would be written: for a build to refuse a names
   file that was changed and not run. `--against OLDER.json` fails if a
   key has another line than in an older map (the main branch's).
+- **The project's lines for typed text** (`[talk] lines` and `[talk.builders]`
+  of its `moonglow.toml`: [Text typed into the talk
+  table](03-modules.md#text-typed-into-the-talk-table)) are passed over by
+  new keys, so a key and a text typed in the window never share a line.
+  The project is the one whose `moonglow.toml` is in the names file's
+  folder or a folder above it, or `--project DIR`'s; `--json` lists the
+  lines passed over (`typed_lines`). A key that has a line already keeps
+  it.
 
 ## JSON output
 

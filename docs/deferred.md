@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -165,18 +165,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   slot while the primary is free going in the primary, as Aurora puts a
   longsword, a dagger and a hand axe, a torch in the secondary, and the
   primary's own dragged there staying in the primary; the Creature
-  Wizard's categories without Familiars, as Aurora's: 2026-10-30). Left:
+  Wizard's categories without Familiars, as Aurora's: 2026-10-30; new
+  strings written to a talk-table range, 2026-11-02: [Text typed into the
+  talk table](typed-text-proposal.md)). Left:
   - **Several items at once:** the inventory selects several (Ctrl,
     Shift), but a drag, Copy and Paste carry one: `Dragged` and
     `item_clip` hold one item each place; carrying the selection is a
     drag of many rows, and where each lands (slots, grid places). (M)
-  - **New strings written to a talk-table range:** a name or
-    description typed in a blueprint goes into the file, Aurora's way;
-    writing it as a line of the module's custom talk table instead, at
-    the next free line of a range the project keeps (`mg tlk-alloc`'s
-    map is one), touches every localized-string field and the talk
-    table's saving. (L) (After 3.0.0, the owner's word, 2026-10-30: 3rd
-    of 9 by complexity.)
   (a second builder's review, October 2026)
 
 ## Bulk editing
@@ -378,12 +373,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     One builder's view, to weigh the rest by: a spreadsheet does most
     of this already, and the editor earns its place on a module's own
     tables (treasure, spawns), not on the game's.
-- **Text put in the talk table as it is written** (a conversation's
-  lines, names), in a range set aside for it, and reusing a line that
-  already has the same text, asked first: proposed by builders, not
-  begun. Move to Talk Table does one string at a time. (L) (After
-  3.0.0, the owner's word, 2026-10-30: 4th of 9 by complexity.)
-  (from builders' reports after 1.19.1)
 
 ## Haks in the GUI
 

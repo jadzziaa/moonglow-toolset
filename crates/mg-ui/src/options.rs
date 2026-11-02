@@ -1498,8 +1498,9 @@ fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft) {
         });
     });
     ui.weak(
-        "Text typed in another language than the talk table's stays the field's own; so does \
-         every text where the module has no custom talk table.",
+        "Text typed in another language than the talk table's, or into a string with text in \
+         another language too (which the game shows before a line), stays the field's own; so \
+         does every text where the module has no custom talk table.",
     );
 }
 

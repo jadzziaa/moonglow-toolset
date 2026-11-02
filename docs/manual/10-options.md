@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:53:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:37Z }
 ---
 
 # Options
@@ -421,6 +421,15 @@ and the journal's lists as it is, and in the fields that edit it (a
 blueprint's, an area's, Module Properties', the journal's, a
 conversation line's) in the talk table's color with the language named
 beside it. Typing there gives it text in the language you edit.
+
+**Talk Table › Put text typed into the talk table** (off by default):
+a name, a description or a conversation line typed becomes a line of the
+module's custom talk table, at the next free line of the project's
+lines, and the field names it by its StrRef; off, the text is the
+field's own, as Aurora writes it. **When the talk table has the text
+already**: **Ask** (the default: Use Line N, Add a Line or Keep in the
+File), **Use that line**, or **Add a line**. See [Text typed into the
+talk table](03-modules.md#text-typed-into-the-talk-table).
 
 Where your game has that language installed (a folder for it under the
 game's `lang`), the game's own text is read in it too: names and

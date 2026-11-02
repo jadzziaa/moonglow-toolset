@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:59:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:36Z }
 ---
 
 # Conversations
@@ -171,6 +171,12 @@ there).
   one undoable step (a language's cell left empty takes that language's
   text off the line). Lines whose text comes from the game's talk table
   show empty.
+
+A line's text typed (in the editor, or in Input Text as the line is
+added) goes into the module's custom talk table as a line of its own
+with Options › Language › Put text typed into the talk table on, the
+conversation's line naming it; Undo takes both. See [Text typed into the
+talk table](03-modules.md#text-typed-into-the-talk-table).
 - **Twine** (Twee 3, for Twine 2 or Tweego) and **Ink** (for Inky): the
   conversation as a branching story.
 
