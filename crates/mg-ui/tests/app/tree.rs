@@ -1527,3 +1527,89 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
     h.run();
     assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
 }
+
+/// A builder's report: closing an area, or a Properties window opened from
+/// the module tree, scrolled the tree to its top. The tab come to the front
+/// because another closed was not chosen: the tree stays where it was.
+#[test]
+fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-tab-closed") else { return };
+    // Forty waypoints, for a tree that scrolls.
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let first = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone();
+    let list: Vec<mg_gff::Struct> = (0..40)
+        .map(|i| {
+            let mut w = first.clone();
+            w.set("Tag", mg_gff::Value::String(format!("WP_{i:02}").into_bytes()));
+            w.set("XPosition", mg_gff::Value::Float(1.0 + i as f32));
+            w
+        })
+        .collect();
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        label: "WaypointList".into(),
+        value: Some(mg_gff::Value::List(list)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.run_steps(4);
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (40)").click();
+    h.run_steps(6);
+    // Scrolled down to the last (selected in the area: brought into view).
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 39)];
+    h.run_steps(8);
+    assert!(h.query_by_label("WP_39").is_some(), "scrolled to");
+    let row = h.get_by_label("WP_39").rect();
+    // The area closed: Module Properties (opened with the module) in front.
+    assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some());
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Area(area)));
+    h.run_steps(8);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
+    assert_eq!(h.query_by_label("WP_39").map(|n| n.rect()), Some(row), "the area closed");
+    // A placed object's Properties, opened from its row, then closed: Module
+    // Properties in front again.
+    let path = mg_edit::GffPath::root().item("WaypointList", 39);
+    let tab = Tab::Instance { area, path };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(8);
+    let row = h.get_by_label("WP_39").rect();
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(tab));
+    h.run_steps(8);
+    assert_eq!(h.query_by_label("WP_39").map(|n| n.rect()), Some(row), "Properties closed");
+    // (A tab chosen still moves it: `every_kind_of_tab_chosen_moves_the_module_tree`.)
+}
+
+/// A builder's report: with the Filter typed, the kinds of an area it
+/// found objects in were held open: a click on one's arrow closed it for a
+/// frame. Now the Filter opens them once, as it is typed, and they close.
+#[test]
+fn the_kinds_the_filter_opens_close_again() {
+    let Some((mut h, _)) = area_harness("tree-filter-kinds") else { return };
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    filter_type(&mut h, "nw_waypoint001");
+    h.run_steps(30);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "opened by the Filter");
+    h.get_by_label("Waypoints (2 of 2)").click();
+    h.run_steps(10);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 0, "closed, and stays closed");
+    h.get_by_label("Waypoints (2 of 2)").click();
+    h.run_steps(10);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "opened again");
+    h.get_by_label("Waypoints (2 of 2)").click();
+    h.run_steps(10);
+    // The Filter cleared and typed again: opened once more.
+    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.run_steps(4);
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    filter_type(&mut h, "nw_waypoint001");
+    h.run_steps(30);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "typed again");
+}

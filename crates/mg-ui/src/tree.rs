@@ -426,7 +426,19 @@ fn contents_ui(
             if marked.is_some_and(|m| m.2) && goes.is_none() {
                 went = true;
             }
-            if filtered || goes.is_some() {
+            // (A kind the filter finds in is opened once for each change
+            // of what is typed, and can be closed after: it was held open,
+            // a click on its arrow undone the next frame, a builder's
+            // report.)
+            let opened_for = egui::Id::new(("tree-kind-filter", area, *kind));
+            let newly_found = filtered
+                && ui.data_mut(|d| {
+                    let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                    let was = d.get_temp::<Option<u64>>(opened_for);
+                    d.insert_temp(opened_for, now);
+                    was != Some(now)
+                });
+            if newly_found || goes.is_some() {
                 header = header.open(Some(true));
             } else if let Some((_, open)) = keys.fold.filter(|f| f.0 == TreeAt::Kind(area, *kind)) {
                 header = header.open(Some(open));
@@ -674,7 +686,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     // Every group opened or closed at once (this frame). A filter typed
     // opens every group with a match, as it is typed: they can be closed
     // again after.
-    let typed = crate::widgets::text_changed(ui, filter_id, filter.as_str()) && !filter.is_empty();
+    let changed = crate::widgets::text_changed(ui, filter_id, filter.as_str());
+    let typed = changed && !filter.is_empty();
+    // (Each change of the Filter counted, for the kinds of objects it
+    // opens once: `contents_ui`.)
+    if changed {
+        ui.data_mut(|d| *d.get_temp_mut_or(egui::Id::new("tree-filter-changes"), 0_u64) += 1);
+    }
     let mut fold = None;
     ui.horizontal(|ui| {
         fold = crate::palette_view::fold_icons(ui, "group", &app.keymap);
@@ -811,7 +829,10 @@ pub(crate) fn module_row() -> ResKey {
 /// The tab chosen since the tree last looked, which it goes to
 /// ([`reveal_tab`]): the one in front of the pane given the focus (a
 /// window's, or the middle's), else one come to the front of its pane
-/// (opened, or reached by the keys).
+/// (opened, or reached by the keys). One come to the front because a tab
+/// was closed was not chosen: the tree stays where it is (it went to the
+/// top, to Module Properties' row, as an area or a Properties window
+/// opened from it closed: a builder's report).
 pub(crate) fn follow_front_tab(app: &mut Moonglow) {
     let front = |leaf: &egui_dock::LeafNode<Tab>| leaf.tabs.get(leaf.active.0).cloned();
     let fronts: Vec<Tab> = (app.dock.iter_leaves())
@@ -822,13 +843,16 @@ pub(crate) fn follow_front_tab(app: &mut Moonglow) {
         .and_then(|p| app.dock.leaf(p).ok())
         .and_then(front)
         .filter(|t| *t != Tab::Palette);
-    let (was_focused, was) = std::mem::take(&mut app.tree_front);
-    let chosen = if focused.is_some() && focused != was_focused {
+    let open = app.dock.iter_all_tabs().count();
+    let (was_focused, was, were_open) = std::mem::take(&mut app.tree_front);
+    let chosen = if open < were_open {
+        None
+    } else if focused.is_some() && focused != was_focused {
         focused.clone()
     } else {
         fronts.iter().find(|t| !was.contains(t)).cloned()
     };
-    app.tree_front = (focused, fronts);
+    app.tree_front = (focused, fronts, open);
     if let Some(tab) = chosen {
         reveal_tab(app, &tab);
     }

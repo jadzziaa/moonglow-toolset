@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:47:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T21:41:57Z }
 ---
 
 # The main window
@@ -260,7 +260,8 @@ the view), **Copy**, **Delete** (one step to undo), **Properties** (of
 objects of one kind, edited together) and the plugins' commands. The
 Filter finds objects by name or tag in every area, opened out or not
 (an area that holds one it finds is shown opened out to it), and narrows
-an opened area's objects to those it finds.
+an opened area's objects to those it finds. The kinds it finds objects
+in open as it is typed, and close again with a click on their arrow.
 **Edit** on the right-click menu of any other row (a conversation, a
 script, a blueprint) opens it, as a double click does; a blueprint's
 also has **Preview** (the model viewer).
@@ -482,7 +483,9 @@ marks its row at the top. A tab of several (Properties of several
 blueprints or areas) chooses each of them, as Ctrl and a click would, the
 first brought into view. The keys stay with the tab, and a row in view
 stays where it is; one out of sight comes to the middle of the pane, the
-rows after it in sight too. A tab whose row the Filter hides, chosen
+rows after it in sight too. A tab that comes to the front because the
+one before it was closed (an area, a Properties window opened from the
+tree) was not chosen: the tree stays where it is. A tab whose row the Filter hides, chosen
 while the Filter has something typed, is listed under it all the same
 (the Filter stays as it is) until what is typed changes. With **Show the tab
 chosen in the module tree** unticked in Options › General, the tree

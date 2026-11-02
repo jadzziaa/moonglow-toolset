@@ -875,8 +875,8 @@ pub struct Moonglow {
     /// the tab last chosen (or the area of the one in front).
     pub tree_marked: Option<ResKey>,
     /// The tab in front when the module tree last looked
-    /// (`tree::follow_front_tab`).
-    pub(crate) tree_front: (Option<Tab>, Vec<Tab>),
+    /// (`tree::follow_front_tab`), and how many tabs were open.
+    pub(crate) tree_front: (Option<Tab>, Vec<Tab>, usize),
     /// The one object selected in the area in front, as the module tree
     /// shows it (its row marked): its area, kind and place in its list;
     /// and whether the tree has still to go to it.
