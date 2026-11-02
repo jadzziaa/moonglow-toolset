@@ -5104,8 +5104,10 @@ fn a_skinned_mesh_casts_as_its_bones_pose_it() {
 /// Light shadows: a plate that casts (as a creature does) a metre over a
 /// ground that receives, a lamp that casts shadows 3 m to its west and 2 m
 /// up (lifted 2 m more): the plate's shadow falls east of it, away from the
-/// lamp, as dark as the opacity; none without the lights' shadows, nor
-/// from a light that casts none.
+/// lamp, as dark as the opacity where the lamp gives the ground nearly all
+/// of its light, lighter where the area's light gives it most (the lamp's
+/// share of it, as the client's: `reading_light_shadows`); none without
+/// the lights' shadows, nor from a light that casts none.
 #[test]
 fn a_creature_s_shadow_falls_away_from_its_light() {
     let Some(gpu) = gpu() else { return };
@@ -5115,7 +5117,7 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         mg_render::PointLight::new(Vec3::new(-3.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
             .casting(casts, 10.0, 2.0)
     };
-    let scene = |shadows: bool, casts: bool| Scene {
+    let scene = |shadows: bool, casts: bool, sun: f32| Scene {
         instances: vec![
             Instance {
                 receives_shadows: true,
@@ -5135,8 +5137,8 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         ],
         lights: vec![lamp(casts)],
         area: AreaLight {
-            ambient: Vec3::splat(0.2),
-            diffuse: Vec3::splat(0.6),
+            ambient: Vec3::splat(0.2 * sun),
+            diffuse: Vec3::splat(0.6 * sun),
             direction: Vec3::Z,
         },
         light_shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
@@ -5155,8 +5157,12 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.shadow_volumes = volumes;
         let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
-        let (cast, off, unflagged) =
-            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let (cast, off, unflagged) = (
+            draw(&scene(true, true, 0.02)),
+            draw(&scene(false, true, 0.02)),
+            draw(&scene(true, false, 0.02)),
+        );
+        let (sunlit, sunlit_off) = (draw(&scene(true, true, 1.0)), draw(&scene(false, true, 1.0)));
         let name = format!("shadows_light{}.png", if volumes { "_high" } else { "" });
         save(&cast, &mg_testkit::output_dir("render").join(name));
         // From 4 m up and 3 m west, the plate (a metre across, 1 m up)
@@ -5175,6 +5181,11 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         );
         assert!((at(&cast, west) - at(&off, west)).abs() <= 1.0, "{context}: west");
         assert!((at(&unflagged, east) - lit).abs() <= 1.0, "{context}: a light that casts none");
+        // (Under a bright sun the lamp gives the ground a small share of
+        // its light: its shadow is lighter.)
+        let sunlit_dark = 1.0 - at(&sunlit, east) / at(&sunlit_off, east);
+        eprintln!("{context}: in the sun the shadow darkens by {sunlit_dark:.3}");
+        assert!(sunlit_dark > 0.02 && sunlit_dark < 0.35, "{context}: {sunlit_dark}");
     }
 }
 
