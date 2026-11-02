@@ -92,19 +92,6 @@ impl Moonglow {
     }
 }
 
-/// The laid-out text of a script editor, reused while the text, width and
-/// colours stay the same (a large script takes milliseconds to highlight and
-/// lay out).
-#[derive(Debug, Clone)]
-pub(crate) struct LaidOut {
-    text: String,
-    wrap: f32,
-    palette: Palette,
-    /// The line underlined as an error.
-    error_line: Option<usize>,
-    galley: std::sync::Arc<egui::Galley>,
-}
-
 /// The room a side list's row takes beside its name: the scroll bar and
 /// the panel's and the row's margins.
 const SIDE_MARGINS: f32 = 44.0;
@@ -117,7 +104,7 @@ const LONG_NAME: usize = 44;
 /// are cut there: one section can run over several lines, as `append`
 /// joins tokens of one color, and the lines around the error were
 /// underlined with it.)
-fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
+pub(crate) fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
     } else {
@@ -281,13 +268,13 @@ impl Palette {
         Palette::new(style, ui.visuals().dark_mode, ui.visuals().text_color())
     }
 
-    fn font(&self) -> FontId {
+    pub(crate) fn font(&self) -> FontId {
         FontId::monospace(self.size)
     }
 }
 
 /// The element a token is coloured as.
-fn element(kind: TokenKind) -> usize {
+pub(crate) fn element(kind: TokenKind) -> usize {
     match kind {
         TokenKind::LineComment | TokenKind::BlockComment { .. } => 1,
         TokenKind::Directive => 2,
@@ -627,12 +614,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let mut source = |name: &str| -> Option<String> {
             script_source(&app.scripts, ws.as_ref(), game.as_deref(), &tools::nss(name)?)
         };
-        // (A key typed this frame: the symbols of the frame before. The
-        // frame after a key, which egui draws, reads them.)
+        // (A key typed this frame, or text composed, pasted or cut: the
+        // symbols of the frame before. The frame after it, which egui
+        // draws, reads them.)
         let typing = ctx.memory(|m| m.has_focus(editor_id(key)))
             && ctx.input(|i| {
                 i.events.iter().any(|e| {
-                    matches!(e, egui::Event::Text(_) | egui::Event::Key { pressed: true, .. })
+                    matches!(
+                        e,
+                        egui::Event::Text(_)
+                            | egui::Event::Key { pressed: true, .. }
+                            | egui::Event::Ime(_)
+                            | egui::Event::Paste(_)
+                            | egui::Event::Cut
+                    )
                 })
             });
         app.script_tools.symbols_for(
@@ -1297,45 +1292,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         set_cursor(&ctx, key, at, at);
         script_tools.scroll = Some(key);
     }
-    let cached = laid_out.entry(key).or_insert(None);
-    let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-        if let Some(c) = cached.as_ref().filter(|c| {
-            c.wrap == wrap
-                && c.palette == palette
-                && c.error_line == error_line
-                && c.text == text.as_str()
-        }) {
-            return c.galley.clone();
-        }
-        // Code does not wrap (the editor scrolls sideways), which also
-        // keeps the line numbers beside their lines.
-        let mut job = highlight(text.as_str(), &palette);
-        job.wrap.max_width = f32::INFINITY;
-        if let Some(line) = error_line {
-            underline_line(&mut job, text.as_str(), line, error_color);
-        }
-        let galley = ui.fonts_mut(|f| f.layout_job(job));
-        *cached = Some(LaidOut {
-            text: text.as_str().to_string(),
-            wrap,
-            palette,
-            error_line,
-            galley: galley.clone(),
-        });
-        galley
+    // (A line at a time, kept between frames: `script_layout`.)
+    let cached = laid_out.entry(key).or_default();
+    cached.begin(ui, &palette, error_color);
+    let lines = buf.text.bytes().filter(|b| *b == b'\n').count() + 1;
+    let numbers = cached.numbers(ui, lines, &buf.bookmarks, &buf.numbered, &palette);
+    let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+        cached.text(ui, text.as_str(), &palette, error_line)
     };
-    let lines = buf.text.split('\n').count();
-    let numbers: String = (1..=lines)
-        .map(|n| {
-            if let Some(b) = buf.numbered.iter().position(|l| *l == Some(n - 1)) {
-                format!("{b}{n:>5}\n")
-            } else if buf.bookmarks.contains(&(n - 1)) {
-                format!("◆{n:>5}\n")
-            } else {
-                format!("{n:>6}\n")
-            }
-        })
-        .collect();
     let mut completion_at = None;
     let mut area = egui::ScrollArea::both().id_salt(("script-scroll", key));
     if let Some(at) = kept_scroll {
@@ -1352,10 +1316,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.scroll_with_delta(egui::vec2(0.0, -d));
         }
         ui.horizontal_top(|ui| {
-            ui.add(
-                egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
-                    .selectable(false),
-            );
+            ui.add(egui::Label::new(numbers).selectable(false));
             // The selection is drawn here, not by the field: to each
             // line's last character, where the field draws a line end
             // that is selected as half a character more (which reads
@@ -2338,6 +2299,40 @@ mod perf {
         );
         let job = super::highlight(&text, &palette);
         println!("highlight: {:?}, {} sections", t.elapsed(), job.sections.len());
+    }
+
+    /// Timing only: the symbols of nwscript.nss edited as a script (its
+    /// own, and the game's beside them), read again after a key.
+    #[test]
+    #[ignore]
+    fn symbols_speed() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let game =
+            mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+        let data = game.resman.get_named("nwscript", mg_core::ResType::NSS).unwrap();
+        let text = String::from_utf8_lossy(&data).into_owned();
+        let key = mg_resman::ResKey::parse("big", mg_core::ResType::NSS).unwrap();
+        let mut tools = crate::script_tools::ScriptTools::default();
+        let spec = || Some(mg_script::spec::Spec::parse(&data));
+        let _ = tools.symbols_for(key, 0, false, &text, spec, &mut |_| None);
+        for h in 1..4 {
+            let t = std::time::Instant::now();
+            let o = mg_script::outline::outline(text.as_bytes());
+            let outline = t.elapsed();
+            let t = std::time::Instant::now();
+            let own = crate::script_tools::script_symbols(&text, &mut |_| None);
+            let own_took = t.elapsed();
+            let t = std::time::Instant::now();
+            let all = tools.symbols_for(key, h, false, &text, || None, &mut |_| None);
+            println!(
+                "outline {outline:?} ({} functions); script_symbols {own_took:?} ({}); \
+                 symbols_for {:?} ({})",
+                o.functions.len(),
+                own.len(),
+                t.elapsed(),
+                all.len()
+            );
+        }
     }
 }
 
