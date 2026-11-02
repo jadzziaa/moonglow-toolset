@@ -241,8 +241,12 @@ impl Moonglow {
         if let Some(w) = &draft.base_warning {
             self.log.warn(format!("{name}: {w}"));
         }
-        if !edits.is_empty()
-            && let Err(e) = self.apply(mg_edit::Command::new(format!("Import {name}"), edits))
+        // (Imported: the plugins' resource-created handlers see what is new.)
+        let cmd = mg_edit::Command::new(format!("Import {name}"), edits);
+        let made = crate::plugin_events::Made::new_in(ws, &cmd, "import");
+        let cmd = crate::plugin_events::with_plugins(self, cmd, &made);
+        if !cmd.edits.is_empty()
+            && let Err(e) = self.apply(cmd)
         {
             self.log.error(e.to_string());
             return;

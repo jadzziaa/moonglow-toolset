@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1104,7 +1104,10 @@ contribution itself states as not done or not checked.
   into a folder"; 0.4 what is selected and
   open, commands in right-click menus, fixes for findings, a plugin's
   own tests, settings, a project's own plugins, a resource's own events
-  and the after-create hook):
+  and the after-create hook; 0.5 (3.3.0) a batch of strokes, more kinds
+  of setting, more of what a command is for and the menus it is in, a
+  fix that asks, archives of several plugins and the rest of this
+  round's gaps):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -1121,156 +1124,38 @@ contribution itself states as not done or not checked.
     hak question were driven through the UI harness and `mg`, not with
     the real file dialogs (the file dialog of `open_file` filters by
     the extensions asked for; that filter was not seen on a desktop
-    either). (S)
-  - **A hak is written before the module's edits go in,** and stays if
-    they then fail; Undo leaves it too. A job's haks are held in memory
-    until it ends, except files copied from a chosen folder. (S)
-  - **Painting is a tile at a time:** each call reads the area's tiles
-    again, so a plugin that sets every corner of a 32 × 32 area makes
-    thousands of small edits (one undo step, but a large one). (S–M)
+    either); nor were a project's plugins' question (and Allow All, the
+    folder looked at while open), the settings' form (the kinds of 0.5,
+    Choose… for a folder, Tidy Up; rendered as `plugin-settings` and
+    `plugin-settings-kinds`), the menus of 0.5 (tiles, categories,
+    groups, tabs, the script editor, Find References, Advanced Search),
+    Verify's fixes (a fix that asks, Fix All, Undo) and the events of
+    3.3.0 (Save As, the makers, Manage Plugins' time): all driven
+    through the UI harness. Waits on a desktop session. (S)
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)
-  - **Archives of several plugins** are refused: one plugin to an
-    archive. (S)
-  - **A project's own plugins** (API 0.4, the Domains of Dread's
-    builder proposal A2: `plugins/` of a project, or `[plugins] folder`,
-    run once the builder allows each, asked when the project is opened,
-    the answer kept in Moonglow's own folder (`project-plugins.toml`, by
-    the project's canonical path, the plugin's id and a SHA-256 digest of
-    its files, which it runs from), never read from the project; `mg
-    verify` as allowed or with `--allow-project-plugins`; `mg plugin list
-    --project`, `mg plugin allow`). Not done: a project moved or copied
-    elsewhere on disk is asked about again (answers are by its path);
-    the question comes when the project is opened (and at Reload), not
-    when its plugins' folder changes while it is open (the folder is not
-    watched; until then the plugins run as they were read, which is what
-    was allowed); a digest says a plugin is the one allowed, not who
-    wrote it (no signatures); a no holds for the plugin's id whatever it
-    becomes, and there is no Allow All in the window; `mg plugin run` runs a
-    plugin's folder it is given whether allowed or not (it is named on
-    purpose); a project's plugin and one installed of its id share their
-    settings of scope `user`; what a project's plugin's events were
-    allowed (a folder, a yes) is kept by its digest, so a changed one
-    asks again; a module kept in one file has no project, so none. The
-    question and the Plugins window were driven through the UI harness
-    and looked at as rendered pictures (one plugin asked about), not
-    used on a desktop. (S each)
-  - **A plugin's settings** (API 0.4, A5: `[setting]`, `ctx.settings`,
-    `ctx.settings:set`, the settings' form, scopes `user`, `project`
-    and `user-project`). Not done: five kinds only (no number with a
-    fraction, list, color or pattern a text is held to); a `path` is
-    text, the plugin reads no file by it (it still asks with
-    `ctx.ui:open_file`), and the form's Choose… picks a file, not a
-    folder (typed); what the form saves and what a job sets is not part
-    of Undo (files outside the module), and a team value saved writes
-    the project's `moonglow.toml`, committed with it, without asking;
-    what a job set is kept when the job did not fail, even if its edits
-    then do not apply; `mg` keeps no settings of scope `user` and reads
-    none of Moonglow's (`mg plugin run --setting` for one run; `mg
-    verify` takes the project's files and the defaults); a value kept of
-    the wrong kind, or of a setting no plugin declares, is said when the
-    project is opened and left there, and nothing tidies it. Driven
-    through the UI harness, with a rendered picture of the form; not
-    used on a desktop. (S each)
   - **More kinds of things to add:** exporters and importers, wizards,
     panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
     complexity.)
-  - **Commands on what is selected** (API 0.4, the Domains of Dread's
-    builder proposal A1: `ctx.selection`, `ctx.open`, a command's
-    `for`). Not done: `for` names a kind for its placed objects and its
-    blueprints alike (a command for one only checks `blueprint` itself);
-    a selection is objects, blueprints or one area, never tiles, a
-    trigger's points, the start location, several areas or several of
-    the module tree's rows; the commands are in the area view's, the
-    module tree's and the palettes' menus, not in Find References,
-    Advanced Search, the Properties editors or the other editors' own;
-    an area's commands are in the area view's menu only when nothing is
-    selected there; from the Plugins menu or a key the selection is the
-    area view shown last, else the palette's, not that of the pane with
-    the focus; `ctx.open` is nil for several objects or blueprints edited
-    together; a palette's blueprint menu has no Properties to end it, so
-    the plugins' commands come last there; a palette's categories and
-    the tree's groups have none. Driven through the UI harness, with one
-    rendered picture of the area view's menu; not used on a desktop.
-    (S each)
-  - **Fixes for findings** (API 0.4, the Domains of Dread's builder
-    proposal A3: `ctx.fix`, Verify's button beside a finding, `mg verify
-    --fix CHECK`, a finding's `fix` in `mg verify --json`). Not done: a
-    fix asks nothing (no form: "retag to what?" is a command's); it is
-    worked out when Verify runs and refused once a resource it changes is
-    not as Verify read it (compared as bytes) or was changed by another
-    fix that did more than set fields and take items out, so after
-    Undo or a second fix
-    there, Verify runs again; Undo of a fix leaves its button saying
-    Fixed; the buttons are in Verify Module's log alone (not Build
-    Module's results, the 2DA editor's faults or the tileset editor's),
-    for the last Verify, with no "fix all of this check" in the window
-    (`mg verify --fix CHECK` is that); the doctor has fixes for
-    `tag-unique` (the others retagged `TAG_2`…, scripts that look for
-    the tag not followed), `area-variables` (moved to the GIT),
-    `var-runtime` (removed) and `static-transform` (the transform off)
-    only:
-    `pc-faction` has none (the builder chooses the faction), nor do the
-    references, models, 2DAs and tilesets; the fixes of different
-    plugins' findings are made one at a time in the window; `mg verify
-    --fix` with a check's id that no finding with a fix has (mistyped,
-    or a plugin's not given) only warns, since a plugin's ids are known
-    only once its checks ran, so a pipeline reads "nothing to fix" (fail
-    instead?). Driven
-    through the UI harness, with one rendered picture of the log's
-    buttons; not used on a desktop. (S each)
-  - **A resource's own events and the after-create hook** (API 0.4, the
-    Domains of Dread's builder proposal A4 and A6: `resource-saving`,
-    which warns of or refuses what a save would write, with fixes, in
-    the Before saving window; `resource-saved`; `object-placed`,
-    `object-pasted` and `resource-created`, whose edits join the user's
-    own command; a 5-second budget; `mg set` and `mg apply --plugins`;
-    `mg plugin run --event --was/--select/--by`; a test's `was`, `by`,
-    `warned`, `refused`). Not done: Save As (to another place) asks no
-    plugin, nor do the 2DA, talk table and hak editors' own saves, a
-    script's own Save, Build Module or `mg watch`; the custom palettes
-    Moonglow rebuilds at a save are not among what a handler reads;
-    what fires `resource-created` is the Area Wizard, the creature and
-    blueprint wizards, Add to Palette, Setup Store and Copy (Copy As,
-    Edit Copy), not the Script Wizard, New Script, a NUI window, an
-    import or what a plugin makes, and `object-placed` is a palette's
-    blueprint, the Placeable Gallery, a light, Create Waypoint and Setup
-    Store's store, not a spawn point, the start location or an
-    encounter's points; a handler of a placing, a paste or a making can
-    only edit and log (no warning beside what was made, no refusing a
-    paste); a fix in the Before saving window is made one at a time, the
-    save asked again after each; "as it was" is as each file was read
-    (a module folder, a project) or, for a module kept in one file, as
-    it was at the last save or opening, in this run; `ctx.event.changed`
-    says what differs in a GFF only (100 lines at most), not in a
-    script's text; the budget is fixed (5 seconds), not a setting, and a
-    handler is stopped between steps of its code, not inside a long call
-    of the API (a large `ctx.module:gff`); `mg` runs a save's events for
-    `mg set` and `mg apply` alone (not `mg areas`, `mg rename`, `mg
-    replace`, `mg update-instances`, `mg import`, `mg verify --fix` or a
-    plugin command's own save), and a warning there never fails it (no
-    `--strict`). Driven through the UI harness (a save refused, warned
-    of, its fix made, Save Anyway and Cancel; a paste and a copy edited,
-    one Undo), with rendered pictures of the window warning and
-    refusing; not used on a desktop. (S each)
-  - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
-    test`). Not done: what a plugin writes outside the module (haks, a
-    chosen folder) is not written and not held to anything; a command's
-    edits are held by the fields they leave, their count and resources,
-    not as an edit file to compare; a finding's message is matched
-    whole; `mg plugin test` runs one plugin, not a folder of them, and
-    the window does not run them; `mg plugin check` does not read the
-    test files; the plugin gets the game's data only where `mg` finds a
-    game, so a pipeline without one cannot test what reads `ctx.game`.
-    (S each)
-  - **The reference is written by hand.** A test holds it to list every
-    name of the API, not that each description is right. (S)
-  - **The type file was not tried in an editor:** it loads as Luau and a
-    test holds it to have every name, but it was not checked with the
-    Luau language server. (S)
+  - **The 2DA editor's faults with fixes:** the 2DA editor is another
+    package's this round; its faults offer no fix yet. Waits on that
+    work. (S)
+  - **The type file was not tried in an editor:** it loads as Luau, and
+    tests hold it to have every name and the reference's parameters
+    (`the_type_file_has_the_whole_api`, `the_reference_says_what_the_code_has`),
+    but it was not checked with the Luau language server: neither
+    `luau-lsp` nor `luau-analyze` is on the development machine, and the
+    Luau that mlua builds in has no type checker (no `Analysis`). Waits on
+    a download of `luau-lsp` (or `luau-analyze`), the owner's to allow.
+    (S)
   - **External programs** as plugins (a protocol over standard input and
-    output, for Python or Nim): not started. (M)
+    output, for Python or Nim): designed (the
+    [proposal](plugin-proposal.md#external-programs-the-design-2026-11-01):
+    JSON-RPC over standard input and output, the reference's names as
+    its methods, marked as running with the user's rights), not built:
+    left for its own round, after this one's S items, in the owner's
+    order of the brief ("last, if room remains"). (M)
   - **The window with plugins was run on Linux only:** the application
     itself was driven on an off-screen display there (plugins installed
     from archives listed and enabled, a command as a background job, a
@@ -1608,6 +1493,87 @@ is not taken for a new gap.
   blueprint of category 255 or of one the palette lacks is left out by
   Refresh Palette, as Aurora leaves it out. (El Grillo's and
   Jasperre's report, October 2026)
+- **A project's plugin is allowed by a digest of its files, not by a
+  signature** (the deferred list's "Plugins, beyond API 0.4", 2026-11-01):
+  the digest says the plugin is the very one the builder allowed, which
+  is what the question is about; who wrote it is the team's checkout,
+  which the builder chose to open. Signing would need keys for every
+  team and a way to trust them, for no more than the digest already
+  holds the builder to. Kept with it, by the same decision: a no holds
+  for the plugin's id in that project whatever it becomes (Manage
+  Plugins allows it later); what its events were allowed (a folder, a
+  yes) is kept by its digest, so a changed one asks again; `mg plugin
+  run` runs the folder it is given, allowed or not (it is named on
+  purpose); a project's plugin and one installed of its id share their
+  settings of scope `user` (it stands in for that plugin, and the
+  user's own values are the user's); a module kept in one file has no
+  project, so no project plugins.
+
+- **Which findings have fixes, and where** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a fix is worked out when
+  Verify runs and held to the resources being as Verify read them, so a
+  change since asks for Verify again (a fix made on what nobody looked
+  at would land elsewhere); its Undo now offers it again. The doctor's
+  fixes are those whose answer is plain (`tag-unique`, `area-variables`,
+  `var-runtime`, `static-transform`): `pc-faction`'s faction, a missing
+  reference's resource, a model's or a tileset's repair are the
+  builder's to choose, and a plugin's check may offer one that asks. Build
+  Module's results are missing and unused resources, which have no fix
+  but Mark as Used, there already; the tileset editor's faults are of a
+  tileset being made, edited in its own fields. Fixes of different
+  checks are made one at a time, or a check's all at once (Fix All).
+
+- **What a resource's own events are not for** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a save of what is no resource
+  of the module (a hak's, a talk table's, a 2DA file's own editor) asks
+  no plugin, whose events are of the module's resources; a script's Save
+  puts its text into the module, and the module's save is asked; Build
+  Module and `mg watch` write a build and a development folder, not the
+  module; the custom palettes Moonglow makes again at a save are made
+  from the blueprints a handler reads already. What a plugin makes
+  itself fires none (or plugins would answer each other), and spawn
+  points, the start location and an encounter's points are no placed
+  objects. A handler of a placing, a paste or a making edits and logs:
+  warning of or refusing what the user just did is the save's to do,
+  where the Before saving window asks. A fix there is made one at a
+  time, the save asked again on what it now is; "as it was" is as each
+  file was last read or saved (a module kept in one file: as it was
+  saved or opened, in this run), what the window can know. A handler is
+  stopped between steps of its code: a call of the API is Rust code that
+  runs to its end, and the time is looked at when it returns.
+
+- **How a plugin's tests hold a job** (the deferred list's "Plugins,
+  beyond API 0.4", 2026-11-01): a command's edits are held by the fields
+  they leave, their count and the resources they change, not compared
+  as an edit file (whose order and paths change with any refactoring of
+  the plugin that makes the same module); a finding's message is matched
+  whole, as a test of a check's words is meant to be; the game's data is
+  the game `mg` finds, the one at a test's `root`, or the test's own
+  `game/` folder, which is how a pipeline without the game tests what
+  reads `ctx.game` (the game's files are never in a repository).
+
+- **What a plugin's command is not offered on** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a trigger's or an encounter's
+  points and the start location are no selection in the window (a
+  polygon is redrawn whole, Redraw Polygon; the start location is set
+  where the area is right-clicked), so there is nothing of them to hand
+  a plugin: it edits a trigger's `Geometry` through the trigger, and the
+  start location through `module.ifo`. A conversation's line is not an
+  entry of `ctx.selection` either: the conversation's tab menu has the
+  commands for `dlg`. A palette's blueprint menu has no Properties to
+  end it, so there the plugins' commands come last, by design.
+
+- **A plugin's settings outside Undo, and a `path` it reads no file by**
+  (the deferred list's "Plugins, beyond API 0.4", 2026-11-01): what the
+  settings' form saves, and what a job sets, is not a step of Undo: the
+  values are files outside the module (Moonglow's own, the project's
+  `moonglow.toml` and `.moonglow/user.toml`), as Options are, and Save in
+  the form, or the plugin's own command that sets one, is the asking (the
+  form says beside each where it is kept; the log says what was set, and
+  where). A `path` stays text to the plugin, which reads no file by it
+  and still asks with `ctx.ui:open_file`: a value of the team's comes
+  with the checkout, not from the user, and a plugin reading a file by
+  it would read what the user never chose.
 
 - **A geometry program beside a material's pair** (`customshaderGS` with
   `customshaderVS` and `FS`): the client runs it (one that emits nothing

@@ -121,8 +121,10 @@ pub struct Workspace {
     /// Documents shown that aren't the module's (the game's blueprints, to
     /// look at): [`Workspace::doc`] gives them, nothing edits or saves them.
     viewed: HashMap<ResKey, Gff>,
-    undo: Vec<Command>,
-    redo: Vec<Command>,
+    /// The commands to undo and redo, each with its step's number
+    /// ([`Workspace::last_step`]).
+    undo: Vec<(u64, Command)>,
+    redo: Vec<(u64, Command)>,
     /// Commands applied since the last save (undo past it counts down).
     changes_since_save: isize,
     /// Moves on every change (apply, undo, redo), for views that cache.
@@ -150,6 +152,13 @@ fn resources_of(module: &Module) -> Module {
 fn first_revision() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32
+}
+
+/// A number for a step of Undo that no other step has had, in any
+/// workspace of this process ([`Workspace::last_step`]).
+fn next_step() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Workspace {
@@ -243,28 +252,69 @@ impl Workspace {
     }
 
     pub fn can_undo(&self) -> Option<&str> {
-        self.undo.last().map(|c| c.label.as_str())
+        self.undo.last().map(|(_, c)| c.label.as_str())
     }
 
     pub fn can_redo(&self) -> Option<&str> {
-        self.redo.last().map(|c| c.label.as_str())
+        self.redo.last().map(|(_, c)| c.label.as_str())
+    }
+
+    /// The number of the step Undo would take back next: each command
+    /// applied gets its own (no other workspace's step has it), which it
+    /// keeps while it is undone and redone (what a command did outside the
+    /// module, a hak written, follows its step by it). None: nothing to
+    /// undo.
+    pub fn last_step(&self) -> Option<u64> {
+        self.undo.last().map(|(n, _)| *n)
+    }
+
+    /// The number of the step Redo would make again next.
+    pub fn next_redo_step(&self) -> Option<u64> {
+        self.redo.last().map(|(n, _)| *n)
+    }
+
+    /// Whether a step (by its number) can still be undone or redone.
+    pub fn has_step(&self, step: u64) -> bool {
+        self.undo.iter().chain(&self.redo).any(|(n, _)| *n == step)
+    }
+
+    /// Whether a step (by its number) is made: Undo would take it back,
+    /// and has not.
+    pub fn step_done(&self, step: u64) -> bool {
+        self.undo.iter().any(|(n, _)| *n == step)
+    }
+
+    /// Makes the last `n` commands one step of Undo, named `label`, with
+    /// the number of the last of them; false (nothing changed) where
+    /// there are fewer.
+    pub fn join_last(&mut self, n: usize, label: impl Into<String>) -> bool {
+        if n < 2 || self.undo.len() < n {
+            return n == 1 && !self.undo.is_empty();
+        }
+        let last = self.undo.split_off(self.undo.len() - n);
+        let step = last.last().map_or(0, |(s, _)| *s);
+        // (Undone, the last is taken back first.)
+        let edits = last.into_iter().rev().flat_map(|(_, c)| c.edits).collect();
+        self.undo.push((step, Command::new(label, edits)));
+        self.changes_since_save -= n as isize - 1;
+        true
     }
 
     /// The edits [`Workspace::undo`] would run next (the last command's
     /// inverse), to see what they move before they are run.
     pub fn peek_undo(&self) -> Option<&Command> {
-        self.undo.last()
+        self.undo.last().map(|(_, c)| c)
     }
 
     /// The edits [`Workspace::redo`] would run next.
     pub fn peek_redo(&self) -> Option<&Command> {
-        self.redo.last()
+        self.redo.last().map(|(_, c)| c)
     }
 
     /// Applies a command; on failure nothing is changed.
     pub fn apply(&mut self, cmd: Command) -> Result<(), EditError> {
         let inverse = self.run(&cmd)?;
-        self.undo.push(inverse);
+        self.undo.push((next_step(), inverse));
         self.redo.clear();
         self.changes_since_save += 1;
         self.revision += 1;
@@ -275,11 +325,11 @@ impl Workspace {
     /// reverts both (a value derived from what the command changed, such as
     /// an item's cost). On failure nothing is changed.
     pub fn amend(&mut self, edits: Vec<Edit>) -> Result<(), EditError> {
-        let Some(label) = self.undo.last().map(|c| c.label.clone()) else {
+        let Some(label) = self.undo.last().map(|(_, c)| c.label.clone()) else {
             return Err(EditError::NothingToAmend);
         };
         let inverse = self.run(&Command::new(label, edits))?;
-        let last = self.undo.last_mut().expect("checked above");
+        let last = &mut self.undo.last_mut().expect("checked above").1;
         // Undo reverts the amendment first, then the command.
         let earlier = std::mem::replace(&mut last.edits, inverse.edits);
         last.edits.extend(earlier);
@@ -290,16 +340,16 @@ impl Workspace {
     /// Undoes the last command; returns its label. On failure nothing is
     /// changed and the command stays to be undone.
     pub fn undo(&mut self) -> Result<Option<String>, EditError> {
-        let Some(inverse) = self.undo.pop() else { return Ok(None) };
+        let Some((step, inverse)) = self.undo.pop() else { return Ok(None) };
         let forward = match self.run(&inverse) {
             Ok(forward) => forward,
             Err(e) => {
-                self.undo.push(inverse);
+                self.undo.push((step, inverse));
                 return Err(e);
             }
         };
         let label = forward.label.clone();
-        self.redo.push(forward);
+        self.redo.push((step, forward));
         self.changes_since_save -= 1;
         self.revision += 1;
         Ok(Some(label))
@@ -309,11 +359,11 @@ impl Workspace {
     /// redo (a draft withdrawn, such as a window's changes shown as they
     /// are made and then cancelled). Returns its label.
     pub fn withdraw(&mut self) -> Result<Option<String>, EditError> {
-        let Some(inverse) = self.undo.pop() else { return Ok(None) };
+        let Some((step, inverse)) = self.undo.pop() else { return Ok(None) };
         let label = match self.run(&inverse) {
             Ok(forward) => forward.label,
             Err(e) => {
-                self.undo.push(inverse);
+                self.undo.push((step, inverse));
                 return Err(e);
             }
         };
@@ -325,16 +375,16 @@ impl Workspace {
     /// Redoes the last undone command; returns its label. On failure
     /// nothing is changed and the command stays to be redone.
     pub fn redo(&mut self) -> Result<Option<String>, EditError> {
-        let Some(forward) = self.redo.pop() else { return Ok(None) };
+        let Some((step, forward)) = self.redo.pop() else { return Ok(None) };
         let inverse = match self.run(&forward) {
             Ok(inverse) => inverse,
             Err(e) => {
-                self.redo.push(forward);
+                self.redo.push((step, forward));
                 return Err(e);
             }
         };
         let label = inverse.label.clone();
-        self.undo.push(inverse);
+        self.undo.push((step, inverse));
         self.changes_since_save += 1;
         self.revision += 1;
         Ok(Some(label))
@@ -653,7 +703,7 @@ impl Workspace {
         }
         let touched =
             |c: &Command| c.edits.iter().any(|e| changes.iter().any(|(k, _)| k == e.key()));
-        let dropped = self.undo.iter().chain(&self.redo).any(touched);
+        let dropped = self.undo.iter().chain(&self.redo).any(|(_, c)| touched(c));
         if dropped {
             self.undo.clear();
             self.redo.clear();
@@ -758,6 +808,56 @@ mod tests {
         ws.save_as(&mg_module::ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
         assert_eq!(ws.saved().get(&ifo_key), ws.module.get(&ifo_key));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Each step of Undo has a number of its own, kept while it is undone
+    /// and redone (what a command wrote outside the module follows its
+    /// step by it), no other workspace's; one dropped from Redo by a new
+    /// command is gone.
+    #[test]
+    fn a_step_keeps_its_number_through_undo_and_redo() {
+        let mut ws = workspace();
+        let set = |n: u8| {
+            Command::new(
+                "XP scale",
+                vec![Edit::SetField {
+                    key: key("module", ResType::IFO),
+                    path: GffPath::root(),
+                    label: "Mod_XPScale".into(),
+                    value: Some(Value::Byte(n)),
+                }],
+            )
+        };
+        assert_eq!(ws.last_step(), None);
+        ws.apply(set(1)).unwrap();
+        let first = ws.last_step().unwrap();
+        ws.apply(set(2)).unwrap();
+        let second = ws.last_step().unwrap();
+        assert_ne!(first, second);
+        ws.undo().unwrap();
+        assert_eq!((ws.last_step(), ws.next_redo_step()), (Some(first), Some(second)));
+        ws.redo().unwrap();
+        assert_eq!(ws.last_step(), Some(second), "redone, it is the same step");
+        ws.undo().unwrap();
+        ws.apply(set(3)).unwrap();
+        assert!(!ws.has_step(second), "dropped from Redo by a new command");
+        assert!(ws.has_step(first));
+        let mut other = workspace();
+        other.apply(set(1)).unwrap();
+        assert!(!ws.has_step(other.last_step().unwrap()), "another workspace's steps are its own");
+        // The last commands joined into one step: one Undo takes them all
+        // back, the last taken back first.
+        assert!(ws.step_done(first) && !ws.step_done(second));
+        ws.apply(set(4)).unwrap();
+        ws.apply(set(5)).unwrap();
+        let last = ws.last_step();
+        assert!(ws.join_last(3, "All three"));
+        assert_eq!((ws.last_step(), ws.can_undo()), (last, Some("All three")));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        let info = Gff::read(ws.module.get(&key("module", ResType::IFO)).unwrap()).unwrap();
+        assert_eq!(info.root.get("Mod_XPScale"), Some(&Value::Byte(1)), "back before the three");
+        assert!(!ws.join_last(9, "Too many"));
     }
 
     #[test]
@@ -1074,12 +1174,12 @@ mod tests {
             )
         };
         let before = ws.doc(&k).unwrap().clone();
-        ws.undo.push(bad());
+        ws.undo.push((0, bad()));
         assert!(ws.undo().is_err());
         assert_eq!(ws.can_undo(), Some("Bad"));
         assert_eq!(ws.can_redo(), None);
         ws.undo.clear();
-        ws.redo.push(bad());
+        ws.redo.push((0, bad()));
         assert!(ws.redo().is_err());
         assert_eq!(ws.can_redo(), Some("Bad"));
         assert_eq!(ws.can_undo(), None);

@@ -1283,8 +1283,11 @@ fn frames_at_144_in_a_persistent_world() {
                 log.fixes.push(mg_ui::OfferedFix {
                     line: n,
                     text: log.entries[n].1.clone(),
-                    fix: mg_edit::fix::Fix { label: "Fix".into(), edits: Vec::new() },
+                    fix: mg_edit::fix::Fix { label: "Fix".into(), edits: Vec::new(), asks: None },
                     made: false,
+                    check: "a-check".into(),
+                    step: None,
+                    record: None,
                 });
             }
         }

@@ -192,6 +192,14 @@ struct Test {
     /// How many edits, and which resources they change.
     edits: Option<usize>,
     resources: Option<Vec<String>>,
+    /// What the job puts into haks, by hak (its name without `.hak`): the
+    /// names of the resources (`tiles.set`), all of them, in any order;
+    /// nothing is written (since Moonglow 3.3.0).
+    #[serde(default)]
+    haks: BTreeMap<String, Vec<String>>,
+    /// The files the job writes into folders the user chose, by their
+    /// names, all of them, in any order; nothing is written.
+    written: Option<Vec<String>>,
     /// Lines the log must have: each is part of one.
     #[serde(default)]
     log: Vec<String>,
@@ -207,12 +215,47 @@ struct Test {
     set: BTreeMap<String, toml::Value>,
 }
 
+/// What a job wrote outside the module (haks, folders), held to the test.
+fn outside_as_wanted(t: &Test, outcome: &crate::Outcome, problems: &mut Vec<String>) {
+    let sorted = |mut v: Vec<String>| {
+        v.sort();
+        v
+    };
+    let haks: BTreeMap<String, Vec<String>> = (outcome.haks.iter())
+        .map(|h| (h.name.clone(), sorted(h.files.iter().map(|(k, _)| k.to_string()).collect())))
+        .collect();
+    if !t.haks.is_empty() {
+        let wanted: BTreeMap<String, Vec<String>> = (t.haks.iter())
+            .map(|(h, v)| {
+                let h = h.strip_suffix(".hak").unwrap_or(h).to_ascii_lowercase();
+                (h, sorted(v.iter().map(|n| n.to_ascii_lowercase()).collect()))
+            })
+            .collect();
+        if wanted != haks {
+            problems.push(format!("it puts {haks:?} into haks, not {wanted:?}"));
+        }
+    }
+    if let Some(wanted) = &t.written {
+        let wrote: Vec<String> = sorted(
+            outcome.folders.iter().flat_map(|f| f.files.iter().map(|(n, _)| n.clone())).collect(),
+        );
+        if wrote != sorted(wanted.clone()) {
+            problems.push(format!("it writes {wrote:?} into folders, not {wanted:?}"));
+        }
+    }
+}
+
 /// A setting's value as a test file writes it.
 fn setting_of(v: &toml::Value) -> Option<crate::SettingValue> {
     match v {
         toml::Value::String(t) => Some(crate::SettingValue::Text(t.clone())),
         toml::Value::Integer(n) => Some(crate::SettingValue::Int(*n)),
         toml::Value::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+        toml::Value::Float(x) => Some(crate::SettingValue::Float(*x)),
+        toml::Value::Array(items) => (items.iter())
+            .map(|i| i.as_str().map(str::to_string))
+            .collect::<Option<Vec<String>>>()
+            .map(crate::SettingValue::List),
         _ => None,
     }
 }
@@ -281,6 +324,66 @@ impl TestResult {
     pub fn passed(&self) -> bool {
         self.problems.is_empty()
     }
+}
+
+/// The faults of a plugin's test files that can be told without running
+/// them (`mg plugin check`): a file that does not read, a test naming a
+/// check, a command or an event its manifest lacks (or none, or more
+/// than one), a fixture that is not there.
+pub fn test_faults(plugin: &Plugin) -> Vec<String> {
+    let m = &plugin.manifest;
+    let mut out = Vec::new();
+    for path in test_files(plugin) {
+        let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let parsed = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| toml::from_str::<File>(&text).map_err(|e| e.to_string()));
+        let f = match parsed {
+            Ok(f) => f,
+            Err(e) => {
+                out.push(format!("tests/{file}: {e}"));
+                continue;
+            }
+        };
+        let dir = path.parent().unwrap_or(Path::new("."));
+        if f.tests.is_empty() {
+            out.push(format!("tests/{file}: it has no [[test]]"));
+        }
+        for t in &f.tests {
+            let at = format!("tests/{file}: {:?}", t.name);
+            let ran = [&t.check, &t.command, &t.event].iter().filter(|x| x.is_some()).count()
+                + usize::from(t.builtin.is_some());
+            if ran != 1 {
+                out.push(format!("{at}: it runs one of check, command, event or builtin"));
+            }
+            let missing = |kind: &str, id: &Option<String>, known: Vec<&str>| {
+                id.as_ref()
+                    .filter(|id| !known.contains(&id.as_str()))
+                    .map(|id| format!("{at}: the manifest declares no {kind} {id:?}"))
+            };
+            out.extend(missing(
+                "check",
+                &t.check,
+                m.checks.iter().map(|c| c.id.as_str()).collect(),
+            ));
+            out.extend(missing(
+                "command",
+                &t.command,
+                m.commands.iter().map(|c| c.id.as_str()).collect(),
+            ));
+            out.extend(missing(
+                "event",
+                &t.event,
+                m.events.iter().map(|e| e.id.as_str()).collect(),
+            ));
+            if let Some(module) = t.module.as_ref().or(f.module.as_ref())
+                && !dir.join(module).exists()
+            {
+                out.push(format!("{at}: its fixture {module} is not there"));
+            }
+        }
+    }
+    out
 }
 
 /// The test files of a plugin: `tests/*.toml` in its folder, sorted.
@@ -849,6 +952,7 @@ fn held(
         Err(outcome) => {
             settings_as_wanted(t, &outcome.settings, &mut problems);
             said_as_wanted(t, &outcome.said, &mut problems);
+            outside_as_wanted(t, outcome, &mut problems);
             vec![Command::new(outcome.label.clone(), outcome.edits.clone())]
         }
     };
@@ -1243,10 +1347,18 @@ fn fixes_made(
     }
     let mut guard = Guard::new(module, fixes.iter().copied());
     for fix in fixes {
+        // (A fix that asks runs a command: a test runs that as a command.)
+        if let Some(asks) = &fix.asks {
+            problems.push(format!(
+                "the fix {label:?} asks (it runs the command {:?}): test that command instead",
+                asks.command
+            ));
+            continue;
+        }
         let made =
             guard.check(ws, fix).and_then(|now| ws.apply(now.command()).map_err(|e| e.to_string()));
         match made {
-            Ok(()) => guard.made(ws, fix),
+            Ok(()) => _ = guard.made(ws, fix),
             Err(why) => problems.push(format!("the fix {label:?} is not made: {why}")),
         }
     }

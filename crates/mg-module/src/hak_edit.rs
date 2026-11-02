@@ -123,7 +123,7 @@ pub struct Hak {
 
 /// What the folders of renamed resources' bytes are named, before the
 /// process's number ([`Hak::rename`]).
-const STASH: &str = "moonglow-hak-";
+pub const STASH: &str = "moonglow-hak-";
 
 /// Takes away the folders of renamed bytes in `temp` that a Moonglow no
 /// longer running left there (one that crashed: a process's own goes with
@@ -131,13 +131,21 @@ const STASH: &str = "moonglow-hak-";
 /// (Linux's `/proc`); elsewhere a folder untouched for a week is taken as
 /// left. How many went.
 pub fn sweep_stashes(temp: &Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(temp) else { return 0 };
+    sweep_left(temp, STASH)
+}
+
+/// Takes away the folders in `dir` named `prefix` and a process's number
+/// that a Moonglow no longer running left there, as [`sweep_stashes`]
+/// does (a plugin's copies of the haks it wrote, kept for Undo, use it
+/// too). How many went.
+pub fn sweep_left(dir: &Path, prefix: &str) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
     let ours = std::process::id();
     let week = std::time::Duration::from_secs(7 * 24 * 3600);
     let mut gone = 0;
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let Some(pid) = name.strip_prefix(STASH).and_then(|p| p.parse::<u32>().ok()) else {
+        let Some(pid) = name.strip_prefix(prefix).and_then(|p| p.parse::<u32>().ok()) else {
             continue;
         };
         if pid == ours || !e.file_type().is_ok_and(|t| t.is_dir()) {

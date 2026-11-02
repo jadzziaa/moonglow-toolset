@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.4, for editors that check
+-- The types of Moonglow's plugin API, version 0.5, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -41,12 +41,7 @@ export type Form = { title: string?, fields: { FormField } }
 export type Reader = {
     resources: (self: Reader, kind: string?) -> { string },
     has: (self: Reader, name: string) -> boolean,
-    -- (ctx.game's gff, text and bytes take a layer's label after the name:
-    -- that layer's copy.)
-    gff: (self: Reader, name: string, layer: string?) -> Struct,
     raw: (self: Reader, name: string, path: string?) -> Struct,
-    text: (self: Reader, name: string, layer: string?) -> string,
-    bytes: (self: Reader, name: string, layer: string?) -> string,
 }
 
 -- One of the game's 2DA tables. Rows count from 0, as in the file; a cell
@@ -77,10 +72,17 @@ export type Tlk = {
 -- The module: its resources, and a name for a new one as the window
 -- proposes it (the builder's code in the team's pattern, the first free).
 export type Module = Reader & {
+    gff: (self: Module, name: string) -> Struct,
+    text: (self: Module, name: string) -> string,
+    bytes: (self: Module, name: string) -> string,
     new_name: (self: Module, name: string, kind: string) -> string,
 }
 
 export type Game = Reader & {
+    -- (A layer's label after the name: that layer's copy.)
+    gff: (self: Game, name: string, layer: string?) -> Struct,
+    text: (self: Game, name: string, layer: string?) -> string,
+    bytes: (self: Game, name: string, layer: string?) -> string,
     table: (self: Game, name: string) -> TwoDa,
     string: (self: Game, strref: number) -> string?,
 }
@@ -176,6 +178,8 @@ export type Area = {
     cross: (self: Area, crosser: string, path: { { number } }) -> boolean,
     erase: (self: Area, x: number, y: number) -> boolean,
     set_tile: (self: Area, x: number, y: number, id: number, orientation: number?, height: number?) -> (),
+    -- Its strokes made at once (API 0.5): the tiles read once, put in when f returns.
+    batch: (self: Area, f: () -> ...any) -> ...any,
 }
 
 export type Terrain = {
@@ -188,7 +192,7 @@ export type Terrain = {
 -- where (the resource and path that ctx.edit takes: a field of it is
 -- `path .. "/Tag"`).
 export type Selected = {
-    -- "creature", "placeable"... (placed, or a blueprint), "area"; for
+    -- "creature", "placeable"... (placed, or a blueprint), "area", "tile"; for
     -- another editor open, or a layer's copy, its resource's type ("nss",
     -- "dlg").
     kind: string,
@@ -201,8 +205,13 @@ export type Selected = {
     module: boolean,
     -- The area's resref, for a placed object and an area.
     area: string?,
-    -- A placed object's place in its list, from 0.
+    -- A placed object's place in its list, or a tile's in Tile_List, from 0.
     index: number?,
+    -- A tile's column and row, from 0 at the south-west (API 0.5).
+    x: number?,
+    y: number?,
+    -- ctx.open edited together with others: each, itself first (API 0.5).
+    together: { Selected }?,
     tag: string?,
     -- A blueprint's or an area's own; a placed object's blueprint.
     resref: string?,
@@ -214,12 +223,14 @@ export type Selected = {
 -- The plugin's settings (API 0.4), as its manifest declares them
 -- ([setting]): each read by its id (ctx.settings.code), and gone through
 -- with `for id, value in ctx.settings`. A value is text (a string, a
--- choice, a path), a whole number (an int) or true or false (a bool).
+-- choice, a path, a color as "#rrggbb"), a whole number (an int), a
+-- number (a float; API 0.5), true or false (a bool), or a list of texts
+-- (a list; API 0.5).
 export type Settings = {
     -- Sets one, for Moonglow to keep where its scope says when the job is
     -- done (nil: back to its default). Not in a check.
-    set: (self: Settings, id: string, value: (string | number | boolean)?) -> (),
-    [string]: string | number | boolean,
+    set: (self: Settings, id: string, value: (string | number | boolean | { string })?) -> (),
+    [string]: string | number | boolean | { string },
 }
 
 -- What happened, for an event's handler (mg.on): its name, and what it is
@@ -281,12 +292,12 @@ export type Context = {
     event: Event?,
     -- In a check's handler, and a resource-saving one's: a fix to give a
     -- finding or a warning (API 0.4).
-    fix: ((label: string) -> Fix)?,
+    fix: ((label: string, asks: { command: string, on: { resource: string, path: string? }? }?) -> Fix)?,
 }
 
 local mg = {}
 
-mg.api = "0.4"
+mg.api = "0.5"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.

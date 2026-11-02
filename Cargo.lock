@@ -2746,6 +2746,7 @@ dependencies = [
  "mg-tlk",
  "mlua",
  "png",
+ "regex-lite",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2947,6 +2948,7 @@ dependencies = [
  "skrifa",
  "toml",
  "wgpu",
+ "zip",
 ]
 
 [[package]]

@@ -531,11 +531,12 @@ fn contents_ui(
                             if asked == Asked::Variables {
                                 // (The plugins' commands for it, or for
                                 // the kinds of those chosen, before.)
-                                let mut kinds = vec![mg_plugin::Target::Object(*kind)];
+                                let mut kinds = vec![mg_plugin::Target::Placed(*kind)];
                                 if several {
                                     let all = chosen.into_iter().flatten();
                                     kinds =
-                                        all.map(|(k, _)| mg_plugin::Target::Object(*k)).collect();
+                                        all.map(|(k, _)| mg_plugin::Target::Placed(*k)).collect();
+                                    kinds.sort();
                                     kinds.dedup();
                                 }
                                 if let Some(i) = crate::plugins::menu_commands(ui, commands, &kinds)
@@ -634,6 +635,11 @@ fn reveal_into_view(ui: &Ui, rect: egui::Rect) {
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     if app.ws.is_none() {
         return;
+    }
+    // (The pane clicked in last, whose selection a plugin's command from
+    // the Plugins menu or a key runs on.)
+    if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
+        app.plugins.pane = Some(crate::plugins::Pane::Tree);
     }
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
@@ -1017,6 +1023,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut plugin_on: Option<(usize, ResKey)> = None;
     // One chosen on a row among several chosen: on them all.
     let mut plugin_several: Option<usize> = None;
+    // (A group's: the command, and the group's resources.)
+    let mut plugin_group: Option<(usize, Vec<ResKey>)> = None;
     let Some(ws) = &app.ws else { return };
     let revision = ws.revision();
     // Areas opened out whose contents are to be read (after the tree is
@@ -1495,10 +1503,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         });
                         // The plugins' commands for it (an area, a
                         // blueprint), before an area's Properties.
-                        let target = match k.restype {
-                            ResType::ARE => Some(mg_plugin::Target::Area),
-                            t => mg_area::ObjectKind::from_restype(t).map(mg_plugin::Target::Object),
-                        };
+                        let target = crate::plugins::selected_at(k, &mg_edit::GffPath::root())
+                            .target();
                         if let Some(t) = target
                             && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &[t])
                         {
@@ -1530,9 +1536,29 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         }
         opening |= header.openness < 1.0
             && app.tree_reveal.is_some_and(|(k, _)| types.contains(&k.restype));
-        shown.push((*name, !header.fully_closed(), listed_keys));
+        // (The plugins' commands for every one of the group, where they are
+        // all of one kind.)
+        let group_on: Vec<mg_plugin::Selected> = (listed_keys.iter())
+            .map(|k| crate::plugins::selected_at(*k, &mg_edit::GffPath::root()))
+            .collect();
+        let group_kinds = crate::plugins::kinds_of(&group_on);
+        let group_has =
+            group_kinds.len() == 1 && menu_commands.iter().any(|c| c.fits(&group_kinds));
+        if new.is_none() && group_has {
+            header.header_response.context_menu(|ui| {
+                if let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds) {
+                    plugin_group = Some((i, listed_keys.to_vec()));
+                }
+            });
+        }
+        shown.push((*name, !header.fully_closed(), listed_keys.clone()));
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {
+                if group_has
+                    && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds)
+                {
+                    plugin_group = Some((i, listed_keys.to_vec()));
+                }
                 if ui.button(label).clicked() {
                     make = Some(id);
                 }
@@ -1809,22 +1835,22 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         ui.ctx().request_repaint();
     }
     // A plugin's command chosen on a row among several chosen: on each.
+    let root = mg_edit::GffPath::root();
     if let Some(i) = plugin_several {
-        let on = (app.tree_selected.iter())
-            .map(|k| match k.restype {
-                ResType::ARE => mg_plugin::Selected::Area(k.resref),
-                _ => mg_plugin::Selected::Blueprint(*k),
-            })
-            .collect();
+        let on =
+            (app.tree_selected.iter()).map(|k| crate::plugins::selected_at(*k, &root)).collect();
         app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
     }
-    // A plugin's command on a resource's row: on the area or blueprint.
+    // A plugin's command on a resource's row: on the area, blueprint or
+    // resource.
     if let Some((i, k)) = plugin_on {
-        let on = match k.restype {
-            ResType::ARE => mg_plugin::Selected::Area(k.resref),
-            _ => mg_plugin::Selected::Blueprint(k),
-        };
+        let on = crate::plugins::selected_at(k, &root);
         app.actions.push(crate::plugins::run_on(&menu_commands[i], vec![on]));
+    }
+    // A plugin's command on a group's row: on every one of the group.
+    if let Some((i, keys)) = plugin_group {
+        let on = keys.iter().map(|k| crate::plugins::selected_at(*k, &root)).collect();
+        app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
     }
     // An object in an area's list: gone to in the area's view, its
     // Properties opened, copied or deleted, or a plugin's command run on
@@ -2025,11 +2051,8 @@ fn several_menu(
     }
     // The plugins' commands for them, where they are of one kind (areas,
     // or blueprints of one type).
-    let target = match first {
-        _ if !one_type => None,
-        ResType::ARE => Some(mg_plugin::Target::Area),
-        t => mg_area::ObjectKind::from_restype(t).map(mg_plugin::Target::Object),
-    };
+    let root = mg_edit::GffPath::root();
+    let target = (one_type).then(|| crate::plugins::selected_at(keys[0], &root).target()).flatten();
     target.and_then(|t| crate::plugins::menu_commands(ui, commands, &[t]))
 }
 

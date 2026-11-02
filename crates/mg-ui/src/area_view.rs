@@ -6858,7 +6858,7 @@ fn editing_items(
             (vec![Target::Area], vec![Selected::Area(area)])
         } else {
             let mut kinds: Vec<Target> =
-                view.selection.iter().map(|(k, _)| Target::Object(*k)).collect();
+                view.selection.iter().map(|(k, _)| Target::Placed(*k)).collect();
             kinds.sort();
             kinds.dedup();
             let selected = view.selection.iter();
@@ -6866,6 +6866,16 @@ fn editing_items(
         };
         if let Some(i) = crate::plugins::menu_commands(ui, &commands, &kinds) {
             app.actions.push(crate::plugins::run_on(&commands[i], selected));
+        }
+        // (With objects selected, the area's own, run on the area.)
+        let area_kinds = [Target::Area];
+        if !view.selection.is_empty() && commands.iter().any(|c| c.fits(&area_kinds)) {
+            ui.menu_button("The Area", |ui| {
+                if let Some(i) = crate::plugins::menu_commands(ui, &commands, &area_kinds) {
+                    app.actions
+                        .push(crate::plugins::run_on(&commands[i], vec![Selected::Area(area)]));
+                }
+            });
         }
     }
 }

@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,59 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.5
+
+In Moonglow 3.3.0. Only additions: a plugin written for 0.4 or before
+runs as it is. A plugin that uses what is new says `api = "0.5"`; a
+manifest that declares what 0.5 added and says an earlier API is
+refused, with the reason.
+
+- `area:batch(f)`: an area's strokes made at once. Its tiles are read
+  once, `f`'s strokes made on them (what it reads back is what they
+  left), and the tiles that changed go in when it returns, as one edit
+  of the area's tile list; if it fails, none of them. A stroke that
+  changes many tiles outside a batch is one edit of the list too.
+- Settings of three more kinds, `float` (a number with a fraction,
+  with `min` and `max`), `list` (texts; with `choices`, each one of
+  them) and `color` (`"#rrggbb"`); a `string` held to a `pattern` (a
+  regular expression its whole text matches); a `path` whose form picks
+  a folder (`pick = "folder"`). `ctx.settings` reads a float as a
+  number and a list as a table of texts, and `ctx.settings:set` takes
+  them so. A manifest with any of these and an earlier `api` is refused.
+- A command's `for` (and an event's) takes a kind's placed objects
+  alone (`"placed creature"`) or its blueprints alone (`"creature
+  blueprint"`), where `"creature"` is both; `tile`, the tiles selected
+  in an area's view (an entry's `kind` `"tile"`, with `index`, `x` and
+  `y`); and another resource's type (`nss`, `dlg`…). The commands are
+  also in the menus of a palette's category and a module tree's group
+  (run on every one of them), a Properties window's tab, the script
+  editor, and the rows of Find References and Advanced Search; an
+  area's are in the area view's menu with objects selected too (**The
+  Area**). From the Plugins menu, a command runs on what is chosen in
+  the pane last clicked in. `ctx.open.together` lists those edited
+  together in one Properties window. `mg plugin run --select` takes a
+  tile as `tavern.are/Tile_List[5]`.
+- A fix that asks: `ctx.fix(label, { command = "retag", on = s? })`,
+  a finding's fix whose button runs one of the plugin's commands on what
+  the finding is about (`on`, or the finding's resource), which asks with
+  its form. It records no edits; `mg verify --fix` does not make it.
+- Events: `resource-created` fires for the Script Wizard, New Script
+  (`by = "new-script"`), a new NUI window (`"new-nui"`) and an import
+  (`"import"`), and an event's `for` takes a resource's type (`nss`);
+  Save As asks the `resource-saving` handlers as Save does;
+  `ctx.event.changed` gives a script's (a text's) lines that differ;
+  the time at-once handlers have is set in Manage Plugins; `mg set` and
+  `mg apply` take `--strict`, and `mg rename`, `replace`, `areas`,
+  `update-instances` and `import` run the project's plugins' save events.
+- A plugin's tests: `haks` and `written` hold what a job writes
+  outside the module (nothing is written); `mg plugin test` takes a
+  folder of plugins; `mg plugin check` reads the test files; Manage
+  Plugins runs them (Run Tests).
+- Settings of scope `user` are kept in Moonglow's own folder
+  (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
+  plugin run` a plugin reads the values the user set in the window, and
+  what it sets of that scope is kept.
 
 ## 0.4
 

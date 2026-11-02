@@ -275,6 +275,33 @@ fn a_resource_saved_s_handler_reads_old_and_new() {
     assert!(e.to_string().contains("only reads"), "{e}");
 }
 
+/// A script a save writes: `ctx.event.changed` gives the lines that
+/// differ, each taken out and put in by its number (since Moonglow 3.3.0).
+#[test]
+fn a_saved_script_s_changed_lines_are_given() {
+    let plugin = written(
+        "script-lines",
+        "[event]\nid = \"lines\"\non = \"resource-saved\"\ntypes = \"nss\"\n",
+        r#"
+        local mg = require("@moonglow")
+        mg.on("lines", function(ctx)
+            ctx.log:info(table.concat(ctx.event.changed, "|"))
+        end)
+        "#,
+    );
+    let script = ResKey::from_filename("x.nss").unwrap();
+    let (mut old, mut new) = (module("TAVERN"), module("TAVERN"));
+    old.set(script, b"void main()\n{\n    int a = 1;\n}\n".to_vec());
+    new.set(script, b"void main()\n{\n    int a = 2;\n    int b = 3;\n}\n".to_vec());
+    let event = saving(EventKind::ResourceSaved, &old, &new);
+    let host = Rc::new(TestHost::default());
+    run_event(&plugin, "lines", &event, Input::new(new, None), host.clone()).unwrap();
+    assert_eq!(
+        host.log.borrow().as_slice(),
+        ["3: -     int a = 1;|3: +     int a = 2;|4: +     int b = 3;"]
+    );
+}
+
 /// Objects pasted: the handler gets them (those of the kinds it is for)
 /// and their area, and its edits come back to be made with the paste.
 #[test]

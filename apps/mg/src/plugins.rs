@@ -251,20 +251,83 @@ pub(crate) fn allow(project: &Path, ids: &[String], deny: bool) -> Result<Output
     Ok(out)
 }
 
+/// `mg plugin tidy`: what is kept of the settings of the project's
+/// plugins and of those named tidied, as the settings' form's Tidy Up
+/// does ([`mg_plugin::settings::tidy`]): in the project's files and in
+/// Moonglow's own of scope `user`.
+pub(crate) fn tidy(project: &Path, dirs: &[PathBuf], dry_run: bool) -> Result<Output> {
+    let root = project_root(project)?;
+    let mut plugins: Vec<Plugin> = Vec::new();
+    for dir in dirs {
+        for p in plugins_in(dir) {
+            plugins.push(p.map_err(|e| anyhow!("{e}"))?);
+        }
+    }
+    let file = mg_module::project_file::ProjectFile::read(&root);
+    for f in mg_plugin::project::discover(&root, &file) {
+        // (One named stands in for the project's of its id.)
+        match f.plugin {
+            Ok(p) if plugins.iter().any(|n| n.manifest.id == p.manifest.id) => {}
+            Ok(p) => plugins.push(p),
+            Err(e) => bail!("the project's plugin in {}: {e}", f.dir.display()),
+        }
+    }
+    let path = mg_plugin::settings::user_path();
+    let mut user = match &path {
+        Some(p) => mg_plugin::settings::read_user(p).map_err(|e| anyhow!("{e}"))?,
+        None => Default::default(),
+    };
+    let mut out = Output::default();
+    let mut all = Vec::new();
+    for p in &plugins {
+        // (The files read again: the one before may have changed them.)
+        let file = mg_module::project_file::ProjectFile::read(&root);
+        let done = mg_plugin::settings::tidy(&p.manifest, &mut user, Some((&root, &file)), dry_run)
+            .map_err(|e| anyhow!("{}: {e}", p.manifest.id))?;
+        for line in &done {
+            out.line(format!("{}\t{}{line}", p.manifest.id, if dry_run { "would: " } else { "" }));
+        }
+        all.push(json!({ "id": p.manifest.id, "done": done }));
+    }
+    if let (Some(path), false) = (&path, dry_run) {
+        mg_plugin::settings::write_user(path, &user).map_err(|e| anyhow!("{e}"))?;
+    }
+    let known: Vec<&str> = plugins.iter().map(|p| p.manifest.id.as_str()).collect();
+    let file = mg_module::project_file::ProjectFile::read(&root);
+    for s in mg_plugin::settings::unclaimed(&file, &known) {
+        out.note(format!("warning: {s}"));
+    }
+    out.json = json!({ "project": root.display().to_string(), "plugins": all, "dry_run": dry_run });
+    Ok(out)
+}
+
 /// A setting as `mg plugin list` says it: its id, kind, scope and value.
 fn setting_json(d: &mg_plugin::SettingDecl, value: &mg_plugin::SettingValue) -> serde_json::Value {
+    use mg_plugin::SettingKind;
     let choices = match &d.kind {
-        mg_plugin::SettingKind::Choice(c) => json!(c),
+        SettingKind::Choice(c) => json!(c),
+        SettingKind::List(c) if !c.is_empty() => json!(c),
         _ => serde_json::Value::Null,
     };
     let (min, max) = match &d.kind {
-        mg_plugin::SettingKind::Int { min, max } => (json!(min), json!(max)),
+        SettingKind::Int { min, max } => (json!(min), json!(max)),
+        SettingKind::Float { min, max } => (json!(min), json!(max)),
         _ => (serde_json::Value::Null, serde_json::Value::Null),
+    };
+    let pattern = match &d.kind {
+        SettingKind::Pattern(p) => json!(p),
+        _ => serde_json::Value::Null,
+    };
+    let pick = match &d.kind {
+        SettingKind::Path { folder: true } => json!("folder"),
+        SettingKind::Path { folder: false } => json!("file"),
+        _ => serde_json::Value::Null,
     };
     json!({
         "id": d.id, "type": d.kind.name(), "scope": d.scope.name(), "label": d.label,
         "help": d.help, "default": mg_plugin::settings::to_json(&d.default),
         "value": mg_plugin::settings::to_json(value), "choices": choices, "min": min, "max": max,
+        "pattern": pattern, "pick": pick,
     })
 }
 
@@ -321,7 +384,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         p.dir.display()
                     ));
                     for c in &m.commands {
-                        let on: Vec<&str> = c.targets.iter().map(|t| t.name()).collect();
+                        let on: Vec<String> = c.targets.iter().map(|t| t.name()).collect();
                         let on = if on.is_empty() {
                             String::new()
                         } else {
@@ -337,8 +400,8 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                     }
                     // Its settings, with their values in the project.
                     let in_project = file.as_ref().filter(|_| trust.is_some());
-                    let (values, said) =
-                        mg_plugin::settings::resolve(m, &BTreeMap::new(), in_project);
+                    let user = user_values(&m.id, &mut out);
+                    let (values, said) = mg_plugin::settings::resolve(m, &user, in_project);
                     said.into_iter().for_each(|s| out.note(format!("warning: {s}")));
                     let mut settings = Vec::new();
                     for d in &m.settings {
@@ -397,26 +460,31 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
     let mut out = Output::default();
     let mut all = Vec::new();
     for dir in dirs {
-        // A file is a plugin's archive: what the installer checks of it,
-        // then its code, as it is in the archive.
+        // A file is a plugin's archive (or several plugins'): what the
+        // installer checks of it, then each one's code, as it is in the
+        // archive.
         if dir.is_file() {
-            let (name, faults) = match archive(dir) {
-                Ok(package) => {
-                    let host = Rc::new(CliHost::default());
-                    let faults = match package.inspect(host) {
-                        Ok(faults) => faults,
-                        Err(e) => vec![e.to_string()],
-                    };
-                    (package.manifest.id.clone(), faults)
-                }
-                Err(e) => (dir.display().to_string(), vec![e.to_string()]),
+            let checked: Vec<(String, Vec<String>)> = match archives(dir) {
+                Ok(packages) => (packages.iter())
+                    .map(|package| {
+                        let host = Rc::new(CliHost::default());
+                        let faults = match package.inspect(host) {
+                            Ok(faults) => faults,
+                            Err(e) => vec![e.to_string()],
+                        };
+                        (package.manifest.id.clone(), faults)
+                    })
+                    .collect(),
+                Err(e) => vec![(dir.display().to_string(), vec![e.to_string()])],
             };
-            match faults.as_slice() {
-                [] => out.line(format!("{name}\tok")),
-                faults => faults.iter().for_each(|f| out.line(format!("{name}\t{f}"))),
+            for (name, faults) in checked {
+                match faults.as_slice() {
+                    [] => out.line(format!("{name}\tok")),
+                    faults => faults.iter().for_each(|f| out.line(format!("{name}\t{f}"))),
+                }
+                out.failed |= !faults.is_empty();
+                all.push(json!({ "plugin": name, "faults": faults }));
             }
-            out.failed |= !faults.is_empty();
-            all.push(json!({ "plugin": name, "faults": faults }));
             continue;
         }
         let found = plugins_in(dir);
@@ -427,10 +495,12 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
             let (name, faults) = match found {
                 Ok(p) => {
                     let host = Rc::new(CliHost::default());
-                    let faults = match mg_plugin::inspect(&p, host) {
+                    let mut faults = match mg_plugin::inspect(&p, host) {
                         Ok(faults) => faults,
                         Err(e) => vec![e.to_string()],
                     };
+                    // (And its own tests' files, read, not run.)
+                    faults.extend(mg_plugin::test_faults(&p));
                     (p.manifest.id.clone(), faults)
                 }
                 Err(e) => (dir.display().to_string(), vec![e.to_string()]),
@@ -452,6 +522,43 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
 /// game. A line a test, a summary; failing if a test fails or there are
 /// none.
 pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) -> Result<Output> {
+    if dir.join("plugin.cfg").is_file() {
+        return test_one(gi, dir, module);
+    }
+    // A folder of plugins: each one's that has tests, its lines under its
+    // id; failing if one fails, or none has tests.
+    let mut out = Output::default();
+    let mut all = Vec::new();
+    for d in mg_plugin::folders(dir) {
+        let Ok(p) = Plugin::load(&d) else {
+            out.note(format!("warning: {}: its plugin.cfg does not read", d.display()));
+            continue;
+        };
+        if mg_plugin::test_files(&p).is_empty() {
+            out.note(format!("{}: no tests", p.manifest.id));
+            continue;
+        }
+        let one = test_one(gi, &d, module)?;
+        for l in one.text {
+            out.line(format!("{}\t{l}", p.manifest.id));
+        }
+        for n in one.notes {
+            if !out.notes.contains(&n) {
+                out.note(n);
+            }
+        }
+        out.failed |= one.failed;
+        all.push(one.json);
+    }
+    if all.is_empty() {
+        bail!("{}: no plugin there has tests (tests/*.toml)", dir.display());
+    }
+    out.json = json!({ "plugins": all });
+    Ok(out)
+}
+
+/// `mg plugin test` of one plugin's folder.
+fn test_one(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) -> Result<Output> {
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
     let mut out = Output::default();
     let notes = RefCell::new(Output::default());
@@ -567,9 +674,10 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
     Ok(out)
 }
 
-/// A plugin's archive read from a file, as the installer reads it.
-fn archive(file: &Path) -> Result<mg_plugin::Package> {
-    mg_plugin::Package::open(file).map_err(|e| anyhow!("{e}"))
+/// The plugins of an archive of one or several, as the installer reads
+/// them.
+fn archives(file: &Path) -> Result<Vec<mg_plugin::Package>> {
+    mg_plugin::Package::open_all(file).map_err(|e| anyhow!("{e}"))
 }
 
 /// `mg plugin remove`: a plugin installed from an archive taken out of a
@@ -595,24 +703,48 @@ pub(crate) fn remove(id: &str, plugins: &Path) -> Result<Output> {
 
 /// `mg plugin install`: a plugin's archive unpacked into a plugins folder
 /// (as Install Plugin from File does: checked, none of it run), in a
-/// folder named by its id.
+/// folder named by its id; each plugin of an archive of several, all of
+/// them or (one installed already without `--replace`, one in the way)
+/// none. The JSON of several is `{ "plugins": [...] }`, one's as one.
 pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Output> {
-    let package = archive(file).map_err(|e| anyhow!("{}: {e}", file.display()))?;
-    let replaced = match package.existing(plugins) {
-        mg_plugin::Existing::Installed { version } if !replace => bail!(
-            "{} {version} is installed already (--replace installs over it)",
-            package.manifest.name
-        ),
-        mg_plugin::Existing::Installed { version } => Some(version),
-        _ => None,
+    let packages = archives(file).map_err(|e| anyhow!("{}: {e}", file.display()))?;
+    // (All of them checked before any is installed.)
+    let mut replaced = Vec::new();
+    for package in &packages {
+        replaced.push(match package.existing(plugins) {
+            mg_plugin::Existing::Installed { version } if !replace => bail!(
+                "{} {version} is installed already (--replace installs over it)",
+                package.manifest.name
+            ),
+            mg_plugin::Existing::Installed { version } => Some(version),
+            mg_plugin::Existing::Foreign { dir } => bail!(
+                "{} is in the plugins folder already, as {}, and was not installed from a \
+                 file: remove that folder first",
+                package.manifest.name,
+                dir.display()
+            ),
+            mg_plugin::Existing::Nothing => None,
+        });
+    }
+    let mut lines = Vec::new();
+    let mut each = Vec::new();
+    for (package, replaced) in packages.iter().zip(replaced) {
+        let plugin = package.install(plugins, replace).map_err(|e| anyhow!("{e}"))?;
+        let m = &plugin.manifest;
+        each.push(json!({
+            "id": m.id, "version": m.version, "folder": plugin.dir.display().to_string(),
+            "replaced": replaced,
+        }));
+        lines.push(format!("{}\t{} {}\t{}", m.id, m.name, m.version, plugin.dir.display()));
+    }
+    let json = match each.len() {
+        1 => each.remove(0),
+        _ => json!({ "plugins": each }),
     };
-    let plugin = package.install(plugins, replace).map_err(|e| anyhow!("{e}"))?;
-    let m = &plugin.manifest;
-    let mut out = Output::new(json!({
-        "id": m.id, "version": m.version, "folder": plugin.dir.display().to_string(),
-        "replaced": replaced,
-    }));
-    out.line(format!("{}\t{} {}\t{}", m.id, m.name, m.version, plugin.dir.display()));
+    let mut out = Output::new(json);
+    for line in lines {
+        out.line(line);
+    }
     Ok(out)
 }
 
@@ -646,7 +778,8 @@ fn settings_for(
     out: &mut Output,
 ) -> Result<mg_plugin::Settings> {
     let project = project_of(m).map(|_| &m.project_file);
-    let (mut s, said) = mg_plugin::settings::resolve(&plugin.manifest, &BTreeMap::new(), project);
+    let user = user_values(&plugin.manifest.id, out);
+    let (mut s, said) = mg_plugin::settings::resolve(&plugin.manifest, &user, project);
     said.into_iter().for_each(|w| out.note(format!("warning: {w}")));
     for g in given {
         let (id, value) =
@@ -667,14 +800,28 @@ fn settings_for(
     Ok(s)
 }
 
+/// A plugin's values of scope `user`, as Moonglow keeps them (the file the
+/// window shares, `plugin-settings.json` in its data folder); one that
+/// can't be read is said, and the defaults taken.
+fn user_values(plugin: &str, out: &mut Output) -> BTreeMap<String, mg_plugin::SettingValue> {
+    let Some(path) = mg_plugin::settings::user_path() else { return BTreeMap::new() };
+    match mg_plugin::settings::read_user(&path) {
+        Ok(all) => mg_plugin::settings::user_values(&all, plugin),
+        Err(e) => {
+            out.note(format!("warning: {e}: the plugins' own settings have their defaults"));
+            BTreeMap::new()
+        }
+    }
+}
+
 /// The root of a module's project: none for a module kept in one file.
 fn project_of(m: &Module) -> Option<&Path> {
     m.location.as_ref().and_then(mg_module::project_file::ProjectFile::root_of)
 }
 
 /// Keeps what a plugin set (`ctx.settings:set`) in the project's files,
-/// as the window does; one of scope "user" is not kept (mg keeps none).
-/// With `dry_run`, says what it would keep.
+/// as the window does, and one of scope "user" where Moonglow keeps those
+/// (the file the window shares). With `dry_run`, says what it would keep.
 fn keep_settings(
     plugin: &Plugin,
     m: &Module,
@@ -696,13 +843,18 @@ fn keep_settings(
         let shown = v.map_or_else(|| format!("its default ({})", d.default), |v| v.to_string());
         let place = mg_plugin::settings::scope_words(d.scope);
         let done = match (d.scope.in_project(), project_of(m), dry_run) {
-            (false, _, _) => {
-                out.note(format!(
-                    "{}: {id} set to {shown} is not kept: mg keeps no settings of scope \
-                     \"user\" (Moonglow's Plugins window does)",
-                    plugin.manifest.name
-                ));
+            (false, _, true) => {
+                out.note(format!("would set {id} to {shown} ({place})"));
                 false
+            }
+            (false, _, false) => {
+                let Some(path) = mg_plugin::settings::user_path() else {
+                    bail!("{id}: there is no data folder to keep it in");
+                };
+                mg_plugin::settings::keep_user(&path, &plugin.manifest.id, id, v)
+                    .map_err(|e| anyhow!("{id}: {e}"))?;
+                out.note(format!("{}: {id} set to {shown} ({place})", plugin.manifest.name));
+                true
             }
             (true, None, _) => bail!("{id}: no project to keep it in"),
             (true, Some(_), true) => {
@@ -765,7 +917,7 @@ pub(crate) fn run(
         // (A command run on what it is not for: as the window would not
         // offer it. It is still run: it may say so itself.)
         let unfit: Vec<String> = (what.selection.selected.iter())
-            .filter(|s| !s.target().is_some_and(|t| decl.targets.contains(&t)))
+            .filter(|s| !s.fits(&decl.targets))
             .map(|s| s.place().0.to_string())
             .collect();
         if !decl.targets.is_empty() && !unfit.is_empty() {
@@ -816,21 +968,49 @@ pub(crate) fn run(
         })
         .collect();
     let refused = outcome.said.iter().filter(|s| s.refused).count();
-    // Its haks first: the module's edits may name them.
+    // Its haks first: the module's edits may name them. Each is kept as it
+    // was, and taken back if the edits then fail.
     let hak_dir = hak_dir
         .map(Path::to_path_buf)
         .or_else(|| gi.and_then(mg_resman::GameInstall::user_hak_dir));
+    let mut written = Vec::new();
+    let take_back = |written: &mut Vec<mg_plugin::HakWritten>, why: anyhow::Error| {
+        let mut said = vec![why.to_string()];
+        for mut done in written.drain(..).rev() {
+            match done.undo() {
+                Ok(()) if done.was_there() => {
+                    said.push(format!("{} is as it was", done.path.display()))
+                }
+                Ok(()) => said.push(format!("{} was not made", done.path.display())),
+                Err(e) => said.push(e),
+            }
+        }
+        anyhow!("{}", said.join("\n  "))
+    };
     for hak in &outcome.haks {
         let Some(dir) = &hak_dir else {
-            bail!("the plugin writes the hak {}: say where haks go (--hak-dir DIR)", hak.name);
+            let why = anyhow!(
+                "the plugin writes the hak {}: say where haks go (--hak-dir DIR)",
+                hak.name
+            );
+            return Err(take_back(&mut written, why));
         };
         let file = dir.join(format!("{}.hak", hak.name));
         if dry_run {
             notes.note(format!("would put {} resources into {}", hak.files.len(), file.display()));
             continue;
         }
-        let (added, replaced) = hak.write(dir).map_err(|e| anyhow!("{e}"))?;
-        notes.note(format!("{}: {added} resources added, {replaced} replaced", file.display()));
+        match hak.write_kept(dir) {
+            Ok(done) => {
+                let (added, replaced) = (done.added, done.replaced);
+                notes.note(format!(
+                    "{}: {added} resources added, {replaced} replaced",
+                    file.display()
+                ));
+                written.push(done);
+            }
+            Err(e) => return Err(take_back(&mut written, anyhow!("{e}"))),
+        }
     }
     for folder in &outcome.folders {
         if dry_run {
@@ -838,14 +1018,32 @@ pub(crate) fn run(
             notes.note(format!("would write {n} files into {}", folder.dir.display()));
             continue;
         }
-        let (new, replaced) =
-            folder.write().map_err(|e| anyhow!("{}: {e}", folder.dir.display()))?;
+        let (new, replaced) = match folder.write() {
+            Ok(done) => done,
+            Err(e) => {
+                return Err(take_back(&mut written, anyhow!("{}: {e}", folder.dir.display())));
+            }
+        };
         notes.note(format!("{}: {new} files written, {replaced} replaced", folder.dir.display()));
     }
     let cmd = Command::new(outcome.label, outcome.edits);
     let module = m.clone();
-    let mut out =
-        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None, gi)?;
+    // (Its save asks the project's own plugins, as `mg set`'s does.)
+    let guard = save_guard(gi, &m, &[], &mut notes)?;
+    let ran = super::edits::run(
+        Workspace::new(m),
+        cmd,
+        dry_run,
+        None,
+        dry_run,
+        codepage,
+        guard.as_ref(),
+        gi,
+    );
+    let mut out = match ran {
+        Ok(out) => out,
+        Err(e) => return Err(take_back(&mut written, e)),
+    };
     let kept = keep_settings(&plugin, &module, &outcome.settings, dry_run, &mut notes)?;
     if let serde_json::Value::Object(o) = &mut out.json {
         if !kept.is_empty() {
@@ -922,6 +1120,7 @@ pub(crate) fn findings(
     chosen: &Chosen<'_>,
     skip: &mg_module::doctor::Skip,
     out: &mut Output,
+    declared: &mut Vec<String>,
 ) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
     let mut plugins = Vec::new();
@@ -936,6 +1135,11 @@ pub(crate) fn findings(
     }
     let theirs = project_plugins(m, chosen.project, &plugins, out);
     plugins.extend(theirs);
+    // (The checks they declare, by the ids findings carry: what `--fix`
+    // may name.)
+    for p in &plugins {
+        declared.extend(p.manifest.checks.iter().map(|c| p.check_id(&c.id)));
+    }
     if plugins.is_empty() {
         return Ok(all);
     }
@@ -972,6 +1176,8 @@ pub(crate) fn findings(
 pub(crate) struct SaveGuard {
     plugins: Vec<(Plugin, mg_plugin::Settings)>,
     game: Option<Arc<GameData>>,
+    /// A warning stops the save too (`--strict`).
+    strict: bool,
 }
 
 /// The plugins that look at what `mg set` or `mg apply` saves, if any
@@ -1008,10 +1214,17 @@ pub(crate) fn save_guard(
         with.push((p, settings));
     }
     let game = game_for(gi, m, &mut Output::default());
-    Ok(Some(SaveGuard { plugins: with, game }))
+    Ok(Some(SaveGuard { plugins: with, game, strict: false }))
 }
 
 impl SaveGuard {
+    /// With `on`, a plugin's warning of the save stops it, as a refusal
+    /// does (`--strict`).
+    pub(crate) fn strict(mut self, on: bool) -> SaveGuard {
+        self.strict = on;
+        self
+    }
+
     /// Runs the handlers of `kind` on what the save writes (`now` against
     /// `was`): what they said, as JSON, and as notes; a plugin that fails
     /// is a warning.
@@ -1067,6 +1280,9 @@ impl SaveGuard {
         };
         let refused: Vec<String> = said.iter().filter(|(_, s)| s.refused).map(line).collect();
         let warned: Vec<String> = said.iter().filter(|(_, s)| !s.refused).map(line).collect();
+        if refused.is_empty() && self.strict && !warned.is_empty() {
+            bail!("not saved (--strict): a plugin warns of it\n  {}", warned.join("\n  "));
+        }
         if !refused.is_empty() {
             let mut why = format!("not saved: a plugin refuses it\n  {}", refused.join("\n  "));
             if !warned.is_empty() {

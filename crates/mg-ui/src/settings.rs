@@ -418,6 +418,10 @@ pub struct Settings {
     /// false. Those of a project's scopes are in its files.
     pub plugin_settings:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
+    /// How long, in seconds, the handlers of an event that runs at once
+    /// (a save, a paste, a wizard's Finish) may take, each plugin's
+    /// together; 0: [`mg_plugin::EVENT_BUDGET`].
+    pub plugin_event_seconds: u32,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

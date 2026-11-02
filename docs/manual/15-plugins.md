@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
 ---
 
 # Plugins
@@ -40,7 +40,9 @@ A plugin's code runs in a sandbox. It can:
   asks the first time it writes to each hak. Resources are added to a
   hak that is there, and a copy of the hak as it was is kept beside it
   (`name.hak.bak`). Edit › Undo takes back what the plugin did to the
-  module, not the hak;
+  module and the haks it wrote with it (each as it was, or gone if the
+  plugin made it; one changed since is left as it is), and Redo writes
+  them again; a command that wrote only haks has no step to undo;
 - write files into a folder **you chose** for it, **if you allow it**:
   it asks the first time it writes into each folder. Files of the same
   names there are replaced, and no copy of them is kept. It writes into
@@ -81,12 +83,17 @@ A plugin comes as an archive (a `.zip` file) or as a folder.
 plugin into Moonglow's plugins folder. Nothing of the plugin runs, and it
 is off until you enable it.
 
-- The archive is checked before anything is written: it must hold one
-  plugin whose manifest reads and that was written for this Moonglow's
-  plugin API. One that isn't a plugin, or whose files would land outside
-  the plugin's own folder, is refused, with the reason.
-- If the plugin is installed already, Moonglow asks before replacing it
-  (a newer version, say). Whether it is enabled stays as it was.
+- The archive is checked before anything is written: each plugin it
+  holds must have a manifest that reads and was written for this
+  Moonglow's plugin API. One that isn't a plugin, or whose files would
+  land outside the plugin's own folder, is refused, with the reason.
+- An archive may hold several plugins, each in a folder of its own at
+  its top (or in the one folder at its top, as a repository's download
+  has them): each is installed into a folder of its own, and each is off
+  until you enable it.
+- If a plugin is installed already, Moonglow asks before replacing it
+  (a newer version, say), one question for each such plugin of the
+  archive. Whether it is enabled stays as it was.
 - A plugin's folder that was copied in by hand is never replaced by an
   install: remove that folder first.
 
@@ -136,8 +143,9 @@ Moonglow lists each of its plugins you have not answered for, with what
 it adds: its commands (and the right-click menus they are in), its
 checks, what it does by itself, and the settings it keeps (those the
 team shares are written into `moonglow.toml`). For each, **Allow** or
-**Don't Allow**; **Decide Later** leaves them all off now and asks
-again at the next opening.
+**Don't Allow**; **Allow All** allows each of them as it is;
+**Decide Later** leaves them all off now and asks again at the next
+opening.
 
 - What you allow is the plugin **as it is now**: Moonglow reads its
   files when the project is opened, runs it from what it read, and
@@ -145,12 +153,19 @@ again at the next opening.
   pull brings another version, or other code under the same one), it is
   off again, and you are asked again, told what it was. Its `tests`
   folder is not part of it.
+- While the project is open, Moonglow looks at its plugins' folder every
+  few seconds: a plugin changed there (a pull, an edit) is read again,
+  off until you allow it as it now is, and one new there is asked about,
+  without opening the project again.
 - **Don't Allow** keeps it off, however it changes, and it is not asked
   about again; tick it in Manage Plugins to allow it later.
 - Your answers are **yours alone**, and never in the project: Moonglow
   keeps them in its own folder (`project-plugins.toml` beside the plugins
   folder), by the project's place on your disk, the plugin and the
-  digest of its files. A project's files can't answer for you: a
+  digest of its files. A yes holds for those very files wherever they
+  are: the project moved or copied elsewhere on disk (another clone, a
+  worktree) runs the plugins you allowed, as they were, without asking
+  again. A no holds for that project alone. A project's files can't answer for you: a
   checkout that comes with answers of its own (a `[project_plugins]`
   section in a committed `.moonglow/user.toml`, say) allows nothing, and
   the log says so. `mg` reads the same answers, and `mg plugin allow`
@@ -173,7 +188,8 @@ A plugin may keep settings: a team's prefix, your builder code, how
 strict a check is. **Settings…** beside it in Manage Plugins opens them
 in a form, each with what it is (a tip says more) and where it is kept:
 
-- **yours**: in Moonglow's settings, for every module;
+- **yours**: in Moonglow's own folder, for every module (`mg` reads and
+  keeps them too);
 - **the team's**: in the project's `moonglow.toml`, which goes with the
   project to every builder (Save writes it there, the rest of the file as
   it was);
@@ -184,9 +200,17 @@ in a form, each with what it is (a tip says more) and where it is kept:
 own value (a value back at its default is taken out of where it was
 kept). Without a project open, the team's and the project's settings
 can't be changed. A plugin's command may set one itself (your builder
-code, asked for once); the log says what it set, and where. What a
-project's files hold that a plugin doesn't know, or of the wrong kind, is
-said in the log when the project is opened, and left as it is.
+code, asked for once); the log says what it set, and where, and a value
+a command set whose edits did not go in is not kept. What a project's
+files hold that a plugin doesn't know, or of the wrong kind, is said in
+the log when the project is opened, and in the form, whose **Tidy Up**
+takes it out (or moves it to the file its scope keeps it in).
+
+A setting is a field of its kind: text (held, where the plugin says, to
+a pattern, said as you type), a whole number or a number with a
+fraction, a box, a choice, a list (a box for each of its choices, or a
+text a line), a color (a swatch and its `#rrggbb`), or a path, whose
+**Choose…** picks a file or, where the plugin says, a folder.
 
 ## Commands
 
@@ -198,14 +222,20 @@ changed there. A command run by its key while you are typing in a field
 runs on what you typed: the field sets it first, as when you click
 elsewhere.
 
-A command made for a kind of object (placeables, creatures…) or for
-areas is also in their right-click menus: the area view's menu on the
-objects selected (or, with nothing selected, on the area), the module
-tree's rows, and the palettes' blueprints. It comes after the menu's own
-commands, above Variables and Properties, and acts on what you clicked:
-every object selected in the area view, or every blueprint chosen in the
-palette. Manage Plugins says which menus each command is in. Chosen from
-the Plugins menu instead, it acts on the objects selected in the area
+A command made for a kind of object (placeables, creatures…), for
+areas, for tiles or for a kind of resource (scripts) is also in their
+right-click menus: the area view's menu on the objects selected (an
+area's under **The Area**; with nothing selected, on the area), its
+tile menu, the module tree's rows and groups, the palettes' blueprints
+and categories, a Properties window's tab, the script editor's menu, and
+the rows of Find References and Advanced Search. It comes after the
+menu's own commands, above Variables and Properties, and acts on what
+you clicked: every object selected in the area view, every blueprint
+chosen in the palette, every one of a group or a category. A command may
+be for placed objects alone or blueprints alone. Manage Plugins says
+which menus each command is in. Chosen from the Plugins menu instead, it
+acts on what is chosen in the pane you last clicked in (the module tree,
+a palette, an area's view), or else on the objects selected in the area
 view, or else on the blueprints selected in the palette.
 
 A command needs a module open. It runs as other long work does
@@ -231,7 +261,10 @@ reported as an error too, and the other checks still run.
 A finding may come with a **fix**: a button beside it in the log, which
 says what it does ("Upper-case this tag"). Nothing changes until you
 click it; then its edits go in as one step, which **Undo** takes back,
-and the button says **Fixed**. A fix is worked out when Verify runs: if
+and the button says **Fixed** (Undo offers it again). **Fix All** beside
+the first of a check's fixes makes every one of them, as one step. A fix
+whose label ends in "…" asks first: it runs the plugin's command on the
+finding, whose form asks what it needs. A fix is worked out when Verify runs: if
 what it would change has changed since (by hand, or by another fix that
 did more than set fields), it is refused, and the log says to verify
 again. Moonglow's own checks have fixes where the right change is plain
@@ -253,16 +286,18 @@ writes nothing. A **refusal** stops the save: the window says why, and
 **Close** leaves the module unsaved. Beside either, a plugin may offer a
 fix (Put back TAVERN); clicking it makes the change, as a step Edit ›
 Undo takes back, and saves again, the plugins reading the module as it
-now is. Before a save a plugin never changes the module itself: you
-save what you see. A plugin that fails, or takes longer than it may (5
-seconds), is a warning in that window ("could not check the save"),
+now is. Save As is asked about as Save is. Before a save a plugin never
+changes the module itself: you save what you see. A plugin that fails,
+or takes longer than it may (5 seconds, or as Manage Plugins' **Time
+within a save or a paste** sets it), is a warning in that window ("could not check the save"),
 never a refusal, so a broken plugin never keeps you from saving
 (disable it in Manage Plugins). After a save, a plugin may read what
 was written (to copy it somewhere you chose, say).
 
 **On a paste, and on what a wizard makes.** When you place or paste
 objects in an area, or a wizard (area, creature, item, placeable,
-door…), Add to Palette, Setup Store or Copy makes something, a plugin
+door…, the Script Wizard), Add to Palette, Setup Store, Copy, New
+Script, a new NUI window or an import makes something, a plugin
 may change what was made at once: give a pasted waypoint a tag of its
 own, put the team's variable on a new area. Moonglow's own work comes
 first (your builder code in the ResRef, the project's store script),
@@ -340,9 +375,9 @@ by hand (`mg plugin run --event`).
   line. Nothing was changed.
 - **A plugin is not listed.** Its folder needs `plugin.cfg` directly in
   it (not a folder deeper); press **Reload**.
-- **An archive is not installed.** The log and Manage Plugins say why.
-  "It holds several plugins" means the archive is a collection: unpack
-  it and install each plugin's folder by copying.
+- **An archive is not installed.** The log and Manage Plugins say why;
+  of an archive of several plugins, which one is at fault, and none of
+  them is installed.
 - **Moonglow misbehaves with a plugin enabled.** Start it with
   `--no-plugins`: no plugin is loaded, and Manage Plugins says so.
   A crash report names the enabled plugins; when you report a problem,

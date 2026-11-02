@@ -198,7 +198,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.4)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.5)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -428,6 +428,105 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     h.get_by_label("Command: Count Objects (right-click: area)");
 }
 
+/// API 0.5: a command for placed objects alone is not in a blueprint's
+/// menu, one for blueprints alone is; a group's row of the module tree
+/// runs a command on every one of the group; a command from the Plugins
+/// menu runs on what is chosen in the pane last clicked in; several
+/// edited together are `ctx.open.together`.
+#[test]
+fn a_plugin_s_command_is_for_placed_objects_blueprints_groups_and_the_pane_clicked() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-menus-0-5", false) else { return };
+    let dir = mg_testkit::scratch_dir("ui-plugin-menus-0-5-plugins");
+    let plugin = dir.join("where");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let mut cfg =
+        "[plugin]\nid = \"test.where\"\nname = \"Where\"\nversion = \"1\"\napi = \"0.5\"\n\
+                   license = \"MIT\"\n"
+            .to_string();
+    for (id, title, on) in [
+        ("placed", "Placed Only", "placed creature"),
+        ("blueprints", "Blueprints Only", "creature blueprint"),
+        ("both", "Both Kinds", "creature"),
+        ("plain", "Plain", ""),
+    ] {
+        cfg += &format!("\n[command]\nid = \"{id}\"\ntitle = \"{title}\"\n");
+        if !on.is_empty() {
+            cfg += &format!("for = \"{on}\"\n");
+        }
+    }
+    std::fs::write(plugin.join("plugin.cfg"), cfg).unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nlocal function say(id)\n  mg.command(id, \
+         function(ctx)\n    local on = {}\n    for _, s in ipairs(ctx.selection) do \
+         table.insert(on, s.resource) end\n    local together = ctx.open and ctx.open.together \
+         and #ctx.open.together or 0\n    ctx.log:info(id .. \": \" .. table.concat(on, \",\") .. \
+         \" together \" .. together)\n  end)\nend\nfor _, id in { \"placed\", \"blueprints\", \
+         \"both\", \"plain\" } do say(id) end\n",
+    )
+    .unwrap();
+    // A second creature blueprint.
+    let cook = ResKey::parse("cook", ResType::UTC).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cook",
+        vec![mg_edit::Edit::SetResource {
+            key: cook,
+            data: Some(Gff::new(*b"UTC ").to_bytes().unwrap()),
+        }],
+    )));
+    h.state_mut().plugin_dir = Some(dir.clone());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.where", true);
+    h.run();
+    let logged = |h: &Harness<'_, Moonglow>, id: &str| -> Option<String> {
+        let start = format!("Where: {id}: ");
+        (h.state().log.entries.iter().rev())
+            .find_map(|(_, m)| m.strip_prefix(&start).map(str::to_string))
+    };
+    // A blueprint's row: those for blueprints, not those for placed ones.
+    h.get_by_label_contains("Creatures (2)").click();
+    h.run();
+    h.get_by_label("guard.utc").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Placed Only").is_none(), "for placed objects alone");
+    h.get_by_label("Both Kinds");
+    h.get_by_label("Blueprints Only").click();
+    h.run_steps(3);
+    assert_eq!(logged(&h, "blueprints").as_deref(), Some("guard.utc together 0"));
+    // The group's row: on every one of the group.
+    h.get_by_label_contains("Creatures (2)").click_secondary();
+    h.run();
+    h.get_by_label("Both Kinds").click();
+    h.run_steps(3);
+    let both = logged(&h, "both").unwrap();
+    assert!(both.contains("guard.utc") && both.contains("cook.utc"), "{both}");
+    // From the Plugins menu: what is chosen in the pane clicked in last
+    // (the tree's), not the palette's.
+    h.state_mut().tree_selected = [cook].into_iter().collect();
+    h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Tree);
+    h.state_mut().run_plugin_command("test.where", "plain");
+    h.run_steps(3);
+    assert_eq!(logged(&h, "plain").as_deref(), Some("cook.utc together 0"));
+    // Two blueprints edited together: ctx.open is the first, and
+    // ctx.open.together lists both.
+    let guard = ResKey::parse("guard", ResType::UTC).unwrap();
+    let together = Tab::Blueprints(vec![guard, cook]);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(together.clone()));
+    h.run_steps(3);
+    // (Its window in front, as a click in it puts it.)
+    let path = h.state().dock.find_tab(&together).unwrap();
+    h.state_mut().dock.set_focused_node_and_surface(path.node_path());
+    h.run();
+    h.state_mut().run_plugin_command("test.where", "plain");
+    h.run_steps(3);
+    assert!(
+        logged(&h, "plain").unwrap().ends_with("together 2"),
+        "{:?} {:?}",
+        logged(&h, "plain"),
+        h.state().front_tab()
+    );
+}
+
 /// API 0.4: in a palette, a plugin's command for the kind is last in a
 /// blueprint's menu, and runs on the blueprint (a module's: changed, as
 /// one undoable step; one of the game's is the game's, and the example
@@ -654,6 +753,21 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Upper-case this tag"));
     assert!(h.state().log.fix_at(line).unwrap().made);
     h.get_by_label("✔ Fixed");
+    // Undone: its button is offered again, and makes it again; Redo
+    // makes it "Fixed" again.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(tag(&mut h), "gate_guard");
+    assert!(!h.state().log.fix_at(line).unwrap().made);
+    h.get_by_label("Upper-case this tag").click();
+    h.run();
+    assert_eq!(tag(&mut h), "GATE_GUARD", "made again after its Undo");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run();
+    assert_eq!(tag(&mut h), "GATE_GUARD");
+    h.get_by_label("✔ Fixed");
     // Undone, and verified again: then changed by hand, its fix is
     // refused, and says why.
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -681,6 +795,95 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
         "{log:#?}"
     );
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("By hand"));
+}
+
+/// Fix All beside a check's first fix makes every one of its fixes, as one
+/// step of Undo; a fix that asks runs the plugin's command on what the
+/// finding is about, which asks with its form.
+#[test]
+fn a_check_s_fixes_are_made_together_and_a_fix_may_ask() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-fix-all", true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-plugin-fix-all-plugins");
+    let plugin = dir.join("tags");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"test.tags\"\nname = \"Tags\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[check]\nid = \"upper\"\ntitle = \"Tags upper case\"\n\n[check]\nid = \
+         \"named\"\ntitle = \"Tags chosen\"\n\n[command]\nid = \"retag\"\ntitle = \"Retag…\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        r#"local mg = require("@moonglow")
+mg.check("upper", function(ctx)
+    local out = {}
+    for _, name in ctx.module:resources("utc") do
+        local tag = ctx.module:gff(name).Tag or ""
+        if tag ~= string.upper(tag) then
+            local fix = ctx.fix("Upper-case it")
+            fix:set(name, "Tag", string.upper(tag))
+            table.insert(out, { resource = name, message = "lower: " .. tag, fix = fix })
+        end
+    end
+    return out
+end)
+mg.check("named", function(ctx)
+    return { { resource = "guard.utc", message = "a tag to choose",
+        fix = ctx.fix("Retag…", { command = "retag" }) } }
+end)
+mg.command("retag", function(ctx)
+    local s = ctx.selection[1]
+    local answer = ctx.ui:form({ title = "Retag", fields = { { id = "tag", default = "x" } } })
+    if answer then ctx.edit:set(s.resource, "Tag", answer.tag) end
+end)
+"#,
+    )
+    .unwrap();
+    // A second creature with a lower-case tag.
+    let cook = ResKey::parse("cook", ResType::UTC).unwrap();
+    let mut gff = Gff::new(*b"UTC ");
+    gff.root.set("Tag", mg_gff::Value::String(b"cook".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cook",
+        vec![mg_edit::Edit::SetResource { key: cook, data: Some(gff.to_bytes().unwrap()) }],
+    )));
+    h.state_mut().plugin_dir = Some(dir.clone());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.tags", true);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let tag = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        String::from_utf8(ws.doc(k).unwrap().root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    h.get_by_label("Fix All (2)").scroll_to_me();
+    h.run();
+    h.get_by_label("Fix All (2)").click();
+    h.run();
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        (tag(&mut h, &key), tag(&mut h, &cook)),
+        ("GATE_GUARD".into(), "COOK".into()),
+        "{log:#?}"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Fix All: test.tags/upper"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!((tag(&mut h, &key), tag(&mut h, &cook)), ("gate_guard".into(), "cook".into()));
+    h.get_by_label("Fix All (2)");
+    // The fix that asks: its command, its form answered, on the finding's
+    // blueprint.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Values(
+        [("tag".to_string(), serde_json::json!("CHOSEN"))].into(),
+    )));
+    h.get_by_label("Retag…").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h, &key), "CHOSEN");
 }
 
 /// Plugins › Install Plugin from File…: a plugin's archive goes into the
@@ -810,6 +1013,91 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     assert!(by_hand.join("main.luau").is_file());
 }
 
+/// An archive of several plugins installs each into its own folder: those
+/// new at once, and one installed already after its own question.
+#[test]
+fn an_archive_of_several_plugins_installs_each() {
+    use std::io::Write;
+    let dir = mg_testkit::scratch_dir("ui-plugin-install-several");
+    let plugins = dir.join("plugins");
+    let fixture = plugin_fixtures().join("tag-conventions");
+    let manifest = std::fs::read_to_string(fixture.join("plugin.cfg")).unwrap();
+    let bundle = |version: &str| {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        for (folder, id) in [("tags", "example.tag-conventions"), ("other", "example.other")] {
+            let m = manifest.replace("1.0.0", version).replace("example.tag-conventions", id);
+            zip.start_file(format!("{folder}/plugin.cfg"), options).unwrap();
+            zip.write_all(m.as_bytes()).unwrap();
+            for file in ["main.luau", "rules.luau"] {
+                zip.start_file(format!("{folder}/{file}"), options).unwrap();
+                zip.write_all(&std::fs::read(fixture.join(file)).unwrap()).unwrap();
+            }
+        }
+        let path = dir.join(format!("bundle-{version}.zip"));
+        std::fs::write(&path, zip.finish().unwrap().into_inner()).unwrap();
+        path
+    };
+    let (first, second) = (bundle("1.0.0"), bundle("1.1.0"));
+    let mut app = app_with(vec![first]);
+    app.plugin_dir = Some(plugins.clone());
+    app.load_plugins();
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    h.state_mut().install_plugin();
+    h.run();
+    assert_eq!(h.state().plugins.installed.len(), 2);
+    for id in ["example.tag-conventions", "example.other"] {
+        assert!(plugins.join(id).join("main.luau").is_file(), "{id}");
+    }
+    let note = h.state().plugins.install_note.clone().unwrap().1;
+    assert_eq!(note.lines().count(), 2, "{note}");
+    // Again, a later version of both: each asked about in turn.
+    h.state_mut().install_plugin_from(&second);
+    h.run();
+    h.get_by_label_contains("Replace it with 1.1.0 from bundle-1.1.0.zip?");
+    h.get_by_label("Replace").click();
+    h.run();
+    h.run();
+    h.get_by_label_contains("Replace it with 1.1.0 from bundle-1.1.0.zip?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().plugins.replace.is_none());
+    let versions: Vec<String> = (h.state().plugins.installed.iter())
+        .map(|i| i.plugin.as_ref().unwrap().manifest.version.clone())
+        .collect();
+    let mut sorted = versions.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["1.0.0", "1.1.0"], "one replaced, the other left: {versions:?}");
+}
+
+/// Manage Plugins runs a plugin's own tests (Run Tests), as `mg plugin
+/// test` does: the log says what each came to.
+#[test]
+fn a_plugin_s_own_tests_run_in_the_window() {
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.plugins.window = true;
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    let button = h.get_all_by_label("Run Tests").next().unwrap();
+    button.scroll_to_me();
+    h.run();
+    h.get_all_by_label("Run Tests").next().unwrap().click();
+    let started = std::time::Instant::now();
+    loop {
+        h.run_steps(1);
+        let log = &h.state().log.entries;
+        if log.iter().any(|(_, m)| m.contains(" tests, ") && m.contains(" passed, ")) {
+            break;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "{log:#?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains(": ok ")));
+}
+
 /// Started with `--no-plugins`: none is loaded, whatever is installed and
 /// was enabled, and Manage Plugins says so.
 #[test]
@@ -892,6 +1180,20 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
         "{:?}",
         h.state().log.entries
     );
+    // Undo takes the hak back with the edits (the job made it: it goes),
+    // Redo writes it again.
+    let made = user.join("hak/made.hak");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(!made.exists(), "{:?}", h.state().log.entries);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    assert!(ws.module.haks().unwrap().is_empty());
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run();
+    let hak = mg_module::hak_edit::Hak::open(&made).unwrap();
+    assert_eq!(hak.data(ResKey::parse("note", ResType::TXT).unwrap()).unwrap(), b"from the folder");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("made.hak: written again")));
 }
 
 /// A project (a module folder) with a creature whose tag lacks the team's
@@ -943,6 +1245,75 @@ fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static,
 
 fn runs(h: &Harness<'_, Moonglow>, id: &str) -> bool {
     h.state().enabled_plugins().iter().any(|p| p.manifest.id == id)
+}
+
+/// The project's plugins' folder changing while it is open (a pull): its
+/// plugins are read again, a changed one is off and asked about, a new
+/// one asked about too, and Allow All allows the lot. The project copied
+/// elsewhere runs them as allowed, unasked.
+#[test]
+fn a_project_s_plugins_changed_while_it_is_open_are_asked_about() {
+    let dir = plugin_project("ui-project-plugins-watched");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    h.get_by_label("Allow").click();
+    h.run();
+    assert!(runs(&h, id));
+    assert!(!h.state_mut().project_plugins_changed(), "nothing changed");
+    // A pull: other code for it, and a plugin new to the project.
+    let main = dir.join("plugins/builder-tags/main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    let hello = dir.join("plugins/hello");
+    std::fs::create_dir_all(&hello).unwrap();
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/hello");
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), hello.join(file)).unwrap();
+    }
+    assert!(h.state_mut().project_plugins_changed());
+    h.run();
+    assert!(!runs(&h, id), "changed: off until allowed again");
+    let mut asking = h.state().plugins.project_asking.clone();
+    asking.sort();
+    assert_eq!(asking, ["example.builder-tags", "example.hello"]);
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(_, m)| m.starts_with("The project's plugins changed in"))
+    );
+    h.get_by_label("Allow All").click();
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    assert!(runs(&h, id) && runs(&h, "example.hello"));
+    // The project copied elsewhere: the same plugins, allowed as they are,
+    // run without a question.
+    let copy = mg_testkit::scratch_dir("ui-project-plugins-copied");
+    let answers = dir.with_extension("answers.toml");
+    fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                copy_dir(&e.path(), &target);
+            } else {
+                std::fs::copy(e.path(), target).unwrap();
+            }
+        }
+    }
+    copy_dir(&dir, &copy);
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugin_fixtures());
+    app.plugin_answers = Some(answers);
+    app.load_plugins();
+    app.open_module(&copy);
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    assert!(runs(&h, id) && runs(&h, "example.hello"));
 }
 
 /// A project's plugins are asked about when it is opened, with what each
@@ -1160,6 +1531,102 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     assert_eq!(prefix, mg_plugin::SettingValue::Text(String::new()), "its default");
 }
 
+/// The kinds of setting API 0.5 added, in the form: a number with a
+/// fraction, a list (of choices, and free), a color, text held to a
+/// pattern and a folder chosen by Choose…; kept, those of scope `user`, in
+/// the file shared with `mg`. What is kept wrong is tidied by Tidy Up.
+#[test]
+fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
+    let dir = plugin_project("ui-plugin-settings-kinds");
+    let plugins = dir.join("installed");
+    let kinds = plugins.join("kinds");
+    std::fs::create_dir_all(&kinds).unwrap();
+    std::fs::write(
+        kinds.join("plugin.cfg"),
+        "[plugin]\nid = \"test.kinds\"\nname = \"Kinds\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"scale\"\ntype = \"float\"\nmin = 0\nmax = 4\ndefault = 1.5\n\n\
+         [setting]\nid = \"objects\"\ntype = \"list\"\nchoices = \"creature, door, placeable\"\n\
+         default = \"door\"\n\n[setting]\nid = \"words\"\ntype = \"list\"\n\n[setting]\nid = \
+         \"tint\"\ntype = \"color\"\ndefault = \"#336699\"\n\n[setting]\nid = \"code\"\npattern = \
+         \"[a-z]{2}\"\ndefault = \"ab\"\n\n[setting]\nid = \"out\"\ntype = \"path\"\npick = \
+         \"folder\"\n\n[setting]\nid = \"most\"\ntype = \"int\"\nmax = 9\nscope = \"project\"\n",
+    )
+    .unwrap();
+    std::fs::write(kinds.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    // (Kept wrong in the team's file: of no kind, and of no setting.)
+    let team = dir.join("moonglow.toml");
+    let text = std::fs::read_to_string(&team).unwrap();
+    std::fs::write(&team, format!("{text}\n[plugins.\"test.kinds\"]\nmost = 40\nlost = 1\n"))
+        .unwrap();
+    let out = dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let values = dir.with_extension("values.json");
+    let _ = std::fs::remove_file(&values);
+    let mut app = app_with(Vec::new());
+    app.dialogs = Box::new(NoDialogs { folders: vec![out.clone()], ..Default::default() });
+    app.plugin_dir = Some(plugins.clone());
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
+    app.plugin_values = Some(values.clone());
+    app.load_plugins();
+    app.open_module(&dir);
+    app.plugins.project_asking.clear();
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    h.state_mut().open_plugin_settings("test.kinds");
+    h.run();
+    h.get_by_label("Settings: Kinds");
+    for label in ["scale", "objects", "words", "tint", "code", "out", "creature", "door"] {
+        assert!(h.query_all_by_label(label).next().is_some(), "{label}");
+    }
+    h.get_by_label("2 values kept are not as the plugin declares them.");
+    // A folder chosen for the folder's path.
+    h.get_by_label("Choose…").click();
+    h.run();
+    {
+        let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
+        let v = &form.values;
+        assert_eq!(
+            v["out"],
+            mg_plugin::SettingValue::Text(out.to_string_lossy().replace('\\', "/"))
+        );
+        assert_eq!(v["scale"], mg_plugin::SettingValue::Float(1.5));
+        assert_eq!(v["objects"], mg_plugin::SettingValue::List(vec!["door".into()]));
+        form.values.insert("scale".into(), mg_plugin::SettingValue::Float(2.25));
+        form.values.insert(
+            "words".into(),
+            mg_plugin::SettingValue::List(vec!["one".into(), "".into(), "two".into()]),
+        );
+        form.values.insert("code".into(), mg_plugin::SettingValue::Text("xyz".into()));
+    }
+    h.run();
+    h.get_by_label_contains("does not match its pattern");
+    // Tidy Up: the wrong ones out of the team's file.
+    h.get_by_label("Tidy Up").click();
+    h.run();
+    let now = std::fs::read_to_string(&team).unwrap();
+    assert!(!now.contains("most = 40") && !now.contains("lost"), "{now}");
+    assert!(h.query_by_label_contains("not as the plugin declares").is_none());
+    {
+        let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
+        form.values.insert("scale".into(), mg_plugin::SettingValue::Float(2.25));
+        form.values.insert(
+            "words".into(),
+            mg_plugin::SettingValue::List(vec!["one".into(), "".into(), "two".into()]),
+        );
+    }
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    // Kept in the file shared with mg, the list's empty lines left out.
+    let kept: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&values).unwrap()).unwrap();
+    assert_eq!(kept["test.kinds"]["scale"], serde_json::json!(2.25));
+    assert_eq!(kept["test.kinds"]["words"], serde_json::json!(["one", "two"]));
+    let p =
+        h.state().plugins.installed.iter().find_map(|i| i.plugin.as_ref().ok()).cloned().unwrap();
+    assert_eq!(h.state().plugin_settings(&p).values["scale"], mg_plugin::SettingValue::Float(2.25));
+}
+
 /// ctx.settings in the window: a command's settings are kept when it is
 /// done, and a check reads them (the team's prefix, the user's strictness).
 #[test]
@@ -1267,6 +1734,19 @@ fn a_plugin_refuses_a_save_and_says_why() {
             && m == "House rules: tavern.are: its tag was TAVERN, now INN: players' places are kept by it"),
         "{log:#?}"
     );
+    // Save As (to another place) is asked about as Save is: refused,
+    // nothing is written there.
+    let elsewhere = mg_testkit::scratch_dir("ui-plugin-save-as").join("copy.mod");
+    let _ = std::fs::remove_file(&elsewhere);
+    h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Archive(elsewhere.clone())));
+    h.run_steps(3);
+    h.get_by_label("Refused");
+    assert!(!elsewhere.exists(), "nothing written there");
+    // The time what plugins do at once may take: 5 s, or as Manage
+    // Plugins sets it.
+    assert_eq!(h.state().plugin_event_budget(), std::time::Duration::from_secs(5));
+    h.state_mut().settings.plugin_event_seconds = 12;
+    assert_eq!(h.state().plugin_event_budget(), std::time::Duration::from_secs(12));
 }
 
 /// A plugin's warning about what a save would write is asked about before
@@ -1313,6 +1793,48 @@ fn a_plugin_warns_before_a_save() {
     h.run();
     h.get_by_label_contains("before a save, reads each resource it writes (are)");
     h.get_by_label_contains("when objects (waypoint) are pasted: may change them");
+}
+
+/// New Script fires `resource-created` (API 0.5's `for = "nss"`): the
+/// plugin's edit of the script goes in with it.
+#[test]
+fn a_new_script_is_made_for_the_plugins_to_see() {
+    let plugins = mg_testkit::scratch_dir("ui-plugin-made-script-plugins");
+    let dir = plugins.join("made");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.scripts\"\nname = \"Scripts\"\nversion = \"1\"\napi = \"0.5\"\n\
+         license = \"MIT\"\n[event]\nid = \"made\"\non = \"resource-created\"\nfor = \"nss\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.on("made", function(ctx)
+            local e = ctx.event
+            ctx.edit:write(e.resource, "// header\n" .. ctx.module:text(e.resource))
+            ctx.log:info(`{e.resource} by {e.by}`)
+        end)
+        "#,
+    )
+    .unwrap();
+    let Some((mut h, _)) = plugin_harness("ui-plugin-made-script", false) else { return };
+    h.state_mut().plugin_dir = Some(plugins);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.scripts", true);
+    h.run();
+    h.state_mut().new_script = Some("fresh".into());
+    h.run();
+    h.get_by_label("Create").click();
+    h.run_steps(3);
+    let key = ResKey::parse("fresh", ResType::NSS).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let text = String::from_utf8_lossy(ws.module.get(&key).unwrap()).into_owned();
+    assert!(text.starts_with("// header\n"), "{text}");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Scripts: fresh.nss by new-script"));
 }
 
 /// What a plugin does on a resource made (a copy here; a wizard's alike):

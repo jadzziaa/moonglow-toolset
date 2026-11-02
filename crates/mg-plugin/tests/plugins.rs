@@ -247,6 +247,91 @@ fn a_check_s_fixes_are_recorded_apart() {
     assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
+/// A plugin's test holds what the job writes outside the module (the
+/// haks it puts resources into, the files it writes into a folder),
+/// writing none of it.
+#[test]
+fn a_plugin_s_test_holds_what_it_writes_outside_the_module() {
+    let dir = mg_testkit::scratch_dir("plugin-test-outside");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.outside\"\nname = \"Outside\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\n[command]\nid = \"out\"\ntitle = \"Out\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"local mg = require("@moonglow")
+mg.command("out", function(ctx)
+    ctx.hak:write("tiles", "a.txt", "a")
+    ctx.hak:write("tiles", "b.txt", "b")
+    local folder = ctx.ui:open_folder({ title = "Where" })
+    folder:write("notes.txt", "hello")
+end)
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("tests/fixture")).unwrap();
+    std::fs::create_dir_all(dir.join("tests/out")).unwrap();
+    module().save_as(&mg_module::ModuleLocation::Folder(dir.join("tests/fixture"))).unwrap();
+    let test = |haks: &str, written: &str| {
+        std::fs::write(
+            dir.join("tests/out.toml"),
+            format!(
+                "module = \"fixture\"\n[[test]]\nname = \"writes\"\ncommand = \"out\"\nyes = true\n\
+                 files = [\"out\"]\nwritten = [{written}]\n[test.haks]\ntiles = [{haks}]\n"
+            ),
+        )
+        .unwrap();
+        let p = Plugin::load(&dir).unwrap();
+        mg_plugin::run_tests(&p, None, &|_, _| Ok(None)).remove(0).problems
+    };
+    assert_eq!(test("\"b.txt\", \"A.TXT\"", "\"notes.txt\""), Vec::<String>::new());
+    let wrong = test("\"a.txt\"", "\"other.txt\"");
+    assert_eq!(wrong.len(), 2, "{wrong:?}");
+    assert!(
+        wrong[0].contains("into haks, not") && wrong[1].contains("into folders, not"),
+        "{wrong:?}"
+    );
+    assert!(!dir.join("tests/out/notes.txt").exists(), "nothing written");
+    assert!(mg_plugin::test_faults(&Plugin::load(&dir).unwrap()).is_empty());
+}
+
+/// A fix that asks (API 0.5): `ctx.fix(label, { command = … })` runs a
+/// command of the plugin's on what the finding is about (or `on`), when
+/// the user clicks it; a command the manifest lacks, or edits of its own,
+/// are faults.
+#[test]
+fn a_fix_that_asks_runs_a_command() {
+    let dir = mg_testkit::scratch_dir("plugin-fix-asks");
+    let manifest = "[plugin]\nid = \"test.asks\"\nname = \"Asks\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\n[check]\nid = \"ask\"\ntitle = \"Ask\"\n\n[check]\nid = \"bad\"\ntitle = \"Bad\"\n\n[command]\nid = \"retag\"\ntitle = \"Retag…\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("ask", function(ctx)
+            return {
+                { resource = "guard.utc", message = "a", fix = ctx.fix("Retag…", { command = "retag" }) },
+                { resource = "guard.utc", message = "b", fix = ctx.fix("There", {
+                    command = "retag", on = { resource = "tavern.git", path = "/Placeable List[1]" } }) },
+            }
+        end)
+        mg.check("bad", function(ctx)
+            return { { resource = "guard.utc", message = "x", fix = ctx.fix("Gone", { command = "nope" }) } }
+        end)
+        mg.command("retag", function(ctx) end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let found = run_check(&p, "ask", Input::new(module(), None), host.clone()).unwrap();
+    let asks = |i: usize| found[i].fix.as_ref().unwrap().asks.clone().unwrap();
+    assert_eq!((asks(0).plugin.as_str(), asks(0).command.as_str()), ("test.asks", "retag"));
+    assert_eq!(asks(0).on, [(key("guard.utc"), mg_edit::GffPath::root())]);
+    assert_eq!(asks(1).on[0].1.to_string(), "/Placeable List[1]");
+    assert!(found[0].fix.as_ref().unwrap().edits.is_empty());
+    let e = run_check(&p, "bad", Input::new(module(), None), host).unwrap_err().to_string();
+    assert!(e.contains("declares no command \"nope\""), "{e}");
+}
+
 #[test]
 fn the_sandbox_has_no_way_out() {
     let host = Rc::new(TestHost::default());
@@ -605,7 +690,7 @@ fn a_layer_s_copy_is_open_and_read() {
             tostring(select(2, pcall(function() return ctx.module:bytes(o.resource, o.layer) end)))
     "#;
     let host = Rc::new(TestHost::default());
-    let selection = Selection { selected: Vec::new(), open: Some(open) };
+    let selection = Selection { open: Some(open), ..Default::default() };
     let input = Input { selection, ..Input::new(module(), Some(game.clone())) };
     run_console(code, input, host.clone()).unwrap();
     let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
@@ -849,6 +934,7 @@ fn a_plugin_reads_what_is_selected_and_open() {
             Selected::Area(area),
         ],
         open: Some(Selected::Resource(key("old.nss"))),
+        together: Vec::new(),
     };
     let code = r#"
         local function line(s)
@@ -892,6 +978,44 @@ fn a_plugin_reads_what_is_selected_and_open() {
     mg_plugin::run_console(code, Input::new(module(), None), host.clone()).unwrap();
     let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
     assert_eq!(said, ["0", "true"]);
+
+    // Tiles (API 0.5): each its place in the tile list, and its column
+    // and row by the area's width; and several open together, each as
+    // `ctx.open.together` lists them, the first being `ctx.open`.
+    let mut m = module();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Width", Value::Int(4));
+    are.root.set("Tile_List", Value::List(vec![Struct::new(1); 8]));
+    m.set_gff(key("yard.are"), &are).unwrap();
+    let yard = ResRef::from_str("yard").unwrap();
+    let selection = Selection {
+        selected: vec![Selected::Tile { area: yard, index: 6 }],
+        open: Some(Selected::Blueprint(key("guard.utc"))),
+        together: vec![Selected::Blueprint(key("guard.utc")), Selected::Blueprint(key("cook.utc"))],
+    };
+    let code = r#"
+        local t = ctx.selection[1]
+        local names = {}
+        for _, s in ipairs(ctx.open.together) do table.insert(names, s.resource) end
+        return t.kind, t.resource, t.path, t.x, t.y, t.index, t.area, table.concat(names, ",")
+    "#;
+    let host = Rc::new(TestHost::default());
+    let input = Input { selection, ..Input::new(m, None) };
+    mg_plugin::run_console(code, input, host.clone()).unwrap();
+    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    assert_eq!(
+        said,
+        [
+            "\"tile\"",
+            "\"yard.are\"",
+            "\"/Tile_List[6]\"",
+            "2",
+            "1",
+            "6",
+            "\"yard\"",
+            "\"guard.utc,cook.utc\""
+        ]
+    );
 }
 
 /// What `mg plugin run --select` takes: a resource's name, and for an
@@ -904,12 +1028,27 @@ fn a_selection_is_named_as_a_resource_and_a_path() {
     let tavern = ResRef::from_str("tavern").unwrap();
     let chest = Selected::parse("tavern.git/Placeable List[3]").unwrap();
     assert_eq!(chest, Selected::Object { area: tavern, kind: ObjectKind::Placeable, index: 3 });
-    assert_eq!(chest.target(), Some(Target::Object(ObjectKind::Placeable)));
+    assert_eq!(chest.target(), Some(Target::Placed(ObjectKind::Placeable)));
+    assert!(chest.fits(&[Target::Object(ObjectKind::Placeable)]));
+    assert!(!chest.fits(&[Target::Blueprint(ObjectKind::Placeable)]));
     assert_eq!(chest.place().1.to_string(), "/Placeable List[3]");
     assert_eq!(Selected::parse("tavern.are").unwrap(), Selected::Area(tavern));
     assert_eq!(Selected::parse("guard.utc").unwrap(), Selected::Blueprint(key("guard.utc")));
     assert_eq!(Selected::parse("old.nss").unwrap(), Selected::Resource(key("old.nss")));
-    assert_eq!(Selected::parse("old.nss").unwrap().target(), None);
+    assert_eq!(
+        Selected::parse("old.nss").unwrap().target(),
+        Some(Target::Resource(mg_core::ResType::NSS))
+    );
+    assert_eq!(
+        Selected::parse("guard.utc").unwrap().target(),
+        Some(Target::Blueprint(ObjectKind::Creature))
+    );
+    // A tile: its area's ARE and its place in the tile list.
+    let tile = Selected::parse("tavern.are/Tile_List[5]").unwrap();
+    assert_eq!(tile, Selected::Tile { area: tavern, index: 5 });
+    assert_eq!((tile.kind(), tile.target()), ("tile".to_string(), Some(Target::Tile)));
+    assert_eq!(tile.place().1.to_string(), "/Tile_List[5]");
+    assert!(Selected::parse("tavern.are/Tile_List").is_err());
     for (bad, says) in [
         ("tavern", "is not a resource's name"),
         ("tavern.git", "its place in a list"),

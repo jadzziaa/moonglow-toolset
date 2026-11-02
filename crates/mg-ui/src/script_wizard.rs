@@ -1005,7 +1005,13 @@ fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
         }
         Err(e) => app.log.error(e.message),
     }
-    app.actions.push(crate::Action::Apply(Command::new(format!("Script Wizard: {name}"), edits)));
+    // (Made by a wizard: the plugins' resource-created handlers see it.)
+    let cmd = Command::new(format!("Script Wizard: {name}"), edits);
+    let made = match &app.ws {
+        Some(ws) => crate::plugin_events::Made::new_in(ws, &cmd, "wizard"),
+        None => crate::plugin_events::Made::resources("wizard", Vec::new()),
+    };
+    app.actions.push(crate::Action::ApplyMade(cmd, made));
     app.log.info(format!("Script Wizard: wrote {nss}"));
     if w.open_editor {
         app.actions.push(crate::Action::OpenResource(nss));

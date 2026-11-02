@@ -67,8 +67,10 @@ pub struct Plugins {
     /// The form being filled: the question it belongs to, and its values.
     form: Option<(Question, Vec<serde_json::Value>)>,
     /// An archive chosen to install whose plugin is installed already:
-    /// asked before it is replaced.
+    /// asked before it is replaced; and, of an archive of several, those
+    /// to ask about after it.
     pub replace: Option<Replace>,
+    pub replace_next: VecDeque<Replace>,
     /// What the last install or removal came to, shown in the window.
     pub install_note: Option<(Level, String)>,
     /// A plugin chosen to remove: asked before its folder is deleted.
@@ -99,6 +101,57 @@ pub struct Plugins {
     /// The project's root and that root canonical, as its plugins were
     /// read (the trust answers are kept by the canonical path).
     project_root: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    /// The haks plugins' commands wrote, by the step of Undo of the
+    /// command's edits: Undo takes them back, Redo writes them again.
+    pub(crate) hak_steps: Vec<(u64, Vec<mg_plugin::HakWritten>)>,
+    /// The project's plugins' folder as it was when its plugins were read
+    /// (each file's path, size and time), to see that it changed.
+    project_stamp: Option<u64>,
+    /// The pane last clicked in, whose selection a command from the
+    /// Plugins menu, the Command Palette or a key runs on.
+    pub pane: Option<Pane>,
+}
+
+/// A pane whose selection a plugin's command may run on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pane {
+    Tree,
+    Palette,
+    Area(mg_core::ResRef),
+}
+
+/// The most seconds the handlers of an event that runs at once may be
+/// given.
+const MOST_EVENT_SECONDS: u32 = 120;
+
+/// What a folder of plugins holds, as a number that changes when a file
+/// in it is added, removed, written or renamed (none: no such folder).
+fn folder_stamp(dir: &Path) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut todo = vec![(dir.to_path_buf(), 0)];
+    let mut seen = 0usize;
+    std::fs::metadata(dir).ok()?;
+    while let Some((d, depth)) = todo.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            seen += 1;
+            // (A plugin is a few files: a folder of thousands is no plugins'.)
+            if seen > 20_000 {
+                return Some(h.finish());
+            }
+            let Ok(m) = e.metadata() else { continue };
+            e.path().hash(&mut h);
+            m.len().hash(&mut h);
+            m.modified().ok().hash(&mut h);
+            if m.is_dir() && depth < 8 {
+                todo.push((e.path(), depth + 1));
+            }
+        }
+    }
+    Some(h.finish())
 }
 
 /// Answers remembered, by question.
@@ -204,9 +257,84 @@ pub struct PluginCommand {
 
 impl PluginCommand {
     /// Whether it is for every one of `kinds` (and there are some): a
-    /// right-click menu on them has it.
+    /// right-click menu on them has it. A kind is what the menu is on (a
+    /// placed object `Placed`, a blueprint `Blueprint`), which a command
+    /// for both takes ([`mg_plugin::Target::takes`]).
     pub fn fits(&self, kinds: &[mg_plugin::Target]) -> bool {
-        !kinds.is_empty() && kinds.iter().all(|k| self.targets.contains(k))
+        !kinds.is_empty() && kinds.iter().all(|k| self.targets.iter().any(|t| t.takes(*k)))
+    }
+}
+
+/// The kinds of what is selected, as a menu on them has commands for
+/// ([`PluginCommand::fits`]); none where one of them is of no kind.
+pub(crate) fn kinds_of(selected: &[mg_plugin::Selected]) -> Vec<mg_plugin::Target> {
+    let mut kinds: Vec<mg_plugin::Target> =
+        selected.iter().map(|s| s.target()).collect::<Option<_>>().unwrap_or_default();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
+/// What a place in a resource is, as a plugin's selection: an object
+/// placed in an area (a GIT's list item), an area, a blueprint or another
+/// resource of an editor of its own (Find References' and Advanced
+/// Search's rows).
+pub(crate) fn selected_at(key: mg_resman::ResKey, path: &mg_edit::GffPath) -> mg_plugin::Selected {
+    use mg_core::ResType;
+    use mg_plugin::Selected;
+    match (key.restype, path.0.first()) {
+        (ResType::GIT, Some(mg_edit::Step::Item(list, index))) => {
+            match mg_area::ObjectKind::from_list(list) {
+                Some(kind) => Selected::Object { area: key.resref, kind, index: *index },
+                None => Selected::Area(key.resref),
+            }
+        }
+        (ResType::ARE | ResType::GIT | ResType::GIC, _) => Selected::Area(key.resref),
+        (t, _) if mg_area::ObjectKind::from_restype(t).is_some() => Selected::Blueprint(key),
+        _ => Selected::Resource(key),
+    }
+}
+
+/// What a tab edits, as a plugin's selection: the object, blueprint or
+/// area of a Properties window (each of several edited together), or the
+/// resource of another editor; none for the rest.
+pub(crate) fn tab_selection(tab: &crate::Tab) -> Vec<mg_plugin::Selected> {
+    use crate::Tab;
+    use mg_plugin::Selected;
+    let root = mg_edit::GffPath::root();
+    let object = |area: mg_core::ResRef, path: &mg_edit::GffPath| {
+        Some(crate::plugins::selected_at(mg_resman::ResKey::new(area, mg_core::ResType::GIT), path))
+            .filter(|s| matches!(s, Selected::Object { .. }))
+    };
+    match tab {
+        Tab::Blueprint(key) => vec![Selected::Blueprint(*key)],
+        Tab::Blueprints(keys) => keys.iter().map(|k| Selected::Blueprint(*k)).collect(),
+        Tab::Instance { area, path } => object(*area, path).into_iter().collect(),
+        Tab::Instances { area, paths } => paths.iter().filter_map(|p| object(*area, p)).collect(),
+        Tab::Area(area) | Tab::AreaProperties(area) => vec![Selected::Area(*area)],
+        Tab::AreasProperties(areas) => areas.iter().map(|a| Selected::Area(*a)).collect(),
+        Tab::Script(key) | Tab::Dialog(key) | Tab::Nui(key) | Tab::Gff(key) => {
+            vec![selected_at(*key, &root)]
+        }
+        Tab::ModuleProperties => vec![Selected::Resource(
+            mg_core::ResRef::from_str("module")
+                .map(|r| mg_resman::ResKey::new(r, mg_core::ResType::IFO))
+                .unwrap_or_else(|_| unreachable!()),
+        )],
+        _ => Vec::new(),
+    }
+}
+
+/// The plugins' commands for `selected` in a right-click menu (as
+/// [`menu_commands`]), the one chosen run on it.
+pub(crate) fn menu_on(
+    ui: &mut egui::Ui,
+    commands: &[PluginCommand],
+    selected: &[mg_plugin::Selected],
+    actions: &mut Vec<Action>,
+) {
+    if let Some(i) = menu_commands(ui, commands, &kinds_of(selected)) {
+        actions.push(run_on(&commands[i], selected.to_vec()));
     }
 }
 
@@ -250,6 +378,12 @@ pub(crate) fn run_on(command: &PluginCommand, selected: Vec<mg_plugin::Selected>
 /// Moonglow's own data folder (`mg` reads the same), never a project's.
 pub fn answers_path() -> Option<PathBuf> {
     mg_plugin::project::answers_path()
+}
+
+/// Where the values of plugins' settings of scope `user` are kept, which
+/// `mg` reads and keeps too: `plugin-settings.json` beside the plugins.
+pub fn values_path() -> Option<PathBuf> {
+    mg_plugin::settings::user_path()
 }
 
 /// The plugins enabled now, for a crash report (the panic hook reads it).
@@ -406,6 +540,7 @@ impl Moonglow {
     /// Reads the plugins folder again: who is installed (none of their
     /// code runs).
     pub fn load_plugins(&mut self) {
+        self.read_plugin_values();
         self.plugins.installed.clear();
         if !self.no_plugins
             && let Some(dir) = &self.plugin_dir
@@ -444,7 +579,10 @@ impl Moonglow {
         self.plugins.installed.retain(|i| !i.project);
         self.plugins.project_asking.clear();
         self.plugins.project_root = None;
+        self.plugins.project_stamp = None;
         let Some(root) = self.project_root().filter(|_| !self.no_plugins) else { return };
+        self.plugins.project_stamp =
+            self.project_plugins_folder().as_deref().and_then(folder_stamp);
         self.plugins.project_root = Some((root.clone(), mg_plugin::project::canonical(&root)));
         // What the user answered, read again (another Moonglow, or `mg`,
         // may have answered since); one that can't be read allows nothing.
@@ -495,6 +633,57 @@ impl Moonglow {
         for s in said {
             self.log.warn(s);
         }
+    }
+
+    /// How long the handlers of an event that runs at once may take
+    /// (Manage Plugins; the default [`mg_plugin::EVENT_BUDGET`]).
+    pub fn plugin_event_budget(&self) -> std::time::Duration {
+        match self.settings.plugin_event_seconds {
+            0 => mg_plugin::EVENT_BUDGET,
+            s => std::time::Duration::from_secs(u64::from(s.clamp(1, MOST_EVENT_SECONDS))),
+        }
+    }
+
+    /// The open project's plugins' folder.
+    fn project_plugins_folder(&self) -> Option<PathBuf> {
+        let root = self.project_root()?;
+        let ws = self.ws.as_ref()?;
+        Some(mg_plugin::project::folder(&root, &ws.module.project_file))
+    }
+
+    /// Whether the open project's plugins' folder changed on disk since its
+    /// plugins were read (a pull, a plugin added or edited): then they are
+    /// read again, and those not as they were allowed are asked about (and
+    /// off until then). Looked at every few seconds while the project is
+    /// open, between jobs.
+    pub fn project_plugins_changed(&mut self) -> bool {
+        if self.no_plugins || self.busy() {
+            return false;
+        }
+        let Some(dir) = self.project_plugins_folder() else { return false };
+        let now = folder_stamp(&dir);
+        if now == self.plugins.project_stamp {
+            return false;
+        }
+        let before: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
+            .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
+            .collect();
+        self.load_project_plugins();
+        let after: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
+            .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
+            .collect();
+        if before != after {
+            self.log.info(format!(
+                "The project's plugins changed in {}: read again{}",
+                dir.display(),
+                if self.plugins.project_asking.is_empty() {
+                    String::new()
+                } else {
+                    " (those not as you allowed them are off until you answer)".to_string()
+                }
+            ));
+        }
+        true
     }
 
     /// What the user answered for a project's plugin, as it is now (none:
@@ -557,15 +746,39 @@ impl Moonglow {
         }
     }
 
-    /// The values a plugin's settings of scope `user` have in Moonglow's
-    /// settings.
+    /// Reads the values of plugins' settings of scope `user` from the file
+    /// `mg` shares ([`Moonglow::plugin_values`]), which Moonglow's
+    /// settings then hold; where there is none yet, it is written from
+    /// what Moonglow's settings kept (before 3.3.0, there alone).
+    fn read_plugin_values(&mut self) {
+        let Some(path) = &self.plugin_values else { return };
+        match mg_plugin::settings::read_user(path) {
+            Ok(values) if path.exists() => self.settings.plugin_settings = values,
+            Ok(_) if self.settings.plugin_settings.is_empty() => {}
+            Ok(_) => {
+                if let Err(e) =
+                    mg_plugin::settings::write_user(path, &self.settings.plugin_settings)
+                {
+                    self.log.error(format!("Plugins' settings: {e}"));
+                }
+            }
+            Err(e) => self.log.error(format!("Plugins' settings: {e}")),
+        }
+    }
+
+    /// The values a plugin's settings of scope `user` have: as the file
+    /// shared with `mg` has them now (it may have kept one since), else
+    /// as Moonglow's settings hold them.
     fn user_settings(
         &self,
         id: &str,
     ) -> std::collections::BTreeMap<String, mg_plugin::SettingValue> {
-        (self.settings.plugin_settings.get(id).into_iter().flatten())
-            .filter_map(|(k, v)| Some((k.clone(), mg_plugin::settings::from_json(v)?)))
-            .collect()
+        let read = self
+            .plugin_values
+            .as_deref()
+            .and_then(|p| p.exists().then(|| mg_plugin::settings::read_user(p).ok()).flatten());
+        let all = read.as_ref().unwrap_or(&self.settings.plugin_settings);
+        mg_plugin::settings::user_values(all, id)
     }
 
     /// A plugin's settings for a job: those kept (Moonglow's settings, the
@@ -588,6 +801,12 @@ impl Moonglow {
                 .as_ref()
                 .map_or_else(|| format!("its default ({})", d.default), |v| v.to_string());
             let kept = match (d.scope, &root) {
+                // (In the file shared with `mg`, where there is one.)
+                (mg_plugin::Scope::User, _) if self.plugin_values.is_some() => {
+                    let path = self.plugin_values.clone().unwrap_or_default();
+                    mg_plugin::settings::keep_user(&path, &p.manifest.id, id, value.as_ref())
+                        .map(|all| self.settings.plugin_settings = all)
+                }
                 (mg_plugin::Scope::User, _) => {
                     let all =
                         self.settings.plugin_settings.entry(p.manifest.id.clone()).or_default();
@@ -623,6 +842,119 @@ impl Moonglow {
         }
     }
 
+    /// Runs a plugin's own tests (`tests/*.toml`) as a job, as `mg plugin
+    /// test` does: each on its fixture, with the game's data of the
+    /// install (or none); the log says what each came to.
+    pub fn run_plugin_tests(&mut self, plugin: Plugin) {
+        let install = self.install.clone();
+        let name = plugin.manifest.name.clone();
+        self.start_job_anywhere(
+            format!("{name}: Run Tests"),
+            move |_| {
+                let game = |m: &mg_module::Module, root: Option<&Path>| {
+                    let at = match (root, &install) {
+                        (Some(root), _) => mg_resman::GameInstall::new(root, None, "en"),
+                        (None, Some(gi)) => gi.clone(),
+                        (None, None) => return Ok(None),
+                    };
+                    m.game_data(&at).map(|f| Some(f.game)).map_err(|e| e.to_string())
+                };
+                mg_plugin::run_tests(&plugin, None, &game)
+            },
+            move |app, results| {
+                let failed = results.iter().filter(|r| !r.passed()).count();
+                for r in &results {
+                    for p in &r.problems {
+                        app.log.error(format!("{name}: FAIL {} › {}: {p}", r.file, r.name));
+                    }
+                    if r.passed() {
+                        app.log.info(format!("{name}: ok {} › {}", r.file, r.name));
+                    }
+                }
+                let n = results.len();
+                let said = format!("{name}: {n} tests, {} passed, {failed} failed", n - failed);
+                if failed > 0 { app.log.warn(said) } else { app.log.info(said) }
+            },
+        );
+    }
+
+    /// What is kept of a plugin's settings that is not as its manifest
+    /// declares (a value not of its kind, of a setting it doesn't declare,
+    /// in the other file than its scope's), as the log says it when the
+    /// project is opened.
+    pub fn plugin_settings_faults(&self, p: &Plugin) -> Vec<String> {
+        let user = self.user_settings(&p.manifest.id);
+        let project = self.project_root().and(self.ws.as_ref()).map(|ws| &ws.module.project_file);
+        let mut faults = mg_plugin::settings::resolve(&p.manifest, &user, project).1;
+        // (Of the user's own, what no setting of scope user is.)
+        let raw = match self.plugin_values.as_deref().filter(|p| p.exists()) {
+            Some(path) => mg_plugin::settings::read_user(path).unwrap_or_default(),
+            None => self.settings.plugin_settings.clone(),
+        };
+        for name in raw.get(&p.manifest.id).into_iter().flatten().map(|(k, _)| k) {
+            if !p
+                .manifest
+                .settings
+                .iter()
+                .any(|d| d.id == *name && d.scope == mg_plugin::Scope::User)
+            {
+                faults.push(format!(
+                    "Moonglow's settings: {} keeps {name:?}, which is not its",
+                    p.manifest.id
+                ));
+            }
+        }
+        faults
+    }
+
+    /// Tidies what is kept of a plugin's settings
+    /// ([`mg_plugin::settings::tidy`]): what was wrong taken out, or moved
+    /// where its scope keeps it; what was done goes to the log.
+    pub fn tidy_plugin_settings(&mut self, id: &str) {
+        let found = (self.plugins.installed.iter())
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .find(|p| p.manifest.id == id)
+            .cloned();
+        let Some(p) = found else { return };
+        let mut user = match self.plugin_values.as_deref().filter(|p| p.exists()) {
+            Some(path) => match mg_plugin::settings::read_user(path) {
+                Ok(u) => u,
+                Err(e) => {
+                    self.log.error(format!("{}: not tidied: {e}", p.manifest.name));
+                    return;
+                }
+            },
+            None => self.settings.plugin_settings.clone(),
+        };
+        let root = self.project_root();
+        let file = self.ws.as_ref().map(|ws| ws.module.project_file.clone());
+        let project = root.as_deref().zip(file.as_ref());
+        let done = match mg_plugin::settings::tidy(&p.manifest, &mut user, project, false) {
+            Ok(done) => done,
+            Err(e) => {
+                self.log.error(format!("{}: not tidied: {e}", p.manifest.name));
+                return;
+            }
+        };
+        if let Some(path) = &self.plugin_values
+            && let Err(e) = mg_plugin::settings::write_user(path, &user)
+        {
+            self.log.error(format!("{}: {e}", p.manifest.name));
+        }
+        self.settings.plugin_settings = user;
+        if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
+            ws.module.project_file = ProjectFile::read(root);
+        }
+        for line in &done {
+            self.log.info(format!("{}: tidied: {line}", p.manifest.name));
+        }
+        // (The form, if open, with the values as they now are.)
+        if self.plugins.settings_form.as_ref().is_some_and(|f| f.plugin == id) {
+            let values = self.plugin_settings(&p).values;
+            self.plugins.settings_form = Some(SettingsForm { plugin: id.to_string(), values });
+        }
+    }
+
     /// Opens a plugin's settings in their form, with the values they have.
     pub fn open_plugin_settings(&mut self, id: &str) {
         let found = (self.plugins.installed.iter())
@@ -646,7 +978,7 @@ impl Moonglow {
         let now = self.plugin_settings(&p).values;
         let set: Vec<mg_plugin::SettingWrite> = (p.manifest.settings.iter())
             .filter_map(|d| {
-                let v = form.values.get(&d.id)?;
+                let v = &tidy(form.values.get(&d.id)?);
                 if now.get(&d.id) == Some(v) || d.check(v).is_err() {
                     return None;
                 }
@@ -751,23 +1083,116 @@ impl Moonglow {
     /// the area view shown last, else the blueprints selected in the
     /// palette.
     pub fn plugin_selection(&self) -> Vec<mg_plugin::Selected> {
-        let area = self.palette.area.and_then(|a| Some((a, self.area_views.get(&a)?)));
-        if let Some((area, view)) = area.filter(|(_, v)| !v.selection.is_empty()) {
+        // The pane last clicked in, where something is selected there.
+        let from = match self.plugins.pane {
+            Some(Pane::Tree) => self.tree_selection(),
+            Some(Pane::Palette) => self.palette_selection(),
+            Some(Pane::Area(area)) => self.area_selection(area),
+            None => Vec::new(),
+        };
+        if !from.is_empty() {
+            return from;
+        }
+        // Else the area view shown last, else the palette's.
+        let area = self.palette.area.map(|a| self.area_selection(a)).unwrap_or_default();
+        if !area.is_empty() {
+            return area;
+        }
+        self.palette_selection()
+    }
+
+    /// What is selected in an area's view: its objects, or in tile mode
+    /// its tiles.
+    fn area_selection(&self, area: mg_core::ResRef) -> Vec<mg_plugin::Selected> {
+        let Some(view) = self.area_views.get(&area) else { return Vec::new() };
+        if !view.selection.is_empty() {
             let object = |&(kind, index): &(mg_area::ObjectKind, usize)| {
                 mg_plugin::Selected::Object { area, kind, index }
             };
             return view.selection.iter().map(object).collect();
         }
+        if view.tile_mode && !view.tile_selection.is_empty() {
+            return self.tiles_of(area, &view.tile_selection);
+        }
+        Vec::new()
+    }
+
+    /// An area's tiles (column, row) as a plugin's selection.
+    pub(crate) fn tiles_of(
+        &self,
+        area: mg_core::ResRef,
+        cells: &[(u32, u32)],
+    ) -> Vec<mg_plugin::Selected> {
+        let key = mg_resman::ResKey::new(area, mg_core::ResType::ARE);
+        let width = (self.ws.as_ref())
+            .and_then(|ws| ws.loaded(&key).and_then(|g| g.root.integer("Width")))
+            .or_else(|| {
+                let bytes = self.ws.as_ref()?.module.get(&key)?;
+                mg_gff::Gff::read(bytes).ok()?.root.integer("Width")
+            })
+            .unwrap_or(0)
+            .max(0) as usize;
+        (cells.iter())
+            .map(|&(x, y)| mg_plugin::Selected::Tile {
+                area,
+                index: y as usize * width + x as usize,
+            })
+            .collect()
+    }
+
+    /// The blueprints chosen in the palette.
+    fn palette_selection(&self) -> Vec<mg_plugin::Selected> {
         let p = &self.palette;
         let mut keys: Vec<mg_resman::ResKey> = p.selected.into_iter().collect();
         keys.extend(p.chosen.iter().filter(|k| p.selected != Some(**k)));
         keys.into_iter().map(mg_plugin::Selected::Blueprint).collect()
     }
 
+    /// What is chosen in the module tree: objects of an area's list, or
+    /// its rows (areas, blueprints, other resources).
+    fn tree_selection(&self) -> Vec<mg_plugin::Selected> {
+        if let Some((area, set)) = &self.tree_objects
+            && !set.is_empty()
+        {
+            let area = *area;
+            return (set.iter())
+                .map(|&(kind, index)| mg_plugin::Selected::Object { area, kind, index })
+                .collect();
+        }
+        let path = mg_edit::GffPath::root();
+        self.tree_selected.iter().map(|k| selected_at(*k, &path)).collect()
+    }
+
+    /// What is open in front edited together, where it is several (a
+    /// Properties window of several blueprints, objects or areas): each,
+    /// the first being [`Moonglow::plugin_open`]'s.
+    pub fn plugin_together(&self) -> Vec<mg_plugin::Selected> {
+        use crate::Tab;
+        use mg_plugin::Selected;
+        match self.front_tab() {
+            Some(Tab::Blueprints(keys)) => keys.into_iter().map(Selected::Blueprint).collect(),
+            Some(Tab::AreasProperties(areas)) => areas.into_iter().map(Selected::Area).collect(),
+            Some(Tab::Instances { area, paths }) => (paths.iter())
+                .filter_map(|p| match p.0.as_slice() {
+                    [mg_edit::Step::Item(list, index)] => Some(Selected::Object {
+                        area,
+                        kind: mg_area::ObjectKind::from_list(list)?,
+                        index: *index,
+                    }),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The area or editor in front, for `ctx.open`.
     pub fn plugin_open(&self) -> Option<mg_plugin::Selected> {
         use crate::Tab;
         use mg_plugin::Selected;
+        if let Some(first) = self.plugin_together().into_iter().next() {
+            return Some(first);
+        }
         Some(match self.front_tab()? {
             Tab::Area(area) | Tab::AreaProperties(area) => Selected::Area(area),
             Tab::Instance { area, path } => match path.0.as_slice() {
@@ -810,7 +1235,11 @@ impl Moonglow {
         command: &str,
         selected: Vec<mg_plugin::Selected>,
     ) {
-        let selection = mg_plugin::Selection { selected, open: self.plugin_open() };
+        let selection = mg_plugin::Selection {
+            selected,
+            open: self.plugin_open(),
+            together: self.plugin_together(),
+        };
         let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == plugin).cloned();
         let Some(plugin) = found else {
             self.log.error(format!("The plugin {plugin} is not enabled"));
@@ -917,22 +1346,44 @@ impl Moonglow {
         self.install_plugin_from(&path);
     }
 
-    /// Installs a plugin from its archive into the plugins folder. None
-    /// of its code runs, and nothing is enabled. One installed from an
-    /// archive before is replaced only after a yes ([`Plugins::replace`]).
+    /// Installs a plugin from its archive into the plugins folder (each
+    /// plugin of an archive of several). None of its code runs, and
+    /// nothing is enabled. One installed from an archive before is
+    /// replaced only after a yes ([`Plugins::replace`]), asked of each.
     pub fn install_plugin_from(&mut self, path: &Path) {
         let Some(dir) = self.plugin_dir.clone() else { return };
         self.plugins.window = true;
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let read = || Package::open(path).map_err(|e| e.to_string());
-        match read() {
-            Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
-            Ok(package) => match package.existing(&dir) {
+        let read = || Package::open_all(path).map_err(|e| e.to_string());
+        let packages = match read() {
+            Err(e) => {
+                self.install_said(Level::Error, format!("{file} was not installed: {e}"));
+                return;
+            }
+            Ok(packages) => packages,
+        };
+        let mut said = Vec::new();
+        for package in packages {
+            match package.existing(&dir) {
                 Existing::Installed { version } => {
-                    self.plugins.replace = Some(Replace { package, file, installed: version });
+                    let r = Replace { package, file: file.clone(), installed: version };
+                    match self.plugins.replace {
+                        None => self.plugins.replace = Some(r),
+                        Some(_) => self.plugins.replace_next.push_back(r),
+                    }
                 }
-                _ => self.install_package(&package, &file, false),
-            },
+                _ => {
+                    self.install_package(&package, &file, false);
+                    said.extend(self.plugins.install_note.clone());
+                }
+            }
+        }
+        // (Of several, what became of each.)
+        if said.len() > 1 {
+            let worst =
+                said.iter().map(|(l, _)| *l).max_by_key(|l| *l as u8).unwrap_or(Level::Info);
+            let text: Vec<String> = said.into_iter().map(|(_, t)| t).collect();
+            self.plugins.install_note = Some((worst, text.join("\n")));
         }
     }
 
@@ -995,8 +1446,11 @@ impl Moonglow {
         let code = self.plugins.console.clone();
         // (With what is selected and open, as a command from the Plugins
         // menu has them: to try `ctx.selection` on.)
-        let selection =
-            mg_plugin::Selection { selected: self.plugin_selection(), open: self.plugin_open() };
+        let selection = mg_plugin::Selection {
+            selected: self.plugin_selection(),
+            open: self.plugin_open(),
+            together: self.plugin_together(),
+        };
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_console(&code, Input { selection, ..input }, host)
         };
@@ -1081,8 +1535,10 @@ impl Moonglow {
         };
         let title = title.trim_end_matches('…');
         // Its haks first (the user agreed to each while it ran): the
-        // module's edits may name them.
+        // module's edits may name them. Each is kept as it was, so that
+        // the edits failing, or their Undo, takes it back.
         let (mut wrote, mut wrote_files) = (false, false);
+        let mut written: Vec<mg_plugin::HakWritten> = Vec::new();
         let result = result.and_then(|outcome| {
             let dir = self.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir);
             for hak in &outcome.haks {
@@ -1092,18 +1548,25 @@ impl Moonglow {
                         hak.name
                     )));
                 };
-                match hak.write(&dir) {
-                    Ok((added, replaced)) => {
+                match hak.write_kept(&dir) {
+                    Ok(done) => {
                         wrote = true;
+                        let undone = if outcome.edits.is_empty() {
+                            "with no edits, Undo doesn't take a hak back"
+                        } else {
+                            "Edit › Undo takes it back with the edits"
+                        };
                         say(
                             self,
                             Level::Info,
                             format!(
-                                "{name}: {title} put {} resources into {} ({replaced} replaced; Undo doesn't take a hak back)",
-                                added + replaced,
-                                dir.join(format!("{}.hak", hak.name)).display()
+                                "{name}: {title} put {} resources into {} ({} replaced; {undone})",
+                                done.added + done.replaced,
+                                done.path.display(),
+                                done.replaced,
                             ),
                         );
+                        written.push(done);
                     }
                     Err(e) => {
                         return Err(PluginError::Package(format!(
@@ -1138,11 +1601,16 @@ impl Moonglow {
             }
             Ok(outcome)
         });
+        // (Nothing of it goes in: what it wrote into haks is taken back.)
+        if result.is_err() {
+            wrote |= self.take_haks_back(&mut written, name, title, console);
+        }
         if wrote {
             // (A hak the module has already is read again.)
             self.reload_resources(false);
         }
-        // What it set, for the caller to keep: of a job that did not fail.
+        // What it set, for the caller to keep: of a job that did not fail,
+        // and whose edits went in (taken back below where they did not).
         self.plugins.last_set =
             result.as_ref().ok().map(|o| o.settings.clone()).filter(|s| !s.is_empty());
         match result {
@@ -1160,21 +1628,114 @@ impl Moonglow {
                 }
                 let n = resources.len();
                 match self.apply(Command::new(outcome.label, outcome.edits)) {
-                    Ok(()) => say(
-                        self,
-                        Level::Info,
-                        format!(
-                            "{name}: {title} changed {n} resource{} (Edit › Undo takes it back)",
-                            if n == 1 { "" } else { "s" }
-                        ),
-                    ),
-                    Err(e) => say(self, Level::Error, format!("{name}: {title}: {e}")),
+                    Ok(()) => {
+                        // (Its haks go with its step of Undo.)
+                        if !written.is_empty()
+                            && let Some(step) = self.ws.as_ref().and_then(|w| w.last_step())
+                        {
+                            self.plugins.hak_steps.push((step, std::mem::take(&mut written)));
+                        }
+                        say(
+                            self,
+                            Level::Info,
+                            format!(
+                                "{name}: {title} changed {n} resource{} (Edit › Undo takes it back)",
+                                if n == 1 { "" } else { "s" }
+                            ),
+                        )
+                    }
+                    // (Held for the builder's answer, it may still go in:
+                    // its haks stay.)
+                    Err(e) if self.claims.held => {
+                        say(self, Level::Error, format!("{name}: {title}: {e}"))
+                    }
+                    Err(e) => {
+                        say(self, Level::Error, format!("{name}: {title}: {e}"));
+                        if self.take_haks_back(&mut written, name, title, console) {
+                            self.reload_resources(false);
+                        }
+                        if self.plugins.last_set.take().is_some() {
+                            say(
+                                self,
+                                Level::Info,
+                                format!("{name}: {title}: what it set is not kept"),
+                            );
+                        }
+                    }
                 }
             }
             Err(PluginError::Canceled(_)) => {
                 say(self, Level::Info, format!("{name}: {title} canceled"))
             }
             Err(e) => say(self, Level::Error, e.to_string()),
+        }
+    }
+}
+
+impl Moonglow {
+    /// Takes back what a plugin's command wrote into haks, whose edits did
+    /// not go in: whether a hak changed.
+    fn take_haks_back(
+        &mut self,
+        written: &mut Vec<mg_plugin::HakWritten>,
+        name: &str,
+        title: &str,
+        console: bool,
+    ) -> bool {
+        let mut changed = false;
+        for mut done in written.drain(..).rev() {
+            let (level, text) = match done.undo() {
+                Ok(()) => {
+                    changed = true;
+                    let how = if done.was_there() { "as it was" } else { "not made" };
+                    (Level::Info, format!("{name}: {title}: {} {how}", done.path.display()))
+                }
+                Err(e) => (Level::Warning, format!("{name}: {title}: {e}")),
+            };
+            if console {
+                self.plugins.console_output.push((level, text.clone()));
+            }
+            self.log.said(level, text);
+        }
+        changed
+    }
+
+    /// After Undo (`redo`: Redo) of step `step`: takes back (writes again)
+    /// the haks a plugin's command wrote with it.
+    pub(crate) fn plugin_haks_follow(&mut self, step: Option<u64>, redo: bool) {
+        // (Those of steps gone, dropped from Redo or of another module, go.)
+        match &self.ws {
+            Some(ws) => self.plugins.hak_steps.retain(|(s, _)| ws.has_step(*s)),
+            None => self.plugins.hak_steps.clear(),
+        }
+        let Some(step) = step else { return };
+        let Some((_, haks)) = self.plugins.hak_steps.iter_mut().find(|(s, _)| *s == step) else {
+            return;
+        };
+        let mut said = Vec::new();
+        let mut changed = false;
+        let order: Vec<usize> =
+            if redo { (0..haks.len()).collect() } else { (0..haks.len()).rev().collect() };
+        for i in order {
+            let done = &mut haks[i];
+            match if redo { done.redo() } else { done.undo() } {
+                Ok(()) => {
+                    changed = true;
+                    let what = match (redo, done.was_there()) {
+                        (true, _) => "written again",
+                        (false, true) => "as it was",
+                        (false, false) => "taken away (the plugin made it)",
+                    };
+                    said.push((Level::Info, format!("{}: {what}", done.path.display())));
+                }
+                Err(e) => said.push((Level::Warning, e)),
+            }
+        }
+        for (l, text) in said {
+            self.log.said(l, text);
+        }
+        if changed {
+            self.reload_resources(false);
         }
     }
 }
@@ -1340,7 +1901,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
     let mut forgotten = None;
-    let (mut toggle_project, mut open_settings) = (None, None);
+    let (mut toggle_project, mut open_settings, mut run_tests) = (None, None, None);
     let allowed: std::collections::HashMap<String, usize> = (app.plugins.installed.iter())
         .filter_map(|i| i.plugin.as_ref().ok())
         .map(|p| (p.manifest.id.clone(), app.plugin_grants(&p.manifest.id)))
@@ -1367,6 +1928,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                  change it.",
                 mg_plugin::API
             ));
+            // How long what plugins do within a save, a paste or a
+            // wizard's Finish may take.
+            ui.horizontal(|ui| {
+                let mut seconds = app.plugin_event_budget().as_secs() as u32;
+                crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
+                    "How long each plugin's handlers of a save, a paste or a wizard's Finish \
+                         may take, which wait for them; past it, they are stopped (and a save \
+                         goes on)",
+                );
+                let r = ui.add(
+                    egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"),
+                );
+                if r.changed() {
+                    app.settings.plugin_event_seconds = seconds;
+                }
+            });
             ui.add_space(4.0);
             // The buttons first, the folder under them: its path may be
             // longer than the window is wide.
@@ -1498,6 +2075,19 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 {
                                     open_settings = Some(m.id.clone());
                                 }
+                                // (Its own tests, as `mg plugin test` runs them.)
+                                if let Ok(p) = &installed.plugin
+                                    && !mg_plugin::test_files(p).is_empty()
+                                    && ui
+                                        .small_button("Run Tests")
+                                        .on_hover_text(
+                                            "Its own tests (tests/*.toml), on their fixtures: \
+                                             the log says what each came to",
+                                        )
+                                        .clicked()
+                                {
+                                    run_tests = Some(p.clone());
+                                }
                             });
                             ui.indent(("plugin", &m.id, installed.project), |ui| {
                                 if let Some(t) = trust {
@@ -1576,6 +2166,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some(id) = open_settings {
         app.open_plugin_settings(&id);
     }
+    if let Some(p) = run_tests {
+        app.run_plugin_tests(p);
+    }
     if let Some(id) = forgotten {
         app.forget_plugin_grants(&id);
     }
@@ -1607,7 +2200,7 @@ fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
         let menus = match c.targets.as_slice() {
             [] => String::new(),
             t => {
-                let names: Vec<&str> = t.iter().map(|t| t.name()).collect();
+                let names: Vec<String> = t.iter().map(|t| t.name()).collect();
                 format!(" (right-click: {})", names.join(", "))
             }
         };
@@ -1733,10 +2326,22 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
              yours only when you choose it or allow it.",
         );
         ui.add_space(6.0);
-        later = ui
-            .button("Decide Later")
-            .on_hover_text("They stay off now, and you are asked when the project is next opened")
-            .clicked();
+        ui.horizontal(|ui| {
+            if asked.len() > 1
+                && ui
+                    .button("Allow All")
+                    .on_hover_text("Each one's code runs: as it is now")
+                    .clicked()
+            {
+                answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
+            }
+            later = ui
+                .button("Decide Later")
+                .on_hover_text(
+                    "They stay off now, and you are asked when the project is next opened",
+                )
+                .clicked();
+        });
     });
     for (id, allow) in answers {
         app.allow_project_plugin(&id, allow);
@@ -1759,8 +2364,9 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     };
     let project = app.project_root();
+    let faults = app.plugin_settings_faults(&p);
     let mut form = form.clone();
-    let (mut save, mut cancel, mut defaults) = (false, false, false);
+    let (mut save, mut cancel, mut defaults, mut tidy) = (false, false, false, false);
     let mut open = true;
     let title = format!("Settings: {}", p.manifest.name);
     crate::widgets::dialog(ctx, &title, &mut open)
@@ -1798,6 +2404,31 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 },
             );
+            // What is kept wrong, to tidy.
+            if !faults.is_empty() {
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    let n = faults.len();
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "{n} value{} kept {} not as the plugin declares {}.",
+                            if n == 1 { "" } else { "s" },
+                            if n == 1 { "is" } else { "are" },
+                            if n == 1 { "it" } else { "them" },
+                        ),
+                    )
+                    .on_hover_text(faults.join("\n"));
+                    tidy = ui
+                        .button("Tidy Up")
+                        .on_hover_text(
+                            "Take out what is not of its kind or of no setting (its default is \
+                             used, as now), and move what is in the other file where its scope \
+                             keeps it",
+                        )
+                        .clicked();
+                });
+            }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 save = ui.button("Save").on_hover_text("Keep these values").clicked();
@@ -1816,11 +2447,33 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     }
     app.plugins.settings_form = Some(form);
-    if save {
+    if tidy {
+        app.tidy_plugin_settings(&p.manifest.id);
+    } else if save {
         app.save_plugin_settings();
     } else if cancel || !open {
         app.plugins.settings_form = None;
     }
+}
+
+/// A value as the form keeps it: a list's lines that are empty left out
+/// (they are kept while it is edited, for the next to be typed).
+fn tidy(v: &mg_plugin::SettingValue) -> mg_plugin::SettingValue {
+    match v {
+        mg_plugin::SettingValue::List(items) => mg_plugin::SettingValue::List(
+            items.iter().map(|i| i.trim().to_string()).filter(|i| !i.is_empty()).collect(),
+        ),
+        v => v.clone(),
+    }
+}
+
+/// A color as `#rrggbb` reads, and back.
+fn rgb_of(text: &str) -> Option<[u8; 3]> {
+    if !mg_plugin::is_color(text) {
+        return None;
+    }
+    let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).ok();
+    Some([byte(1)?, byte(3)?, byte(5)?])
 }
 
 /// One setting's field in the settings' form.
@@ -1840,6 +2493,58 @@ fn setting_field(
             let range = min.unwrap_or(i64::MIN)..=max.unwrap_or(i64::MAX);
             ui.add(egui::DragValue::new(n).range(range));
         }
+        (SettingKind::Float { min, max }, SettingValue::Float(x)) => {
+            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
+            ui.add(egui::DragValue::new(x).range(range).speed(0.05).max_decimals(4));
+        }
+        (SettingKind::List(choices), SettingValue::List(items)) if !choices.is_empty() => {
+            // (Each choice ticked or not, in the choices' order, one a line.)
+            ui.vertical(|ui| {
+                for c in choices {
+                    let mut on = items.contains(c);
+                    if ui.checkbox(&mut on, c).changed() {
+                        let mut now: Vec<String> =
+                            choices.iter().filter(|x| items.contains(x)).cloned().collect();
+                        match on {
+                            true if !now.contains(c) => {
+                                now = (choices.iter())
+                                    .filter(|x| now.contains(x) || *x == c)
+                                    .cloned()
+                                    .collect();
+                            }
+                            false => now.retain(|x| x != c),
+                            _ => {}
+                        }
+                        *items = now;
+                    }
+                }
+            });
+        }
+        (SettingKind::List(_), SettingValue::List(items)) => {
+            let mut text = items.join("\n");
+            let edit = egui::TextEdit::multiline(&mut text).desired_rows(3).desired_width(220.0);
+            if ui.add(edit).on_hover_text("One a line").changed() {
+                *items = text.split('\n').map(str::to_string).collect();
+            }
+        }
+        (SettingKind::Color, SettingValue::Text(hex)) => {
+            ui.horizontal(|ui| {
+                let mut rgb = rgb_of(hex).unwrap_or_default();
+                if ui.color_edit_button_srgb(&mut rgb).changed() {
+                    *hex = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
+                }
+                ui.add(egui::TextEdit::singleline(hex).desired_width(70.0));
+            });
+        }
+        (SettingKind::Pattern(_), SettingValue::Text(text)) => {
+            ui.vertical(|ui| {
+                ui.add(egui::TextEdit::singleline(text).desired_width(220.0));
+                // (What it is held to, said as it is typed.)
+                if let Err(why) = d.check(&SettingValue::Text(text.clone())) {
+                    ui.colored_label(ui.visuals().warn_fg_color, why);
+                }
+            });
+        }
         (SettingKind::Choice(choices), SettingValue::Text(chosen)) => {
             crate::widgets::dropdown(("plugin-setting", &d.id)).selected_text(chosen.clone()).show(
                 ui,
@@ -1848,12 +2553,23 @@ fn setting_field(
                 Clone::clone,
             );
         }
-        (SettingKind::Path, SettingValue::Text(path)) => {
+        (SettingKind::Path { folder }, SettingValue::Text(path)) => {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(path).desired_width(200.0));
-                if ui.small_button("Choose…").clicked()
-                    && let Some(chosen) = app.dialogs.open_file_of(d.shown(), &[])
-                {
+                let start = std::path::Path::new(path.as_str());
+                let start = match project.as_ref().filter(|_| d.scope.in_project()) {
+                    Some(root) if start.is_relative() => root.join(start),
+                    _ => start.to_path_buf(),
+                };
+                let start = start.is_dir().then_some(start);
+                let tip = if *folder { "Choose a folder" } else { "Choose a file" };
+                let chose = ui.small_button("Choose…").on_hover_text(tip).clicked();
+                let chosen = match (chose, *folder) {
+                    (false, _) => None,
+                    (true, true) => app.dialogs.pick_folder(d.shown(), start.as_deref()),
+                    (true, false) => app.dialogs.open_file_of(d.shown(), &[]),
+                };
+                if let Some(chosen) = chosen {
                     // (Of the project, from its root: the same on every
                     // builder's machine.)
                     let inside = project
@@ -1904,6 +2620,10 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     } else if no || modal.should_close() {
         app.plugins.replace = None;
+    }
+    // (Of an archive of several, the next one installed already.)
+    if app.plugins.replace.is_none() {
+        app.plugins.replace = app.plugins.replace_next.pop_front();
     }
 }
 

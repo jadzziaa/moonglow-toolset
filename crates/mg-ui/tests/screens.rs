@@ -5833,6 +5833,39 @@ fn project_plugins() {
     }
     h.run();
     shoot(&mut h, &dir, "plugin-settings");
+    // The kinds API 0.5 added (`plugin-settings-kinds`), with a value of
+    // the team's kept wrong, to tidy.
+    let kinds = dir.join("installed/kinds");
+    std::fs::create_dir_all(&kinds).unwrap();
+    std::fs::write(
+        kinds.join("plugin.cfg"),
+        "[plugin]\nid = \"test.kinds\"\nname = \"Kinds\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"scale\"\nlabel = \"Scale\"\ntype = \"float\"\nmin = 0\nmax = \
+         4\ndefault = 1.5\n\n[setting]\nid = \"objects\"\nlabel = \"Objects\"\ntype = \"list\"\n\
+         choices = \"creature, door, placeable, trigger\"\ndefault = \"door\"\n\n[setting]\nid = \
+         \"words\"\nlabel = \"Words\"\ntype = \"list\"\ndefault = \"inn, tavern\"\n\n[setting]\nid \
+         = \"tint\"\nlabel = \"Tint\"\ntype = \"color\"\ndefault = \"#336699\"\n\n[setting]\nid = \
+         \"code\"\nlabel = \"Code\"\npattern = \"[a-z]{2}\"\ndefault = \"ab\"\n\n[setting]\nid = \
+         \"out\"\nlabel = \"Output folder\"\ntype = \"path\"\npick = \"folder\"\n\n[setting]\nid = \
+         \"most\"\nlabel = \"Most\"\ntype = \"int\"\nmax = 9\nscope = \"project\"\n",
+    )
+    .unwrap();
+    std::fs::write(kinds.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    let team = project.join("moonglow.toml");
+    let text = std::fs::read_to_string(&team).unwrap();
+    std::fs::write(&team, format!("{text}\n[plugins.\"test.kinds\"]\nmost = 40\n")).unwrap();
+    h.state_mut().plugins.settings_form = None;
+    h.state_mut().plugin_dir = Some(dir.join("installed"));
+    h.state_mut().open_module(&project);
+    h.state_mut().load_plugins();
+    h.state_mut().plugins.project_asking.clear();
+    h.state_mut().open_plugin_settings("test.kinds");
+    if let Some(form) = h.state_mut().plugins.settings_form.as_mut() {
+        form.values.insert("code".into(), mg_plugin::SettingValue::Text("xyz".into()));
+    }
+    h.run();
+    h.run();
+    shoot(&mut h, &dir, "plugin-settings-kinds");
 }
 
 /// The application with `app`'s NUI window `key` open in a window of

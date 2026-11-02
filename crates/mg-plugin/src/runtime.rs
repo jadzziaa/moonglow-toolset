@@ -92,6 +92,10 @@ pub(crate) struct Shared {
     edits: RefCell<Vec<Edit>>,
     /// What the job wants written into haks, each hak once.
     pub(crate) haks: RefCell<Vec<HakWrite>>,
+    /// How many bytes of it are held in memory ([`crate::HELD_IN_MEMORY`]),
+    /// and the scratch files of those past them.
+    pub(crate) held_bytes: std::cell::Cell<usize>,
+    pub(crate) held: RefCell<Option<Arc<crate::Held>>>,
     /// What the job wants written into folders the user chose.
     pub(crate) folders: RefCell<Vec<crate::FolderWrite>>,
     pub(crate) game: Option<Arc<GameData>>,
@@ -799,7 +803,7 @@ fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
 
 /// The fields of an entry of `ctx.selection` (and of `ctx.open`), as the
 /// reference names them.
-pub(crate) const SELECTED: [&str; 10] = [
+pub(crate) const SELECTED: [&str; 13] = [
     "selected.kind",
     "selected.resource",
     "selected.path",
@@ -810,6 +814,9 @@ pub(crate) const SELECTED: [&str; 10] = [
     "selected.tag",
     "selected.resref",
     "selected.layer",
+    "selected.x",
+    "selected.y",
+    "selected.together",
 ];
 
 /// An entry of `ctx.selection`, or `ctx.open`: what it is, where it is
@@ -828,6 +835,16 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
         Selected::Object { area, index, .. } => {
             t.set("area", area.to_string())?;
             t.set("index", *index)?;
+        }
+        // (Its column and row, by the area's width.)
+        Selected::Tile { area, index } => {
+            t.set("area", area.to_string())?;
+            t.set("index", *index)?;
+            let width = sh.gff(&key, false).ok().and_then(|g| g.root.integer("Width"));
+            if let Some(w) = width.filter(|w| *w > 0).map(|w| w as usize) {
+                t.set("x", index % w)?;
+                t.set("y", index / w)?;
+            }
         }
         Selected::Area(area) => t.set("area", area.to_string())?,
         Selected::Copy { layer, .. } => t.set("layer", layer.as_str())?,
@@ -853,15 +870,37 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
         // (What a placed object was made from; else its own name.)
         let resref = match s {
             Selected::Object { .. } => at.resref("TemplateResRef"),
+            Selected::Tile { .. } => None,
             _ => Some(key.resref),
         };
         if let Some(r) = resref {
             t.set("resref", r.to_string())?;
         }
-    } else if !matches!(s, Selected::Object { .. }) {
+    } else if !matches!(s, Selected::Object { .. } | Selected::Tile { .. }) {
         t.set("resref", key.resref.to_string())?;
     }
     Ok(t)
+}
+
+/// The lines of a text that differ between `old` and `new`, as
+/// `ctx.event.changed` gives them: what is between the lines they begin
+/// and end with alike, each line taken out (`12: - text`) and put in
+/// (`12: + text`) by its number, at most `most`.
+pub(crate) fn text_changes(old: &str, new: &str, most: usize) -> Vec<String> {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let head = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let tail =
+        (a[head..].iter().rev()).zip(b[head..].iter().rev()).take_while(|(x, y)| x == y).count();
+    let mut out = Vec::new();
+    for (i, l) in a[head..a.len() - tail].iter().enumerate() {
+        out.push(format!("{}: - {l}", head + i + 1));
+    }
+    for (i, l) in b[head..b.len() - tail].iter().enumerate() {
+        out.push(format!("{}: + {l}", head + i + 1));
+    }
+    out.truncate(most);
+    out
 }
 
 /// A setting's value as the plugin reads it.
@@ -870,6 +909,10 @@ fn setting_value(lua: &Lua, v: &crate::SettingValue) -> mlua::Result<LuaValue> {
         crate::SettingValue::Text(t) => LuaValue::String(lua.create_string(t)?),
         crate::SettingValue::Int(n) => LuaValue::Integer(*n),
         crate::SettingValue::Bool(b) => LuaValue::Boolean(*b),
+        crate::SettingValue::Float(x) => LuaValue::Number(*x),
+        crate::SettingValue::List(items) => {
+            LuaValue::Table(lua.create_sequence_from(items.iter().map(String::as_str))?)
+        }
     })
 }
 
@@ -896,18 +939,38 @@ fn settings_table(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
                 d.scope.name()
             ));
         }
+        let float = matches!(d.kind, crate::SettingKind::Float { .. });
         let given = match &value {
             LuaValue::Nil => None,
             LuaValue::String(t) => Some(crate::SettingValue::Text(t.to_str()?.to_string())),
             LuaValue::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+            LuaValue::Integer(n) if float => Some(crate::SettingValue::Float(*n as f64)),
             LuaValue::Integer(n) => Some(crate::SettingValue::Int(*n)),
+            LuaValue::Number(n) if float => Some(crate::SettingValue::Float(*n)),
             LuaValue::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
                 Some(crate::SettingValue::Int(*n as i64))
             }
+            LuaValue::Number(n) => Some(crate::SettingValue::Float(*n)),
+            // (A list: its texts, from 1.)
+            LuaValue::Table(t) => {
+                let mut items = Vec::new();
+                for v in t.clone().sequence_values::<LuaValue>() {
+                    match v? {
+                        LuaValue::String(s) => items.push(s.to_str()?.to_string()),
+                        other => {
+                            return fail(format!(
+                                "ctx.settings:set({name:?}, …): a list's items are texts, not {}",
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                Some(crate::SettingValue::List(items))
+            }
             other => {
                 return fail(format!(
-                    "ctx.settings:set({name:?}, …): {} is no setting's value (text, a whole \
-                     number, true or false; nil for its default)",
+                    "ctx.settings:set({name:?}, …): {} is no setting's value (text, a number, \
+                     true or false, a list of texts; nil for its default)",
                     other.type_name()
                 ));
             }
@@ -1017,7 +1080,16 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
     }
     ctx.set("selection", chosen)?;
     if let Some(open) = &sh.selection.open {
-        ctx.set("open", selected(lua, sh, open)?)?;
+        let entry = selected(lua, sh, open)?;
+        // (Several edited together: each, the first being `open` itself.)
+        if !sh.selection.together.is_empty() {
+            let together = lua.create_table()?;
+            for (i, s) in sh.selection.together.iter().enumerate() {
+                together.raw_seti(i + 1, selected(lua, sh, s)?)?;
+            }
+            entry.set("together", together)?;
+        }
+        ctx.set("open", entry)?;
     }
 
     let log = lua.create_table()?;
@@ -1394,6 +1466,8 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
         haks: RefCell::new(Vec::new()),
+        held_bytes: std::cell::Cell::new(0),
+        held: RefCell::new(None),
         folders: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),
@@ -1562,6 +1636,16 @@ fn event_table(
                                 let lines = mg_gff::diff(&a, &b, CHANGED_LINES);
                                 LuaValue::Table(lua.create_sequence_from(lines)?)
                             }
+                            // (A script or another text: its lines that
+                            // differ.)
+                            (false, _, _) => match (before.as_deref(), now().as_deref()) {
+                                (Some(a), Some(b)) => {
+                                    let text = |b: &[u8]| codepage().decode(b).into_owned();
+                                    let lines = text_changes(&text(a), &text(b), CHANGED_LINES);
+                                    LuaValue::Table(lua.create_sequence_from(lines)?)
+                                }
+                                _ => LuaValue::Nil,
+                            },
                             _ => LuaValue::Nil,
                         }
                     }
@@ -1583,7 +1667,7 @@ fn event_table(
                         return fail(format!("ctx.event:{name}(text): say why"));
                     }
                     let what = format!("ctx.event:{name}'s fix");
-                    let fix = fix_of(&records, fix, &what)?;
+                    let fix = fix_of(&records, fix, &what, None)?;
                     said.borrow_mut().push(crate::Said { resource: key, text, refused, fix });
                     Ok(())
                 })?,
@@ -1706,6 +1790,9 @@ pub(crate) fn run_event(
 struct FixRecord {
     label: String,
     job: Option<Rc<Shared>>,
+    /// For a fix that asks: the plugin's command its button runs, and on
+    /// what (a resource and where in it; none: the finding's resource).
+    asks: Option<(String, Option<(ResKey, GffPath)>)>,
 }
 
 /// The methods of a fix: those of `ctx.edit`, as the reference writes them.
@@ -1730,12 +1817,35 @@ fn fix_maker(
     records: &Rc<RefCell<Vec<FixRecord>>>,
 ) -> mlua::Result<Function> {
     let (sh, records) = (sh.clone(), records.clone());
-    lua.create_function(move |lua, label: String| {
+    lua.create_function(move |lua, (label, options): (String, Option<Table>)| {
         if label.trim().is_empty() {
             return fail("ctx.fix(label): the label is what its button says, and needs words");
         }
+        // (A fix that asks: a command of the plugin's, run on the finding's
+        // place when the button is clicked; API 0.5.)
+        let asks = match &options {
+            None => None,
+            Some(o) => {
+                let command: String = o.get("command").or_else(|_| {
+                    fail("ctx.fix(label, { command = \"…\" }): the command its button runs")
+                })?;
+                let on = match o.get::<Option<Table>>("on")? {
+                    None => None,
+                    Some(s) => {
+                        let resource: String = s.get("resource")?;
+                        let path: Option<String> = s.get("path")?;
+                        let path = match path.as_deref() {
+                            None | Some("") => GffPath::root(),
+                            Some(p) => p.parse().or_else(fail)?,
+                        };
+                        Some((key_of(&resource)?, path))
+                    }
+                };
+                Some((command, on))
+            }
+        };
         let n = records.borrow().len();
-        records.borrow_mut().push(FixRecord { label: label.clone(), job: None });
+        records.borrow_mut().push(FixRecord { label: label.clone(), job: None, asks });
         let fix = lua.create_table()?;
         fix.set("label", label)?;
         let meta = lua.create_table()?;
@@ -1772,11 +1882,13 @@ fn fix_maker(
 }
 
 /// A fix given with a finding or a warning: one made with `ctx.fix`, and
-/// only if it edits (`what`: what it was given as, for the error).
+/// only if it edits (`what`: what it was given as, for the error), or (a
+/// finding's, `about` its resource; `plugin` the plugin) runs a command.
 fn fix_of(
     records: &RefCell<Vec<FixRecord>>,
     given: LuaValue,
     what: &str,
+    asking: Option<(&Manifest, ResKey)>,
 ) -> mlua::Result<Option<Fix>> {
     match given {
         LuaValue::Nil => Ok(None),
@@ -1789,10 +1901,39 @@ fn fix_of(
             let Some(record) = n.and_then(|n| all.get(n)) else {
                 return fail(format!("{what} is one made with ctx.fix(label)"));
             };
+            if let Some((command, on)) = &record.asks {
+                let Some((manifest, about)) = asking else {
+                    return fail(format!(
+                        "{what} is one that edits: a fix that asks is a finding's"
+                    ));
+                };
+                if !manifest.commands.iter().any(|c| c.id == *command) {
+                    return fail(format!(
+                        "{what}: the manifest declares no command {command:?} for it to run"
+                    ));
+                }
+                if record.job.as_ref().is_some_and(|j| !j.edits.borrow().is_empty()) {
+                    return fail(format!(
+                        "{what}: a fix that asks runs its command, and edits none"
+                    ));
+                }
+                let on = on.clone().unwrap_or((about, GffPath::root()));
+                return Ok(Some(Fix {
+                    label: record.label.clone(),
+                    edits: Vec::new(),
+                    asks: Some(mg_edit::fix::Asks {
+                        plugin: manifest.id.clone(),
+                        command: command.clone(),
+                        on: vec![on],
+                    }),
+                }));
+            }
             let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
-            Ok(edits
-                .filter(|e| !e.is_empty())
-                .map(|edits| Fix { label: record.label.clone(), edits }))
+            Ok(edits.filter(|e| !e.is_empty()).map(|edits| Fix {
+                label: record.label.clone(),
+                edits,
+                asks: None,
+            }))
         }
         _ => fail(format!("{what} is one made with ctx.fix(label)")),
     }
@@ -1831,13 +1972,16 @@ pub(crate) fn run_check(
                     ));
                 }
             };
-            // Its fix: one made with ctx.fix, and only if it edits.
-            let fix = fix_of(&records, f.get::<LuaValue>("fix")?, "a finding's fix")?;
+            // Its fix: one made with ctx.fix, and only if it edits (or
+            // asks, running a command).
+            let resource = key_of(&f.get::<String>("resource")?)?;
+            let asking = Some((&plugin.manifest, resource));
+            let fix = fix_of(&records, f.get::<LuaValue>("fix")?, "a finding's fix", asking)?;
             let finding = Finding {
                 severity,
                 check: plugin.check_id(&decl.id).into(),
                 source: "module".into(),
-                resource: key_of(&f.get::<String>("resource")?)?,
+                resource,
                 at: f.get::<Option<String>>("at")?.unwrap_or_default(),
                 message: f.get("message")?,
             };

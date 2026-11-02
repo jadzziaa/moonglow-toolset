@@ -554,6 +554,12 @@ pub(crate) fn context_menu(
         delete(app, view);
         ui.close();
     }
+    // The plugins' commands for tiles, run on them.
+    let commands = app.plugin_menu_commands();
+    if !commands.is_empty() {
+        let tiles = app.tiles_of(view.area, &cells);
+        crate::plugins::menu_on(ui, &commands, &tiles, &mut app.actions);
+    }
     // Properties last, as in Aurora's menus.
     ui.separator();
     if ui.button("Tile Properties…").clicked() {

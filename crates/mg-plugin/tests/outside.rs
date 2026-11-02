@@ -155,6 +155,86 @@ fn a_hak_takes_resources_with_the_user_s_leave() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A hak a job wrote is kept as it was and as it was written, so that the
+/// command's Undo (or its edits failing) takes it back and Redo writes it
+/// again: a hak that was there comes back as it was, one the job made
+/// goes; one changed since is left as it is. The copies go with the
+/// record.
+#[test]
+fn a_hak_written_is_taken_back_and_written_again() {
+    let dir = scratch("hak-undo");
+    let haks = dir.join("hak");
+    std::fs::create_dir_all(&haks).unwrap();
+    let job = |code: &str| {
+        let h = host([Some(Answer::Yes)]);
+        console(code, &h).unwrap().haks.remove(0)
+    };
+    let read = |name: &str| {
+        let hak = mg_module::hak_edit::Hak::open(&haks.join(format!("{name}.hak"))).unwrap();
+        let mut keys: Vec<String> = hak.items().iter().map(|i| i.key.to_string()).collect();
+        keys.sort();
+        keys
+    };
+    // There before: added to, then taken back and written again.
+    job(r#"ctx.hak:write("there", "one.txt", "1")"#).write(&haks).unwrap();
+    let mut done = job(r#"ctx.hak:write("there", "two.txt", "2")"#).write_kept(&haks).unwrap();
+    assert!(done.was_there());
+    assert_eq!(read("there"), ["one.txt", "two.txt"]);
+    done.undo().unwrap();
+    assert_eq!(read("there"), ["one.txt"]);
+    done.redo().unwrap();
+    assert_eq!(read("there"), ["one.txt", "two.txt"]);
+    // Made: taken back, it is gone.
+    let mut made = job(r#"ctx.hak:write("made", "a.txt", "a")"#).write_kept(&haks).unwrap();
+    assert!(!made.was_there());
+    made.undo().unwrap();
+    assert!(!haks.join("made.hak").exists());
+    made.redo().unwrap();
+    assert_eq!(read("made"), ["a.txt"]);
+    // Changed since (another write): left as it is, and said.
+    job(r#"ctx.hak:write("made", "b.txt", "b")"#).write(&haks).unwrap();
+    let e = made.undo().unwrap_err();
+    assert!(e.contains("was changed since"), "{e}");
+    assert_eq!(read("made"), ["a.txt", "b.txt"]);
+    // The copies, in the hak folder's hidden folder, go with the records.
+    let copies = haks.join(format!("{}{}", mg_plugin::UNDO_FOLDER, std::process::id()));
+    assert!(copies.is_dir());
+    drop((done, made));
+    assert!(!copies.exists(), "the copies go");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a job puts into haks past what it holds in memory waits in
+/// scratch files, read back as the rest (`ctx.game` reads it), written
+/// into the hak, and taken away with the job's haks.
+#[test]
+fn a_job_s_haks_past_its_memory_wait_in_scratch_files() {
+    let dir = scratch("hak-held");
+    let mb = 1 << 20;
+    let n = mg_plugin::HELD_IN_MEMORY / mb + 3;
+    let code = format!(
+        r#"local chunk = string.rep("x", {mb})
+        for i = 1, {n} do ctx.hak:write("big", "part" .. i .. ".txt", chunk .. i) end
+        assert(ctx.game:bytes("part{n}.txt") == chunk .. {n})"#
+    );
+    let h = host([Some(Answer::Yes)]);
+    let outcome = console(&code, &h).unwrap();
+    let hak = &outcome.haks[0];
+    let files = |f: &dyn Fn(&HakData) -> bool| hak.files.iter().filter(|(_, d)| f(d)).count();
+    let held = files(&|d| matches!(d, HakData::Bytes(_)));
+    assert_eq!(held, mg_plugin::HELD_IN_MEMORY / (mb + 2), "held in memory up to the limit");
+    assert_eq!(files(&|d| matches!(d, HakData::File(_))), n - held);
+    let scratch_dir = hak.held.as_ref().expect("the job's scratch files").dir().to_path_buf();
+    assert!(scratch_dir.is_dir());
+    assert_eq!(hak.write(&dir).unwrap(), (n, 0));
+    let written = mg_module::hak_edit::Hak::open(&dir.join("big.hak")).unwrap();
+    let last = written.data(ResKey::from_filename(&format!("part{n}.txt")).unwrap()).unwrap();
+    assert_eq!(last.len(), mb + format!("{n}").len());
+    drop(outcome);
+    assert!(!scratch_dir.exists(), "the scratch files go with the job's haks");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_picture_is_decoded() {
     let mut png_bytes = Vec::new();
@@ -262,6 +342,85 @@ fn an_area_is_made_and_painted() {
     let tiles = are.root.list("Tile_List").unwrap();
     assert_eq!(tiles.len(), 64);
     assert!(tiles.iter().any(|t| t.integer("Tile_Height") == Some(1)));
+}
+
+/// Every corner of a 32 × 32 area painted in a batch (`area:batch`): the
+/// area's tiles read once, what the function reads back is what its
+/// strokes left, and the tiles go in as a handful of edits, where one
+/// stroke at a time makes thousands; a batch that fails puts in none of
+/// its strokes.
+#[test]
+fn a_batch_of_strokes_goes_in_at_once() {
+    let Some(game) = game() else { return };
+    let paint = |batched: bool| {
+        let code = format!(
+            r#"
+            local resref = ctx.terrain:new_area({{ name = "Big", tileset = "ttr01", width = 32, height = 32 }})
+            local area = ctx.terrain:open(resref)
+            local function all()
+                local painted = 0
+                for y = 0, 32 do
+                    for x = 0, 32 do
+                        local t = ((x + y) % 7 == 0) and "Water" or "Grass"
+                        if area:paint(x, y, t) then painted += 1 end
+                    end
+                end
+                -- What it reads back is what the strokes left.
+                assert((area:corner(0, 0)) == "Water")
+                return painted
+            end
+            local painted = 0
+            if {batched} then
+                painted = area:batch(all)
+                -- A batch that fails puts nothing in.
+                local ok = pcall(area.batch, area, function()
+                    area:paint(16, 16, "Water")
+                    error("no")
+                end)
+                assert(not ok)
+            else
+                painted = all()
+            end
+            return painted
+            "#
+        );
+        let h = host([]);
+        let outcome = run_console(&code, Input::new(bare(), Some(game.clone())), h.clone())
+            .unwrap_or_else(|e| panic!("{e}"));
+        let painted: usize = h.log.borrow()[0].parse().unwrap();
+        (outcome, painted)
+    };
+    let (one_by_one, painted) = paint(false);
+    assert!(painted > 100, "{painted}");
+    let (batched, painted_too) = paint(true);
+    assert!(painted_too > 100, "{painted_too}");
+    // (The area's own files, then the tiles: past a few, as one list.)
+    let made =
+        |o: &Outcome| o.edits.iter().filter(|e| e.key().restype == mg_core::ResType::ARE).count();
+    assert!(made(&one_by_one) > 1000, "{} edits one by one", made(&one_by_one));
+    assert!(made(&batched) <= 3, "{} edits in a batch", made(&batched));
+    // What went in is what the plugin read: water on corner (0, 0)'s tile.
+    let module = applied(&batched);
+    let are = module.gff(&ResKey::from_filename("big.are").unwrap()).unwrap().unwrap();
+    assert_eq!(are.root.list("Tile_List").unwrap().len(), 32 * 32);
+    // (A tile set as it is given, in a batch: the strokes before it go in
+    // first, and it is read back.)
+    let check = r#"
+        local area = ctx.terrain:open("big")
+        area:batch(function()
+            area:paint(24, 24, "Water")
+            area:set_tile(30, 30, 0)
+            assert(area:tile(30, 30).id == 0 and (area:corner(24, 24)) == "Water")
+        end)
+        return (area:corner(0, 0)), (area:corner(16, 16))
+    "#;
+    let h = host([]);
+    run_console(check, Input::new(module, Some(game)), h.clone()).unwrap();
+    assert_eq!(
+        h.log.borrow().as_slice(),
+        ["\"Water\"", "\"Grass\""],
+        "the failed batch left nothing"
+    );
 }
 
 /// The example that imports a tileset's folder: its files go into a hak,

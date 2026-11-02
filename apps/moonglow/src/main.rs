@@ -512,6 +512,7 @@ fn main() -> eframe::Result<()> {
             // starts without them).
             moonglow.plugin_dir = mg_ui::recovery::data_dir().map(|d| d.join("plugins"));
             moonglow.plugin_answers = mg_ui::plugins::answers_path();
+            moonglow.plugin_values = mg_ui::plugins::values_path();
             moonglow.no_plugins = line.no_plugins;
             moonglow.load_plugins();
             moonglow.prefab_dir = mg_ui::prefabs::dir();
