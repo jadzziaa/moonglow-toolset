@@ -12,13 +12,18 @@
 //! mark. Moonglow does the same with volumes that are closed whatever the
 //! mesh: each face that faces the light is a prism, from the face moved
 //! 0.1 m to the face extruded, whose sides are drawn only where the
-//! neighbouring face doesn't face the light too ([`volume_mesh`]). A mesh
-//! that isn't closed (an open sheet, an edge of three faces or more,
-//! faces wound against each other) casts from both sides of its faces, so
-//! a lone plank casts whichever way it faces, and an edge of many faces
-//! casts no spike (the game's "shadow tearing": its volumes are torn
-//! there). The counts are z-fail ("Carmack's reverse"): right where the
-//! camera stands inside a volume.
+//! neighbouring face doesn't face the light too ([`volume_mesh`]). The
+//! sun's and moon's volumes come of the faces whose front faces the light
+//! alone, as the client's (`docs/findings.md`, "A face casts the sun's
+//! shadow from its front only": a single wall with its back to the sun
+//! casts nothing); a face turned from it is no prism, and an edge of many
+//! faces casts no spike (the game's "shadow tearing": its volumes are
+//! torn there), each face its own prism. A light's volumes of a mesh that
+//! isn't closed (an open sheet, an edge of three faces or more, faces
+//! wound against each other) come of both sides of its faces (not read
+//! in the client), so a lone plank casts whichever way it faces. The
+//! counts are z-fail ("Carmack's reverse"): right where the camera stands
+//! inside a volume.
 //!
 //! What is counted against is the depth of what receives shadows (the
 //! renderer draws it first): a copy of the scene's depth into a depth and
@@ -86,10 +91,13 @@ pub(crate) struct VolumeMesh {
 /// whose faces are `triangles` (a face naming a vertex it hasn't, or of
 /// no area, left out). Vertices at one place are one (the game's meshes
 /// split them where their texture coordinates part), so that the faces
-/// meet at their edges.
+/// meet at their edges. `both_sides`: a mesh that isn't closed casts from
+/// both sides of its faces (a light's volumes), else from their fronts
+/// alone (the sun's).
 pub(crate) fn volume_mesh(
     positions: &[[f32; 3]],
     triangles: impl IntoIterator<Item = [u32; 3]>,
+    both_sides: bool,
 ) -> VolumeMesh {
     use std::collections::HashMap;
     // (The same place: the same bits, but for -0.)
@@ -150,10 +158,13 @@ pub(crate) fn volume_mesh(
         }
     }
     mesh.closed = mesh.open_edges == 0 && mesh.torn_edges == 0;
-    // (Not closed: each face cast from both its sides, so that every edge
-    // of one face is shared with the face turned over, and the volume is
-    // closed whichever way the face is turned.)
-    let edges = if mesh.closed {
+    // (Not closed, cast from both sides: each face cast from both its
+    // sides, so that every edge of one face is shared with the face turned
+    // over, and the volume is closed whichever way the face is turned.
+    // From the fronts alone, a face's open edges are sides extruded at
+    // both ends: each face lit is a closed prism, one turned away
+    // nothing.)
+    let edges = if mesh.closed || !both_sides {
         edges
     } else {
         let turned: Vec<_> = faces.iter().map(|&([a, b, c], p)| ([a, c, b], -p)).collect();
@@ -207,22 +218,34 @@ pub(crate) struct GpuVolume {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     count: u32,
+    /// The mesh is closed: cast from both sides of its faces, the volume
+    /// is the same.
+    closed: bool,
 }
 
-/// The shadow volume of `mesh` (of `model`): made once, `None` for a mesh
-/// that has no faces to cast with.
+/// The shadow volume of `mesh` (of `model`), cast from its faces' fronts
+/// alone or (`both_sides`) from both sides where it isn't closed: made
+/// once each (a closed mesh's once), `None` for a mesh that has no faces
+/// to cast with.
 fn gpu_volume<'m>(
     gpu: &crate::Gpu,
     model: &crate::GpuModel,
     mesh: &'m crate::model::GpuMesh,
+    both_sides: bool,
 ) -> Option<&'m GpuVolume> {
     use wgpu::util::DeviceExt;
-    mesh.volume
+    if both_sides {
+        let front = gpu_volume(gpu, model, mesh, false)?;
+        if front.closed {
+            return Some(front);
+        }
+    }
+    mesh.volume[usize::from(both_sides)]
         .get_or_init(|| {
             let mg_mdl::NodeKind::Mesh(m) = &model.model.nodes.get(mesh.node)?.kind else {
                 return None;
             };
-            let v = volume_mesh(&m.vertices, m.triangles());
+            let v = volume_mesh(&m.vertices, m.triangles(), both_sides);
             if v.indices.is_empty() {
                 return None;
             }
@@ -245,13 +268,16 @@ fn gpu_volume<'m>(
                     wgpu::BufferUsages::INDEX,
                 ),
                 count: v.indices.len() as u32,
+                closed: v.closed,
             })
         })
         .as_ref()
 }
 
-/// A mesh's [`GpuVolume`], kept with it (none until it casts one).
-pub(crate) type VolumeSlot = OnceLock<Option<GpuVolume>>;
+/// A mesh's [`GpuVolume`]s, kept with it (none until it casts one): from
+/// its faces' fronts (the sun's), and from both sides (a light's, where
+/// the mesh isn't closed).
+pub(crate) type VolumeSlot = [OnceLock<Option<GpuVolume>>; 2];
 
 /// A caster as the volume shader reads it: from its node to the world,
 /// its light in its node's space (for which way its faces face) and in
@@ -454,7 +480,7 @@ impl ShadowVolumes {
         let light_world = (-to_light).extend(-1.0);
         let mut counted = Counted::new();
         for c in plan.casters.iter().filter(|c| c.bones.is_none()) {
-            let Some(volume) = gpu_volume(gpu, c.model, c.mesh) else { continue };
+            let Some(volume) = gpu_volume(gpu, c.model, c.mesh, false) else { continue };
             let clip = c.bottom.unwrap_or(plan.floor) - BELOW;
             let local = c.world.inverse() * to_light.extend(0.0);
             push(&mut counted, volume, c.world, local, light_world, clip);
@@ -470,7 +496,7 @@ impl ShadowVolumes {
             let light_world = at.extend(radius.max(MIN_OFFSET));
             let casters = &plan.casters[range.start as usize..range.end as usize];
             for c in casters.iter().filter(|c| c.bones.is_none()) {
-                let Some(volume) = gpu_volume(gpu, c.model, c.mesh) else { continue };
+                let Some(volume) = gpu_volume(gpu, c.model, c.mesh, true) else { continue };
                 let local = c.world.inverse() * at.extend(1.0);
                 push(&mut counted, volume, c.world, local, light_world, 0.0);
             }
@@ -1028,7 +1054,7 @@ mod tests {
     #[test]
     fn a_cube_casts_a_closed_volume_with_its_silhouette_for_sides() {
         let (positions, triangles) = cube();
-        let mesh = volume_mesh(&positions, triangles);
+        let mesh = volume_mesh(&positions, triangles, false);
         assert!(mesh.closed && mesh.open_edges == 0 && mesh.torn_edges == 0);
         let above = Vec4::new(0.0, 0.0, 1.0, 0.0);
         let clip = -3.0;
@@ -1051,13 +1077,18 @@ mod tests {
         assert!(inside(&t, ground), "{ground}");
     }
 
-    /// An open sheet (a plank's one face) casts whichever way it faces,
-    /// a volume closed both ways; its edges are open.
+    /// An open sheet (a plank's one face, its front up) casts a light's
+    /// shadow whichever way it faces, a volume closed both ways; its edges
+    /// are open. The sun's it casts from its front alone, as the client
+    /// (a single wall with its back to the sun casts nothing): lit from
+    /// above, a closed volume under it; from below, nothing.
     #[test]
-    fn an_open_sheet_casts_from_either_side() {
+    fn an_open_sheet_casts_the_sun_s_shadow_from_its_front_only() {
         let positions = [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]];
-        let mesh = volume_mesh(&positions, [[0, 1, 2], [0, 2, 3]]);
+        let mesh = volume_mesh(&positions, [[0, 1, 2], [0, 2, 3]], true);
         assert!(!mesh.closed && mesh.open_edges == 4 && mesh.torn_edges == 0);
+        let front = volume_mesh(&positions, [[0, 1, 2], [0, 2, 3]], false);
+        assert!(!front.closed && front.open_edges == 4);
         for light in [Vec4::new(0.1, 0.2, 1.0, 0.0), Vec4::new(0.1, 0.2, -1.0, 0.0)] {
             let clip = if light.z > 0.0 { -3.0 } else { 5.0 };
             let t = drawn(&mesh, light, 0.0, clip);
@@ -1065,6 +1096,13 @@ mod tests {
             let shadow = Vec3::new(0.5, 0.5, 1.0) - light.truncate().normalize() * 0.5;
             assert!(inside(&t, shadow), "{light}: {shadow}");
             assert!(!inside(&t, Vec3::new(3.0, 3.0, 1.0)), "{light}");
+            let t = drawn(&front, light, 0.0, clip);
+            if light.z > 0.0 {
+                assert!(closed(&t) && inside(&t, shadow), "{light}: its front lit");
+                assert!(!inside(&t, Vec3::new(3.0, 3.0, 1.0)), "{light}");
+            } else {
+                assert!(t.is_empty(), "{light}: its back to the light: {t:?}");
+            }
         }
     }
 
@@ -1074,10 +1112,13 @@ mod tests {
     #[test]
     fn three_faces_on_one_edge_cast_no_spike() {
         let positions = [[0., 0., 1.], [0., 0., 2.], [1., 0., 1.5], [-1., 0.2, 1.5], [0., 1., 1.5]];
-        let mesh = volume_mesh(&positions, [[0, 1, 2], [1, 0, 3], [0, 1, 4]]);
-        assert!(!mesh.closed && mesh.torn_edges == 1, "{mesh:?}");
-        for light in [Vec4::new(0.3, 0.4, 1.0, 0.0), Vec4::new(-0.5, 0.1, 0.8, 0.0)] {
-            let t = drawn(&mesh, light, 0.0, -2.0);
+        let faces = [[0, 1, 2], [1, 0, 3], [0, 1, 4]];
+        let both = volume_mesh(&positions, faces, true);
+        let front = volume_mesh(&positions, faces, false);
+        assert!(!both.closed && both.torn_edges == 1, "{both:?}");
+        let lights = [Vec4::new(0.3, 0.4, 1.0, 0.0), Vec4::new(-0.5, 0.1, 0.8, 0.0)];
+        for (mesh, light) in [&both, &front].into_iter().flat_map(|m| lights.map(|l| (m, l))) {
+            let t = drawn(mesh, light, 0.0, -2.0);
             assert!(closed(&t), "{light}");
             // (Nothing far off on the ground.)
             for x in -10..=10 {
@@ -1096,7 +1137,7 @@ mod tests {
     #[test]
     fn a_point_light_s_volume_reaches_its_radius() {
         let (positions, triangles) = cube();
-        let mesh = volume_mesh(&positions, triangles);
+        let mesh = volume_mesh(&positions, triangles, false);
         let light = Vec4::new(-3.0, 0.5, 3.0, 1.0);
         let t = drawn(&mesh, light, 10.0, 0.0);
         assert!(closed(&t));
@@ -1112,9 +1153,9 @@ mod tests {
     #[test]
     fn bad_faces_are_left_out() {
         let positions = [[0., 0., 0.], [1., 0., 0.], [2., 0., 0.]];
-        let mesh = volume_mesh(&positions, [[0, 1, 9], [0, 1, 2], [1, 1, 2]]);
+        let mesh = volume_mesh(&positions, [[0, 1, 9], [0, 1, 2], [1, 1, 2]], false);
         assert!(mesh.vertices.is_empty() && mesh.indices.is_empty());
-        let mesh = volume_mesh(&[], []);
+        let mesh = volume_mesh(&[], [], false);
         assert!(mesh.indices.is_empty() && mesh.closed);
     }
 }

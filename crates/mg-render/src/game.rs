@@ -617,9 +617,13 @@ pub(crate) fn time_values(seconds: f32) -> (i32, i32) {
 /// clock counts 60 a second.
 pub(crate) const TIME_FRAMES_PER_SECOND: f64 = 60.0;
 /// `worldtimerTimeOfDay` counts real milliseconds (measured likewise;
-/// whatever the module's minutes an hour). Its origin in the client
-/// follows neither the module's hour nor its day and is not known: the
-/// stock and TDoD shaders use it as a phase or as seconds.
+/// whatever the module's minutes an hour). Its origin in the client is
+/// known (`docs/findings.md`, "The client's clock starts from the
+/// machine's"): 23:59:56 of a day of 5 minutes an hour, in steps of two
+/// hours of the machine's uptime, whatever the module's hour or day, so a
+/// player's machine decides it. Moonglow's starts at 0 by design
+/// ([`time_values`]): the stock and TDoD shaders use it as a phase or as
+/// seconds.
 pub(crate) const TIME_TIMER_PER_SECOND: f64 = 1000.0;
 
 fn put(out: &mut [u8], at: u32, bytes: [u8; 4]) {
@@ -995,6 +999,9 @@ pub(crate) enum GamePass {
     Solid,
     /// The rest of it: blended over everything solid, hiding nothing.
     Fringe,
+    /// A mesh of mesh `alpha` under 1, whole: blended, its depth written,
+    /// in its model's order (as the client draws it).
+    Ordered,
     /// An additive mesh (TXI `blending additive`): added to what is behind,
     /// hiding nothing.
     Additive,
@@ -1019,9 +1026,10 @@ impl GamePass {
         };
         match self {
             GamePass::Opaque | GamePass::Sky | GamePass::Particles(B::PunchThrough) => None,
-            GamePass::Solid | GamePass::Fringe | GamePass::Particles(B::Normal) => {
-                Some(wgpu::BlendState::ALPHA_BLENDING)
-            }
+            GamePass::Solid
+            | GamePass::Fringe
+            | GamePass::Ordered
+            | GamePass::Particles(B::Normal) => Some(wgpu::BlendState::ALPHA_BLENDING),
             // (As Moonglow's own shader adds an additive mesh: by its
             // alpha, as the client does, `reading_additive_blending`.)
             GamePass::Additive => Some(add(wgpu::BlendFactor::SrcAlpha)),
@@ -1057,7 +1065,13 @@ impl GamePass {
     /// Whether the pass writes its depth.
     fn depth_write(self) -> bool {
         use crate::particles::ParticleBlend as B;
-        matches!(self, GamePass::Opaque | GamePass::Solid | GamePass::Particles(B::PunchThrough))
+        matches!(
+            self,
+            GamePass::Opaque
+                | GamePass::Solid
+                | GamePass::Ordered
+                | GamePass::Particles(B::PunchThrough)
+        )
     }
 
     /// Whether its faces are drawn from behind whatever the material says.
@@ -2956,6 +2970,7 @@ mod tests {
             GamePass::Opaque,
             GamePass::Solid,
             GamePass::Fringe,
+            GamePass::Ordered,
             GamePass::Additive,
             GamePass::Sky,
             GamePass::Particles(B::Normal),

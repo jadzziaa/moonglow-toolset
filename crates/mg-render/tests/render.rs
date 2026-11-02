@@ -1481,6 +1481,275 @@ fn a_see_through_instance_s_near_surfaces_hide_its_far_ones() {
     assert!(pixels.iter().any(|p| p[0] > 60 && red(p)), "the bridge, the water not over it");
 }
 
+/// A standing card of [`cards`]: its texture, its mesh's `alpha`, its
+/// middle's foot and its turn about Z (radians; 0 faces −Y, the
+/// camera's side).
+struct Card {
+    bitmap: &'static str,
+    alpha: f32,
+    at: Vec3,
+    turn: f32,
+}
+
+/// A model of standing cards, 1.6 m wide and high, in the order given
+/// (the model's): each a mesh of its own, facing −Y unless turned.
+fn cards(list: &[Card]) -> Model {
+    let mut nodes = vec![Node::new("cards", NodeKind::Dummy)];
+    for (i, c) in list.iter().enumerate() {
+        let (s, k) = c.turn.sin_cos();
+        let corner = |u: f32, h: f32| (c.at + Vec3::new(u * k, u * s, h)).to_array();
+        let mesh = Mesh {
+            diffuse: [1.0; 3],
+            ambient: [1.0; 3],
+            render: true,
+            vertices: vec![
+                corner(-0.8, 0.0),
+                corner(0.8, 0.0),
+                corner(0.8, 1.6),
+                corner(-0.8, 1.6),
+            ],
+            normals: vec![[s, -k, 0.0]; 4],
+            uvs: [vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], vec![], vec![], vec![]],
+            faces: vec![
+                Face { vertices: [0, 1, 2], material: 0 },
+                Face { vertices: [0, 2, 3], material: 0 },
+            ],
+            source: vec![0, 1, 2, 3],
+            source_uv: vec![0, 1, 2, 3],
+            textures: [Some(c.bitmap.into()), None, None, None],
+            ..Default::default()
+        };
+        let mut node = Node::new(&format!("card{i}"), NodeKind::Mesh(Box::new(mesh)));
+        node.parent = Some(0);
+        node.controllers.push(mg_mdl::Controller::constant("alpha", &[c.alpha]));
+        nodes[0].children.push(i + 1);
+        nodes.push(node);
+    }
+    Model { name: "cards".into(), animation_scale: 1.0, nodes, ..Default::default() }
+}
+
+/// Static geometry is drawn in buckets, as the client's (`docs/findings.md`,
+/// "Static geometry is drawn in buckets"): in a tile or a static placeable
+/// (an instance that receives the sun's shadows), the meshes naming the
+/// same textures take the first one's alpha (in the model's order): a
+/// red card of `alpha 0.5` first, the opaque one after it is drawn half
+/// see-through over the blue behind; the opaque one first, the `alpha
+/// 0.5` one after it is drawn solid. A dynamic placeable's cards are
+/// each their own; and a card of another texture is its own in a bucket.
+#[test]
+fn static_geometry_s_meshes_of_one_texture_take_the_first_one_s_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("red", [255, 0, 0, 255]);
+    assets.solid("green", [0, 255, 0, 255]);
+    let blue = colored_quad(&gpu, [0.0, 0.0, 1.0]);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let card = |bitmap, alpha, x| Card { bitmap, alpha, at: Vec3::new(x, 0.0, 0.0), turn: 0.0 };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    // (The picture's pixel at the middle of each of three cards, at x −2,
+    // 0 and 2.)
+    let mut shot = |list: &[Card], fixed: bool| {
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(cards(list))));
+        let behind = Mat4::from_translation(Vec3::new(0.0, 2.0, 0.8))
+            * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+            * Mat4::from_scale(Vec3::splat(6.0));
+        let scene = Scene {
+            instances: vec![
+                Instance::new(blue.clone(), behind),
+                Instance { receives_shadows: fixed, ..Instance::new(model, Mat4::IDENTITY) },
+            ],
+            area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+            ..Default::default()
+        };
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 96, 64);
+        [20, 48, 76].map(|x| img.pixel(x, 30))
+    };
+    let solid = |p: [u8; 4]| p[0] > 200 && p[2] < 100;
+    let half = |p: [u8; 4]| p[0] > 60 && p[0] < 200 && p[2] > 100;
+    let see_through_first =
+        [card("red", 0.5, -2.0), card("red", 1.0, 0.0), card("green", 1.0, 2.0)];
+    let [a, b, c] = shot(&see_through_first, true);
+    assert!(half(a) && half(b), "the opaque card after it see-through: {a:?} {b:?}");
+    assert!(c[1] > 200 && c[2] < 100, "another texture its own: {c:?}");
+    let [a, b, _] = shot(&see_through_first, false);
+    assert!(half(a) && solid(b), "a dynamic placeable's each its own: {a:?} {b:?}");
+    let opaque_first = [card("red", 1.0, -2.0), card("red", 0.5, 0.0), card("green", 0.5, 2.0)];
+    let [a, b, c] = shot(&opaque_first, true);
+    assert!(solid(a) && solid(b), "the alpha 0.5 card after it solid: {a:?} {b:?}");
+    assert!(c[1] > 60 && c[1] < 200 && c[2] > 100, "another texture its own: {c:?}");
+    let [a, b, _] = shot(&opaque_first, false);
+    assert!(solid(a) && half(b), "a dynamic placeable's each its own: {a:?} {b:?}");
+}
+
+/// Meshes of mesh `alpha` under 1 are drawn in their model's order, each
+/// writing its depth, as the client draws them (`reading_see_through_crossing`
+/// in `client_render.rs`'s fifth batch): of a red card of `alpha 0.5` a
+/// metre before a blue one, the near one listed first hides the far one
+/// where they overlap (the overlap red over the gray wall alone); the far
+/// one listed first, the near one is laid over it, both showing (blue over
+/// red). Two crossing cards: the one listed second shows only where it
+/// is in front of the first. And a see-through texture's soft edge on a
+/// mesh of `alpha` 1 still hides nothing behind it (drawn in two parts).
+/// With Moonglow's shader and (with the game installed) the game's
+/// programs; pictures in `render/see_through_order_*.png`.
+#[test]
+fn meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth() {
+    let Some(gpu) = gpu() else { return };
+    let dir = mg_testkit::output_dir("render");
+    let own = || {
+        let mut assets = TestAssets::default();
+        assets.solid("red", [255, 0, 0, 255]);
+        assets.solid("blue", [0, 0, 255, 255]);
+        assets
+    };
+    let game = mg_testkit::nwn_root().and_then(|root| {
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+    });
+    let wall = colored_quad(&gpu, [0.5, 0.5, 0.5]);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.9,
+        near: 0.1,
+        far: 100.0,
+    };
+    let card = |bitmap, x: f32, y: f32, turn: f32| Card {
+        bitmap,
+        alpha: 0.5,
+        at: Vec3::new(x, y, 0.0),
+        turn,
+    };
+    let list = [
+        // (West: the near red first, then the far blue, 0.6 m east.)
+        card("red", -3.0, -0.5, 0.0),
+        card("blue", -2.4, 0.5, 0.0),
+        // (The far red first, then the near blue, 0.6 m east.)
+        card("red", 0.0, 0.5, 0.0),
+        card("blue", 0.6, -0.5, 0.0),
+        // (East: crossing at their middles.)
+        card("red", 3.0, 0.0, 0.6),
+        card("blue", 3.0, 0.0, -0.6),
+    ];
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(cards(&list))));
+    let behind = Mat4::from_translation(Vec3::new(0.0, 3.0, 0.8))
+        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+        * Mat4::from_scale(Vec3::splat(8.0));
+    let scene = Scene {
+        instances: vec![Instance::new(wall, behind), Instance::new(model, Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+        ..Default::default()
+    };
+    let (w, h) = (192u32, 96u32);
+    let to_pixel = |p: Vec3| {
+        let c = (camera.projection(w as f32 / h as f32) * camera.view()).project_point3(p);
+        (((c.x + 1.0) * 0.5 * w as f32) as u32, ((1.0 - c.y) * 0.5 * h as f32) as u32)
+    };
+    for shaders in [false, true] {
+        let assets: Box<dyn mg_render::Assets> = match (&game, shaders) {
+            (Some(game), true) => Box::new(WithGameShaders { own: own(), game }),
+            (None, true) => continue,
+            _ => Box::new(own()),
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = shaders;
+        let img = r.render_image(&gpu, assets.as_ref(), &scene, &camera, w, h);
+        save(&img, &dir.join(format!("see_through_order_{shaders}.png")));
+        assert_eq!(r.drawn.game > 0, shaders, "game shaders {shaders}");
+        let at = |p: Vec3| {
+            let (x, y) = to_pixel(p);
+            img.pixel(x, y)
+        };
+        let context = format!("game shaders {shaders}");
+        let near = |a: [u8; 4], b: [u8; 4]| (0..3).all(|i| a[i].abs_diff(b[i]) <= 6);
+        // (Each card alone over the wall.)
+        let red_alone = at(Vec3::new(-3.6, -0.5, 0.9));
+        let blue_alone = at(Vec3::new(1.2, -0.5, 0.9));
+        assert!(red_alone[0] > red_alone[2] + 50, "{context}: {red_alone:?}");
+        assert!(blue_alone[2] > blue_alone[0] + 50, "{context}: {blue_alone:?}");
+        // (Where each pair overlaps, a little above the middle: the near
+        // red first, the red alone; the far red first, the blue over it,
+        // redder than the blue alone.)
+        let first = at(Vec3::new(-2.7, -0.5, 0.9));
+        assert!(near(first, red_alone), "{context}: near first: {first:?} {red_alone:?}");
+        let second = at(Vec3::new(0.3, -0.5, 0.9));
+        assert!(second[0] > blue_alone[0] + 20, "{context}: far first: {second:?}");
+        // (The crossing: west of its middle the red card is nearer, the
+        // blue listed after it hidden behind it; east of it the blue is
+        // nearer, laid over the red.)
+        let west = at(Vec3::new(2.67, -0.23, 1.2));
+        let east = at(Vec3::new(3.33, -0.23, 1.2));
+        assert!(near(west, red_alone), "{context}: crossing, west: {west:?}");
+        assert!(east[0] > blue_alone[0] + 20, "{context}: crossing, east: {east:?}");
+    }
+}
+
+/// A particle behind a mesh of mesh `alpha` under 1 of another model is
+/// hidden by it, as the client hides a ribbon behind a card of `alpha 0.5`
+/// (`batch6_ribbon_sizes` in `client_render.rs`): the card's red over the
+/// wall where it lies before the white particle; beside it, the particle.
+#[test]
+fn a_mesh_of_alpha_under_one_hides_a_particle_behind_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("red", [255, 0, 0, 255]);
+    let wall = colored_quad(&gpu, [0.0, 0.0, 1.0]);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let model = Arc::new(GpuModel::new(
+        &gpu,
+        Arc::new(cards(&[Card { bitmap: "red", alpha: 0.5, at: Vec3::ZERO, turn: 0.0 }])),
+    ));
+    let behind = Mat4::from_translation(Vec3::new(0.0, 3.0, 0.8))
+        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+        * Mat4::from_scale(Vec3::splat(8.0));
+    // (A white square 2.4 m wide, a metre behind the card, its middle at
+    // the card's.)
+    let v = |x: f32, z: f32| mg_render::particles::ParticleVertex {
+        pos: [x, 1.0, z],
+        uv: [0.0, 0.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        softness: 0.0,
+    };
+    let batch = mg_render::particles::ParticleBatch {
+        texture: None,
+        blend: mg_render::particles::ParticleBlend::Normal,
+        render_order: 0,
+        vertices: vec![
+            v(-1.6, -0.2),
+            v(1.6, -0.2),
+            v(1.6, 2.0),
+            v(-1.6, -0.2),
+            v(1.6, 2.0),
+            v(-1.6, 2.0),
+        ],
+        tint: None,
+        softness: 0.0,
+    };
+    let scene = Scene {
+        instances: vec![Instance::new(wall, behind), Instance::new(model, Mat4::IDENTITY)],
+        particles: vec![batch],
+        area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&img, &mg_testkit::output_dir("render").join("see_through_hides_particle.png"));
+    let (card, beside) = (img.pixel(32, 32), img.pixel(17, 32));
+    assert!(card[0] > 100 && card[1] < 60 && card[2] > 60, "red over the blue wall: {card:?}");
+    assert!(beside[1] > 200, "the particle beside the card: {beside:?}");
+}
+
 /// A [`quad`] of a colour.
 fn colored_quad(gpu: &Gpu, color: [f32; 3]) -> Arc<GpuModel> {
     let mut model = quad();
@@ -4914,6 +5183,66 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
             assert!((at(&half, beside) - at(&bare, beside)).abs() <= 1.0, "{context}: beside");
             assert!((at(&elsewhere, under) - lit).abs() <= 1.0, "{context}: not received");
         }
+    }
+}
+
+/// A face casts the sun's shadow from its front only, as the client's
+/// (`docs/findings.md`, "A face casts the sun's shadow from its front
+/// only": a single wall with its back to a low sun casts nothing): the
+/// plate of [`shadows_darken_what_receives_them_by_the_opacity`] a metre
+/// over the ground, its front up to the sun, darkens the ground under it;
+/// turned over, its back to the sun, it darkens nothing; Fast (the
+/// shadow map) and High (the volumes) alike.
+#[test]
+fn a_face_casts_the_sun_s_shadow_from_its_front_only() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |turned: bool| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(
+                plate.clone(),
+                Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.5),
+                    if turned {
+                        glam::Quat::from_rotation_x(std::f32::consts::PI)
+                    } else {
+                        glam::Quat::IDENTITY
+                    },
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            ),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::new(0.1, 0.05, 1.0).normalize(),
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+        let (front, back) = (draw(&scene(false)), draw(&scene(true)));
+        let (under, beside) = ((32, 32), (32, 6));
+        let lit = grey(front.pixel(beside.0, beside.1));
+        let (f, b) = (grey(front.pixel(under.0, under.1)), grey(back.pixel(under.0, under.1)));
+        assert!((f - lit * 0.5).abs() <= 2.0, "volumes {volumes}: its front: {f} of {lit}");
+        assert!((b - lit).abs() <= 1.0, "volumes {volumes}: its back: {b} of {lit}");
     }
 }
 

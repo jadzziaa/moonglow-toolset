@@ -863,7 +863,7 @@ impl ShadowMaps {
         ShadowMaps {
             map,
             sampler,
-            casting: Casting::new(device),
+            casting: Casting::new(device, Some(wgpu::Face::Back)),
             params: buffer(
                 "shadow darkening",
                 std::mem::size_of::<DarkenUniform>() as u64,
@@ -1044,12 +1044,18 @@ impl LightMaps {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        LightMaps { layers, array, casting: Casting::new(device), params }
+        LightMaps { layers, array, casting: Casting::new(device, None), params }
     }
 }
 
 impl Casting {
-    pub(crate) fn new(device: &wgpu::Device) -> Casting {
+    /// The casters' pipelines, culling the faces `cull` names as the
+    /// light sees them: the sun's and moon's map culls those turned from
+    /// the light, as the client casts from a face's front only
+    /// (`docs/findings.md`, "A face casts the sun's shadow from its front
+    /// only": a single wall with its back to a low sun casts nothing); the
+    /// lights' maps cull none (not read).
+    pub(crate) fn new(device: &wgpu::Device, cull: Option<wgpu::Face>) -> Casting {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow casters"),
             source: wgpu::ShaderSource::Wgsl(CAST.into()),
@@ -1106,8 +1112,11 @@ impl Casting {
                     compilation_options: Default::default(),
                     buffers,
                 },
-                // (Both sides: the game's meshes are not all closed.)
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: cull,
+                    ..Default::default()
+                },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: MAP_FORMAT,
                     depth_write_enabled: Some(true),
