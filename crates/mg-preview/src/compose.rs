@@ -788,8 +788,39 @@ impl Composed {
         for (gm, nodes, to) in self.models_in(stance) {
             add(gm, nodes, to);
         }
+        // (No mesh to draw, as a fog of particles alone: the box its
+        // emitters' particles fill.)
+        if min.x > max.x {
+            for (gm, nodes, to) in self.models_in(stance) {
+                for (i, n) in gm.model.nodes.iter().enumerate() {
+                    if !matches!(n.kind, mg_mdl::NodeKind::Emitter(_)) {
+                        continue;
+                    }
+                    let node = to * nodes.get(i).copied().unwrap_or(Mat4::IDENTITY);
+                    let (low, high) = emitter_box(n);
+                    for p in mg_render::box_corners(low, high) {
+                        let w = node.transform_point3(p);
+                        (min, max) = (min.min(w), max.max(w));
+                    }
+                }
+            }
+        }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
     }
+}
+
+/// The box an emitter's particles fill, in its node's space: its area
+/// (`xsize` by `ysize`, centimeters), as far along its Z as they fly
+/// in their life (`velocity` times `lifeexp`, at most 20 m), widened by
+/// half their largest size.
+fn emitter_box(n: &mg_mdl::Node) -> (Vec3, Vec3) {
+    let p = |name: &str| n.value(name).and_then(|v| v.first().copied()).unwrap_or(0.0);
+    let (x, y) = (p("xsize").abs() / 200.0, p("ysize").abs() / 200.0);
+    let reach = (p("velocity") * p("lifeexp")).clamp(-20.0, 20.0);
+    let size = p("sizestart").abs().max(p("sizeend").abs()).min(20.0) / 2.0;
+    let low = Vec3::new(-x, -y, reach.min(0.0)) - Vec3::splat(size);
+    let high = Vec3::new(x, y, reach.max(0.0)) + Vec3::splat(size);
+    (low, high)
 }
 
 /// How a preview stands: its models' nodes in an animation at a time, or
