@@ -4,7 +4,7 @@ title: 'Sculpted terrain in Moonglow: a design'
 description: A builder's free height field sculpted over an area's tiles inside Moonglow, with NWN Mapper as the measure - what a builder sculpts and paints (heights, texture layers, the walkmesh's surfaces; placeables kept as objects, the game's own lighting), how it becomes what the game reads (a model and walkmesh per tile, a tileset of the area's own, a terrain shader in a hak, the ARE retiled), the game's limits with numbers, where it lives (a mode of the area view, not a plugin), what stays out, six milestones with sizes, the risks, the readings to take in the engine and client before building, and the owner's questions.
 tags: [proposal, terrain, tilesets, areas, walkmesh, rendering, haks]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:49:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:50:09Z }
 sources:
   - id: owner
     resource: human:august (the deferred sprint's large entry 9, 2026-11-02)
@@ -702,7 +702,7 @@ design (R2 or R5 above all), the change is made before M2.
     area092 draws 1,028 times in 0.94 ms of the GPU, and its redrawn
     frame is 4.1 ms.[^frames]
   - Strokes: a brush of 10 m radius touches up to 4 blocks (40 m each),
-    about 17 k vertices to rebuild and upload (under 1 MB) a frame of the
+    about 17 k vertices rebuilt whole and uploaded (under 1 MB) a frame of the
     stroke. That should be well under a millisecond of meshing, but it was
     not measured.
   - Already over: areas with The Domains of Dread's dense placeables are
@@ -788,7 +788,7 @@ design (R2 or R5 above all), the change is made before M2.
 [^owner]: human:august, 2026-11-02: the deferred sprint's large entry 9, design first, then build.
 [^deferred]: The deferred list, "A builder's terrain tool (NWN Mapper) as the measure".
 [^mapper]: github.com/Dafena/nwn_mapper_ffeom, read 2026-11-02 (README, nwn_area.gd, nwn_terrain.gd, nwn_exporter.gd, main.gd, export_shaders/); no license file.
-[^tileset-import]: docs/plugins/examples/tileset-import, tried on the builder's earlier export of 149 files.
+[^tileset-import]: plugins/examples/tileset-import (the plugin of the manual's Writing plugins), tried on the builder's earlier export of 149 files.
 [^tilesets]: research/notes_tilesets.md: §A.6–A.7 (tiles, groups, ImageMap2D), §B.1 (geometry), §C.2 (Tile_List), §D (walkmeshes, path nodes), §G (EE changes, the tileset limit lifted in 89.8193.37-13).
 [^border]: research/notes_tile_border.md.
 [^shaders]: research/notes_shaders.md §C (texture slots 0–10 for custom shaders) and the vertex attributes (`vCustomColor`).
