@@ -985,6 +985,10 @@ pub struct Moonglow {
     /// run): a file of Moonglow's own folder, never a project's
     /// (`mg_plugin::project::answers_path`). None: kept for this run only.
     pub plugin_answers: Option<PathBuf>,
+    /// Where the values of plugins' settings of scope `user` are kept,
+    /// shared with `mg` (`plugin-settings.json` in Moonglow's data
+    /// folder); `None` (the tests): in Moonglow's settings alone.
+    pub plugin_values: Option<PathBuf>,
     /// Started without plugins (`--no-plugins`): none are read.
     pub no_plugins: bool,
     /// The keys are to be worked out again (the plugins changed).
@@ -1225,6 +1229,7 @@ impl Moonglow {
             plugins: Default::default(),
             plugin_dir: None,
             plugin_answers: None,
+            plugin_values: None,
             no_plugins: false,
             keymap_stale: false,
             command_palette: None,

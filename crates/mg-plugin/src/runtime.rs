@@ -874,6 +874,10 @@ fn setting_value(lua: &Lua, v: &crate::SettingValue) -> mlua::Result<LuaValue> {
         crate::SettingValue::Text(t) => LuaValue::String(lua.create_string(t)?),
         crate::SettingValue::Int(n) => LuaValue::Integer(*n),
         crate::SettingValue::Bool(b) => LuaValue::Boolean(*b),
+        crate::SettingValue::Float(x) => LuaValue::Number(*x),
+        crate::SettingValue::List(items) => {
+            LuaValue::Table(lua.create_sequence_from(items.iter().map(String::as_str))?)
+        }
     })
 }
 
@@ -900,18 +904,38 @@ fn settings_table(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
                 d.scope.name()
             ));
         }
+        let float = matches!(d.kind, crate::SettingKind::Float { .. });
         let given = match &value {
             LuaValue::Nil => None,
             LuaValue::String(t) => Some(crate::SettingValue::Text(t.to_str()?.to_string())),
             LuaValue::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+            LuaValue::Integer(n) if float => Some(crate::SettingValue::Float(*n as f64)),
             LuaValue::Integer(n) => Some(crate::SettingValue::Int(*n)),
+            LuaValue::Number(n) if float => Some(crate::SettingValue::Float(*n)),
             LuaValue::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
                 Some(crate::SettingValue::Int(*n as i64))
             }
+            LuaValue::Number(n) => Some(crate::SettingValue::Float(*n)),
+            // (A list: its texts, from 1.)
+            LuaValue::Table(t) => {
+                let mut items = Vec::new();
+                for v in t.clone().sequence_values::<LuaValue>() {
+                    match v? {
+                        LuaValue::String(s) => items.push(s.to_str()?.to_string()),
+                        other => {
+                            return fail(format!(
+                                "ctx.settings:set({name:?}, …): a list's items are texts, not {}",
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                Some(crate::SettingValue::List(items))
+            }
             other => {
                 return fail(format!(
-                    "ctx.settings:set({name:?}, …): {} is no setting's value (text, a whole \
-                     number, true or false; nil for its default)",
+                    "ctx.settings:set({name:?}, …): {} is no setting's value (text, a number, \
+                     true or false, a list of texts; nil for its default)",
                     other.type_name()
                 ));
             }

@@ -56,32 +56,92 @@ pub struct SettingDecl {
 }
 
 /// What a setting holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum SettingKind {
     /// Text.
     Text,
+    /// Text whose whole matches a pattern, a regular expression (`type =
+    /// "string"` with `pattern`; API 0.5).
+    Pattern(String),
     /// A whole number, within its limits if it has them.
     Int { min: Option<i64>, max: Option<i64> },
+    /// A number with a fraction, within its limits if it has them (API
+    /// 0.5).
+    Float { min: Option<f64>, max: Option<f64> },
     /// True or false.
     Bool,
     /// One of these texts.
     Choice(Vec<String>),
-    /// A file's or a folder's path, as text: the form has a button to
-    /// choose it. The plugin reads no file by it (the sandbox).
-    Path,
+    /// Texts, in order; with choices, each one of them (API 0.5).
+    List(Vec<String>),
+    /// A color, as `#rrggbb` (API 0.5).
+    Color,
+    /// A file's or (`folder`, `pick = "folder"`; API 0.5) a folder's path,
+    /// as text: the form has a button to choose it. The plugin reads no
+    /// file by it (the sandbox).
+    Path { folder: bool },
 }
+
+impl PartialEq for SettingKind {
+    fn eq(&self, other: &SettingKind) -> bool {
+        let bits = |b: &Option<f64>| b.map(f64::to_bits);
+        match (self, other) {
+            (SettingKind::Float { min: a, max: b }, SettingKind::Float { min: c, max: d }) => {
+                bits(a) == bits(c) && bits(b) == bits(d)
+            }
+            (SettingKind::Text, SettingKind::Text)
+            | (SettingKind::Bool, SettingKind::Bool)
+            | (SettingKind::Color, SettingKind::Color) => true,
+            (SettingKind::Pattern(a), SettingKind::Pattern(b)) => a == b,
+            (SettingKind::Int { min: a, max: b }, SettingKind::Int { min: c, max: d }) => {
+                a == c && b == d
+            }
+            (SettingKind::Choice(a), SettingKind::Choice(b))
+            | (SettingKind::List(a), SettingKind::List(b)) => a == b,
+            (SettingKind::Path { folder: a }, SettingKind::Path { folder: b }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for SettingKind {}
 
 impl SettingKind {
     /// Its name in a manifest (`type = "int"`).
     pub fn name(&self) -> &'static str {
         match self {
-            SettingKind::Text => "string",
+            SettingKind::Text | SettingKind::Pattern(_) => "string",
             SettingKind::Int { .. } => "int",
+            SettingKind::Float { .. } => "float",
             SettingKind::Bool => "bool",
             SettingKind::Choice(_) => "choice",
-            SettingKind::Path => "path",
+            SettingKind::List(_) => "list",
+            SettingKind::Color => "color",
+            SettingKind::Path { .. } => "path",
         }
     }
+
+    /// Whether it is one plugin API 0.5 added.
+    pub fn since_0_5(&self) -> bool {
+        matches!(
+            self,
+            SettingKind::Pattern(_)
+                | SettingKind::Float { .. }
+                | SettingKind::List(_)
+                | SettingKind::Color
+                | SettingKind::Path { folder: true }
+        )
+    }
+}
+
+/// Whether text is a color as a setting keeps one: `#rrggbb`.
+pub fn is_color(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A pattern as a setting holds text to it: its whole.
+fn whole(pattern: &str) -> Result<regex_lite::Regex, String> {
+    regex_lite::Regex::new(&format!("^(?:{pattern})$")).map_err(|e| e.to_string())
 }
 
 /// Where a setting's value is kept, and who shares it.
@@ -125,11 +185,56 @@ impl SettingDecl {
         if self.label.is_empty() { &self.id } else { &self.label }
     }
 
+    /// A value as its kind takes it: a whole number, for one with a
+    /// fraction, as that number (a file or a form may write `2` for `2.0`).
+    pub fn coerce(&self, value: SettingValue) -> SettingValue {
+        match (&self.kind, value) {
+            (SettingKind::Float { .. }, SettingValue::Int(n)) => SettingValue::Float(n as f64),
+            (_, v) => v,
+        }
+    }
+
     /// A value held to its kind: why it is not one, if it is not.
     pub fn check(&self, value: &SettingValue) -> Result<(), String> {
         match (&self.kind, value) {
-            (SettingKind::Text | SettingKind::Path, SettingValue::Text(_)) => Ok(()),
+            (SettingKind::Text | SettingKind::Path { .. }, SettingValue::Text(_)) => Ok(()),
             (SettingKind::Bool, SettingValue::Bool(_)) => Ok(()),
+            (SettingKind::Pattern(p), SettingValue::Text(t)) => match whole(p) {
+                Ok(re) if re.is_match(t) => Ok(()),
+                Ok(_) => Err(format!("{t:?} does not match its pattern, {p}")),
+                Err(e) => Err(format!("its pattern {p:?} does not read: {e}")),
+            },
+            (SettingKind::Float { min, max }, SettingValue::Float(x)) => {
+                if !x.is_finite() {
+                    return Err(format!("{x} is not a number it takes"));
+                }
+                if let Some(m) = min.filter(|m| x < m) {
+                    return Err(format!("{x} is less than {m}, the least it takes"));
+                }
+                if let Some(m) = max.filter(|m| x > m) {
+                    return Err(format!("{x} is more than {m}, the most it takes"));
+                }
+                Ok(())
+            }
+            (SettingKind::Float { .. }, SettingValue::Int(n)) => {
+                self.check(&SettingValue::Float(*n as f64))
+            }
+            (SettingKind::List(choices), SettingValue::List(items)) => {
+                if items.len() > 1000 {
+                    return Err("a list of over 1000 texts".into());
+                }
+                match items.iter().find(|i| !choices.is_empty() && !choices.contains(i)) {
+                    Some(i) => Err(format!("{i:?} is not one of {}", choices.join(", "))),
+                    None => Ok(()),
+                }
+            }
+            (SettingKind::Color, SettingValue::Text(t)) => {
+                if is_color(t) {
+                    Ok(())
+                } else {
+                    Err(format!("{t:?} is not a color (#rrggbb)"))
+                }
+            }
             (SettingKind::Int { min, max }, SettingValue::Int(n)) => {
                 if let Some(m) = min.filter(|m| n < m) {
                     return Err(format!("{n} is less than {m}, the least it takes"));
@@ -155,10 +260,14 @@ impl SettingDecl {
 fn kind_words(kind: &SettingKind) -> &'static str {
     match kind {
         SettingKind::Text => "text",
-        SettingKind::Path => "a path (text)",
+        SettingKind::Pattern(_) => "text that matches its pattern",
+        SettingKind::Path { .. } => "a path (text)",
         SettingKind::Int { .. } => "a whole number",
+        SettingKind::Float { .. } => "a number",
         SettingKind::Bool => "true or false",
         SettingKind::Choice(_) => "one of its choices (text)",
+        SettingKind::List(_) => "a list of texts",
+        SettingKind::Color => "a color (#rrggbb)",
     }
 }
 
@@ -171,8 +280,13 @@ fn is_setting_id(text: &str) -> bool {
 
 /// A `[setting]` section read.
 fn setting_of(s: &Section) -> Result<SettingDecl, String> {
-    let get =
-        keys(s, &["id", "type", "default", "label", "help", "scope", "choices", "min", "max"])?;
+    let get = keys(
+        s,
+        &[
+            "id", "type", "default", "label", "help", "scope", "choices", "min", "max", "pattern",
+            "pick",
+        ],
+    )?;
     let id = required(s, "id", get("id"))?;
     if !is_setting_id(id) {
         return Err(format!(
@@ -195,11 +309,47 @@ fn setting_of(s: &Section) -> Result<SettingDecl, String> {
             }),
         }
     };
+    let float = |key: &str| -> Result<Option<f64>, String> {
+        match get(key) {
+            "" => Ok(None),
+            n => n.parse().ok().filter(|x: &f64| x.is_finite()).map(Some).ok_or_else(|| {
+                format!("line {}: the setting {id:?}: {key} is a number, not {n:?}", s.line)
+            }),
+        }
+    };
+    let listed = |key: &str| -> Vec<String> {
+        (get(key).split(',')).map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()
+    };
     let kind = match get("type") {
+        "" | "string" if !get("pattern").is_empty() => {
+            let p = get("pattern");
+            if let Err(e) = whole(p) {
+                return Err(format!(
+                    "line {}: the setting {id:?}: its pattern {p:?} does not read: {e}",
+                    s.line
+                ));
+            }
+            SettingKind::Pattern(p.to_string())
+        }
         "" | "string" => SettingKind::Text,
         "int" => SettingKind::Int { min: int("min")?, max: int("max")? },
+        "float" => SettingKind::Float { min: float("min")?, max: float("max")? },
         "bool" => SettingKind::Bool,
-        "path" => SettingKind::Path,
+        "list" => SettingKind::List(listed("choices")),
+        "color" => SettingKind::Color,
+        "path" => SettingKind::Path {
+            folder: match get("pick") {
+                "" | "file" => false,
+                "folder" => true,
+                other => {
+                    return Err(format!(
+                        "line {}: the setting {id:?}: pick is \"file\" or \"folder\", not \
+                         {other:?}",
+                        s.line
+                    ));
+                }
+            },
+        },
         "choice" => {
             let choices: Vec<String> = (get("choices").split(','))
                 .map(|c| c.trim().to_string())
@@ -215,16 +365,18 @@ fn setting_of(s: &Section) -> Result<SettingDecl, String> {
         }
         other => {
             return Err(format!(
-                "line {}: the setting {id:?}: type is string, int, bool, choice or path, not \
-                 {other:?}",
+                "line {}: the setting {id:?}: type is string, int, float, bool, choice, list, \
+                 color or path, not {other:?}",
                 s.line
             ));
         }
     };
-    for key in ["choices", "min", "max"] {
+    for key in ["choices", "min", "max", "pattern", "pick"] {
         let fits = match key {
-            "choices" => matches!(kind, SettingKind::Choice(_)),
-            _ => matches!(kind, SettingKind::Int { .. }),
+            "choices" => matches!(kind, SettingKind::Choice(_) | SettingKind::List(_)),
+            "pattern" => matches!(kind, SettingKind::Pattern(_)),
+            "pick" => matches!(kind, SettingKind::Path { .. }),
+            _ => matches!(kind, SettingKind::Int { .. } | SettingKind::Float { .. }),
         };
         if !get(key).is_empty() && !fits {
             return Err(format!(
@@ -236,7 +388,18 @@ fn setting_of(s: &Section) -> Result<SettingDecl, String> {
     }
     let given = get("default");
     let default = match (&kind, given) {
-        (SettingKind::Text | SettingKind::Path, g) => SettingValue::Text(g.to_string()),
+        (SettingKind::Text | SettingKind::Path { .. } | SettingKind::Pattern(_), g) => {
+            SettingValue::Text(g.to_string())
+        }
+        (SettingKind::Color, "") => SettingValue::Text("#000000".into()),
+        (SettingKind::Color, g) => SettingValue::Text(g.to_ascii_lowercase()),
+        (SettingKind::List(_), _) => SettingValue::List(listed("default")),
+        (SettingKind::Float { min, .. }, "") => SettingValue::Float(min.unwrap_or(0.0).max(0.0)),
+        (SettingKind::Float { .. }, n) => SettingValue::Float(
+            n.parse().ok().filter(|x: &f64| x.is_finite()).ok_or_else(|| {
+                format!("line {}: the setting {id:?}: its default is a number, not {n:?}", s.line)
+            })?,
+        ),
         (SettingKind::Bool, "" | "false") => SettingValue::Bool(false),
         (SettingKind::Bool, "true") => SettingValue::Bool(true),
         (SettingKind::Bool, other) => {
@@ -785,6 +948,19 @@ impl Manifest {
                 d.id, plugin.api
             ));
         }
+        if let Some(d) = settings.iter().find(|d| d.kind.since_0_5())
+            && api_before(&plugin.api, "0.5")
+        {
+            let what = match &d.kind {
+                SettingKind::Pattern(_) => "a pattern".to_string(),
+                SettingKind::Path { .. } => "pick = \"folder\"".to_string(),
+                k => format!("type = {:?}", k.name()),
+            };
+            return Err(format!(
+                "the setting {:?} has {what}, which is plugin API 0.5; the manifest says api = {:?}",
+                d.id, plugin.api
+            ));
+        }
         plugin.commands = commands;
         plugin.checks = checks;
         plugin.events = events;
@@ -959,7 +1135,7 @@ type = "path"
         assert!(with("id = \"strict\"", "id = \"Strict\"").contains("lower-case letters"));
         assert!(with("id = \"strict\"", "id = \"set\"").contains("can't be called \"set\""));
         assert!(with("id = \"strict\"", "id = \"prefix\"").contains("a second setting \"prefix\""));
-        assert!(with("type = \"bool\"", "type = \"float\"").contains("not \"float\""));
+        assert!(with("type = \"bool\"", "type = \"real\"").contains("not \"real\""));
         assert!(with("default = 32", "default = 40").contains("its default: 40 is more"));
         assert!(with("default = 32", "default = many").contains("a whole number, not \"many\""));
         assert!(
@@ -972,6 +1148,90 @@ type = "path"
         );
         let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
         assert!(e.contains("plugin API 0.4") && e.contains("\"prefix\""), "{e}");
+    }
+
+    /// API 0.5: a number with a fraction, a list, a color, text held to a
+    /// pattern, and a path that is a folder's.
+    #[test]
+    fn a_plugin_declares_settings_of_the_kinds_0_5_added() {
+        let text = SAMPLE.replace("api = \"0.1\"", "api = \"0.5\"")
+            + r##"
+[setting]
+id = "scale"
+type = "float"
+min = 0.5
+max = 2
+default = 1.25
+
+[setting]
+id = "kinds"
+type = "list"
+choices = "creature, placeable, door"
+default = "creature, door"
+
+[setting]
+id = "words"
+type = "list"
+
+[setting]
+id = "tint"
+type = "color"
+default = "#FF8000"
+
+[setting]
+id = "prefix"
+pattern = "[A-Z]{2,4}_"
+default = "KRZ_"
+
+[setting]
+id = "out"
+type = "path"
+pick = "folder"
+"##;
+        let m = Manifest::parse(&text).unwrap();
+        let s = &m.settings;
+        assert_eq!(s[0].kind, SettingKind::Float { min: Some(0.5), max: Some(2.0) });
+        assert_eq!(s[0].default, SettingValue::Float(1.25));
+        assert!(s[0].check(&SettingValue::Float(2.5)).unwrap_err().contains("most it takes"));
+        assert_eq!(s[0].coerce(SettingValue::Int(1)), SettingValue::Float(1.0));
+        assert!(s[0].check(&SettingValue::Int(1)).is_ok(), "a whole number is a number");
+        let kinds = |l: &[&str]| SettingValue::List(l.iter().map(|t| t.to_string()).collect());
+        assert_eq!(s[1].default, kinds(&["creature", "door"]));
+        assert!(s[1].check(&kinds(&["item"])).unwrap_err().contains("\"item\" is not one of"));
+        assert_eq!((s[2].kind.name(), &s[2].default), ("list", &kinds(&[])));
+        assert!(s[2].check(&kinds(&["anything", "at all"])).is_ok());
+        assert_eq!(s[3].default, SettingValue::Text("#ff8000".into()));
+        assert!(s[3].check(&SettingValue::Text("orange".into())).unwrap_err().contains("#rrggbb"));
+        assert_eq!(s[4].kind.name(), "string");
+        assert!(s[4].check(&SettingValue::Text("AB_".into())).is_ok());
+        let e = s[4].check(&SettingValue::Text("xAB_".into())).unwrap_err();
+        assert_eq!(e, "\"xAB_\" does not match its pattern, [A-Z]{2,4}_", "the whole of it");
+        assert_eq!(s[5].kind, SettingKind::Path { folder: true });
+        // Faults.
+        let with = |from: &str, to: &str| Manifest::parse(&text.replace(from, to)).unwrap_err();
+        assert!(with("default = 1.25", "default = 3").contains("its default: 3 is more"));
+        assert!(with("min = 0.5", "min = half").contains("min is a number, not \"half\""));
+        assert!(with("default = \"KRZ_\"", "default = \"krz\"").contains("does not match"));
+        assert!(with("[A-Z]{2,4}_", "[A-Z").contains("its pattern \"[A-Z\" does not read"));
+        assert!(with("default = \"#FF8000\"", "default = \"#FF80\"").contains("not a color"));
+        assert!(with("pick = \"folder\"", "pick = \"dir\"").contains("not \"dir\""));
+        assert!(with("type = \"color\"", "type = \"color\"\nmin = 1").contains("has no min"));
+        // Under an earlier API: refused, with the reason.
+        for (kept, what) in
+            [("scale", "type = \"float\""), ("prefix", "a pattern"), ("out", "pick = \"folder\"")]
+        {
+            let only = format!(
+                "{}\n[setting]\nid = \"{kept}\"\n{}",
+                SAMPLE.replace("api = \"0.1\"", "api = \"0.4\""),
+                match kept {
+                    "scale" => "type = \"float\"",
+                    "prefix" => "pattern = \"[A-Z]+_\"\ndefault = \"A_\"",
+                    _ => "type = \"path\"\npick = \"folder\"",
+                }
+            );
+            let e = Manifest::parse(&only).unwrap_err();
+            assert!(e.contains(what) && e.contains("plugin API 0.5"), "{e}");
+        }
     }
 
     #[test]

@@ -22,6 +22,7 @@ mg-tiles.workspace = true
 mg-tlk.workspace = true
 fastrand.workspace = true
 mlua.workspace = true
+regex-lite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

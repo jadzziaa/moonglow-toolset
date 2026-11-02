@@ -1228,6 +1228,23 @@ enum PluginCmd {
     /// plugin's archive: checked as the installer checks it, and its code
     /// as it is in the archive.
     Check { folders: Vec<PathBuf> },
+    /// Tidy what is kept of plugins' settings, where it is not as their
+    /// manifests declare: a value not of its kind, or of a setting none
+    /// declares, taken out (the default is used, as it was); one in the
+    /// other file than its scope's moved there. For the project's own
+    /// plugins and those named, in the project's files and Moonglow's own
+    /// (of scope user). Another plugin's table is left alone.
+    Tidy {
+        /// The project: a module folder, a nasher project's folder or its
+        /// nasher.cfg.
+        project: PathBuf,
+        /// More plugins' folders (installed ones, say), whose settings the
+        /// project's files keep too.
+        plugins: Vec<PathBuf>,
+        /// Say what would be done, and do nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run a plugin's command on a module and save: its edits applied as
     /// one command, all or none. The plugin runs sandboxed, as in the
     /// window.
@@ -2283,6 +2300,9 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders, project } => plugins::list(folders, project.as_deref())?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
+            PluginCmd::Tidy { project, plugins: dirs, dry_run } => {
+                plugins::tidy(project, dirs, *dry_run)?
+            }
             PluginCmd::Allow { project, ids, deny } => plugins::allow(project, ids, *deny)?,
             // (A plugin that reads no game data needs no game.)
             PluginCmd::Test { plugin, module } => {

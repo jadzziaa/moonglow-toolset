@@ -290,6 +290,12 @@ pub fn answers_path() -> Option<PathBuf> {
     mg_plugin::project::answers_path()
 }
 
+/// Where the values of plugins' settings of scope `user` are kept, which
+/// `mg` reads and keeps too: `plugin-settings.json` beside the plugins.
+pub fn values_path() -> Option<PathBuf> {
+    mg_plugin::settings::user_path()
+}
+
 /// The plugins enabled now, for a crash report (the panic hook reads it).
 static ENABLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -444,6 +450,7 @@ impl Moonglow {
     /// Reads the plugins folder again: who is installed (none of their
     /// code runs).
     pub fn load_plugins(&mut self) {
+        self.read_plugin_values();
         self.plugins.installed.clear();
         if !self.no_plugins
             && let Some(dir) = &self.plugin_dir
@@ -640,15 +647,39 @@ impl Moonglow {
         }
     }
 
-    /// The values a plugin's settings of scope `user` have in Moonglow's
-    /// settings.
+    /// Reads the values of plugins' settings of scope `user` from the file
+    /// `mg` shares ([`Moonglow::plugin_values`]), which Moonglow's
+    /// settings then hold; where there is none yet, it is written from
+    /// what Moonglow's settings kept (before 3.3.0, there alone).
+    fn read_plugin_values(&mut self) {
+        let Some(path) = &self.plugin_values else { return };
+        match mg_plugin::settings::read_user(path) {
+            Ok(values) if path.exists() => self.settings.plugin_settings = values,
+            Ok(_) if self.settings.plugin_settings.is_empty() => {}
+            Ok(_) => {
+                if let Err(e) =
+                    mg_plugin::settings::write_user(path, &self.settings.plugin_settings)
+                {
+                    self.log.error(format!("Plugins' settings: {e}"));
+                }
+            }
+            Err(e) => self.log.error(format!("Plugins' settings: {e}")),
+        }
+    }
+
+    /// The values a plugin's settings of scope `user` have: as the file
+    /// shared with `mg` has them now (it may have kept one since), else
+    /// as Moonglow's settings hold them.
     fn user_settings(
         &self,
         id: &str,
     ) -> std::collections::BTreeMap<String, mg_plugin::SettingValue> {
-        (self.settings.plugin_settings.get(id).into_iter().flatten())
-            .filter_map(|(k, v)| Some((k.clone(), mg_plugin::settings::from_json(v)?)))
-            .collect()
+        let read = self
+            .plugin_values
+            .as_deref()
+            .and_then(|p| p.exists().then(|| mg_plugin::settings::read_user(p).ok()).flatten());
+        let all = read.as_ref().unwrap_or(&self.settings.plugin_settings);
+        mg_plugin::settings::user_values(all, id)
     }
 
     /// A plugin's settings for a job: those kept (Moonglow's settings, the
@@ -671,6 +702,12 @@ impl Moonglow {
                 .as_ref()
                 .map_or_else(|| format!("its default ({})", d.default), |v| v.to_string());
             let kept = match (d.scope, &root) {
+                // (In the file shared with `mg`, where there is one.)
+                (mg_plugin::Scope::User, _) if self.plugin_values.is_some() => {
+                    let path = self.plugin_values.clone().unwrap_or_default();
+                    mg_plugin::settings::keep_user(&path, &p.manifest.id, id, value.as_ref())
+                        .map(|all| self.settings.plugin_settings = all)
+                }
                 (mg_plugin::Scope::User, _) => {
                     let all =
                         self.settings.plugin_settings.entry(p.manifest.id.clone()).or_default();
@@ -706,6 +743,83 @@ impl Moonglow {
         }
     }
 
+    /// What is kept of a plugin's settings that is not as its manifest
+    /// declares (a value not of its kind, of a setting it doesn't declare,
+    /// in the other file than its scope's), as the log says it when the
+    /// project is opened.
+    pub fn plugin_settings_faults(&self, p: &Plugin) -> Vec<String> {
+        let user = self.user_settings(&p.manifest.id);
+        let project = self.project_root().and(self.ws.as_ref()).map(|ws| &ws.module.project_file);
+        let mut faults = mg_plugin::settings::resolve(&p.manifest, &user, project).1;
+        // (Of the user's own, what no setting of scope user is.)
+        let raw = match self.plugin_values.as_deref().filter(|p| p.exists()) {
+            Some(path) => mg_plugin::settings::read_user(path).unwrap_or_default(),
+            None => self.settings.plugin_settings.clone(),
+        };
+        for name in raw.get(&p.manifest.id).into_iter().flatten().map(|(k, _)| k) {
+            if !p
+                .manifest
+                .settings
+                .iter()
+                .any(|d| d.id == *name && d.scope == mg_plugin::Scope::User)
+            {
+                faults.push(format!(
+                    "Moonglow's settings: {} keeps {name:?}, which is not its",
+                    p.manifest.id
+                ));
+            }
+        }
+        faults
+    }
+
+    /// Tidies what is kept of a plugin's settings
+    /// ([`mg_plugin::settings::tidy`]): what was wrong taken out, or moved
+    /// where its scope keeps it; what was done goes to the log.
+    pub fn tidy_plugin_settings(&mut self, id: &str) {
+        let found = (self.plugins.installed.iter())
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .find(|p| p.manifest.id == id)
+            .cloned();
+        let Some(p) = found else { return };
+        let mut user = match self.plugin_values.as_deref().filter(|p| p.exists()) {
+            Some(path) => match mg_plugin::settings::read_user(path) {
+                Ok(u) => u,
+                Err(e) => {
+                    self.log.error(format!("{}: not tidied: {e}", p.manifest.name));
+                    return;
+                }
+            },
+            None => self.settings.plugin_settings.clone(),
+        };
+        let root = self.project_root();
+        let file = self.ws.as_ref().map(|ws| ws.module.project_file.clone());
+        let project = root.as_deref().zip(file.as_ref());
+        let done = match mg_plugin::settings::tidy(&p.manifest, &mut user, project, false) {
+            Ok(done) => done,
+            Err(e) => {
+                self.log.error(format!("{}: not tidied: {e}", p.manifest.name));
+                return;
+            }
+        };
+        if let Some(path) = &self.plugin_values
+            && let Err(e) = mg_plugin::settings::write_user(path, &user)
+        {
+            self.log.error(format!("{}: {e}", p.manifest.name));
+        }
+        self.settings.plugin_settings = user;
+        if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
+            ws.module.project_file = ProjectFile::read(root);
+        }
+        for line in &done {
+            self.log.info(format!("{}: tidied: {line}", p.manifest.name));
+        }
+        // (The form, if open, with the values as they now are.)
+        if self.plugins.settings_form.as_ref().is_some_and(|f| f.plugin == id) {
+            let values = self.plugin_settings(&p).values;
+            self.plugins.settings_form = Some(SettingsForm { plugin: id.to_string(), values });
+        }
+    }
+
     /// Opens a plugin's settings in their form, with the values they have.
     pub fn open_plugin_settings(&mut self, id: &str) {
         let found = (self.plugins.installed.iter())
@@ -729,7 +843,7 @@ impl Moonglow {
         let now = self.plugin_settings(&p).values;
         let set: Vec<mg_plugin::SettingWrite> = (p.manifest.settings.iter())
             .filter_map(|d| {
-                let v = form.values.get(&d.id)?;
+                let v = &tidy(form.values.get(&d.id)?);
                 if now.get(&d.id) == Some(v) || d.check(v).is_err() {
                     return None;
                 }
@@ -1260,7 +1374,8 @@ impl Moonglow {
             // (A hak the module has already is read again.)
             self.reload_resources(false);
         }
-        // What it set, for the caller to keep: of a job that did not fail.
+        // What it set, for the caller to keep: of a job that did not fail,
+        // and whose edits went in (taken back below where they did not).
         self.plugins.last_set =
             result.as_ref().ok().map(|o| o.settings.clone()).filter(|s| !s.is_empty());
         match result {
@@ -1303,6 +1418,13 @@ impl Moonglow {
                         say(self, Level::Error, format!("{name}: {title}: {e}"));
                         if self.take_haks_back(&mut written, name, title, console) {
                             self.reload_resources(false);
+                        }
+                        if self.plugins.last_set.take().is_some() {
+                            say(
+                                self,
+                                Level::Info,
+                                format!("{name}: {title}: what it set is not kept"),
+                            );
                         }
                     }
                 }
@@ -1975,8 +2097,9 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     };
     let project = app.project_root();
+    let faults = app.plugin_settings_faults(&p);
     let mut form = form.clone();
-    let (mut save, mut cancel, mut defaults) = (false, false, false);
+    let (mut save, mut cancel, mut defaults, mut tidy) = (false, false, false, false);
     let mut open = true;
     let title = format!("Settings: {}", p.manifest.name);
     crate::widgets::dialog(ctx, &title, &mut open)
@@ -2014,6 +2137,31 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 },
             );
+            // What is kept wrong, to tidy.
+            if !faults.is_empty() {
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    let n = faults.len();
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "{n} value{} kept {} not as the plugin declares {}.",
+                            if n == 1 { "" } else { "s" },
+                            if n == 1 { "is" } else { "are" },
+                            if n == 1 { "it" } else { "them" },
+                        ),
+                    )
+                    .on_hover_text(faults.join("\n"));
+                    tidy = ui
+                        .button("Tidy Up")
+                        .on_hover_text(
+                            "Take out what is not of its kind or of no setting (its default is \
+                             used, as now), and move what is in the other file where its scope \
+                             keeps it",
+                        )
+                        .clicked();
+                });
+            }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 save = ui.button("Save").on_hover_text("Keep these values").clicked();
@@ -2032,11 +2180,33 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     }
     app.plugins.settings_form = Some(form);
-    if save {
+    if tidy {
+        app.tidy_plugin_settings(&p.manifest.id);
+    } else if save {
         app.save_plugin_settings();
     } else if cancel || !open {
         app.plugins.settings_form = None;
     }
+}
+
+/// A value as the form keeps it: a list's lines that are empty left out
+/// (they are kept while it is edited, for the next to be typed).
+fn tidy(v: &mg_plugin::SettingValue) -> mg_plugin::SettingValue {
+    match v {
+        mg_plugin::SettingValue::List(items) => mg_plugin::SettingValue::List(
+            items.iter().map(|i| i.trim().to_string()).filter(|i| !i.is_empty()).collect(),
+        ),
+        v => v.clone(),
+    }
+}
+
+/// A color as `#rrggbb` reads, and back.
+fn rgb_of(text: &str) -> Option<[u8; 3]> {
+    if !mg_plugin::is_color(text) {
+        return None;
+    }
+    let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).ok();
+    Some([byte(1)?, byte(3)?, byte(5)?])
 }
 
 /// One setting's field in the settings' form.
@@ -2056,6 +2226,58 @@ fn setting_field(
             let range = min.unwrap_or(i64::MIN)..=max.unwrap_or(i64::MAX);
             ui.add(egui::DragValue::new(n).range(range));
         }
+        (SettingKind::Float { min, max }, SettingValue::Float(x)) => {
+            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
+            ui.add(egui::DragValue::new(x).range(range).speed(0.05).max_decimals(4));
+        }
+        (SettingKind::List(choices), SettingValue::List(items)) if !choices.is_empty() => {
+            // (Each choice ticked or not, in the choices' order, one a line.)
+            ui.vertical(|ui| {
+                for c in choices {
+                    let mut on = items.contains(c);
+                    if ui.checkbox(&mut on, c).changed() {
+                        let mut now: Vec<String> =
+                            choices.iter().filter(|x| items.contains(x)).cloned().collect();
+                        match on {
+                            true if !now.contains(c) => {
+                                now = (choices.iter())
+                                    .filter(|x| now.contains(x) || *x == c)
+                                    .cloned()
+                                    .collect();
+                            }
+                            false => now.retain(|x| x != c),
+                            _ => {}
+                        }
+                        *items = now;
+                    }
+                }
+            });
+        }
+        (SettingKind::List(_), SettingValue::List(items)) => {
+            let mut text = items.join("\n");
+            let edit = egui::TextEdit::multiline(&mut text).desired_rows(3).desired_width(220.0);
+            if ui.add(edit).on_hover_text("One a line").changed() {
+                *items = text.split('\n').map(str::to_string).collect();
+            }
+        }
+        (SettingKind::Color, SettingValue::Text(hex)) => {
+            ui.horizontal(|ui| {
+                let mut rgb = rgb_of(hex).unwrap_or_default();
+                if ui.color_edit_button_srgb(&mut rgb).changed() {
+                    *hex = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
+                }
+                ui.add(egui::TextEdit::singleline(hex).desired_width(70.0));
+            });
+        }
+        (SettingKind::Pattern(_), SettingValue::Text(text)) => {
+            ui.vertical(|ui| {
+                ui.add(egui::TextEdit::singleline(text).desired_width(220.0));
+                // (What it is held to, said as it is typed.)
+                if let Err(why) = d.check(&SettingValue::Text(text.clone())) {
+                    ui.colored_label(ui.visuals().warn_fg_color, why);
+                }
+            });
+        }
         (SettingKind::Choice(choices), SettingValue::Text(chosen)) => {
             crate::widgets::dropdown(("plugin-setting", &d.id)).selected_text(chosen.clone()).show(
                 ui,
@@ -2064,12 +2286,23 @@ fn setting_field(
                 Clone::clone,
             );
         }
-        (SettingKind::Path, SettingValue::Text(path)) => {
+        (SettingKind::Path { folder }, SettingValue::Text(path)) => {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(path).desired_width(200.0));
-                if ui.small_button("Choose…").clicked()
-                    && let Some(chosen) = app.dialogs.open_file_of(d.shown(), &[])
-                {
+                let start = std::path::Path::new(path.as_str());
+                let start = match project.as_ref().filter(|_| d.scope.in_project()) {
+                    Some(root) if start.is_relative() => root.join(start),
+                    _ => start.to_path_buf(),
+                };
+                let start = start.is_dir().then_some(start);
+                let tip = if *folder { "Choose a folder" } else { "Choose a file" };
+                let chose = ui.small_button("Choose…").on_hover_text(tip).clicked();
+                let chosen = match (chose, *folder) {
+                    (false, _) => None,
+                    (true, true) => app.dialogs.pick_folder(d.shown(), start.as_deref()),
+                    (true, false) => app.dialogs.open_file_of(d.shown(), &[]),
+                };
+                if let Some(chosen) = chosen {
                     // (Of the project, from its root: the same on every
                     // builder's machine.)
                     let inside = project

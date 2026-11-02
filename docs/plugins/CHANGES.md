@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
 ---
 
 # Plugin API changes
@@ -26,6 +26,17 @@ refused, with the reason.
   left), and the tiles that changed go in when it returns, as one edit
   of the area's tile list; if it fails, none of them. A stroke that
   changes many tiles outside a batch is one edit of the list too.
+- Settings of three more kinds, `float` (a number with a fraction,
+  with `min` and `max`), `list` (texts; with `choices`, each one of
+  them) and `color` (`"#rrggbb"`); a `string` held to a `pattern` (a
+  regular expression its whole text matches); a `path` whose form picks
+  a folder (`pick = "folder"`). `ctx.settings` reads a float as a
+  number and a list as a table of texts, and `ctx.settings:set` takes
+  them so. A manifest with any of these and an earlier `api` is refused.
+- Settings of scope `user` are kept in Moonglow's own folder
+  (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
+  plugin run` a plugin reads the values the user set in the window, and
+  what it sets of that scope is kept.
 
 ## 0.4
 

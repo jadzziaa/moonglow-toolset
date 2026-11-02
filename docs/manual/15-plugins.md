@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:42:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
 ---
 
 # Plugins
@@ -188,7 +188,8 @@ A plugin may keep settings: a team's prefix, your builder code, how
 strict a check is. **Settings…** beside it in Manage Plugins opens them
 in a form, each with what it is (a tip says more) and where it is kept:
 
-- **yours**: in Moonglow's settings, for every module;
+- **yours**: in Moonglow's own folder, for every module (`mg` reads and
+  keeps them too);
 - **the team's**: in the project's `moonglow.toml`, which goes with the
   project to every builder (Save writes it there, the rest of the file as
   it was);
@@ -199,9 +200,17 @@ in a form, each with what it is (a tip says more) and where it is kept:
 own value (a value back at its default is taken out of where it was
 kept). Without a project open, the team's and the project's settings
 can't be changed. A plugin's command may set one itself (your builder
-code, asked for once); the log says what it set, and where. What a
-project's files hold that a plugin doesn't know, or of the wrong kind, is
-said in the log when the project is opened, and left as it is.
+code, asked for once); the log says what it set, and where, and a value
+a command set whose edits did not go in is not kept. What a project's
+files hold that a plugin doesn't know, or of the wrong kind, is said in
+the log when the project is opened, and in the form, whose **Tidy Up**
+takes it out (or moves it to the file its scope keeps it in).
+
+A setting is a field of its kind: text (held, where the plugin says, to
+a pattern, said as you type), a whole number or a number with a
+fraction, a box, a choice, a list (a box for each of its choices, or a
+text a line), a color (a swatch and its `#rrggbb`), or a path, whose
+**Choose…** picks a file or, where the plugin says, a folder.
 
 ## Commands
 

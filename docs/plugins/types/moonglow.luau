@@ -216,12 +216,14 @@ export type Selected = {
 -- The plugin's settings (API 0.4), as its manifest declares them
 -- ([setting]): each read by its id (ctx.settings.code), and gone through
 -- with `for id, value in ctx.settings`. A value is text (a string, a
--- choice, a path), a whole number (an int) or true or false (a bool).
+-- choice, a path, a color as "#rrggbb"), a whole number (an int), a
+-- number (a float; API 0.5), true or false (a bool), or a list of texts
+-- (a list; API 0.5).
 export type Settings = {
     -- Sets one, for Moonglow to keep where its scope says when the job is
     -- done (nil: back to its default). Not in a check.
-    set: (self: Settings, id: string, value: (string | number | boolean)?) -> (),
-    [string]: string | number | boolean,
+    set: (self: Settings, id: string, value: (string | number | boolean | { string })?) -> (),
+    [string]: string | number | boolean | { string },
 }
 
 -- What happened, for an event's handler (mg.on): its name, and what it is

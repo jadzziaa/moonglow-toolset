@@ -324,9 +324,11 @@ fn a_setting_misused_is_an_error_that_says_how() {
     let e = fails("ctx.settings.code = 'x'");
     assert!(e.contains("is set with ctx.settings:set(\"code\", value)"), "{e}");
     assert!(fails("ctx.settings:set('most', 40)").contains("40 is more than 32"));
-    assert!(fails("ctx.settings:set('most', 2.5)").contains("number is no setting's value"));
+    assert!(fails("ctx.settings:set('most', 2.5)").contains("2.5 is not a whole number"));
     assert!(fails("ctx.settings:set('most', 'x')").contains("\"x\" is not a whole number"));
-    assert!(fails("ctx.settings:set('loud', {})").contains("table is no setting's value"));
+    assert!(fails("ctx.settings:set('loud', {})").contains("[] is not true or false"));
+    assert!(fails("ctx.settings:set('loud', { 1 })").contains("a list's items are texts"));
+    assert!(fails("ctx.settings:set('loud', print)").contains("function is no setting's value"));
     assert!(fails("ctx.settings:set('gone', 1)").contains("declares no setting \"gone\""));
     assert!(fails("setmetatable(ctx.settings, {})").contains("protected metatable"));
     // A check that sets one fails.

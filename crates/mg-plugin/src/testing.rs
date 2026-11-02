@@ -213,6 +213,11 @@ fn setting_of(v: &toml::Value) -> Option<crate::SettingValue> {
         toml::Value::String(t) => Some(crate::SettingValue::Text(t.clone())),
         toml::Value::Integer(n) => Some(crate::SettingValue::Int(*n)),
         toml::Value::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+        toml::Value::Float(x) => Some(crate::SettingValue::Float(*x)),
+        toml::Value::Array(items) => (items.iter())
+            .map(|i| i.as_str().map(str::to_string))
+            .collect::<Option<Vec<String>>>()
+            .map(crate::SettingValue::List),
         _ => None,
     }
 }

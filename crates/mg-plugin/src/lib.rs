@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 pub use manifest::{
     API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Scope, SettingDecl,
-    SettingKind, SettingValue, Target,
+    SettingKind, SettingValue, Target, is_color,
 };
 use mg_core::{ResRef, ResType};
 pub use mg_edit::fix::{Fix, Found};

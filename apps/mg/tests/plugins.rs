@@ -708,6 +708,81 @@ fn a_plugin_s_settings_are_read_and_kept_on_the_command_line() {
     assert!(std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap().contains("\"zz\""));
 }
 
+/// A setting of scope `user` is kept where the window keeps it (the file
+/// in Moonglow's data folder it shares with `mg`), and read from there by
+/// the next run, by `mg plugin list` and by the window alike.
+#[test]
+fn a_plugin_s_own_settings_are_kept_with_moonglow_s() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-user-settings");
+    let home = dir.join("home");
+    let path = module(&dir);
+    let plugin = dir.join("counter");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"test.counter\"\nname = \"Counter\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\
+         \n[command]\nid = \"count\"\ntitle = \"Count\"\n\n[setting]\nid = \"runs\"\ntype = \
+         \"int\"\n\n[setting]\nid = \"scale\"\ntype = \"float\"\ndefault = 0.5\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"count\", function(ctx)\n  \
+         print(ctx.settings.runs, ctx.settings.scale)\n  ctx.settings:set(\"runs\", \
+         ctx.settings.runs + 1)\n  ctx.settings:set(\"scale\", ctx.settings.scale * 3)\nend)\n",
+    )
+    .unwrap();
+    let run = || {
+        let (m, p) = (path.to_str().unwrap(), plugin.to_str().unwrap());
+        mg_at(&home, &["plugin", "run", m, p, "count"])
+    };
+    let (ok, out) = run();
+    assert!(ok, "{out}");
+    assert_eq!(
+        out["settings"][0],
+        json!({ "id": "runs", "scope": "user", "value": 1, "kept": true })
+    );
+    let kept = home.join("data/moonglow/plugin-settings.json");
+    let values: Json = serde_json::from_str(&std::fs::read_to_string(&kept).unwrap()).unwrap();
+    assert_eq!(values, json!({ "test.counter": { "runs": 1, "scale": 1.5 } }));
+    let (ok, out) = run();
+    assert!(ok, "{out}");
+    assert!(out["log"].to_string().contains("1\\t1.5"), "the values kept, read: {out}");
+    let (_, listed) = mg_at(&home, &["plugin", "list", plugin.to_str().unwrap()]);
+    assert_eq!(listed["plugins"][0]["settings"][0]["value"], 2, "{listed}");
+    assert_eq!(listed["plugins"][0]["settings"][1]["type"], "float");
+}
+
+/// `mg plugin tidy`: what is kept wrong of the project's plugins'
+/// settings taken out or moved, said first with `--dry-run`; another
+/// plugin's table left alone, and said.
+#[test]
+fn a_project_s_plugin_settings_are_tidied() {
+    let dir = project_with_plugins("mg-plugin-tidy");
+    let home = dir.join("home");
+    let team = dir.join("moonglow.toml");
+    std::fs::write(
+        &team,
+        "[plugins.\"example.builder-tags\"]\nprefix = \"KRZ_\"\nmax_length = 40\nlost = 1\ncode = \
+         \"ab\"\n\n[plugins.\"other.plugin\"]\nx = 1\n",
+    )
+    .unwrap();
+    let project = dir.to_str().unwrap();
+    let (ok, out) = mg_at(&home, &["plugin", "tidy", project, "--dry-run"]);
+    assert!(ok, "{out}");
+    assert_eq!(out["plugins"][0]["done"].as_array().unwrap().len(), 3, "{out}");
+    assert!(std::fs::read_to_string(&team).unwrap().contains("max_length = 40"));
+    let (ok, out) = mg_at(&home, &["plugin", "tidy", project]);
+    assert!(ok, "{out}");
+    assert!(out["notes"].to_string().contains("there is no plugin other.plugin"), "{out}");
+    assert_eq!(
+        std::fs::read_to_string(&team).unwrap(),
+        "[plugins.\"example.builder-tags\"]\nprefix = \"KRZ_\"\n\n[plugins.\"other.plugin\"]\nx = 1\n"
+    );
+    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert!(own.contains("code = \"ab\""), "moved where its scope keeps it: {own}");
+}
+
 /// The House rules example (a resource's own events, API 0.4).
 fn house_rules() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/house-rules")

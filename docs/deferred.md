@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:42:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1213,23 +1213,12 @@ contribution itself states as not done or not checked.
     question and the Plugins window were driven through the UI harness
     and looked at as rendered pictures (one plugin asked about), not
     used on a desktop. Waits on a desktop session. (S)
-  - **A plugin's settings** (API 0.4, A5: `[setting]`, `ctx.settings`,
-    `ctx.settings:set`, the settings' form, scopes `user`, `project`
-    and `user-project`). Not done: five kinds only (no number with a
-    fraction, list, color or pattern a text is held to); a `path` is
-    text, the plugin reads no file by it (it still asks with
-    `ctx.ui:open_file`), and the form's Choose… picks a file, not a
-    folder (typed); what the form saves and what a job sets is not part
-    of Undo (files outside the module), and a team value saved writes
-    the project's `moonglow.toml`, committed with it, without asking;
-    what a job set is kept when the job did not fail, even if its edits
-    then do not apply; `mg` keeps no settings of scope `user` and reads
-    none of Moonglow's (`mg plugin run --setting` for one run; `mg
-    verify` takes the project's files and the defaults); a value kept of
-    the wrong kind, or of a setting no plugin declares, is said when the
-    project is opened and left there, and nothing tidies it. Driven
-    through the UI harness, with a rendered picture of the form; not
-    used on a desktop. (S each)
+  - **A plugin's settings, on a desktop** (API 0.4, A5; since 3.3.0
+    the kinds `float`, `list` and `color`, a `pattern`, a folder's
+    `pick`, `mg` keeping and reading those of scope `user`, Tidy Up and
+    `mg plugin tidy`): driven through the UI harness, with rendered
+    pictures of the form (`plugin-settings`, `plugin-settings-kinds`),
+    not used on a desktop. Waits on a desktop session. (S)
   - **More kinds of things to add:** exporters and importers, wizards,
     panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
     complexity.)
@@ -1655,6 +1644,18 @@ is not taken for a new gap.
   settings of scope `user` (it stands in for that plugin, and the
   user's own values are the user's); a module kept in one file has no
   project, so no project plugins.
+
+- **A plugin's settings outside Undo, and a `path` it reads no file by**
+  (the deferred list's "Plugins, beyond API 0.4", 2026-11-01): what the
+  settings' form saves, and what a job sets, is not a step of Undo: the
+  values are files outside the module (Moonglow's own, the project's
+  `moonglow.toml` and `.moonglow/user.toml`), as Options are, and Save in
+  the form, or the plugin's own command that sets one, is the asking (the
+  form says beside each where it is kept; the log says what was set, and
+  where). A `path` stays text to the plugin, which reads no file by it
+  and still asks with `ctx.ui:open_file`: a value of the team's comes
+  with the checkout, not from the user, and a plugin reading a file by
+  it would read what the user never chose.
 
 - **A geometry program beside a material's pair** (`customshaderGS` with
   `customshaderVS` and `FS`): the client runs it (one that emits nothing

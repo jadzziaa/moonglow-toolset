@@ -198,7 +198,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.4)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.5)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -1299,6 +1299,102 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     h.run();
     let prefix = h.state().plugins.settings_form.as_ref().unwrap().values["prefix"].clone();
     assert_eq!(prefix, mg_plugin::SettingValue::Text(String::new()), "its default");
+}
+
+/// The kinds of setting API 0.5 added, in the form: a number with a
+/// fraction, a list (of choices, and free), a color, text held to a
+/// pattern and a folder chosen by Choose…; kept, those of scope `user`, in
+/// the file shared with `mg`. What is kept wrong is tidied by Tidy Up.
+#[test]
+fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
+    let dir = plugin_project("ui-plugin-settings-kinds");
+    let plugins = dir.join("installed");
+    let kinds = plugins.join("kinds");
+    std::fs::create_dir_all(&kinds).unwrap();
+    std::fs::write(
+        kinds.join("plugin.cfg"),
+        "[plugin]\nid = \"test.kinds\"\nname = \"Kinds\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"scale\"\ntype = \"float\"\nmin = 0\nmax = 4\ndefault = 1.5\n\n\
+         [setting]\nid = \"objects\"\ntype = \"list\"\nchoices = \"creature, door, placeable\"\n\
+         default = \"door\"\n\n[setting]\nid = \"words\"\ntype = \"list\"\n\n[setting]\nid = \
+         \"tint\"\ntype = \"color\"\ndefault = \"#336699\"\n\n[setting]\nid = \"code\"\npattern = \
+         \"[a-z]{2}\"\ndefault = \"ab\"\n\n[setting]\nid = \"out\"\ntype = \"path\"\npick = \
+         \"folder\"\n\n[setting]\nid = \"most\"\ntype = \"int\"\nmax = 9\nscope = \"project\"\n",
+    )
+    .unwrap();
+    std::fs::write(kinds.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    // (Kept wrong in the team's file: of no kind, and of no setting.)
+    let team = dir.join("moonglow.toml");
+    let text = std::fs::read_to_string(&team).unwrap();
+    std::fs::write(&team, format!("{text}\n[plugins.\"test.kinds\"]\nmost = 40\nlost = 1\n"))
+        .unwrap();
+    let out = dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let values = dir.with_extension("values.json");
+    let _ = std::fs::remove_file(&values);
+    let mut app = app_with(Vec::new());
+    app.dialogs = Box::new(NoDialogs { folders: vec![out.clone()], ..Default::default() });
+    app.plugin_dir = Some(plugins.clone());
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
+    app.plugin_values = Some(values.clone());
+    app.load_plugins();
+    app.open_module(&dir);
+    app.plugins.project_asking.clear();
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    h.state_mut().open_plugin_settings("test.kinds");
+    h.run();
+    h.get_by_label("Settings: Kinds");
+    for label in ["scale", "objects", "words", "tint", "code", "out", "creature", "door"] {
+        assert!(h.query_all_by_label(label).next().is_some(), "{label}");
+    }
+    h.get_by_label("2 values kept are not as the plugin declares them.");
+    // A folder chosen for the folder's path.
+    h.get_by_label("Choose…").click();
+    h.run();
+    {
+        let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
+        let v = &form.values;
+        assert_eq!(
+            v["out"],
+            mg_plugin::SettingValue::Text(out.to_string_lossy().replace('\\', "/"))
+        );
+        assert_eq!(v["scale"], mg_plugin::SettingValue::Float(1.5));
+        assert_eq!(v["objects"], mg_plugin::SettingValue::List(vec!["door".into()]));
+        form.values.insert("scale".into(), mg_plugin::SettingValue::Float(2.25));
+        form.values.insert(
+            "words".into(),
+            mg_plugin::SettingValue::List(vec!["one".into(), "".into(), "two".into()]),
+        );
+        form.values.insert("code".into(), mg_plugin::SettingValue::Text("xyz".into()));
+    }
+    h.run();
+    h.get_by_label_contains("does not match its pattern");
+    // Tidy Up: the wrong ones out of the team's file.
+    h.get_by_label("Tidy Up").click();
+    h.run();
+    let now = std::fs::read_to_string(&team).unwrap();
+    assert!(!now.contains("most = 40") && !now.contains("lost"), "{now}");
+    assert!(h.query_by_label_contains("not as the plugin declares").is_none());
+    {
+        let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
+        form.values.insert("scale".into(), mg_plugin::SettingValue::Float(2.25));
+        form.values.insert(
+            "words".into(),
+            mg_plugin::SettingValue::List(vec!["one".into(), "".into(), "two".into()]),
+        );
+    }
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    // Kept in the file shared with mg, the list's empty lines left out.
+    let kept: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&values).unwrap()).unwrap();
+    assert_eq!(kept["test.kinds"]["scale"], serde_json::json!(2.25));
+    assert_eq!(kept["test.kinds"]["words"], serde_json::json!(["one", "two"]));
+    let p =
+        h.state().plugins.installed.iter().find_map(|i| i.plugin.as_ref().ok()).cloned().unwrap();
+    assert_eq!(h.state().plugin_settings(&p).values["scale"], mg_plugin::SettingValue::Float(2.25));
 }
 
 /// ctx.settings in the window: a command's settings are kept when it is

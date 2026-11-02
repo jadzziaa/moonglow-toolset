@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
 ---
 
 # Plugin API reference
@@ -565,14 +565,16 @@ their defaults ([Writing plugins](16-writing-plugins.md#settings)).
 
 | | |
 | --- | --- |
-| `ctx.settings.<id>` | A setting's value: text (a `string`, a `choice`, a `path`), a whole number (an `int`) or true or false (a `bool`). An id the manifest doesn't declare is an error. |
+| `ctx.settings.<id>` | A setting's value: text (a `string`, a `choice`, a `path`, a `color` as `"#rrggbb"`), a whole number (an `int`), a number (a `float`), true or false (a `bool`), or a list of texts (a `list`, from 1; a copy). An id the manifest doesn't declare is an error. `float`, `list` and `color` since API 0.5. |
 | `for id, value in ctx.settings` | Each setting and its value, in the manifest's order. |
-| `ctx.settings:set(id, value)` | Sets one: `value` of its kind, within its limits or among its choices (else an error), or nil for its default. The job reads it back at once; Moonglow keeps it where its scope says when the job is done, and not if the job fails. A setting of scope `project` or `user-project` can't be set without a project (a module kept in one file has none). Not in a check, nor in the console. |
+| `ctx.settings:set(id, value)` | Sets one: `value` of its kind (a whole number does for a `float`; a table of texts for a `list`), within its limits, among its choices, matching its pattern (else an error), or nil for its default. The job reads it back at once; Moonglow keeps it where its scope says when the job is done, and not if the job fails. A setting of scope `project` or `user-project` can't be set without a project (a module kept in one file has none). Not in a check, nor in the console. |
 
 `ctx.settings.x = …` is an error: a setting is set with `set`. With `mg
-plugin run`, a setting of scope `user` has its default (or `--setting
-ID=VALUE`), and what the plugin sets of that scope is not kept; those of
-the project's scopes are read from, and kept in, the project's files.
+plugin run`, a setting of scope `user` has the value Moonglow keeps (its
+own folder's `plugin-settings.json`, shared with the window; since
+Moonglow 3.3.0), or `--setting ID=VALUE`, and what the plugin sets of that
+scope is kept there; those of the project's scopes are read from, and
+kept in, the project's files.
 
 ## Luau
 

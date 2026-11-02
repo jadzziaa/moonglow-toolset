@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
 ---
 
 # Writing plugins
@@ -272,13 +272,15 @@ running the plugin, to list what it adds.
 | Key | |
 | --- | --- |
 | `id` | Needed. Its name as the plugin reads it, `ctx.settings.<id>`: lower-case letters, digits and `_`, from a letter (not `set`). |
-| `type` | `"string"` (as when left out), `"int"` (a whole number), `"bool"`, `"choice"` or `"path"` (a file's or a folder's path, as text). |
-| `default` | Its value until one is set: text, a whole number, `true` or `false`, or one of the choices. Left out: empty text, 0 (or `min`), false, the first choice. |
+| `type` | `"string"` (as when left out), `"int"` (a whole number), `"float"` (a number with a fraction), `"bool"`, `"choice"`, `"list"` (texts), `"color"` (`#rrggbb`) or `"path"` (a file's or a folder's path, as text). `float`, `list` and `color` since API 0.5. |
+| `default` | Its value until one is set: text, a number, `true` or `false`, one of the choices, a list's texts separated by commas (`"door, placeable"`), a color (`"#336699"`). Left out: empty text, 0 (or `min`), false, the first choice, an empty list, black. |
 | `label` | What the settings' form calls it; else its id. |
 | `help` | What the form's tip says of it. |
 | `scope` | Where its value is kept, and who shares it: `"user"` (as when left out), `"project"` or `"user-project"` (below). |
-| `choices` | A choice's options, as a list: `"creatures, placeables"`. Needed for one. |
-| `min`, `max` | An int's limits. |
+| `choices` | A choice's options, as a list: `"creatures, placeables"`. Needed for one. A list's (since API 0.5): what each of its texts may be; left out, any text. |
+| `min`, `max` | An int's or a float's limits. |
+| `pattern` | For a string (since API 0.5): a regular expression the whole of its text matches (`"[A-Z]{2,4}_"`); the form says, as it is typed, where a value doesn't. |
+| `pick` | For a path (since API 0.5): `"file"` (as when left out) or `"folder"`, what the form's Choose… picks. |
 
 A key or a section Moonglow doesn't know is an error (a misspelled one,
 most likely), and so is a command declared but not registered, or
@@ -561,7 +563,7 @@ Each setting's **scope** says where its value is kept, and who shares it:
 
 | Scope | Whose | Kept in |
 | --- | --- | --- |
-| `user` | The user's, for every module | Moonglow's settings (`mg` keeps none: a run takes the default, or `--setting`) |
+| `user` | The user's, for every module | Moonglow's own folder (`plugin-settings.json`), which the window and `mg` share (since Moonglow 3.3.0; `mg plugin run` reads and keeps them too) |
 | `project` | The team's, for the project | The project's `moonglow.toml`, `[plugins."<plugin id>"]`: committed with the project, so every builder has it |
 | `user-project` | The user's own, for the project | The project's `.moonglow/user.toml`, `[plugins."<plugin id>"]`: never committed |
 
@@ -573,7 +575,9 @@ values into `moonglow.toml` by hand, as
 
 The plugin reads them as `ctx.settings`, each by its id; `for id, value
 in ctx.settings` goes through them in the manifest's order. A value is
-text (a string, a choice, a path), a whole number or true or false:
+text (a string, a choice, a path, a color as `"#rrggbb"`), a whole number
+(an int), a number (a float), true or false, or a list of texts (a list,
+from 1):
 
 ```lua
 local function wanted(ctx): string
@@ -608,12 +612,17 @@ A value kept that is not of its setting's kind (`max_length = "long"`),
 or kept in the other file, is said in the log when the project is
 opened, and the setting has its default; one for a setting the plugin
 doesn't declare (an older version's) is said and left where it is.
-Moonglow writes only the values it sets, and keeps the rest of each file
-as it is written.
+The settings' form says so too, with **Tidy Up**, which takes out what
+is not of its kind or of no setting and moves what is in the other file
+where its scope keeps it; `mg plugin tidy PROJECT` does the same from a
+terminal. Tables of plugins not installed are left alone (another
+builder's). Moonglow writes only the values it sets or tidies, and keeps
+the rest of each file as it is written.
 
-A `path` is text to the plugin: the form has a button to choose it, but
-the plugin reads no file by it (the sandbox). It still asks for a file
-with `ctx.ui:open_file`.
+A `path` is text to the plugin: the form has a button to choose it (a
+file, or with `pick = "folder"` a folder), but the plugin reads no file
+by it (the sandbox: a team's value comes with the checkout, not from the
+user). It still asks for a file with `ctx.ui:open_file`.
 
 ## Outside the module
 

@@ -251,20 +251,83 @@ pub(crate) fn allow(project: &Path, ids: &[String], deny: bool) -> Result<Output
     Ok(out)
 }
 
+/// `mg plugin tidy`: what is kept of the settings of the project's
+/// plugins and of those named tidied, as the settings' form's Tidy Up
+/// does ([`mg_plugin::settings::tidy`]): in the project's files and in
+/// Moonglow's own of scope `user`.
+pub(crate) fn tidy(project: &Path, dirs: &[PathBuf], dry_run: bool) -> Result<Output> {
+    let root = project_root(project)?;
+    let mut plugins: Vec<Plugin> = Vec::new();
+    for dir in dirs {
+        for p in plugins_in(dir) {
+            plugins.push(p.map_err(|e| anyhow!("{e}"))?);
+        }
+    }
+    let file = mg_module::project_file::ProjectFile::read(&root);
+    for f in mg_plugin::project::discover(&root, &file) {
+        // (One named stands in for the project's of its id.)
+        match f.plugin {
+            Ok(p) if plugins.iter().any(|n| n.manifest.id == p.manifest.id) => {}
+            Ok(p) => plugins.push(p),
+            Err(e) => bail!("the project's plugin in {}: {e}", f.dir.display()),
+        }
+    }
+    let path = mg_plugin::settings::user_path();
+    let mut user = match &path {
+        Some(p) => mg_plugin::settings::read_user(p).map_err(|e| anyhow!("{e}"))?,
+        None => Default::default(),
+    };
+    let mut out = Output::default();
+    let mut all = Vec::new();
+    for p in &plugins {
+        // (The files read again: the one before may have changed them.)
+        let file = mg_module::project_file::ProjectFile::read(&root);
+        let done = mg_plugin::settings::tidy(&p.manifest, &mut user, Some((&root, &file)), dry_run)
+            .map_err(|e| anyhow!("{}: {e}", p.manifest.id))?;
+        for line in &done {
+            out.line(format!("{}\t{}{line}", p.manifest.id, if dry_run { "would: " } else { "" }));
+        }
+        all.push(json!({ "id": p.manifest.id, "done": done }));
+    }
+    if let (Some(path), false) = (&path, dry_run) {
+        mg_plugin::settings::write_user(path, &user).map_err(|e| anyhow!("{e}"))?;
+    }
+    let known: Vec<&str> = plugins.iter().map(|p| p.manifest.id.as_str()).collect();
+    let file = mg_module::project_file::ProjectFile::read(&root);
+    for s in mg_plugin::settings::unclaimed(&file, &known) {
+        out.note(format!("warning: {s}"));
+    }
+    out.json = json!({ "project": root.display().to_string(), "plugins": all, "dry_run": dry_run });
+    Ok(out)
+}
+
 /// A setting as `mg plugin list` says it: its id, kind, scope and value.
 fn setting_json(d: &mg_plugin::SettingDecl, value: &mg_plugin::SettingValue) -> serde_json::Value {
+    use mg_plugin::SettingKind;
     let choices = match &d.kind {
-        mg_plugin::SettingKind::Choice(c) => json!(c),
+        SettingKind::Choice(c) => json!(c),
+        SettingKind::List(c) if !c.is_empty() => json!(c),
         _ => serde_json::Value::Null,
     };
     let (min, max) = match &d.kind {
-        mg_plugin::SettingKind::Int { min, max } => (json!(min), json!(max)),
+        SettingKind::Int { min, max } => (json!(min), json!(max)),
+        SettingKind::Float { min, max } => (json!(min), json!(max)),
         _ => (serde_json::Value::Null, serde_json::Value::Null),
+    };
+    let pattern = match &d.kind {
+        SettingKind::Pattern(p) => json!(p),
+        _ => serde_json::Value::Null,
+    };
+    let pick = match &d.kind {
+        SettingKind::Path { folder: true } => json!("folder"),
+        SettingKind::Path { folder: false } => json!("file"),
+        _ => serde_json::Value::Null,
     };
     json!({
         "id": d.id, "type": d.kind.name(), "scope": d.scope.name(), "label": d.label,
         "help": d.help, "default": mg_plugin::settings::to_json(&d.default),
         "value": mg_plugin::settings::to_json(value), "choices": choices, "min": min, "max": max,
+        "pattern": pattern, "pick": pick,
     })
 }
 
@@ -337,8 +400,8 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                     }
                     // Its settings, with their values in the project.
                     let in_project = file.as_ref().filter(|_| trust.is_some());
-                    let (values, said) =
-                        mg_plugin::settings::resolve(m, &BTreeMap::new(), in_project);
+                    let user = user_values(&m.id, &mut out);
+                    let (values, said) = mg_plugin::settings::resolve(m, &user, in_project);
                     said.into_iter().for_each(|s| out.note(format!("warning: {s}")));
                     let mut settings = Vec::new();
                     for d in &m.settings {
@@ -676,7 +739,8 @@ fn settings_for(
     out: &mut Output,
 ) -> Result<mg_plugin::Settings> {
     let project = project_of(m).map(|_| &m.project_file);
-    let (mut s, said) = mg_plugin::settings::resolve(&plugin.manifest, &BTreeMap::new(), project);
+    let user = user_values(&plugin.manifest.id, out);
+    let (mut s, said) = mg_plugin::settings::resolve(&plugin.manifest, &user, project);
     said.into_iter().for_each(|w| out.note(format!("warning: {w}")));
     for g in given {
         let (id, value) =
@@ -697,14 +761,28 @@ fn settings_for(
     Ok(s)
 }
 
+/// A plugin's values of scope `user`, as Moonglow keeps them (the file the
+/// window shares, `plugin-settings.json` in its data folder); one that
+/// can't be read is said, and the defaults taken.
+fn user_values(plugin: &str, out: &mut Output) -> BTreeMap<String, mg_plugin::SettingValue> {
+    let Some(path) = mg_plugin::settings::user_path() else { return BTreeMap::new() };
+    match mg_plugin::settings::read_user(&path) {
+        Ok(all) => mg_plugin::settings::user_values(&all, plugin),
+        Err(e) => {
+            out.note(format!("warning: {e}: the plugins' own settings have their defaults"));
+            BTreeMap::new()
+        }
+    }
+}
+
 /// The root of a module's project: none for a module kept in one file.
 fn project_of(m: &Module) -> Option<&Path> {
     m.location.as_ref().and_then(mg_module::project_file::ProjectFile::root_of)
 }
 
 /// Keeps what a plugin set (`ctx.settings:set`) in the project's files,
-/// as the window does; one of scope "user" is not kept (mg keeps none).
-/// With `dry_run`, says what it would keep.
+/// as the window does, and one of scope "user" where Moonglow keeps those
+/// (the file the window shares). With `dry_run`, says what it would keep.
 fn keep_settings(
     plugin: &Plugin,
     m: &Module,
@@ -726,13 +804,18 @@ fn keep_settings(
         let shown = v.map_or_else(|| format!("its default ({})", d.default), |v| v.to_string());
         let place = mg_plugin::settings::scope_words(d.scope);
         let done = match (d.scope.in_project(), project_of(m), dry_run) {
-            (false, _, _) => {
-                out.note(format!(
-                    "{}: {id} set to {shown} is not kept: mg keeps no settings of scope \
-                     \"user\" (Moonglow's Plugins window does)",
-                    plugin.manifest.name
-                ));
+            (false, _, true) => {
+                out.note(format!("would set {id} to {shown} ({place})"));
                 false
+            }
+            (false, _, false) => {
+                let Some(path) = mg_plugin::settings::user_path() else {
+                    bail!("{id}: there is no data folder to keep it in");
+                };
+                mg_plugin::settings::keep_user(&path, &plugin.manifest.id, id, v)
+                    .map_err(|e| anyhow!("{id}: {e}"))?;
+                out.note(format!("{}: {id} set to {shown} ({place})", plugin.manifest.name));
+                true
             }
             (true, None, _) => bail!("{id}: no project to keep it in"),
             (true, Some(_), true) => {
