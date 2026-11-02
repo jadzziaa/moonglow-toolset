@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:21:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -591,27 +591,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     in `surfaces_in_the_client` (the fitted camera's error, or the size:
     not told apart); a spinning one starts upright and turns by
     `particleRot` radians a second, read and drawn on 2026-10-30. (S)
-  - **The grass** is the game's program on Moonglow's tufts: their
-    places, sizes and count are Moonglow's (the field's mean colour 0.1
-    of 255 from the client's, but per pixel 17.6 against Moonglow's own
-    17.0). The material the engine gives them, read on 2026-11-01
-    (`batch6_grass_material`, `fsgrass` painting each; [the
-    findings](findings.md), "The grass's material"): the [GRASS]
-    ambient and diffuse made linear and no emissive, as Moonglow gives
-    them; but the diffuse's alpha falls with the tufts' distance from
-    the camera, batch by batch (about `(32 − d) / 16`: 0.94 at 17 m,
-    0.71 at 20, 0.49 at 24; not the player's distance), and Moonglow
-    gives 1. Not ported (2026-11-02), for a real unintended consequence:
-    the fade is the game's grass ending at its render distance (30 m from
-    its camera by default), and with it the area view, whose camera
-    stands farther off than the game's (often 40 m and more), would show
-    no grass, where it draws grass out to the far edge of the view by the
-    owner's choice (the area grass's learning of 2026-10-23: grass only
-    about the camera's target was seen as a fault). The difference is in
-    the manual's [differences](manual/12-differences.md). Whether the
-    fade moves with the game's Grass Far Render Distance was not read.
-    (S, the owner's call: a fade by the camera's distance only when it is
-    within the game's reach, if wanted)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -1332,6 +1311,18 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **The grass is drawn across the whole area view, not faded with the
+  camera's distance as in the game** (the owner's word, 2026-11-02): the
+  client gives the grass's diffuse an alpha that falls with the tufts'
+  distance from its camera, about `(32 − d) / 16` (0.94 at 17 m, 0.71 at
+  20, 0.49 at 24: `batch6_grass_material`, [the findings](findings.md),
+  "The grass's material"), its grass ending at its render distance; the
+  area view's camera stands farther off (often 40 m and more), so the
+  rule would leave most of the view without grass. Its places, sizes
+  and count are Moonglow's own too (the field's mean color 0.1 of 255
+  from the client's). Said in the manual's
+  [differences](manual/12-differences.md).
 
 - **The 2DA editor puts no row between others** (Delete Row takes any
   row away since 1.22.1), sorts no rows and edits no `DEFAULT:`, by

@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-02
+* **Update**: The grass drawn across the whole area view, where the client fades it out by about 30 m from its camera, is settled as it is (the owner's word): the [deferred list](deferred.md)'s Settled section says why.
 * **Fix**: A shader's includes nest as deep as the engine takes them (the sixth client batch drew chains of 1,000): `mg_shader::assemble` splices without a depth limit, the files being spliced on a list rather than the call stack, and refuses only a loop (a file included inside itself) at the include that closes it. `includes_nest_as_deep_as_the_engine_takes_them`, `a_file_that_includes_itself_is_refused_at_the_include`.
 * **Fix**: An animation played through a chain of scaled supermodels moves at the playing model's `setanimationscale` times each supermodel's before the animation's owner, the owner's not counted, as the client plays it (`batch6_supermodel_chain`: 2 on 3 plays at 6): `mg_mdl::animations_scaled`, in the area view, the previews (and a part worn on them) and the model viewer. `a_chain_of_supermodels_scales_by_each_link_but_the_owner`, `a_chain_of_scaled_supermodels_plays_at_each_link_s_scale`.
 * **Fix**: A `Linked` ribbon's piece runs its texture's cell to `gap / (gap + size / 2)` at the next particle, half a particle past it, as the client's (`batch6_ribbon_sizes`). `a_ribbon_s_cell_runs_half_a_particle_past_the_next`.
