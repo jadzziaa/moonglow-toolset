@@ -22,8 +22,9 @@ pub const MOST: usize = 1000;
 /// What the window did with the file of the open module's pipelines.
 #[derive(Debug, Default)]
 pub(crate) struct PipelinesKept {
-    /// The module whose list was given to the renderer.
-    prepared: Option<PathBuf>,
+    /// The module whose list was given to the renderer, and its file
+    /// (worked out once: the module's path is made canonical for it).
+    prepared: Option<(PathBuf, PathBuf)>,
     /// The renderer's count of pipelines made when the list was last
     /// written, and for which module.
     written: Option<(PathBuf, usize)>,
@@ -36,7 +37,8 @@ pub fn file(dir: &Path, module: &Path) -> PathBuf {
 }
 
 /// The lines of a module's file, at most [`MOST`] (none where there is
-/// none, or it isn't text).
+/// none, or it isn't text). (The file is read whole: it is the window's
+/// own, written at most [`MOST`] lines long.)
 pub fn read(path: &Path) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
     text.lines().filter(|l| !l.trim().is_empty()).take(MOST).map(str::to_string).collect()
@@ -67,14 +69,22 @@ impl Moonglow {
         if !vp.renderer.game_shaders {
             return;
         }
-        let path = file(&dir, &module);
-        if self.pipelines_kept.prepared.as_ref() != Some(&module) {
-            let Some(game) = self.game.as_deref() else { return };
-            let lines = read(&path);
-            let asked = vp.renderer.prepare_game_pipelines(&vp.gpu, &game.resman, &lines);
-            log::debug!("{asked} of {} kept pipelines asked for, {}", lines.len(), path.display());
-            self.pipelines_kept.prepared = Some(module.clone());
-        }
+        let path = match &self.pipelines_kept.prepared {
+            Some((m, path)) if *m == module => path.clone(),
+            _ => {
+                let Some(game) = self.game.as_deref() else { return };
+                let path = file(&dir, &module);
+                let lines = read(&path);
+                let asked = vp.renderer.prepare_game_pipelines(&vp.gpu, &game.resman, &lines);
+                log::debug!(
+                    "{asked} of {} kept pipelines asked for, {}",
+                    lines.len(),
+                    path.display()
+                );
+                self.pipelines_kept.prepared = Some((module.clone(), path.clone()));
+                path
+            }
+        };
         let made = vp.renderer.game_shader_stats().pipelines;
         let written = self.pipelines_kept.written.as_ref();
         let more = written.is_none_or(|(m, n)| *m != module || *n != made);
