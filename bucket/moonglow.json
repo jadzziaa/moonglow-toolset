@@ -1,13 +1,13 @@
 {
-    "version": "3.1.4",
+    "version": "3.2.0",
     "description": "A module toolset for Neverwinter Nights: Enhanced Edition (the Aurora Toolset, rebuilt)",
     "homepage": "https://github.com/jadzziaa/moonglow-toolset",
     "license": "GPL-3.0-only",
     "notes": "Moonglow needs an installation of Neverwinter Nights: Enhanced Edition and reads the game's files from it.",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/jadzziaa/moonglow-toolset/releases/download/v3.1.4/Moonglow-3.1.4-windows-x64.zip",
-            "hash": "cb22b46a90ef0dbe32b75f3afb9edcc15059bed1a1c4325e78a2ce5a5b388a5b"
+            "url": "https://github.com/jadzziaa/moonglow-toolset/releases/download/v3.2.0/Moonglow-3.2.0-windows-x64.zip",
+            "hash": "5611a627ffba340468a1b2f1a09fc471b76608cd586e8e5c9652898ad08cf5c9"
         }
     },
     "bin": "mg.exe",
