@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -144,7 +144,7 @@ unless their file (under `crates/`) follows the name.
 | Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen]; the external editor: External Editor opens the script's file in the chosen program, and its saves come back into the editor [the_external_script_editor_s_saves_come_back] |
 | Indent with Tab | Tab indents the lines a selection touches, Shift+Tab outdents them (or the cursor's line) | ✅ [tab_indents_selected_lines_in_the_script_editor] |
 | Print | Print…: the script, highlighted in the editor's colours on white, as a page that opens in the web browser with its print dialog | ✅ [print_opens_a_highlighted_page_of_the_script] |
-| Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |
+| Large scripts | nwscript.nss (13,869 lines) at 3440×1400: 0.9 ms a frame idle, 1.8 ms a key (2.3 at a typist's pace), 1 ms moving the cursor or the selection or scrolling; each line laid out and kept, a change laying out the lines it touched | ✅ (`editor_perf.rs`, held to 144 fps) [a_long_script_s_lines_out_of_sight_are_edited_where_they_are] |
 
 ## Conversation Editor (`TdlgConversationEditor`, `TfraConversationTree`)
 

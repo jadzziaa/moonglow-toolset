@@ -66,6 +66,7 @@ pub mod recovery;
 pub mod references;
 pub mod renderer_check;
 pub mod saved;
+mod script_layout;
 pub mod script_nav;
 pub mod script_tools;
 mod script_view;
@@ -564,7 +565,7 @@ pub struct Moonglow {
     /// Open script editors' text, by script.
     pub(crate) scripts: HashMap<ResKey, script_view::ScriptBuffer>,
     /// Script editors' laid-out text, reused between frames.
-    pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
+    pub(crate) laid_out: HashMap<ResKey, script_layout::LaidOut>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
     /// The game's codepage the text in [`Moonglow::buffers`] was read by
@@ -1368,6 +1369,7 @@ impl Moonglow {
         let female = self.settings.armor_on_woman;
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
         widgets::install_fonts(ui.ctx());
+        script_layout::watch_fonts(ui.ctx());
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
         // Paste: first, before anything reads the keys.)
         widgets::clipboard_keys(ui.ctx());

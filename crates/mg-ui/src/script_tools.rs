@@ -197,6 +197,8 @@ pub struct ScriptTools {
     pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.
     pub spec: Option<Arc<Spec>>,
+    /// Its symbols by name, and the spec they are of (its address).
+    spec_symbols: Option<(usize, Arc<Vec<Symbol>>)>,
     /// Symbols of each script (with its includes), by its text.
     pub symbols: HashMap<ResKey, (u64, Arc<Vec<Symbol>>)>,
     /// Each script's text when its editor was last drawn, and the
@@ -241,10 +243,9 @@ impl ScriptTools {
 
 /// A script's text as a number, to tell when it changed.
 pub(crate) fn hash(text: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut h);
-    h.finish()
+    // (egui's hasher: std's took a third of a millisecond a frame on a
+    // script of 14,000 lines, this a twentieth.)
+    egui::epaint::util::hash(text)
 }
 
 fn from_spec(spec: &Spec) -> Vec<Symbol> {
@@ -323,15 +324,32 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
     // with the documentation of whichever has some: BioWare's includes
     // document a prototype with `//` lines, or only the definition, with a
     // `/* … */` block.)
-    let mut unique: Vec<Symbol> = Vec::new();
-    for s in out {
-        match unique.iter_mut().find(|u| u.name == s.name && u.kind == s.kind) {
-            Some(u) if u.doc.is_empty() => u.doc = s.doc,
-            Some(_) => {}
-            None => unique.push(s),
+    // (Found by name and kind in a map: looked through, nwscript.nss's
+    // 6,000 symbols took 10 ms.)
+    let mut kept = vec![false; out.len()];
+    let mut docs = Vec::new();
+    {
+        let mut first = std::collections::HashMap::with_capacity(out.len());
+        let mut documented = std::collections::HashSet::new();
+        for (i, s) in out.iter().enumerate() {
+            match first.entry((s.name.as_str(), s.kind)) {
+                std::collections::hash_map::Entry::Occupied(f) => {
+                    let f: usize = *f.get();
+                    if out[f].doc.is_empty() && !s.doc.is_empty() && documented.insert(f) {
+                        docs.push((f, i));
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(i);
+                    kept[i] = true;
+                }
+            }
         }
     }
-    unique
+    for (to, from) in docs {
+        out[to].doc = std::mem::take(&mut out[from].doc);
+    }
+    out.into_iter().zip(kept).filter(|(_, k)| *k).map(|(s, _)| s).collect()
 }
 
 impl ScriptTools {
@@ -372,11 +390,32 @@ impl ScriptTools {
         {
             return symbols.clone();
         }
-        let mut all = script_symbols(text, source);
-        all.extend(from_spec(self.spec.as_ref().expect("loaded")));
+        let spec = self.spec.as_ref().expect("loaded");
+        let made_for = Arc::as_ptr(spec) as usize;
+        let spec_symbols = match &self.spec_symbols {
+            Some((made, symbols)) if *made == made_for => symbols.clone(),
+            _ => {
+                let mut symbols = from_spec(spec);
+                symbols.sort_by(|a, b| a.name.cmp(&b.name));
+                let symbols = Arc::new(symbols);
+                self.spec_symbols = Some((made_for, symbols.clone()));
+                symbols
+            }
+        };
         // By name, as the side lists show them (not sorted every frame);
-        // of one name, the script's own before nwscript's.
-        all.sort_by(|a, b| a.name.cmp(&b.name));
+        // of one name, the script's own before nwscript's. (nwscript's
+        // sorted once: put in among the script's.)
+        let mut own = script_symbols(text, source);
+        own.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut all = Vec::with_capacity(own.len() + spec_symbols.len());
+        let mut theirs = spec_symbols.iter().peekable();
+        for s in own {
+            while let Some(t) = theirs.next_if(|t| t.name < s.name) {
+                all.push(t.clone());
+            }
+            all.push(s);
+        }
+        all.extend(theirs.cloned());
         let all = Arc::new(all);
         self.symbols.insert(key, (h, all.clone()));
         all
@@ -645,16 +684,13 @@ pub fn convert_indentation_in(
 
 /// The identifier around a character index.
 pub fn word_at(text: &str, chars: usize) -> Option<String> {
-    let all: Vec<char> = text.chars().collect();
-    let mut start = chars.min(all.len());
-    while start > 0 && is_ident(all[start - 1]) {
-        start -= 1;
-    }
-    let mut end = chars.min(all.len());
-    while end < all.len() && is_ident(all[end]) {
-        end += 1;
-    }
-    (end > start).then(|| all[start..end].iter().collect())
+    // (From the character's byte on: a script's characters were all
+    // copied out, a frame's millisecond in a script of 14,000 lines.)
+    let at = byte_index(text, chars);
+    let before = text[..at].char_indices().rev().find(|(_, c)| !is_ident(*c));
+    let start = before.map_or(0, |(i, c)| i + c.len_utf8());
+    let end = text[at..].find(|c| !is_ident(c)).map_or(text.len(), |i| at + i);
+    (end > start).then(|| text[start..end].to_string())
 }
 
 /// The next match of `needle` from a character index (wrapping around),
@@ -920,6 +956,18 @@ mod tests {
         assert_eq!(byte_index(t, 6), 7, "é is two bytes");
         assert_eq!(word_before("x = GetFir", 10), (4, "GetFir".into()));
         assert_eq!(word_at("int nCount;", 6).as_deref(), Some("nCount"));
+        assert_eq!(word_at("int nCount;", 4).as_deref(), Some("nCount"));
+        assert_eq!(word_at("int nCount;", 10).as_deref(), Some("nCount"));
+        assert_eq!(word_at("int nCount;", 11), None);
+        assert_eq!(word_at("nA", 0).as_deref(), Some("nA"));
+        assert_eq!(word_at("nA", 2).as_deref(), Some("nA"));
+        assert_eq!(word_at("nA", 9).as_deref(), Some("nA"), "past the end: the last word");
+        assert_eq!(
+            word_at("// é sA = ü;", 6).as_deref(),
+            Some("sA"),
+            "after a letter of two bytes"
+        );
+        assert_eq!(word_at("é", 1), None);
     }
 
     #[test]

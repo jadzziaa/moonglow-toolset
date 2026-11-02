@@ -8846,3 +8846,83 @@ fn typed_text_talk_table() {
     h.run_steps(2);
     shoot(&mut h, &dir, "typed-text-options-project");
 }
+
+/// A script of 21,000 lines in its editor (`script-editor-top`,
+/// `script-editor-middle`): its colors, a block comment and a raw string
+/// over lines, the live check's underlined line (with the game),
+/// bookmarks and a numbered one, and a selection over lines, at the top
+/// and scrolled down to the middle.
+#[test]
+#[ignore]
+fn script_editor_large() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-script-editor");
+    let mut text = String::from(
+        "/*\n * A block comment\n * over lines\n */\n#include \"x0_i0_position\"\n\n\
+         const int LIMIT = 0x1F; // a hex number\nconst float SPEED = 1.5f;\n\
+         string sRaw = r\"a raw string\nover two lines\";\n\nvoid main()\n{\n    \
+         object oPC = OBJECT_SELF;\n    int n = nUndeclared;\n}\n",
+    );
+    for i in 0..3000 {
+        text.push_str(&format!(
+            "\nvoid Helper{i}(object oTarget, int nCount = {i})\n{{\n    // Step {i}.\n    \
+             if (nCount > 2 && GetIsObjectValid(oTarget))\n        \
+             SendMessageToPC(oTarget, \"Count \" + IntToString(nCount));\n}}\n"
+        ));
+    }
+    let key = ResKey::parse("big_script", ResType::NSS).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.set(key, text.clone().into_bytes());
+    let path = dir.join("script.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let install = mg_testkit::nwn_root().map(|root| GameInstall::new(&root, None, "en"));
+    let mut app = Moonglow::new(install, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = egui::Id::new(("script", key));
+    let select = |h: &mut Harness<'_, Moonglow>, from: usize, to: usize| {
+        let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+        let c = egui::text::CCursorRange::two(
+            egui::text::CCursor::new(from),
+            egui::text::CCursor::new(to),
+        );
+        state.cursor.set_char_range(Some(c));
+        state.store(&h.ctx, id);
+        h.ctx.memory_mut(|m| m.request_focus(id));
+    };
+    let line_start = mg_ui::script_tools::line_start;
+    // Bookmarks on lines 3 and 7, number 2 on line 12.
+    for line in [2, 6] {
+        h.state_mut().script_tools.jump = Some((key, line_start(&text, line)));
+        h.run_steps(2);
+        h.key_press(egui::Key::F5);
+        h.run_steps(2);
+    }
+    h.state_mut().script_tools.jump = Some((key, line_start(&text, 11)));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Num2);
+    h.run_steps(2);
+    // Selected from the middle of line 13 to the middle of line 15.
+    select(&mut h, line_start(&text, 12) + 6, line_start(&text, 14) + 9);
+    // (Long enough for the live check's pause.)
+    for _ in 0..10 {
+        h.run_steps(2);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    shoot(&mut h, &dir, "script-editor-top");
+    // Halfway down, a selection over lines there.
+    let line = text.lines().count() / 2;
+    let from = line_start(&text, line) + 4;
+    h.state_mut().script_tools.jump = Some((key, from));
+    h.run_steps(3);
+    select(&mut h, from, line_start(&text, line + 3) + 2);
+    shoot(&mut h, &dir, "script-editor-middle");
+    eprintln!("{}", dir.display());
+}

@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October), the script editor on nwscript.nss (2 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:36:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -20,6 +20,9 @@ sources:
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
     title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+  - id: editor-perf
+    resource: crates/mg-ui/tests/editor_perf.rs
+    title: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -435,6 +438,46 @@ What is left is wgpu's work for each of some 10,000 draws: fewer draws
 found by its vertices), or render bundles recorded once for what doesn't
 move, which wgpu replays without tracking each draw again.
 
+## The script editor on nwscript.nss (2 November 2026)
+
+`editor_perf`'s `editing_a_huge_script`[^editor-perf] opens the game's
+`nwscript.nss` (13,869 lines, 650 KB) as a module's script at 3440×1400,
+the game loaded, and times plain egui frames as the desktop app runs them
+(no accessibility tree, the clock a 144th of a second a frame), each held
+to the budget as `frame_perf`'s are. Medians, ms, before and after the
+lines were laid out one at a time (`script_layout`), on the development
+machine with another session's builds running beside it:
+
+| Frame | Before | After |
+|---|---|---|
+| Idle | 1.5 | 0.9 |
+| A key, every frame | 11.5–12.1 | 1.8 |
+| A key at a typist's pace (every eighth frame) | 98 | 2.3 |
+| The frame after it (the side lists' symbols read again) | 21 | 6.3 |
+| Backspace | 11.4 | 1.6 |
+| A new line | 15 | 2.6 |
+| Text composed (IME) | 31 | 2.0 |
+| A bookmark set | 3.6 | 1.6 |
+| The cursor down a line, a page | 1.5, 1.7–2.0 | 0.9, 1.0 |
+| The selection a line, a page longer | 1.8–2.0, 2.0–2.2 | 1.1, 1.3 |
+| Scrolling | 1.9 | 1.1 |
+| 500 lines pasted (one frame) | 100 | 6.2 |
+| Select All typed over, taken back (one frame) | 124 | 110 |
+
+Where the time went, its stacks sampled: a key laid the whole text out
+again (highlighted whole, the job hashed, split at its lines and put
+together again by egui, the error's underline cut through every section);
+at a typist's pace every key laid out all 14,000 lines anew, egui keeping
+a text's laid-out lines only while they are asked for at every frame,
+which the frames between keys did not ask for. After: a key lexes and lays
+out the line it changed and puts the lines' galleys together (half a
+millisecond for 14,000); egui's own text edit (its character offsets) and
+the rest of the window are most of what is left. The frame after a key is
+the symbols of a script of 7,466 declarations read again: its outline
+(2.2 ms), its symbols (1.3) and the game's put in among them (1.8).
+Taking back a change of the whole text lays it out again whole, as
+opening it does.
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -458,4 +501,5 @@ In short:
 [^frame-perf]: The frame-time test (release build, Tyrants of the Moonsea and the persistent world)
 [^budget]: The budget: a steady 144 frames a second on the development machine (7 October 2026)
 [^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+[^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

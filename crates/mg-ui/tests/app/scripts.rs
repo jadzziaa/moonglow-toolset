@@ -2246,3 +2246,130 @@ fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     }
     h.run_steps(2);
 }
+
+/// Where a script editor shows the row that begins with `start` (the
+/// accessibility tree's text run of it), if it is laid out.
+fn script_row(h: &Harness<'_, Moonglow>, start: &str) -> Option<egui::Rect> {
+    let run = egui_kittest::kittest::by().role(egui::accesskit::Role::TextRun);
+    h.query_all(run)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with(start)))
+        .map(|n| n.rect())
+}
+
+/// Whether a script editor's row that begins with `start` is in the window.
+fn script_row_in_sight(h: &Harness<'_, Moonglow>, start: &str) -> bool {
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    script_row(h, start).is_some_and(|r| window.contains_rect(r))
+}
+
+/// A script far longer than its editor shows (3,000 lines), whose lines
+/// are laid out one at a time and kept (`script_layout`): the cursor moved
+/// down to a line out of sight, a selection over lines out of sight typed
+/// over and taken back, Find going to a line far down, a large paste, and
+/// text composed (IME), each drawn where the text has it.
+#[test]
+fn a_long_script_s_lines_out_of_sight_are_edited_where_they_are() {
+    let dir = mg_testkit::scratch_dir("ui-script-long");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("long", ResType::NSS).unwrap();
+    let text: String = (0..3000).map(|n| format!("int nLine{n} = {n}; // line {n}\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.clone().into_bytes());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = window_harness(app);
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    let line = |h: &Harness<'_, Moonglow>, n: usize| {
+        h.state().script_text(key).unwrap().lines().nth(n).unwrap().to_string()
+    };
+    let start_of = |h: &Harness<'_, Moonglow>, n: usize| {
+        mg_ui::script_tools::line_start(&h.state().script_text(key).unwrap(), n)
+    };
+    assert!(script_row_in_sight(&h, "int nLine0 "));
+    assert!(!script_row_in_sight(&h, "int nLine120 "), "out of sight at first");
+
+    // The cursor down 120 lines, a key at a time: the editor follows it.
+    for _ in 0..120 {
+        h.key_press(egui::Key::ArrowDown);
+    }
+    h.run();
+    h.event(egui::Event::Text("A".into()));
+    h.run();
+    assert_eq!(line(&h, 120), "Aint nLine120 = 120; // line 120");
+    assert!(script_row_in_sight(&h, "Aint nLine120 "));
+    assert!(!script_row_in_sight(&h, "int nLine0 "));
+
+    // A selection from there down 200 lines (in one frame), out of sight
+    // at its start: typed over, the lines between go with it.
+    for _ in 0..200 {
+        h.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        });
+    }
+    h.run();
+    let at = start_of(&h, 120) + 1;
+    assert_eq!(script_cursor(&h, key), Some((start_of(&h, 320) + 1, at)));
+    assert!(script_row_in_sight(&h, "int nLine320 "), "the selection's end in sight");
+    h.event(egui::Event::Text("S".into()));
+    h.run();
+    assert_eq!(line(&h, 120), "ASnt nLine320 = 320; // line 320");
+    assert!(!h.state().script_text(key).unwrap().contains("nLine200 "));
+    assert!(script_row_in_sight(&h, "ASnt nLine320 "));
+    // Taken back: the lines are there again, each drawn on its own row.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    let back = h.state().script_text(key).unwrap();
+    assert!(back.contains("\nint nLine200 = 200;") && !back.contains("ASnt"), "{:.100}", back);
+    let (a, b) =
+        (script_row(&h, "int nLine200 ").unwrap(), script_row(&h, "int nLine300 ").unwrap());
+    assert!(((b.top() - a.top()) - 100.0 * a.height()).abs() < 1.0, "{a:?} {b:?}");
+
+    // Find (F3) goes to a line far down, and shows it.
+    h.state_mut().script_tools.search.find = "nLine2750 ".into();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press(egui::Key::F3);
+    h.run();
+    h.run();
+    let found = h.state().script_text(key).unwrap();
+    let found = mg_ui::script_tools::char_index(&found, found.find("nLine2750 ").unwrap());
+    let (a, b) = script_cursor(&h, key).unwrap();
+    assert_eq!((a.min(b), a.max(b)), (found, found + 10));
+    assert!(script_row_in_sight(&h, "int nLine2750 "));
+    assert!(!script_row_in_sight(&h, "int nLine2000 "));
+
+    // A thousand lines pasted at line 10: the lines after them a thousand
+    // rows down, drawn as the text has them.
+    let at = start_of(&h, 10);
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run();
+    let pasted: String = (0..1000).map(|n| format!("// pasted {n}\n")).collect();
+    h.event(egui::Event::Paste(pasted));
+    h.run();
+    assert_eq!(line(&h, 10), "// pasted 0");
+    assert_eq!(line(&h, 1010), "int nLine10 = 10; // line 10");
+    assert!(script_row_in_sight(&h, "int nLine10 "), "the cursor, after the paste, in sight");
+    let (a, b) =
+        (script_row(&h, "// pasted 0").unwrap(), script_row(&h, "int nLine2999 ").unwrap());
+    let rows = h.state().script_text(key).unwrap().lines().count() - 1 - 10;
+    assert!(((b.top() - a.top()) - rows as f32 * a.height()).abs() < 1.0, "{a:?} {b:?}");
+
+    // Text composed (IME) there: shown as it is composed, then put in.
+    let preedit = egui::ImeEvent::Preedit { text: "ka".into(), active_range_chars: None };
+    h.event(egui::Event::Ime(preedit));
+    h.run();
+    assert_eq!(line(&h, 1010), "kaint nLine10 = 10; // line 10");
+    assert!(script_row_in_sight(&h, "kaint nLine10 "));
+    h.event(egui::Event::Ime(egui::ImeEvent::Commit("か".into())));
+    h.run();
+    assert_eq!(line(&h, 1010), "かint nLine10 = 10; // line 10");
+    assert!(script_row_in_sight(&h, "かint nLine10 "));
+}

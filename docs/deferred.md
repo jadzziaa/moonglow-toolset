@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:14:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:54:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -987,24 +987,8 @@ document; the entries here that name the audit are that list in short.
 A review of the whole workspace for dead code, clumsy code and code
 written twice found more than it changed. What it changed (some forty
 commits, with a test for all but one of the bugs it fixed) is in the
-history; this is what it left, found by reading and not by running
-unless it says so.
-
-### The review of 2026-10-27: what is left
-
-Six readers over the workspace and clippy's pedantic lints as a finder
-found some forty defects and costs; what was done about each is in the
-[log](log.md) (2026-10-27). The editors' costs were measured first
-(`frame_perf`, with views added at a persistent world's sizes): those
-within the 144 fps budget were left as they are (the 2DA editor filtered
-on 6,000 rows 1.7 ms a frame, a conversation 1.4, blueprint editors and
-an item's Properties page 0.6 to 1.5, palettes, the manual and the model
-viewer under 2). What is left:
-
-- **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
-  13 ms a key: egui lays out the whole text again on each change. An
-  editor that lays out the lines in sight would be needed. (L) (After
-  3.0.0, the owner's word, 2026-10-30: 5th of 9 by complexity.)
+history; what it left is done, the last of it (typing in a very large
+script) after 3.0.0, on 2026-11-02 (the [log](log.md)).
 
 ## Written more than once (the review of 2026-10-21)
 
