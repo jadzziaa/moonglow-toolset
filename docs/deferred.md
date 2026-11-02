@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:55:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1185,7 +1185,10 @@ contribution itself states as not done or not checked.
   into a folder"; 0.4 what is selected and
   open, commands in right-click menus, fixes for findings, a plugin's
   own tests, settings, a project's own plugins, a resource's own events
-  and the after-create hook):
+  and the after-create hook; 0.5 (3.3.0) a batch of strokes, more kinds
+  of setting, more of what a command is for and the menus it is in, a
+  fix that asks, archives of several plugins and the rest of this
+  round's gaps):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model

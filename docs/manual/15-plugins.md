@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
 ---
 
 # Plugins
@@ -261,7 +261,10 @@ reported as an error too, and the other checks still run.
 A finding may come with a **fix**: a button beside it in the log, which
 says what it does ("Upper-case this tag"). Nothing changes until you
 click it; then its edits go in as one step, which **Undo** takes back,
-and the button says **Fixed**. A fix is worked out when Verify runs: if
+and the button says **Fixed** (Undo offers it again). **Fix All** beside
+the first of a check's fixes makes every one of them, as one step. A fix
+whose label ends in "…" asks first: it runs the plugin's command on the
+finding, whose form asks what it needs. A fix is worked out when Verify runs: if
 what it would change has changed since (by hand, or by another fix that
 did more than set fields), it is refused, and the log says to verify
 again. Moonglow's own checks have fixes where the right change is plain
