@@ -269,13 +269,18 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     if !t.is_dirty() || !t.editable() {
         return true;
     }
-    // (One kept in the module goes into it as a step, which the module's
-    // own save then writes, as a 2DA of the module's does: the table is
-    // saved only once the module has taken it.)
+    // (One kept in the module goes into it outside the module's history,
+    // which the module's own save then writes: the table is saved only
+    // once the module has taken it. Not a step Undo takes back: the
+    // table's editor, and the lines typed for the module's fields, are
+    // what it is made from, and an undone step put the module's old table
+    // back under the lines its fields name.)
     let Some(mut t) = app.talk.take() else { return true };
     let saved = t.save_with_module(&mut |key, data| {
-        let edit = mg_edit::Edit::SetResource { key, data: Some(data) };
-        app.apply(mg_edit::Command::new("Save talk table", vec![edit])).map_err(|e| e.to_string())
+        let Some(ws) = app.ws.as_mut() else { return Err("no module is open".into()) };
+        ws.derive(|m| m.set(key, data)).map_err(|e| e.to_string())?;
+        ws.mark_modified();
+        Ok(())
     });
     let t = app.talk.insert(t);
     match saved {

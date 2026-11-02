@@ -3,7 +3,7 @@ type: Proposal
 title: 'Text typed into the talk table: a design'
 description: Putting a name, a description or a conversation line typed in Moonglow into the module's custom talk table as a new line, its StrRef in the field, where Aurora writes the text into the file - where the lines' range comes from (the project file, set in Module Properties), which fields, reuse of a line that has the text already (asked first), Undo taking the line and the field back together, saving the table with the module, languages and the feminine table, two builders on one project and a range running out, what Verify and mg say; the owner's questions, and what was built.
 tags: [proposal, talk-table, tlk, blueprints, conversations, project-file]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
 sources:
   - id: deferred
     resource: deferred.md
@@ -199,6 +199,14 @@ Built 2026-11-02 as designed, but for one change the engine asked for
 - Guards: Verify's `talk-range` (`doctor::talk_range`, also `mg
   verify`), `mg tlk-alloc` passing over the project's typed lines
   (`--project`).
+- Siblings: a table kept in the module put into it at a save outside
+  the module's history (`Workspace::derive`; a step Undo took back put
+  the old table under the fields' lines), and Move to Talk Table not
+  offered for a string with another language's text.
+- Left as it is: a table and its feminine table are two files, each
+  written whole (beside, then moved over it); a failure between them
+  leaves the feminine one ahead until the save is tried again, the
+  module not written meanwhile.
 - Tests: `talk_range`'s and `talk`'s unit tests,
   `talk_lines_are_read_and_written`,
   `the_lines_typed_text_takes_are_held_to_the_table`, the UI tests in

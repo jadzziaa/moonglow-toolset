@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
 ---
 
 # Modules
@@ -1482,6 +1482,9 @@ or description) adds the text to the talk table as a new line and puts its
 StrRef in the string in place of the text. That's for translations, and
 for text a server sends many times. The line is the next free one of the
 project's lines for typed text (below), at the table's end without them.
+It is not offered for a string with text in another language too: the
+game shows any text of a string's own before its talk-table line, to
+every player; remove the other language's text first.
 
 ### Text typed into the talk table
 

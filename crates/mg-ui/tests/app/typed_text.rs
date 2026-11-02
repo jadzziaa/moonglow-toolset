@@ -297,3 +297,79 @@ fn several_fields_take_one_line_and_other_languages_stay_in_the_file() {
     let said = h.state().log.entries.iter().any(|(_, e)| e.contains("in another language"));
     assert!(said, "{:?}", h.state().log.entries);
 }
+
+/// A talk table kept in the module (a `.tlk` among its files) takes typed
+/// lines too: saved into the module with it, outside the module's history,
+/// so that Undo after the save takes the field and its line back and the
+/// next save writes the table without it.
+#[test]
+fn a_table_kept_in_the_module_takes_typed_lines_and_saves_with_it() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-typed-in-module");
+    let user = user_folder(&dir, &[]);
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_inmod", ResType::TLK).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("mg_inmod"));
+    info.root
+        .write(&ifo::MOD_NAME, LocString::from_text(Language::ENGLISH, Gender::Male, "Sample"));
+    m.set_info(&info).unwrap();
+    let mut t = Table::create("mg_inmod", &dir, Language::ENGLISH, false);
+    t.add_line(&line("Old words")).unwrap();
+    m.set(key, t.tlk.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user.clone()));
+    app.settings.no_last_area = true;
+    app.settings.talk_typed = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1000.0, 800.0);
+    settle(&mut h);
+    retype(&mut h, "Sample", "Castle Krezk");
+    assert_eq!(module_name(&mut h).strref.0, BASE + 1);
+    let saved_line = |path: &std::path::Path| {
+        let saved = Module::open(path).unwrap();
+        mg_tlk::Tlk::read(saved.get(&key).unwrap()).unwrap().text(mg_core::StrRef(1))
+    };
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    assert!(!h.state().has_unsaved_work());
+    assert_eq!(saved_line(&path).as_deref(), Some("Castle Krezk"));
+    assert!(!user.join("tlk/mg_inmod.tlk").exists(), "in the module, not the tlk folder");
+    // Undo after the save: the field and the line (not a step of the
+    // table's own), and the next save writes the table without it.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(english(&module_name(&mut h)), Some(&b"Sample"[..]));
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 1);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    assert_eq!(saved_line(&path), None);
+    let saved = Module::open(&path).unwrap();
+    let name: LocString = saved.info().unwrap().root.read(&ifo::MOD_NAME);
+    assert_eq!(english(&name), Some(&b"Sample"[..]));
+}
+
+/// String Edit's Move to Talk Table is not offered for a string with text
+/// in another language too, which the game would show before the line.
+#[test]
+fn move_to_talk_table_waits_for_another_language_s_text_to_go() {
+    let Some((mut h, _, _)) = typed_harness("ui-typed-move", false) else { return };
+    let mut name = LocString::from_text(Language::ENGLISH, Gender::Male, "Sample");
+    name.set(Language::GERMAN, Gender::Male, b"Beispiel".to_vec());
+    let target = mg_ui::widgets::FieldTarget::new(
+        ResKey::parse("module", ResType::IFO).unwrap(),
+        mg_edit::GffPath::root(),
+        "Mod_Name",
+    );
+    h.state_mut().loc_edit = Some(mg_ui::widgets::LocStringEdit::new(target, "Module name", &name));
+    h.run();
+    assert!(h.get_by_label("Move to Talk Table").accesskit_node().is_disabled());
+    h.state_mut().loc_edit.as_mut().unwrap().entries.retain(|e| e.0 == Language::ENGLISH);
+    h.run();
+    assert!(!h.get_by_label("Move to Talk Table").accesskit_node().is_disabled());
+}
