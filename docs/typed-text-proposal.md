@@ -3,7 +3,7 @@ type: Proposal
 title: 'Text typed into the talk table: a design'
 description: Putting a name, a description or a conversation line typed in Moonglow into the module's custom talk table as a new line, its StrRef in the field, where Aurora writes the text into the file - where the lines' range comes from (the project file, set in Module Properties), which fields, reuse of a line that has the text already (asked first), Undo taking the line and the field back together, saving the table with the module, languages and the feminine table, two builders on one project and a range running out, what Verify and mg say; the owner's questions, and what was built.
 tags: [proposal, talk-table, tlk, blueprints, conversations, project-file]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:59:38Z }
 sources:
   - id: deferred
     resource: deferred.md
@@ -33,7 +33,9 @@ the text typed go there as it is typed, when the builder asks for it.
 **Options › Language › Talk Table › Put text typed into the talk
 table** turns it on, off by default: Aurora writes the text into the
 file, and a module without a custom talk table, or a builder who wants
-the text in the file, sees no change. Move to Talk Table stays for one
+the text in the file, sees no change. A project's `[talk] typed` turns
+it on (or off) for everyone who opens its module (the owner's question
+5, below). Move to Talk Table stays for one
 string at a time (and takes its line from the same range).
 
 ## Where the range comes from
@@ -168,9 +170,17 @@ says the same. A StrRef past the table's end was said already.
    project and the command line. Applied.
 4. **A text typed again is a new line**, not the line changed in place
    (whose number a player's item may carry). Applied.
-5. **The switch is each builder's** (Options), not the project's: a team
-   that wants it for everyone says so in its setup. A `[talk] typed`
-   key could turn it on for a project.
+5. **The switch is each builder's** (Options), and a project may turn
+   it on for its whole team. The owner's answer (2026-11-02): add
+   `[talk] typed = true`. Built: the key wins over every builder's switch,
+   on or off (`typed = false` keeps the text in the file for everyone),
+   as `[lights] generated` does; Options › Language shows the project's
+   word with its switch greyed for that module, and keeps the builder's
+   own for others. A builder can't turn it off for themselves under
+   `typed = true`: the team asked for its text in one place, and one
+   builder's names written into the file are the ones a translation
+   misses; a builder who needs otherwise changes the project's file,
+   which the team sees in review.
 6. **A string with another language's text stays in the file** (the
    game would show that text before the line, to everyone). The other
    way is to take every language's text out, losing translations typed

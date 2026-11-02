@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:59:38Z }
 ---
 
 # Options
@@ -428,8 +428,11 @@ module's custom talk table, at the next free line of the project's
 lines, and the field names it by its StrRef; off, the text is the
 field's own, as Aurora writes it. **When the talk table has the text
 already**: **Ask** (the default: Use Line N, Add a Line or Keep in the
-File), **Use that line**, or **Add a line**. See [Text typed into the
-talk table](03-modules.md#text-typed-into-the-talk-table).
+File), **Use that line**, or **Add a line**. A project's `moonglow.toml`
+with `[talk] typed` turns it on (or off) for everyone who opens its
+module: the switch shows the project's word, greyed, with a line saying
+so, and yours is kept for other modules. See [Text typed into the talk
+table](03-modules.md#text-typed-into-the-talk-table).
 
 Where your game has that language installed (a folder for it under the
 game's `lang`), the game's own text is read in it too: names and

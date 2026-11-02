@@ -8717,8 +8717,9 @@ fn grouped_context_menus() {
 /// Text typed into the talk table (`target/test-output/screens-typed-text/`):
 /// Module Properties › Custom Content with the project's lines and a
 /// builder's own part (`typed-text-module-properties`), Options ›
-/// Language's Talk Table (`typed-text-options`), and the question asked of
-/// a text the table has (`typed-text-question`).
+/// Language's Talk Table (`typed-text-options`), the question asked of a
+/// text the table has (`typed-text-question`), and Options with the
+/// project turning it on for everyone (`typed-text-options-project`).
 #[test]
 #[ignore]
 fn typed_text_talk_table() {
@@ -8790,4 +8791,17 @@ fn typed_text_talk_table() {
     )));
     h.run_steps(3);
     shoot(&mut h, &dir, "typed-text-question");
+    // The project turning it on for everyone: Options says so.
+    h.state_mut().typed.ask = None;
+    let toml = project.join("moonglow.toml");
+    let text =
+        std::fs::read_to_string(&toml).unwrap().replace("[talk]\n", "[talk]\ntyped = true\n");
+    std::fs::write(&toml, text).unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.reread_project_file();
+    h.state_mut().settings.talk_typed = false;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run_steps(2);
+    h.get_by_label("Language").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "typed-text-options-project");
 }

@@ -373,3 +373,39 @@ fn move_to_talk_table_waits_for_another_language_s_text_to_go() {
     h.run();
     assert!(!h.get_by_label("Move to Talk Table").accesskit_node().is_disabled());
 }
+
+/// A project's `[talk] typed` turns text typed into the talk table on (or
+/// off) for everyone who opens the module, whatever their own switch
+/// says: Options › Language shows the project's word, its switch not to
+/// be changed for that module, and keeps the builder's own for others.
+#[test]
+fn the_project_turns_typed_text_on_for_everyone() {
+    let Some((mut h, _, path)) = typed_harness("ui-typed-project", false) else { return };
+    let toml = path.with_file_name("sample.moonglow.toml");
+    std::fs::write(&toml, "[talk]\ntyped = true\n").unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.reread_project_file();
+    retype(&mut h, "Sample", "Castle Krezk");
+    assert_eq!(module_name(&mut h).strref.0, BASE + 1, "on, though the builder's switch is off");
+    assert!(!h.state().settings.talk_typed, "the builder's own switch left as it was");
+
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    h.get_by_label("Language").click();
+    settle(&mut h);
+    let switch = h.get_by_label("Put text typed into the talk table");
+    assert!(switch.accesskit_node().is_disabled(), "the project's to change");
+    assert_eq!(switch.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+    h.get_by_label_contains("The open module's project turns it on for everyone");
+    h.state_mut().options = None;
+    settle(&mut h);
+
+    // Off for everyone: the builder's switch on, the text stays in the file.
+    std::fs::write(&toml, "[talk]\ntyped = false\n").unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.reread_project_file();
+    h.state_mut().settings.talk_typed = true;
+    retype(&mut h, "Castle Krezk", "Vallaki");
+    // (Its own text, which the game shows before the line its StrRef still
+    // names, as Aurora writes a text typed over a talk-table one.)
+    assert_eq!(english(&module_name(&mut h)), Some(&b"Vallaki"[..]));
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 2, "no line added");
+}

@@ -78,6 +78,10 @@ pub struct TalkRules {
     pub map: Option<String>,
     /// `[talk.builders]`: each builder's own part, by their code.
     pub builders: BTreeMap<String, Lines>,
+    /// `typed`: text typed is put in the talk table (`true`) or not
+    /// (`false`) for everyone who opens the module, whatever their
+    /// Options say; none: as each builder's Options say.
+    pub typed: Option<bool>,
 }
 
 /// The lines a builder may take.
@@ -115,7 +119,13 @@ impl Allowed {
 }
 
 impl TalkRules {
-    /// Whether the project says anything of typed text.
+    /// Whether text typed goes into the talk table: the project's `typed`
+    /// where it says, else the builder's own switch (Options › Language).
+    pub fn typed_or(&self, builder: bool) -> bool {
+        self.typed.unwrap_or(builder)
+    }
+
+    /// Whether the project says anything of typed text's lines.
     pub fn is_set(&self) -> bool {
         self.lines.is_some() || !self.builders.is_empty()
     }
@@ -289,6 +299,18 @@ mod tests {
         assert_eq!(rules.allowed(None), other);
         assert_eq!(TalkRules::default().allowed(Some("ab")), Allowed::End);
         assert_eq!(rules.reserved(), [lines("100-199"), lines("100-149")]);
+    }
+
+    /// The project's `typed` wins over the builder's switch, either way;
+    /// without it, the builder's.
+    #[test]
+    fn the_project_s_typed_wins_over_the_builder_s() {
+        let none = TalkRules::default();
+        assert!(none.typed_or(true) && !none.typed_or(false));
+        let on = TalkRules { typed: Some(true), ..Default::default() };
+        assert!(on.typed_or(false) && on.typed_or(true));
+        let off = TalkRules { typed: Some(false), ..Default::default() };
+        assert!(!off.typed_or(true));
     }
 
     #[test]

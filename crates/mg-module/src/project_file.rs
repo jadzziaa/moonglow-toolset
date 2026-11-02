@@ -28,6 +28,7 @@
 //! compile_models = true               # models kept as text go in compiled
 //!
 //! [talk]                              # text typed into the custom talk table
+//! typed = true                        # on for everyone (off unless said: each builder's Options)
 //! lines = "100000-149999"             # the lines it takes (0 is StrRef 16777216)
 //! map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: its lines are never taken
 //! [talk.builders]                     # a builder's own part, by their code
@@ -1363,6 +1364,10 @@ impl ProjectFile {
         for e in r.section(entry) {
             match e.0.get_ref().as_ref() {
                 "lines" => rules.lines = lines(r, e),
+                "typed" => match e.1.get_ref() {
+                    DeValue::Boolean(b) => rules.typed = Some(*b),
+                    _ => r.warn(e.1.span().start, "typed is true or false"),
+                },
                 "map" => {
                     rules.map = r.text(e).map(|m| m.trim().to_string()).filter(|m| !m.is_empty())
                 }
@@ -2558,10 +2563,15 @@ keeper_variable = "tdod_store"
     fn talk_lines_are_read_and_written() {
         use crate::talk_range::Lines;
         let p = read(
-            "[talk]\nlines = \"100000-149999\"\nmap = \"tlk/s.strrefs.json\"\n\
+            "[talk]\ntyped = true\nlines = \"100000-149999\"\nmap = \"tlk/s.strrefs.json\"\n\
              [talk.builders]\nAB = [100000, 109999]\ncd = \"110000-119999\"\n",
         );
         assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.talk.typed, Some(true));
+        assert!(p.talk.typed_or(false), "on for everyone");
+        assert_eq!(read("[talk]\ntyped = false\n").talk.typed, Some(false));
+        let wrong = read("[talk]\ntyped = \"yes\"\n");
+        assert_eq!((wrong.talk.typed, wrong.warnings.len()), (None, 1), "{:?}", wrong.warnings);
         assert_eq!(p.talk.lines, Some(Lines { from: 100_000, to: 149_999 }));
         assert_eq!(p.talk.map.as_deref(), Some("tlk/s.strrefs.json"));
         assert_eq!(p.talk.builders["ab"], Lines { from: 100_000, to: 109_999 });

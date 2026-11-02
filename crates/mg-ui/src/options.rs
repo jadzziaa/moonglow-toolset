@@ -449,6 +449,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         return;
     };
     let detected = draft.detected.clone();
+    // (The open module's project may turn text typed into the talk table
+    // on or off for everyone: its file's name and its word.)
+    let project_typed = app.ws.as_ref().and_then(|ws| {
+        let pf = &ws.module.project_file;
+        let file = pf.path.as_ref()?.file_name()?.to_string_lossy().into_owned();
+        pf.talk.typed.map(|t| (file, t))
+    });
     let this_run = app.settings.user_dir_this_run.clone();
     let drawing_with = app.drawing_with.clone();
     let (installer, checked) = (app.updates.installer, app.settings.update_checked);
@@ -985,7 +992,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     }
                                 }
                             });
-                            talk_typed(ui, draft);
+                            talk_typed(ui, draft, project_typed.as_ref());
                         }
                         OptionsPage::ConversationEditor => {
                             ui.checkbox(
@@ -1474,18 +1481,40 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
 /// Options › Language › Talk Table: text typed into a field put in the
 /// module's custom talk table (`crate::talk_typed`), and what is done
 /// where the table has the text already.
-fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft) {
+/// `project`: the open module's project's word (`[talk] typed`) and its
+/// file's name, which wins over the switch for that module.
+fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft, project: Option<&(String, bool)>) {
     use crate::settings::TalkReuse;
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Talk Table");
-    ui.checkbox(&mut draft.talk_typed, "Put text typed into the talk table").on_hover_text(
+    // (The project's word is shown in the box while its module is open,
+    // and the builder's own kept for other modules.)
+    let mut shown = project.map_or(draft.talk_typed, |p| p.1);
+    let target = if project.is_some() { &mut shown } else { &mut draft.talk_typed };
+    ui.add_enabled(
+        project.is_none(),
+        egui::Checkbox::new(target, "Put text typed into the talk table"),
+    )
+    .on_hover_text(
         "A name, a description or a conversation line typed becomes a line of the module's \
          custom talk table, at the next free line of the project's range (Module Properties › \
          Custom Content), and the field names it by its StrRef. Off: the text is the field's \
          own, as Aurora writes it. String Edit's Move to Talk Table does one string at a time \
-         either way.",
+         either way. A project's moonglow.toml ([talk] typed) wins over this",
+    )
+    .on_disabled_hover_text(
+        "The open module's project says this for everyone who works on it, so that its text is \
+         all in one place: change [talk] typed in its file to change it",
     );
-    ui.add_enabled_ui(draft.talk_typed, |ui| {
+    if let Some((file, on)) = project {
+        let mine = if draft.talk_typed { "on" } else { "off" };
+        ui.weak(format!(
+            "The open module's project turns it {} for everyone ({file}: [talk] typed = {on}); \
+             your own switch ({mine}) is kept for modules whose project doesn't say.",
+            if *on { "on" } else { "off" }
+        ));
+    }
+    ui.add_enabled_ui(project.map_or(draft.talk_typed, |p| p.1), |ui| {
         ui.label("When the talk table has the text already:");
         ui.indent("talk-reuse", |ui| {
             for (value, label, tip) in [

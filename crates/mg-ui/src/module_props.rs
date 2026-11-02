@@ -802,11 +802,23 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     if let Err(e) = &map {
         ui.colored_label(ui.visuals().warn_fg_color, e);
     }
-    if !app.settings.talk_typed {
-        ui.weak(
-            "Off: text typed is the field's own, as Aurora writes it (Options › Language › Talk \
-             Table puts it here)",
-        );
+    match (rules.typed, app.settings.talk_typed) {
+        (Some(true), _) => {
+            ui.weak(format!("On for everyone: {file} says so ([talk] typed = true)"));
+        }
+        (Some(false), _) => {
+            ui.weak(format!(
+                "Off for everyone: {file} says so ([talk] typed = false); text typed is the \
+                 field's own, as Aurora writes it"
+            ));
+        }
+        (None, false) => {
+            ui.weak(
+                "Off: text typed is the field's own, as Aurora writes it (Options › Language › \
+                 Talk Table puts it here)",
+            );
+        }
+        (None, true) => {}
     }
 }
 

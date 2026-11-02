@@ -159,6 +159,13 @@ pub(crate) fn next_line(app: &Moonglow, t: &Table) -> Result<usize, String> {
     })
 }
 
+/// Whether text typed goes into the talk table: the open module's project
+/// says (`[talk] typed`), else the builder's Options › Language.
+pub(crate) fn enabled(app: &Moonglow) -> bool {
+    let project = app.ws.as_ref().and_then(|ws| ws.module.project_file.talk.typed);
+    project.unwrap_or(app.settings.talk_typed)
+}
+
 /// Applies a command as `Action::Apply` does, saying why it failed.
 fn plain(app: &mut Moonglow, cmd: Command) {
     if let Err(e) = app.apply(cmd)
@@ -177,7 +184,7 @@ pub(crate) fn apply(app: &mut Moonglow, cmd: Command) {
 /// [`apply`], with what was answered of texts the table has already.
 pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String, Answer)>) {
     let loc = |e: &Edit| matches!(e, Edit::SetField { value: Some(Value::LocString(_)), .. });
-    if !app.settings.talk_typed || app.ws.is_none() || !cmd.edits.iter().any(loc) {
+    if !enabled(app) || app.ws.is_none() || !cmd.edits.iter().any(loc) {
         return plain(app, cmd);
     }
     let (language, has_feminine) = match table_language(app) {

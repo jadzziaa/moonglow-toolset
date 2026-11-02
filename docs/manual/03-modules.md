@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:59:38Z }
 ---
 
 # Modules
@@ -702,6 +702,7 @@ hak = "tdod_lights"                 # the hak offered first
 first_row = 20000                   # the least placeables.2da row a light takes
 
 [talk]                              # text typed into the custom talk table
+typed = true                        # on for everyone (off unless said: each builder's Options)
 lines = "100000-149999"             # the lines it takes (0 is StrRef 16777216)
 map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: its lines are never taken
 [talk.builders]                     # each builder's own part, by their code
@@ -749,6 +750,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
 | `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later | the end of the table |
+| `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Options › Language (off by default) |
 | `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
 | `[talk] map` | `mg tlk-alloc`'s map, from the project's root: the lines it gives keys (in use or retired) are never taken | none |
 | `[talk.builders]` | each builder's own part of the lines, by their code (`ab = "100000-109999"`); a builder without one takes from `lines` past every builder's part | everyone takes from `lines` |
@@ -1516,9 +1518,9 @@ every player; remove the other language's text first.
 Aurora writes the text you type into a name or a description into the
 file. A persistent world translated, or one that keeps its text in one
 place, wants it in the talk table instead. With **Options › Language ›
-Put text typed into the talk table** on (off by default), text typed
-becomes a line of the module's custom talk table and the field names it
-by its StrRef:
+Put text typed into the talk table** on (off by default), or the
+project's `[talk] typed = true` (below), text typed becomes a line of
+the module's custom talk table and the field names it by its StrRef:
 
 - **Which fields:** every Properties window's names and descriptions
   (blueprints, placed objects, areas, Module Properties, the journal), a
@@ -1555,10 +1557,20 @@ by its StrRef:
   game shows any text of a string's own before its talk-table line, to
   every player (`engine_tlk`); and where your lines are all used.
 
+**A team's word:** `[talk] typed = true` in the project's file turns it
+on for everyone who opens the module, whatever their own switch says,
+and `typed = false` off; Options › Language shows the project's word,
+its switch greyed for that module, and keeps the builder's own for
+modules whose project doesn't say. A builder can't turn it off for
+themselves where the project turns it on: a team's text is then all in
+the talk table, as it asked (one builder's names written into the file
+would be the ones a translation misses).
+
 **Your lines** are the project's, in its [project file](#the-project-file-moonglowtoml):
 
 ```toml
 [talk]
+typed = true                        # on for everyone (else each builder's Options)
 lines = "100000-149999"             # the lines typed text takes (0 is StrRef 16777216)
 map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: the lines it gives keys are never taken
 [talk.builders]                     # each builder's own part, by their builder code
