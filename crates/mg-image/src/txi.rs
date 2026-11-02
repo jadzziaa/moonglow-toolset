@@ -103,7 +103,8 @@ impl Txi {
     /// The game's rippling of a texture (`proceduretype arturo`, with
     /// `distort`: what its water has): how far the picture is pushed about,
     /// as a part of its width (`distortionamplitude` texels of
-    /// `defaultwidth`), and how fast (`speed`).
+    /// `defaultwidth`), and how fast (`speed`). The client's own rule is
+    /// [`Txi::ripple_texels`]'s, which the renderer draws by.
     pub fn ripple(&self) -> Option<(f32, f32)> {
         if !self.value("proceduretype")?.eq_ignore_ascii_case("arturo") {
             return None;
@@ -114,6 +115,49 @@ impl Txi {
         let width = self.float("defaultwidth").filter(|w| *w > 0.0).unwrap_or(64.0);
         let amplitude = self.float("distortionamplitude").unwrap_or(0.0) / width;
         (amplitude > 0.0).then(|| (amplitude, self.float("speed").unwrap_or(20.0)))
+    }
+
+    /// Whether the texture runs the game's rippling procedure
+    /// (`proceduretype arturo`), whatever its `distort`.
+    pub fn arturo(&self) -> bool {
+        self.value("proceduretype").is_some_and(|v| v.eq_ignore_ascii_case("arturo"))
+    }
+
+    /// The game's rippling of a texture as the client draws it
+    /// ([`Txi::arturo`] with `distort` not 0): how far its picture is
+    /// pushed about, `distortionamplitude` in texels of the texture itself
+    /// (whatever `defaultwidth` says), and how fast (`speed`, 20 without
+    /// one). Read in the client (`batch6_ripple`; the findings, "How far
+    /// and how fast a texture ripples"), where [`Txi::ripple`] took the
+    /// amplitude as a part of `defaultwidth`.
+    pub fn ripple_texels(&self) -> Option<(f32, f32)> {
+        if !self.arturo() || self.int("distort").is_some_and(|v| v == 0) {
+            return None;
+        }
+        let amplitude = self.float("distortionamplitude").unwrap_or(0.0);
+        (amplitude > 0.0).then(|| (amplitude, self.float("speed").unwrap_or(20.0)))
+    }
+
+    /// What the rippling procedure with `distort 0` makes of the
+    /// texture's channels (red, green, blue, alpha): each `c × scale +
+    /// translate`, by `channelscale` and `channeltranslate` (1 and 0 where
+    /// a value is missing), no ripple (the client draws the Domains of
+    /// Dread's zombie's scale 0 and translation 1 white: `batch6_ripple`).
+    /// `None` for a texture without the procedure, or one that ripples.
+    pub fn channels(&self) -> Option<([f32; 4], [f32; 4])> {
+        if !self.arturo() || self.int("distort") != Some(0) {
+            return None;
+        }
+        let list = |key: &str, default: f32| {
+            let lines = self.get(key).map(|e| e.lines.as_slice()).unwrap_or_default();
+            std::array::from_fn(|i| {
+                lines
+                    .get(i)
+                    .and_then(|l| l.split_whitespace().next()?.parse().ok())
+                    .unwrap_or(default)
+            })
+        };
+        Some((list("channelscale", 1.0), list("channeltranslate", 0.0)))
     }
 
     /// The game's water (`bumpmaptexture shinywater`): what Enhanced
@@ -193,5 +237,27 @@ mod tests {
         assert!(!txi.water());
         assert!(Txi::parse(b"bumpyshinytexture ttr01__env\nbumpmaptexture shinywater\n").water());
         assert_eq!(Txi::parse(b"proceduretype cycle\nnumx 2\nnumy 2\n").ripple(), None);
+        // In texels of the texture, `defaultwidth` changing nothing.
+        assert_eq!(txi.ripple_texels(), Some((6.0, 20.0)));
+        assert_eq!(txi.channels(), None);
+        assert!(txi.arturo());
+    }
+
+    /// The Domains of Dread's `dd_ce3_txhotcoal`, and the same with
+    /// `distort 0`: its channels' scale and translation, no ripple.
+    #[test]
+    fn a_ripple_without_distortion_scales_the_channels() {
+        let hot = "proceduretype arturo\ndistort 1\narturowidth 32\narturoheight 32\n\
+                   distortionamplitude 10\nspeed 16\nchannelscale 4\n0\n0\n0\n0\n\
+                   channeltranslate 4\n1\n1\n1\n1\n";
+        let txi = Txi::parse(hot.as_bytes());
+        assert_eq!(txi.ripple_texels(), Some((10.0, 16.0)));
+        assert_eq!(txi.channels(), None);
+        let flat = Txi::parse(hot.replace("distort 1", "distort 0").as_bytes());
+        assert_eq!(flat.ripple_texels(), None);
+        assert_eq!(flat.channels(), Some(([0.0; 4], [1.0; 4])));
+        let bare = Txi::parse(b"proceduretype Arturo\ndistort 0\nchannelscale 2\n0.5\n0.25\n");
+        assert_eq!(bare.channels(), Some(([0.5, 0.25, 1.0, 1.0], [0.0; 4])));
+        assert!(Txi::parse(b"distort 0\n").channels().is_none());
     }
 }

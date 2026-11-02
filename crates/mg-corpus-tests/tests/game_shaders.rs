@@ -335,8 +335,10 @@ impl Assets for WithCutOuts<'_> {
 /// light line along every backlit cut edge, gone with the translucence
 /// defined away in a copy of `fslit` in its override, and none at the
 /// game's default, Performance, which has no translucence. Moonglow's own
-/// shader draws a cut-out's kept texels solid before it lights them (no
-/// line). A light line there, with the game's shaders on, is the game's.
+/// shader lights them so too (since 2026-11-02: a cut-out's alpha, the
+/// mesh's times the texel's, weighs the light from behind though it is
+/// drawn solid, as `batch6_cut_out_lighter` read of a disc of mesh `alpha
+/// 0.5`).
 #[test]
 fn a_backlit_cut_out_s_edge_is_lit_through_by_the_game_s_programs() {
     let root = corpus!();
@@ -411,16 +413,9 @@ fn a_backlit_cut_out_s_edge_is_lit_through_by_the_game_s_programs() {
         let (solid, edge) = (shot("mg_card_solid"), shot("mg_card_edge"));
         let lightness = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
         eprintln!("game's programs {game}: solid {solid:?}, edge {edge:?}");
-        if game {
-            assert!(
-                lightness(edge) > lightness(solid) + 60,
-                "the edge lit through from behind: {edge:?} against {solid:?}"
-            );
-        } else {
-            assert!(
-                lightness(edge).abs_diff(lightness(solid)) <= 6,
-                "Moonglow's own shader draws the edge as the rest: {edge:?} against {solid:?}"
-            );
-        }
+        assert!(
+            lightness(edge) > lightness(solid) + 60,
+            "the edge lit through from behind (game's programs {game}): {edge:?} against {solid:?}"
+        );
     }
 }

@@ -6171,3 +6171,138 @@ fn a_texture_limit_leaves_out_the_levels_over_it() {
     gpu.set_texture_limit(None);
     assert_eq!(up(&rgba, true), whole);
 }
+
+/// A texture `side` texels square whose red is its u and green its v (the
+/// texel a pixel samples, read back from its colour).
+fn uv_texture(side: u32) -> mg_image::Texture {
+    let level = |i: u32| ((i as f32 + 0.5) / side as f32 * 255.0).round() as u8;
+    let mut data = Vec::new();
+    for y in 0..side {
+        for x in 0..side {
+            data.extend([level(x), level(y), 0, 255]);
+        }
+    }
+    mg_image::Rgba { width: side, height: side, data }.into_texture(false)
+}
+
+/// How far a rippling card's picture is pushed about (texels: the RMS and
+/// 95th percentile of each pixel's push less its mean over the pictures)
+/// and how fast it changes (texels a second, between pictures 0.2 s
+/// apart), as `ripple2.py` reads the client's pictures in `batch6_ripple`:
+/// Moonglow's own shader, a texture `side` texels square with TXI `txi`
+/// (unlit, `decal 1`), over 20 s.
+fn ripple_measured(gpu: &Gpu, side: u32, txi: &str) -> (f32, f32, f32) {
+    const PX: u32 = 192;
+    let mut assets = TestAssets::default();
+    assets.textures.insert("card".into(), uv_texture(side));
+    assets.textures.insert("still".into(), uv_texture(side));
+    let parse = |t: &str| mg_image::txi::Txi::parse(t.as_bytes());
+    assets.txis.insert("card".into(), parse(&format!("decal 1\n{txi}")));
+    assets.txis.insert("still".into(), parse("decal 1\n"));
+    let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let card = |texture: &str| {
+        let mut model = quad();
+        let NodeKind::Mesh(m) = &mut model.nodes[1].kind else { unreachable!() };
+        m.textures[0] = Some(texture.into());
+        m.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let model = Arc::new(GpuModel::new(gpu, Arc::new(model)));
+        // (Standing, facing the camera to the south.)
+        Instance::new(model, Mat4::from_rotation_x(90f32.to_radians()))
+    };
+    // (Seen square on from far off: the card fills the picture, the
+    // texture magnified.)
+    let camera = Camera {
+        eye: Vec3::new(0.0, -20.0, 0.0),
+        target: Vec3::ZERO,
+        fov_y: 2.0 * (0.9f32 / 20.0).atan(),
+        near: 1.0,
+        far: 100.0,
+    };
+    let mut shot = |texture: &str, time: f32| {
+        let scene = Scene { instances: vec![card(texture)], time, ..Default::default() };
+        let img = r.render_image(gpu, &assets, &scene, &camera, PX, PX);
+        let sampled: Vec<[f32; 2]> = (0..PX * PX)
+            .map(|i| {
+                let p = img.pixel(i % PX, i / PX);
+                [f32::from(p[0]) / 255.0 * side as f32, f32::from(p[1]) / 255.0 * side as f32]
+            })
+            .collect();
+        (img, sampled)
+    };
+    let (_, still) = shot("still", 0.0);
+    let wrap = |d: f32| (d + side as f32 / 2.0).rem_euclid(side as f32) - side as f32 / 2.0;
+    let mut pushes: Vec<Vec<[f32; 2]>> = Vec::new();
+    for k in 0..100 {
+        let (img, sampled) = shot("card", k as f32 * 0.2);
+        if k == 0 {
+            save(
+                &img,
+                &mg_testkit::output_dir("render").join(format!("ripple_{side}_{}.png", txi.len())),
+            );
+        }
+        pushes.push(
+            sampled
+                .iter()
+                .zip(&still)
+                .map(|(s, o)| [wrap(s[0] - o[0]), wrap(s[1] - o[1])])
+                .collect(),
+        );
+    }
+    let n = pushes.len() as f32;
+    let mean: Vec<[f32; 2]> = (0..pushes[0].len())
+        .map(|i| {
+            let s = pushes.iter().fold([0.0, 0.0], |a, p| [a[0] + p[i][0], a[1] + p[i][1]]);
+            [s[0] / n, s[1] / n]
+        })
+        .collect();
+    let mut off: Vec<f32> = pushes
+        .iter()
+        .flat_map(|p| p.iter().zip(&mean).map(|(a, m)| (a[0] - m[0]).hypot(a[1] - m[1])))
+        .collect();
+    off.sort_by(f32::total_cmp);
+    let rms = (off.iter().map(|d| d * d).sum::<f32>() / off.len() as f32).sqrt();
+    let p95 = off[(off.len() - 1) * 95 / 100];
+    let change: f32 = pushes
+        .windows(2)
+        .map(|w| {
+            let moved: f32 =
+                w[0].iter().zip(&w[1]).map(|(a, b)| (b[0] - a[0]).hypot(b[1] - a[1])).sum();
+            moved / w[0].len() as f32 / 0.2
+        })
+        .sum::<f32>()
+        / (pushes.len() - 1) as f32;
+    (rms, p95, change)
+}
+
+/// A rippling texture (TXI `proceduretype arturo`, `distort 1`) is pushed
+/// about as far and as fast as the client pushes it (`batch6_ripple`; the
+/// findings, "How far and how fast a texture ripples"): by 0.82 ×
+/// `distortionamplitude` texels of the texture itself (RMS; its 95th
+/// percentile 1.25 ×), at 64 and 128 texels alike, `defaultwidth`
+/// changing nothing; changing by about 12 texels a second at `speed` 16
+/// and 4.5 at 4 (at the zombie's amplitude, 10).
+#[test]
+fn a_texture_ripples_as_far_and_as_fast_as_the_client_s() {
+    let Some(gpu) = gpu() else { return };
+    let zombie = "proceduretype arturo\ndistort 1\narturowidth 32\narturoheight 32\n\
+                  distortionamplitude 10\nspeed 16\n";
+    let near = |got: f32, want: f32, within: f32| (got - want).abs() <= want * within;
+    for (side, txi, (amplitude, change)) in [
+        (128, zombie.to_owned(), (10.0, 12.0)),
+        (64, zombie.to_owned(), (10.0, 12.0)),
+        (128, format!("{zombie}defaultwidth 16\n"), (10.0, 12.0)),
+        (128, zombie.replace("speed 16", "speed 4"), (10.0, 4.5)),
+        (128, zombie.replace("amplitude 10", "amplitude 20"), (20.0, 24.0)),
+    ] {
+        let (rms, p95, rate) = ripple_measured(&gpu, side, &txi);
+        eprintln!(
+            "{side} texels, {:?}: RMS {rms:.2}, 95th {p95:.2}, change {rate:.2} a second",
+            txi.lines()
+                .filter(|l| l.contains("speed") || l.contains("width 16"))
+                .collect::<Vec<_>>()
+        );
+        assert!(near(rms, 0.82 * amplitude, 0.15), "RMS {rms} for {amplitude}");
+        assert!(near(p95, 1.25 * amplitude, 0.2), "95th {p95} for {amplitude}");
+        assert!(near(rate, change, 0.2), "{rate} a second, the client's {change}");
+    }
+}
