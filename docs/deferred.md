@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -240,66 +240,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Left, waiting on the reporter: String Edit on their module with Polish
   the editing language, its names seen right and one saved. (S)
   (from builders' reports after 1.19.1)
-
-- **The custom palettes kept, what is left** (since a save changes only
-  the entries of the blueprints changed, as Aurora does:
-  `update_custom_palette`, the captures in `palettes/`):
-  - *Where Moonglow differs from Aurora, by choice:* a save doesn't put
-    each category's entries in order by name or drop fields it doesn't
-    know, as Aurora's does, so a palette Moonglow didn't change is the
-    same bytes; a new entry for a talk-table name is its `STRREF` (as
-    Aurora's Build writes it) where Aurora's Edit Copy and Add to
-    Palette write the text; a module with no `palcus.itp` gets one made
-    in full at a save, where Aurora writes the categories alone, empty.
-    (S, if any should follow Aurora)
-  - *An entry made stale outside stays so, where Moonglow didn't see the
-    blueprint change:* Aurora rewrites an entry at Edit and OK even when
-    nothing changed (it writes the blueprint again); Moonglow when the
-    blueprint's bytes changed since the module was opened or saved. A
-    blueprint added, changed or deleted in an open module folder or
-    nasher project is such a change (read again, it is not taken into
-    what the save compares with: Troubletcat's report, October 2026),
-    and the palette changed so is unsaved work. An entry left stale by
-    another tool while the module was closed, a merge, or an `mg`
-    command on an open `.mod` (no archive is watched) is made right when
-    its blueprint next changes, by the palette's More › Refresh Palette
-    (that type's, as Aurora's right-click Refresh Palette: its capture
-    changed the item palette alone) or by Build. Work recovered after a
-    crash counts as opened: its blueprints' entries wait for a change
-    too. A module's own categories (`<type>pal.itp`) changed outside are
-    taken in as they are, without remaking the palette's categories
-    (the palette pulled with them has them); a search typed doesn't open
-    the category of a blueprint that arrives after it was typed (typed
-    again, it does). (S each)
-  - *A category left with an empty `LIST`:* an entry put into a
-    category that had no `LIST` field makes one, and the entry taken
-    out again (a blueprint added, then deleted, before a save) leaves
-    it empty, where the file had none: the same palette to the game,
-    not the same bytes. (S)
-  - *What moves an entry besides its blueprint:* a faction renamed
-    (`repute.fac`) leaves its creatures' `FACTION` until they change; a
-    hak's skeleton changed, or a hak's blueprints changed, renamed or
-    removed, don't touch the module's palette (the module's own
-    skeleton changed remakes its categories, each with its entries; a
-    category taken out takes its entries, a hak's too). Aurora's save
-    (its Save As, captured 2026-10-29, `captures/wave1/saveas.mod`)
-    gives every creature entry its blueprint's `CR` and `FACTION`,
-    stale or not, which Moonglow's doesn't; a blueprint of category
-    255 or one the palette lacks is left out by its Refresh Palette,
-    as Moonglow leaves it out. (S)
-  - *An entry put in a category out of order* goes after the last entry
-    whose name doesn't come after it (in order, its place); Aurora puts
-    the whole category in order at its save. (S)
-  - *The command line:* `mg rename` renames a blueprint's entry in
-    place, but `mg set`, `mg apply`, `mg import`, `mg update-instances`
-    and plugin commands run from `mg plugin` change blueprints without
-    touching the palettes; the next save in the GUI or a Build brings
-    them up to date. (S–M)
-  - *No command takes out one entry* whose blueprint isn't the
-    module's (a hak's, the override folder's, one there is no more);
-    Build takes out those of the override folder and the ones there
-    are no more, and keeps a hak's. (S)
-  (El Grillo's and Jasperre's report, October 2026)
 
 ## Custom content data (2DAs and talk tables)
 
@@ -1663,6 +1603,30 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **The custom palettes where a save differs from Aurora's, or sees no
+  change** (settled in the deferred sprint, 2026-11-01; the rest of the
+  entry was fixed then: the log). By choice: a save puts in order only
+  the categories an entry went into and keeps the fields it doesn't
+  know, where Aurora's puts every category in order and drops them, so
+  that a palette no change reached is the same bytes (a commit shows
+  only what the builder changed); a new entry for a talk-table name is
+  its `STRREF`, as Aurora's Build writes it, where Aurora's Edit Copy
+  writes the text; a module without a `palcus.itp` gets one made in
+  full at a save, where Aurora writes the categories alone, empty (of
+  use to no one until a Refresh). As in Aurora, by design: an entry
+  made stale where Moonglow saw no blueprint change while the module
+  was open (another tool while it was closed, a merge, an `mg` command
+  without a game install, work recovered after a crash) stays until
+  its blueprint next changes, Refresh Palette or Build (finding it would
+  mean reading every blueprint at every save, which is what Refresh
+  does); a module's own categories changed outside are taken in as
+  they are; a hak's skeleton changed, or a hak's blueprints renamed or
+  removed, leave the module's palette as its file is (Refresh Palette
+  and Build make it anew; Remove from Palette takes one entry out); a
+  blueprint of category 255 or of one the palette lacks is left out by
+  Refresh Palette, as Aurora leaves it out. (El Grillo's and
+  Jasperre's report, October 2026)
 
 - **A geometry program beside a material's pair** (`customshaderGS` with
   `customshaderVS` and `FS`): the client runs it (one that emits nothing

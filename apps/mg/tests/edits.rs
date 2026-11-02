@@ -305,3 +305,95 @@ fn replace_takes_plain_fields_and_regular_expressions() {
     let (ok, out) = mg(&["replace", m, "x", "y", "--only", "a"]);
     assert!(!ok, "{out}");
 }
+
+/// `mg set` and `mg apply` keep the module's custom palettes as a save in
+/// the window does: a blueprint named anew has its entry named so, one
+/// moved to another category is moved there, and every other entry stays
+/// as it was; a module without palettes gets none.
+#[test]
+fn set_and_apply_keep_the_custom_palettes() {
+    use mg_core::{Gender, Language, ResType};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-set-palettes");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let item = |name: &str, category: u8| {
+        let mut g = Gff::new(*b"UTI ");
+        let text = name.as_bytes().to_vec();
+        g.root.set(
+            "LocalizedName",
+            Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, text)),
+        );
+        g.root.set("PaletteID", Value::Byte(category));
+        g
+    };
+    m.set_gff(key("sword.uti"), &item("Sword", 36)).unwrap();
+    m.set_gff(key("axe.uti"), &item("Axe", 36)).unwrap();
+    let entry = |resref: &str, name: &str| {
+        let mut s = Struct::new(0);
+        s.set("NAME", Value::String(name.into()));
+        s.set("RESREF", Value::resref(mg_core::ResRef::from_str(resref).unwrap()));
+        s
+    };
+    let category = |id: u8, list: Vec<Struct>| {
+        let mut s = Struct::new(0);
+        s.set("ID", Value::Byte(id));
+        s.set("LIST", Value::List(list));
+        s
+    };
+    let mut palette = Gff::new(*b"ITP ");
+    let longswords =
+        vec![entry("axe", "Axe"), entry("ghost", "Ghost Sword"), entry("sword", "Sword")];
+    palette.root.set("MAIN", Value::List(vec![category(36, longswords), category(13, vec![])]));
+    let palcus = ResKey::parse("itempalcus", ResType::ITP).unwrap();
+    m.set_gff(palcus, &palette).unwrap();
+    let path = dir.join("pal.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let p = path.to_str().unwrap();
+    let listing = || -> Vec<(i64, Vec<String>)> {
+        let g = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+        (g.root.list("MAIN").unwrap().iter())
+            .map(|c| {
+                let names = c.list("LIST").unwrap_or(&[]).iter().map(|e| {
+                    format!(
+                        "{} {}",
+                        e.resref("RESREF").unwrap(),
+                        String::from_utf8_lossy(e.string("NAME").unwrap())
+                    )
+                });
+                (c.integer("ID").unwrap(), names.collect())
+            })
+            .collect()
+    };
+    let mg = |args: &[&str]| crate::json_out(crate::mg_on(&root, None).arg("--json").args(args));
+    let (ok, out) = mg(&["set", p, "sword.uti", "LocalizedName=Blade"]);
+    assert!(ok, "{out}");
+    assert_eq!(
+        listing(),
+        [
+            (36, vec!["axe Axe".into(), "sword Blade".into(), "ghost Ghost Sword".into()]),
+            (13, vec![])
+        ]
+    );
+    let (_, dry) = mg(&["set", p, "axe.uti", "PaletteID=13", "--dry-run"]);
+    let file = dir.join("move.json");
+    std::fs::write(&file, dry["command"].to_string()).unwrap();
+    let (ok, out) = mg(&["apply", p, file.to_str().unwrap()]);
+    assert!(ok, "{out}");
+    assert_eq!(
+        listing(),
+        [
+            (36, vec!["sword Blade".into(), "ghost Ghost Sword".into()]),
+            (13, vec!["axe Axe".into()])
+        ]
+    );
+    // A module without palettes: none made.
+    let bare = module(&dir);
+    let (ok, out) = mg(&["set", bare.to_str().unwrap(), "guard.utc", "Tag=G2"]);
+    assert!(ok, "{out}");
+    assert!(
+        !Module::open(&bare)
+            .unwrap()
+            .contains(&ResKey::parse("creaturepalcus", ResType::ITP).unwrap())
+    );
+}

@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1970,10 +1970,14 @@ same name; Delete takes out the entry alone.
   captures `palettes/`, made by `tools/aurora/capture_palettes.py`);
   game data, `palettes.rs` `custom_palettes_rebuild_like_aurora`.
 - **Moonglow:** `crates/mg-module/src/palette.rs` (`rebuild_custom_palette`
-  for Build, `update_custom_palette` for a save), `new.rs`. A save does not
-  sort or drop fields, and a new entry for a talk-table name is its
-  `STRREF` (as Aurora's Build writes it), so that a palette changes only
-  where the builder changed something.
+  for Build, `update_custom_palette` for a save), `new.rs`. A save puts
+  in order (by name, stably) only the categories an entry went into and
+  drops no fields, and a new entry for a talk-table name is its `STRREF`
+  (as Aurora's Build writes it), so that a palette changes only where
+  the builder changed something; every creature entry gets its
+  blueprint's `CR` and `FACTION`, as Aurora's Save As gives them
+  (`aurora_palettes.rs`
+  `a_save_gives_creature_entries_their_blueprint_s_cr_and_faction`).
 - **Wiki:** "Toolset Palette ITP" says the toolset makes the `palcus.itp`
   from the module's blueprints at every save; Aurora 89.8193.37 doesn't.
 

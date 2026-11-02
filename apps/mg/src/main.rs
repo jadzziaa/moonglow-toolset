@@ -2164,8 +2164,10 @@ fn run(cli: &Cli) -> Result<Output> {
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
             let guard = save_guard(cli, &m, plugins, &mut notes)?;
+            let gi = install(cli).ok();
+            let gi = gi.as_ref();
             let mut out =
-                edits::set(m, resource, fields, remove, *dry_run, codepage, guard.as_ref())?;
+                edits::set(m, resource, fields, remove, *dry_run, codepage, guard.as_ref(), gi)?;
             out.notes.splice(0..0, notes.notes);
             out
         }
@@ -2174,7 +2176,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
             let guard = save_guard(cli, &m, plugins, &mut notes)?;
-            let mut out = edits::apply(m, edits, *dry_run, codepage, guard.as_ref())?;
+            let gi = install(cli).ok();
+            let gi = gi.as_ref();
+            let mut out = edits::apply(m, edits, *dry_run, codepage, guard.as_ref(), gi)?;
             out.notes.splice(0..0, notes.notes);
             out
         }
@@ -3281,6 +3285,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     }
                 }
             } else {
+                let opened = m.clone();
                 let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
                 for e in &errors {
                     out.note(format!("warning: {e}"));
@@ -3288,6 +3293,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 for w in edits::objects_made_twice(&m, &tags) {
                     out.note(w);
                 }
+                keep_palettes(install(cli).ok().as_ref(), &mut m, &opened, &mut out);
                 m.save()?;
                 replaced = n;
                 out.note(format!("replaced {n} times in {} strings", hits.len() - errors.len()));
@@ -3878,7 +3884,9 @@ fn run(cli: &Cli) -> Result<Output> {
             if let Some(w) = &base_warning {
                 out.note(format!("warning: {w}"));
             }
+            let opened = m.clone();
             let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
+            keep_palettes(Some(&gi), &mut m, &opened, &mut out);
             m.save()?;
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
             out.json = json!({
@@ -4406,6 +4414,44 @@ pub(crate) fn game_data_if_any(
     game_data_in(&gi, m, out)
         .map_err(|e| out.note(format!("warning: the game's data can't be read: {e:#}")))
         .ok()
+}
+
+/// Brings the module's custom palettes up to date with the blueprints a
+/// command changed (`before`: the module as the command opened it), as a
+/// save in the window does (`update_custom_palettes`): `mg set`, `mg
+/// apply`, `mg import`, `mg replace` and the plugins' commands from `mg
+/// plugin run` keep them as `mg rename` does (`mg update-instances`
+/// changes the objects placed from blueprints, not the blueprints). The
+/// game is read only when a blueprint changed; without
+/// it (no install), the palettes are left as they are, and that is said.
+pub(crate) fn keep_palettes(
+    gi: Option<&GameInstall>,
+    m: &mut Module,
+    before: &Module,
+    out: &mut Output,
+) {
+    use mg_module::palette::BlueprintKind;
+    // (A module without custom palettes gets none made.)
+    let kept = BlueprintKind::ALL.iter().any(|k| m.contains(&k.custom_key()));
+    if !kept || !mg_module::palette::blueprints_changed(m, before) {
+        return;
+    }
+    // (What the game's data lacks is said by the command's own reading.)
+    let Some(game) = gi.and_then(|gi| game_data_in(gi, m, &mut Output::default()).ok()) else {
+        out.note(
+            "warning: the custom palettes are not brought up to date without the game's data \
+             (the next save in Moonglow or a Build does it)",
+        );
+        return;
+    };
+    match mg_module::palette::update_kept_custom_palettes(m, before, &game) {
+        Ok(0) => {}
+        Ok(n) => out.note(format!(
+            "{n} custom palette{} brought up to date",
+            if n == 1 { "" } else { "s" }
+        )),
+        Err(e) => out.note(format!("warning: the custom palettes: {e}")),
+    }
 }
 
 /// The game's data put together for a module, with what it lacks said as

@@ -212,8 +212,10 @@ fn a_palette_whose_blueprints_did_not_change_is_left_as_it_is() {
 #[test]
 fn an_edited_blueprint_changes_its_entry_alone() {
     let before = palette_of(&module());
-    // Named anew (Aurora: Edit, OK): its entry has its name, at its place
-    // by name; every other entry is as it was, the builder's field too.
+    // Named anew (Aurora: Edit, OK, then its save): its entry has its
+    // name, and the category it is in is put in order by name, as Aurora's
+    // save puts it (the category was out of order); every other entry is
+    // as it was, the builder's field too.
     let renamed = after(|m| edit(m, "md_text")).expect("the stale name made right");
     assert_eq!(
         listing(&renamed),
@@ -222,13 +224,13 @@ fn an_edited_blueprint_changes_its_entry_alone() {
             (
                 LONGSWORDS,
                 [
-                    "hk_strref",
-                    "gh_missing",
-                    "md_strref",
-                    "hk_text",
-                    "md_strname",
-                    "md_text",
-                    "ov_item"
+                    "hk_strref",  // Drow Full Plate +1
+                    "gh_missing", // Ghost Sword
+                    "hk_text",    // Hak Sword
+                    "md_strname", // Longsword
+                    "md_text",    // Module Sword
+                    "ov_item",    // Override Sword
+                    "md_strref",  // Potion of Cure Light Wounds
                 ]
                 .map(String::from)
                 .to_vec()
@@ -258,14 +260,27 @@ fn an_edited_blueprint_changes_its_entry_alone() {
 #[test]
 fn a_new_blueprint_gets_an_entry_at_its_place_by_name() {
     // A talk-table name: its STRREF, as Aurora's Build writes it (Aurora's
-    // Edit Copy writes the text; a STRREF is what both keep), after the
-    // last entry whose name does not come after it (the category is out
-    // of order: the others stay as they are).
+    // Edit Copy writes the text; a STRREF is what both keep), and the
+    // category it goes into put in order by name, then ResRef, as
+    // Aurora's save puts it (it was out of order). The other category,
+    // untouched, keeps its order.
     let added =
         after(|m| m.set(key("md_strref001"), item("md_strref001", Ok(POTION), 36))).unwrap();
     let listed = listing(&added);
-    assert_eq!(listed[1].1[..7], listing(&palette_of(&module()))[1].1[..]);
-    assert_eq!(listed[1].1[7], "md_strref001", "after Override Sword");
+    assert_eq!(
+        listed[1].1,
+        [
+            "hk_strref",
+            "gh_missing",
+            "hk_text",
+            "md_strname",
+            "ov_item",
+            "md_strref",
+            "md_strref001", // Potion of Cure Light Wounds, after the other
+            "md_text",      // Stale Sword Name
+        ]
+    );
+    assert_eq!(listed[0], listing(&palette_of(&module()))[0]);
     let new = entry(&added, "md_strref001");
     assert_eq!(new.integer("STRREF"), Some(i64::from(POTION)));
     assert!(new.get("NAME").is_none());
@@ -495,4 +510,118 @@ fn blueprints_changed_outside_have_their_entries_made_right() {
     let reopened = Module::open(&folder).unwrap();
     assert_eq!(listing(&palette_of(&reopened)), listing(&made));
     assert_eq!(update_custom_palette(&reopened, &reopened, &game, BlueprintKind::Item), Ok(None));
+}
+
+/// A category the file had without a `LIST` (its blueprint not listed, as
+/// a palette Aurora kept may have it): an entry put into it since (Refresh
+/// Palette) and taken out again before the save (the blueprint deleted)
+/// leaves it without one, the palette the same bytes as the file.
+#[test]
+fn a_category_without_a_list_is_left_without_one() {
+    let game = game();
+    let mut opened = module();
+    let mut palette = palette_of(&opened);
+    palette.root.list_mut("MAIN").unwrap()[0].remove("LIST");
+    opened.set_gff(BlueprintKind::Item.custom_key(), &palette).unwrap();
+    let file = opened.get(&BlueprintKind::Item.custom_key()).unwrap().to_vec();
+    // Refresh Palette lists md_moved in its category (a LIST made).
+    let mut now = opened.clone();
+    let refreshed = rebuild_custom_palette(&now, &game, BlueprintKind::Item).unwrap();
+    assert_eq!(listing(&refreshed)[0], (CLAWS, vec![]));
+    let mut with_it = palette.clone();
+    let claws = &mut with_it.root.list_mut("MAIN").unwrap()[0];
+    claws.set("LIST", Value::List(vec![named("md_moved", "Moved Module Sword")]));
+    now.set_gff(BlueprintKind::Item.custom_key(), &with_it).unwrap();
+    // Deleted before the save: its entry goes, and the empty LIST with it.
+    now.remove(&key("md_moved"));
+    assert_eq!(update_custom_palettes(&mut now, &opened, &game), Ok(1));
+    assert_eq!(now.get(&BlueprintKind::Item.custom_key()).unwrap(), &file[..], "byte for byte");
+    // A category the file had with a LIST, emptied, keeps it (Aurora's
+    // Delete leaves it so).
+    let before = module();
+    let mut now = before.clone();
+    now.remove(&key("md_moved"));
+    let made = update_custom_palette(&now, &before, &game, BlueprintKind::Item).unwrap().unwrap();
+    assert!(made.root.list("MAIN").unwrap()[0].list("LIST").is_some_and(<[Struct]>::is_empty));
+}
+
+/// A creature blueprint named `name`, of challenge rating `cr`, in faction
+/// `faction`, in category 1.
+fn creature(name: &str, cr: f32, faction: u32) -> Vec<u8> {
+    let mut g = Gff::new(*b"UTC ");
+    let name = LocString::from_text(Language::ENGLISH, Gender::Male, name.as_bytes().to_vec());
+    g.root.set("FirstName", Value::LocString(name));
+    g.root.set("ChallengeRating", Value::Float(cr));
+    g.root.set("FactionID", Value::Word(faction as u16));
+    g.root.set("PaletteID", Value::Byte(1));
+    g.to_bytes().unwrap()
+}
+
+/// A save gives every creature entry its blueprint's `CR` and `FACTION`,
+/// stale or not, as Aurora's (its Save As, `captures/wave1/saveas.mod`):
+/// a faction renamed moves its creatures' entries, so does a hak's
+/// creature changed; an entry whose blueprint is nowhere stays as it is,
+/// and an up-to-date palette is not written again.
+#[test]
+fn a_save_gives_creature_entries_their_challenge_rating_and_faction() {
+    let ckey = |n: &str| ResKey::parse(n, ResType::UTC).unwrap();
+    let mut game = game();
+    let mut hak = MemContainer::new();
+    hak.insert(ckey("hk_wolf"), creature("Wolf", 1.0, 1));
+    game.resman.add(priority::HAK, "creatures", LayerClass::Erf, hak);
+    let mut m = module();
+    let mut fac = Gff::new(*b"FAC ");
+    let faction = |name: &str| node(vec![("FactionName", Value::String(name.into()))]);
+    fac.root.set("FactionList", Value::List(vec![faction("PC"), faction("Hostile")]));
+    m.set_gff(ResKey::parse("repute", ResType::FAC).unwrap(), &fac).unwrap();
+    m.set(ckey("md_orc"), creature("Orc", 2.0, 1));
+    let listed = |resref: &str, name: &str, cr: f32, faction: &str| {
+        let mut e = named(resref, name);
+        e.set("CR", Value::Float(cr));
+        e.set("FACTION", Value::String(faction.into()));
+        e
+    };
+    let mut palette = Gff::new(*b"ITP ");
+    let list = vec![
+        listed("gh_ghoul", "Ghoul", 5.0, "Merchant"),
+        listed("md_orc", "Orc", 9.0, "Merchant"),
+        listed("hk_wolf", "Wolf", 1.0, "Hostile"),
+    ];
+    palette.root.set(
+        "MAIN",
+        Value::List(vec![node(vec![("ID", Value::Byte(1)), ("LIST", Value::List(list))])]),
+    );
+    m.set_gff(BlueprintKind::Creature.custom_key(), &palette).unwrap();
+    let before = m.clone();
+    // Nothing changed: the stale entry made right all the same.
+    assert_eq!(update_custom_palettes(&mut m, &before, &game), Ok(1));
+    let made = m.gff(&BlueprintKind::Creature.custom_key()).unwrap().unwrap();
+    let orc = entry(&made, "md_orc");
+    assert_eq!((orc.float("CR"), orc.string("FACTION")), (Some(2.0), Some(&b"Hostile"[..])));
+    assert_eq!(entry(&made, "gh_ghoul"), &listed("gh_ghoul", "Ghoul", 5.0, "Merchant"));
+    assert_eq!(entry(&made, "hk_wolf"), &listed("hk_wolf", "Wolf", 1.0, "Hostile"));
+    // Saved again: nothing to do.
+    let saved = m.clone();
+    assert_eq!(update_custom_palettes(&mut m, &saved, &game), Ok(0));
+    // The faction renamed: its creatures' entries follow it.
+    fac.root.list_mut("FactionList").unwrap()[1].set("FactionName", Value::String("Foes".into()));
+    m.set_gff(ResKey::parse("repute", ResType::FAC).unwrap(), &fac).unwrap();
+    assert_eq!(update_custom_palettes(&mut m, &saved, &game), Ok(1));
+    let made = m.gff(&BlueprintKind::Creature.custom_key()).unwrap().unwrap();
+    assert_eq!(entry(&made, "md_orc").string("FACTION"), Some(&b"Foes"[..]));
+    assert_eq!(entry(&made, "hk_wolf").string("FACTION"), Some(&b"Foes"[..]));
+}
+
+/// Remove from Palette: the entries of one blueprint go, every other node
+/// as it was.
+#[test]
+fn an_entry_is_taken_out_alone() {
+    let mut palette = palette_of(&module());
+    let before = palette.clone();
+    assert!(remove_entries(&mut palette, r("gh_missing")));
+    assert!(!remove_entries(&mut palette, r("gh_missing")), "gone already");
+    let mut listed = listing(&before);
+    listed[1].1.retain(|r| r != "gh_missing");
+    assert_eq!(listing(&palette), listed);
+    assert_eq!(entry(&palette, "hk_text"), entry(&before, "hk_text"));
 }

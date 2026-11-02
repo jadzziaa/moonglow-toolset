@@ -202,7 +202,8 @@ fn build_makes_every_palette_as_aurora_s_build() {
 /// Add to Palette on the longsword lying in the probe's area (a module
 /// whose palette lists the hak's blueprints, the override folder's and
 /// one there is no more): the new blueprint gets its entry (its talk-table
-/// name as its STRREF), and every other entry is as it was.
+/// name as its STRREF), and every other entry is as it was; the category
+/// it went into is put in order by name, as Aurora's save puts it.
 #[test]
 fn add_to_palette_keeps_the_other_entries() {
     let root = corpus!();
@@ -235,7 +236,33 @@ fn add_to_palette_keeps_the_other_entries() {
     let mut taken_out = made.clone();
     let entry = remove_entry(&mut taken_out, &new.to_string()).expect("the new entry");
     assert_eq!(entry.integer("STRREF"), Some(166), "Longsword, from the talk table");
-    assert!(differences("the other entries", &taken_out, &was).is_none());
+    // Each entry as it was, and each category's entries in the file's
+    // order, but the new entry's: in Aurora's saved order.
+    let order = |g: &Gff| -> Vec<Vec<String>> {
+        fn walk(list: &[Struct], out: &mut Vec<Vec<String>>) {
+            let here = list.iter().filter_map(|n| n.resref("RESREF")).map(|r| r.to_string());
+            out.push(here.collect());
+            for n in list.iter().filter(|n| n.resref("RESREF").is_none()) {
+                walk(n.list("LIST").unwrap_or(&[]), out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(g.root.list("MAIN").unwrap(), &mut out);
+        out
+    };
+    let entries = |g: &Gff| -> BTreeMap<String, Struct> {
+        order(g)
+            .into_iter()
+            .flatten()
+            .map(|r| (r.clone(), entry_mut(&mut g.clone(), &r).clone()))
+            .collect()
+    };
+    assert_eq!(entries(&taken_out), entries(&was));
+    let aurora = palette(&capture("saveas").unwrap(), BlueprintKind::Item);
+    let (ours, file, theirs) = (order(&taken_out), order(&was), order(&aurora));
+    let touched = (0..file.len()).filter(|i| ours[*i] != file[*i]).collect::<Vec<_>>();
+    assert_eq!(touched.len(), 1, "one category put in order");
+    assert_eq!(ours[touched[0]], theirs[touched[0]], "as Aurora's save puts it");
 }
 
 fn remove_entry(g: &mut Gff, resref: &str) -> Option<Struct> {
@@ -271,4 +298,41 @@ fn entry_mut<'a>(g: &'a mut Gff, resref: &str) -> &'a mut Struct {
         None
     }
     walk(g.root.list_mut("MAIN").unwrap(), resref).unwrap()
+}
+
+/// Aurora's Save As of the first wave's module (`wave1/saveas.mod`) gave
+/// its creature's entry the blueprint's challenge rating and faction (the
+/// entry said 9 and Merchant); a save in Moonglow does the same, and
+/// leaves every other creature entry's fields as they were.
+#[test]
+fn a_save_gives_creature_entries_their_blueprint_s_cr_and_faction() {
+    let root = corpus!();
+    let before = Module::open(&aurora_capture!("wave1/before.mod")).unwrap();
+    let aurora = Module::open(&aurora_capture!("wave1/saveas.mod")).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let kind = BlueprintKind::Creature;
+    let mut saved = before.clone();
+    update_custom_palettes(&mut saved, &before, &game).unwrap();
+    // Every entry's fields, by ResRef, in no order (Aurora writes CR and
+    // FACTION after the name; Moonglow keeps the place each field had).
+    let entries = |g: &Gff| -> BTreeMap<String, Vec<String>> {
+        let mut out = BTreeMap::new();
+        fn walk(list: &[Struct], out: &mut BTreeMap<String, Vec<String>>) {
+            for n in list {
+                if let Some(r) = n.resref("RESREF") {
+                    let mut fields: Vec<String> = (n.fields.iter())
+                        .map(|f| format!("{} {:?}", f.label.to_string_lossy(), f.value))
+                        .collect();
+                    fields.sort();
+                    out.insert(r.to_string(), fields);
+                }
+                walk(n.list("LIST").unwrap_or(&[]), out);
+            }
+        }
+        walk(g.root.list("MAIN").unwrap(), &mut out);
+        out
+    };
+    let (ours, theirs) = (palette(&saved, kind), palette(&aurora, kind));
+    assert_ne!(entries(&palette(&before, kind)), entries(&theirs), "the capture's entry was stale");
+    assert_eq!(entries(&ours), entries(&theirs));
 }

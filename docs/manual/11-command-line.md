@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-31T18:24:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
 ---
 
 # Command-line tools
@@ -127,6 +127,16 @@ any case): the command says so in a note (in the JSON's `notes` too),
 and that the folder is left as it is. Name the folder to work on the
 folder. A command that saves a module folder leaves what another
 program changed in it meanwhile as it is, as the window does.
+
+A command that changes blueprints keeps the module's custom palettes
+as a save in the window does ([the custom palettes](05-blueprints.md)):
+`mg set`, `mg apply`, `mg import`, `mg replace`, `mg rename` and `mg
+plugin run` bring the entries of the blueprints they changed up to date
+(a name, a category, a creature's challenge rating and faction) and say
+how many palettes changed. It reads the game for the names (a module
+without custom palettes gets none made); without a game install the
+palettes are left, said in a warning, for the next save in the window or
+a Build.
 
 For example, every placed creature whose tag starts `GUARD` and that has
 no OnSpawn script set, in the area `keep`:
