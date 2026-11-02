@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:23:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:24:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -139,6 +139,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
+  - **An area's placed sounds read from its GIT each frame** while its
+    sounds play (`area_audio::update`: every `SoundList` entry made a
+    `PlacedSound` again), seen in the frame test's stacks on area084
+    (2026-11-02, the large entry 10's samples) as a few percent of a
+    frame, not measured apart. Kept per area by the workspace's revision
+    it would be read once; not done for a real unintended consequence
+    until checked: what an editor holds unflushed (a sound dragged, its
+    command not yet given) would be heard where it was. (S, measure first)
   - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
     saves about a tenth of an integrated GPU's picture and 107 MB of
     targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
