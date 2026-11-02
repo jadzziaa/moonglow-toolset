@@ -39,6 +39,7 @@ mg-script.workspace = true
 mg-set.workspace = true
 mg-tiles.workspace = true
 mg-tlk.workspace = true
+mg-update.workspace = true
 notify.workspace = true
 ron.workspace = true
 serde.workspace = true
@@ -55,6 +56,9 @@ rustix.workspace = true
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-erf.workspace = true
 mg-testkit.workspace = true
+# (The UI tests' releases, from a server of their own on 127.0.0.1,
+# through the app's client.)
+mg-update = { workspace = true, features = ["http", "serve"] }
 zip.workspace = true
 
 [lints]

@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 mg-resman.workspace = true
 mg-serve.workspace = true
+# (A key made by a test to sign a release: `signing`.)
+mg-update = { workspace = true, features = ["serve"] }
+minisign.workspace = true
 # (The `hlsl` feature: shaders written as Direct3D 12 writes them, `hlsl`.)
 naga = { workspace = true, optional = true, features = ["hlsl-out", "wgsl-in"] }
 wgpu-types = { version = "30", optional = true }

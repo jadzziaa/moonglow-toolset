@@ -1,0 +1,30 @@
+[package]
+name = "mg-update"
+description = "Moonglow updating itself: the releases, their signed checksums, the download and the install"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+minisign-verify.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ureq = { workspace = true, optional = true }
+zip.workspace = true
+
+[dev-dependencies]
+minisign.workspace = true
+
+[features]
+# The requests themselves (ureq, rustls): the GUI's, and the UI tests'
+# against a server of their own on this computer (`serve`).
+http = ["dep:ureq"]
+# A server of releases on 127.0.0.1, for the tests (mg-ui's; a key to sign
+# them is mg-testkit's), never the app's.
+serve = []
+
+[lints]
+workspace = true

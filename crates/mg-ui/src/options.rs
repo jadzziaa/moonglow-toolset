@@ -149,6 +149,8 @@ pub struct OptionsDraft {
     /// Updates: Check for updates automatically, and the version not to be
     /// reminded about.
     pub update_check: bool,
+    pub update_auto_install: bool,
+    pub update_prereleases: bool,
     pub update_skipped: Option<String>,
     pub keymap: crate::keys::Keymap,
     /// The enabled plugins' commands, listed after the window's: the id
@@ -293,6 +295,8 @@ impl OptionsDraft {
             ambient_music: s.ambient_music,
             music_volume: s.music_volume.unwrap_or(crate::area_audio::MUSIC_VOLUME),
             update_check: !s.no_update_check,
+            update_auto_install: s.update_auto_install,
+            update_prereleases: s.update_prereleases,
             update_skipped: s.update_skipped.clone(),
         }
     }
@@ -400,6 +404,8 @@ impl OptionsDraft {
                 .then_some(self.music_volume.min(127)),
             key_bindings: self.keymap.chosen(),
             no_update_check: !self.update_check,
+            update_auto_install: self.update_auto_install,
+            update_prereleases: self.update_prereleases,
             update_skipped: self.update_skipped.clone(),
             ..s.clone()
         }
@@ -458,7 +464,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     });
     let this_run = app.settings.user_dir_this_run.clone();
     let drawing_with = app.drawing_with.clone();
-    let (installer, checked) = (app.updates.installer, app.settings.update_checked);
+    let updates_here = app.updates.here(app.settings.update_checked);
     let mut browse = None;
     let mut close = false;
     // Enter is OK while the pointer is over the tab (it is one window among
@@ -962,10 +968,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         OptionsPage::Verify => verify(ui, draft),
                         OptionsPage::Updates => crate::updates::options_page(
                             ui,
-                            &mut draft.update_check,
-                            &mut draft.update_skipped,
-                            installer,
-                            checked,
+                            crate::updates::UpdateOptions {
+                                check: &mut draft.update_check,
+                                auto_install: &mut draft.update_auto_install,
+                                prereleases: &mut draft.update_prereleases,
+                                skipped: &mut draft.update_skipped,
+                            },
+                            &updates_here,
                         ),
                         OptionsPage::Language => {
                             ui.label("The language text is shown and edited in:");

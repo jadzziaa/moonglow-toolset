@@ -14,9 +14,9 @@ egui-wgpu.workspace = true
 mg-audio.workspace = true
 mg-core.workspace = true
 mg-ui.workspace = true
+mg-update = { workspace = true, features = ["http"] }
 rfd.workspace = true
 rodio.workspace = true
-ureq.workspace = true
 wgpu.workspace = true
 
 [build-dependencies]

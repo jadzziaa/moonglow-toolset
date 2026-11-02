@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use mg_ui::{Action, Dialogs, FileKind, Moonglow, Settings};
 
 mod speakers;
-mod update_check;
 
 /// Native file dialogs.
 struct NativeDialogs;
@@ -82,8 +81,19 @@ const SETTINGS_KEY: &str = "moonglow-settings";
 struct App {
     moonglow: Moonglow,
     title: String,
-    /// Where a restart asked for is left for `main` (Restart with …).
-    again: std::sync::Arc<std::sync::Mutex<Option<mg_ui::renderer_check::Relaunch>>>,
+    /// What is left for `main` once the window has closed (Restart with
+    /// …, Restart Now; an update to install).
+    again: std::sync::Arc<std::sync::Mutex<Closing>>,
+}
+
+/// What is done once the window has closed.
+#[derive(Default)]
+struct Closing {
+    /// Moonglow started again (Restart with …, an update's Restart Now).
+    relaunch: Option<mg_ui::renderer_check::Relaunch>,
+    /// An update ready, installed as Moonglow closes, and the updates'
+    /// cache folder (the installer's log, the install's report).
+    update: Option<(mg_update::Staged, std::path::PathBuf)>,
 }
 
 /// Windows: the window was last left maximized and is to be maximized
@@ -126,10 +136,17 @@ impl eframe::App for App {
             self.title = title;
         }
         if self.moonglow.quit_requested {
-            if let Some(again) = self.moonglow.relaunch.take()
-                && let Ok(mut left) = self.again.lock()
-            {
-                *left = Some(again);
+            // (Each only when there is one: a frame drawn after Close is
+            // asked for finds none, and leaves what the first one left.)
+            if let Ok(mut left) = self.again.lock() {
+                if let Some(again) = self.moonglow.relaunch.take() {
+                    left.relaunch = Some(again);
+                }
+                if let Some(staged) = self.moonglow.updates.at_close() {
+                    let cache =
+                        self.moonglow.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
+                    left.update = Some((staged, cache));
+                }
             }
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -370,17 +387,41 @@ fn startup_check(moonglow: &mut Moonglow, taken: &Taken) {
 /// (as `WGPU_BACKEND` where that named this run's; else the settings
 /// saved say it).
 fn relaunch(again: &mg_ui::renderer_check::Relaunch, line: &CommandLine) {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let mut command = std::process::Command::new(exe);
+    use mg_update::Restart;
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
     if line.no_plugins {
-        command.arg("--no-plugins");
+        args.push("--no-plugins".into());
     }
     if let Some(dir) = &line.user_dir {
-        command.arg("--user-dir").arg(dir);
+        args.push("--user-dir".into());
+        args.push(dir.into());
     }
     if let Some(module) = &again.module {
-        command.arg(module);
+        args.push(module.into());
     }
+    let mut command = match &again.start {
+        // (The installer starts it when it is done.)
+        Some(Restart::ByInstaller) => return,
+        Some(Restart::Open(app)) => {
+            let mut c = std::process::Command::new("open");
+            c.arg("-n").arg(app);
+            if !args.is_empty() {
+                c.arg("--args");
+            }
+            c
+        }
+        Some(Restart::Exe(exe)) => std::process::Command::new(exe),
+        // This program: the AppImage itself where it is one (the program
+        // inside its mount goes when this run ends).
+        None => match std::env::var_os("APPIMAGE").filter(|a| !a.is_empty()) {
+            Some(image) => std::process::Command::new(image),
+            None => {
+                let Ok(exe) = std::env::current_exe() else { return };
+                std::process::Command::new(exe)
+            }
+        },
+    };
+    command.args(&args);
     if again.environment {
         let name = match again.backend {
             wgpu::Backend::Dx12 => "dx12",
@@ -392,6 +433,34 @@ fn relaunch(again: &mg_ui::renderer_check::Relaunch, line: &CommandLine) {
     }
     if let Err(e) = command.spawn() {
         eprintln!("Moonglow could not start again: {e}");
+    }
+}
+
+/// The update ready as Moonglow closed, installed (its outcome kept for
+/// the next start's log); whether it was.
+fn install_at_close(staged: &mg_update::Staged, cache: &std::path::Path, restart: bool) -> bool {
+    let what = staged.kind.what();
+    match mg_update::install::install(staged, restart, cache) {
+        // (The AppImage replaced already: its run's log said so.)
+        Ok(_) if staged.installed() => true,
+        Ok(_) => {
+            let said = match staged.kind {
+                mg_update::Kind::WindowsInstaller { .. } => format!(
+                    "Moonglow {}'s installer was started as Moonglow closed (its log: {}).",
+                    staged.version,
+                    cache.join("install.log").display()
+                ),
+                _ => format!("Moonglow {} was installed in place of {what}.", staged.version),
+            };
+            mg_update::install::write_report(cache, &said);
+            true
+        }
+        Err(why) => {
+            let said = format!("Moonglow {} isn't installed: {why}.", staged.version);
+            eprintln!("{said}");
+            mg_update::install::write_report(cache, &said);
+            false
+        }
     }
 }
 
@@ -417,9 +486,9 @@ fn main() -> eframe::Result<()> {
     let failed = saved.failed_backends();
     let taken = std::sync::Arc::new(std::sync::Mutex::new(Taken::default()));
     let picked = taken.clone();
-    // Restart with … (the renderer's notice): to start again once the
-    // window has closed.
-    let again = std::sync::Arc::new(std::sync::Mutex::new(None));
+    // Restart with … (the renderer's notice), Restart Now (an update's)
+    // and an update to install: once the window has closed.
+    let again = std::sync::Arc::new(std::sync::Mutex::new(Closing::default()));
     let asked_again = again.clone();
     let line_again =
         CommandLine { module: None, user_dir: line.user_dir.clone(), no_plugins: line.no_plugins };
@@ -507,9 +576,14 @@ fn main() -> eframe::Result<()> {
             moonglow.background_jobs = true;
             // Help › Check for Updates… and the daily check ask GitHub
             // (not where a package manager updates Moonglow: Flatpak,
-            // Scoop, Nix; Options › Updates).
-            moonglow.updates.fetch = Some(std::sync::Arc::new(update_check::latest_release));
-            moonglow.updates.installer = mg_ui::updates::Installer::here();
+            // Scoop, Nix; Options › Updates), and an update is installed
+            // from here where Moonglow updates itself and the build has
+            // the key its checksums are signed with (`build.rs`).
+            moonglow.updates.http = Some(std::sync::Arc::new(mg_update::http::Client::new()));
+            moonglow.updates.kind = mg_update::Kind::detect(&mg_update::Facts::here());
+            moonglow.updates.key = update_key();
+            moonglow.updates.cache = mg_ui::recovery::cache_dir().map(|d| d.join("updates"));
+            mg_ui::updates::startup(&mut moonglow);
             // The plugins installed in the data folder (`--no-plugins`
             // starts without them).
             moonglow.plugin_dir = mg_ui::recovery::data_dir().map(|d| d.join("plugins"));
@@ -536,10 +610,32 @@ fn main() -> eframe::Result<()> {
     );
     // (After the window has closed and the settings are saved: the new
     // run reads what this one recorded.)
-    if let Some(again) = again.lock().ok().and_then(|mut a| a.take()) {
+    let closing = again.lock().map(|mut a| std::mem::take(&mut *a)).unwrap_or_default();
+    let mut relaunched = closing.relaunch;
+    if let Some((staged, cache)) = &closing.update
+        && !install_at_close(staged, cache, relaunched.is_some())
+        && let Some(r) = &mut relaunched
+    {
+        // (Not installed: this copy starts again, as it was.)
+        r.start = None;
+    }
+    if let Some(again) = relaunched {
         relaunch(&again, &line_again);
     }
     result
+}
+
+/// The key the releases' checksums are signed with, built in from
+/// `packaging/minisign.pub` (`build.rs`); none until the owner commits it.
+fn update_key() -> Option<mg_update::PublicKey> {
+    let key = option_env!("MOONGLOW_UPDATE_KEY")?;
+    match mg_update::PublicKey::parse(key) {
+        Ok(k) => Some(k),
+        Err(e) => {
+            eprintln!("Moonglow's update key: {e}");
+            None
+        }
+    }
 }
 
 /// The window's device, of an adapter with `features` and `limits`: BC

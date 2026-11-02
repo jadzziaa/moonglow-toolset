@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:59:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:50:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -863,26 +863,6 @@ contribution itself states as not done or not checked.
   codepage), Beamdog's client on any system, and the reporter's case (a
   second drive on Linux), covered by the list. (S) (waits on a Windows
   machine and a Beamdog install) (from builders' reports after 1.14.1)
-- **Installing updates from the app** (the rest of GitHub issue 28):
-  Help › Check for Updates… and the daily check only say that a newer
-  release is out and link its page. Not done, for the owner to decide:
-  downloading the package for this system and installing it (the
-  AppImage replaced in place or through AppImageUpdate and zsync; the
-  Windows installer run; the macOS app swapped), restarting after
-  asking about unsaved work or installing at the next start, and the
-  issue's Options (Install updates automatically, off; Include
-  pre-releases, off). Before any of that, verifying what is downloaded:
-  the release would publish SHA-256 checksums and a signature checked
-  against a public key built into the app (minisign or ed25519), so that
-  a tampered download or a compromised GitHub account can't push code
-  to every user; the packages aren't signed yet. Building blocks the
-  issue names, unevaluated: Velopack (a Rust SDK, Windows, macOS and
-  Linux, delta updates), cargo-dist with axoupdater, the `self_update`
-  crate over GitHub Releases. Also not done: the release notes shown in
-  the window (only the page is linked); the issue's "Install Now, Later"
-  buttons (the notice has the page, Don't remind me about this version
-  and ×). (L) (GitHub issue 28) (After 3.0.0, the owner's word,
-  2026-10-30: 7th of 9 by complexity.)
 - **The graphics backend** (Options › General, `mg_render::backend`;
   El Grillo's report, October 2026: an AMD Radeon PRO's tiles gone one
   by one through AMD's Windows Vulkan driver, 25.10.37.03, drawn right
@@ -999,8 +979,24 @@ File › Project. What is left:
 
 ## Release and packaging
 
-- **macOS:** the app and disk image are built by CI but have never been
-  run on a Mac. (S, needs a Mac)
+- **Run only here: the macOS app, and an update installed from the app
+  on Windows and macOS** (GitHub issue 28's install, built 2026-11-02:
+  [the design](update-install-proposal.md)):
+  - The app and disk image are built by CI but have never been run on a
+    Mac. (S, needs a Mac)
+  - Installing an update on a Mac (the disk image's app copied out with
+    `hdiutil attach` and `ditto`, swapped in as Moonglow closes, started
+    with `open -n`) and on Windows (the installer run silently with
+    `/MOONGLOWRESTART=1`, which `moonglow.iss`'s second `[Run]` entry answers;
+    the zip's files moved aside and in while `moonglow.exe` runs). Their
+    steps are unit tests here (`mg_update::install`), the AppImage's and
+    the zip's swap run on scratch copies; none was run on the system it
+    is for. (S, needs a Mac and a Windows machine)
+  - The first signed release: until the owner makes the key and commits
+    `packaging/minisign.pub` (`packaging/README.md`, Signing a release),
+    builds carry no key and install nothing (the page link, as before).
+    Then one release installed by the app over the one before it, from
+    GitHub, which no test here reaches. (S, waits on the owner's key)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 

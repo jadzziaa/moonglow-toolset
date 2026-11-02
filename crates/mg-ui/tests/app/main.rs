@@ -31,6 +31,7 @@ mod tables;
 mod tiles;
 mod tree;
 mod typed_text;
+mod updates;
 mod windows;
 
 /// A file of this folder not named above as a module is not compiled: its

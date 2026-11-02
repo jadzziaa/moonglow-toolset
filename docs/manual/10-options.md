@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
+description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:59:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
 ---
 
 # Options
@@ -496,18 +496,31 @@ Moonglow's own: Aurora has no such page.
   background, Moonglow asks GitHub for its latest release,
   and when a newer one is out says so in a line under the toolbar (see
   [Help › Check for Updates…](02-main-window.md#menus)). It never holds
-  up starting or the window, and nothing is downloaded or installed.
-  Offline, or on any error, it says nothing (a line in the
+  up starting or the window. Offline, or on any error, it says nothing
+  (a line in the
   [debug log](13-troubleshooting.md#something-fails-without-a-word) at most) and asks again a day
   later.
+- **Install updates automatically** (off): a newer release the
+  automatic check finds is downloaded and verified in the background,
+  and installed when Moonglow closes, so the next start is the new
+  version; the line under the toolbar says so and offers **Restart
+  Now**. It is greyed where Moonglow doesn't install updates itself
+  (see [Installing an update](02-main-window.md#installing-an-update)).
+- **Include pre-releases** (off): a newer pre-release (a release
+  candidate, to try before the release) is offered too. Releases are
+  offered whatever this says.
 - **What is sent:** one HTTPS request at each start and one a day while
   Moonglow runs, to
-  `api.github.com`, for the latest release's version and page, with
-  Moonglow's version as its User-Agent (`Moonglow/2.4.0`), as GitHub
-  asks of every program. Nothing about you, your computer or your
-  modules: no identifier, path or setting. GitHub sees the request as it
-  sees any, from your address (or your proxy's, where `HTTPS_PROXY` or
-  `ALL_PROXY` names one).
+  `api.github.com`, for the latest release's version, notes and page
+  (with Include pre-releases, for the twenty newest releases instead),
+  with Moonglow's version as its User-Agent (`Moonglow/3.3.0`), as
+  GitHub asks of every program. Nothing about you, your computer or
+  your modules: no identifier, path or setting. GitHub sees the request
+  as it sees any, from your address (or your proxy's, where
+  `HTTPS_PROXY` or `ALL_PROXY` names one). Installing an update also
+  downloads the release's package for your copy and its signed
+  checksums from `github.com` (which hands the files over from its file
+  host), with the same User-Agent and nothing else.
 - **Last checked**: when the automatic check last asked.
 - **Not reminded about**: the version **Don't remind me about this
   version** put aside; **Remind Me Again** tells of it again. A later
@@ -521,7 +534,7 @@ flake or channel Nix took it from). Help › Check for Updates… still
 asks, and says the same; in the Flatpak, whose sandbox has no network,
 it asks nothing and only says to update it with Flatpak. The AppImage,
 the Windows installer and zip, and the macOS app check as described
-above.
+above, and install updates themselves.
 
 The command-line tool, `mg`, never checks.
 

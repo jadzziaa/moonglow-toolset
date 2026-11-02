@@ -13,6 +13,7 @@ pub mod gpu;
 pub mod hlsl;
 pub mod joined;
 pub mod places;
+pub mod signing;
 
 use std::collections::BTreeMap;
 use std::env;

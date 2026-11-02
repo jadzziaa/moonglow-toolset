@@ -6,3 +6,10 @@ __pycache__/
 # Made from Cargo.lock by packaging/flatpak/cargo_sources.py.
 packaging/flatpak/cargo-sources.json
 /result
+
+# A minisign secret key never belongs here (packaging/README.md: kept on
+# the owner's machine); only packaging/minisign.pub is committed. (Not
+# *.key: the game's KEY files are named so.)
+packaging/*.key
+minisign.key
+*.minisig
