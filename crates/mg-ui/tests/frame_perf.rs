@@ -1878,7 +1878,10 @@ fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
 /// programs' cache folder empty, then again with it filled: the frames of
 /// its opening (the longest, and the time until its models show), and the
 /// time until the game's programs draw it (their pipelines made while the
-/// frames go on).
+/// frames go on). Then with the pipelines the module's areas drew with
+/// kept from the run before (`mg_ui::pipelines_kept`), made as the module
+/// opens: the area opened at once, and opened a second later (a builder's
+/// first moment in the module).
 fn shaders_opening(
     root: &std::path::Path,
     user: Option<std::path::PathBuf>,
@@ -1886,17 +1889,31 @@ fn shaders_opening(
     area: ResRef,
 ) {
     let cache = mg_testkit::scratch_dir("frame-shader-cache");
-    for run in ["the cache empty", "the cache filled"] {
+    let kept = mg_testkit::scratch_dir("frame-pipelines-kept");
+    let runs = [
+        ("the cache empty", false, false),
+        ("the cache filled", true, false),
+        ("the cache filled, the pipelines kept", true, false),
+        ("the cache filled, the pipelines kept, the area opened a second later", true, true),
+    ];
+    for (run, keep, later) in runs {
         let rs = render_state();
         let install = GameInstall::new(root, user.clone(), "en");
         let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
         app.set_render_state(rs.clone());
         app.shader_cache_dir = Some(cache.clone());
+        app.pipelines_dir = keep.then(|| kept.clone());
         app.settings.game_shaders = Some(true);
         // (From the module's opening: it may open the area itself.)
         let t0 = Instant::now();
         app.open_module(module);
         let mut h = harness(app, rs);
+        if later {
+            while t0.elapsed() < Duration::from_secs(1) {
+                h.run_steps(1);
+            }
+        }
+        let t0 = if later { Instant::now() } else { t0 };
         let tab = Tab::Area(area);
         h.state_mut().actions.push(Action::OpenTab(tab.clone()));
         let opened = t0.elapsed();
@@ -1917,6 +1934,8 @@ fn shaders_opening(
                 break;
             }
         }
+        // (A frame more: the pipelines made kept for the next run.)
+        h.run_steps(2);
         let vp = h.state().viewport.as_ref();
         let stats = vp.map(|v| v.renderer.game_shader_stats()).unwrap_or_default();
         let failures = vp.map(|v| v.renderer.game_shader_failures().to_vec()).unwrap_or_default();

@@ -1689,6 +1689,72 @@ fn meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth() {
     }
 }
 
+/// The pipelines of the game's programs a renderer made, kept as lines
+/// (`Renderer::game_pipelines_made`), are made by another before it draws
+/// (`Renderer::prepare_game_pipelines`, as a module opens with what its
+/// areas drew with in the last session): its first frame drawn without
+/// waiting (as the area view draws) is drawn by the game's programs,
+/// where a renderer that wasn't given them draws its first with
+/// Moonglow's own while they are made. A line that is no pipeline's and
+/// a pair whose programs the game hasn't are passed over, reporting
+/// nothing.
+#[test]
+fn the_game_s_pipelines_made_before_are_made_before_the_first_frame() {
+    let Some(gpu) = gpu() else { return };
+    let Some(game) = mg_testkit::nwn_root().and_then(|root| {
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+    }) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut own = TestAssets::default();
+    own.solid("red", [255, 0, 0, 255]);
+    let assets = WithGameShaders { own, game: &game };
+    let card = |alpha, x| Card { bitmap: "red", alpha, at: Vec3::new(x, 0.0, 0.0), turn: 0.0 };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(cards(&[card(1.0, -1.0), card(0.5, 1.0)]))));
+    let scene =
+        Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let renderer = || {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = true;
+        r.game_background = true;
+        r
+    };
+    // (The last session: its pipelines made, as they are drawn.)
+    let mut before = renderer();
+    before.game_background = false;
+    before.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    let mut lines = before.game_pipelines_made();
+    assert!(lines.len() >= 2, "{lines:?}");
+    // (A fresh one, as without the list: its first frame Moonglow's own.)
+    let mut fresh = renderer();
+    fresh.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert!(fresh.drawn.game_pending > 0 && fresh.drawn.game == 0, "{:?}", fresh.drawn);
+    fresh.wait_for_game_programs();
+    // (With the list, and two lines that make nothing.)
+    let made = lines.len();
+    lines.push("nonsense".into());
+    lines.push("vs_mg_missing fs_mg_missing opaque 1000".into());
+    let mut next = renderer();
+    assert_eq!(next.prepare_game_pipelines(&gpu, &assets, &lines), made);
+    next.wait_for_game_programs();
+    next.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert!(next.drawn.game_pending == 0 && next.drawn.game >= 2, "{:?}", next.drawn);
+    assert!(next.game_shader_failures().is_empty(), "{:?}", next.game_shader_failures());
+    assert_eq!(next.prepare_game_pipelines(&gpu, &assets, &lines), 0, "made already");
+    // (Nothing asked for with the switch off.)
+    let mut off = renderer();
+    off.game_shaders = false;
+    assert_eq!(off.prepare_game_pipelines(&gpu, &assets, &lines), 0);
+}
+
 /// A particle behind a mesh of mesh `alpha` under 1 of another model is
 /// hidden by it, as the client hides a ribbon behind a card of `alpha 0.5`
 /// (`batch6_ribbon_sizes` in `client_render.rs`): the card's red over the

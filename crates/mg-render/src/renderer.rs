@@ -1462,6 +1462,39 @@ impl Renderer {
         self.game.cache = dir.map(mg_shader::ProgramCache::new);
     }
 
+    /// The pipelines of the game's programs made so far, the earliest
+    /// first, each as a line of text (its program pair, its pass and the
+    /// switches it was made for): what a window keeps of a module's
+    /// areas, to make them again as the module opens in the next session
+    /// ([`Renderer::prepare_game_pipelines`]).
+    pub fn game_pipelines_made(&self) -> Vec<String> {
+        self.game.made().into_iter().map(crate::game::PipelineKey::line).collect()
+    }
+
+    /// Asks for the pipelines `lines` name ([`Renderer::game_pipelines_made`]
+    /// of an earlier session), to be made in the background, so that the
+    /// areas that draw with them draw the game's programs from their first
+    /// frame: how many were asked for. Those made or asked for already are
+    /// passed over, and so are a line that is no pipeline's and a pair
+    /// whose programs `assets` hasn't (a hak taken away since); one that
+    /// fails is neither reported nor kept (a draw that needs it asks again
+    /// and reports it). Nothing is asked for with the game's shaders off.
+    pub fn prepare_game_pipelines(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        lines: &[String],
+    ) -> usize {
+        if !self.game_shaders {
+            return 0;
+        }
+        let (format, samples) = (self.color_format, self.sample_count);
+        (lines.iter())
+            .filter_map(|l| crate::game::PipelineKey::from_line(l))
+            .filter(|key| self.game.prepare_pipeline(gpu, assets, key, format, samples))
+            .count()
+    }
+
     /// Calls `wake` when a pipeline of the game's programs is ready
     /// ([`Renderer::game_background`]), from the thread that made it: a
     /// window asks for a frame.

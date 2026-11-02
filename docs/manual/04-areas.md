@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
 ---
 
 # Areas
@@ -156,7 +156,10 @@ palette's Gallery is 🖼, the Grid ⊞.
   while the view goes on, the first time an area needs them (a fraction
   of a second each), and kept in Moonglow's cache folder for the next
   time: until they are ready, what they draw is drawn with Moonglow's own
-  shader, so an area may change its look a moment after it opens. It is
+  shader, so an area may change its look a moment after it opens. What
+  a module's areas drew with is remembered (in the cache folder too) and
+  made again as the module opens the next time, so an area opened after
+  that first moment draws with the game's shaders from the start. It is
   one switch for every 3D view (the model viewer has it too) and it stays
   as you leave it: switched off, it stays off. The pictures already made
   (the galleries', a hovered row's preview, a tile's variants) are made

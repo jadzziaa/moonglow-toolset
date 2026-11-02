@@ -45,6 +45,7 @@ pub mod module_folder;
 pub mod module_props;
 mod nui_view;
 pub mod open_tabs;
+pub mod pipelines_kept;
 /// NUI windows drawn off the screen: `mg nui render` and `mg nui layout`.
 pub mod nui_render {
     pub use crate::nui_view::headless::{
@@ -755,6 +756,11 @@ pub struct Moonglow {
     /// Where the game's shaders, compiled, are kept from one session to the
     /// next (in the user's cache folder); `None`: compiled each session.
     pub shader_cache_dir: Option<PathBuf>,
+    /// Where each module's pipelines of the game's programs are kept, to
+    /// be made again as it opens (a file a module, in the user's cache
+    /// folder: [`pipelines_kept`]); `None`: not kept.
+    pub pipelines_dir: Option<PathBuf>,
+    pipelines_kept: pipelines_kept::PipelinesKept,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
     /// The Placeable Gallery, while it is open.
@@ -1125,6 +1131,8 @@ impl Moonglow {
             open_tabs_dir: None,
             open_tabs: Default::default(),
             shader_cache_dir: None,
+            pipelines_dir: None,
+            pipelines_kept: Default::default(),
             rename: None,
             copy_as: None,
             tag_clash: None,
@@ -1423,6 +1431,9 @@ impl Moonglow {
                 }
             }
         }
+        // (The open module's pipelines of the game's programs, made again
+        // as it opens, and kept for the next session.)
+        self.keep_pipelines();
         // Options › General › Light theme (dark unless chosen).
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
         if ui.ctx().theme() != theme {
