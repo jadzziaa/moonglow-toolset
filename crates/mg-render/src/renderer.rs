@@ -208,6 +208,9 @@ struct Slots {
     names: [Option<String>; SLOTS],
     /// MTR parameters (0: none).
     specularity: f32,
+    /// How far a custom pair may offset the mesh, meters: the largest of
+    /// its MTR's `…Offset…` parameters ([`crate::game::offset_of`]).
+    offset: f32,
     roughness: f32,
     metallicness: f32,
     displacement_offset: f32,
@@ -1472,6 +1475,9 @@ impl Renderer {
             out.params = mtr.params.clone();
             out.custom =
                 crate::game::custom_pair(mtr.shader_vs.as_deref(), mtr.shader_fs.as_deref());
+            if out.custom.is_some() {
+                out.offset = crate::game::offset_of(&out.params, crate::game::is_offset);
+            }
             // (Named alone, without a pair, the client ignores it and draws
             // the stock programs: `program_choice_in_the_client`.)
             out.geometry = mtr
@@ -2174,11 +2180,7 @@ impl Renderer {
                     // MTR's `…Offset…` parameters, out of its box: its ball
                     // grown by as far. TDoD's grass, lifted 2 m, was left
                     // out where its box was below the view.)
-                    let offset = if self.game_shaders && surface.slots.custom.is_some() {
-                        crate::game::offset_of(&surface.slots.params, crate::game::is_offset)
-                    } else {
-                        0.0
-                    };
+                    let offset = if self.game_shaders { surface.slots.offset } else { 0.0 };
                     if frustum.hides(centre, around.length() + offset) {
                         bones.truncate(bone_base as usize);
                         hidden += 1;
@@ -2320,7 +2322,7 @@ impl Renderer {
                         // sway or an offset, takes them out of its box: on
                         // the screen, its box grown by as far as they go.)
                         if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
-                            let by = p.moved_by(MOVED, &slots.params);
+                            let by = p.moved_by(MOVED, slots.offset);
                             let grown = |b: Bounds| Bounds {
                                 min: b.min - Vec3::splat(by),
                                 max: b.max + Vec3::splat(by),

@@ -1779,16 +1779,17 @@ impl Worker {
             .filter(|m| m.name.starts_with("windPointSource"))
             .map(|m| m.name.clone())
             .collect();
-        // (A part's members are those the program reads; the whole
-        // block, a program not split, has every one it declares.)
+        // (An MTR's parameters are the draw's part, whose members are
+        // those the program reads; the engine's own offsets, the frame's,
+        // move nothing of a mesh's.)
         let offsets: Vec<String> = vs
             .reflection
             .uniforms
             .iter()
-            .flat_map(|b| b.members.iter().map(move |m| (b.part, m)))
-            .filter(|(_, m)| is_offset(&m.name))
-            .filter(|(part, m)| *part != Part::Whole || vs.reads_uniform(&m.name))
-            .map(|(_, m)| m.name.clone())
+            .filter(|b| b.part == Part::Draw)
+            .flat_map(|b| &b.members)
+            .filter(|m| is_offset(&m.name) && matches!(self::key(&m.name), Key::Param(_)))
+            .map(|m| m.name.clone())
             .collect();
         let moves = ["worldtimerTimeOfDay", "sceneCurrentFrame", "areaGlobalWind"]
             .iter()
@@ -1999,11 +2000,12 @@ impl Worker {
 
 impl GamePipeline {
     /// How far its vertex program may move a mesh's vertices out of its
-    /// box, in meters each way: `sway` (a sway's reach), and the largest of
-    /// the offsets ([`GamePipeline::offsets`]) the MTR's parameters give
-    /// (`params`), added.
-    pub(crate) fn moved_by(&self, sway: f32, params: &[(String, MtrParam)]) -> f32 {
-        sway + offset_of(params, |n| self.offsets.iter().any(|o| o.eq_ignore_ascii_case(n)))
+    /// box, in meters each way: `sway` (a sway's reach), and where it reads
+    /// an offset ([`GamePipeline::offsets`]) the largest its MTR gives
+    /// (`offset`: [`offset_of`] its parameters, worked out with the
+    /// material), added.
+    pub(crate) fn moved_by(&self, sway: f32, offset: f32) -> f32 {
+        sway + if self.offsets.is_empty() { 0.0 } else { offset }
     }
 }
 
@@ -2021,9 +2023,12 @@ pub(crate) fn offset_of(params: &[(String, MtrParam)], named: impl Fn(&str) -> b
 }
 
 /// Whether an MTR's parameter is named as an offset (`…Offset…`): a
-/// distance a program may move the mesh by ([`GamePipeline::offsets`]).
+/// distance a program may move the mesh by ([`GamePipeline::offsets`]);
+/// not the engine's parallax depth (`DisplacementOffset`), which moves
+/// none.
 pub(crate) fn is_offset(name: &str) -> bool {
-    name.to_ascii_lowercase().contains("offset")
+    let name = name.to_ascii_lowercase();
+    name.contains("offset") && !name.starts_with("displacement")
 }
 
 impl GameShaders {
