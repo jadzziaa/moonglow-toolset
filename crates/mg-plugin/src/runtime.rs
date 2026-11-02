@@ -92,6 +92,10 @@ pub(crate) struct Shared {
     edits: RefCell<Vec<Edit>>,
     /// What the job wants written into haks, each hak once.
     pub(crate) haks: RefCell<Vec<HakWrite>>,
+    /// How many bytes of it are held in memory ([`crate::HELD_IN_MEMORY`]),
+    /// and the scratch files of those past them.
+    pub(crate) held_bytes: std::cell::Cell<usize>,
+    pub(crate) held: RefCell<Option<Arc<crate::Held>>>,
     /// What the job wants written into folders the user chose.
     pub(crate) folders: RefCell<Vec<crate::FolderWrite>>,
     pub(crate) game: Option<Arc<GameData>>,
@@ -1394,6 +1398,8 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
         haks: RefCell::new(Vec::new()),
+        held_bytes: std::cell::Cell::new(0),
+        held: RefCell::new(None),
         folders: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),

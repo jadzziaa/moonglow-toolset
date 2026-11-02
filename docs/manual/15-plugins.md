@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
 ---
 
 # Plugins
@@ -40,7 +40,9 @@ A plugin's code runs in a sandbox. It can:
   asks the first time it writes to each hak. Resources are added to a
   hak that is there, and a copy of the hak as it was is kept beside it
   (`name.hak.bak`). Edit › Undo takes back what the plugin did to the
-  module, not the hak;
+  module and the haks it wrote with it (each as it was, or gone if the
+  plugin made it; one changed since is left as it is), and Redo writes
+  them again; a command that wrote only haks has no step to undo;
 - write files into a folder **you chose** for it, **if you allow it**:
   it asks the first time it writes into each folder. Files of the same
   names there are replaced, and no copy of them is kept. It writes into

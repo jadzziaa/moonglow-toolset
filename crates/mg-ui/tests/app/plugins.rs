@@ -892,6 +892,20 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
         "{:?}",
         h.state().log.entries
     );
+    // Undo takes the hak back with the edits (the job made it: it goes),
+    // Redo writes it again.
+    let made = user.join("hak/made.hak");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(!made.exists(), "{:?}", h.state().log.entries);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    assert!(ws.module.haks().unwrap().is_empty());
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run();
+    let hak = mg_module::hak_edit::Hak::open(&made).unwrap();
+    assert_eq!(hak.data(ResKey::parse("note", ResType::TXT).unwrap()).unwrap(), b"from the folder");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("made.hak: written again")));
 }
 
 /// A project (a module folder) with a creature whose tag lacks the team's

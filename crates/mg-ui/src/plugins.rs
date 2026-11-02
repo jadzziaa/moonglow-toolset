@@ -99,6 +99,9 @@ pub struct Plugins {
     /// The project's root and that root canonical, as its plugins were
     /// read (the trust answers are kept by the canonical path).
     project_root: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    /// The haks plugins' commands wrote, by the step of Undo of the
+    /// command's edits: Undo takes them back, Redo writes them again.
+    pub(crate) hak_steps: Vec<(u64, Vec<mg_plugin::HakWritten>)>,
 }
 
 /// Answers remembered, by question.
@@ -1081,8 +1084,10 @@ impl Moonglow {
         };
         let title = title.trim_end_matches('…');
         // Its haks first (the user agreed to each while it ran): the
-        // module's edits may name them.
+        // module's edits may name them. Each is kept as it was, so that
+        // the edits failing, or their Undo, takes it back.
         let (mut wrote, mut wrote_files) = (false, false);
+        let mut written: Vec<mg_plugin::HakWritten> = Vec::new();
         let result = result.and_then(|outcome| {
             let dir = self.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir);
             for hak in &outcome.haks {
@@ -1092,18 +1097,25 @@ impl Moonglow {
                         hak.name
                     )));
                 };
-                match hak.write(&dir) {
-                    Ok((added, replaced)) => {
+                match hak.write_kept(&dir) {
+                    Ok(done) => {
                         wrote = true;
+                        let undone = if outcome.edits.is_empty() {
+                            "with no edits, Undo doesn't take a hak back"
+                        } else {
+                            "Edit › Undo takes it back with the edits"
+                        };
                         say(
                             self,
                             Level::Info,
                             format!(
-                                "{name}: {title} put {} resources into {} ({replaced} replaced; Undo doesn't take a hak back)",
-                                added + replaced,
-                                dir.join(format!("{}.hak", hak.name)).display()
+                                "{name}: {title} put {} resources into {} ({} replaced; {undone})",
+                                done.added + done.replaced,
+                                done.path.display(),
+                                done.replaced,
                             ),
                         );
+                        written.push(done);
                     }
                     Err(e) => {
                         return Err(PluginError::Package(format!(
@@ -1138,6 +1150,10 @@ impl Moonglow {
             }
             Ok(outcome)
         });
+        // (Nothing of it goes in: what it wrote into haks is taken back.)
+        if result.is_err() {
+            wrote |= self.take_haks_back(&mut written, name, title, console);
+        }
         if wrote {
             // (A hak the module has already is read again.)
             self.reload_resources(false);
@@ -1160,21 +1176,107 @@ impl Moonglow {
                 }
                 let n = resources.len();
                 match self.apply(Command::new(outcome.label, outcome.edits)) {
-                    Ok(()) => say(
-                        self,
-                        Level::Info,
-                        format!(
-                            "{name}: {title} changed {n} resource{} (Edit › Undo takes it back)",
-                            if n == 1 { "" } else { "s" }
-                        ),
-                    ),
-                    Err(e) => say(self, Level::Error, format!("{name}: {title}: {e}")),
+                    Ok(()) => {
+                        // (Its haks go with its step of Undo.)
+                        if !written.is_empty()
+                            && let Some(step) = self.ws.as_ref().and_then(|w| w.last_step())
+                        {
+                            self.plugins.hak_steps.push((step, std::mem::take(&mut written)));
+                        }
+                        say(
+                            self,
+                            Level::Info,
+                            format!(
+                                "{name}: {title} changed {n} resource{} (Edit › Undo takes it back)",
+                                if n == 1 { "" } else { "s" }
+                            ),
+                        )
+                    }
+                    // (Held for the builder's answer, it may still go in:
+                    // its haks stay.)
+                    Err(e) if self.claims.held => {
+                        say(self, Level::Error, format!("{name}: {title}: {e}"))
+                    }
+                    Err(e) => {
+                        say(self, Level::Error, format!("{name}: {title}: {e}"));
+                        if self.take_haks_back(&mut written, name, title, console) {
+                            self.reload_resources(false);
+                        }
+                    }
                 }
             }
             Err(PluginError::Canceled(_)) => {
                 say(self, Level::Info, format!("{name}: {title} canceled"))
             }
             Err(e) => say(self, Level::Error, e.to_string()),
+        }
+    }
+}
+
+impl Moonglow {
+    /// Takes back what a plugin's command wrote into haks, whose edits did
+    /// not go in: whether a hak changed.
+    fn take_haks_back(
+        &mut self,
+        written: &mut Vec<mg_plugin::HakWritten>,
+        name: &str,
+        title: &str,
+        console: bool,
+    ) -> bool {
+        let mut changed = false;
+        for mut done in written.drain(..).rev() {
+            let (level, text) = match done.undo() {
+                Ok(()) => {
+                    changed = true;
+                    let how = if done.was_there() { "as it was" } else { "not made" };
+                    (Level::Info, format!("{name}: {title}: {} {how}", done.path.display()))
+                }
+                Err(e) => (Level::Warning, format!("{name}: {title}: {e}")),
+            };
+            if console {
+                self.plugins.console_output.push((level, text.clone()));
+            }
+            self.log.said(level, text);
+        }
+        changed
+    }
+
+    /// After Undo (`redo`: Redo) of step `step`: takes back (writes again)
+    /// the haks a plugin's command wrote with it.
+    pub(crate) fn plugin_haks_follow(&mut self, step: Option<u64>, redo: bool) {
+        // (Those of steps gone, dropped from Redo or of another module, go.)
+        match &self.ws {
+            Some(ws) => self.plugins.hak_steps.retain(|(s, _)| ws.has_step(*s)),
+            None => self.plugins.hak_steps.clear(),
+        }
+        let Some(step) = step else { return };
+        let Some((_, haks)) = self.plugins.hak_steps.iter_mut().find(|(s, _)| *s == step) else {
+            return;
+        };
+        let mut said = Vec::new();
+        let mut changed = false;
+        let order: Vec<usize> =
+            if redo { (0..haks.len()).collect() } else { (0..haks.len()).rev().collect() };
+        for i in order {
+            let done = &mut haks[i];
+            match if redo { done.redo() } else { done.undo() } {
+                Ok(()) => {
+                    changed = true;
+                    let what = match (redo, done.was_there()) {
+                        (true, _) => "written again",
+                        (false, true) => "as it was",
+                        (false, false) => "taken away (the plugin made it)",
+                    };
+                    said.push((Level::Info, format!("{}: {what}", done.path.display())));
+                }
+                Err(e) => said.push((Level::Warning, e)),
+            }
+        }
+        for (l, text) in said {
+            self.log.said(l, text);
+        }
+        if changed {
+            self.reload_resources(false);
         }
     }
 }

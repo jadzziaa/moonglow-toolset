@@ -18,6 +18,7 @@
 //!   a plugin keeps.
 
 mod files;
+mod kept;
 mod manifest;
 mod package;
 pub mod project;
@@ -608,10 +609,15 @@ impl Event {
 pub struct HakWrite {
     /// The hak's name, without `.hak`.
     pub name: String,
-    /// Each resource's bytes, or the file of the user's it is a copy of.
+    /// Each resource's bytes, or the file of the user's it is a copy of
+    /// (or a scratch file of the job's, past what it holds in memory:
+    /// [`HELD_IN_MEMORY`]).
     pub files: Vec<(ResKey, HakData)>,
+    /// The job's scratch files, kept while this is.
+    pub held: Option<Arc<Held>>,
 }
 
+pub use kept::{HELD_IN_MEMORY, HakWritten, Held, UNDO_FOLDER};
 pub use mg_module::hak_edit::Source as HakData;
 
 impl HakWrite {
@@ -619,9 +625,16 @@ impl HakWrite {
     /// ([`mg_module::hak_edit::write_into`]): how many were added and how
     /// many replaced.
     pub fn write(&self, dir: &Path) -> Result<(usize, usize), String> {
-        let path = dir.join(format!("{}.hak", self.name));
-        let done = mg_module::hak_edit::write_into(&path, self.files.clone())?;
+        let done = self.write_kept(dir)?;
         Ok((done.added, done.replaced))
+    }
+
+    /// Writes the resources into the hak in folder `dir`, keeping the hak
+    /// as it was before and as it is written (linked, in the folder's
+    /// hidden [`UNDO_FOLDER`]), so that it can be taken back (the
+    /// command's Undo, or its edits failing) and written again (Redo).
+    pub fn write_kept(&self, dir: &Path) -> Result<HakWritten, String> {
+        HakWritten::write(self, dir)
     }
 }
 

@@ -816,21 +816,49 @@ pub(crate) fn run(
         })
         .collect();
     let refused = outcome.said.iter().filter(|s| s.refused).count();
-    // Its haks first: the module's edits may name them.
+    // Its haks first: the module's edits may name them. Each is kept as it
+    // was, and taken back if the edits then fail.
     let hak_dir = hak_dir
         .map(Path::to_path_buf)
         .or_else(|| gi.and_then(mg_resman::GameInstall::user_hak_dir));
+    let mut written = Vec::new();
+    let take_back = |written: &mut Vec<mg_plugin::HakWritten>, why: anyhow::Error| {
+        let mut said = vec![why.to_string()];
+        for mut done in written.drain(..).rev() {
+            match done.undo() {
+                Ok(()) if done.was_there() => {
+                    said.push(format!("{} is as it was", done.path.display()))
+                }
+                Ok(()) => said.push(format!("{} was not made", done.path.display())),
+                Err(e) => said.push(e),
+            }
+        }
+        anyhow!("{}", said.join("\n  "))
+    };
     for hak in &outcome.haks {
         let Some(dir) = &hak_dir else {
-            bail!("the plugin writes the hak {}: say where haks go (--hak-dir DIR)", hak.name);
+            let why = anyhow!(
+                "the plugin writes the hak {}: say where haks go (--hak-dir DIR)",
+                hak.name
+            );
+            return Err(take_back(&mut written, why));
         };
         let file = dir.join(format!("{}.hak", hak.name));
         if dry_run {
             notes.note(format!("would put {} resources into {}", hak.files.len(), file.display()));
             continue;
         }
-        let (added, replaced) = hak.write(dir).map_err(|e| anyhow!("{e}"))?;
-        notes.note(format!("{}: {added} resources added, {replaced} replaced", file.display()));
+        match hak.write_kept(dir) {
+            Ok(done) => {
+                let (added, replaced) = (done.added, done.replaced);
+                notes.note(format!(
+                    "{}: {added} resources added, {replaced} replaced",
+                    file.display()
+                ));
+                written.push(done);
+            }
+            Err(e) => return Err(take_back(&mut written, anyhow!("{e}"))),
+        }
     }
     for folder in &outcome.folders {
         if dry_run {
@@ -838,14 +866,21 @@ pub(crate) fn run(
             notes.note(format!("would write {n} files into {}", folder.dir.display()));
             continue;
         }
-        let (new, replaced) =
-            folder.write().map_err(|e| anyhow!("{}: {e}", folder.dir.display()))?;
+        let (new, replaced) = match folder.write() {
+            Ok(done) => done,
+            Err(e) => {
+                return Err(take_back(&mut written, anyhow!("{}: {e}", folder.dir.display())));
+            }
+        };
         notes.note(format!("{}: {new} files written, {replaced} replaced", folder.dir.display()));
     }
     let cmd = Command::new(outcome.label, outcome.edits);
     let module = m.clone();
     let mut out =
-        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None)?;
+        match super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None) {
+            Ok(out) => out,
+            Err(e) => return Err(take_back(&mut written, e)),
+        };
     let kept = keep_settings(&plugin, &module, &outcome.settings, dry_run, &mut notes)?;
     if let serde_json::Value::Object(o) = &mut out.json {
         if !kept.is_empty() {

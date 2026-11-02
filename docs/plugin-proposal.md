@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
 ---
 
 # Plugins: a proposal
@@ -110,8 +110,9 @@ changes, with undo.
 3. **Safe to try.** Installing a stranger's plugin should risk nothing
    outside the open module, and nothing in it that Undo does not take
    back. (Since 0.2 a plugin can also write a hak, and since 0.3 files
-   into a chosen folder, when the user allows it; Undo does not take
-   those back.)
+   into a chosen folder, when the user allows it; Undo takes a hak back
+   with the command's edits, since Moonglow 3.3.0, but not a folder's
+   files.)
 4. **The same in the window and on the command line.** The plugin host
    sits below the user interface, used by both.
 5. **Moonglow draws the interface.** Plugins describe forms and, later,

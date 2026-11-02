@@ -268,10 +268,31 @@ fn put(s: &Shared, hak: &str, name: &str, data: HakData) -> mlua::Result<()> {
         if s.host.ask(&Question::Confirm(text)) != Some(Answer::Yes) {
             return fail(format!("writing the hak {hak} was not allowed"));
         }
-        s.haks.borrow_mut().push(HakWrite { name: hak.clone(), files: Vec::new() });
+        s.haks.borrow_mut().push(HakWrite { name: hak.clone(), files: Vec::new(), held: None });
     }
+    // (Past what a job holds in memory, its bytes wait in a scratch file.)
+    let mut held = None;
+    let data = match data {
+        HakData::Bytes(bytes) => {
+            let total = s.held_bytes.get() + bytes.len();
+            if total > crate::HELD_IN_MEMORY {
+                let scratch = s.held.borrow_mut().get_or_insert_with(Default::default).clone();
+                let path = scratch.keep(&key.to_string(), &bytes).or_else(fail)?;
+                held = Some(scratch);
+                HakData::File(path)
+            } else {
+                s.held_bytes.set(total);
+                HakData::Bytes(bytes)
+            }
+        }
+        other => other,
+    };
     let mut haks = s.haks.borrow_mut();
-    let files = &mut haks.iter_mut().find(|h| h.name == hak).expect("added").files;
+    let entry = haks.iter_mut().find(|h| h.name == hak).expect("added");
+    if held.is_some() {
+        entry.held = held;
+    }
+    let files = &mut entry.files;
     match files.iter_mut().find(|(k, _)| *k == key) {
         Some(old) => old.1 = data,
         None => files.push((key, data)),

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:25:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
 ---
 
 # Writing plugins
@@ -655,11 +655,19 @@ same names (no copy is kept, and Undo does not take them back). A name
 is a name: not a path into a folder of the folder, nothing above it,
 nothing hidden.
 
-The hak is written when the handler returns. Resources are added to a
-hak that is already there, and a copy of it is kept as `my_tiles.hak.bak`.
-Unlike the module's edits, a hak is not undone by Undo: say what the
-command writes in its title or its form. `folder:to_hak` copies a file
-whatever its size; `ctx.hak:write` is for what the plugin computed.
+The hak is written when the handler returns, before its edits go in (they
+may name it). Resources are added to a hak that is already there, and a
+copy of it is kept as `my_tiles.hak.bak`. The hak goes with the
+command's edits (since Moonglow 3.3.0): if they can't go in, the hak is
+taken back at once, and Undo takes it back with them (as it was, or gone
+if the command made it), Redo writes it again. A hak changed since (the
+hak editor saved it, another command wrote it) is left as it is, and
+the log says so. A command that writes a hak and edits nothing has no
+step of Undo: say what it writes in its title or its form.
+`folder:to_hak` copies a file whatever its size; `ctx.hak:write` is for
+what the plugin computed (past 64 MB of it, all of a job's haks
+together, what it writes waits in a scratch file rather than in memory
+until the hak is written).
 
 ## Areas and terrain
 

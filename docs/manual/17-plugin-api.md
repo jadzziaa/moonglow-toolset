@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
 ---
 
 # Plugin API reference
@@ -433,8 +433,11 @@ a job writes to a hak, the user is asked whether to allow it, and a
 refusal ends the job. The hak is written when the command's handler has
 returned, before its edits go in: resources are added to a hak that is
 there (those of the same name replaced, a copy of the hak kept beside it
-as `name.hak.bak`), and a hak that isn't there is made. **Undo does not
-take a hak back.** A check can't write one.
+as `name.hak.bak`), and a hak that isn't there is made. The hak goes
+with the edits (since Moonglow 3.3.0): taken back if they fail, by their
+Undo (as it was, or gone if the job made it), and written again by
+Redo, unless it was changed since. A command that edits nothing has no
+Undo, and its hak stays. A check can't write one.
 
 | | |
 | --- | --- |

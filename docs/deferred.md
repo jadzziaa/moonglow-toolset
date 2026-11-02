@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1203,9 +1203,6 @@ contribution itself states as not done or not checked.
     the real file dialogs (the file dialog of `open_file` filters by
     the extensions asked for; that filter was not seen on a desktop
     either). (S)
-  - **A hak is written before the module's edits go in,** and stays if
-    they then fail; Undo leaves it too. A job's haks are held in memory
-    until it ends, except files copied from a chosen folder. (S)
   - **Painting is a tile at a time:** each call reads the area's tiles
     again, so a plugin that sets every corner of a 32 × 32 area makes
     thousands of small edits (one undo step, but a large one). (S–M)

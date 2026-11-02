@@ -3615,11 +3615,16 @@ impl Moonglow {
                     next.map(|c| blueprint::follow::list_edits(&c.edits)).unwrap_or_default();
                 let followed = blueprint::follow::followed(self, &edits);
                 let Some(ws) = &mut self.ws else { return };
-                let r = if action == Action::Undo { ws.undo() } else { ws.redo() };
+                let redo = action == Action::Redo;
+                let step = if redo { ws.next_redo_step() } else { ws.last_step() };
+                let r = if redo { ws.redo() } else { ws.undo() };
                 match r {
                     Ok(Some(label)) => {
                         blueprint::follow::retarget(self, followed);
                         self.scripts.clear();
+                        // (A plugin's haks written with it, before the
+                        // module's haks are layered again.)
+                        self.plugin_haks_follow(step, redo);
                         self.sync_haks();
                         self.log.info(format!(
                             "{} {label}",
