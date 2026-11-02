@@ -104,6 +104,39 @@ pub struct Plugins {
     /// The haks plugins' commands wrote, by the step of Undo of the
     /// command's edits: Undo takes them back, Redo writes them again.
     pub(crate) hak_steps: Vec<(u64, Vec<mg_plugin::HakWritten>)>,
+    /// The project's plugins' folder as it was when its plugins were read
+    /// (each file's path, size and time), to see that it changed.
+    project_stamp: Option<u64>,
+}
+
+/// What a folder of plugins holds, as a number that changes when a file
+/// in it is added, removed, written or renamed (none: no such folder).
+fn folder_stamp(dir: &Path) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut todo = vec![(dir.to_path_buf(), 0)];
+    let mut seen = 0usize;
+    std::fs::metadata(dir).ok()?;
+    while let Some((d, depth)) = todo.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            seen += 1;
+            // (A plugin is a few files: a folder of thousands is no plugins'.)
+            if seen > 20_000 {
+                return Some(h.finish());
+            }
+            let Ok(m) = e.metadata() else { continue };
+            e.path().hash(&mut h);
+            m.len().hash(&mut h);
+            m.modified().ok().hash(&mut h);
+            if m.is_dir() && depth < 8 {
+                todo.push((e.path(), depth + 1));
+            }
+        }
+    }
+    Some(h.finish())
 }
 
 /// Answers remembered, by question.
@@ -449,7 +482,10 @@ impl Moonglow {
         self.plugins.installed.retain(|i| !i.project);
         self.plugins.project_asking.clear();
         self.plugins.project_root = None;
+        self.plugins.project_stamp = None;
         let Some(root) = self.project_root().filter(|_| !self.no_plugins) else { return };
+        self.plugins.project_stamp =
+            self.project_plugins_folder().as_deref().and_then(folder_stamp);
         self.plugins.project_root = Some((root.clone(), mg_plugin::project::canonical(&root)));
         // What the user answered, read again (another Moonglow, or `mg`,
         // may have answered since); one that can't be read allows nothing.
@@ -500,6 +536,48 @@ impl Moonglow {
         for s in said {
             self.log.warn(s);
         }
+    }
+
+    /// The open project's plugins' folder.
+    fn project_plugins_folder(&self) -> Option<PathBuf> {
+        let root = self.project_root()?;
+        let ws = self.ws.as_ref()?;
+        Some(mg_plugin::project::folder(&root, &ws.module.project_file))
+    }
+
+    /// Whether the open project's plugins' folder changed on disk since its
+    /// plugins were read (a pull, a plugin added or edited): then they are
+    /// read again, and those not as they were allowed are asked about (and
+    /// off until then). Looked at every few seconds while the project is
+    /// open, between jobs.
+    pub fn project_plugins_changed(&mut self) -> bool {
+        if self.no_plugins || self.busy() {
+            return false;
+        }
+        let Some(dir) = self.project_plugins_folder() else { return false };
+        let now = folder_stamp(&dir);
+        if now == self.plugins.project_stamp {
+            return false;
+        }
+        let before: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
+            .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
+            .collect();
+        self.load_project_plugins();
+        let after: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
+            .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
+            .collect();
+        if before != after {
+            self.log.info(format!(
+                "The project's plugins changed in {}: read again{}",
+                dir.display(),
+                if self.plugins.project_asking.is_empty() {
+                    String::new()
+                } else {
+                    " (those not as you allowed them are off until you answer)".to_string()
+                }
+            ));
+        }
+        true
     }
 
     /// What the user answered for a project's plugin, as it is now (none:
@@ -1859,10 +1937,22 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
              yours only when you choose it or allow it.",
         );
         ui.add_space(6.0);
-        later = ui
-            .button("Decide Later")
-            .on_hover_text("They stay off now, and you are asked when the project is next opened")
-            .clicked();
+        ui.horizontal(|ui| {
+            if asked.len() > 1
+                && ui
+                    .button("Allow All")
+                    .on_hover_text("Each one's code runs: as it is now")
+                    .clicked()
+            {
+                answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
+            }
+            later = ui
+                .button("Decide Later")
+                .on_hover_text(
+                    "They stay off now, and you are asked when the project is next opened",
+                )
+                .clicked();
+        });
     });
     for (id, allow) in answers {
         app.allow_project_plugin(&id, allow);

@@ -1017,6 +1017,75 @@ fn runs(h: &Harness<'_, Moonglow>, id: &str) -> bool {
     h.state().enabled_plugins().iter().any(|p| p.manifest.id == id)
 }
 
+/// The project's plugins' folder changing while it is open (a pull): its
+/// plugins are read again, a changed one is off and asked about, a new
+/// one asked about too, and Allow All allows the lot. The project copied
+/// elsewhere runs them as allowed, unasked.
+#[test]
+fn a_project_s_plugins_changed_while_it_is_open_are_asked_about() {
+    let dir = plugin_project("ui-project-plugins-watched");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    h.get_by_label("Allow").click();
+    h.run();
+    assert!(runs(&h, id));
+    assert!(!h.state_mut().project_plugins_changed(), "nothing changed");
+    // A pull: other code for it, and a plugin new to the project.
+    let main = dir.join("plugins/builder-tags/main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    let hello = dir.join("plugins/hello");
+    std::fs::create_dir_all(&hello).unwrap();
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/hello");
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), hello.join(file)).unwrap();
+    }
+    assert!(h.state_mut().project_plugins_changed());
+    h.run();
+    assert!(!runs(&h, id), "changed: off until allowed again");
+    let mut asking = h.state().plugins.project_asking.clone();
+    asking.sort();
+    assert_eq!(asking, ["example.builder-tags", "example.hello"]);
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(_, m)| m.starts_with("The project's plugins changed in"))
+    );
+    h.get_by_label("Allow All").click();
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    assert!(runs(&h, id) && runs(&h, "example.hello"));
+    // The project copied elsewhere: the same plugins, allowed as they are,
+    // run without a question.
+    let copy = mg_testkit::scratch_dir("ui-project-plugins-copied");
+    let answers = dir.with_extension("answers.toml");
+    fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                copy_dir(&e.path(), &target);
+            } else {
+                std::fs::copy(e.path(), target).unwrap();
+            }
+        }
+    }
+    copy_dir(&dir, &copy);
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugin_fixtures());
+    app.plugin_answers = Some(answers);
+    app.load_plugins();
+    app.open_module(&copy);
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    assert!(runs(&h, id) && runs(&h, "example.hello"));
+}
+
 /// A project's plugins are asked about when it is opened, with what each
 /// adds and keeps; none runs until allowed, and the answer is kept by the
 /// plugin's content in the builder's own file: a change asks again, a no

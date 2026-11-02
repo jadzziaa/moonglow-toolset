@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:42:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1206,29 +1206,13 @@ contribution itself states as not done or not checked.
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)
-  - **A project's own plugins** (API 0.4, the Domains of Dread's
-    builder proposal A2: `plugins/` of a project, or `[plugins] folder`,
-    run once the builder allows each, asked when the project is opened,
-    the answer kept in Moonglow's own folder (`project-plugins.toml`, by
-    the project's canonical path, the plugin's id and a SHA-256 digest of
-    its files, which it runs from), never read from the project; `mg
-    verify` as allowed or with `--allow-project-plugins`; `mg plugin list
-    --project`, `mg plugin allow`). Not done: a project moved or copied
-    elsewhere on disk is asked about again (answers are by its path);
-    the question comes when the project is opened (and at Reload), not
-    when its plugins' folder changes while it is open (the folder is not
-    watched; until then the plugins run as they were read, which is what
-    was allowed); a digest says a plugin is the one allowed, not who
-    wrote it (no signatures); a no holds for the plugin's id whatever it
-    becomes, and there is no Allow All in the window; `mg plugin run` runs a
-    plugin's folder it is given whether allowed or not (it is named on
-    purpose); a project's plugin and one installed of its id share their
-    settings of scope `user`; what a project's plugin's events were
-    allowed (a folder, a yes) is kept by its digest, so a changed one
-    asks again; a module kept in one file has no project, so none. The
+  - **A project's own plugins, on a desktop** (API 0.4, the Domains of
+    Dread's builder proposal A2; since 3.3.0 a yes holds for the
+    plugin's very files wherever the project is, the folder is looked at
+    while the project is open, and the window has Allow All): the
     question and the Plugins window were driven through the UI harness
     and looked at as rendered pictures (one plugin asked about), not
-    used on a desktop. (S each)
+    used on a desktop. Waits on a desktop session. (S)
   - **A plugin's settings** (API 0.4, A5: `[setting]`, `ctx.settings`,
     `ctx.settings:set`, the settings' form, scopes `user`, `project`
     and `user-project`). Not done: five kinds only (no number with a
@@ -1655,6 +1639,22 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A project's plugin is allowed by a digest of its files, not by a
+  signature** (the deferred list's "Plugins, beyond API 0.4", 2026-11-01):
+  the digest says the plugin is the very one the builder allowed, which
+  is what the question is about; who wrote it is the team's checkout,
+  which the builder chose to open. Signing would need keys for every
+  team and a way to trust them, for no more than the digest already
+  holds the builder to. Kept with it, by the same decision: a no holds
+  for the plugin's id in that project whatever it becomes (Manage
+  Plugins allows it later); what its events were allowed (a folder, a
+  yes) is kept by its digest, so a changed one asks again; `mg plugin
+  run` runs the folder it is given, allowed or not (it is named on
+  purpose); a project's plugin and one installed of its id share their
+  settings of scope `user` (it stands in for that plugin, and the
+  user's own values are the user's); a module kept in one file has no
+  project, so no project plugins.
 
 - **A geometry program beside a material's pair** (`customshaderGS` with
   `customshaderVS` and `FS`): the client runs it (one that emits nothing

@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:42:57Z }
 ---
 
 # Plugins
@@ -143,8 +143,9 @@ Moonglow lists each of its plugins you have not answered for, with what
 it adds: its commands (and the right-click menus they are in), its
 checks, what it does by itself, and the settings it keeps (those the
 team shares are written into `moonglow.toml`). For each, **Allow** or
-**Don't Allow**; **Decide Later** leaves them all off now and asks
-again at the next opening.
+**Don't Allow**; **Allow All** allows each of them as it is;
+**Decide Later** leaves them all off now and asks again at the next
+opening.
 
 - What you allow is the plugin **as it is now**: Moonglow reads its
   files when the project is opened, runs it from what it read, and
@@ -152,12 +153,19 @@ again at the next opening.
   pull brings another version, or other code under the same one), it is
   off again, and you are asked again, told what it was. Its `tests`
   folder is not part of it.
+- While the project is open, Moonglow looks at its plugins' folder every
+  few seconds: a plugin changed there (a pull, an edit) is read again,
+  off until you allow it as it now is, and one new there is asked about,
+  without opening the project again.
 - **Don't Allow** keeps it off, however it changes, and it is not asked
   about again; tick it in Manage Plugins to allow it later.
 - Your answers are **yours alone**, and never in the project: Moonglow
   keeps them in its own folder (`project-plugins.toml` beside the plugins
   folder), by the project's place on your disk, the plugin and the
-  digest of its files. A project's files can't answer for you: a
+  digest of its files. A yes holds for those very files wherever they
+  are: the project moved or copied elsewhere on disk (another clone, a
+  worktree) runs the plugins you allowed, as they were, without asking
+  again. A no holds for that project alone. A project's files can't answer for you: a
   checkout that comes with answers of its own (a `[project_plugins]`
   section in a committed `.moonglow/user.toml`, say) allows nothing, and
   the log says so. `mg` reads the same answers, and `mg plugin allow`

@@ -5103,6 +5103,9 @@ impl Moonglow {
         if !heard {
             self.reload_checked = Some(now);
         }
+        // (The project's own plugins changed on disk: read again, and
+        // asked about where they are not as they were allowed.)
+        self.project_plugins_changed();
         if off {
             self.reread_project_file();
             return;

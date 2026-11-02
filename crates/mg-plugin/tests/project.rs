@@ -189,11 +189,27 @@ fn the_builder_s_answer_holds_for_the_plugin_as_it_was() {
     );
     assert!(text.contains("plugin = \"team.rules\"") && text.contains("digest = \"sha256:"));
     assert!(!root.join(".moonglow").exists(), "nothing written into the project");
-    // Another project with the same plugin: not allowed by this answer.
-    let (other, _) = project_with_plugin("project-plugin-trust-other");
+    // The project moved or copied (another project with the very same
+    // plugin): allowed, its content being what was allowed; said where.
+    let (other, other_dir) = project_with_plugin("project-plugin-trust-other");
     let theirs = &found(&other)[0];
     assert_eq!(theirs.digest(), p.digest());
-    assert_eq!(Answers::read(&kept).unwrap().trust(&other, theirs), Trust::Unasked);
+    let answers = Answers::read(&kept).unwrap();
+    assert_eq!(answers.trust(&other, theirs), Trust::Allowed);
+    let elsewhere = answers.allowed_elsewhere(&project::canonical(&other), theirs);
+    assert_eq!(elsewhere, Some(canonical.as_path()));
+    assert_eq!(answers.allowed_elsewhere(&canonical, p), None, "its own answer");
+    // Not with other content; and a no there holds there alone.
+    std::fs::write(other_dir.join("rules.luau"), "return { word = \"other\" }").unwrap();
+    assert_eq!(answers.trust(&other, &found(&other)[0]), Trust::Unasked);
+    std::fs::write(other_dir.join("rules.luau"), "return { word = \"first\" }").unwrap();
+    project::decide(&kept, &other, theirs, false).unwrap();
+    let answers = Answers::read(&kept).unwrap();
+    assert_eq!(answers.trust(&other, theirs), Trust::Denied);
+    assert_eq!(answers.trust(&root, p), Trust::Allowed, "the no is the other project's");
+    let mut answers = answers;
+    answers.answers.retain(|a| a.project == canonical);
+    answers.write(&kept).unwrap();
     // Changed: asked again.
     std::fs::write(dir.join("main.luau"), format!("{CODE}\n-- more")).unwrap();
     let changed = &found(&root)[0];
