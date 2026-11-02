@@ -723,6 +723,34 @@ impl AreaScene {
         Some(shown.composed.ray_hit_in(&shown.stance, origin, dir))
     }
 
+    /// Every place `ray` crosses object `i`'s model (its triangles, as it
+    /// stands), as [`AreaScene::ray_hit`] meets it: how far along, and the
+    /// triangle's unit normal there in the area's space (up is `+Z`).
+    /// `None`: the object has no model to cross.
+    pub fn ray_crossings(
+        &self,
+        area: &AreaModel,
+        i: usize,
+        ray: &crate::pick::Ray,
+    ) -> Option<Vec<(f32, Vec3)>> {
+        let shown = self.objects.get(i).and_then(Option::as_ref)?;
+        let o = area.objects.get(i)?;
+        if self.as_arrow(o, Some(shown)) || !shown.composed.has_meshes() {
+            return None;
+        }
+        let inverse = o.model_transform().inverse();
+        let (origin, dir) =
+            (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
+        let out_of = inverse.transpose();
+        let crossings = shown.composed.ray_crossings_in(&shown.stance, origin, dir);
+        Some(
+            crossings
+                .into_iter()
+                .map(|(t, n)| (t, out_of.transform_vector3(n).normalize_or_zero()))
+                .collect(),
+        )
+    }
+
     /// The particles of the placed objects with emitters (a campfire's
     /// flames, a portal, sparks: placeables that are nothing else show
     /// nothing without them), moved on by `dt` seconds and drawn for a

@@ -5577,7 +5577,13 @@ fn the_area_menus_group_related_commands_in_submenus() {
     );
     assert_eq!(
         submenu_items(&mut h, "Position", "Random Facing"),
-        ["Drop to Ground (G)", "Drop onto Object (Shift+G)", "Random Facing"]
+        [
+            "Drop to Ground (G)",
+            "Drop onto Object (Shift+G)",
+            "Up to the Next Surface (PageUp)",
+            "Down to the Next Surface (PageDown)",
+            "Random Facing"
+        ]
     );
     assert_eq!(
         submenu_items(&mut h, "Reuse", "Save as Prefab…"),
@@ -6057,4 +6063,83 @@ fn adjust_location_moves_the_object_as_its_numbers_change() {
     assert!((x - 8.0).abs() < 1e-3, "{x}");
     let applied = picture(&mut h);
     assert!(differ(&moved, &applied, goes) < 40, "as shown before Apply");
+}
+
+/// A builder's ask: Page Up and Page Down move the selection to the next
+/// flat surface above or below the first object selected, other
+/// placeables' tops too (fruit dragged to a food stand, then Page Up onto
+/// its counter). A chest on the ground at a table's middle goes onto the
+/// table's top (its model's tabletop, from 0.8 m up to its edges' 0.9; at
+/// the middle 0.85, as the picture shows it), not its underside, which
+/// faces down; nothing is higher; Page Down
+/// brings it back to the ground. A waypoint selected after it moves with
+/// it, by as much.
+#[test]
+fn page_up_and_down_move_the_selection_to_the_next_surface() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    // A table (Table, placeables.2da row 97) and a chest at its middle.
+    let placed = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let mut table = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        table.set("Appearance", mg_gff::Value::Dword(97));
+        let chest = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![table, chest]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("surface-steps", "ttr01", None, 4, None, &placed)
+    else {
+        return;
+    };
+    let z = |h: &mut Harness<'_, Moonglow>, list: &str, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let o = &git.root.list(list).unwrap()[i];
+        o.float("Z").or_else(|| o.float("ZPosition")).unwrap()
+    };
+    let (ground, post) = (z(&mut h, "Placeable List", 1), z(&mut h, "WaypointList", 0));
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection = vec![(ObjectKind::Placeable, 1), (ObjectKind::Waypoint, 0)];
+    h.run_steps(4);
+    let over = screen(&h, area, Vec3::new(16.0, 16.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(2);
+    let key = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        h.run_steps(4);
+    };
+    key(&mut h, egui::Key::PageUp);
+    let top = z(&mut h, "Placeable List", 1);
+    // (A look from beside the table, low.)
+    let dir = mg_testkit::scratch_dir("ui-surface-steps");
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut() {
+        (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(12.0, 20.0, 0.8), 4.0, -1.57, 0.25);
+    }
+    h.run_steps(10);
+    h.render().expect("render").save(dir.join("raised.png")).unwrap();
+    assert!((0.8..0.9).contains(&(top - ground)), "on the table's top: {top}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise to Surface"));
+    let by = z(&mut h, "WaypointList", 0) - post;
+    assert!((by - (top - ground)).abs() < 1e-4, "the waypoint moved with it: {by}");
+    // Nothing higher at the table's middle.
+    key(&mut h, egui::Key::PageUp);
+    assert_eq!(z(&mut h, "Placeable List", 1), top);
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "No surface above it"));
+    // Down: past the tabletop's underside, to the ground.
+    key(&mut h, egui::Key::PageDown);
+    let down = z(&mut h, "Placeable List", 1);
+    assert!((down - ground).abs() < 0.02, "back on the ground: {down} ({ground})");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lower to Surface"));
+    // Ctrl + Page Up is the tab before's, not a step up.
+    let before = h.state().ws.as_ref().unwrap().undo_depth();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::PageUp);
+    h.run_steps(4);
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), before);
 }

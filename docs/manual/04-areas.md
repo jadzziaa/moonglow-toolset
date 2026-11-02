@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T21:50:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T22:05:45Z }
 ---
 
 # Areas
@@ -314,6 +314,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
 | Shift+G | drop them onto the placeable below |
+| Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
@@ -538,6 +539,19 @@ Aurora):
     nothing there, on the ground. Not creatures, which the game stands on
     the ground. **Onto Objects** on the toolbar places them so in the
     first place.
+  - **Position › Up to the Next Surface** (Page Up) and **Down to the
+    Next Surface** (Page Down): move the selection up or down to the
+    next flat surface straight above or below the first object
+    selected: the top of a placeable or door (by its model: a market
+    stall's counter, the shelf behind it, its awning), a bridge or an
+    upper floor, the ground. Drag a fruit to a food stand, press Page
+    Up, and it sits on the counter; again, on the shelf. Only faces that
+    face up and slope less than about 45° count (not a counter's
+    underside, a sloped roof or a cliff), and the selected objects
+    themselves don't. The others selected move with the first, by as
+    much. Creatures, triggers and encounters stay, as the game stands creatures on
+    the ground: with one of them selected first, the log says so. With
+    nothing higher or lower there, the log says that too.
   - **Position › Random Facing**: turns each selected object to face a
     way of its own, at random (by the snap angle, if one is set): for
     trees and rocks placed in numbers.

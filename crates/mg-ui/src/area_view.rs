@@ -1410,6 +1410,27 @@ impl AreaView {
         Some(from.z - t)
     }
 
+    /// The heights of every flat surface straight above or below `at`, from
+    /// the lowest: the ground's levels and the tops of the placeables and
+    /// doors there (their models' faces that face up within
+    /// [`mg_area::walk::FLAT`]; not those `except` names), however high.
+    fn surfaces_at(&self, at: Vec2, except: &dyn Fn(usize) -> bool) -> Vec<f32> {
+        let mut out = self.ground.as_ref().map(|g| g.flat_heights(at)).unwrap_or_default();
+        if let (Some(model), Some(scene)) = (self.model.as_ref(), self.scene.as_ref()) {
+            // (From well above anything placed, straight down.)
+            let top = model.objects.iter().map(|o| o.position.z).fold(0.0_f32, f32::max) + 100.0;
+            let ray = Ray { origin: at.extend(top), dir: Vec3::NEG_Z };
+            for j in (0..model.objects.len()).filter(|&j| !except(j) && self.surface_kind(model, j))
+            {
+                let crossings = scene.ray_crossings(model, j, &ray).unwrap_or_default();
+                let tops = crossings.into_iter().filter(|(_, n)| n.z >= mg_area::walk::FLAT);
+                out.extend(tops.map(|(t, _)| top - t));
+            }
+        }
+        out.sort_by(f32::total_cmp);
+        out
+    }
+
     /// A point snapped to the grid, on the ground there.
     pub(crate) fn snapped(&self, at: Vec3) -> Vec3 {
         if self.snap.0.is_none() {
@@ -5249,6 +5270,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             turn_keys(view).into_iter().filter(|(cmd, _)| pressed(*cmd)).map(|t| t.1).collect();
         let drop = pressed(Cmd::DropToGround);
         let onto = pressed(Cmd::DropOntoObject);
+        let (raise, lower) = (pressed(Cmd::SurfaceAbove), pressed(Cmd::SurfaceBelow));
         for by in turns {
             rotate_selection(app, view, by);
         }
@@ -5256,6 +5278,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             drop_to_ground(app, view);
         } else if onto {
             drop_onto_objects(app, view);
+        } else if raise || lower {
+            step_to_surface(app, view, raise);
         }
     }
     // And the start location's marker, selected: Q and E turn it.
@@ -6273,6 +6297,53 @@ fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
     commit_moves(app, view, &moved, "Drop onto Object");
 }
 
+/// How near a surface an object counts as standing on it, meters (what
+/// moves it past the one it is on to the next).
+const ON_SURFACE: f32 = 0.01;
+
+/// Page Up and Page Down: the selection raised (`up`) or lowered to the
+/// next flat surface above or below the first object selected, which it is
+/// moved onto: the top of a placeable or door (a fruit onto a market
+/// stall's counter, then its awning), a floor or bridge of the ground, the
+/// ground. The others move with it, keeping their heights to it; creatures
+/// and outlines stay (the game stands creatures on the ground).
+fn step_to_surface(app: &mut Moonglow, view: &AreaView, up: bool) {
+    let Some(model) = &view.model else { return };
+    let Some(first) = view.selection.first().and_then(|&(k, i)| view.object_at(k, i)) else {
+        return;
+    };
+    let o = &model.objects[first];
+    if !lifts(o.kind) {
+        let what = if o.kind == ObjectKind::Creature { "a creature" } else { "an outline" };
+        app.log.warn(format!(
+            "Not moved to a surface: the first object selected is {what}, which keeps to the ground"
+        ));
+        return;
+    }
+    let chosen: Vec<usize> = view.selected_indices().collect();
+    let is_chosen: std::collections::HashSet<usize> = chosen.iter().copied().collect();
+    let surfaces = view.surfaces_at(o.position.truncate(), &|j| is_chosen.contains(&j));
+    let z = o.position.z;
+    let to = match up {
+        true => surfaces.iter().copied().find(|s| *s > z + ON_SURFACE),
+        false => surfaces.iter().rev().copied().find(|s| *s < z - ON_SURFACE),
+    };
+    let Some(to) = to else {
+        app.log.info(if up { "No surface above it" } else { "No surface below it" });
+        return;
+    };
+    let by = to - z;
+    let moved: Vec<(usize, Vec3, f32)> = chosen
+        .iter()
+        .map(|&i| &model.objects[i])
+        .zip(&chosen)
+        .filter(|(o, _)| lifts(o.kind))
+        .map(|(o, &i)| (i, o.position + Vec3::Z * by, o.rotation))
+        .collect();
+    let label = if up { "Raise to Surface" } else { "Lower to Surface" };
+    commit_moves(app, view, &moved, label);
+}
+
 /// Arranges the selection (lined up, spaced out, facing alike, mirrored),
 /// keeping each object's height above the ground.
 fn arrange_selection(
@@ -6436,6 +6507,32 @@ fn editing_items(
                 .clicked()
             {
                 drop_onto_objects(app, view);
+                ui.close();
+            }
+            let (above, below) = (crate::keys::Cmd::SurfaceAbove, crate::keys::Cmd::SurfaceBelow);
+            let label = app.keymap.titled("Up to the Next Surface", above, ui.ctx());
+            if ui
+                .add_enabled(any, egui::Button::new(label))
+                .on_hover_text(
+                    "Raise the selection onto the next flat surface above the first object \
+                     selected: a placeable's top (a stall's counter), a floor, a bridge; the \
+                     others move with it",
+                )
+                .clicked()
+            {
+                step_to_surface(app, view, true);
+                ui.close();
+            }
+            let label = app.keymap.titled("Down to the Next Surface", below, ui.ctx());
+            if ui
+                .add_enabled(any, egui::Button::new(label))
+                .on_hover_text(
+                    "Lower the selection onto the next flat surface below the first object \
+                     selected, down to the ground; the others move with it",
+                )
+                .clicked()
+            {
+                step_to_surface(app, view, false);
                 ui.close();
             }
             if ui

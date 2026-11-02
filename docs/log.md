@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-02
+* **Update**: [Areas](manual/04-areas.md): Page Up and Page Down (Position › Up to the Next Surface, Down to the Next Surface; Options › Keyboard) move the selection to the next flat surface above or below the first object selected, other placeables' and doors' tops by their models too (a builder's ask: fruit onto a food stand's counter); the others selected move with it.
 * **Fix**: [Areas](manual/04-areas.md): Adjust Location shows what it changes in the area view as it is changed (the objects or the start location moved, turned and reshaped, their outlines and handles with them), before OK or Apply, and Cancel puts them back; it moved them only when applied (a builder's report).
 * **Fix**: [The main window](manual/02-main-window.md)'s module tree, two of a builder's reports: closing an area, or a Properties window opened from the tree, no longer scrolls the tree to its top (the tab come to the front because another closed was taken as chosen, and Module Properties' row is at the top); and the kinds of objects the Filter opens in an area close again with a click (they were held open while anything was typed).
 * **Update**: The plugin API's version said as it is, 0.6, in [Plugins](manual/15-plugins.md), [Writing plugins](manual/16-writing-plugins.md) and the README (0.4, 0.5 and 0.3 there), and [the plugin API's changes](plugins/CHANGES.md) give 0.6 as in Moonglow 3.3.0.

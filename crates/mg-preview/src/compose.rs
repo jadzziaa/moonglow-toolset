@@ -754,6 +754,75 @@ impl Composed {
         best
     }
 
+    /// Every place a ray (from `origin` along `dir`, in the preview's own
+    /// space; in units of `dir`) crosses one of the drawn triangles, with
+    /// its nodes as `stance` has them: how far along, and the triangle's
+    /// unit normal there in the preview's space. [`Composed::ray_hit_in`]
+    /// is the nearest of them. The normal is the triangle's own (its
+    /// corners', not its vertices' smoothed ones, which lean at a box's
+    /// edges), turned to the side its vertices' normals face; where they
+    /// have none, the side its corners go anticlockwise round, as the
+    /// game's models face (as `plc_chest1`'s lid does).
+    pub fn ray_crossings_in(&self, stance: &Stance, origin: Vec3, dir: Vec3) -> Vec<(f32, Vec3)> {
+        let mut out = Vec::new();
+        let facing = |a: Vec3, b: Vec3, c: Vec3, along: Option<Vec3>| {
+            let n = (b - a).cross(c - a);
+            match along {
+                Some(v) if v.dot(n) < 0.0 => -n,
+                _ => n,
+            }
+        };
+        for (gm, nodes, to) in self.models_in(stance) {
+            for m in &gm.meshes {
+                let Some(mesh) = gm.model.nodes.get(m.node).and_then(|n| n.mesh()) else {
+                    continue;
+                };
+                let faces = mesh.faces.iter().map(|f| f.vertices);
+                let triangles = faces.chain(mesh.drawn.iter().copied());
+                // (The vertices' normals of a triangle, summed: the side it
+                // faces.)
+                let along = |[a, b, c]: [u32; 3]| {
+                    let n = |i: u32| mesh.normals.get(i as usize).copied().map(Vec3::from);
+                    Some(n(a)? + n(b)? + n(c)?)
+                };
+                // A skinned mesh where its bones put it, as it is drawn
+                // (by its corners' order: its normals are where it was
+                // bound).
+                if let Some(places) = skinned_places(gm, m, nodes, to) {
+                    let corner = |i: u32| places.get(i as usize).copied();
+                    for [a, b, c] in triangles {
+                        if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c))
+                            && let Some(t) = ray_triangle(origin, dir, a, b, c)
+                        {
+                            out.push((t, facing(a, b, c, None).normalize_or_zero()));
+                        }
+                    }
+                    continue;
+                }
+                let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                let inverse = (to * node).inverse();
+                let (o, d) = (inverse.transform_point3(origin), inverse.transform_vector3(dir));
+                if ray_box(o, d, m.min, m.max).is_none() {
+                    continue;
+                }
+                // (A normal out of the mesh's space: by the inverse's
+                // transpose, which keeps it square to a scaled face.)
+                let out_of = inverse.transpose();
+                let corner = |i: u32| mesh.vertices.get(i as usize).copied().map(Vec3::from);
+                for tri in triangles {
+                    let [a, b, c] = tri;
+                    if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c))
+                        && let Some(t) = ray_triangle(o, d, a, b, c)
+                    {
+                        let n = out_of.transform_vector3(facing(a, b, c, along(tri)));
+                        out.push((t, n.normalize_or_zero()));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Whether it draws any mesh (not an emitter or a light alone).
     pub fn has_meshes(&self) -> bool {
         self.models().any(|m| !m.meshes.is_empty())

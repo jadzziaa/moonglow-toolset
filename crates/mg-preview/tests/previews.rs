@@ -658,6 +658,49 @@ fn a_dragon_s_box_is_around_its_pause_not_its_rest() {
     assert!(rest_outside > 20, "at rest it lies out of the box: {rest_outside}");
 }
 
+/// Every surface a ray straight down crosses, with the way each faces: the
+/// game's Table (placeables.2da row 97, `PLC_M05`) at its middle, its
+/// tabletop's top facing up and its underside facing down, between 0.7
+/// and 0.9 m (its tabletop node is at 0.8, its edges up to 0.9). Page Up
+/// in the area view sets things on the first, not the second.
+#[test]
+fn a_ray_down_through_a_table_meets_its_top_facing_up() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let mut utp = blueprint(&game, "plc_chest1", ResType::UTP).root;
+    utp.set("Appearance", mg_gff::Value::Dword(97));
+    let c = Composed::new(&gpu, &placeable(&game, &utp).unwrap(), &load).unwrap();
+    let stance = c.stance(None, 0.0);
+    let from = glam::Vec3::new(0.0, 0.0, 10.0);
+    let crossings = c.ray_crossings_in(&stance, from, glam::Vec3::NEG_Z);
+    let at = |t: f32| from.z - t;
+    // (Flat ones: an edge's sides may be crossed too.)
+    let flat: Vec<(f32, f32)> =
+        crossings.iter().filter(|(_, n)| n.z.abs() >= 0.7).map(|&(t, n)| (at(t), n.z)).collect();
+    let up: Vec<f32> = flat.iter().filter(|f| f.1 > 0.0).map(|f| f.0).collect();
+    let down: Vec<f32> = flat.iter().filter(|f| f.1 < 0.0).map(|f| f.0).collect();
+    assert_eq!(up.len(), 1, "one top: {flat:?}");
+    assert!((0.8..0.9).contains(&up[0]), "the tabletop's top: {flat:?}");
+    assert_eq!(down.len(), 1, "one underside: {flat:?}");
+    assert!((0.7..up[0]).contains(&down[0]), "below the top: {flat:?}");
+    // The nearest of them is the click's.
+    let nearest = c.ray_hit_in(&stance, from, glam::Vec3::NEG_Z).unwrap();
+    let first = crossings.iter().map(|c| c.0).fold(f32::MAX, f32::min);
+    assert_eq!(nearest, first);
+}
+
 /// A look at creatures of custom content (GitHub issue 5): `MG_PROBE_USER`
 /// a user directory with the haks, `MG_PROBE_HAKS` their names (top
 /// first, comma-separated), `MG_PROBE_UTC` the blueprints' files.

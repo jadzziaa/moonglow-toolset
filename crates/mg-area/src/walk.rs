@@ -146,6 +146,17 @@ impl Walkmesh {
 }
 
 /// The height of face `f` above `p`, if `p` is inside it (seen from above).
+/// How nearly upright a face's normal must be to count as flat, a surface
+/// to set things on: its height part at least this (about 45° of slope).
+pub const FLAT: f32 = 0.7;
+
+/// Whether a triangle (its corners) is flat within [`FLAT`], facing up or
+/// down (a walkmesh's faces are wound either way).
+fn is_flat([a, b, c]: [Vec3; 3]) -> bool {
+    let n = (b - a).cross(c - a).normalize_or_zero();
+    n.z.abs() >= FLAT
+}
+
 fn height_on(f: &WalkFace, p: Vec2) -> Option<f32> {
     let [a, b, c] = f.corners;
     let (a2, b2, c2) = (a.truncate(), b.truncate(), c.truncate());
@@ -239,6 +250,24 @@ impl Ground {
         w.heights(local.truncate())
             .map(|z| z + base)
             .min_by(|a, b| (a - near).abs().total_cmp(&(b - near).abs()))
+    }
+
+    /// The ground's flat levels at `p`, lowest first: the heights of its
+    /// walkmesh faces there that face up within [`FLAT`] (a bridge over
+    /// the ground, a floor over another: several; a cliff's face, none).
+    pub fn flat_heights(&self, p: Vec2) -> Vec<f32> {
+        let Some((w, to)) = self.tile_at(p).and_then(|i| self.tiles.get(i)?.as_ref()) else {
+            return Vec::new();
+        };
+        let local = to.inverse().transform_point3(p.extend(0.0)).truncate();
+        let base = to.transform_point3(Vec3::ZERO).z;
+        let mut out: Vec<f32> = (w.faces.iter())
+            .filter(|f| is_flat(f.corners))
+            .filter_map(|f| height_on(f, local))
+            .map(|z| z + base)
+            .collect();
+        out.sort_by(f32::total_cmp);
+        out
     }
 
     /// The ground's height at `p` nearest to `near`, as
@@ -341,6 +370,56 @@ mod tests {
         assert_eq!(w.heights(Vec2::new(6.0, 0.0)).count(), 0);
         let down = Ray { origin: Vec3::new(2.5, 0.0, 10.0), dir: Vec3::NEG_Z };
         assert!((w.hit(&down).unwrap() - 6.25).abs() < 1e-4);
+    }
+
+    /// The flat levels at a point: a floor and a bridge over it (wound
+    /// either way), lowest first; not the ramp beside them (steeper than
+    /// [`FLAT`]) nor faces that don't reach the point.
+    #[test]
+    fn the_flat_levels_at_a_point_are_every_floor_there() {
+        let square = |z: f32, flip: bool| {
+            let (a, b, c, d) = (
+                Vec3::new(-5.0, -5.0, z),
+                Vec3::new(5.0, -5.0, z),
+                Vec3::new(5.0, 5.0, z),
+                Vec3::new(-5.0, 5.0, z),
+            );
+            let tri = |p: [Vec3; 3]| WalkFace {
+                corners: if flip { [p[0], p[2], p[1]] } else { p },
+                material: 3,
+            };
+            vec![tri([a, b, c]), tri([a, c, d])]
+        };
+        // A steep wall across the middle, 10 m high over 1 m.
+        let wall = WalkFace {
+            corners: [
+                Vec3::new(-5.0, -0.5, 0.0),
+                Vec3::new(5.0, -0.5, 0.0),
+                Vec3::new(5.0, 0.5, 10.0),
+            ],
+            material: 3,
+        };
+        let mut faces = square(0.0, false);
+        faces.extend(square(3.0, true));
+        faces.push(wall);
+        let w = Walkmesh { faces, min: Vec3::splat(-5.0), max: Vec3::new(5.0, 5.0, 10.0) };
+        let g = Ground {
+            tiles: vec![Some((Arc::new(w), Mat4::from_translation(Vec3::new(5.0, 5.0, 1.0))))],
+            cache: HashMap::new(),
+            levels: Vec::new(),
+            level_cache: HashMap::new(),
+            width: 1,
+        };
+        assert_eq!(g.flat_heights(Vec2::new(5.5, 5.2)), [1.0, 4.0]);
+        assert!(g.flat_heights(Vec2::new(25.0, 5.0)).is_empty(), "outside the area");
+        // (The ramp, 15 m up over 10: steeper than flat.)
+        let mut r = ramp();
+        r.faces.iter_mut().for_each(|f| f.corners.iter_mut().for_each(|c| c.z *= 3.0));
+        let g = Ground {
+            tiles: vec![Some((Arc::new(r), Mat4::from_translation(Vec3::new(5.0, 5.0, 0.0))))],
+            ..g
+        };
+        assert!(g.flat_heights(Vec2::new(5.0, 5.0)).is_empty(), "a slope of 56°");
     }
 
     #[test]

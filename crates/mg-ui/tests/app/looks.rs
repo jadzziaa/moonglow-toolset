@@ -670,3 +670,60 @@ fn look_palette_in_language() {
     let game = h.state().game.as_deref().unwrap();
     eprintln!("LANG {:?} sample {:?}", game.language, game.string(mg_core::StrRef(6686)));
 }
+
+/// Page Up on a market stall (Trades - Market Stall 01, placeables.2da row
+/// 15519, `ptm_market11`), as a builder asked for it: a chest under its
+/// front counter (0.9 m) and the shelf behind it (1.37 m), the awning over
+/// them (`MG_AT=x,y` for elsewhere; the stall at 12, 20), and a picture
+/// before and after each Page Up
+/// (`target/test-output/ui-surface-stall/up-N.png`).
+#[test]
+#[ignore = "a look at Page Up's surfaces on a market stall"]
+fn look_surface_steps_on_a_stall() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let at: Vec<f32> = std::env::var("MG_AT")
+        .unwrap_or_else(|_| "10,19.2".into())
+        .split(',')
+        .map(|v| v.trim().parse().unwrap())
+        .collect();
+    let (x, y) = (at[0], at[1]);
+    let placed = move |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let stall_at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let mut stall = instance(&placing, ResType::UTP, &bp, stall_at, &[]).unwrap();
+        stall.set("Appearance", mg_gff::Value::Dword(15519));
+        let chest_at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+        let chest = instance(&placing, ResType::UTP, &bp, chest_at, &[]).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![stall, chest]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("surface-stall", "ttr01", None, 4, None, &placed)
+    else {
+        return;
+    };
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection = vec![(ObjectKind::Placeable, 1)];
+    if let Some(o) = view.orbit.as_mut() {
+        (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(x, y, 1.4), 6.0, -1.57, 0.45);
+    }
+    h.run_steps(10);
+    let dir = mg_testkit::scratch_dir("ui-surface-stall");
+    let over = h.state().area_views[&area].rect.center();
+    for n in 0..4 {
+        h.render().expect("render").save(dir.join(format!("up-{n}.png"))).unwrap();
+        h.hover_at(over);
+        h.key_press(egui::Key::PageUp);
+        h.run_steps(10);
+    }
+    for (_, line) in &h.state().log.entries {
+        eprintln!("{line}");
+    }
+    eprintln!("{}", dir.display());
+}
