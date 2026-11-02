@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T11:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:36:35Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -19,7 +19,7 @@ sources:
     title: 'game_shaders_frames_at_144 with the builder''s haks: TDoD''s woods, area092 and the water area, before and after (27 October 2026)'
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
-    title: 'render_area MG_TIME_RENDER on Tyrants of the Moonsea''s area084, its stacks sampled with eu-stack (30 October 2026)'
+    title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -386,7 +386,8 @@ renderer's part.
   seen whole, in "The largest areas in full view".
 - A program that moves its vertices farther than a meter (TDoD's grass
   lifted by `fTilesetMeshOffsetZ`, 2 m) may be blended in another order
-  where it reaches past its grown box.
+  where it reaches past its grown box. (Since 2026-11-02 its box is grown
+  by its MTR's offset besides: `GamePipeline::moved_by`.)
 
 ## The largest stock area seen whole, taken apart (30 October 2026)
 
