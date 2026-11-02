@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:34:18Z }
 ---
 
 # Build, verify and test
@@ -300,6 +300,7 @@ crash Aurora with an access violation that names nothing:
 | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 | Aurora fails (the game is fine) |
 | A 2DA string reference past the end of its talk table (also of the item property tables, and the `Name` of the tables they name; since Moonglow 2.13.0) | "Bad Strref" |
 | A hak's 2DA row naming a row of another table that isn't there or is blank, a padding row (a feat's required feat, a spell's feat, a race's appearance, a package's class, an appearance's footsteps, an item property's cost table; some sixty columns of twelve tables, the feat, skill and spell lists that a class, a race or a package names, and a class's requirements, each by its kind: a feat, a skill, a race, a class), or naming a table that isn't there (a class's feat list, bonus feats, spells or saves table, an item property's subtypes; since Moonglow 2.13.0). A cell the hak keeps as the game has it, wrong in the game's own table too, is the game's and not said (seven appearances name footstep 30 of 18) | the feat, spell or class is missing or wrong in the game (a warning) |
+| A class's spells, where `classes.2da`, `packages.2da`, `spells.2da`, `domains.2da` or a package's spell table is the module's or a hak's (`2da-spells`): a spellcasting class's `SpellTableColumn` naming a column `spells.2da` doesn't have, and a spell a package's `SpellPref2DA` table prefers that its class can't learn (no level in its column of `spells.2da`, nor, for a class that picks domains, granted by a domain). A table of the game's whose package's class can no longer learn some of its spells (a hak's `spells.2da` took them from the class) is said once, with how many; a fault the game's own tables have too is the game's and not said | the class has no spells; an NPC leveled up by the package passes over the spell (a warning) |
 | A custom talk table the module names that isn't in its haks, the module or the `tlk` folder (or is named with `.tlk`, or, on Linux, in a different case from the file) | the game won't load the module |
 | A hak's 2DA hiding another hak's longer copy | the rows past it are lost (an older copy?) |
 | A creature, placeable, door or item naming a 2DA row that doesn't exist or whose model is missing | Aurora's area view crashes on it; in the game it has no appearance, or the game crashes (a creature with a class that doesn't exist) |

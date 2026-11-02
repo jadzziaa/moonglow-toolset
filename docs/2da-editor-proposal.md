@@ -3,7 +3,7 @@ type: Proposal
 title: 'A 2DA editor and merger: a proposal'
 description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:34:25Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
@@ -302,9 +302,13 @@ and in a hak, Verify Module's check `2da-described`, a plugin's
 `mg.twoda.describe`, constants made of other constants, Find by the
 names shown, and the folders a build fills passed over.
 
-Not done (each in the [deferred list](deferred.md)): one description for
-a family of tables, the game's own tables described, and the haks'
-tables in Verify Module.
+Then, in the deferred sprint (2026-11-02): one description for a family
+of tables (`tables = ["loot_*"]`), the game's `spells.2da` and
+`baseitems.2da` described by files Moonglow brings, the haks' tables in
+Verify Module, constants of the scripts a list's script includes, the
+folder walked on a thread of its own, and `mg 2da-check --tlk`. Left
+(in the [deferred list](deferred.md)'s plugins entry): a plugin's
+`faults` looks no strings up.
 
 ## What it would not be
 

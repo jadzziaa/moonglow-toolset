@@ -62,6 +62,7 @@ pub enum Check {
     TwoDaStrRef,
     TwoDaRef,
     TwoDaDescribed,
+    TwoDaSpells,
     ObjectRow,
     PcFaction,
     StaticTransform,
@@ -81,7 +82,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 40] = [
+    pub const ALL: [Check; 41] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -106,6 +107,7 @@ impl Check {
         Check::TwoDaStrRef,
         Check::TwoDaRef,
         Check::TwoDaDescribed,
+        Check::TwoDaSpells,
         Check::ObjectRow,
         Check::PcFaction,
         Check::StaticTransform,
@@ -150,6 +152,7 @@ impl Check {
             Check::TwoDaStrRef => "2da-strref",
             Check::TwoDaRef => "2da-ref",
             Check::TwoDaDescribed => "2da-described",
+            Check::TwoDaSpells => "2da-spells",
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
             Check::StaticTransform => "static-transform",
@@ -222,7 +225,12 @@ impl Check {
                  2DAs that are there"
             }
             Check::TwoDaDescribed => {
-                "a table of the module's that has a description (name.2da.toml) holds what it says"
+                "a table of the module's or its haks' that has a description (name.2da.toml) \
+                 holds what it says"
+            }
+            Check::TwoDaSpells => {
+                "a spellcasting class's spells: its SpellTableColumn is a column of spells.2da, \
+                 and the spells its packages prefer are ones it can learn"
             }
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
             Check::PcFaction => "no object belongs to the PC faction, the players' alone",
@@ -304,7 +312,8 @@ impl Check {
             | Check::TwoDaShadow
             | Check::TwoDaStrRef
             | Check::TwoDaRef
-            | Check::TwoDaDescribed => Group::Tables,
+            | Check::TwoDaDescribed
+            | Check::TwoDaSpells => Group::Tables,
             Check::ObjectRow
             | Check::PcFaction
             | Check::StaticTransform
@@ -989,6 +998,9 @@ pub fn examine_groups(
     }
     if runs(&[TwoDaDescribed]) {
         timings.time("described 2DAs", || described_tables(&mut d, module));
+    }
+    if runs(&[TwoDaSpells]) {
+        timings.time("classes' spells", || class_spells(&mut d));
     }
     if runs(&[CustomTlk]) {
         custom_tlk(&mut d, module);
@@ -2387,6 +2399,172 @@ pub fn game_copy(rm: &ResMan, name: &str) -> Option<TwoDa> {
         .filter(|l| !is_custom(l))
         .find_map(|l| l.container.read(&key).ok())?;
     TwoDa::parse(&data, Codepage::default()).ok()
+}
+
+/// A class's spells, by the tables the game reads: each spellcasting
+/// class's `SpellTableColumn` (the column of spells.2da whose levels are
+/// its spells) is one spells.2da has; and each spell its packages prefer
+/// (a package's `SpellPref2DA`, its `SpellIndex`) is one the class can
+/// learn: spells.2da gives it a level in the class's column (or, for a
+/// class that picks domains, a domain grants it). A fault the game's own
+/// tables have too is the game's, and not said. Looked at where one of
+/// those tables is custom (the module's, a hak's).
+fn class_spells(d: &mut Doctor) {
+    let custom = |name: &str| {
+        let Some(key) = ResKey::parse(name, ResType::TWODA) else { return false };
+        d.rm.find(&key).is_some_and(|i| is_custom(&d.rm.layers()[i]))
+    };
+    let read = |name: &str| -> Option<TwoDa> {
+        let key = ResKey::parse(name, ResType::TWODA)?;
+        TwoDa::parse(&d.rm.get(&key).ok()?, Codepage::default()).ok()
+    };
+    let (Some(classes), Some(packages), Some(spells)) =
+        (read("classes"), read("packages"), read("spells"))
+    else {
+        return;
+    };
+    let pref_tables: Vec<String> = (0..packages.len())
+        .filter_map(|r| packages.get(r, "SpellPref2DA").map(str::to_ascii_lowercase))
+        .collect();
+    if !["classes", "packages", "spells", "domains"].iter().any(|n| custom(n))
+        && !pref_tables.iter().any(|n| custom(n))
+    {
+        return;
+    }
+    let mut found = spell_faults(&classes, &packages, &spells, read("domains").as_ref(), &read);
+    found.sort_by(|a, b| (&a.table, a.row, &a.at).cmp(&(&b.table, b.row, &b.at)));
+    // The game's own, with its own tables: those are its, not the builder's.
+    let game = |name: &str| game_copy(d.rm, name);
+    let theirs = match (game("classes"), game("packages"), game("spells")) {
+        (Some(c), Some(p), Some(s)) => spell_faults(&c, &p, &s, game("domains").as_ref(), &game),
+        _ => Vec::new(),
+    };
+    let mut found: Vec<SpellFault> = found.into_iter().filter(|f| !theirs.contains(f)).collect();
+    // (A table several packages share is said once a row.)
+    found.dedup_by(|a, b| (&a.table, &a.at) == (&b.table, &b.at));
+    // A package's table of the game's, whose spells a custom spells.2da
+    // or classes.2da took from its class: said once for the table.
+    let mut of_the_game: Vec<(String, Vec<SpellFault>)> = Vec::new();
+    for f in found {
+        let Some(key) = ResKey::parse(&f.table, ResType::TWODA) else { continue };
+        let at = d.rm.find(&key);
+        if at.is_some_and(|i| is_custom(&d.rm.layers()[i])) || f.at.contains("SpellTableColumn") {
+            let source = at.map(|i| d.rm.layers()[i].label.clone()).unwrap_or_default();
+            d.push(Severity::Warning, Check::TwoDaSpells, &source, key, f.at, f.message);
+            continue;
+        }
+        match of_the_game.iter_mut().find(|(t, _)| *t == f.table) {
+            Some((_, all)) => all.push(f),
+            None => of_the_game.push((f.table.clone(), vec![f])),
+        }
+    }
+    for (table, all) in of_the_game {
+        let Some(key) = ResKey::parse(&table, ResType::TWODA) else { continue };
+        let source = d.rm.find(&key).map(|i| d.rm.layers()[i].label.clone()).unwrap_or_default();
+        let rows: Vec<String> = all.iter().map(|f| f.row.to_string()).take(5).collect();
+        let more =
+            if all.len() > 5 { format!(" and {} more", all.len() - 5) } else { String::new() };
+        let message = format!(
+            "the game's table, whose package's class can no longer learn {} of the spells it \
+             prefers by the spells.2da and classes.2da read now (rows {}{more}; the first: {})",
+            all.len(),
+            rows.join(", "),
+            all[0].message
+        );
+        d.push(Severity::Warning, Check::TwoDaSpells, &source, key, "", message);
+    }
+}
+
+/// A fault [`spell_faults`] finds: the table at fault, where in it, and
+/// why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SpellFault {
+    table: String,
+    row: usize,
+    at: String,
+    message: String,
+}
+
+/// [`class_spells`]' faults of tables as given (`read` reads a package's
+/// spell table by its name): the table at fault, where in it, and why.
+fn spell_faults(
+    classes: &TwoDa,
+    packages: &TwoDa,
+    spells: &TwoDa,
+    domains: Option<&TwoDa>,
+    read: &dyn Fn(&str) -> Option<TwoDa>,
+) -> Vec<SpellFault> {
+    let mut out = Vec::new();
+    let label = |t: &TwoDa, r: usize| t.get(r, "Label").unwrap_or("****").to_string();
+    // A class's column of spells.2da, where it casts and names one.
+    let column_of = |class: usize| -> Option<&str> {
+        let caster = classes.get_int(class, "SpellCaster").unwrap_or(0) != 0;
+        classes.get(class, "SpellTableColumn").filter(|_| caster)
+    };
+    for class in 0..classes.len() {
+        let Some(column) = column_of(class) else { continue };
+        if spells.column(column).is_none() {
+            out.push(SpellFault {
+                table: "classes".to_string(),
+                row: class,
+                at: format!("row {class}, SpellTableColumn"),
+                message: format!(
+                    "{}'s spells are spells.2da's column {column}, which it doesn't have: the \
+                     class has no spells",
+                    label(classes, class)
+                ),
+            });
+        }
+    }
+    // The spells domains grant (a class that picks domains learns them).
+    let granted: std::collections::BTreeSet<i64> = domains
+        .map(|t| {
+            (0..t.len())
+                .flat_map(|r| (1..=9).filter_map(move |l| t.get_int(r, &format!("Level_{l}"))))
+                .map(i64::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut read_tables: std::collections::HashMap<String, Option<TwoDa>> = Default::default();
+    for package in 0..packages.len() {
+        let (Some(table), Some(class)) =
+            (packages.get(package, "SpellPref2DA"), packages.get_int(package, "ClassID"))
+        else {
+            continue;
+        };
+        let Some(class) = usize::try_from(class).ok().filter(|c| *c < classes.len()) else {
+            continue;
+        };
+        let Some(column) = column_of(class).and_then(|c| spells.column(c)) else { continue };
+        let domains = classes.get_int(class, "PickDomains").unwrap_or(0) != 0;
+        let name = table.to_ascii_lowercase();
+        let prefs = read_tables.entry(name.clone()).or_insert_with(|| read(&name));
+        let Some(prefs) = prefs.as_ref() else { continue };
+        for row in 0..prefs.len() {
+            let Some(spell) = prefs.get_int(row, "SpellIndex") else { continue };
+            let Some(s) = usize::try_from(spell).ok().filter(|s| *s < spells.len()) else {
+                continue;
+            };
+            let learns = spells.cell(s, column).is_some()
+                || (domains && granted.contains(&i64::from(spell)));
+            if !learns {
+                out.push(SpellFault {
+                    table: name.clone(),
+                    row,
+                    at: format!("row {row}, SpellIndex"),
+                    message: format!(
+                        "spell {spell} ({}) is no spell of {}'s, whose package {package} ({}) \
+                         prefers it: spells.2da's {} column has no level for it",
+                        label(spells, s),
+                        label(classes, class),
+                        label(packages, package),
+                        spells.columns()[column],
+                    ),
+                });
+            }
+        }
+    }
+    out
 }
 
 /// The module's own tables that have a description (beside them, or a
@@ -3811,6 +3989,81 @@ endmodelgeom fx\ndonemodel fx\n";
                 ("spawn.2da".into(), "row 1, Chance".into(), "hak:my"),
             ],
             "{f:#?}"
+        );
+    }
+
+    /// A class's spells: its SpellTableColumn is a column spells.2da has,
+    /// and its packages' preferred spells are ones it learns (by its
+    /// column, or a domain for a class that picks them); a fault the
+    /// game's own tables have is not said.
+    #[test]
+    fn a_class_s_spell_tables_are_held_to_spells_2da() {
+        let classes = b"2DA V2.0\n\n   Label SpellCaster SpellTableColumn PickDomains\n\
+                        0  Cleric 1 Cleric 1\n1  Mine 1 Mine 0\n2  Odd 1 Nowhere 0\n3  Fighter 0 **** 0\n";
+        let packages = b"2DA V2.0\n\n   Label ClassID SpellPref2DA\n0  Cler 0 packsp_cl\n\
+                         1  Mine 1 packsp_mine\n2  Fight 3 packsp_mine\n";
+        let spells = b"2DA V2.0\n\n   Label Cleric Mine\n0  Aid 1 ****\n1  Bolt **** 2\n\
+                       2  Ward **** ****\n";
+        let domains = b"2DA V2.0\n\n   Label Level_1 Level_2\n0  Air 2 ****\n";
+        let cl = b"2DA V2.0\n\n   SpellIndex\n0  0\n1  2\n2  1\n";
+        let mine = b"2DA V2.0\n\n   SpellIndex\n0  1\n1  0\n";
+        let rm = resman(&[
+            ("classes", ResType::TWODA, classes),
+            ("packages", ResType::TWODA, packages),
+            ("spells", ResType::TWODA, spells),
+            ("domains", ResType::TWODA, domains),
+            ("packsp_cl", ResType::TWODA, cl),
+            ("packsp_mine", ResType::TWODA, mine),
+        ]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let said: Vec<(String, String)> = f
+            .iter()
+            .filter(|f| f.check == "2da-spells")
+            .map(|f| (f.resource.to_string(), f.at.clone()))
+            .collect();
+        // (The cleric's Ward is a domain's; a fighter's package's spells
+        // are no caster's.)
+        assert_eq!(
+            said,
+            [
+                ("classes.2da".to_string(), "row 2, SpellTableColumn".to_string()),
+                ("packsp_cl.2da".into(), "row 2, SpellIndex".into()),
+                ("packsp_mine.2da".into(), "row 1, SpellIndex".into()),
+            ],
+            "{f:#?}"
+        );
+        let bolt = f.iter().find(|f| f.at == "row 2, SpellIndex").unwrap();
+        assert!(bolt.message.contains("spell 1 (Bolt) is no spell of Cleric's"), "{bolt:?}");
+        // The game's own tables, whose package's spells a hak's spells.2da
+        // takes from the class: the game's table said once, and the fault
+        // the game's tables have already (its Bolt) not at all.
+        let mut game = MemContainer::new();
+        for (n, data) in [
+            ("classes", &classes[..]),
+            ("packages", &packages[..]),
+            ("spells", &spells[..]),
+            ("packsp_cl", &cl[..]),
+        ] {
+            game.insert(key(n, ResType::TWODA), data.to_vec());
+        }
+        let mut hak = MemContainer::new();
+        let fewer = b"2DA V2.0\n\n   Label Cleric Mine\n0  Aid **** ****\n1  Bolt **** 2\n\
+                      2  Ward 3 ****\n";
+        hak.insert(key("spells", ResType::TWODA), fewer.to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let said: Vec<&Finding> = f.iter().filter(|f| f.check == "2da-spells").collect();
+        // (Odd's column of none, the game's classes.2da's too, neither.)
+        assert_eq!(said.len(), 1, "{said:#?}");
+        assert_eq!(
+            (said[0].resource.to_string(), said[0].at.as_str()),
+            ("packsp_cl.2da".into(), "")
+        );
+        let message = &said[0].message;
+        assert!(
+            message.contains("learn 1 of the spells it prefers") && message.contains("(rows 0;")
         );
     }
 

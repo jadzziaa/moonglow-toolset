@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:19:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:34:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -265,27 +265,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
-  after 1.21.3: a table's cells in the module, a hak or a file, checked
-  as typed, with rows taken from another copy). Not done:
-  - Asked for by builders on 1.22.0 and 1.22.1 (October 2026), none
-    begun:
-    - **A table's description** (`name.2da.toml`: what each column
-      holds, lists from a script's constants, `mg 2da-check`; built
-      after 1.22.1 from a builder's workbook,
-      [the proposal](2da-editor-proposal.md#columns-that-say-what-they-hold-a-builders-spreadsheet-read)).
-      Not done:
-      - A plugin's `faults` (`mg.twoda.describe`'s) does not look
-        strings up: its talk tables would come from the plugin host,
-        `crates/mg-plugin`, which another package owned in the deferred
-        sprint of 2026-11-02 (left for that reason, not begun). (S)
-    - **A class's spell tables checked against `spells.2da`** (each
-      spell a class's table names is one the class can learn): Verify
-      Module holds the lists a class names to rows that exist, not to
-      what those rows allow. (M)
-    One builder's view, to weigh the rest by: a spreadsheet does most
-    of this already, and the editor earns its place on a module's own
-    tables (treasure, spawns), not on the game's.
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -1268,6 +1247,12 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
+  - **A table's description's `faults` looks no strings up**
+    (`mg.twoda.describe`): a `strref` column's string is not held to a
+    talk table, which would come from the plugin host. The last of the
+    2DA editor's entry (the rest done in the deferred sprint,
+    2026-11-02); left because `crates/mg-plugin` was another package's
+    that round, not begun. (S)
 
 ## NWSync publishing
 
