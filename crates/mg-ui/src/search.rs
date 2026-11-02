@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use egui::Ui;
 use mg_core::{Codepage, ResRef, ResType};
-use mg_edit::found::{self, Change};
+use mg_edit::found::{self, Change, Entry};
 use mg_edit::{Command, GffPath};
 use mg_module::search::{
     self, AppearanceOf, FieldValue, Hit, Object, PropertyParts, Query, Search, VarType,
@@ -242,11 +242,31 @@ pub enum Act {
     RemoveVariable,
     SetScript,
     SetField,
+    AddFeat,
+    RemoveFeat,
+    AddClass,
+    RemoveClass,
+    AddProperty,
+    RemoveProperty,
+    AddItem,
+    RemoveItem,
 }
 
 impl Act {
-    pub const ALL: [Act; 4] =
-        [Act::SetVariable, Act::RemoveVariable, Act::SetScript, Act::SetField];
+    pub const ALL: [Act; 12] = [
+        Act::SetVariable,
+        Act::RemoveVariable,
+        Act::SetScript,
+        Act::SetField,
+        Act::AddFeat,
+        Act::RemoveFeat,
+        Act::AddClass,
+        Act::RemoveClass,
+        Act::AddProperty,
+        Act::RemoveProperty,
+        Act::AddItem,
+        Act::RemoveItem,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -254,6 +274,14 @@ impl Act {
             Act::RemoveVariable => "Remove a variable",
             Act::SetScript => "Set an event's script",
             Act::SetField => "Set a field",
+            Act::AddFeat => "Add a feat",
+            Act::RemoveFeat => "Remove a feat",
+            Act::AddClass => "Add a class",
+            Act::RemoveClass => "Remove a class",
+            Act::AddProperty => "Add an item property",
+            Act::RemoveProperty => "Remove an item property",
+            Act::AddItem => "Add an item",
+            Act::RemoveItem => "Remove an item",
         }
     }
 }
@@ -269,6 +297,10 @@ pub struct ActDraft {
     pub value: String,
     /// The event (its field's label).
     pub event: Option<String>,
+    /// The entry added or removed: a feat, a class (its level, as
+    /// `levels.0`), an item property and its parts, picked as a
+    /// condition's are.
+    pub entry: Condition,
     /// What the last change did.
     pub said: Option<String>,
 }
@@ -281,14 +313,16 @@ impl Default for ActDraft {
             var_type: VarType::Int,
             value: String::new(),
             event: None,
+            entry: Condition { levels: (1, 1), ..Condition::default() },
             said: None,
         }
     }
 }
 
 impl ActDraft {
-    /// The change asked, or what it still needs.
-    pub fn change(&self) -> Result<Change, String> {
+    /// The change asked, or what it still needs (the game's data names a
+    /// feat, a class and an item property, and makes the property).
+    pub fn change(&self, game: Option<&GameData>) -> Result<Change, String> {
         let name = self.name.trim().to_string();
         let needs_name = |what: &str| {
             if name.is_empty() { Err(format!("Type the {what}")) } else { Ok(name.clone()) }
@@ -306,6 +340,68 @@ impl ActDraft {
             },
             Act::SetField => {
                 Change::SetField { label: needs_name("field's label")?, value: self.value.clone() }
+            }
+            Act::AddFeat | Act::RemoveFeat | Act::AddClass | Act::RemoveClass => {
+                let class = matches!(self.act, Act::AddClass | Act::RemoveClass);
+                let row =
+                    self.entry.row.ok_or(if class { "Choose a class" } else { "Choose a feat" })?;
+                let mut c = self.entry.clone();
+                c.kind = if class { Kind::Class } else { Kind::Feat };
+                let named = c.table().map(|t| choices(game, &t)).unwrap_or_default();
+                let name = mg_rules::choice_text(&named, row as i64);
+                let entry = if class {
+                    Entry::Class { class: row as i32, level: i16::from(self.entry.levels.0.max(1)) }
+                } else {
+                    Entry::Feat(row as u16)
+                };
+                let add = matches!(self.act, Act::AddFeat | Act::AddClass);
+                if add {
+                    Change::AddEntry { entry, name }
+                } else {
+                    Change::RemoveEntry { entry, name }
+                }
+            }
+            Act::AddProperty | Act::RemoveProperty => {
+                let game = game.ok_or("Item properties need the game's data")?;
+                let row = self.entry.row.ok_or("Choose a property")? as u16;
+                let t = game.property_type(row).ok_or("Not a property the game has")?;
+                let (subtype, value, param) = (
+                    self.entry.subtype.map(|s| s as u16),
+                    self.entry.cost.map(|v| v as u16),
+                    self.entry.param.map(|v| v as u8),
+                );
+                // Its first subtype, value and parameter, but those chosen.
+                let mut p = game.new_property(&t, 0);
+                if let Some(s) = subtype {
+                    p.subtype = s;
+                    p.param1 = game.property_param_table(&t, s).unwrap_or(255);
+                    p.param1_value = match p.param1 {
+                        255 => 0,
+                        table => game.property_params(table).first().map_or(0, |c| c.row as u8),
+                    };
+                }
+                if let Some(v) = value {
+                    p.cost_value = v;
+                }
+                if let Some(v) = param {
+                    p.param1_value = v;
+                }
+                let entry = Entry::Property { property: p, subtype, value, param };
+                if self.act == Act::AddProperty {
+                    Change::AddEntry { entry, name: game.property_text(&p) }
+                } else {
+                    Change::RemoveEntry { entry, name: t.name.clone() }
+                }
+            }
+            Act::AddItem | Act::RemoveItem => {
+                let name = needs_name("item blueprint's resref")?.to_ascii_lowercase();
+                let r = ResRef::from_str(&name).map_err(|e| format!("{name:?}: {e}"))?;
+                let entry = Entry::Item(r);
+                if self.act == Act::AddItem {
+                    Change::AddEntry { entry, name }
+                } else {
+                    Change::RemoveEntry { entry, name }
+                }
             }
         })
     }
@@ -543,7 +639,7 @@ impl Moonglow {
     /// Makes the window's change to what it found and ticked, in one
     /// step, then finds again.
     pub fn change_found(&mut self, draft: &mut AdvancedSearch) {
-        let change = match draft.act.change() {
+        let change = match draft.act.change(self.game.as_deref()) {
             Ok(c) => c,
             Err(e) => {
                 draft.act.said = Some(e);
@@ -556,7 +652,8 @@ impl Moonglow {
             return;
         }
         let cp = self.game.as_deref().map_or(Codepage::WINDOWS_1252, GameData::codepage);
-        let out = match found::edits(&ws.module, &draft.chosen(), &change, cp) {
+        let game = self.game.as_deref();
+        let out = match found::edits(&ws.module, &draft.chosen(), &change, cp, game) {
             Ok(out) => out,
             Err(e) => {
                 draft.act.said = Some(e);
@@ -970,7 +1067,7 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
 }
 
 /// The change to make, and its button; true when it is asked.
-fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize) -> bool {
+fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>) -> bool {
     let mut go = false;
     let a = &mut d.act;
     egui::Grid::new("advanced-search-act").num_columns(2).show(ui, |ui| {
@@ -1008,6 +1105,40 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize) -> bool {
                 edit(ui, &mut a.name, "its label, e.g. Appearance_Type");
                 ui.end_row();
             }
+            Act::AddFeat | Act::RemoveFeat | Act::AddClass | Act::RemoveClass => {
+                let class = matches!(a.act, Act::AddClass | Act::RemoveClass);
+                let kind = if class { Kind::Class } else { Kind::Feat };
+                if a.entry.kind != kind {
+                    (a.entry.kind, a.entry.row) = (kind, None);
+                }
+                crate::widgets::field_label(ui, if class { "Class" } else { "Feat" });
+                let table = a.entry.table().expect("a table");
+                row_picker(
+                    ui,
+                    "advanced-search-act-row",
+                    &choices(game, &table),
+                    &mut a.entry.row,
+                    None,
+                );
+                ui.end_row();
+                if a.act == Act::AddClass {
+                    crate::widgets::field_label(ui, "Level");
+                    ui.add(egui::DragValue::new(&mut a.entry.levels.0).range(1..=TOP_LEVEL))
+                        .on_hover_text("The class's level on each creature it is added to");
+                    ui.end_row();
+                }
+            }
+            Act::AddProperty | Act::RemoveProperty => {
+                if a.entry.kind != Kind::ItemProperty {
+                    (a.entry.kind, a.entry.row) = (Kind::ItemProperty, None);
+                }
+                condition_ui(ui, &mut a.entry, game, "-act");
+            }
+            Act::AddItem | Act::RemoveItem => {
+                crate::widgets::field_label(ui, "Item");
+                edit(ui, &mut a.name, "its blueprint's resref, e.g. nw_it_torch001");
+                ui.end_row();
+            }
         }
         if a.act == Act::SetVariable {
             crate::widgets::field_label(ui, "Type");
@@ -1023,7 +1154,7 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize) -> bool {
             ui.end_row();
         }
     });
-    let ok = a.change();
+    let ok = a.change(game);
     ui.horizontal(|ui| {
         let button = egui::Button::new(format!("Change {n} Found"));
         go = ui
@@ -1134,7 +1265,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             egui::CollapsingHeader::new(format!("Change the {n} ticked"))
                 .id_salt("advanced-search-change")
-                .show(ui, |ui| change = act_ui(ui, &mut draft, n));
+                .show(ui, |ui| change = act_ui(ui, &mut draft, n, app.game.as_deref()));
             egui::CollapsingHeader::new(format!("Edit the {n} ticked together"))
                 .id_salt("advanced-search-together")
                 .show(ui, |ui| {

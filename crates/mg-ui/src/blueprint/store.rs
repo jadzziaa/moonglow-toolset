@@ -21,7 +21,7 @@ pub(super) const PAGES: [&str; 5] = ["Basic", "Inventory", "Advanced", "Restrict
 pub(crate) use mg_rules::rows::STORE_PAGES;
 
 /// The `StoreList` struct id of each baseitems.2da `StorePanel`.
-pub(super) const PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];
+pub(super) const PANEL_PAGE: [u32; 5] = mg_edit::lists::STORE_PANEL_PAGE;
 
 /// The struct id of `WillNotBuy` and `WillOnlyBuy` items.
 const BASE_ITEM_ID: u32 = mg_schema::utm::WILL_NOT_BUY.item_id;

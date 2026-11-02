@@ -833,3 +833,49 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
     assert_eq!(given[0], before[0]);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add feat"));
 }
+
+/// Advanced Search's Add an Item and Remove an Item, through the same
+/// rules as the Inventory page: a torch added to each chest found, at its
+/// own first free place (beside what it holds), and every longsword
+/// taken.
+#[test]
+fn advanced_search_adds_an_item_to_each_inventory_found() {
+    use mg_edit::found::{self, Change, Entry};
+    use mg_module::search::{Query, Search};
+    let tweak = |i: usize, p: &mut Struct, _: &mg_rules::GameData| {
+        p.set("HasInventory", Value::Byte(1));
+        let items = if i == 0 { vec![held_entry("nw_wswls001", 0)] } else { Vec::new() };
+        p.set("ItemList", Value::List(items));
+    };
+    let Some((mut h, keys)) = together("plc_chest1", ResType::UTP, 2, "Basic", tweak) else {
+        return;
+    };
+    let game = h.state().game.clone().unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let q = Query::new(Search::Field { label: Some("HasInventory".into()), value: None });
+    let hits = mg_module::search::search(&ws.module, &q, Some(&game), game.codepage());
+    let hits: Vec<_> = hits.iter().collect();
+    assert_eq!(hits.len(), 2);
+    let torch = ResRef::from_str("nw_it_torch001").unwrap();
+    let add = Change::AddEntry { entry: Entry::Item(torch), name: "torch".into() };
+    let out = found::edits(&ws.module, &hits, &add, game.codepage(), Some(&game)).unwrap();
+    assert_eq!(out.changed, 2);
+    ws.apply(mg_edit::Command::new(add.describe(), out.edits)).unwrap();
+    let items = each(&mut h, &keys, |s| held_items(s, "ItemList"));
+    assert_eq!(items, [vec!["nw_wswls001", "nw_it_torch001"], vec!["nw_it_torch001"]]);
+    let first = field(&mut h, &keys[0]);
+    let placed = &first.list("ItemList").unwrap()[1];
+    assert_ne!(placed.integer("Repos_PosX"), Some(0), "beside the longsword");
+    let sword = ResRef::from_str("nw_wswls001").unwrap();
+    let remove = Change::RemoveEntry { entry: Entry::Item(sword), name: "longsword".into() };
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let hits = mg_module::search::search(&ws.module, &q, Some(&game), game.codepage());
+    let hits: Vec<_> = hits.iter().collect();
+    let out = found::edits(&ws.module, &hits, &remove, game.codepage(), Some(&game)).unwrap();
+    assert_eq!(out.changed, 1);
+    ws.apply(mg_edit::Command::new(remove.describe(), out.edits)).unwrap();
+    let items = each(&mut h, &keys, |s| held_items(s, "ItemList"));
+    assert_eq!(items, [vec!["nw_it_torch001"], vec!["nw_it_torch001"]]);
+}

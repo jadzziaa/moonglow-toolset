@@ -471,6 +471,89 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.get_by_label("Edit 1 Together");
 }
 
+/// Advanced Search's changes to lists, through Edit Together's rules
+/// (`docs/lists-together-proposal.md`): a feat added to the fighters
+/// found (where they lack it), taken from them, a class added at a level,
+/// and their only class kept, said; each one step.
+#[test]
+fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Act, Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-lists");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let fighter = |tag: &str, feat: bool| {
+        let mut class = Struct::new(2);
+        class.set("Class", Value::Int(4));
+        class.set("ClassLevel", Value::Short(5));
+        let mut c = Struct::new(4);
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        c.set("ClassList", Value::List(vec![class]));
+        let mut f = Struct::new(1);
+        f.set("Feat", Value::Word(0));
+        c.set("FeatList", Value::List(if feat { vec![f] } else { Vec::new() }));
+        c
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let creatures = vec![fighter("GUARD", true), fighter("CAPTAIN", false)];
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = window_harness(app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    let list = |h: &mut Harness<'_, Moonglow>, label: &str, field: &str| -> Vec<Vec<i64>> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        let g = ws.module.gff(&start).unwrap().unwrap();
+        let all = g.root.list("Creature List").unwrap().to_vec();
+        all.iter()
+            .map(|c| c.list(label).unwrap_or(&[]).iter().filter_map(|e| e.integer(field)).collect())
+            .collect()
+    };
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Class, row: Some(4), ..Default::default() };
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 found:");
+    h.get_by_label("Change the 2 ticked").click();
+    h.run();
+    let act = |h: &mut Harness<'_, Moonglow>, act: Act, row: usize| {
+        // (The kind of row chosen first: a new kind starts with none.)
+        h.state_mut().advanced_search.act.act = act;
+        h.run();
+        h.state_mut().advanced_search.act.entry.row = Some(row);
+        h.run();
+        h.get_by_label("Change 2 Found").click();
+        h.run_steps(3);
+    };
+    // Feat 0: added to the captain, who lacks it; the guard has it.
+    act(&mut h, Act::AddFeat, 0);
+    assert_eq!(list(&mut h, "FeatList", "Feat"), [vec![0], vec![0]]);
+    assert!(h.query_by_label_contains("has it already").is_some());
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(list(&mut h, "FeatList", "Feat"), [vec![0], vec![]], "one step");
+    act(&mut h, Act::RemoveFeat, 0);
+    assert_eq!(list(&mut h, "FeatList", "Feat"), [Vec::<i64>::new(), vec![]]);
+    // A rogue at level 3 for both; the fighter class, their only one, kept.
+    h.state_mut().advanced_search.act.entry.levels.0 = 3;
+    act(&mut h, Act::AddClass, 8);
+    assert_eq!(list(&mut h, "ClassList", "Class"), [vec![4, 8], vec![4, 8]]);
+    assert_eq!(list(&mut h, "ClassList", "ClassLevel"), [vec![5, 3], vec![5, 3]]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    act(&mut h, Act::RemoveClass, 4);
+    assert_eq!(list(&mut h, "ClassList", "Class"), [vec![4], vec![4]]);
+    assert!(h.query_by_label_contains("its only class").is_some());
+}
+
 /// Advanced Search with a condition ticked Not (fighters without a feat),
 /// then any of its conditions (fighters, or what has the feat): the row
 /// says Not, Or, And as it is, and the window asks all or any.
