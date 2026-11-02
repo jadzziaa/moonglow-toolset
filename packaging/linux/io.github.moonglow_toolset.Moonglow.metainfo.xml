@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.4.0" date="2026-11-02">
+      <description>
+        <p>Page Up and Page Down move the selected objects to the next
+        surface above or below them: a placeable's top, such as a
+        stall's counter, a floor or the ground. Adjust Location shows its
+        changes in the area view as they are typed. The module tree
+        stays where it was when an area or a Properties window closes,
+        and the kinds under an area close again while the Filter is
+        typed.</p>
+      </description>
+    </release>
     <release version="3.3.0" date="2026-11-02">
       <description>
         <p>Moonglow installs its own updates, checked against the
