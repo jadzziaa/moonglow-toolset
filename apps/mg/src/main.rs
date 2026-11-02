@@ -4481,9 +4481,26 @@ fn make_fixes(
     m: &Module,
     found: &[mg_edit::fix::Found],
     asked: &Fixes<'_>,
+    declared: &[String],
     out: &mut Output,
 ) -> Result<(Vec<usize>, serde_json::Value, Vec<String>)> {
     use mg_edit::fix::Guard;
+    // A check no one has (mistyped, or a plugin's not given): an error, so
+    // that a pipeline does not read it as "nothing to fix". One there is
+    // whose findings have no fix: said, and nothing to do.
+    let known = |c: &str| {
+        mg_module::doctor::Check::ALL.iter().any(|k| k.id() == c) || declared.iter().any(|d| d == c)
+    };
+    if let Some(check) = asked.checks.iter().find(|c| !known(c)) {
+        let theirs = if declared.is_empty() {
+            " (a plugin's check is its id, a slash and the check's, of a plugin --plugins names \
+             or the project's)"
+                .to_string()
+        } else {
+            format!(" (the plugins' are {})", declared.join(", "))
+        };
+        bail!("--fix {check}: there is no such check{theirs}");
+    }
     let chosen: Vec<(usize, &mg_edit::fix::Fix)> = found
         .iter()
         .enumerate()
@@ -4492,8 +4509,21 @@ fn make_fixes(
         .collect();
     for check in asked.checks {
         if !chosen.iter().any(|(i, _)| found[*i].finding.check == *check) {
-            out.note(format!("warning: --fix {check}: no finding of that check has a fix"));
+            out.note(format!("--fix {check}: no finding of that check has a fix"));
         }
+    }
+    // (A fix that asks runs a plugin's command, which asks the user: not
+    // here.)
+    let (chosen, asking): (Vec<_>, Vec<_>) =
+        chosen.into_iter().partition(|(_, f)| f.asks.is_none());
+    for (i, fix) in &asking {
+        let f = &found[*i].finding;
+        let asks = fix.asks.as_ref().map(|a| a.command.as_str()).unwrap_or_default();
+        out.note(format!(
+            "warning: not fixed: {} › {}: {:?} asks (the plugin's command {asks}): make it in \
+             the window, or run the command with mg plugin run",
+            f.check, f.resource, fix.label
+        ));
     }
     let mut guard = Guard::new(m, chosen.iter().map(|(_, f)| *f));
     let mut ws = mg_edit::Workspace::new(m.clone());
@@ -4591,10 +4621,12 @@ fn verify(
     let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
+    let mut declared = Vec::new();
     let theirs = if skip.group(Group::Plugins) {
         Vec::new()
     } else {
-        times.time("plugins", || plugins::findings(gi, &m, plugins, skip, &mut out))?
+        times
+            .time("plugins", || plugins::findings(gi, &m, plugins, skip, &mut out, &mut declared))?
     };
     findings.extend(theirs.iter().map(|f| f.finding.clone()));
     skip.leave_out(&mut missing, &mut findings);
@@ -4604,7 +4636,7 @@ fn verify(
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {
-        make_fixes(&m, &found, asked, &mut out)?
+        make_fixes(&m, &found, asked, &declared, &mut out)?
     };
     let findings: Vec<&mg_module::doctor::Finding> = found.iter().map(|f| &f.finding).collect();
     let errors = missing.iter().filter(|x| x.is_error()).count()

@@ -246,6 +246,8 @@ pub enum Action {
     /// Makes the fix offered beside this line of the log (a finding of
     /// Verify Module's), as one undoable command.
     ApplyFix(usize),
+    /// Every fix offered of a check (by its id), as one step of Undo.
+    ApplyFixesOf(String),
     /// Opens a resource's editor, as a double click in the module tree
     /// does: a script in the external editor too, if Options say so.
     OpenResource(ResKey),
@@ -451,8 +453,15 @@ pub struct OfferedFix {
     pub line: usize,
     pub text: String,
     pub fix: mg_edit::fix::Fix,
-    /// Made already.
+    /// Made already (and not undone since).
     pub made: bool,
+    /// The check whose finding it fixes (Fix All of it).
+    pub check: String,
+    /// The step of Undo it was made as, and what making it changed of
+    /// the guard: its Undo takes both back, and its button is offered
+    /// again.
+    pub step: Option<u64>,
+    pub record: Option<mg_edit::fix::Made>,
 }
 
 impl Log {
@@ -2844,6 +2853,16 @@ impl Moonglow {
                     ui.scroll_with_delta_animation(egui::vec2(0.0, scroll), now);
                 }
                 let mut clicked = None;
+                let mut fix_all = None;
+                // (Fix All beside the first fix of a check with several
+                // to make.)
+                let mut firsts: Vec<(usize, String, usize)> = Vec::new();
+                for o in self.log.fixes.iter().filter(|o| !o.made && o.fix.asks.is_none()) {
+                    match firsts.iter_mut().find(|(_, c, _)| *c == o.check) {
+                        Some(f) => f.2 += 1,
+                        None => firsts.push((o.line, o.check.clone(), 1)),
+                    }
+                }
                 // Only the lines in sight are laid out (a Verify of a large
                 // module says thousands): the others take the room they
                 // took when last drawn, or a line's if never, together.
@@ -2897,9 +2916,24 @@ impl Moonglow {
                         let button = ui.add(egui::Button::new(&offer.fix.label).small());
                         let resources: Vec<String> =
                             offer.fix.resources().iter().map(ToString::to_string).collect();
-                        let hint = format!("Changes {} (one step to undo)", resources.join(", "));
+                        let hint = match &offer.fix.asks {
+                            Some(a) => format!("Runs the plugin's command {} on it", a.command),
+                            None => format!("Changes {} (one step to undo)", resources.join(", ")),
+                        };
                         if button.on_hover_text(hint).clicked() {
                             clicked = Some(i);
+                        }
+                        if let Some((_, check, n)) =
+                            firsts.iter().find(|(l, _, n)| *l == i && *n > 1)
+                        {
+                            let all = ui
+                                .add(egui::Button::new(format!("Fix All ({n})")).small())
+                                .on_hover_text(format!(
+                                    "Every finding of {check} that has a fix, as one step of Undo"
+                                ));
+                            if all.clicked() {
+                                fix_all = Some(check.clone());
+                            }
                         }
                     });
                     heights[i] = ui.cursor().top() - before;
@@ -2908,6 +2942,9 @@ impl Moonglow {
                     ui.add_space(skipped);
                 }
                 self.log.rows = heights;
+                if let Some(check) = fix_all {
+                    self.actions.push(Action::ApplyFixesOf(check));
+                }
                 if let Some(line) = clicked {
                     self.actions.push(Action::ApplyFix(line));
                 }
@@ -3628,8 +3665,10 @@ impl Moonglow {
                         blueprint::follow::retarget(self, followed);
                         self.scripts.clear();
                         // (A plugin's haks written with it, before the
-                        // module's haks are layered again.)
+                        // module's haks are layered again; Verify's fixes
+                        // made as it.)
                         self.plugin_haks_follow(step, redo);
+                        self.fixes_follow(step, redo);
                         self.sync_haks();
                         self.log.info(format!(
                             "{} {label}",
@@ -3650,6 +3689,7 @@ impl Moonglow {
             }
             Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
             Action::ApplyFix(line) => self.apply_fix(line),
+            Action::ApplyFixesOf(check) => self.apply_fixes_of(&check),
             Action::NewNui(name) => nui_view::create(self, &name),
             Action::ImportNui => nui_view::import(self),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
@@ -5144,27 +5184,97 @@ impl Moonglow {
     /// ([`mg_edit::fix::Guard`]); else the log says to verify again.
     fn apply_fix(&mut self, line: usize) {
         let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return };
-        let Some(ws) = self.ws.as_mut() else { return };
+        // A fix that asks: the plugin's command, run on what the finding
+        // is about (its edits are its own step, as a command's are).
+        if let Some(asks) = &offer.fix.asks {
+            let selected = (asks.on.iter())
+                .map(|(key, path)| crate::plugins::selected_at(*key, path))
+                .collect();
+            self.actions.push(Action::RunPluginCommand {
+                plugin: asks.plugin.clone(),
+                command: asks.command.clone(),
+                selected,
+            });
+            return;
+        }
+        if self.make_fix(line) {
+            let resources: Vec<String> =
+                offer.fix.resources().iter().map(|k| k.to_string()).collect();
+            self.log.info(format!("Fixed: {} ({})", offer.fix.label, resources.join(", ")));
+        }
+    }
+
+    /// Makes the fix offered beside line `line`, as a command of its own:
+    /// whether it was made (else the log says why).
+    fn make_fix(&mut self, line: usize) -> bool {
+        let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return false };
+        let Some(ws) = self.ws.as_mut() else { return false };
         // (Its paths following what other fixes took out.)
         let now = match self.log.fix_guard.check(ws, &offer.fix) {
             Ok(now) => now,
             Err(why) => {
                 self.log.error(format!("{}: {why}", offer.fix.label));
-                return;
+                return false;
             }
         };
         if let Err(e) = self.apply(now.command()) {
             self.log.error(format!("{}: {e}", offer.fix.label));
-            return;
+            return false;
         }
-        if let Some(ws) = self.ws.as_mut() {
-            self.log.fix_guard.made(ws, &offer.fix);
-        }
+        let Some(ws) = self.ws.as_mut() else { return false };
+        let step = ws.last_step();
+        let record = self.log.fix_guard.made(ws, &offer.fix);
         if let Some(o) = self.log.fixes.iter_mut().find(|o| o.line == line) {
             o.made = true;
+            o.step = step;
+            o.record = Some(record);
         }
-        let resources: Vec<String> = offer.fix.resources().iter().map(|k| k.to_string()).collect();
-        self.log.info(format!("Fixed: {} ({})", offer.fix.label, resources.join(", ")));
+        true
+    }
+
+    /// Makes every fix offered of check `check` (that edits), as one step
+    /// of Undo.
+    fn apply_fixes_of(&mut self, check: &str) {
+        let lines: Vec<usize> = (self.log.fixes.iter())
+            .filter(|o| o.check == check && !o.made && o.fix.asks.is_none())
+            .map(|o| o.line)
+            .collect();
+        let made: Vec<usize> = lines.into_iter().filter(|l| self.make_fix(*l)).collect();
+        let Some(ws) = self.ws.as_mut() else { return };
+        if made.len() > 1 && ws.join_last(made.len(), format!("Fix All: {check}")) {
+            let step = ws.last_step();
+            for o in self.log.fixes.iter_mut().filter(|o| made.contains(&o.line)) {
+                o.step = step;
+            }
+        }
+        self.log.info(format!("Fixed {} of {check}'s findings (one step to undo)", made.len()));
+    }
+
+    /// After Undo (`redo`: Redo) of step `step`: the fixes made as it are
+    /// offered again (their guard as before them), or made again.
+    pub(crate) fn fixes_follow(&mut self, step: Option<u64>, redo: bool) {
+        let Some(step) = step else { return };
+        let at: Vec<usize> = (self.log.fixes.iter().enumerate())
+            .filter(|(_, o)| o.step == Some(step))
+            .map(|(i, _)| i)
+            .collect();
+        if redo {
+            for i in at {
+                let fix = self.log.fixes[i].fix.clone();
+                let Some(ws) = self.ws.as_mut() else { return };
+                let record = self.log.fix_guard.made(ws, &fix);
+                let o = &mut self.log.fixes[i];
+                (o.made, o.record) = (true, Some(record));
+            }
+        } else {
+            for i in at.into_iter().rev() {
+                let o = &mut self.log.fixes[i];
+                o.made = false;
+                if let Some(record) = o.record.take() {
+                    self.log.fix_guard.unmade(&record);
+                }
+            }
+        }
     }
 
     /// Verify Module, as a job: what is missing, and what is wrong with the
@@ -5290,7 +5400,19 @@ impl Moonglow {
                 for (level, text, fix) in verify_report_fixes(&missing, &found) {
                     if let Some(fix) = fix {
                         let line = app.log.entries.len();
-                        let offer = OfferedFix { line, text: text.clone(), fix, made: false };
+                        let check = (found.iter())
+                            .find(|x| x.fix.as_ref() == Some(&fix))
+                            .map(|x| x.finding.check.to_string())
+                            .unwrap_or_default();
+                        let offer = OfferedFix {
+                            line,
+                            text: text.clone(),
+                            fix,
+                            made: false,
+                            check,
+                            step: None,
+                            record: None,
+                        };
                         app.log.fixes.push(offer);
                     }
                     match level {

@@ -20,11 +20,26 @@ use mg_resman::ResKey;
 
 use crate::{Command, Edit, GffPath, Step, Workspace};
 
-/// A finding's fix: what its button says, and the edits it makes.
+/// A finding's fix: what its button says, and the edits it makes; or,
+/// for one that asks the user first, the plugin's command its button runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fix {
     pub label: String,
     pub edits: Vec<Edit>,
+    /// A fix that asks (a form, a choice) is a plugin's command, run on
+    /// what the finding is about when the button is clicked, its edits
+    /// one step of Undo as a command's are. None: its edits are the fix.
+    pub asks: Option<Asks>,
+}
+
+/// The command a fix that asks runs: the plugin's id, the command's, and
+/// what it runs on (each a resource and where in it, as a plugin's
+/// selection has it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asks {
+    pub plugin: String,
+    pub command: String,
+    pub on: Vec<(ResKey, GffPath)>,
 }
 
 impl Fix {
@@ -147,7 +162,7 @@ fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> 
     });
     let v = found.into_iter().nth(nth)?;
     let edits = vec![Edit::remove_item(f.resource, v.path, "VarTable", v.index)];
-    Some(Fix { label: REMOVE_VARIABLE.into(), edits })
+    Some(Fix { label: REMOVE_VARIABLE.into(), edits, asks: None })
 }
 
 /// `static-transform`: the static placeable's visual transform off, as
@@ -177,7 +192,7 @@ fn untransform_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
             value,
         })
         .collect();
-    (!edits.is_empty()).then(|| Fix { label: TAKE_TRANSFORM_OFF.into(), edits })
+    (!edits.is_empty()).then(|| Fix { label: TAKE_TRANSFORM_OFF.into(), edits, asks: None })
 }
 
 /// `tag-unique`: the places of the tag the finding is about (found as the
@@ -223,7 +238,7 @@ fn retag_fix(index: &TagIndex, f: &Finding) -> Option<Fix> {
         [one] => format!("Retag the other as {one}"),
         many => format!("Retag the other {} ({}…)", many.len(), many[0]),
     };
-    Some(Fix { label, edits })
+    Some(Fix { label, edits, asks: None })
 }
 
 /// An area's variables as they are once moved from its ARE to its GIT:
@@ -263,7 +278,7 @@ fn move_variables_fix(module: &Module, are: ResKey) -> Option<Fix> {
     };
     let edits =
         vec![set(git, Some(Value::List(variables_moved(&in_git, &in_are)))), set(are, None)];
-    Some(Fix { label: "Move the variables to the GIT".into(), edits })
+    Some(Fix { label: "Move the variables to the GIT".into(), edits, asks: None })
 }
 
 /// A resource's bytes as a number to compare (`None`: the module has no
@@ -274,6 +289,15 @@ fn digest(bytes: Option<&[u8]>) -> Option<u64> {
         b.hash(&mut h);
         h.finish()
     })
+}
+
+/// What making a fix changed of a [`Guard`], to take back when the fix is
+/// undone ([`Guard::unmade`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Made {
+    /// Each resource's digest before (none: not held).
+    seen: Vec<(ResKey, Option<Option<u64>>)>,
+    removed: Vec<((ResKey, GffPath, String), usize)>,
 }
 
 /// What a Verify's fixes were worked out on: each resource one of them
@@ -362,7 +386,7 @@ impl Guard {
                 Edit::SetResource { .. } => e.clone(),
             });
         }
-        Ok(Fix { label: fix.label.clone(), edits })
+        Ok(Fix { label: fix.label.clone(), edits, asks: fix.asks.clone() })
     }
 
     /// Where a path Verify read leads now that fixes took items out (none:
@@ -393,21 +417,47 @@ impl Guard {
     /// they are now are those the other fixes may find, if it only set
     /// fields and took items out (which they follow); else they refuse
     /// them.
-    pub fn made(&mut self, ws: &mut Workspace, fix: &Fix) {
+    pub fn made(&mut self, ws: &mut Workspace, fix: &Fix) -> Made {
         let flushed = ws.flush().is_ok();
         let follows = flushed && fix.sets_fields_only();
+        let mut made = Made::default();
         for key in fix.resources() {
-            if follows {
-                self.seen.insert(key, digest(ws.module.get(&key)));
+            let was = if follows {
+                self.seen.insert(key, digest(ws.module.get(&key)))
             } else {
-                self.seen.remove(&key);
-            }
+                self.seen.remove(&key)
+            };
+            made.seen.push((key, was));
         }
         if follows {
             for e in &fix.edits {
                 if let Edit::RemoveItem { key, path, list, index } = e {
-                    let r = self.removed.entry((*key, path.clone(), list.clone())).or_default();
-                    r.push(*index);
+                    let at = (*key, path.clone(), list.clone());
+                    self.removed.entry(at.clone()).or_default().push(*index);
+                    made.removed.push((at, *index));
+                }
+            }
+        }
+        made
+    }
+
+    /// Takes back what [`Guard::made`] noted of a fix, once the fix is
+    /// undone (its resources as Verify read them again): it may be made
+    /// again, and the other fixes there follow as before it.
+    pub fn unmade(&mut self, made: &Made) {
+        for (key, was) in made.seen.iter().rev() {
+            match was {
+                Some(d) => self.seen.insert(*key, *d),
+                None => self.seen.remove(key),
+            };
+        }
+        for (at, index) in &made.removed {
+            if let Some(r) = self.removed.get_mut(at) {
+                if let Some(i) = r.iter().rposition(|x| x == index) {
+                    r.remove(i);
+                }
+                if r.is_empty() {
+                    self.removed.remove(at);
                 }
             }
         }
@@ -535,11 +585,13 @@ mod tests {
                 label: "Tag".into(),
                 value: Some(Value::String(tag.as_bytes().to_vec())),
             }],
+            asks: None,
         };
         let (a, b, c) = (set("inn", "A"), set("inn", "B"), set("mill", "C"));
         let removal = Fix {
             label: "Remove".into(),
             edits: vec![Edit::remove_item(key("mill.git"), GffPath::root(), "StoreList", 0)],
+            asks: None,
         };
         let inserted = Fix {
             label: "Insert".into(),
@@ -550,6 +602,7 @@ mod tests {
                 0,
                 tagged("X"),
             )],
+            asks: None,
         };
         let mut guard = Guard::new(&m, [&a, &b, &c, &removal, &inserted]);
         let mut ws = Workspace::new(m);
@@ -702,7 +755,7 @@ mod tests {
     fn the_plugins_fixes_go_with_their_findings() {
         let m = module();
         let mine = finding("mine/rule", "inn.git", "here");
-        let fix = Fix { label: "Do it".into(), edits: Vec::new() };
+        let fix = Fix { label: "Do it".into(), edits: Vec::new(), asks: None };
         let plugins = [Found { finding: mine.clone(), fix: Some(fix.clone()) }];
         let found = attach(&m, vec![finding("other", "inn.git", ""), mine], &plugins);
         assert_eq!(found[0].fix, None);

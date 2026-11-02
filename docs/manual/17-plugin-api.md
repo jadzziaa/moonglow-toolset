@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
 ---
 
 # Plugin API reference
@@ -88,7 +88,7 @@ command's and other events' do not):
 
 | | |
 | --- | --- |
-| `ctx.fix(label)` | A fix to give a finding (`fix = …`), or a warning or a refusal of a save (`ctx.event:warn(text, fix)`): `label` is what its button says ("Upper-case this tag"). Called with a dot. |
+| `ctx.fix(label, asks?)` | A fix to give a finding (`fix = …`), or a warning or a refusal of a save (`ctx.event:warn(text, fix)`): `label` is what its button says ("Upper-case this tag"). Called with a dot. With `asks` (a finding's alone; since API 0.5), `{ command = "retag", on = s? }`, it is a fix that asks: its button runs the plugin's command `command` (one its manifest declares) on `on` (an entry with `resource` and `path`, as `ctx.selection`'s; left out, the finding's resource), whose form asks what it needs; it records no edits. |
 | `fix.label` | Its label. |
 | `fix:set`, `fix:remove`, `fix:insert`, `fix:remove_item`, `fix:write`, `fix:write_bytes`, `fix:write_gff`, `fix:delete` | As `ctx.edit`'s (below), with the same arguments: each records an edit of the fix. Nothing is changed: the user makes the fix (Verify's button, `mg verify --fix`), as one step of Undo named by its label. |
 
@@ -97,8 +97,10 @@ apply to it alone: the check's reads (`ctx.module`) and the other fixes
 do not see them; a fix's later edits see its earlier ones. A fix with no
 edits is none. A fix is made only while the resources it changes are as
 the check read them (else the user is told to verify again), or changed
-since only by fixes of the same Verify that set fields. A fix asks the
-user nothing.
+since only by fixes of the same Verify that set fields. A fix that edits
+asks the user nothing; one that asks runs a command, whose edits are its
+own step of Undo, as a command's are (since API 0.5). Undo of a fix
+offers its button again (since Moonglow 3.3.0).
 
 ### Typed values
 

@@ -231,6 +231,15 @@ fn verify_warns_of_a_unique_tag_on_two_objects() {
     assert!(!json["findings"].as_array().unwrap().iter().any(|f| f["check"] == "tag-unique"));
     let said = json["notes"].to_string();
     assert!(said.contains("--fix tag-unique: no finding of that check has a fix"), "{said}");
+    // A check there is none of (mistyped): it fails, for a pipeline.
+    let out = crate::mg_on(&root, None)
+        .args(["--json", "verify", "--fix", "tag-uniq"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("--fix tag-uniq: there is no such check"));
     // Only with a check named.
     let none = crate::mg().args(["verify", "--dry-run"]).arg(&dir).output().unwrap();
     assert!(!none.status.success());

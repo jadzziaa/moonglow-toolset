@@ -1636,7 +1636,7 @@ fn event_table(
                         return fail(format!("ctx.event:{name}(text): say why"));
                     }
                     let what = format!("ctx.event:{name}'s fix");
-                    let fix = fix_of(&records, fix, &what)?;
+                    let fix = fix_of(&records, fix, &what, None)?;
                     said.borrow_mut().push(crate::Said { resource: key, text, refused, fix });
                     Ok(())
                 })?,
@@ -1759,6 +1759,9 @@ pub(crate) fn run_event(
 struct FixRecord {
     label: String,
     job: Option<Rc<Shared>>,
+    /// For a fix that asks: the plugin's command its button runs, and on
+    /// what (a resource and where in it; none: the finding's resource).
+    asks: Option<(String, Option<(ResKey, GffPath)>)>,
 }
 
 /// The methods of a fix: those of `ctx.edit`, as the reference writes them.
@@ -1783,12 +1786,35 @@ fn fix_maker(
     records: &Rc<RefCell<Vec<FixRecord>>>,
 ) -> mlua::Result<Function> {
     let (sh, records) = (sh.clone(), records.clone());
-    lua.create_function(move |lua, label: String| {
+    lua.create_function(move |lua, (label, options): (String, Option<Table>)| {
         if label.trim().is_empty() {
             return fail("ctx.fix(label): the label is what its button says, and needs words");
         }
+        // (A fix that asks: a command of the plugin's, run on the finding's
+        // place when the button is clicked; API 0.5.)
+        let asks = match &options {
+            None => None,
+            Some(o) => {
+                let command: String = o.get("command").or_else(|_| {
+                    fail("ctx.fix(label, { command = \"…\" }): the command its button runs")
+                })?;
+                let on = match o.get::<Option<Table>>("on")? {
+                    None => None,
+                    Some(s) => {
+                        let resource: String = s.get("resource")?;
+                        let path: Option<String> = s.get("path")?;
+                        let path = match path.as_deref() {
+                            None | Some("") => GffPath::root(),
+                            Some(p) => p.parse().or_else(fail)?,
+                        };
+                        Some((key_of(&resource)?, path))
+                    }
+                };
+                Some((command, on))
+            }
+        };
         let n = records.borrow().len();
-        records.borrow_mut().push(FixRecord { label: label.clone(), job: None });
+        records.borrow_mut().push(FixRecord { label: label.clone(), job: None, asks });
         let fix = lua.create_table()?;
         fix.set("label", label)?;
         let meta = lua.create_table()?;
@@ -1825,11 +1851,13 @@ fn fix_maker(
 }
 
 /// A fix given with a finding or a warning: one made with `ctx.fix`, and
-/// only if it edits (`what`: what it was given as, for the error).
+/// only if it edits (`what`: what it was given as, for the error), or (a
+/// finding's, `about` its resource; `plugin` the plugin) runs a command.
 fn fix_of(
     records: &RefCell<Vec<FixRecord>>,
     given: LuaValue,
     what: &str,
+    asking: Option<(&Manifest, ResKey)>,
 ) -> mlua::Result<Option<Fix>> {
     match given {
         LuaValue::Nil => Ok(None),
@@ -1842,10 +1870,39 @@ fn fix_of(
             let Some(record) = n.and_then(|n| all.get(n)) else {
                 return fail(format!("{what} is one made with ctx.fix(label)"));
             };
+            if let Some((command, on)) = &record.asks {
+                let Some((manifest, about)) = asking else {
+                    return fail(format!(
+                        "{what} is one that edits: a fix that asks is a finding's"
+                    ));
+                };
+                if !manifest.commands.iter().any(|c| c.id == *command) {
+                    return fail(format!(
+                        "{what}: the manifest declares no command {command:?} for it to run"
+                    ));
+                }
+                if record.job.as_ref().is_some_and(|j| !j.edits.borrow().is_empty()) {
+                    return fail(format!(
+                        "{what}: a fix that asks runs its command, and edits none"
+                    ));
+                }
+                let on = on.clone().unwrap_or((about, GffPath::root()));
+                return Ok(Some(Fix {
+                    label: record.label.clone(),
+                    edits: Vec::new(),
+                    asks: Some(mg_edit::fix::Asks {
+                        plugin: manifest.id.clone(),
+                        command: command.clone(),
+                        on: vec![on],
+                    }),
+                }));
+            }
             let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
-            Ok(edits
-                .filter(|e| !e.is_empty())
-                .map(|edits| Fix { label: record.label.clone(), edits }))
+            Ok(edits.filter(|e| !e.is_empty()).map(|edits| Fix {
+                label: record.label.clone(),
+                edits,
+                asks: None,
+            }))
         }
         _ => fail(format!("{what} is one made with ctx.fix(label)")),
     }
@@ -1884,13 +1941,16 @@ pub(crate) fn run_check(
                     ));
                 }
             };
-            // Its fix: one made with ctx.fix, and only if it edits.
-            let fix = fix_of(&records, f.get::<LuaValue>("fix")?, "a finding's fix")?;
+            // Its fix: one made with ctx.fix, and only if it edits (or
+            // asks, running a command).
+            let resource = key_of(&f.get::<String>("resource")?)?;
+            let asking = Some((&plugin.manifest, resource));
+            let fix = fix_of(&records, f.get::<LuaValue>("fix")?, "a finding's fix", asking)?;
             let finding = Finding {
                 severity,
                 check: plugin.check_id(&decl.id).into(),
                 source: "module".into(),
-                resource: key_of(&f.get::<String>("resource")?)?,
+                resource,
                 at: f.get::<Option<String>>("at")?.unwrap_or_default(),
                 message: f.get("message")?,
             };

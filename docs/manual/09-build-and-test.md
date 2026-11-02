@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
 ---
 
 # Build, verify and test
@@ -352,7 +352,9 @@ makes a Verify of a module with many haks much quicker, and the JSON's
 took.
 A finding's `fix` in the JSON is the fix it offers, as an edit file `mg
 apply` takes; `mg verify --fix CHECK` makes the fixes of a check's
-findings and saves (`--dry-run`: only says which it would make).
+findings and saves (`--dry-run`: only says which it would make). A check
+there is none of (mistyped, or a plugin's not given) fails it, so that a
+pipeline doesn't read it as nothing to fix.
 
 **Models kept as text.** A model in a hak, the override or the module
 that is text (ASCII, not compiled) is read as the game would read it

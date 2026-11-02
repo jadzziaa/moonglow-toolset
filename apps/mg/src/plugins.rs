@@ -1070,6 +1070,7 @@ pub(crate) fn findings(
     chosen: &Chosen<'_>,
     skip: &mg_module::doctor::Skip,
     out: &mut Output,
+    declared: &mut Vec<String>,
 ) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
     let mut plugins = Vec::new();
@@ -1084,6 +1085,11 @@ pub(crate) fn findings(
     }
     let theirs = project_plugins(m, chosen.project, &plugins, out);
     plugins.extend(theirs);
+    // (The checks they declare, by the ids findings carry: what `--fix`
+    // may name.)
+    for p in &plugins {
+        declared.extend(p.manifest.checks.iter().map(|c| p.check_id(&c.id)));
+    }
     if plugins.is_empty() {
         return Ok(all);
     }

@@ -247,6 +247,42 @@ fn a_check_s_fixes_are_recorded_apart() {
     assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
+/// A fix that asks (API 0.5): `ctx.fix(label, { command = … })` runs a
+/// command of the plugin's on what the finding is about (or `on`), when
+/// the user clicks it; a command the manifest lacks, or edits of its own,
+/// are faults.
+#[test]
+fn a_fix_that_asks_runs_a_command() {
+    let dir = mg_testkit::scratch_dir("plugin-fix-asks");
+    let manifest = "[plugin]\nid = \"test.asks\"\nname = \"Asks\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\n[check]\nid = \"ask\"\ntitle = \"Ask\"\n\n[check]\nid = \"bad\"\ntitle = \"Bad\"\n\n[command]\nid = \"retag\"\ntitle = \"Retag…\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("ask", function(ctx)
+            return {
+                { resource = "guard.utc", message = "a", fix = ctx.fix("Retag…", { command = "retag" }) },
+                { resource = "guard.utc", message = "b", fix = ctx.fix("There", {
+                    command = "retag", on = { resource = "tavern.git", path = "/Placeable List[1]" } }) },
+            }
+        end)
+        mg.check("bad", function(ctx)
+            return { { resource = "guard.utc", message = "x", fix = ctx.fix("Gone", { command = "nope" }) } }
+        end)
+        mg.command("retag", function(ctx) end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let found = run_check(&p, "ask", Input::new(module(), None), host.clone()).unwrap();
+    let asks = |i: usize| found[i].fix.as_ref().unwrap().asks.clone().unwrap();
+    assert_eq!((asks(0).plugin.as_str(), asks(0).command.as_str()), ("test.asks", "retag"));
+    assert_eq!(asks(0).on, [(key("guard.utc"), mg_edit::GffPath::root())]);
+    assert_eq!(asks(1).on[0].1.to_string(), "/Placeable List[1]");
+    assert!(found[0].fix.as_ref().unwrap().edits.is_empty());
+    let e = run_check(&p, "bad", Input::new(module(), None), host).unwrap_err().to_string();
+    assert!(e.contains("declares no command \"nope\""), "{e}");
+}
+
 #[test]
 fn the_sandbox_has_no_way_out() {
     let host = Rc::new(TestHost::default());

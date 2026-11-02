@@ -278,6 +278,28 @@ impl Workspace {
         self.undo.iter().chain(&self.redo).any(|(n, _)| *n == step)
     }
 
+    /// Whether a step (by its number) is made: Undo would take it back,
+    /// and has not.
+    pub fn step_done(&self, step: u64) -> bool {
+        self.undo.iter().any(|(n, _)| *n == step)
+    }
+
+    /// Makes the last `n` commands one step of Undo, named `label`, with
+    /// the number of the last of them; false (nothing changed) where
+    /// there are fewer.
+    pub fn join_last(&mut self, n: usize, label: impl Into<String>) -> bool {
+        if n < 2 || self.undo.len() < n {
+            return n == 1 && !self.undo.is_empty();
+        }
+        let last = self.undo.split_off(self.undo.len() - n);
+        let step = last.last().map_or(0, |(s, _)| *s);
+        // (Undone, the last is taken back first.)
+        let edits = last.into_iter().rev().flat_map(|(_, c)| c.edits).collect();
+        self.undo.push((step, Command::new(label, edits)));
+        self.changes_since_save -= n as isize - 1;
+        true
+    }
+
     /// The edits [`Workspace::undo`] would run next (the last command's
     /// inverse), to see what they move before they are run.
     pub fn peek_undo(&self) -> Option<&Command> {
@@ -823,6 +845,19 @@ mod tests {
         let mut other = workspace();
         other.apply(set(1)).unwrap();
         assert!(!ws.has_step(other.last_step().unwrap()), "another workspace's steps are its own");
+        // The last commands joined into one step: one Undo takes them all
+        // back, the last taken back first.
+        assert!(ws.step_done(first) && !ws.step_done(second));
+        ws.apply(set(4)).unwrap();
+        ws.apply(set(5)).unwrap();
+        let last = ws.last_step();
+        assert!(ws.join_last(3, "All three"));
+        assert_eq!((ws.last_step(), ws.can_undo()), (last, Some("All three")));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        let info = Gff::read(ws.module.get(&key("module", ResType::IFO)).unwrap()).unwrap();
+        assert_eq!(info.root.get("Mod_XPScale"), Some(&Value::Byte(1)), "back before the three");
+        assert!(!ws.join_last(9, "Too many"));
     }
 
     #[test]

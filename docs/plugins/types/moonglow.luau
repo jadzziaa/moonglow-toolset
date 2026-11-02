@@ -292,7 +292,7 @@ export type Context = {
     event: Event?,
     -- In a check's handler, and a resource-saving one's: a fix to give a
     -- finding or a warning (API 0.4).
-    fix: ((label: string) -> Fix)?,
+    fix: ((label: string, asks: { command: string, on: { resource: string, path: string? }? }?) -> Fix)?,
 }
 
 local mg = {}

@@ -753,6 +753,21 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Upper-case this tag"));
     assert!(h.state().log.fix_at(line).unwrap().made);
     h.get_by_label("✔ Fixed");
+    // Undone: its button is offered again, and makes it again; Redo
+    // makes it "Fixed" again.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(tag(&mut h), "gate_guard");
+    assert!(!h.state().log.fix_at(line).unwrap().made);
+    h.get_by_label("Upper-case this tag").click();
+    h.run();
+    assert_eq!(tag(&mut h), "GATE_GUARD", "made again after its Undo");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run();
+    assert_eq!(tag(&mut h), "GATE_GUARD");
+    h.get_by_label("✔ Fixed");
     // Undone, and verified again: then changed by hand, its fix is
     // refused, and says why.
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -780,6 +795,95 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
         "{log:#?}"
     );
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("By hand"));
+}
+
+/// Fix All beside a check's first fix makes every one of its fixes, as one
+/// step of Undo; a fix that asks runs the plugin's command on what the
+/// finding is about, which asks with its form.
+#[test]
+fn a_check_s_fixes_are_made_together_and_a_fix_may_ask() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-fix-all", true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-plugin-fix-all-plugins");
+    let plugin = dir.join("tags");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"test.tags\"\nname = \"Tags\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[check]\nid = \"upper\"\ntitle = \"Tags upper case\"\n\n[check]\nid = \
+         \"named\"\ntitle = \"Tags chosen\"\n\n[command]\nid = \"retag\"\ntitle = \"Retag…\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        r#"local mg = require("@moonglow")
+mg.check("upper", function(ctx)
+    local out = {}
+    for _, name in ctx.module:resources("utc") do
+        local tag = ctx.module:gff(name).Tag or ""
+        if tag ~= string.upper(tag) then
+            local fix = ctx.fix("Upper-case it")
+            fix:set(name, "Tag", string.upper(tag))
+            table.insert(out, { resource = name, message = "lower: " .. tag, fix = fix })
+        end
+    end
+    return out
+end)
+mg.check("named", function(ctx)
+    return { { resource = "guard.utc", message = "a tag to choose",
+        fix = ctx.fix("Retag…", { command = "retag" }) } }
+end)
+mg.command("retag", function(ctx)
+    local s = ctx.selection[1]
+    local answer = ctx.ui:form({ title = "Retag", fields = { { id = "tag", default = "x" } } })
+    if answer then ctx.edit:set(s.resource, "Tag", answer.tag) end
+end)
+"#,
+    )
+    .unwrap();
+    // A second creature with a lower-case tag.
+    let cook = ResKey::parse("cook", ResType::UTC).unwrap();
+    let mut gff = Gff::new(*b"UTC ");
+    gff.root.set("Tag", mg_gff::Value::String(b"cook".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cook",
+        vec![mg_edit::Edit::SetResource { key: cook, data: Some(gff.to_bytes().unwrap()) }],
+    )));
+    h.state_mut().plugin_dir = Some(dir.clone());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.tags", true);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let tag = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        String::from_utf8(ws.doc(k).unwrap().root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    h.get_by_label("Fix All (2)").scroll_to_me();
+    h.run();
+    h.get_by_label("Fix All (2)").click();
+    h.run();
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        (tag(&mut h, &key), tag(&mut h, &cook)),
+        ("GATE_GUARD".into(), "COOK".into()),
+        "{log:#?}"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Fix All: test.tags/upper"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!((tag(&mut h, &key), tag(&mut h, &cook)), ("gate_guard".into(), "cook".into()));
+    h.get_by_label("Fix All (2)");
+    // The fix that asks: its command, its form answered, on the finding's
+    // blueprint.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Values(
+        [("tag".to_string(), serde_json::json!("CHOSEN"))].into(),
+    )));
+    h.get_by_label("Retag…").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h, &key), "CHOSEN");
 }
 
 /// Plugins › Install Plugin from File…: a plugin's archive goes into the

@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
 ---
 
 # Plugin API changes
@@ -46,6 +46,10 @@ refused, with the reason.
   the pane last clicked in. `ctx.open.together` lists those edited
   together in one Properties window. `mg plugin run --select` takes a
   tile as `tavern.are/Tile_List[5]`.
+- A fix that asks: `ctx.fix(label, { command = "retag", on = s? })`,
+  a finding's fix whose button runs one of the plugin's commands on what
+  the finding is about (`on`, or the finding's resource), which asks with
+  its form. It records no edits; `mg verify --fix` does not make it.
 - Settings of scope `user` are kept in Moonglow's own folder
   (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
   plugin run` a plugin reads the values the user set in the window, and

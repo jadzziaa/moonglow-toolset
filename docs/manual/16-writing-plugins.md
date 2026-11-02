@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
 ---
 
 # Writing plugins
@@ -806,12 +806,19 @@ end)
   those resources, the user is told to verify again. Fixes of one Verify
   that only set fields can be made one after another in one resource.
 - Give the label words that say what it does to this finding ("Retag
-  this store", "Set tdod_lit"). For a fix that needs a choice, offer a
-  command instead: a fix asks nothing.
+  this store", "Set tdod_lit").
+- A fix that needs a choice asks (since API 0.5): `ctx.fix("Retag…", {
+  command = "retag" })` is a button that runs the plugin's command
+  `retag` on the finding's resource (or `on = s`, an entry of the
+  selection's shape, for an object placed in an area), and the command
+  asks with its form. It records no edits of its own.
+- Undo of a fix offers its button again; **Fix All** beside the first of
+  a check's fixes makes every one of them as one step of Undo.
 - On the command line, `mg verify --fix CHECK` makes a check's fixes
   (`--dry-run` says what it would make), and `mg verify --json` gives
   each finding's fix as an edit file
-  ([Command-line tools](11-command-line.md)).
+  ([Command-line tools](11-command-line.md)). A fix that asks is not
+  made there (nobody to ask): run its command with `mg plugin run`.
 
 ## More than one file
 

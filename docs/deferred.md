@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1228,32 +1228,14 @@ contribution itself states as not done or not checked.
     References and Advanced Search, the pane clicked in,
     `ctx.open.together`): driven through the UI harness, not used on a
     desktop. Waits on a desktop session. (S)
-  - **Fixes for findings** (API 0.4, the Domains of Dread's builder
-    proposal A3: `ctx.fix`, Verify's button beside a finding, `mg verify
-    --fix CHECK`, a finding's `fix` in `mg verify --json`). Not done: a
-    fix asks nothing (no form: "retag to what?" is a command's); it is
-    worked out when Verify runs and refused once a resource it changes is
-    not as Verify read it (compared as bytes) or was changed by another
-    fix that did more than set fields and take items out, so after
-    Undo or a second fix
-    there, Verify runs again; Undo of a fix leaves its button saying
-    Fixed; the buttons are in Verify Module's log alone (not Build
-    Module's results, the 2DA editor's faults or the tileset editor's),
-    for the last Verify, with no "fix all of this check" in the window
-    (`mg verify --fix CHECK` is that); the doctor has fixes for
-    `tag-unique` (the others retagged `TAG_2`…, scripts that look for
-    the tag not followed), `area-variables` (moved to the GIT),
-    `var-runtime` (removed) and `static-transform` (the transform off)
-    only:
-    `pc-faction` has none (the builder chooses the faction), nor do the
-    references, models, 2DAs and tilesets; the fixes of different
-    plugins' findings are made one at a time in the window; `mg verify
-    --fix` with a check's id that no finding with a fix has (mistyped,
-    or a plugin's not given) only warns, since a plugin's ids are known
-    only once its checks ran, so a pipeline reads "nothing to fix" (fail
-    instead?). Driven
-    through the UI harness, with one rendered picture of the log's
-    buttons; not used on a desktop. (S each)
+  - **Fixes for findings, on a desktop** (API 0.4, A3; since 3.3.0 a fix
+    that asks, Undo offering the button again, Fix All, `mg verify --fix`
+    of a check there is none of failing): driven through the UI harness,
+    with one rendered picture of the log's buttons; not used on a
+    desktop. Waits on a desktop session. (S)
+  - **The 2DA editor's faults with fixes:** the 2DA editor is another
+    package's this round; its faults offer no fix yet. Waits on that
+    work. (S)
   - **A resource's own events and the after-create hook** (API 0.4, the
     Domains of Dread's builder proposal A4 and A6: `resource-saving`,
     which warns of or refuses what a save would write, with fixes, in
@@ -1635,6 +1617,20 @@ is not taken for a new gap.
   settings of scope `user` (it stands in for that plugin, and the
   user's own values are the user's); a module kept in one file has no
   project, so no project plugins.
+
+- **Which findings have fixes, and where** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a fix is worked out when
+  Verify runs and held to the resources being as Verify read them, so a
+  change since asks for Verify again (a fix made on what nobody looked
+  at would land elsewhere); its Undo now offers it again. The doctor's
+  fixes are those whose answer is plain (`tag-unique`, `area-variables`,
+  `var-runtime`, `static-transform`): `pc-faction`'s faction, a missing
+  reference's resource, a model's or a tileset's repair are the
+  builder's to choose, and a plugin's check may offer one that asks. Build
+  Module's results are missing and unused resources, which have no fix
+  but Mark as Used, there already; the tileset editor's faults are of a
+  tileset being made, edited in its own fields. Fixes of different
+  checks are made one at a time, or a check's all at once (Fix All).
 
 - **What a plugin's command is not offered on** (the deferred list's
   "Plugins, beyond API 0.4", 2026-11-01): a trigger's or an encounter's
