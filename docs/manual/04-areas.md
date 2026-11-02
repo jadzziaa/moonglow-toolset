@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T21:50:37Z }
 ---
 
 # Areas
@@ -488,9 +488,12 @@ Aurora):
 
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform that EE added (scale, rotation and offset of the model) for
-  creatures, doors, items and placeables that aren't Static. **OK**
-  sets what you changed and closes the window, **Apply** sets it and
-  keeps the window open; each is one step to undo. The rotations are
+  creatures, doors, items and placeables that aren't Static. The area
+  view shows what you change as you change it, before anything is set:
+  the objects (or the start location) move, turn and take their new
+  shape. **OK** sets what you changed and closes the window, **Apply**
+  sets it and keeps the window open; each is one step to undo. Cancel,
+  or closing the window, puts them back as they were. The rotations are
   named as Aurora names them and the game reads them, which is not by
   the axis each turns about: **X Rotation** turns the model about its
   upright axis (as Bearing does), **Y Rotation** tips it forward or

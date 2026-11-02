@@ -413,6 +413,62 @@ pub fn scale_note(a: &AdjustLocation) -> Option<String> {
     ))
 }
 
+/// Objects moved or turned (by their places in the area's model, where
+/// they would stand and how they would turn), and visual transforms given.
+pub(crate) type Previewed = (Vec<(usize, Vec3, f32)>, Vec<(usize, mg_area::VisualTransform)>);
+
+/// What the area's view shows while Adjust Location is changed, before OK
+/// or Apply (a builder's report: only Apply moved them): each object it
+/// moves or turns (of the area model's `objects`), and each one's visual
+/// transform where that was changed. Nothing for the start location
+/// ([`previewed_start`]).
+pub(crate) fn previewed(a: &AdjustLocation, objects: &[mg_area::AreaObject]) -> Previewed {
+    let mut moved = Vec::new();
+    let mut visual = Vec::new();
+    if a.start {
+        return (moved, visual);
+    }
+    for &(kind, index) in &a.objects {
+        let Some(i) = objects.iter().position(|o| o.kind == kind && o.index == index) else {
+            continue;
+        };
+        let o = &objects[i];
+        // (As `apply_location` sets them.)
+        let mut p = o.position;
+        for axis in 0..3 {
+            if a.changed[axis] {
+                p[axis] = a.position[axis];
+            }
+        }
+        let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
+        if p != o.position || rotation != o.rotation {
+            moved.push((i, p, rotation));
+        }
+        if a.visual_changed && o.takes_visual_transform() {
+            visual.push((i, a.visual));
+        }
+    }
+    (moved, visual)
+}
+
+/// Where the start location shows while Adjust Location is changed for
+/// it, before OK or Apply: `at` (where it is, facing) with the window's
+/// changed parts.
+pub(crate) fn previewed_start(
+    a: &AdjustLocation,
+    (mut at, mut facing): (Vec3, f32),
+) -> (Vec3, f32) {
+    for axis in 0..3 {
+        if a.changed[axis] {
+            at[axis] = a.position[axis];
+        }
+    }
+    if a.changed[3] {
+        facing = a.bearing.to_radians() + std::f32::consts::FRAC_PI_2;
+    }
+    (at, facing)
+}
+
 /// Sets the changed parts of the start location (a command each, as its
 /// marker's drag and turn are).
 fn apply_start(app: &mut Moonglow, a: &AdjustLocation) {
@@ -808,4 +864,82 @@ fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str,
     }
     out.push(("Comments", text("Comment").unwrap_or_default()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two placeables, the second turned a quarter, and the window as it
+    /// opens on them.
+    fn two() -> (Vec<mg_area::AreaObject>, AdjustLocation) {
+        let placed = |x: f32, turned: f32| {
+            let mut s = mg_gff::Struct::new(0);
+            for (label, v) in [("X", x), ("Y", 20.0), ("Z", 0.0), ("Bearing", turned)] {
+                s.set(label, mg_gff::Value::Float(v));
+            }
+            s
+        };
+        let objects: Vec<mg_area::AreaObject> = [(10.0, 0.0), (14.0, 1.5)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (x, b))| mg_area::AreaObject::placed(ObjectKind::Placeable, i, &placed(x, b)))
+            .collect();
+        let mut a = adjust_start(ResRef::from_str("area").unwrap(), (Vec3::ZERO, 0.0));
+        a.start = false;
+        a.objects = vec![(ObjectKind::Placeable, 0), (ObjectKind::Placeable, 1)];
+        a.position = objects[0].position;
+        (objects, a)
+    }
+
+    /// Only what was changed is shown changed, on each object, as Apply
+    /// sets it: Y alone moves both north and leaves their X and turns.
+    #[test]
+    fn the_view_shows_what_the_window_changes_on_each_object() {
+        let (objects, mut a) = two();
+        assert_eq!(previewed(&a, &objects), (Vec::new(), Vec::new()), "nothing changed yet");
+        a.position.y = 25.0;
+        a.changed[1] = true;
+        let (moved, visual) = previewed(&a, &objects);
+        assert!(visual.is_empty());
+        let want: Vec<(usize, Vec3, f32)> = objects
+            .iter()
+            .enumerate()
+            .map(|(i, o)| (i, Vec3::new(o.position.x, 25.0, 0.0), o.rotation))
+            .collect();
+        assert_eq!(moved, want);
+        // The bearing too: each turned to it.
+        a.bearing = 90.0;
+        a.changed[3] = true;
+        let (moved, _) = previewed(&a, &objects);
+        assert!(moved.iter().all(|m| (m.2 - 90f32.to_radians()).abs() < 1e-6), "{moved:?}");
+        // A visual transform, given to each that takes one.
+        a.visual.scale = Vec3::splat(2.0);
+        a.visual_changed = true;
+        let (_, visual) = previewed(&a, &objects);
+        assert_eq!(visual.iter().map(|v| v.0).collect::<Vec<_>>(), [0, 1]);
+        // An object no longer there (deleted while the window was open).
+        a.objects.push((ObjectKind::Placeable, 7));
+        assert_eq!(previewed(&a, &objects).0.len(), 2);
+        // The start location: none of the objects'.
+        a.start = true;
+        assert_eq!(previewed(&a, &objects), (Vec::new(), Vec::new()));
+    }
+
+    /// The start location shows where the window puts it: its changed
+    /// parts alone, its bearing as the way its arrow faces.
+    #[test]
+    fn the_start_location_shows_where_the_window_puts_it() {
+        let area = ResRef::from_str("area").unwrap();
+        let at = (Vec3::new(5.0, 6.0, 0.0), std::f32::consts::FRAC_PI_2);
+        let mut a = adjust_start(area, at);
+        assert_eq!(previewed_start(&a, at), at, "nothing changed");
+        a.position.x = 9.0;
+        a.changed[0] = true;
+        a.bearing = 90.0;
+        a.changed[3] = true;
+        let (to, facing) = previewed_start(&a, at);
+        assert_eq!(to, Vec3::new(9.0, 6.0, 0.0));
+        assert!((facing - std::f32::consts::PI).abs() < 1e-6, "west: {facing}");
+    }
 }

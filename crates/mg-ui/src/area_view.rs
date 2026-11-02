@@ -3155,9 +3155,16 @@ fn viewport(
             ghost_instances.extend(instances);
         }
     }
+    // Adjust Location's values, shown as they are changed.
+    let adjusting = (app.adjust.as_ref().filter(|a| a.area == view.area))
+        .zip(view.model.as_ref())
+        .map(|(a, model)| crate::area_tools::previewed(a, &model.objects))
+        .unwrap_or_default();
     // What follows the pointer is drawn every frame it is there (and once
     // more when it is gone).
     let follows = view.drag.is_some()
+        || !adjusting.0.is_empty()
+        || !adjusting.1.is_empty()
         || !ghost_instances.is_empty()
         || !preview_instances.is_empty()
         || !hidden.is_empty();
@@ -3216,10 +3223,11 @@ fn viewport(
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(left));
     }
 
-    // The scene, with the drag applied to what it moves.
+    // The scene, with the drag (or Adjust Location) applied to what it
+    // moves.
     let dragged = view.dragged();
     let mut shown = std::borrow::Cow::Borrowed(model);
-    for &(i, p, r) in &dragged {
+    for &(i, p, r) in adjusting.0.iter().chain(&dragged) {
         let o = &mut shown.to_mut().objects[i];
         // (An outline's turn is its points', led round its position.)
         let (was, round) = (o.position, Vec2::from_angle(r - o.rotation));
@@ -3232,7 +3240,7 @@ fn viewport(
         }
         o.position = p;
     }
-    for (i, v) in view.tilted().into_iter().chain(view.scaled()) {
+    for (i, v) in adjusting.1.into_iter().chain(view.tilted()).chain(view.scaled()) {
         shown.to_mut().objects[i].visual = Some(v);
     }
     if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
@@ -3338,7 +3346,11 @@ fn viewport(
             .pointer_over(ui)
             .and_then(|p| view.ground_at(p, 0.0))
             .map(|at| (at, view_facing(view))),
-        _ => start,
+        // As Adjust Location has it, changed.
+        _ => match app.adjust.as_ref().filter(|a| a.start && a.area == view.area) {
+            Some(a) => start.map(|s| crate::area_tools::previewed_start(a, s)),
+            None => start,
+        },
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     sound_range_overlay(app, ui, view, &shown);

@@ -5921,3 +5921,140 @@ fn the_handles_fit_the_view_when_the_camera_is_close() {
     let radius = view.handle_radius_at(pivot).unwrap();
     assert!((radius - eye.distance(pivot) * 0.0765).abs() < 1e-3, "{radius} m");
 }
+
+/// A builder's report: Adjust Location moved a placeable only when Apply
+/// was pressed. The view shows the window's values as they are changed
+/// (the chest drawn where X puts it, nothing edited), Cancel puts it back
+/// as it was, and Apply makes the edit.
+#[test]
+fn adjust_location_moves_the_object_as_its_numbers_change() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let chest = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![item]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("adjust-live", "ttr01", None, 4, None, &chest)
+    else {
+        return;
+    };
+    // (Tall: the chest and where it goes show below the window, which
+    // opens in the middle.)
+    h.set_size(egui::vec2(1500.0, 1200.0));
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection = vec![(ObjectKind::Placeable, 0)];
+    if let Some(o) = view.orbit.as_mut() {
+        (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(10.0, 22.5, 0.5), 12.0, -1.57, 0.9);
+    }
+    h.run_steps(20);
+    let (was, goes) =
+        (screen(&h, area, Vec3::new(12.0, 20.0, 0.4)), screen(&h, area, Vec3::new(8.0, 20.0, 0.4)));
+    let picture = |h: &mut Harness<'_, Moonglow>| {
+        h.run_steps(6);
+        h.render().expect("render")
+    };
+    // How many pixels around `at` differ much between two pictures (the
+    // grass's sway, a little).
+    let differ = |a: &image::RgbaImage, b: &image::RgbaImage, at: egui::Pos2| {
+        let ppp = a.width() as f32 / 1500.0;
+        let (cx, cy) = ((at.x * ppp) as i64, (at.y * ppp) as i64);
+        let r = (40.0 * ppp) as i64;
+        let mut n = 0;
+        for y in (cy - r).max(0)..(cy + r).min(a.height() as i64) {
+            for x in (cx - r).max(0)..(cx + r).min(a.width() as i64) {
+                let (p, q) = (a.get_pixel(x as u32, y as u32), b.get_pixel(x as u32, y as u32));
+                if (0..3).any(|c| (i16::from(p[c]) - i16::from(q[c])).abs() > 60) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    // The window as Adjust Location… opens it on the chest.
+    let window = |h: &Harness<'_, Moonglow>| {
+        let model = h.state().area_views[&area].model.as_ref().unwrap();
+        let o = model.object(ObjectKind::Placeable, 0).unwrap();
+        Some(mg_ui::area_tools::AdjustLocation {
+            area,
+            objects: vec![(ObjectKind::Placeable, 0)],
+            position: o.position,
+            bearing: o.rotation.to_degrees().rem_euclid(360.0),
+            changed: [false; 4],
+            visual: o.visual.unwrap_or_default(),
+            visual_changed: false,
+            speed: 1.0,
+            speed_changed: false,
+            kept: Vec::new(),
+            shaped: o.takes_visual_transform(),
+            fixed: 0,
+            fixed_shaped: 0,
+            uneven: 0,
+            start: false,
+        })
+    };
+    let before = picture(&mut h);
+    let undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    h.state_mut().adjust = window(&h);
+    h.run_steps(3);
+    // X moved 4 m west, as typed into the window: drawn there at once.
+    {
+        let a = h.state_mut().adjust.as_mut().expect("the window");
+        a.position.x = 8.0;
+        a.changed[0] = true;
+    }
+    let moved = picture(&mut h);
+    // (Both places in the view, clear of the window.)
+    let bottom = h.get_by_label("Cancel").rect().bottom() + 12.0;
+    let shown = h.state().area_views[&area].rect.shrink(40.0);
+    assert!(shown.contains(was) && shown.contains(goes), "{was:?} {goes:?} out of {shown:?}");
+    assert!(was.y > bottom && goes.y > bottom, "{was:?} {goes:?} under the window ({bottom})");
+    let dir = mg_testkit::scratch_dir("ui-adjust-live");
+    before.save(dir.join("before.png")).unwrap();
+    moved.save(dir.join("moved.png")).unwrap();
+    assert!(
+        differ(&before, &moved, was) > 200,
+        "gone from where it was: {}",
+        differ(&before, &moved, was)
+    );
+    assert!(
+        differ(&before, &moved, goes) > 200,
+        "drawn where it goes: {}",
+        differ(&before, &moved, goes)
+    );
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().can_undo().map(str::to_string),
+        undo,
+        "nothing edited"
+    );
+    // Cancel: back where it was.
+    h.state_mut().adjust = None;
+    let cancelled = picture(&mut h);
+    cancelled.save(dir.join("cancelled.png")).unwrap();
+    assert!(differ(&before, &cancelled, was) < 40, "back: {}", differ(&before, &cancelled, was));
+    assert!(differ(&before, &cancelled, goes) < 40, "back: {}", differ(&before, &cancelled, goes));
+    // Changed again and applied: the edit, and drawn there still.
+    h.state_mut().adjust = window(&h);
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.x = 8.0;
+        a.changed[0] = true;
+    }
+    h.run_steps(3);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    let x = model.object(ObjectKind::Placeable, 0).unwrap().position.x;
+    assert!((x - 8.0).abs() < 1e-3, "{x}");
+    let applied = picture(&mut h);
+    assert!(differ(&moved, &applied, goes) < 40, "as shown before Apply");
+}
