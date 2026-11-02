@@ -360,6 +360,14 @@ struct SurfaceKey {
     plt: Option<[u8; 10]>,
 }
 
+/// How many instances a scene has before its sun's shadows are planned on
+/// a thread of their own, beside its meshes' draws.
+const PLAN_APART: usize = 64;
+
+/// How many solid draws of the game's programs a frame has before they are
+/// sorted on a thread of their own, beside the others.
+const SORT_APART: usize = 2048;
+
 /// How many models' surfaces are kept before they are worked out anew.
 const SURFACES_KEPT: usize = 16_384;
 
@@ -382,6 +390,9 @@ struct Draw<'a> {
     /// Drawn with the game's shaders: which of the frame's see-through
     /// game draws it is.
     game: Option<u32>,
+    /// That draw's [`crate::game::GameDraw::batch_key`] (looked up there
+    /// for every draw, it was a twentieth of a large area's frame).
+    game_batch: Option<(u32, u32)>,
     /// Its box in the scene, on the screen for a see-through one (`None`
     /// for a mesh that leaves its box: a skinned or animated one, and the
     /// sky), and which of the frame's instances it is of: for putting draws
@@ -494,9 +505,6 @@ pub struct Renderer {
     shape_buffers: HashMap<usize, ShapeBuffer>,
     /// The lights each mesh took, kept from frame to frame.
     reach_cache: ReachCache,
-    /// The sets of lights the game's draws are lit by, numbered: emptied
-    /// every frame, its room kept (grown a set at a time, it was seen).
-    light_sets: crate::game::Fast<Box<[u32]>, u32>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -1342,7 +1350,6 @@ impl Renderer {
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
             shape_buffers: HashMap::new(),
             reach_cache: ReachCache::default(),
-            light_sets: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -2088,11 +2095,13 @@ impl Renderer {
         let view = camera.view();
         let proj = camera.projection(size.0 as f32 / size.1.max(1) as f32);
         let area_dir = view.transform_vector3(scene.area.direction).normalize_or_zero();
-        // The sun's shadows: what casts them and where the map is.
-        let shadow_plan = crate::shadow::plan(scene, camera, size.0 as f32 / size.1.max(1) as f32);
-        // And the lights': which creatures cast them from which light.
+        // The lights' shadows: which creatures cast them from which light.
+        // (The sun's, what casts them and where their map is, are worked
+        // out beside the meshes' draws, below.)
         let light_plan = crate::shadow::light_plan(scene, camera);
-        let shadowing = shadow_plan.is_some() || light_plan.is_some();
+        // (Whether there may be shadows: what they fall on is drawn first
+        // where there are, and among the rest where there aren't.)
+        let may_shadow = scene.shadows.is_some_and(|s| s.opacity > 0.0) || light_plan.is_some();
         let fog = scene
             .fog
             .map_or([0.0; 4], |f| [1.0, f.start, f.end, 1.0 / (f.end - f.start).max(1e-3)]);
@@ -2197,14 +2206,12 @@ impl Renderer {
         let mut reach_cache = std::mem::take(&mut self.reach_cache);
         reach_cache.begin(&scene.lights);
         let mut chosen = Vec::new();
+        let mut places = 0;
         // (The lights as a game draw's blocks take them.)
         let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
-        // (The sets of lights the game's draws are lit by, each numbered;
-        // and the last draw's, which the next often shares.)
-        let mut light_sets = std::mem::take(&mut self.light_sets);
-        light_sets.clear();
+        // (A game's draw's lights, as its values take them: their places among
+        // the frame's. Their set is numbered by `reach_cache`.)
         let mut light_set: Vec<u32> = Vec::new();
-        let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let (mut hidden, mut waiting) = (0, 0);
@@ -2217,485 +2224,518 @@ impl Renderer {
             .map(|s| (s, true, None))
             .chain(fade.iter().map(|(s, c)| (s, true, Some(*c))))
             .chain(scene.instances.iter().map(|i| (i, false, None)));
-        for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
-            // (Only where the frame has shadows: else the solid draws keep
-            // their order.)
-            let receives = shadowing && inst.receives_shadows && !is_sky;
-            // (Where the instance stands from the eye: its meshes of mesh
-            // `alpha` under 1 are put in order by it, in the model's order
-            // among themselves.)
-            let instance_depth = -view.transform_point3(inst.transform.w_axis.truncate()).z;
-            let rest = &inst.model.rest;
-            let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
-            // (A model whose textures are being read is drawn once they are.)
-            let Some(surfaces) = self.surfaces(gpu, assets, inst, scene_env, scene_env_id) else {
-                waiting += 1;
-                continue;
-            };
-            for (j, (mesh, surface)) in inst.model.meshes.iter().zip(surfaces.iter()).enumerate() {
-                let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
-                // (Static geometry, a tile or a static placeable: its
-                // meshes of the same textures with the first one's alpha,
-                // and so its blending and `NO_DISCARD`, as the client
-                // draws them in one bucket.)
-                let lead = if inst.tile || inst.receives_shadows { mesh.bucket } else { j };
-                let alpha = if lead == j {
-                    replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha)
-                } else {
-                    let first = inst.state.as_ref().and_then(|s| s.meshes.get(lead));
-                    let material = inst.model.meshes.get(lead).map_or(1.0, |m| m.material.alpha);
-                    first.and_then(|r| r.alpha).unwrap_or(material)
-                } * inst.opacity;
-                // (Wholly see-through, or left out (Fade Geometry's): nothing
-                // to draw.)
-                if alpha <= 0.0 || replaced.is_some_and(|r| r.hidden) {
+        // The sun's shadows' plan, on a thread of its own beside the meshes'
+        // draws where there are many (every mesh of a large area tried, a
+        // twentieth of its frame).
+        let aspect = size.0 as f32 / size.1.max(1) as f32;
+        let shadow_plan = std::thread::scope(|threads| {
+            let apart = scene.instances.len() >= PLAN_APART && scene.shadows.is_some();
+            let planning =
+                apart.then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect)));
+            for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
+                // (Only where the frame has shadows: else the solid draws keep
+                // their order.)
+                let receives = may_shadow && inst.receives_shadows && !is_sky;
+                // (Where the instance stands from the eye: its meshes of mesh
+                // `alpha` under 1 are put in order by it, in the model's order
+                // among themselves.)
+                let instance_depth = -view.transform_point3(inst.transform.w_axis.truncate()).z;
+                let rest = &inst.model.rest;
+                let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
+                // (A model whose textures are being read is drawn once they are.)
+                let Some(surfaces) = self.surfaces(gpu, assets, inst, scene_env, scene_env_id)
+                else {
+                    waiting += 1;
                     continue;
-                }
-                let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-                let half = (mesh.max - mesh.min) * 0.5;
-                let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
-                let moved = replaced.and_then(|r| r.vertices.as_ref());
-                // Bones: bind pose to current pose, in the skin node's space.
-                let bone_base = bones.len() as u32;
-                if let Some(skin) = &mesh.skin {
-                    let skin_now = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-                    let to_skin = skin_now.inverse();
-                    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
-                        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
-                        bones.push(cols(to_skin * now * *inverse_bind));
-                    }
-                }
-                // Out of the camera's sight: not drawn. A mesh that stays
-                // in its box, by its box; one a skin moves, by the box its
-                // bones carry it to; one whose vertices an animation
-                // replaces, by theirs.
-                let mut bounds = None;
-                if !is_sky {
-                    let (min, max) = match (moved, &mesh.skin) {
-                        (Some(v), _) => vertices_box(v),
-                        (None, Some(skin)) => {
-                            let bones = &bones[bone_base as usize..];
-                            posed_box(mesh.min, mesh.max, skin.weighed, skin.unweighed, bones)
-                        }
-                        (None, None) => (mesh.min, mesh.max),
-                    };
-                    // (The box as it lies in the scene, turned and scaled,
-                    // and a ball around it.)
-                    let (centre, half) =
-                        (world.transform_point3((min + max) * 0.5), (max - min) * 0.5);
-                    let turned = glam::Mat3::from_mat4(world);
-                    let around = turned.x_axis.abs() * half.x
-                        + turned.y_axis.abs() * half.y
-                        + turned.z_axis.abs() * half.z;
-                    // (A material's own programs may offset the mesh by its
-                    // MTR's `…Offset…` parameters, out of its box: its ball
-                    // grown by as far. TDoD's grass, lifted 2 m, was left
-                    // out where its box was below the view.)
-                    let offset = if self.game_shaders { surface.slots.offset } else { 0.0 };
-                    if frustum.hides(centre, around.length() + offset) {
-                        bones.truncate(bone_base as usize);
-                        hidden += 1;
+                };
+                for (j, (mesh, surface)) in
+                    inst.model.meshes.iter().zip(surfaces.iter()).enumerate()
+                {
+                    // (Its place among the scene's meshes.)
+                    let place = places;
+                    places += 1;
+                    let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
+                    // (Static geometry, a tile or a static placeable: its
+                    // meshes of the same textures with the first one's alpha,
+                    // and so its blending and `NO_DISCARD`, as the client
+                    // draws them in one bucket.)
+                    let lead = if inst.tile || inst.receives_shadows { mesh.bucket } else { j };
+                    let alpha = if lead == j {
+                        replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha)
+                    } else {
+                        let first = inst.state.as_ref().and_then(|s| s.meshes.get(lead));
+                        let material =
+                            inst.model.meshes.get(lead).map_or(1.0, |m| m.material.alpha);
+                        first.and_then(|r| r.alpha).unwrap_or(material)
+                    } * inst.opacity;
+                    // (Wholly see-through, or left out (Fade Geometry's): nothing
+                    // to draw.)
+                    if alpha <= 0.0 || replaced.is_some_and(|r| r.hidden) {
                         continue;
                     }
-                    // (Where it meets other see-through meshes: of a mesh
-                    // that stays in its box only.)
-                    if mesh.skin.is_none() && moved.is_none() {
-                        bounds = Some(Bounds { min: centre - around, max: centre + around });
-                    }
-                }
-                // (Linear: the material's as worked out once, else as an
-                // animation has it now.)
-                let [ambient, diffuse, emissive] = surface.linear;
-                // (The instance's own material: the tile border's.)
-                let (ambient, diffuse) = inst.material.map_or((ambient, diffuse), |m| (m, m));
-                let emissive = replaced.and_then(|r| r.selfillum).map_or(emissive, lin);
-                let dynamic_range = moved.map(|v| {
-                    let size = std::mem::size_of::<Vertex>() as u64;
-                    let start = dynamic.len() as u64 * size;
-                    dynamic.extend_from_slice(v);
-                    (start, dynamic.len() as u64 * size)
-                });
-                let model_view = view * world;
-                let radius = world.transform_vector3(half).length();
-                let mat = &mesh.material;
-                let slots = &surface.slots;
-                let bound = surface.bound;
-                let flag = |b: bool| if b { 1.0 } else { 0.0 };
-                // See-through of its own, whatever the instance's opacity.
-                // (A cut-out is solid where it is not cut: its rim is not
-                // blended, as the client draws it.)
-                let see_through = (surface.has_alpha
-                    && !surface.reflects
-                    && surface.blending != Blending::Punchthrough)
-                    || mat.transparency_hint > 0
-                    || slots.effect.is_some_and(|e| e.blend);
-                let pass = if fade_color.is_some() {
-                    Pass::SkyFade
-                } else if is_sky {
-                    Pass::Sky
-                } else if surface.blending == Blending::Additive {
-                    Pass::Additive
-                } else if blended_by(alpha, inst.opacity, surface.blending) || see_through {
-                    Pass::Blend
-                } else {
-                    Pass::Opaque
-                };
-                // A mesh of mesh `alpha` under 1, of an instance drawn
-                // whole (not a cut-out, which is drawn solid), is drawn in
-                // one part, blended and writing its depth, in its model's
-                // order (by its instance's place, the meshes in the order
-                // they come), as the client draws them: a card listed after
-                // another and behind it is hidden where they overlap, and
-                // what is drawn after it (a ribbon, a see-through mesh's
-                // soft part) is hidden behind it (`reading_see_through_crossing`,
-                // `batch6_ribbon_sizes`). Its texture's soft edges are
-                // blended as they are, writing their depth as the client's
-                // do: a see-through texture on a mesh of `alpha` 1 (a
-                // plant's soft edge) is still drawn in two parts, below.
-                let ordered = pass == Pass::Blend
-                    && inst.opacity >= 1.0
-                    && alpha < 1.0
-                    && surface.blending != Blending::Punchthrough;
-                let sort_depth =
-                    if ordered { instance_depth } else { -view.transform_point3(centre).z };
-                // A mesh solid of its own in an instance drawn see-through
-                // (a tile or a blueprint about to be placed): its depth is
-                // laid first, so that the instance's nearer surfaces hide
-                // its farther ones (a tile's water, nearer the eye by its
-                // middle, was drawn over its bridge).
-                // (A see-through mesh meets another where they do on the
-                // screen: its box there, worked out once for its two parts.)
-                let world_bounds = bounds;
-                if matches!(pass, Pass::Blend | Pass::Additive) {
-                    bounds = bounds.map(|b| screen_box(on_screen, &b));
-                }
-                let ghost_solid = pass == Pass::Blend
-                    && inst.opacity < 1.0
-                    && alpha / inst.opacity >= 1.0
-                    && !see_through;
-                let discard = ALPHA_DISCARD;
-                // The 32 most important lights that reach the mesh.
-                reach_cache.reaching(&mut reach, centre, radius, &mut chosen);
-                let mut light_index = [[0u32; 4]; 8];
-                for (j, (_, _, i)) in chosen.iter().enumerate() {
-                    light_index[j / 4][j % 4] = *i;
-                }
-                // The game's own shaders, where they can draw it: a mesh
-                // whose material names a program pair, with that pair; else
-                // a lit one Moonglow's shader does nothing of its own for,
-                // with the stock pair the engine would choose. Solid, or
-                // see-through in two parts as Moonglow draws it.
-                let game_pass = match pass {
-                    Pass::Opaque => Some(crate::game::GamePass::Opaque),
-                    Pass::Blend if ordered => Some(crate::game::GamePass::Ordered),
-                    Pass::Blend => Some(crate::game::GamePass::Solid),
-                    Pass::Additive => Some(crate::game::GamePass::Additive),
-                    Pass::Sky => Some(crate::game::GamePass::Sky),
-                    // (The horizon's fade: Moonglow's, in the fog's colour.)
-                    Pass::SkyFade | Pass::Fringe => None,
-                };
-                // (The skybox: `vsvt`/`fst`, read from the client.)
-                let traits = crate::game::Traits { sky: is_sky, ..surface.traits };
-                // (Drawn by the game's programs, a mesh solid of its own in
-                // an instance drawn see-through, a blueprint about to be
-                // placed or a brush's tiles, still lays its depth first,
-                // by Moonglow's shader, below.)
-                let mut game_drawn = false;
-                if let Some(f) = &game_frame
-                    && let Some(game_pass) = game_pass
-                    && !inst.unlit
-                    && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
-                    && self.game_path(slots, surface)
-                {
-                    // (`NO_DISCARD`: the material's, and the mesh's alpha
-                    // as it is now.)
-                    // (The skybox and shiny water: 1 whatever their
-                    // textures' alpha, read from the client.)
-                    let no_discard = traits.sky
-                        || (traits.water && slots.custom.is_none())
-                        || crate::game::no_discard(
-                            surface.textured,
-                            surface.cut,
-                            alpha,
-                            slots.transparency,
-                        );
-                    if let Some(list) = &mut self.game_programs {
-                        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
-                        let node = |n: usize| inst.model.model.nodes.get(n).map(|n| n.name.clone());
-                        list.push(GameProgram {
-                            model: inst.model.model.name.clone(),
-                            node: node(mesh.node).unwrap_or_default(),
-                            vs,
-                            fs,
-                            no_discard,
-                        });
-                    }
-                    let pipelines = self.game_pipelines(
-                        gpu,
-                        assets,
-                        slots,
-                        traits,
-                        no_discard,
-                        mesh.skin.is_some(),
-                        // (The engine makes a mesh tangents for a render
-                        // hint alone, the model's or its MTR's.)
-                        !mesh.tangents_made || slots.normal_variant,
-                        game_pass,
-                    );
-                    // (Shiny water: the area's map.)
-                    let (material, env_cube) = match surface.water_material {
-                        Some(m) if traits.water && slots.custom.is_none() => m,
-                        _ => (surface.material, surface.env_cube),
-                    };
-                    if let Some((p, fringe)) = pipelines {
-                        // (A program that moves the mesh's vertices, a
-                        // sway or an offset, takes them out of its box: on
-                        // the screen, its box grown by as far as they go.)
-                        if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
-                            let by = p.moved_by(MOVED, slots.offset);
-                            let grown = |b: Bounds| Bounds {
-                                min: b.min - Vec3::splat(by),
-                                max: b.max + Vec3::splat(by),
-                            };
-                            bounds = world_bounds.map(|b| screen_box(on_screen, &grown(b)));
+                    let world =
+                        inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                    let half = (mesh.max - mesh.min) * 0.5;
+                    let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
+                    let moved = replaced.and_then(|r| r.vertices.as_ref());
+                    // Bones: bind pose to current pose, in the skin node's space.
+                    let bone_base = bones.len() as u32;
+                    if let Some(skin) = &mesh.skin {
+                        let skin_now = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                        let to_skin = skin_now.inverse();
+                        for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
+                            let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
+                            bones.push(cols(to_skin * now * *inverse_bind));
                         }
-                        light_set.clear();
-                        light_set.extend(chosen.iter().map(|(_, _, i)| *i));
-                        let lights_id = if last_set.1 != u32::MAX && last_set.0 == light_set {
-                            last_set.1
-                        } else {
-                            let next = light_sets.len() as u32;
-                            let n = match light_sets.get(&light_set[..]) {
-                                Some(&n) => n,
-                                None => {
-                                    light_sets.insert(light_set.clone().into_boxed_slice(), next);
-                                    next
-                                }
-                            };
-                            last_set.0.clone_from(&light_set);
-                            last_set.1 = n;
-                            n
+                    }
+                    // Out of the camera's sight: not drawn. A mesh that stays
+                    // in its box, by its box; one a skin moves, by the box its
+                    // bones carry it to; one whose vertices an animation
+                    // replaces, by theirs.
+                    let mut bounds = None;
+                    if !is_sky {
+                        let (min, max) = match (moved, &mesh.skin) {
+                            (Some(v), _) => vertices_box(v),
+                            (None, Some(skin)) => {
+                                let bones = &bones[bone_base as usize..];
+                                posed_box(mesh.min, mesh.max, skin.weighed, skin.unweighed, bones)
+                            }
+                            (None, None) => (mesh.min, mesh.max),
                         };
-                        let d = crate::game::DrawValues {
-                            world,
-                            bones: &bones[bone_base as usize..],
-                            ambient: ambient.extend(1.0).to_array(),
-                            diffuse: diffuse.extend(alpha).to_array(),
-                            emissive: emissive.extend(1.0).to_array(),
-                            bound: std::array::from_fn(|i| bound.get(i).copied().unwrap_or(false)),
-                            env_cube,
-                            alpha_discard: ALPHA_DISCARD,
-                            frame_lights,
-                            light_index: &light_set,
-                            lights: lights_id,
-                            bbox: (mesh.min, mesh.max),
-                            params: &slots.params,
-                            material,
-                            texture_matrix: texture_turn(inst, mat),
-                            blend_mode: 0,
-                            particle_softness: 0.0,
-                        };
-                        timed += usize::from(p.timed);
-                        let geometry = crate::game::Geometry::Mesh(mesh);
-                        let mut draw = self.game.push(p, material, geometry, dynamic_range, f, &d);
-                        // (A solid draw that reads the framebuffer's copies,
-                        // shiny water through `fswater`, or whose material
-                        // samples the framebuffer: after them, and after
-                        // the shadows.)
-                        draw.late = copies.is_some()
-                            && (draw.pipeline.wants_fb || slots.late)
-                            && game_pass == crate::game::GamePass::Opaque;
-                        draw.receives =
-                            receives && !draw.late && game_pass == crate::game::GamePass::Opaque;
-                        match fringe {
-                            None if game_pass == crate::game::GamePass::Opaque => {
-                                game_draws.push(draw)
-                            }
-                            // (Additive, the sky: a draw of its own, in its
-                            // place among the others.)
-                            None => {
-                                let at = game_blended.len() as u32;
-                                game_blended.push(draw);
-                                draws.push(Draw {
-                                    pass,
-                                    twosided: slots.twosided,
-                                    depth: sort_depth,
-                                    hint: mat.transparency_hint,
-                                    uniform: 0,
-                                    material: surface.material,
-                                    mesh,
-                                    dynamic: dynamic_range,
-                                    game: Some(at),
-                                    bounds,
-                                    instance: instance as u32,
-                                    receives: false,
-                                });
-                            }
-                            Some(q) => {
-                                // Its two parts, among the see-through
-                                // meshes (the same blocks for both).
-                                let rest = self.game.again(&draw, q, f);
-                                let at = game_blended.len() as u32;
-                                game_blended.push(draw);
-                                game_blended.push(rest);
-                                let draw = Draw {
-                                    pass: Pass::Blend,
-                                    twosided: slots.twosided,
-                                    depth: sort_depth,
-                                    hint: mat.transparency_hint,
-                                    uniform: 0,
-                                    material: surface.material,
-                                    mesh,
-                                    dynamic: dynamic_range,
-                                    game: Some(at),
-                                    bounds,
-                                    instance: instance as u32,
-                                    receives: false,
-                                };
-                                draws.push(draw);
-                                draws.push(Draw { pass: Pass::Fringe, game: Some(at + 1), ..draw });
-                            }
-                        }
-                        if !ghost_solid {
+                        // (The box as it lies in the scene, turned and scaled,
+                        // and a ball around it.)
+                        let (centre, half) =
+                            (world.transform_point3((min + max) * 0.5), (max - min) * 0.5);
+                        let turned = glam::Mat3::from_mat4(world);
+                        let around = turned.x_axis.abs() * half.x
+                            + turned.y_axis.abs() * half.y
+                            + turned.z_axis.abs() * half.z;
+                        // (A material's own programs may offset the mesh by its
+                        // MTR's `…Offset…` parameters, out of its box: its ball
+                        // grown by as far. TDoD's grass, lifted 2 m, was left
+                        // out where its box was below the view.)
+                        let offset = if self.game_shaders { surface.slots.offset } else { 0.0 };
+                        if frustum.hides(centre, around.length() + offset) {
+                            bones.truncate(bone_base as usize);
+                            hidden += 1;
                             continue;
                         }
-                        game_drawn = true;
-                    }
-                }
-                let normal = model_view.inverse().transpose();
-                let uniform = DrawUniform {
-                    world: cols(world),
-                    normal_matrix: cols(normal),
-                    // MDL colours are gamma space; the game linearises
-                    // them (read back from its uniforms).
-                    diffuse: match fade_color {
-                        // The fade: its colour, gamma space.
-                        Some(c) => c.extend(1.0).to_array(),
-                        None => diffuse.extend(alpha).to_array(),
-                    },
-                    ambient: ambient.extend(1.0).to_array(),
-                    emissive: emissive.extend(1.0).to_array(),
-                    params: [
-                        discard,
-                        flag(surface.reflects),
-                        flag(surface.textured),
-                        // Unlit: 2 a marker (in its material's
-                        // colour), 1 a decal and the sky.
-                        if inst.unlit {
-                            2.0
-                        } else if surface.decal || is_sky {
-                            1.0
-                        } else {
-                            0.0
-                        },
-                    ],
-                    material: [
-                        slots.specularity,
-                        slots.roughness,
-                        slots.metallicness,
-                        flag(surface.has_alpha),
-                    ],
-                    maps: [flag(bound[1]), flag(bound[2]), flag(bound[3]), flag(bound[4])],
-                    maps2: [
-                        flag(bound[5]),
-                        slots.displacement_offset,
-                        slots.displacement_multiplier,
-                        flag(slots.lit_normal_mapped),
-                    ],
-                    spec_color: slots.specular_color.map_or([0.0; 4], |c| c.extend(1.0).to_array()),
-                    // (w: which part of a see-through mesh, below; 3 a
-                    // cut-out, solid where it is not cut.)
-                    extra: [
-                        flag(surface.env_cube),
-                        flag(is_sky),
-                        flag(fade_color.is_some()),
-                        if surface.blending == Blending::Punchthrough { 3.0 } else { 0.0 },
-                    ],
-                    water: {
-                        let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
-                        [far, fast, flag(surface.water), 0.0]
-                    },
-                    uv_turn: {
-                        let m = texture_turn(inst, mat);
-                        [m.x_axis.x, m.x_axis.y, 0.0, 0.0]
-                    },
-                    effect: match slots.effect {
-                        Some(e) => {
-                            // 1 vertex colors, 2 alpha mask, 4 lightmap,
-                            // 8 flow.
-                            let mask = bound[6] && !e.lightmap;
-                            let flow = bound[7] && e.slide_speed != 0.0;
-                            let bits = u8::from(e.colors)
-                                + 2 * u8::from(mask)
-                                + 4 * u8::from(bound[6] && e.lightmap)
-                                + 8 * u8::from(flow);
-                            [
-                                f32::from(bits),
-                                e.slide_speed,
-                                e.shadow_reduction,
-                                e.shadow_brightening,
-                            ]
+                        // (Where it meets other see-through meshes: of a mesh
+                        // that stays in its box only.)
+                        if mesh.skin.is_none() && moved.is_none() {
+                            bounds = Some(Bounds { min: centre - around, max: centre + around });
                         }
-                        None => [0.0; 4],
-                    },
-                    // (w: the tangents were made, not the model's: the
-                    // tangent frame is taken from the derivatives.)
-                    light_count: [
-                        chosen.len() as u32,
-                        u32::from(mesh.skin.is_some()),
-                        bone_base,
-                        u32::from(mesh.tangents_made),
-                    ],
-                    light_index,
-                };
-                let draw = Draw {
-                    pass,
-                    twosided: slots.twosided,
-                    depth: sort_depth,
-                    hint: mat.transparency_hint,
-                    uniform: uniforms.len() as u32,
-                    material: surface.material,
-                    mesh,
-                    dynamic: dynamic_range,
-                    game: None,
-                    bounds,
-                    instance: instance as u32,
-                    receives: receives && pass == Pass::Opaque,
-                };
-                // A see-through mesh is drawn in two parts: what is solid
-                // of it, then the rest.
-                if pass == Pass::Blend {
-                    let part = |which: f32| {
-                        let [cube, sky, fade, _] = uniform.extra;
-                        DrawUniform { extra: [cube, sky, fade, which], ..uniform }
+                    }
+                    // (Linear: the material's as worked out once, else as an
+                    // animation has it now.)
+                    let [ambient, diffuse, emissive] = surface.linear;
+                    // (The instance's own material: the tile border's.)
+                    let (ambient, diffuse) = inst.material.map_or((ambient, diffuse), |m| (m, m));
+                    let emissive = replaced.and_then(|r| r.selfillum).map_or(emissive, lin);
+                    let dynamic_range = moved.map(|v| {
+                        let size = std::mem::size_of::<Vertex>() as u64;
+                        let start = dynamic.len() as u64 * size;
+                        dynamic.extend_from_slice(v);
+                        (start, dynamic.len() as u64 * size)
+                    });
+                    let model_view = view * world;
+                    let radius = world.transform_vector3(half).length();
+                    let mat = &mesh.material;
+                    let slots = &surface.slots;
+                    let bound = surface.bound;
+                    let flag = |b: bool| if b { 1.0 } else { 0.0 };
+                    // See-through of its own, whatever the instance's opacity.
+                    // (A cut-out is solid where it is not cut: its rim is not
+                    // blended, as the client draws it.)
+                    let see_through = (surface.has_alpha
+                        && !surface.reflects
+                        && surface.blending != Blending::Punchthrough)
+                        || mat.transparency_hint > 0
+                        || slots.effect.is_some_and(|e| e.blend);
+                    let pass = if fade_color.is_some() {
+                        Pass::SkyFade
+                    } else if is_sky {
+                        Pass::Sky
+                    } else if surface.blending == Blending::Additive {
+                        Pass::Additive
+                    } else if blended_by(alpha, inst.opacity, surface.blending) || see_through {
+                        Pass::Blend
+                    } else {
+                        Pass::Opaque
                     };
-                    // (Its depth alone, before any of the rest is drawn.)
-                    if ghost_solid {
-                        uniforms.push(part(4.0));
-                        draws.push(Draw { depth: f32::INFINITY, ..draw });
+                    // A mesh of mesh `alpha` under 1, of an instance drawn
+                    // whole (not a cut-out, which is drawn solid), is drawn in
+                    // one part, blended and writing its depth, in its model's
+                    // order (by its instance's place, the meshes in the order
+                    // they come), as the client draws them: a card listed after
+                    // another and behind it is hidden where they overlap, and
+                    // what is drawn after it (a ribbon, a see-through mesh's
+                    // soft part) is hidden behind it (`reading_see_through_crossing`,
+                    // `batch6_ribbon_sizes`). Its texture's soft edges are
+                    // blended as they are, writing their depth as the client's
+                    // do: a see-through texture on a mesh of `alpha` 1 (a
+                    // plant's soft edge) is still drawn in two parts, below.
+                    let ordered = pass == Pass::Blend
+                        && inst.opacity >= 1.0
+                        && alpha < 1.0
+                        && surface.blending != Blending::Punchthrough;
+                    let sort_depth =
+                        if ordered { instance_depth } else { -view.transform_point3(centre).z };
+                    // A mesh solid of its own in an instance drawn see-through
+                    // (a tile or a blueprint about to be placed): its depth is
+                    // laid first, so that the instance's nearer surfaces hide
+                    // its farther ones (a tile's water, nearer the eye by its
+                    // middle, was drawn over its bridge).
+                    // (A see-through mesh meets another where they do on the
+                    // screen: its box there, worked out once for its two parts.)
+                    let world_bounds = bounds;
+                    if matches!(pass, Pass::Blend | Pass::Additive) {
+                        bounds = bounds.map(|b| screen_box(on_screen, &b));
                     }
-                    // (The rest the game's programs draw, above: its two
-                    // parts, the second a little towards the eye, so that
-                    // this depth laid by another shader doesn't hide it.)
-                    if game_drawn {
-                        continue;
+                    let ghost_solid = pass == Pass::Blend
+                        && inst.opacity < 1.0
+                        && alpha / inst.opacity >= 1.0
+                        && !see_through;
+                    let discard = ALPHA_DISCARD;
+                    // The 32 most important lights that reach the mesh.
+                    let ball = (centre, radius);
+                    let set = reach_cache.reaching(&mut reach, ball, place, &mut chosen);
+                    let mut light_index = [[0u32; 4]; 8];
+                    for (j, (_, _, i)) in chosen.iter().enumerate() {
+                        light_index[j / 4][j % 4] = *i;
                     }
-                    // (In one part, its depth written: model order.)
-                    if ordered {
-                        uniforms.push(part(0.0));
-                        draws.push(Draw { uniform: uniforms.len() as u32 - 1, ..draw });
-                        continue;
+                    // The game's own shaders, where they can draw it: a mesh
+                    // whose material names a program pair, with that pair; else
+                    // a lit one Moonglow's shader does nothing of its own for,
+                    // with the stock pair the engine would choose. Solid, or
+                    // see-through in two parts as Moonglow draws it.
+                    let game_pass = match pass {
+                        Pass::Opaque => Some(crate::game::GamePass::Opaque),
+                        Pass::Blend if ordered => Some(crate::game::GamePass::Ordered),
+                        Pass::Blend => Some(crate::game::GamePass::Solid),
+                        Pass::Additive => Some(crate::game::GamePass::Additive),
+                        Pass::Sky => Some(crate::game::GamePass::Sky),
+                        // (The horizon's fade: Moonglow's, in the fog's colour.)
+                        Pass::SkyFade | Pass::Fringe => None,
+                    };
+                    // (The skybox: `vsvt`/`fst`, read from the client.)
+                    let traits = crate::game::Traits { sky: is_sky, ..surface.traits };
+                    // (Drawn by the game's programs, a mesh solid of its own in
+                    // an instance drawn see-through, a blueprint about to be
+                    // placed or a brush's tiles, still lays its depth first,
+                    // by Moonglow's shader, below.)
+                    let mut game_drawn = false;
+                    if let Some(f) = &game_frame
+                        && let Some(game_pass) = game_pass
+                        && !inst.unlit
+                        && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
+                        && self.game_path(slots, surface)
+                    {
+                        // (`NO_DISCARD`: the material's, and the mesh's alpha
+                        // as it is now.)
+                        // (The skybox and shiny water: 1 whatever their
+                        // textures' alpha, read from the client.)
+                        let no_discard = traits.sky
+                            || (traits.water && slots.custom.is_none())
+                            || crate::game::no_discard(
+                                surface.textured,
+                                surface.cut,
+                                alpha,
+                                slots.transparency,
+                            );
+                        if let Some(list) = &mut self.game_programs {
+                            let (vs, fs, _) =
+                                crate::game::program_pair(slots.custom.as_ref(), traits);
+                            let node =
+                                |n: usize| inst.model.model.nodes.get(n).map(|n| n.name.clone());
+                            list.push(GameProgram {
+                                model: inst.model.model.name.clone(),
+                                node: node(mesh.node).unwrap_or_default(),
+                                vs,
+                                fs,
+                                no_discard,
+                            });
+                        }
+                        let pipelines = self.game_pipelines(
+                            gpu,
+                            assets,
+                            slots,
+                            traits,
+                            no_discard,
+                            mesh.skin.is_some(),
+                            // (The engine makes a mesh tangents for a render
+                            // hint alone, the model's or its MTR's.)
+                            !mesh.tangents_made || slots.normal_variant,
+                            game_pass,
+                        );
+                        // (Shiny water: the area's map.)
+                        let (material, env_cube) = match surface.water_material {
+                            Some(m) if traits.water && slots.custom.is_none() => m,
+                            _ => (surface.material, surface.env_cube),
+                        };
+                        if let Some((p, fringe)) = pipelines {
+                            // (A program that moves the mesh's vertices, a
+                            // sway or an offset, takes them out of its box: on
+                            // the screen, its box grown by as far as they go.)
+                            if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
+                                let by = p.moved_by(MOVED, slots.offset);
+                                let grown = |b: Bounds| Bounds {
+                                    min: b.min - Vec3::splat(by),
+                                    max: b.max + Vec3::splat(by),
+                                };
+                                bounds = world_bounds.map(|b| screen_box(on_screen, &grown(b)));
+                            }
+                            light_set.clear();
+                            light_set.extend(chosen.iter().map(|(_, _, i)| *i));
+                            // (The game's draws' sets numbered from 0 each frame.)
+                            let lights_id = reach_cache.in_frame(set);
+                            let d = crate::game::DrawValues {
+                                world,
+                                bones: &bones[bone_base as usize..],
+                                ambient: ambient.extend(1.0).to_array(),
+                                diffuse: diffuse.extend(alpha).to_array(),
+                                emissive: emissive.extend(1.0).to_array(),
+                                bound: std::array::from_fn(|i| {
+                                    bound.get(i).copied().unwrap_or(false)
+                                }),
+                                env_cube,
+                                alpha_discard: ALPHA_DISCARD,
+                                frame_lights,
+                                light_index: &light_set,
+                                lights: lights_id,
+                                bbox: (mesh.min, mesh.max),
+                                params: &slots.params,
+                                material,
+                                texture_matrix: texture_turn(inst, mat),
+                                blend_mode: 0,
+                                particle_softness: 0.0,
+                            };
+                            timed += usize::from(p.timed);
+                            let geometry = crate::game::Geometry::Mesh(mesh);
+                            let mut draw =
+                                self.game.push(p, material, geometry, dynamic_range, f, &d);
+                            // (A solid draw that reads the framebuffer's copies,
+                            // shiny water through `fswater`, or whose material
+                            // samples the framebuffer: after them, and after
+                            // the shadows.)
+                            draw.late = copies.is_some()
+                                && (draw.pipeline.wants_fb || slots.late)
+                                && game_pass == crate::game::GamePass::Opaque;
+                            draw.receives = receives
+                                && !draw.late
+                                && game_pass == crate::game::GamePass::Opaque;
+                            match fringe {
+                                None if game_pass == crate::game::GamePass::Opaque => {
+                                    game_draws.push(draw)
+                                }
+                                // (Additive, the sky: a draw of its own, in its
+                                // place among the others.)
+                                None => {
+                                    let at = game_blended.len() as u32;
+                                    let game_batch = draw.batch_key();
+                                    game_blended.push(draw);
+                                    draws.push(Draw {
+                                        pass,
+                                        twosided: slots.twosided,
+                                        depth: sort_depth,
+                                        hint: mat.transparency_hint,
+                                        uniform: 0,
+                                        material: surface.material,
+                                        mesh,
+                                        dynamic: dynamic_range,
+                                        game: Some(at),
+                                        game_batch,
+                                        bounds,
+                                        instance: instance as u32,
+                                        receives: false,
+                                    });
+                                }
+                                Some(q) => {
+                                    // Its two parts, among the see-through
+                                    // meshes (the same blocks for both).
+                                    let rest = self.game.again(&draw, q, f);
+                                    let at = game_blended.len() as u32;
+                                    let batches = (draw.batch_key(), rest.batch_key());
+                                    game_blended.push(draw);
+                                    game_blended.push(rest);
+                                    let draw = Draw {
+                                        pass: Pass::Blend,
+                                        twosided: slots.twosided,
+                                        depth: sort_depth,
+                                        hint: mat.transparency_hint,
+                                        uniform: 0,
+                                        material: surface.material,
+                                        mesh,
+                                        dynamic: dynamic_range,
+                                        game: Some(at),
+                                        game_batch: batches.0,
+                                        bounds,
+                                        instance: instance as u32,
+                                        receives: false,
+                                    };
+                                    draws.push(draw);
+                                    draws.push(Draw {
+                                        pass: Pass::Fringe,
+                                        game: Some(at + 1),
+                                        game_batch: batches.1,
+                                        ..draw
+                                    });
+                                }
+                            }
+                            if !ghost_solid {
+                                continue;
+                            }
+                            game_drawn = true;
+                        }
                     }
-                    let draw = Draw { uniform: uniforms.len() as u32, ..draw };
-                    uniforms.push(part(1.0));
-                    draws.push(draw);
-                    uniforms.push(part(2.0));
-                    draws.push(Draw { pass: Pass::Fringe, uniform: draw.uniform + 1, ..draw });
-                } else {
-                    uniforms.push(uniform);
-                    draws.push(draw);
+                    let normal = model_view.inverse().transpose();
+                    let uniform = DrawUniform {
+                        world: cols(world),
+                        normal_matrix: cols(normal),
+                        // MDL colours are gamma space; the game linearises
+                        // them (read back from its uniforms).
+                        diffuse: match fade_color {
+                            // The fade: its colour, gamma space.
+                            Some(c) => c.extend(1.0).to_array(),
+                            None => diffuse.extend(alpha).to_array(),
+                        },
+                        ambient: ambient.extend(1.0).to_array(),
+                        emissive: emissive.extend(1.0).to_array(),
+                        params: [
+                            discard,
+                            flag(surface.reflects),
+                            flag(surface.textured),
+                            // Unlit: 2 a marker (in its material's
+                            // colour), 1 a decal and the sky.
+                            if inst.unlit {
+                                2.0
+                            } else if surface.decal || is_sky {
+                                1.0
+                            } else {
+                                0.0
+                            },
+                        ],
+                        material: [
+                            slots.specularity,
+                            slots.roughness,
+                            slots.metallicness,
+                            flag(surface.has_alpha),
+                        ],
+                        maps: [flag(bound[1]), flag(bound[2]), flag(bound[3]), flag(bound[4])],
+                        maps2: [
+                            flag(bound[5]),
+                            slots.displacement_offset,
+                            slots.displacement_multiplier,
+                            flag(slots.lit_normal_mapped),
+                        ],
+                        spec_color: slots
+                            .specular_color
+                            .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
+                        // (w: which part of a see-through mesh, below; 3 a
+                        // cut-out, solid where it is not cut.)
+                        extra: [
+                            flag(surface.env_cube),
+                            flag(is_sky),
+                            flag(fade_color.is_some()),
+                            if surface.blending == Blending::Punchthrough { 3.0 } else { 0.0 },
+                        ],
+                        water: {
+                            let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
+                            [far, fast, flag(surface.water), 0.0]
+                        },
+                        uv_turn: {
+                            let m = texture_turn(inst, mat);
+                            [m.x_axis.x, m.x_axis.y, 0.0, 0.0]
+                        },
+                        effect: match slots.effect {
+                            Some(e) => {
+                                // 1 vertex colors, 2 alpha mask, 4 lightmap,
+                                // 8 flow.
+                                let mask = bound[6] && !e.lightmap;
+                                let flow = bound[7] && e.slide_speed != 0.0;
+                                let bits = u8::from(e.colors)
+                                    + 2 * u8::from(mask)
+                                    + 4 * u8::from(bound[6] && e.lightmap)
+                                    + 8 * u8::from(flow);
+                                [
+                                    f32::from(bits),
+                                    e.slide_speed,
+                                    e.shadow_reduction,
+                                    e.shadow_brightening,
+                                ]
+                            }
+                            None => [0.0; 4],
+                        },
+                        // (w: the tangents were made, not the model's: the
+                        // tangent frame is taken from the derivatives.)
+                        light_count: [
+                            chosen.len() as u32,
+                            u32::from(mesh.skin.is_some()),
+                            bone_base,
+                            u32::from(mesh.tangents_made),
+                        ],
+                        light_index,
+                    };
+                    let draw = Draw {
+                        pass,
+                        twosided: slots.twosided,
+                        depth: sort_depth,
+                        hint: mat.transparency_hint,
+                        uniform: uniforms.len() as u32,
+                        material: surface.material,
+                        mesh,
+                        dynamic: dynamic_range,
+                        game: None,
+                        game_batch: None,
+                        bounds,
+                        instance: instance as u32,
+                        receives: receives && pass == Pass::Opaque,
+                    };
+                    // A see-through mesh is drawn in two parts: what is solid
+                    // of it, then the rest.
+                    if pass == Pass::Blend {
+                        let part = |which: f32| {
+                            let [cube, sky, fade, _] = uniform.extra;
+                            DrawUniform { extra: [cube, sky, fade, which], ..uniform }
+                        };
+                        // (Its depth alone, before any of the rest is drawn.)
+                        if ghost_solid {
+                            uniforms.push(part(4.0));
+                            draws.push(Draw { depth: f32::INFINITY, ..draw });
+                        }
+                        // (The rest the game's programs draw, above: its two
+                        // parts, the second a little towards the eye, so that
+                        // this depth laid by another shader doesn't hide it.)
+                        if game_drawn {
+                            continue;
+                        }
+                        // (In one part, its depth written: model order.)
+                        if ordered {
+                            uniforms.push(part(0.0));
+                            draws.push(Draw { uniform: uniforms.len() as u32 - 1, ..draw });
+                            continue;
+                        }
+                        let draw = Draw { uniform: uniforms.len() as u32, ..draw };
+                        uniforms.push(part(1.0));
+                        draws.push(draw);
+                        uniforms.push(part(2.0));
+                        draws.push(Draw { pass: Pass::Fringe, uniform: draw.uniform + 1, ..draw });
+                    } else {
+                        uniforms.push(uniform);
+                        draws.push(draw);
+                    }
                 }
             }
+            match planning {
+                Some(p) => p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)),
+                None => crate::shadow::plan(scene, camera, aspect),
+            }
+        });
+        let shadowing = shadow_plan.is_some() || light_plan.is_some();
+        // (No shadows after all: the solid draws in their order.)
+        if may_shadow && !shadowing {
+            draws.iter_mut().for_each(|d| d.receives = false);
+            game_draws.iter_mut().for_each(|d| d.receives = false);
         }
         self.made = (draws.len(), game_draws.len(), game_blended.len() + 64);
         self.drawn = Drawn {
@@ -2742,8 +2782,6 @@ impl Renderer {
         keys.sort_unstable();
         let mut draws: Vec<Draw<'_>> = keys.iter().map(|&(_, i)| draws[i as usize]).collect();
         drop(keys);
-        let used = draws.iter().map(|d| d.material);
-        self.kept.drawn(used.chain(game_draws.iter().chain(&game_blended).map(|d| d.material)));
 
         // Draws of one mesh become one draw of as many instances, where
         // that takes no draw past one it meets (`batch.rs`): solid meshes
@@ -2753,55 +2791,76 @@ impl Renderer {
         // them: in an area seen whole they are the most of its draws, in
         // the order of their depths, and binding a material and a pipeline
         // anew between them was the most of what wgpu did.
-        let mut batcher = std::mem::take(&mut self.batcher);
-        batcher.begin();
-        let mut batch_of = Vec::with_capacity(draws.len());
-        let (mut pass, mut last) = (None, (u32::MAX, None));
-        for d in &draws {
-            let solid = matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque);
-            // (What the shadows fall on and what not are apart: the
-            // shadows are laid between.)
-            if pass != Some((d.pass, d.receives)) {
-                pass = Some((d.pass, d.receives));
-                last = (u32::MAX, None);
-                // (Squares of a tile's size, and boxes a millimeter into
-                // each other at most taken to touch; on the screen, a
-                // sixteenth of it and a hundredth of a pixel.)
-                if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
-            }
-            // (A see-through, additive or sky draw of the game's: with
-            // others of its pipeline, material and mesh where they don't
-            // meet on the screen, as Moonglow's own; a skinned one by
-            // itself.)
-            let game_key = d.game.map(|i| game_blended[i as usize].batch_key());
-            let key = match game_key {
-                Some(Some((pipeline, material))) => {
-                    (std::ptr::from_ref(d.mesh) as usize, material, pipeline + 1, d.dynamic)
-                }
-                Some(None) => (usize::MAX - d.game.unwrap_or(0) as usize, u32::MAX, u32::MAX, None),
-                None => (std::ptr::from_ref(d.mesh) as usize, d.material, 0, d.dynamic),
-            };
-            let batch = if !self.instancing || matches!(game_key, Some(None)) {
-                batcher.place(key, None, None, None)
-            } else if solid {
-                // (A model's own meshes in the order they came in.)
-                let after = last.1.filter(|_| last.0 == d.instance);
-                let batch = batcher.place(key, None, d.bounds, after);
-                last = (d.instance, Some(batch));
-                batch
+        let instancing = self.instancing;
+        let batcher = &mut self.batcher;
+        let (starts, order) = std::thread::scope(|threads| {
+            // The game's solid draws by pipeline and material, each set once
+            // for its draws (those after the framebuffer's copy last, those
+            // the shadows fall on first): sorted beside, on a thread of their
+            // own where there are many.
+            let solid = &mut game_draws;
+            let rank = |d: &crate::game::GameDraw<'_>| (d.late, !d.receives);
+            let sorting = if solid.len() >= SORT_APART {
+                Some(threads.spawn(move || crate::game::sort(solid, rank)))
             } else {
-                // (The pipeline: the game's, past Moonglow's four.)
-                let pipeline = match game_key {
-                    Some(Some((pipeline, _))) => pipeline + 4,
-                    _ => u32::from(d.mesh.skin.is_some()) * 2 + u32::from(d.twosided),
-                };
-                let state = (pipeline, key.1);
-                batcher.place(key, Some(state), d.bounds, None)
+                crate::game::sort(solid, rank);
+                None
             };
-            batch_of.push(batch);
-        }
-        let (starts, order) = batcher.in_order(&batch_of);
-        self.batcher = batcher;
+            batcher.begin();
+            let mut batch_of = Vec::with_capacity(draws.len());
+            let (mut pass, mut last) = (None, (u32::MAX, None));
+            for d in &draws {
+                let solid = matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque);
+                // (What the shadows fall on and what not are apart: the
+                // shadows are laid between.)
+                if pass != Some((d.pass, d.receives)) {
+                    pass = Some((d.pass, d.receives));
+                    last = (u32::MAX, None);
+                    // (Squares of a tile's size, and boxes a millimeter into
+                    // each other at most taken to touch; on the screen, a
+                    // sixteenth of it and a hundredth of a pixel.)
+                    if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
+                }
+                // (A see-through, additive or sky draw of the game's: with
+                // others of its pipeline, material and mesh where they don't
+                // meet on the screen, as Moonglow's own; a skinned one by
+                // itself.)
+                let game_key = d.game.map(|_| d.game_batch);
+                let key = match game_key {
+                    Some(Some((pipeline, material))) => {
+                        (std::ptr::from_ref(d.mesh) as usize, material, pipeline + 1, d.dynamic)
+                    }
+                    Some(None) => {
+                        (usize::MAX - d.game.unwrap_or(0) as usize, u32::MAX, u32::MAX, None)
+                    }
+                    None => (std::ptr::from_ref(d.mesh) as usize, d.material, 0, d.dynamic),
+                };
+                let batch = if !instancing || matches!(game_key, Some(None)) {
+                    batcher.place(key, None, None, None)
+                } else if solid {
+                    // (A model's own meshes in the order they came in.)
+                    let after = last.1.filter(|_| last.0 == d.instance);
+                    let batch = batcher.place(key, None, d.bounds, after);
+                    last = (d.instance, Some(batch));
+                    batch
+                } else {
+                    // (The pipeline: the game's, past Moonglow's four.)
+                    let pipeline = match game_key {
+                        Some(Some((pipeline, _))) => pipeline + 4,
+                        _ => u32::from(d.mesh.skin.is_some()) * 2 + u32::from(d.twosided),
+                    };
+                    let state = (pipeline, key.1);
+                    batcher.place(key, Some(state), d.bounds, None)
+                };
+                batch_of.push(batch);
+            }
+            if let Some(s) = sorting {
+                s.join().unwrap_or_else(|e| std::panic::resume_unwind(e));
+            }
+            batcher.in_order(&batch_of)
+        });
+        let used = draws.iter().map(|d| d.material);
+        self.kept.drawn(used.chain(game_draws.iter().chain(&game_blended).map(|d| d.material)));
         // The game's draws among them in the order they are drawn, so that
         // a batch's are instances in a row.
         if !game_blended.is_empty() {
@@ -3029,10 +3088,9 @@ impl Renderer {
         // The line shapes: the lines of those not drawn last frame sent,
         // and every copy; each shape's copies drawn by one draw.
         let shapes = self.line_shapes(gpu, &scene.line_shapes);
-        // The game's shaders' blocks and bind groups; the solid draws by
-        // pipeline and material, each set once for its draws.
+        // The game's shaders' blocks and bind groups (the solid draws sorted
+        // above).
         // (Those after the framebuffer's copy, last.)
-        crate::game::sort(&mut game_draws, |d| (d.late, !d.receives));
         let early = game_draws.iter().take_while(|d| !d.late).count();
         // (Those the shadows fall on, first.)
         let received = game_draws.iter().take_while(|d| !d.late && d.receives).count();
@@ -3342,7 +3400,6 @@ impl Renderer {
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
         self.reach_cache = reach_cache;
-        self.light_sets = light_sets;
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn
