@@ -56,7 +56,7 @@ const KNOWN_OVER: &[(&str, &str)] = &[
     // 13 to 16 ms seen whole, 21 to 28 turning, 2026-10-27.
     ("area woods (", "A dense area seen whole is still slower with the switch on"),
     // The wheel zooming over the whole of area084 (16,000 meshes drawn):
-    // 9.6 to 11.7 ms, 2026-10-30.
+    // 7.5 to 9.6 ms, 2026-11-02 (9.1 to 10.8 before that day).
     ("549 objects) (Sound Ranges off), overview (wheel)", LARGEST),
     ("549 objects) (Sound Ranges off), turning (wheel)", LARGEST),
     ("549 objects) (Sound Ranges on), overview (wheel)", LARGEST),

@@ -218,20 +218,62 @@ impl<'a> LightGrid<'a> {
 /// thousands of meshes, each trying the lights of the squares it stands
 /// on, were the larger part of a frame of the camera turning. A mesh is
 /// known by its ball, to the bit: what one takes is what
-/// [`LightGrid::reaching`] gives it. What no mesh of the last frame took
-/// is let go.
+/// [`LightGrid::reaching`] gives it.
+///
+/// A mesh asks by its place among the scene's (mostly what it was the
+/// frame before): its choice is first looked for where the mesh in its
+/// place took one last frame, then by its ball (looking every mesh's up
+/// by its ball, and copying its lights from where they had been put, was
+/// a twelfth of a large area's frame). Choices no mesh took lately are let
+/// go once they are many.
+///
+/// Each choice's set of lights is numbered once, as it is made: the game's
+/// draws share the values of the lights a set comes to, and finding a
+/// draw's set by its lights in a map made anew every frame (each set's
+/// lights copied into it, and let go of after) was a tenth of a large
+/// area's frame.
 #[derive(Debug, Default)]
 pub(crate) struct ReachCache {
     /// The lights the kept choices were made among: each one's place,
     /// reach and priority, as bits.
     lights: Vec<[u32; 5]>,
-    /// The choices of the meshes, each with the last frame that took it
-    /// (kept in place: moving them from a map of the frame before's to one
-    /// of this frame's was most of what a kept choice cost).
-    kept: crate::game::Fast<[u32; 4], (u32, Box<[Reaching]>)>,
+    /// The choices made, and their lights one after another.
+    choices: Vec<Choice>,
+    chosen: Vec<Reaching>,
+    /// The choices by their balls.
+    by_ball: crate::game::Fast<[u32; 4], u32>,
+    /// The choice each mesh took, by its place among the scene's, in the
+    /// frame before and in this one (`u32::MAX`: none).
+    before: Vec<u32>,
+    now: Vec<u32>,
+    /// The choices this frame took.
+    taken: usize,
+    /// The sets of lights chosen, numbered (while the lights stay).
+    sets: crate::game::Fast<Box<[u32]>, u32>,
+    /// By a set's number, the frame that last asked for it and its number
+    /// in that frame ([`ReachCache::in_frame`]); and how many the frame
+    /// asked for.
+    numbered: Vec<(u32, u32)>,
+    asked: u32,
     /// This frame's number.
     frame: u32,
 }
+
+/// A mesh's choice of lights: its ball (as bits), the frame that last took
+/// it, where its lights are in [`ReachCache::chosen`], and its set's
+/// number.
+#[derive(Debug, Clone, Copy)]
+struct Choice {
+    ball: [u32; 4],
+    taken: u32,
+    from: u32,
+    to: u32,
+    set: u32,
+}
+
+/// How many choices and sets of lights are kept past twice as many as a
+/// frame takes, before those it didn't are let go.
+const KEPT: usize = 4096;
 
 impl ReachCache {
     /// Begins a frame of `lights`: what was kept is let go if any of them
@@ -243,40 +285,112 @@ impl ReachCache {
         };
         let same = self.lights.len() == lights.len()
             && self.lights.iter().zip(lights).all(|(k, l)| *k == key(l));
-        if same {
-            // (What the frame before took is kept; what it didn't, let go.)
-            let before = self.frame;
-            self.kept.retain(|_, (taken, _)| *taken == before);
-        } else {
-            self.kept.clear();
+        // (The sets numbered anew with the lights, or where many more are
+        // kept than a frame asks for: a camera moving about. Their numbers
+        // are the choices', which go with them.)
+        if !same || self.sets.len() > 2 * self.taken + KEPT {
+            self.choices.clear();
+            self.chosen.clear();
+            self.by_ball.clear();
+            self.before.clear();
+            self.now.clear();
+            self.sets.clear();
+            self.numbered.clear();
             self.lights.clear();
             self.lights.extend(lights.iter().map(key));
+        } else if self.choices.len() > 2 * self.taken + KEPT {
+            self.keep_taken();
         }
+        std::mem::swap(&mut self.before, &mut self.now);
+        self.now.clear();
+        self.taken = 0;
         self.frame = self.frame.wrapping_add(1);
+        self.asked = 0;
+    }
+
+    /// Lets go of the choices the last frame didn't take.
+    fn keep_taken(&mut self) {
+        let mut moved = vec![u32::MAX; self.choices.len()];
+        let (choices, chosen) =
+            (std::mem::take(&mut self.choices), std::mem::take(&mut self.chosen));
+        for (i, c) in choices.iter().enumerate().filter(|(_, c)| c.taken == self.frame) {
+            moved[i] = self.choices.len() as u32;
+            let from = self.chosen.len() as u32;
+            self.chosen.extend_from_slice(&chosen[c.from as usize..c.to as usize]);
+            let to = self.chosen.len() as u32;
+            self.choices.push(Choice { from, to, ..*c });
+        }
+        self.by_ball.retain(|_, c| {
+            *c = moved[*c as usize];
+            *c != u32::MAX
+        });
+        // (The last frame's meshes took only what is kept.)
+        for c in self.now.iter_mut().filter(|c| **c != u32::MAX) {
+            *c = moved[*c as usize];
+        }
     }
 
     /// [`LightGrid::reaching`], as it was for the same ball since the
-    /// lights were last as they are (`grid` made of those lights).
+    /// lights were last as they are (`grid` made of those lights), for the
+    /// mesh at `place` among the scene's; and the number of the set of
+    /// lights it comes to (the same for every choice of the same lights,
+    /// while they stay).
     pub(crate) fn reaching(
         &mut self,
         grid: &mut LightGrid<'_>,
-        centre: Vec3,
-        radius: f32,
+        (centre, radius): (Vec3, f32),
+        place: usize,
         out: &mut Vec<Reaching>,
-    ) {
-        let key = [centre.x, centre.y, centre.z, radius].map(f32::to_bits);
-        match self.kept.entry(key) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
-                let (taken, kept) = e.get_mut();
-                *taken = self.frame;
-                out.clear();
-                out.extend_from_slice(kept);
-            }
-            std::collections::hash_map::Entry::Vacant(e) => {
-                grid.reaching(centre, radius, out);
-                e.insert((self.frame, out.as_slice().into()));
-            }
+    ) -> u32 {
+        let ball = [centre.x, centre.y, centre.z, radius].map(f32::to_bits);
+        // (Where the mesh in its place last frame took it, else by its ball,
+        // else chosen.)
+        let before = self.before.get(place).copied().filter(|&c| c != u32::MAX);
+        let at = match before.filter(|&c| self.choices[c as usize].ball == ball) {
+            Some(c) => c,
+            None => match self.by_ball.entry(ball) {
+                std::collections::hash_map::Entry::Occupied(e) => *e.get(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    grid.reaching(centre, radius, out);
+                    let lights: Box<[u32]> = out.iter().map(|&(_, _, i)| i).collect();
+                    let next = self.sets.len() as u32;
+                    let set = *self.sets.entry(lights).or_insert(next);
+                    let from = self.chosen.len() as u32;
+                    self.chosen.extend_from_slice(out);
+                    let to = self.chosen.len() as u32;
+                    let taken = self.frame.wrapping_sub(1);
+                    self.choices.push(Choice { ball, taken, from, to, set });
+                    *e.insert(self.choices.len() as u32 - 1)
+                }
+            },
+        };
+        if self.now.len() <= place {
+            self.now.resize(place + 1, u32::MAX);
         }
+        self.now[place] = at;
+        let c = &mut self.choices[at as usize];
+        if c.taken != self.frame {
+            c.taken = self.frame;
+            self.taken += 1;
+        }
+        out.clear();
+        out.extend_from_slice(&self.chosen[c.from as usize..c.to as usize]);
+        c.set
+    }
+
+    /// A set's number among those this frame asks for: from 0, in the
+    /// order it first asks for them.
+    pub(crate) fn in_frame(&mut self, set: u32) -> u32 {
+        let at = set as usize;
+        if self.numbered.len() <= at {
+            self.numbered.resize(at + 1, (self.frame.wrapping_sub(1), 0));
+        }
+        let (asked, number) = &mut self.numbered[at];
+        if *asked != self.frame {
+            (*asked, *number) = (self.frame, self.asked);
+            self.asked += 1;
+        }
+        *number
     }
 }
 
@@ -382,7 +496,10 @@ mod tests {
     /// What a mesh took in the frames before is what it takes again
     /// while the lights stay where they are, and what every light tried
     /// gives once one moves, reaches further, changes priority or another
-    /// comes; its colour changes nothing of it.
+    /// comes; its colour changes nothing of it. Whether it asks from the
+    /// place it asked from before or another (some meshes of a frame not
+    /// drawn in the next, some twice). The same lights are the same set,
+    /// numbered in a frame from 0 in the order the frame asks for them.
     #[test]
     fn a_mesh_keeps_its_lights_until_they_change() {
         let mut n = Numbers(11);
@@ -408,23 +525,68 @@ mod tests {
             }
             cache.begin(&lights);
             let mut grid = LightGrid::new(&lights);
+            let mut sets: std::collections::HashMap<Vec<u32>, u32> = Default::default();
+            let mut asked = Vec::new();
             // (Some meshes of a frame not drawn in the next, some twice.)
-            for (centre, radius) in meshes.iter().skip(frame % 3).chain(&meshes[..5]) {
-                cache.reaching(&mut grid, *centre, *radius, &mut out);
+            let these = meshes.iter().skip(frame % 3).chain(&meshes[..5]);
+            for (place, (centre, radius)) in these.enumerate() {
+                let set = cache.reaching(&mut grid, (*centre, *radius), place, &mut out);
                 assert_eq!(out, every(&lights, *centre, *radius), "frame {frame}");
+                let taken: Vec<u32> = out.iter().map(|&(_, _, i)| i).collect();
+                assert_eq!(*sets.entry(taken).or_insert(set), set, "frame {frame}");
+                let number = cache.in_frame(set) as usize;
+                match asked.iter().position(|&s| s == set) {
+                    Some(k) => assert_eq!(number, k, "frame {frame}"),
+                    None => {
+                        assert_eq!(number, asked.len(), "frame {frame}");
+                        asked.push(set);
+                    }
+                }
             }
-            // Kept: what the meshes of the frame before and this took, no
-            // more.
-            assert!(cache.kept.len() <= meshes.len());
         }
-        // A frame of ten of them: the others are let go after it.
+    }
+
+    /// The choices no mesh took lately are let go once they are many more
+    /// than a frame takes; those the last frame took are kept, as they
+    /// were, with their sets' numbers.
+    #[test]
+    fn the_choices_not_taken_lately_are_let_go() {
+        let mut n = Numbers(5);
+        let lights: Vec<PointLight> = (0..40)
+            .map(|_| {
+                let at = Vec3::new(n.next() * 400.0, n.next() * 400.0, 0.0);
+                light(at, 20.0 + n.next() * 30.0, 1)
+            })
+            .collect();
+        let meshes: Vec<(Vec3, f32)> = (0..KEPT + 3000)
+            .map(|_| (Vec3::new(n.next() * 400.0, n.next() * 400.0, 0.0), n.next() * 4.0))
+            .collect();
+        let mut cache = ReachCache::default();
+        let mut out = Vec::new();
+        // A frame of all of them, then one of ten (in other places).
         cache.begin(&lights);
         let mut grid = LightGrid::new(&lights);
-        for (centre, radius) in &meshes[..10] {
-            cache.reaching(&mut grid, *centre, *radius, &mut out);
+        let mut sets = Vec::new();
+        for (place, (centre, radius)) in meshes.iter().enumerate() {
+            sets.push(cache.reaching(&mut grid, (*centre, *radius), place, &mut out));
         }
+        assert_eq!(cache.choices.len(), meshes.len());
         cache.begin(&lights);
-        assert_eq!(cache.kept.len(), 10);
+        let mut grid = LightGrid::new(&lights);
+        for (place, (centre, radius)) in meshes[100..110].iter().enumerate() {
+            cache.reaching(&mut grid, (*centre, *radius), place + 3, &mut out);
+        }
+        // Those ten are kept, the rest let go.
+        cache.begin(&lights);
+        assert_eq!(cache.choices.len(), 10);
+        assert_eq!(cache.by_ball.len(), 10);
+        let mut grid = LightGrid::new(&lights);
+        for (place, (centre, radius)) in meshes[100..110].iter().enumerate() {
+            let set = cache.reaching(&mut grid, (*centre, *radius), place + 3, &mut out);
+            assert_eq!(out, every(&lights, *centre, *radius));
+            assert_eq!(set, sets[100 + place]);
+        }
+        assert_eq!(cache.choices.len(), 10, "none chosen anew");
     }
 
     #[test]

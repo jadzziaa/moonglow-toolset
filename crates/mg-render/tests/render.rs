@@ -5252,6 +5252,75 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// A scene of many instances (its sun's shadows planned on a thread of
+/// their own, beside its draws): a ground of 8 by 8 tiles under the plate
+/// of [`shadows_darken_what_receives_them_by_the_opacity`] is darkened under
+/// it by the opacity, and beside it not; where nothing casts them (no
+/// shadows after all, what would receive them drawn among the rest) the
+/// picture is the one without shadows, to the bit.
+#[test]
+fn the_shadows_of_a_scene_of_many_instances_are_planned_beside_its_draws() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |casts: bool, shadows: Option<f32>| {
+        let mut instances: Vec<Instance> = (0..64)
+            .map(|i| {
+                let at =
+                    Vec3::new((i % 8) as f32 * 1.25 - 4.375, (i / 8) as f32 * 1.25 - 4.375, 0.0);
+                let tile = Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.625),
+                    glam::Quat::IDENTITY,
+                    at,
+                );
+                Instance { receives_shadows: true, ..Instance::new(ground.clone(), tile) }
+            })
+            .collect();
+        if casts {
+            instances.push(Instance::new(
+                plate.clone(),
+                Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.5),
+                    glam::Quat::IDENTITY,
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            ));
+        }
+        Scene {
+            instances,
+            area: AreaLight {
+                ambient: Vec3::splat(0.2),
+                diffuse: Vec3::splat(0.6),
+                direction: Vec3::Z,
+            },
+            shadows: shadows.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+            ..Default::default()
+        }
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+    let bare = draw(&scene(true, None));
+    let half = draw(&scene(true, Some(0.5)));
+    let (under, beside) = ((32, 32), (32, 6));
+    let lit = grey(bare.pixel(under.0, under.1));
+    assert!(lit > 40.0, "the ground is lit: {lit}");
+    let shadowed = grey(half.pixel(under.0, under.1));
+    assert!((shadowed - lit * 0.5).abs() <= 2.0, "{shadowed} of {lit}");
+    assert!(
+        (grey(half.pixel(beside.0, beside.1)) - grey(bare.pixel(beside.0, beside.1))).abs() <= 1.0
+    );
+    let uncast = draw(&scene(false, Some(0.5)));
+    assert_eq!(uncast.data, draw(&scene(false, None)).data, "no shadows after all");
+}
+
 /// A face casts the sun's shadow from its front only, as the client's
 /// (`docs/findings.md`, "A face casts the sun's shadow from its front
 /// only": a single wall with its back to a low sun casts nothing): the

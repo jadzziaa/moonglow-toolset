@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:49:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:20:50Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -108,31 +108,34 @@ its number, what is out of sight left out, tiles of one model posed
 once, meshes of one model drawn as instances of one draw), the
 galleries' pictures made for 2 ms a frame and kept while in sight.
 
-- **The largest areas in full view:** a 784-tile stock area takes 2.5 ms
-  a frame zooming out; TDoD's synthetic woods (33,000 meshes in sight)
-  13 ms (21 turned to the horizon), 25,000 draws of meshes mostly drawn
-  once each. Tyrants of the Moonsea's area084 (676 tiles, 16,000 meshes)
-  with the wheel zooming over all of it: 9.8 to 11 ms (`frame_perf`'s
-  `sound_ranges_frames_at_144`, named in its `KNOWN_OVER`). Taken apart
-  on 30 October (`render_area`'s `MG_TIME_RENDER`, the frame test's
-  size, the game's shaders): the scene made in 0.5 ms, its draws encoded
-  in 8.0 ms (7.5 since the lights a mesh took are kept in place), the
-  GPU's 2.6 ms; 16,651 meshes in 9,680 draws of 1,606 materials, 4,779
-  casting the sun's shadows. Of the encoding (its stacks sampled): wgpu's
-  `finish` a third (each draw's groups and buffers bound, their uses
-  tracked, the driver's calls), the draws' values worked out and written
-  a fifth, the lights a mesh takes and the batcher a tenth each, the
-  sun's shadows 1.3 ms (their map fitted to the view, so drawn anew as it
-  moves). Ruled out: leaving out small meshes (632 of the 12,149 in sight
-  are under 2 px across), merging far tiles' meshes (a draw's 32 lights
-  are chosen for its mesh: merged, for the whole, and the picture
-  changes), and keeping the draws' values while the camera moves (the
-  game's programs take `m_mv` and `m_mvp` a draw, and the lights in view
-  space). What is left is wgpu's work a draw: fewer draws (one material's
-  meshes of many tiles in one, each mesh's lights found by its vertices)
-  or render bundles for what doesn't move. ([the frames
-  note](research/notes_frames.md), 27 and 30 October) (L)
-  (After 3.0.0, the owner's word, 2026-11-01: 10th by complexity.)
+- **The largest areas in full view:** Tyrants of the Moonsea's area084
+  (676 tiles, 16,000 meshes) with the wheel zooming over all of it: 7.5
+  to 9.6 ms a frame since 2 November (9.1 to 10.8 before;
+  `frame_perf`'s `sound_ranges_frames_at_144`, named in its
+  `KNOWN_OVER`), its draws encoded in 6.1 ms (7.4); TDoD's synthetic
+  woods (33,000 meshes in sight, 25,000 draws of meshes mostly drawn
+  once each) 14 to 31 ms, as before. Done that day: the lights' sets
+  numbered as a mesh's lights are chosen and a mesh's choice found by
+  its place among the scene's meshes, the sun's shadows planned and the
+  game's solid draws sorted on threads beside the other work (the
+  pictures the same to the bit). What is left is a draw's and a
+  material's own cost, the most of it wgpu's: of area084's encoding,
+  wgpu's `finish` a quarter (most of it the see-through draws' 1,270
+  changes of material and 2,600 of the meshes' chunk among 9,500 draws, a
+  group's textures tracked and their initialized state checked each
+  time), the game's draws' values (23,000 blocks, 2.7 MB a frame, each
+  written and then copied) a fifth, the batcher a tenth. Tried and
+  given up: one indirect draw for draws in a row of one state (wgpu's
+  validation of each sub-draw costs what it saves: the woods were a
+  millisecond slower), each pass's batcher on a thread of its own (no
+  gain), the meshes' chunk in the batcher's state (a third fewer draws,
+  no quicker, the GPU slower). Untried: render bundles recorded on
+  threads (at most half of `finish` off the window's thread: a bundle's
+  initialized-state checks and the driver's calls stay on it), and the
+  draws' values written on threads straight into the GPU's staging
+  memory. ([the frames note](research/notes_frames.md), 27 and 30
+  October, 2 November) (L) (After 3.0.0, the owner's word, 2026-11-01:
+  10th by complexity.)
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):

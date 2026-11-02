@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October), the script editor on nwscript.nss (2 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:43:22Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -20,6 +20,9 @@ sources:
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
     title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+  - id: area084-again
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
   - id: editor-perf
     resource: crates/mg-ui/tests/editor_perf.rs
     title: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
@@ -438,6 +441,92 @@ What is left is wgpu's work for each of some 10,000 draws: fewer draws
 found by its vertices), or render bundles recorded once for what doesn't
 move, which wgpu replays without tracking each draw again.
 
+## The largest stock area seen whole, again (2 November 2026)
+
+The same view's frames, its draws taken apart again with
+`render_area`'s `MG_TIME_RENDER` (the medians of 300 frames at the frame
+test's size, the camera turning) and its stacks sampled with `eu-stack`,
+its source lines read from a build with line tables
+(`CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`, `eu-stack -i
+-s`).[^area084-again] The machine at a load of 2 (other sessions build
+here; under load the times were a tenth to a fifth longer).
+
+| area084 | Before | After |
+| --- | --- | --- |
+| Draws encoded, the game's shaders (RX 9070 XT / Radeon 610M) | 7.43 / 8.22 ms | **6.06 / 6.34** |
+| Draws encoded, Moonglow's own | 5.36 / 5.47 | **4.95 / 5.01** |
+| The GPU's, the game's shaders (9070 XT / 610M) | 2.99 / 52.4 | 2.98 / 52.5 |
+| Frames, Sound Ranges off, overview / turning (9070 XT) | 9.11 / 10.31 | **7.52 / 8.89** |
+| Frames, Sound Ranges on, overview / turning (9070 XT) | 9.61 / 10.81 | **7.86 / 9.56** |
+| Frames, off, overview / turning (610M; its GPU 25 / 34 ms, as before) | 8.98 / 11.59 | **7.48 / 8.37** |
+| Frames, on, overview / turning (610M; its GPU 27 / 38 ms, as before) | 10.00 / 11.84 | **7.61 / 9.65** |
+
+The stock area092 and the water area are a little quicker with the
+switch on (2.39 to 2.19 ms zooming, 3.19 to 2.80); TDoD's woods are as
+they were (14 to 31 ms: they have two lights and no sun's shadows, which
+the work below was on). The 27 pictures of `area_parts`
+(`FRAME_PARTS_SHOTS`: the three areas, either shader) and area084's
+`render_area` pictures with either shader are the same to the bit.
+
+What was done (`renderer.rs`, `reach.rs`):
+
+- **A light set numbered as it is chosen** (0.35 ms). The game's draws
+  share the values of the lights a set comes to; each draw's set was
+  found in a map made anew every frame, its lights copied into a key
+  and let go of after (an eighth of the frame: the map emptied, the
+  keys made and hashed). `ReachCache` now numbers a set once, as a
+  mesh's lights are chosen, and a frame numbers the sets it asks for
+  from 0 (`in_frame`), the order the game's values take them in.
+- **A mesh's lights by its place** (0.3 ms). A kept choice was looked up
+  by the mesh's ball in a map of 16,000, its lights copied from a box of
+  their own: a lookup that missed the processor's caches each time. A
+  mesh now asks first where the mesh in its place among the scene's
+  took one last frame, its lights one after another in a list of all
+  the choices'; then by its ball. The choices no mesh took lately are
+  let go once they are more than twice a frame's and 4,096.
+- **The sun's shadows planned beside the draws** (0.25 ms): every mesh of
+  the scene tried as a caster and the casters sorted, on a thread of its
+  own while the meshes' draws are made, in scenes of 64 instances or
+  more. What the shadows may fall on is drawn first in the meantime and
+  put back among the rest where there are none after all.
+- **The game's solid draws sorted beside the batcher** (0.25 ms), on a
+  thread of their own where there are 2,048 or more.
+- **A see-through draw's batch key kept with it**, not looked up in the
+  game's draws for each (an address followed to its pipeline's number).
+
+Tried and given up, the pictures the same each time:
+
+- **One indirect draw for draws in a row of one state**
+  (`multi_draw_indexed_indirect`, each draw its mesh's indices and its
+  own instances; `INDIRECT_FIRST_INSTANCE`): area084's 10,700 calls
+  became 3,200, its encoding 0.1 to 0.3 ms quicker and the 610M's GPU no
+  slower, but the woods a millisecond slower turned with the switch on.
+  wgpu checks an indirect draw's arguments on the GPU (its
+  `VALIDATION_INDIRECT_CALL`, on in release; Direct3D 12 needs it for an
+  instance's number), and the bookkeeping of each sub-draw costs what a
+  draw by itself saved: most of wgpu's work a draw is binding, not the
+  draw.
+- **Each pass's batcher on a thread** (the see-through part and its
+  fringe apart): one pass is most of the draws, and waking a thread on
+  an idle core took what the others saved (0.1 ms on area084, none on
+  the woods).
+- **The meshes' chunk in the batcher's state** (see-through draws of a
+  chunk kept together): 3,400 calls became 2,300 and nothing quicker,
+  the GPU's time 2.9 to 3.3 ms.
+
+What is left, in [the deferred list](../deferred.md): of area084's
+encoding, wgpu's `finish` is a quarter, nine tenths of it the
+see-through draws, where binding is most of it (each group's textures
+tracked and their initialized state checked: 1,270 changes of material
+and 2,600 of the meshes' chunk among 9,500 draws, 11 chunks since a
+chunk holds half a million vertices at most); the game's draws' values
+a fifth (23,000 blocks of 120 bytes and 8,700 of their lights' 144, each
+written, then copied for the GPU); the batcher a tenth. Render bundles
+recorded on threads would take at most half of `finish` off the
+window's thread (a bundle's initialized-state checks and the driver's
+calls stay on it); the values could be written on threads straight into
+the GPU's staging memory.
+
 ## The script editor on nwscript.nss (2 November 2026)
 
 `editor_perf`'s `editing_a_huge_script`[^editor-perf] opens the game's
@@ -501,5 +590,6 @@ In short:
 [^frame-perf]: The frame-time test (release build, Tyrants of the Moonsea and the persistent world)
 [^budget]: The budget: a steady 144 frames a second on the development machine (7 October 2026)
 [^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+[^area084-again]: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
 [^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)
