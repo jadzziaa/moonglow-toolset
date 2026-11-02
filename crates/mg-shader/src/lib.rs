@@ -329,6 +329,88 @@ void main ()
             .unwrap();
     }
 
+    /// An array of samplers is its elements, each split and paired as one
+    /// sampler is, named as OpenGL names them; read by a variable's index,
+    /// which GLSL 330 doesn't allow, or passed to a function (whose element
+    /// glslang reads from a variable of its own, bound to nothing), it is
+    /// refused.
+    #[test]
+    fn an_array_of_samplers_is_split_into_its_elements() {
+        let mut src = sources();
+        src.insert(
+            "fs_arrays".into(),
+            "uniform sampler2D tex[3];\nuniform samplerCube cubes[2];\nvarying vec2 vTexCoord;\n\
+             vec4 Read(sampler2D s) { return texture2D(s, vTexCoord); }\n\
+             void main () { gl_FragColor = texture2D(tex[0], vTexCoord) + Read(tex[2])\n\
+             + textureCube(cubes[1], vec3(vTexCoord, 1.0)); }\n"
+                .into(),
+        );
+        let p = compile("fs_arrays", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let mut t: Vec<_> =
+            p.reflection.textures.iter().map(|t| (t.name.as_str(), t.dim)).collect();
+        t.sort_by_key(|t| t.0);
+        let names: Vec<_> = t.iter().map(|t| t.0).collect();
+        for read in ["tex[0]", "tex[1]", "tex[2]", "cubes[0]", "cubes[1]"] {
+            assert!(names.contains(&read), "{names:?}");
+        }
+        assert!(t.iter().all(|t| t.0.starts_with("tex[") == (t.1 == ImageDimension::D2)), "{t:?}");
+        let r = &p.reflection;
+        assert!(r.textures.iter().all(|t| t.sampler == Some(t.binding + 1)), "{r:?}");
+        naga::back::wgsl::write_string(&p.module, &p.info, naga::back::wgsl::WriterFlags::empty())
+            .unwrap();
+        src.insert(
+            "fs_dynamic".into(),
+            "uniform sampler2D tex[2];\nuniform int which;\nvarying vec2 vTexCoord;\n\
+             void main () { gl_FragColor = texture2D(tex[which], vTexCoord); }\n"
+                .into(),
+        );
+        let e = compile("fs_dynamic", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
+        assert!(matches!(e, ShaderError::Compile(_)), "{e}");
+        src.insert(
+            "fs_passed".into(),
+            "uniform sampler2D tex[2];\nvarying vec2 vTexCoord;\n\
+             vec4 Second(sampler2D s[2]) { return texture2D(s[1], vTexCoord); }\n\
+             void main () { gl_FragColor = Second(tex); }\n"
+                .into(),
+        );
+        let e = compile("fs_passed", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
+        assert!(matches!(&e, ShaderError::Spirv(m) if m.contains("function")), "{e}");
+    }
+
+    /// A uniform that is a struct is described with its members, each at
+    /// its offset within the block.
+    #[test]
+    fn a_struct_uniform_is_described_with_its_members() {
+        let mut src = sources();
+        src.insert(
+            "fs_struct".into(),
+            "struct Glow { vec4 color; float strength; };\nuniform Glow glow;\n\
+             uniform Glow glows[2];\nuniform float after;\n\
+             void main () { gl_FragColor = glow.color * glow.strength * after\n\
+             + glows[1].color; }\n"
+                .into(),
+        );
+        let p = compile("fs_struct", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let (_, glow) = p.reflection.uniform("glow").unwrap();
+        assert_eq!(glow.ty, reflect::ValueType::Struct);
+        let members: Vec<_> =
+            glow.members.iter().map(|m| (m.name.as_str(), m.offset, m.ty)).collect();
+        assert_eq!(
+            members,
+            [
+                ("color", 0, reflect::ValueType::Vector(4, reflect::Scalar::Float)),
+                ("strength", 16, reflect::ValueType::Float),
+            ]
+        );
+        let (_, glows) = p.reflection.uniform("glows").unwrap();
+        assert_eq!(
+            (glows.ty, glows.count, glows.members.len()),
+            (reflect::ValueType::Struct, Some(2), 2)
+        );
+        assert_eq!(glows.stride, 32);
+        assert!(p.reflection.uniform("after").unwrap().1.members.is_empty());
+    }
+
     #[test]
     fn the_preamble_decides_what_compiles() {
         let mut src = sources();

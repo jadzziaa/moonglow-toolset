@@ -371,6 +371,17 @@ pub fn cache_dir() -> Option<std::path::PathBuf> {
     }
 }
 
+/// Where the game's shaders, compiled, are kept between runs
+/// ([`cache_dir`]'s `shaders`): one folder for every program that draws
+/// or checks them (the window's views, Verify's `shader-compile` in the
+/// window and in `mg verify`, Moonglow Viewer's previews, which pass it to
+/// `mg_render::Renderer::set_shader_cache`), so each passes over what
+/// another compiled. An entry is named by the release that made it, so
+/// two releases keep theirs apart.
+pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
+    cache_dir().map(|d| d.join("shaders"))
+}
+
 /// Where the window and `mg compile` both keep what they remember of the
 /// scripts they compiled ([`Remembered`]): one folder, so each passes over
 /// what the other compiled.

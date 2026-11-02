@@ -15,7 +15,10 @@ pub enum ValueType {
     Vector(u8, Scalar),
     /// `matCxR`: columns, rows, of floats.
     Matrix(u8, u8),
-    /// A struct, or something else a uniform isn't.
+    /// A struct (or an array of them): its members are the uniform's
+    /// [`Member::members`].
+    Struct,
+    /// Something else a uniform isn't.
     Other,
 }
 
@@ -43,6 +46,9 @@ pub struct Member {
     pub stride: u32,
     /// How many bytes it takes in all.
     pub size: u32,
+    /// A struct's members (an array's element's), each at its offset
+    /// within the struct; empty for any other value.
+    pub members: Vec<Member>,
 }
 
 /// Which of a program's uniforms a block holds: all of them (glslang's
@@ -146,6 +152,7 @@ fn value_type(module: &Module, inner: &TypeInner) -> ValueType {
         TypeInner::Vector { size, scalar: s } => ValueType::Vector(*size as u8, scalar(*s)),
         TypeInner::Matrix { columns, rows, .. } => ValueType::Matrix(*columns as u8, *rows as u8),
         TypeInner::Array { base, .. } => value_type(module, &module.types[*base].inner),
+        TypeInner::Struct { .. } => ValueType::Struct,
         _ => ValueType::Other,
     }
 }
@@ -153,11 +160,15 @@ fn value_type(module: &Module, inner: &TypeInner) -> ValueType {
 pub(crate) fn member(module: &Module, m: &naga::StructMember) -> Member {
     let inner = &module.types[m.ty].inner;
     let size = inner.size(module.to_ctx());
-    let (count, stride) = match inner {
-        TypeInner::Array { size: naga::ArraySize::Constant(n), stride, .. } => {
-            (Some(n.get()), *stride)
+    let (count, stride, element) = match inner {
+        TypeInner::Array { base, size: naga::ArraySize::Constant(n), stride } => {
+            (Some(n.get()), *stride, &module.types[*base].inner)
         }
-        _ => (None, size),
+        _ => (None, size, inner),
+    };
+    let members = match element {
+        TypeInner::Struct { members, .. } => members.iter().map(|m| member(module, m)).collect(),
+        _ => Vec::new(),
     };
     Member {
         name: m.name.clone().unwrap_or_default(),
@@ -166,6 +177,7 @@ pub(crate) fn member(module: &Module, m: &naga::StructMember) -> Member {
         count,
         stride,
         size,
+        members,
     }
 }
 

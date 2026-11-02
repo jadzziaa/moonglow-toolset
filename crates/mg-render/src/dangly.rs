@@ -14,7 +14,7 @@
 use glam::{Mat4, Vec3};
 use mg_mdl::MeshExtra;
 
-use crate::model::{GpuModel, Vertex, mesh_vertices};
+use crate::model::{GpuModel, Vertex, uploaded};
 use crate::scene::MeshState;
 
 /// The longest simulation step, seconds.
@@ -53,9 +53,13 @@ impl Dangly {
             if d.period >= 60.0 || d.period <= 0.0 || d.displacement <= 0.0 {
                 continue;
             }
-            let limit: Vec<f32> = (0..m.vertices.len())
-                .map(|v| {
-                    let c = m.source.get(v).and_then(|&s| d.constraints.get(s as usize));
+            // (As uploaded: a copy's, on a mirrored seam, its original's.)
+            let up = uploaded(m);
+            let limit: Vec<f32> = up
+                .originals
+                .iter()
+                .map(|&v| {
+                    let c = m.source.get(v as usize).and_then(|&s| d.constraints.get(s as usize));
                     d.displacement * 0.5 * c.copied().unwrap_or(0.0) / 255.0
                 })
                 .collect();
@@ -65,7 +69,7 @@ impl Dangly {
             meshes.push(DanglyMesh {
                 mesh: i,
                 node: model.meshes[i].node,
-                rest: mesh_vertices(m),
+                rest: up.vertices,
                 limit,
                 omega: d.period,
                 zeta: (d.tightness / 10.0).clamp(0.05, 1.0),

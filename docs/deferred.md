@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:10:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -92,8 +92,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
   [performance audit](performance-audit.md) of 2026-11-01, its CPU's
   integrated Radeon (2 compute units, weaker than most laptops') as the
   stand-in for weaker hardware. Not measured: an Intel integrated GPU,
-  Direct3D 12's heaps on Windows, macOS. (S, waits on a builder's
-  machine)
+  Direct3D 12's heaps on Windows, macOS. Not seen either: the game
+  client's black of a custom shader's normal map without tangents on
+  Windows and macOS (the stock include normalizing a zero tangent; read
+  on Linux, `reading_tangents`; Moonglow draws the same black on CI's
+  Direct3D 12 and Metal). (S, waits on a builder's machine)
 
 ## Frames (a steady 144 a second)
 
@@ -133,11 +136,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
-  - **The meshes' chunks** (`mg_render`'s `pool.rs`) grow to the size of
-    all before them: TDoD's woods hold about 370 MB of chunks (184 + 92 +
-    46 + …), up to half of it room. A cap on a chunk's growth, or chunks
-    sized to what is read, would give some back. (S, renderer: the CI
-    branch)
   - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
     saves about a tenth of an integrated GPU's picture and 107 MB of
     targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
@@ -151,9 +149,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     GPU's timestamps (not on every backend). (M)
   - **An area's opening to its last texture** is about 50 ms longer since
     3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
-  - **The model viewer playing an animation** asks for a frame at once,
-    every frame, while the window has the focus (144 a second here),
-    where a step as the area view's would do. (S)
 
 ## Blueprint editors and inventories
 
@@ -415,16 +410,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   copy the load order puts over them, with each shader's color: that
   line from the next release says which of the two it was. (S) (Heed's
   reports, October 2026)
-- **A custom shader's tangents, the black on Windows and macOS:** the
-  client's rule (tangents from the model or a render hint,
-  `NormalAndSpecMapped` or `NormalTangents`, the model's or its MTR's,
-  else zeros) is read for every case on Linux (`reading_tangents`,
-  2026-10-30: `texture1` named in the model alone gives none, nor a
-  model compiled by nwnmdlcomp with its hint, which it doesn't keep);
-  the black of a normal map without tangents (the stock include
-  normalizing a zero vector) was not seen on Windows or macOS (waits on
-  a Windows and a Mac client, or the renderer's CI branch). (S) (Heed's
-  report, October 2026)
 - **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
   way B is built behind its option (Custom Light…, `mg_module::lights`;
   the server reads the hak, finds the model in it and places the row:
@@ -453,10 +438,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
   compiles each program at six settings since 2026-10-29, and keeps what
   compiled, `doctor::settings`)
-  - Arrays of samplers are refused (not split) where a view draws the
-    program (Verify, which asks glslang alone, takes them), and
-    `customShaderGS` (a geometry shader) is not read; no shader seen has
-    either. (S)
   - **Includes nest deeper than 16:** read in the client (2026-11-01,
     `batch6_include_splicing`): an indented `#include` (spaces or a tab)
     is spliced, as `mg_shader::assemble` splices it, and a missing
@@ -467,32 +448,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     this round): splice without a depth limit, refusing only a loop (an
     include of a file already being spliced, which would never end), or
     with a limit far past 1,000. (S)
-  - A uniform that is a struct is described as `Other`, without its
-    members (none in the stock blocks). (Locations, which glslang numbers
-    in the order a stage first uses them, are settled in M1: vertex
-    inputs bound by name, varyings matched by name.) (S)
   - The C++ build: glslang is in every program and test binary that
     links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders
   proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
   leaves out (the Shaders switch, on by default since M3; Moonglow
   Viewer draws them since its 0.2.0). (from M1, 2026-10-21)
-  - **The environment map's level under a normal map:** the WGSL port
-    takes `_nm`'s derivatives from the normal map's normal before the
-    parallax and the bend of a normal facing away, which the game takes
-    after (2 of 255 at the 99th percentile). (S)
-  - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
-    OpenGL: counted from the bottom (in IR) only in a program that reads
-    the framebuffer's copies (`fswater`, `fsparticle`), whose size gives
-    the height. Of the other stock ones keyholing (off),
-    `fs_shadowplane` and `fs_cg_btn_col` (not drawn) read it, and none
-    of The Domains of Dread's 37. A screen-space custom shader that
-    reads no copy would see it upside down; its height would come from
-    `screenParams`. (S)
-  - The height map's parallax direction on a tile's `rotatetexture`
-    meshes (`inc_displacement` turns it by `mat2(m_texture)`) is not
-    turned in Moonglow's own shader (`displace`; the normal map's is).
-    (S)
   - `worldtimerTimeOfDay` counts real milliseconds and
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
     starts both at 0 when the scene's time does. The client's timer is a
@@ -512,15 +473,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     grass's sway, which are not compared with the client frame by frame
     until it is. (S: more runs spread over a day, recording UTC and the
     value, `time_uniforms_in_the_client` with `MG_TIME_CASES=13:30:1:6`)
-  - The game's programs draw on CI's Metal and Direct3D 12 (the
-    renderer's CI branch, 2026-10-29: three draws, no failures), but a
-    discarding one's depth is not tested there: naga's `discard` from
-    the game's, and the alpha discard `keep_alpha` adds (a bare `Kill`),
-    run on, and on Metal a discarded fragment that runs on writes its
-    depth (`a_shader_returns_where_it_discards` holds Moonglow's own
-    shader to returning). (S: a see-through mesh's solid part through
-    the game's programs, as `a_see_through_edge_does_not_hide_the_ground_behind_it`
-    draws Moonglow's, on the renderer's CI branch)
   - The Domains of Dread's fountain is 10.6 of 255 from the client on
     average with the Shaders switch on (the game's `fswater` with the
     framebuffer's copies; 11.7 with Moonglow's own water; 13.7 with
@@ -549,22 +501,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     MB at the area view's size), filled from the targets as the frame
     begins where the frame before was of the same view; a picture drawn
     once has no frame before. (S–M)
-  - The tangents the renderer makes (a mesh with a render hint and none
-    of its own) are summed per face (`made_tangents`): across a
-    mirrored UV seam they run smoothly where the client splits the seam
-    at load as the game's compiler does (a vertex whose handedness flips
-    copied, `engine_tangents`, MDL-MESH-043: read 2026-10-30,
-    `reading_tangents`, an ASCII card with a mirrored seam under a
-    custom pair painting its tangent and handedness, sharp in the
-    client). How: `mg_mdl::compile`'s `engine_tangents` already splits
-    as the compiler does (skin weights, dangly constraints and the source
-    maps copied with the vertex, an animated mesh's left); the renderer
-    would take its split with the made tangents' sums (so that a mesh
-    with no mirrored seam keeps every pixel), the copies at the end of
-    the mesh's vertices and its indices rewritten (`GpuModel::new`), and
-    the two readers that write a mesh's vertices a frame give the copies
-    their originals' (`Dangly`'s rest and limits, `animated_vertices`
-    by `source`). (S–M)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21)
@@ -579,22 +515,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     swaying program's box grown by a meter joins fewer). `NO_DISCARD` 0
     for every material (notes §M.10) not looked at. ([the frames
     note](research/notes_frames.md), 27 October) (M)
-  - **A program that moves its vertices farther than a meter** is batched
-    by its box grown by `MOVED` (1 m): TDoD's grass lifted by
-    `fTilesetMeshOffsetZ` (2 m) could be blended in another order where
-    it reaches past it. Its MTR's parameters could say how far. (S)
   - **An area changes its look a moment after it opens**, the first time
     its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
     250–277 ms) and, with them cached, while naga reads them and the
     driver makes the pipelines (28–40 and 123–146 ms): Moonglow's own
-    shader draws until they are ready. Making the pipelines of the
-    programs a module needs when it opens, or keeping the drivers'
-    pipeline caches (wgpu's `PipelineCache`), would shorten it. (S)
-  - `mg` and `mgv`'s previews compile the programs each run: no shader
-    cache is set outside the window (`Renderer::set_shader_cache`). (S)
-  - A program whose uniforms can't be split (its block used otherwise
-    than member by member: none of the 102 seen) falls back to
-    Moonglow's shader, reported, rather than drawing with one block. (S)
+    shader draws until they are ready. Keeping the driver's pipeline
+    cache (wgpu's `PipelineCache`, Vulkan's alone) was tried on
+    2026-11-02 and measured to shorten nothing here: Mesa's own on-disk
+    cache already keeps the driver's part (area092's 21 pipelines 65 ms
+    of the worker's without it, 67 with it; TDoD's woods 129–165 and
+    135), and with Mesa's cache off the area took 319 ms with wgpu's
+    cache read against 371 with neither (the programs' cache alone); it
+    was not kept. What is left is naga's and wgpu's own part (reading
+    the programs, writing them for the backend): making the pipelines of
+    the programs a module needs when it opens, before its areas are, would
+    shorten it. (S)
+  - A program whose uniforms can't be split falls back to Moonglow's
+    shader, reported. Since 2026-11-02 a block a program names besides
+    its loose uniforms (`uniform Name { … };`) is split with them; what
+    is left is an array of named blocks read by a variable's index (none
+    of the 102 programs seen has one). Drawing that would need its blocks
+    written for each draw (its own, its lights', its bones' and the
+    frame's values in one) and bound at the draw's own offset, instancing
+    off for it: M, for a program not seen. (M)
   - **Pictures drawn once wait for the pipelines** (a gallery's or
     palette's thumbnails, a hovered row's preview: drawn once and kept,
     they can't take the fallback): the first ones a session needs block
@@ -652,8 +595,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     emitter's and a lightning bolt's too: read on 2026-10-30,
     `reading_soft_particles_of_lightning_and_linked`, and Moonglow's bolt
     made soft); a Lighten particle's foot fades a little more than the
-    client's (6.2 of 255 away over its last rows). Moonglow's own
-    particle shader (the switch off) doesn't fade. (S)
+    client's (6.2 of 255 away over its last rows). (S)
   - **Particles' size:** a still emitter's square particles are drawn
     upright, as in the client, 28 pixels a side against the client's 30
     in `surfaces_in_the_client` (the fitted camera's error, or the size:
@@ -672,11 +614,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     gives 1. The fix (mg-render, another package's this round): the
     grass's draws get that alpha by their batch's distance from the
     camera. (S)
-  - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
-    level Moonglow's shader works out for them (`cube_level`) and the
-    bias the game's programs add come to level 0 either way: a rough
-    surface's cube reflection isn't blurred. The stored levels would be
-    uploaded. (S)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -684,11 +621,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     draw), the upload 0.09 ms, the submit 0.07 ms. `m_normal` from the
     3×3 part, or values that the camera alone changes kept per instance
     and multiplied in the vertex program, would cut it. (M)
-  - The area views saved with `FRAME_SHOTS=1` are not comparable from
-    one run to the next where tiles animate (up to 31 of 255 over
-    area092's sea): they are drawn at the running clock, where
-    `FRAME_PARTS_SHOTS` draws at a fixed one. A fixed clock for the
-    shots would make them comparable. (S)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): not
   reproduced. The game's own balor, fire elemental, campfire and brazier

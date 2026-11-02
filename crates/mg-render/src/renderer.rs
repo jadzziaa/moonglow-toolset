@@ -208,6 +208,9 @@ struct Slots {
     names: [Option<String>; SLOTS],
     /// MTR parameters (0: none).
     specularity: f32,
+    /// How far a custom pair may offset the mesh, meters: the largest of
+    /// its MTR's `…Offset…` parameters ([`crate::game::offset_of`]).
+    offset: f32,
     roughness: f32,
     metallicness: f32,
     displacement_offset: f32,
@@ -473,6 +476,12 @@ pub struct Renderer {
     /// The frame's uniforms as the particles' and the lines' pipelines bind
     /// them (the one buffer for good: made once).
     particle_frame: wgpu::BindGroup,
+    /// The framebuffer's depth copy as Moonglow's particle pipelines read
+    /// it (soft particles): its layout, a 1×1 copy for a target without,
+    /// and the last target's, by its copies' number.
+    particle_depth_layout: wgpu::BindGroupLayout,
+    particle_depth_none: wgpu::BindGroup,
+    particle_depth: Option<(u64, wgpu::BindGroup)>,
     particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
     particle_buffer: wgpu::Buffer,
     line_pipeline: wgpu::RenderPipeline,
@@ -1035,9 +1044,44 @@ impl Renderer {
             label: Some("particles"),
             source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()),
         });
+        let particle_depth_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("particle depth"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let particle_depth_none = {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("no depth copy"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: crate::framebuffer::DEPTH_COPY,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            particle_depth_group(
+                device,
+                &particle_depth_layout,
+                &texture.create_view(&Default::default()),
+            )
+        };
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("particles"),
-            bind_group_layouts: &[Some(&particle_frame_layout), Some(&material_layout)],
+            bind_group_layouts: &[
+                Some(&particle_frame_layout),
+                Some(&material_layout),
+                Some(&particle_depth_layout),
+            ],
             immediate_size: 0,
         });
         let mut particle_pipelines = HashMap::new();
@@ -1224,6 +1268,9 @@ impl Renderer {
             material_layout,
             pipelines,
             particle_frame,
+            particle_depth_layout,
+            particle_depth_none,
+            particle_depth: None,
             particle_pipelines,
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_pipeline,
@@ -1428,6 +1475,9 @@ impl Renderer {
             out.params = mtr.params.clone();
             out.custom =
                 crate::game::custom_pair(mtr.shader_vs.as_deref(), mtr.shader_fs.as_deref());
+            if out.custom.is_some() {
+                out.offset = crate::game::offset_of(&out.params, crate::game::is_offset);
+            }
             // (Named alone, without a pair, the client ignores it and draws
             // the stock programs: `program_choice_in_the_client`.)
             out.geometry = mtr
@@ -1934,7 +1984,9 @@ impl Renderer {
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
         self.let_go_of_stale_textures();
-        // (A target's copies of its own size only.)
+        // (A target's copies of its own size only: the game's programs',
+        // and Moonglow's soft particles'.)
+        let all_copies = copies;
         let copies = copies.filter(|_| self.game_shaders);
         self.water_now = self.game_water && copies.is_some();
         let view = camera.view();
@@ -2124,7 +2176,12 @@ impl Renderer {
                     let around = turned.x_axis.abs() * half.x
                         + turned.y_axis.abs() * half.y
                         + turned.z_axis.abs() * half.z;
-                    if frustum.hides(centre, around.length()) {
+                    // (A material's own programs may offset the mesh by its
+                    // MTR's `…Offset…` parameters, out of its box: its ball
+                    // grown by as far. TDoD's grass, lifted 2 m, was left
+                    // out where its box was below the view.)
+                    let offset = if self.game_shaders { surface.slots.offset } else { 0.0 };
+                    if frustum.hides(centre, around.length() + offset) {
                         bones.truncate(bone_base as usize);
                         hidden += 1;
                         continue;
@@ -2262,12 +2319,13 @@ impl Renderer {
                     };
                     if let Some((p, fringe)) = pipelines {
                         // (A program that moves the mesh's vertices, a
-                        // sway, takes them out of its box: on the screen,
-                        // its box grown by as far as they go.)
+                        // sway or an offset, takes them out of its box: on
+                        // the screen, its box grown by as far as they go.)
                         if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
+                            let by = p.moved_by(MOVED, slots.offset);
                             let grown = |b: Bounds| Bounds {
-                                min: b.min - Vec3::splat(MOVED),
-                                max: b.max + Vec3::splat(MOVED),
+                                min: b.min - Vec3::splat(by),
+                                max: b.max + Vec3::splat(by),
                             };
                             bounds = world_bounds.map(|b| screen_box(on_screen, &grown(b)));
                         }
@@ -2733,6 +2791,13 @@ impl Renderer {
                 }
                 None => particle_vertices.extend_from_slice(&b.vertices),
             }
+            // (Moonglow's own shader fades a soft one through the target's
+            // depth copy, as the game's does.)
+            let own_soft =
+                if self.soft_particles && all_copies.is_some() { b.softness } else { 0.0 };
+            for v in &mut particle_vertices[start as usize..] {
+                v.softness = own_soft;
+            }
             self.kept.drawn([group]);
             particle_draws.push((b.blend, group, start..particle_vertices.len() as u32, None));
             particle_softness.push(if self.soft_particles { b.softness } else { 0.0 });
@@ -2837,11 +2902,23 @@ impl Renderer {
         let received = game_draws.iter().take_while(|d| !d.late && d.receives).count();
         // The copies are filled where a draw reads them: the pass is cut
         // after the solid meshes, and the copy made.
-        let copying = copies.filter(|_| {
-            early < game_draws.len()
-                || soft_particles
-                || game_blended.iter().any(|d| d.pipeline.wants_fb)
+        // (And where Moonglow's own particle shader fades a soft one.)
+        let own_soft = particle_draws.iter().zip(&batches).any(|((blend, _, _, game), b)| {
+            game.is_none() && *blend != ParticleBlend::PunchThrough && b.softness > 0.0
+        }) && self.soft_particles;
+        let copying = all_copies.filter(|_| {
+            own_soft
+                || copies.is_some()
+                    && (early < game_draws.len()
+                        || soft_particles
+                        || game_blended.iter().any(|d| d.pipeline.wants_fb))
         });
+        if let Some(c) = copying
+            && self.particle_depth.as_ref().is_none_or(|(id, _)| *id != c.id)
+        {
+            let group = particle_depth_group(&gpu.device, &self.particle_depth_layout, &c.depth);
+            self.particle_depth = Some((c.id, group));
+        }
         self.game.set_framebuffer(copying.map(|c| crate::game::FbViews {
             color: c.color.clone(),
             depth: c.depth.clone(),
@@ -3093,6 +3170,11 @@ impl Renderer {
                 }
                 if !own_bound {
                     pass.set_bind_group(0, &self.particle_frame, &[]);
+                    let depth = match (copying, &self.particle_depth) {
+                        (Some(c), Some((id, group))) if *id == c.id => group,
+                        _ => &self.particle_depth_none,
+                    };
+                    pass.set_bind_group(2, depth, &[]);
                     pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
                     own_bound = true;
                     // (The game's draws bind theirs again after.)
@@ -3405,8 +3487,26 @@ pub fn tint_light(scene: &Scene, at: Vec3) -> Vec3 {
 /// others ([`crate::batch`]): The Domains of Dread's sway shaders move a
 /// vertex by at most `fSwayStrength` / 100 · 5 · √2 each way, 0.35 m at the
 /// strongest they use (5). Taken as its box, a leaf's soft edge was blended
-/// in another order where it swayed past it.
+/// in another order where it swayed past it. A program that offsets the
+/// mesh by an MTR's parameter besides (`…Offset…`: TDoD's grass lifted
+/// 2 m) adds the parameter's value ([`crate::game::GamePipeline::moved_by`]).
 const MOVED: f32 = 1.0;
+
+/// The bind group of Moonglow's particle pipelines' depth copy.
+fn particle_depth_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    depth: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("particle depth"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(depth),
+        }],
+    })
+}
 
 /// The depth buffer's format.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;

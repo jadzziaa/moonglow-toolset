@@ -887,6 +887,14 @@ impl AreaView {
         self.targets.is_some()
     }
 
+    /// Sets its animations' clock to `seconds` (as if the view had been
+    /// open so long), its next frame drawing its picture anew there with
+    /// no time passed: pictures of a view compared from run to run, where
+    /// tiles animate (`frame_perf`'s `FRAME_SHOTS`).
+    pub fn set_clock(&mut self, seconds: f32) {
+        (self.time, self.last_frame, self.drawn) = (seconds, None, None);
+    }
+
     /// Whether its scene is on the GPU (its tiles' and objects' models).
     pub fn holds_scene(&self) -> bool {
         self.scene.is_some()

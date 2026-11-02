@@ -61,6 +61,38 @@ fn again(h: &Harness<'_, Moonglow>) -> std::time::Duration {
     out.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay)
 }
 
+/// An area's clock set (`AreaView::set_clock`, `frame_perf`'s
+/// `FRAME_SHOTS`) draws its picture anew at that time whatever came
+/// before: the same picture after a second more of frames.
+#[test]
+fn an_area_s_clock_set_draws_the_same_picture_whatever_came_before() {
+    let Some((mut h, area)) = area_harness("area-clock") else { return };
+    settle(&mut h);
+    let shot = |h: &mut Harness<'_, Moonglow>| {
+        let pictures = h.state().area_views[&area].pictures;
+        h.state_mut().area_views.get_mut(&area).unwrap().set_clock(10.0);
+        h.run_steps(1);
+        assert!(h.state().area_views[&area].pictures > pictures, "drawn anew");
+        let rect = h.state().area_views[&area].rect;
+        let img = h.render().unwrap();
+        let ppp = h.ctx.pixels_per_point();
+        let px = |x: f32, y: f32| *img.get_pixel((x * ppp) as u32, (y * ppp) as u32);
+        (0..8)
+            .flat_map(|i| (0..8).map(move |j| (i, j)))
+            .map(|(i, j)| {
+                let (x, y) = (
+                    rect.left() + rect.width() * (i as f32 + 0.5) / 8.0,
+                    rect.top() + rect.height() * (j as f32 + 0.5) / 8.0,
+                );
+                px(x, y)
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = shot(&mut h);
+    h.run_steps(60);
+    assert_eq!(shot(&mut h), first);
+}
+
 /// An area's view steps its animations 25 times a second while the window
 /// has the focus; behind another program's window it asks for no frame
 /// (its picture kept as it is), and steps again once it has the focus.
@@ -128,7 +160,9 @@ fn the_area_view_resolution_draws_the_picture_at_a_share_of_its_pixels() {
 }
 
 /// The model viewer playing an animation asks for frames while the window
-/// has the focus, and none behind another program's window.
+/// has the focus, a step at a time as the area view's animations step (it
+/// asked for one at once, every frame), and none behind another program's
+/// window.
 #[test]
 fn a_playing_model_waits_while_the_window_has_not_the_focus() {
     let root = mg_testkit::corpus!();
@@ -138,13 +172,21 @@ fn a_playing_model_waits_while_the_window_has_not_the_focus() {
     app.settings.game_shaders = Some(false);
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = gpu_harness(app, rs, 900.0, 700.0);
-    h.run_steps(3);
+    // (Frames a 60th of a second apart: egui takes a frame's time off a
+    // delay asked for.)
+    let mut h = area_gpu_harness(app, rs, 900.0, 700.0);
+    settle(&mut h);
     let source = mg_ui::model_view::Source::Resource(key);
     let view = h.state_mut().model_views.get_mut(&source).unwrap();
     (view.animation, view.playing) = (Some("open".into()), true);
     h.run_steps(3);
-    assert!(again(&h) <= std::time::Duration::from_millis(40), "playing: {:?}", again(&h));
+    // (A step as the area view's, not a frame at once every frame.)
+    let step = again(&h);
+    assert!(
+        step >= std::time::Duration::from_millis(20)
+            && step <= std::time::Duration::from_millis(40),
+        "playing: {step:?}"
+    );
     h.input_mut().focused = false;
     h.run_steps(3);
     assert!(again(&h) > std::time::Duration::from_secs(1), "in the background: {:?}", again(&h));

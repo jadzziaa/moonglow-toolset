@@ -42,6 +42,12 @@ impl Gpu {
         self.texture_limit.store(limit, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// What the meshes uploaded through this device take of its memory
+    /// (their chunks, `pool.rs`), and what of it they use.
+    pub fn mesh_memory(&self) -> crate::MeshMemory {
+        self.pool.memory()
+    }
+
     /// The largest side a texture is uploaded at ([`Gpu::set_texture_limit`]).
     pub fn texture_limit(&self) -> Option<u32> {
         Some(self.texture_limit.load(std::sync::atomic::Ordering::Relaxed)).filter(|&l| l > 0)

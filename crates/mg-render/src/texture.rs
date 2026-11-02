@@ -40,6 +40,26 @@ fn fits(gpu: &Gpu, width: u32, height: u32) -> Result<(), String> {
     }
 }
 
+/// Level `level` of a texture as RGBA8, where it stores one (a DDS's own
+/// smaller levels; alpha 255 where the texture has none).
+fn stored_level(tex: &Texture, level: usize) -> Option<Vec<u8>> {
+    let data = tex.mips.get(level)?;
+    let (w, h) = tex.level_dims(level);
+    let mut rgba = match tex.format {
+        Format::Rgba8 => data.clone(),
+        f => mg_image::bc::decode(f, w, h, data),
+    };
+    if rgba.len() != w as usize * h as usize * 4 {
+        return None;
+    }
+    if !tex.has_alpha {
+        for px in rgba.as_chunks_mut::<4>().0 {
+            px[3] = 255;
+        }
+    }
+    Some(rgba)
+}
+
 /// Halves an RGBA8 image (box filter; odd sizes clamp at the edge). A
 /// pixel's color counts by its alpha, so that what a texture keeps under
 /// its transparent parts (often a pale background) doesn't show as a rim
@@ -191,48 +211,65 @@ impl GpuTexture {
     }
 
     /// A cube map from six faces in the game's order (+X, −X, +Y, −Y, +Z,
-    /// −Z, world axes: +Z is up), one level (the game samples level 0).
-    /// Faces of another size than the first are scaled to it.
+    /// −Z, world axes: +Z is up), with its smaller levels: a face's own
+    /// where it stores them (a DDS's), else made of the level above, so
+    /// that a rough surface's reflection, read at a smaller level (the
+    /// game's programs' bias, Moonglow's `cube_level`), is blurred. Faces of
+    /// another size than the first are scaled to it.
     pub fn upload_cube(gpu: &Gpu, label: &str, faces: &[Texture; 6]) -> GpuTexture {
-        let rgba: Vec<mg_image::Rgba> = faces.iter().map(Texture::to_rgba).collect();
-        let (w, h) = (rgba[0].width.max(1), rgba[0].height.max(1));
+        let first = faces[0].to_rgba();
+        let (w, h) = (first.width.max(1), first.height.max(1));
+        let count = 1 + w.max(h).ilog2();
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 6 },
-            mip_level_count: 1,
+            mip_level_count: count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        for (layer, face) in rgba.iter().enumerate() {
-            let data = if (face.width, face.height) == (w, h) {
-                face.data.clone()
+        for (layer, face) in faces.iter().enumerate() {
+            let rgba = if layer == 0 { first.clone() } else { face.to_rgba() };
+            let same = (rgba.width, rgba.height) == (w, h);
+            let data = if same {
+                rgba.data
             } else {
                 // Nearest-neighbour to the first face's size.
                 (0..h)
                     .flat_map(|y| (0..w).map(move |x| (x, y)))
                     .flat_map(|(x, y)| {
-                        face.pixel(x * face.width.max(1) / w, y * face.height.max(1) / h)
+                        rgba.pixel(x * rgba.width.max(1) / w, y * rgba.height.max(1) / h)
                     })
                     .collect()
             };
-            gpu.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(w * 4),
-                    rows_per_image: Some(h),
-                },
-                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-            );
+            let mut level = (data, w, h);
+            for mip in 0..count {
+                if mip > 0 {
+                    let (lw, lh) = ((w >> mip).max(1), (h >> mip).max(1));
+                    level = match stored_level(face, mip as usize).filter(|_| same) {
+                        Some(data) => (data, lw, lh),
+                        None => half(&level.0, level.1, level.2),
+                    };
+                }
+                let (data, lw, lh) = &level;
+                gpu.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    data,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(lw * 4),
+                        rows_per_image: Some(*lh),
+                    },
+                    wgpu::Extent3d { width: *lw, height: *lh, depth_or_array_layers: 1 },
+                );
+            }
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
@@ -240,7 +277,6 @@ impl GpuTexture {
         });
         GpuTexture { texture, view, has_alpha: false }
     }
-
     /// What it takes on the GPU, bytes: every level of every layer, as its
     /// format stores it (a BC format's blocks, 4 bytes a pixel for RGBA8).
     pub fn bytes(&self) -> u64 {
@@ -274,6 +310,28 @@ pub fn texture_bytes(t: &wgpu::Texture) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A face's own smaller level is taken where it stores it (decoded, a
+    /// DDS's), and none past what it stores or of another size; a cube is
+    /// uploaded with every level down to a pixel.
+    #[test]
+    fn a_cube_s_levels_are_its_faces_own_or_made() {
+        let face = Texture {
+            width: 4,
+            height: 4,
+            format: Format::Rgba8,
+            mips: vec![[255, 0, 0, 255].repeat(16), [0, 255, 0, 255].repeat(4)],
+            has_alpha: false,
+            alpha_mean: None,
+        };
+        assert_eq!(stored_level(&face, 1), Some([0, 255, 0, 255].repeat(4)));
+        assert_eq!(stored_level(&face, 2), None, "past what it stores");
+        let short = Texture { mips: vec![face.mips[0].clone(), vec![0; 3]], ..face.clone() };
+        assert_eq!(stored_level(&short, 1), None, "cut short");
+        let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+        let cube = GpuTexture::upload_cube(&gpu, "cube", &std::array::from_fn(|_| face.clone()));
+        assert_eq!(cube.texture.mip_level_count(), 3);
+    }
 
     #[test]
     fn halving_averages_and_clamps() {

@@ -178,9 +178,178 @@ fn string_at(args: &[u32], from: usize) -> String {
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
+/// Makes each array of combined samplers (`uniform sampler2D tex[2]`) its
+/// elements, one variable each, named as OpenGL names them (`tex[0]`,
+/// `tex[1]`), so that [`split_samplers`] splits each as it splits one
+/// sampler. GLSL 330 indexes such an array by constants only (glslang
+/// refuses a variable's index). Refused: the array read whole, an array of
+/// arrays, and an array passed to a function (glslang reads an element of
+/// such a parameter from a variable of its own it makes, bound to nothing,
+/// not from the array passed: drawn, it would read white, unsaid).
+fn split_sampler_arrays(m: &mut Module) -> Result<(), ShaderError> {
+    let mut sampled = HashSet::new();
+    let mut constants: HashMap<u32, u32> = HashMap::new();
+    for inst in &m.insts {
+        match inst.op {
+            OP_TYPE_SAMPLED_IMAGE => {
+                sampled.insert(inst.arg(0)?);
+            }
+            OP_CONSTANT if inst.args.len() == 3 => {
+                constants.insert(inst.arg(1)?, inst.arg(2)?);
+            }
+            _ => {}
+        }
+    }
+    // Arrays of them (element, length), and pointers to those arrays.
+    let mut arrays: HashMap<u32, (u32, u32)> = HashMap::new();
+    for inst in &m.insts {
+        if inst.op == OP_TYPE_ARRAY && sampled.contains(&inst.arg(1)?) {
+            let length = constants
+                .get(&inst.arg(2)?)
+                .copied()
+                .ok_or_else(|| bad("an array of samplers of no constant length"))?;
+            arrays.insert(inst.arg(0)?, (inst.arg(1)?, length));
+        }
+    }
+    if arrays.is_empty() {
+        return Ok(());
+    }
+    for inst in &m.insts {
+        if inst.op == OP_TYPE_ARRAY && arrays.contains_key(&inst.arg(1)?) {
+            return Err(bad("an array of arrays of samplers"));
+        }
+    }
+    // The pointers to the arrays, and a pointer to each element's type of
+    // its own, declared in the first one's place (glslang's own pointer to
+    // the element may come after the arrays' variables).
+    let mut array_pointers: HashMap<u32, (u32, u32)> = HashMap::new();
+    for inst in &m.insts {
+        if inst.op == OP_TYPE_POINTER
+            && inst.arg(1)? == STORAGE_UNIFORM_CONSTANT
+            && let Some(&a) = arrays.get(&inst.arg(2)?)
+        {
+            array_pointers.insert(inst.arg(0)?, a);
+        }
+    }
+    let mut element_pointers: HashMap<u32, u32> = HashMap::new(); // sampled type -> pointer
+    let mut tys: Vec<u32> = array_pointers.values().map(|a| a.0).collect();
+    tys.sort_unstable();
+    tys.dedup();
+    for ty in tys {
+        let p = m.new_id();
+        element_pointers.insert(ty, p);
+    }
+    // The arrays' variables, and their elements' new ids.
+    let mut found: Vec<(u32, u32, u32)> = Vec::new();
+    for inst in &m.insts {
+        let typed = inst.args.first().is_some_and(|t| array_pointers.contains_key(t));
+        if inst.op == OP_FUNCTION_PARAMETER && typed {
+            return Err(bad("an array of samplers passed to a function"));
+        }
+        if inst.op == OP_VARIABLE && typed {
+            let (ty, n) = array_pointers[&inst.arg(0)?];
+            found.push((inst.arg(1)?, ty, n));
+        }
+    }
+    let mut objects: HashMap<u32, (u32, Vec<u32>)> = HashMap::new(); // object -> (sampled, elements)
+    for (object, ty, n) in found {
+        let elements = (0..n).map(|_| m.new_id()).collect();
+        objects.insert(object, (ty, elements));
+    }
+    // Each constant index into one: the element it names.
+    let mut alias: HashMap<u32, u32> = HashMap::new();
+    for inst in &m.insts {
+        let chain = matches!(inst.op, OP_ACCESS_CHAIN | OP_IN_BOUNDS_ACCESS_CHAIN);
+        match inst.op {
+            _ if chain && objects.contains_key(&inst.arg(2)?) => {
+                let (_, elements) = &objects[&inst.arg(2)?];
+                if inst.args.len() != 4 {
+                    return Err(bad("an array of samplers indexed twice"));
+                }
+                let index = constants
+                    .get(&inst.arg(3)?)
+                    .ok_or_else(|| bad("an array of samplers indexed by a variable"))?;
+                let element = elements
+                    .get(*index as usize)
+                    .ok_or_else(|| bad("an array of samplers indexed past its end"))?;
+                alias.insert(inst.arg(1)?, *element);
+            }
+            OP_LOAD if objects.contains_key(&inst.arg(2)?) => {
+                return Err(bad("an array of samplers read whole"));
+            }
+            _ => {}
+        }
+    }
+    let names: HashMap<u32, String> = m
+        .insts
+        .iter()
+        .filter(|i| i.op == OP_NAME && i.args.first().is_some_and(|t| objects.contains_key(t)))
+        .map(|i| (i.args[0], string_at(&i.args, 1)))
+        .collect();
+    let mut declared: HashSet<u32> = HashSet::new();
+    let mut out = Vec::with_capacity(m.insts.len() + 4 * objects.len());
+    for inst in std::mem::take(&mut m.insts) {
+        let chain = matches!(inst.op, OP_ACCESS_CHAIN | OP_IN_BOUNDS_ACCESS_CHAIN);
+        match inst.op {
+            OP_NAME if objects.contains_key(&inst.arg(0)?) => {
+                let name = names.get(&inst.arg(0)?).map_or("", String::as_str);
+                for (k, e) in objects[&inst.arg(0)?].1.iter().enumerate() {
+                    let mut a = vec![*e];
+                    a.extend(string_words(&format!("{name}[{k}]")));
+                    out.push(Inst::new(OP_NAME, a));
+                }
+            }
+            OP_DECORATE if objects.contains_key(&inst.arg(0)?) => {
+                for e in &objects[&inst.arg(0)?].1 {
+                    let mut a = inst.args.clone();
+                    a[0] = *e;
+                    out.push(Inst::new(OP_DECORATE, a));
+                }
+            }
+            OP_DECORATE
+                if arrays.contains_key(&inst.arg(0)?)
+                    || array_pointers.contains_key(&inst.arg(0)?) => {}
+            OP_TYPE_ARRAY if arrays.contains_key(&inst.arg(0)?) => {}
+            OP_TYPE_POINTER if array_pointers.contains_key(&inst.arg(0)?) => {
+                let ty = array_pointers[&inst.arg(0)?].0;
+                let pointer = element_pointers[&ty];
+                if declared.insert(pointer) {
+                    out.push(Inst::new(
+                        OP_TYPE_POINTER,
+                        vec![pointer, STORAGE_UNIFORM_CONSTANT, ty],
+                    ));
+                }
+            }
+            OP_VARIABLE if objects.contains_key(&inst.arg(1)?) => {
+                let (ty, elements) = &objects[&inst.arg(1)?];
+                let pointer = element_pointers[ty];
+                for e in elements {
+                    out.push(Inst::new(OP_VARIABLE, vec![pointer, *e, STORAGE_UNIFORM_CONSTANT]));
+                }
+            }
+            _ if chain && alias.contains_key(&inst.arg(1)?) => {}
+            OP_LOAD if alias.contains_key(&inst.arg(2)?) => {
+                let mut a = inst.args.clone();
+                a[2] = alias[&inst.arg(2)?];
+                out.push(Inst::new(OP_LOAD, a));
+            }
+            OP_FUNCTION_CALL if inst.args.iter().skip(3).any(|a| alias.contains_key(a)) => {
+                let mut a = inst.args.clone();
+                for arg in a.iter_mut().skip(3) {
+                    *arg = alias.get(arg).copied().unwrap_or(*arg);
+                }
+                out.push(Inst::new(OP_FUNCTION_CALL, a));
+            }
+            _ => out.push(inst),
+        }
+    }
+    m.insts = out;
+    Ok(())
+}
 /// Splits every combined image sampler into an image and a sampler.
 pub(crate) fn split_samplers(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
+    split_sampler_arrays(&mut m)?;
     // Sampled-image types and their images.
     let mut sampled: HashMap<u32, u32> = HashMap::new();
     let mut existing_sampler = None;
@@ -647,9 +816,9 @@ fn block_size(id: u32, types: &HashMap<u32, Inst>, consts: &HashMap<u32, u32>, d
 pub(crate) const SPARE_BLOCKS: [&str; 2] = ["mg_frame", "mg_bones"];
 
 /// Declares [`SPARE_BLOCKS`] beside the program's uniform block (glslang's
-/// `gl_DefaultUniformBlock`, the one `Uniform` variable of a `Block`
-/// struct): variables of its type, bound as it is. A program without one
-/// block of loose uniforms is left as it is.
+/// `gl_DefaultUniformBlock`, or the one `Uniform` variable of a `Block`
+/// struct): variables of its type, bound as it is. A program without such
+/// a block is left as it is.
 pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
     let blocks: HashSet<u32> = m
@@ -671,7 +840,25 @@ pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
         .filter(|i| i.op == OP_VARIABLE && i.args.first().is_some_and(|t| pointers.contains(t)))
         .map(|i| Ok((i.arg(0)?, i.arg(1)?)))
         .collect::<Result<_, ShaderError>>()?;
-    let [(ptr, var)] = vars[..] else { return Ok(words.to_vec()) };
+    // (glslang's block of loose uniforms where a program names blocks of
+    // its own besides, `uniform Name { … };`: the parts take every
+    // block's members alike, `Program::split_uniforms`.)
+    let default = vars.iter().copied().find(|&(ptr, _)| {
+        let pointee =
+            m.insts.iter().find(|i| i.op == OP_TYPE_POINTER && i.args.first() == Some(&ptr));
+        let ty = pointee.and_then(|i| i.args.get(2).copied());
+        m.insts.iter().any(|i| {
+            i.op == OP_NAME
+                && i.args.first() == ty.as_ref()
+                && string_at(&i.args, 1) == "gl_DefaultUniformBlock"
+        })
+    });
+    let Some((ptr, var)) = default.or(match vars[..] {
+        [one] => Some(one),
+        _ => None,
+    }) else {
+        return Ok(words.to_vec());
+    };
     let spares = [m.new_id(), m.new_id()];
     let mut out = Vec::with_capacity(m.insts.len() + 8);
     let mut named = false;

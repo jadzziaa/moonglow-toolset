@@ -12,7 +12,8 @@
 //! "spikes" says that one is over the budget.) Needs the game (Tyrants of the Moonsea) and a GPU; run in release:
 //! `cargo test --release -p mg-ui --test frame_perf -- --ignored --nocapture`.
 //! `FRAME_SHOTS=1` saves each view as it was timed instead
-//! (`target/test-output/frame-shots`). `FRAME_VIEW=<part of a name>` times
+//! (`target/test-output/frame-shots`; an area's animations at a fixed
+//! clock, [`SHOT_CLOCK`], so that two runs' pictures compare). `FRAME_VIEW=<part of a name>` times
 //! only those views, `FRAME_COUNT=<frames>` that many frames of each,
 //! `FRAME_DETAIL=1` prints each frame's time and who asked for the next,
 //! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
@@ -65,6 +66,9 @@ const KNOWN_OVER: &[(&str, &str)] = &[
 const LARGEST: &str = "The largest areas in full view";
 
 const CAMPAIGN: &str = "Neverwinter Nights - Tyrants of the Moonsea.nwm";
+
+/// The clock an area's animations are drawn at for `FRAME_SHOTS`, seconds.
+const SHOT_CLOCK: f32 = 10.0;
 
 type App<'a> = Harness<'a, Moonglow>;
 
@@ -327,6 +331,13 @@ fn said_memory(h: &App<'_>, what: &str) {
     if let Some(vp) = h.state().viewport.as_ref() {
         let t = vp.renderer.texture_memory();
         let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        let m = vp.gpu.mesh_memory();
+        println!(
+            "      meshes: {} chunks of {:.1} MiB, {:.1} MiB of them used",
+            m.chunks,
+            mib(m.held),
+            mib(m.used)
+        );
         println!(
             "      textures: {} of {:.1} MiB, {:.1} MiB uncompressed, {:.1} MiB stale, {} let go",
             t.textures,
@@ -369,9 +380,15 @@ fn view_with(
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
     let rect = tab.and_then(|t| rect_of(h.state(), t)).unwrap_or(screen);
     if r.shots {
-        // (The view as its frames have it: its first frame's change made.)
+        // (The view as its frames have it: its first frame's change made;
+        // an area's animations at a fixed clock, so that a run's pictures
+        // are the run before's where tiles animate.)
         each(h.state_mut(), 0);
         h.run_steps(2);
+        for v in h.state_mut().area_views.values_mut() {
+            v.set_clock(SHOT_CLOCK);
+        }
+        h.run_steps(1);
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-output/frame-shots");
         std::fs::create_dir_all(&dir).unwrap();

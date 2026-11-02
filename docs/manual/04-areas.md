@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:53:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:23:49Z }
 ---
 
 # Areas
@@ -152,7 +152,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   lies under the water and mirrors what is around it, through a copy of
   the picture drawn so far, as in the game; with the switch off it is
   Moonglow's own water. Particles fade where they meet the ground or a
-  wall, as the game's do. On by default. The programs are compiled
+  wall, as the game's do (with the switch off too). On by default. The programs are compiled
   while the view goes on, the first time an area needs them (a fraction
   of a second each), and kept in Moonglow's cache folder for the next
   time: until they are ready, what they draw is drawn with Moonglow's own

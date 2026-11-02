@@ -671,7 +671,8 @@ impl Cache {
         Cache { shaders: ProgramCache::new(root.join("shaders")), models: root.join("verify") }
     }
 
-    /// The user's ([`crate::build::cache_dir`]).
+    /// The user's ([`crate::build::cache_dir`]; its shaders in
+    /// [`crate::build::shader_cache_dir`]).
     pub fn user() -> Option<Cache> {
         crate::build::cache_dir().map(Cache::new)
     }

@@ -500,7 +500,7 @@ fn main() -> eframe::Result<()> {
             // Each module's open tabs, to open again with it.
             moonglow.open_tabs_dir = mg_ui::recovery::data_dir().map(|d| d.join("open-tabs"));
             // The game's shaders, compiled, in the user's cache folder.
-            moonglow.shader_cache_dir = mg_ui::recovery::cache_dir().map(|d| d.join("shaders"));
+            moonglow.shader_cache_dir = mg_ui::recovery::shader_cache_dir();
             // Long work runs while the window keeps drawing.
             moonglow.background_jobs = true;
             // Help › Check for Updates… and the daily check ask GitHub
