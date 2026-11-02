@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:05:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
 ---
 
 # Plugins: a proposal
@@ -17,11 +17,14 @@ not the description of the API and not the list of what is planned:
   and checks in sandboxed Luau) and are marked experimental. API 0.2
   (1.16.0) added files and folders the user chooses, haks, areas and
   terrain, and pictures; API 0.3 (1.21.0) added 2DAs and talk tables,
-  files written into a chosen folder, and events; API 0.4 (not yet in a
-  release) what is selected and open, commands in right-click menus,
-  fixes for findings, a plugin's own tests, settings, a project's own
-  plugins, a resource's own events around a save, and events on objects
-  placed or pasted and on what a wizard makes. For users:
+  files written into a chosen folder, and events; API 0.4 (2.1.0) what is
+  selected and open, commands in right-click menus, fixes for findings, a
+  plugin's own tests, settings, a project's own plugins, a resource's own
+  events around a save, and events on objects placed or pasted and on
+  what a wizard makes; API 0.5 (3.3.0) more menus, settings and events;
+  and API 0.6 (not yet in a release) exporters, importers, wizards and
+  panels ([below](#api-06-exporters-importers-wizards-and-panels-2026-11-02)).
+  For users:
   [Plugins](manual/15-plugins.md). For authors:
   [Writing plugins](manual/16-writing-plugins.md), the
   [Plugin API reference](manual/17-plugin-api.md), the
@@ -37,7 +40,8 @@ not the description of the API and not the list of what is planned:
 - **Plugins add things Moonglow already has kinds of**: menu commands and
   checks for Verify Module first; import and export formats, wizards,
   panels and area tools were proposed for later. (Shipped: commands,
-  checks and events. The other kinds are not built.)
+  checks and events; exporters, importers, wizards and panels with API
+  0.6. Area tools are not built.)
 - **A plugin never edits the module itself.** It reads a snapshot and
   hands back a list of edits; Moonglow checks them and applies them as
   one undo step, as it does for its own editors. Untouched data stays
@@ -295,6 +299,9 @@ written without the user's choice or leave.
 - **`mg`.** `mg plugin export MODULE PLUGIN ID OUT` (a file, or with
   `to = "folder"` a folder, made if it isn't there), with `--select`,
   `--answer`, `--setting` and `--dry-run` as `mg plugin run` has them.
+  File › Export and Import are submenus only with a plugin's exporter or
+  importer enabled: without, they are Moonglow's own Export… and
+  Import…, as Aurora's.
 - **Tests.** A plugin's own tests: `export = "id"`, `to = "name"` (the
   file's or folder's name the plugin sees; nothing is written), and
   `written` (the files' names) and `content` (`{ "guards.csv" = [ …
@@ -336,14 +343,21 @@ written without the user's choice or leave.
   is wrong, shown on the page, which stays. `finish` makes the edits.
 - **The window.** One page at a time with **Back**, **Next** (on the
   last, **Finish**) and **Cancel**, "Page 2 of 3"; Back keeps what was
-  typed; a page's defaults are its values when it is shown again.
+  typed; a page's defaults are its values when it is shown again. The
+  last is the last of the list: where the pages after the one shown are
+  all skipped, its Next finishes (which pages are skipped depends on
+  what that page is given).
 - **Sandbox.** The pages and their checks only read: one that edits
   fails ("a wizard edits in finish"). `finish` edits, and may write a
   hak with the user's leave, as a command does.
 - **`mg`.** `mg plugin wizard MODULE PLUGIN ID`, each page answered from
   `--answers FILE` (a JSON object of values by field id) and `--answer
   ID=VALUE`, the rest by their defaults; a page's check that objects is
-  an error, and nothing is saved.
+  an error, and nothing is saved. (Built so; `mg plugin run` takes
+  `--answers` too, for a command's forms.) The host says whether a
+  person answers (`Host::interactive`): in the window a check that
+  objects asks the page again, saying why; without one it ends the
+  wizard, or it would ask the same page for ever.
 - **Tests.** `wizard = "id"` with `answers` by field id, and the fields
   after; `error` for a check that objects.
 - **Undo.** Finish's edits are one step, named by what `finish` returns
@@ -370,18 +384,21 @@ written without the user's choice or leave.
   (`confirm` is false, a form nil, no file is given), nothing written; a
   button runs one of the plugin's commands, which asks and edits as any
   command does. It runs on a thread of its own, never in a frame and
-  not as a job (a job has the window to itself), one at a time per panel
-  (a change while it runs draws it again after), with 250 ms; past that
-  it is stopped and the panel says so. The frame draws what it returned,
+  not as a job (a job has the window to itself; while one runs, a panel
+  waits), one at a time per panel (a change while it runs draws it again
+  after), with 250 ms; past that it is stopped and the panel says so.
+  What it logs goes nowhere: it shows what it has to say. The frame draws what it returned,
   data, which is held to 2,000 elements and items and 1,000 characters a
   text: the rest is cut, saying so. A render is stopped when the game's
   data is to change (a hak attached, the module layer refreshed), and
   run again after.
 - **The window.** A panel is a pane like the others: opened from
-  Plugins › Panels (and the Command Palette), it opens beside the area
-  as the palettes do and is moved, docked or floated as any tab is; it
-  is kept with the module's open tabs, and closes when its plugin is
-  disabled.
+  Plugins › Panels (and the Command Palette), it opens in a window of
+  its own and is moved, docked or floated as any tab is (its place
+  remembered as other windows' are); it is kept with the module's open
+  tabs, and closes when its plugin is disabled. (Built so: proposed, it
+  opened docked beside the area as the palettes do; a window of its own
+  is what every other tab opens as, and docks where the user drags it.)
 - **`mg`.** None: there is no window to show it in. `mg plugin check`
   holds its registration to the manifest as for the other kinds.
 - **Tests.** `panel = "id"` with `shows` (texts it must show, each part
@@ -425,7 +442,8 @@ is not read as a description:
   plugins. The 0.2 and 0.3 that shipped were something else (files,
   haks, terrain, pictures, tables); of the proposed list, events came
   with 0.3, and quick fixes, storage (a plugin's settings) and a
-  project's plugins with 0.4.
+  project's plugins with 0.4, and exporters, importers and wizards (with
+  panels) with 0.6.
 - **Where commands show.** Proposed: Tools › Plugins, context menus, and
   `menu` and `when` keys in the manifest. Built: a **Plugins** menu
   (with Manage Plugins… and Install Plugin from File…), the Command

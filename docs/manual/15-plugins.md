@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugins
-description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
+description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:06:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
 ---
 
 # Plugins
@@ -251,6 +251,50 @@ In the window, what Moonglow keeps in step when you edit stays in step
 after a plugin's edits too: an item's cost, a creature's hit points and
 challenge rating.
 
+## Exporters and importers
+
+A plugin may add ways to write the module, or what is selected, to a
+file or a folder, and to read one into the module (since plugin API
+0.6). With such a plugin enabled, **File › Export** opens a menu of
+Moonglow's own **Export…** (to an ERF) and the plugins' exporters, and
+**File › Import** likewise. Choosing one asks where first: the file to
+write (in the save dialog, with the exporter's kind of file), the file
+to read (the open dialog shows the kinds it reads), or a folder. The
+plugin's code runs after you have chosen, and reaches only that.
+
+An exporter changes nothing in the module: there is nothing to undo, and
+the files it wrote stay (the log says where). One made for what is
+selected (a creature sheet of the creatures chosen in the palette, say)
+is grayed until what is selected is of its kind. What an importer
+reads goes into the module as one step: **Edit › Undo** takes it all
+back.
+
+## Wizards
+
+A plugin's wizards are in the **Wizards** menu, under Moonglow's own
+(since plugin API 0.6). A wizard asks page by page in its window, with
+**Back**, **Next** (on the last page, **Finish**) and **Cancel**; what
+you give on one page may change the pages after it, and a page that
+finds something wrong with what you gave says so and stays. Back keeps
+what you typed. Nothing is made until Finish, and what Finish makes is
+one step of Undo; Cancel makes nothing.
+
+## Panels
+
+A plugin's panels are panes of their own: **Plugins › Panels** shows and
+hides each (a tick beside those shown), and the Command Palette finds
+them by name (since plugin API 0.6). A panel opens in a window, which
+you may dock beside the area or the palettes as any window, and it is
+reopened with the module's other windows. It shows what its plugin
+says, in Moonglow's own headings, text, lists and buttons: a list's
+item opens what it names, and a button runs one of the plugin's
+commands, with its own step of Undo. **Refresh** draws it again; it is
+drawn again by itself after the plugin's commands, and, if its plugin
+says so, after each change of the module or when what is selected
+changes. Its plugin's code runs beside the window, so a panel never
+slows it down: while it draws, the panel shows what it showed before. A
+panel goes when its plugin is disabled.
+
 ## Checks
 
 An enabled plugin's checks run with **Build › Verify Module**, along with
@@ -347,6 +391,9 @@ mg plugin list --project myproject
 mg plugin allow myproject example.builder-tags
 mg plugin run myproject myproject/plugins/builder-tags prefix-tags --select guard.utc --setting code=ab
 mg plugin test plugins/tag-conventions
+mg plugin export mymodule.mod plugins/creature-sheet creatures-csv creatures.csv
+mg plugin import mymodule.mod plugins/creature-sheet creatures-csv creatures.csv
+mg plugin wizard mymodule.mod plugins/store-wizard new-store --answers store.json --answer kind=Smith
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins
 ```
@@ -367,7 +414,11 @@ set` and `mg apply` ask the plugins `--plugins` names, and the
 project's as you allowed them, before they save: a refusal is an error
 and nothing is written, a warning is said and the save goes on. `mg`
 has no wizards and no paste, so a plugin's handler of those runs only
-by hand (`mg plugin run --event`).
+by hand (`mg plugin run --event`). A plugin's exporters and importers
+run with `mg plugin export` and `mg plugin import`, and its wizards with
+`mg plugin wizard`, each page answered from `--answers` (a JSON file of
+the fields' values by id) and `--answer`, the rest by their defaults
+(since plugin API 0.6). A panel is the window's alone.
 
 ## When something goes wrong
 

@@ -1977,7 +1977,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ctx,
         |ui| {
             ui.label(
-                "A plugin adds commands and checks. It reads the open module and the game data \
+                "A plugin adds commands and checks, and may add exporters, importers, wizards \
+                 and panels. It reads the open module and the game data \
              and hands back changes that Undo takes back; it cannot reach your files, the \
              network or other programs, but for a file or a folder you choose for it and \
              what you allow it to write there. Each is off until you enable it.",

@@ -110,7 +110,7 @@ fn without_plugins_file_export_and_import_are_moonglow_s_own() {
 /// A wizard in the Wizards menu runs as a job whose pages are asked in its
 /// window: Back keeps what was typed, a page's check keeps the page with
 /// what it says, a page skipped is not shown, and Finish makes the store
-/// as one step of Undo. The page is drawn to a picture.
+/// as one step of Undo. (Its pictures: `screens.rs`, `plugin_kinds`.)
 #[test]
 fn a_plugin_s_wizard_asks_page_by_page_and_finishes_in_one_step() {
     let Some(mut h) = with_example("ui-plugin-wizard", "example.store-wizard") else { return };
@@ -163,11 +163,6 @@ fn a_plugin_s_wizard_asks_page_by_page_and_finishes_in_one_step() {
     h.get_by_label("Next >").click();
     h.step();
     shows(&mut h, "Page 2 of 3");
-    let picture = mg_testkit::scratch_dir("ui-plugin-wizard-page").join("page.png");
-    if let Ok(img) = h.render() {
-        img.save(&picture).unwrap();
-        eprintln!("the page: {}", picture.display());
-    }
     // (A general store: the third page is skipped, and Next finishes.)
     h.get_by_label("Next >").click();
     h.step();
@@ -212,7 +207,7 @@ fn a_plugin_s_wizard_canceled_makes_nothing() {
 /// what its code returns: drawn again after an edit (its manifest says
 /// `edits`) and when what is selected changes (`selection`); its button
 /// runs its plugin's command on what is selected, one step of Undo; and it
-/// goes when its plugin is disabled. The panel is drawn to a picture.
+/// goes when its plugin is disabled. (Its picture: `screens.rs`.)
 #[test]
 fn a_plugin_s_panel_shows_what_it_returns_and_follows_the_module() {
     let Some(mut h) = with_example("ui-plugin-panel", "example.module-overview") else { return };
@@ -251,11 +246,6 @@ fn a_plugin_s_panel_shows_what_it_returns_and_follows_the_module() {
     settle(&mut h);
     h.run_steps(2);
     h.get_by_label("1 of them not upper case");
-    let picture = mg_testkit::scratch_dir("ui-plugin-panel-shot").join("panel.png");
-    if let Ok(img) = h.render() {
-        img.save(&picture).unwrap();
-        eprintln!("the panel: {}", picture.display());
-    }
     h.get_by_label("Upper-Case Their Tags").click();
     settle(&mut h);
     h.run_steps(2);
@@ -287,4 +277,35 @@ fn a_plugin_s_panel_draws_beside_the_window() {
     h.get_by_label("⟳ Refresh").click();
     settle(&mut h);
     h.get_by_label("Nothing is selected.");
+}
+
+/// A panel is kept with the module's open windows: the module opened again
+/// has it again, while its plugin is enabled.
+#[test]
+fn a_plugin_s_panel_opens_again_with_its_module() {
+    let Some(mut h) = with_example("ui-plugin-panel-kept", "example.module-overview") else {
+        return;
+    };
+    h.state_mut().open_tabs_dir = Some(mg_testkit::scratch_dir("ui-plugin-panel-kept-tabs"));
+    let path = h.state().module_path().unwrap();
+    let tab =
+        Tab::PluginPanel { plugin: "example.module-overview".into(), panel: "overview".into() };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(4);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed with the module");
+    h.state_mut().open_module(&path);
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&tab).is_some(), "open again");
+    h.get_by_label("Nothing is selected.");
+    // Its plugin disabled: not opened again.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run_steps(2);
+    h.state_mut().enable_plugin("example.module-overview", false);
+    h.state_mut().open_module(&path);
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&tab).is_none());
 }
