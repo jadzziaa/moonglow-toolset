@@ -807,3 +807,31 @@ pub(crate) fn area_tag(h: &mut Harness<'_, Moonglow>, area: &str) -> String {
     let doc = ws.doc(&ResKey::parse(area, ResType::ARE).unwrap()).unwrap();
     String::from_utf8_lossy(doc.root.string("Tag").unwrap_or_default()).into_owned()
 }
+
+/// Sets a number field (a `DragValue`) to `v`, as a screen reader does
+/// (accesskit's SetValue): the field takes it as a number typed.
+pub(crate) fn set_number(h: &Harness<'_, Moonglow>, node: &egui_kittest::Node<'_>, v: f64) {
+    let (target_node, target_tree) = node.accesskit_node().locate();
+    h.event(egui::Event::AccessKitActionRequest(egui::accesskit::ActionRequest {
+        action: egui::accesskit::Action::SetValue,
+        target_node,
+        target_tree,
+        data: Some(egui::accesskit::ActionData::NumericValue(v)),
+    }));
+}
+
+/// The number field (a SpinButton) on the row of the widget `label`
+/// names, the `n`th from the left: a list page's rank, level or uses.
+pub(crate) fn number_beside<'h>(
+    h: &'h Harness<'_, Moonglow>,
+    label: &str,
+    n: usize,
+) -> egui_kittest::Node<'h> {
+    let row = h.get_by_label(label).rect();
+    let mut on: Vec<_> = h
+        .get_all_by_role(egui::accesskit::Role::SpinButton)
+        .filter(|s| (s.rect().center().y - row.center().y).abs() < row.height().max(8.0))
+        .collect();
+    on.sort_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x));
+    on.into_iter().nth(n).unwrap_or_else(|| panic!("no number beside {label}"))
+}

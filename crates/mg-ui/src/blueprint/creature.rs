@@ -7,7 +7,7 @@
 
 use egui::Ui;
 use mg_core::{ResRef, ResType};
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
@@ -753,12 +753,14 @@ fn set(key: ResKey, path: &GffPath, label: &str, value: Value) -> Edit {
     Edit::SetField { key, path: path.clone(), label: label.into(), value: Some(value) }
 }
 
+/// The Skills page: a rank for each skill. Several creatures edited
+/// together show the first one's ranks, ≠ where the others have another,
+/// and a rank typed is set on each.
 fn skills(f: &mut Form<'_>, ui: &mut Ui) {
-    let base = f.path.clone();
     let key = f.key;
     let skills = f.choices("skills", Some("Name"), Some("Label"));
     let described_by = f.app.game.clone();
-    let list: Vec<Struct> = f.root.list("SkillList").unwrap_or(&[]).to_vec();
+    let targets = f.list_targets();
     let mut edit = None;
     egui::ScrollArea::vertical().id_salt(("utc-skills", key)).show(ui, |ui| {
         egui::Grid::new(("utc-skill-grid", key))
@@ -773,7 +775,9 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
                     let r = ui.label(&s.text);
                     let game = described_by.as_deref();
                     super::creature_lists::described(r, game, "skills", "Description", s.row);
-                    let rank = list.get(s.row).and_then(|e| e.integer("Rank")).unwrap_or(0);
+                    let rank = lists::skill_rank(&targets[0], s.row);
+                    let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
+                    f.mark_if(ui, &format!("Skill#{}", s.row), differs);
                     if let Some(v) = commit_number(ui, rank, 0..=127) {
                         edit = Some((s.row, v));
                     }
@@ -782,16 +786,10 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
             });
     });
     if let Some((row, v)) = edit {
-        // The list is indexed by skill: missing entries up to it are added.
-        let mut edits: Vec<Edit> = (list.len()..=row)
-            .map(|i| {
-                let mut s = Struct::new(mg_schema::utc::SKILL_LIST.item_id);
-                s.set("Rank", Value::Byte(0));
-                Edit::insert_item(key, base.clone(), "SkillList", i, s)
-            })
-            .collect();
-        edits.push(set(key, &base.item("SkillList", row), "Rank", Value::Byte(v as u8)));
-        f.app.actions.push(Action::Apply(Command::new("Skill rank", edits)));
+        // (The list is indexed by skill: missing entries up to it are
+        // added.)
+        let out = lists::set_skill_rank(&targets, row, v as u8);
+        f.apply_each("Skill rank", out, "Set on");
     }
 }
 

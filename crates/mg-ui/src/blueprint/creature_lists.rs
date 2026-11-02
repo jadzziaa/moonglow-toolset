@@ -4,7 +4,7 @@
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_module::script_set::ListedSpell;
@@ -180,13 +180,20 @@ fn row_line(t: &mg_2da::TwoDa, table: &str, row: usize) -> String {
     line
 }
 
+/// The Feats page: the feats to choose from beside those the creature
+/// has. Several creatures edited together: a feat all have is ticked, one
+/// some have half-ticked and marked ≠ with how many; ticking gives it to
+/// those that lack it, unticking takes it from all.
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
-    let base = f.path.clone();
     let key = f.key;
     let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")).to_vec());
-    let list: Vec<i64> =
-        f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
+    let targets = f.list_targets();
+    let total = targets.len();
+    // Each feat any of them has, and how many have it.
+    let merged = lists::merged(&targets, "FeatList", lists::feat);
+    let having =
+        |row: usize| merged.iter().find(|m| m.key == row as i64).map_or(0, |m| m.having.len());
     let id = egui::Id::new(("utc-feats", key));
     let mut assigned_only: bool = ui.data(|d| d.get_temp(id.with("only"))).unwrap_or(false);
     let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
@@ -197,7 +204,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             let t = filter(ui, id);
             let c = category_filter(ui, id.with("category"), &categories);
             ui.checkbox(&mut assigned_only, "Assigned only");
-            ui.label(format!("{} feats assigned", list.len()));
+            if total > 1 {
+                ui.label(format!("{} feats among them", merged.len()));
+            } else {
+                ui.label(format!("{} feats assigned", merged.len()));
+            }
             (t, c)
         })
         .inner;
@@ -217,21 +228,24 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             ui,
             |ui| {
                 for c in &all {
-                    let on = list.contains(&(c.row as i64));
+                    let n = having(c.row);
                     let offer =
                         feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
-                    if (assigned_only && !on)
-                        || (!on && !offer)
+                    if (assigned_only && n == 0)
+                        || (n == 0 && !offer)
                         || !needle.finds(&c.text)
                         || !in_category(c.row)
                     {
                         continue;
                     }
-                    let mut v = on;
-                    let r = ui.checkbox(&mut v, &c.text);
+                    // (Half-ticked where some have it: ticked, it is given
+                    // to the others.)
+                    let mut v = n == total;
+                    let some = n > 0 && n < total;
+                    let r = ui.add(egui::Checkbox::new(&mut v, &c.text).indeterminate(some));
                     if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
                     {
-                        toggle = Some((c.row, v));
+                        toggle = Some((c.row, v || some));
                     }
                 }
             },
@@ -243,28 +257,34 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
             |ui| {
                 // By name, as the list beside it; one the table has no
                 // name for by its row.
-                let mut assigned: Vec<(String, usize)> = list
+                let mut assigned: Vec<(String, usize, usize)> = merged
                     .iter()
-                    .filter_map(|&row| usize::try_from(row).ok())
-                    .map(|row| {
+                    .filter_map(|m| Some((usize::try_from(m.key).ok()?, m.having.len())))
+                    .map(|(row, n)| {
                         let name = all
                             .iter()
                             .find(|c| c.row == row)
                             .map_or_else(|| format!("Feat {row}"), |c| c.text.clone());
-                        (name, row)
+                        (name, row, n)
                     })
                     .collect();
-                assigned.sort_by_key(|(name, _)| name.to_lowercase());
+                assigned.sort_by_key(|(name, _, _)| name.to_lowercase());
                 if assigned.is_empty() {
                     ui.weak("None: tick a feat to give it to the creature.");
                 }
-                for (name, row) in assigned {
+                for (name, row, n) in assigned {
                     ui.horizontal(|ui| {
                         if ui.small_button("×").on_hover_text("Take this feat away").clicked() {
                             toggle = Some((row, false));
                         }
                         let r = ui.label(name);
                         described(r, described_by.as_deref(), "feat", "DESCRIPTION", row);
+                        super::entry_mark(ui, n, total);
+                        if n < total
+                            && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
+                        {
+                            toggle = Some((row, true));
+                        }
                     });
                 }
             },
@@ -272,18 +292,20 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     });
     match toggle {
         Some((row, true)) => {
-            let mut s = Struct::new(FEAT_ID);
-            s.set("Feat", Value::Word(row as u16));
-            apply(f, "Add feat", vec![insert(key, base, "FeatList", list.len(), s)]);
+            let out = lists::add_feat(&targets, row as u16);
+            f.apply_each("Add feat", out, "Added to");
         }
         Some((row, false)) => {
-            if let Some(i) = list.iter().position(|&r| r == row as i64) {
-                apply(f, "Remove feat", vec![remove(key, base, "FeatList", i)]);
-            }
+            let out = lists::remove_feat(&targets, row as u16);
+            f.apply_each("Remove feat", out, "Taken from");
         }
         None => {}
     }
 }
+
+/// The tip of Give to All, beside an entry some of the objects edited
+/// together have.
+pub(super) const GIVE_TIP: &str = "Add it to those of them that lack it";
 
 /// A class's spells: (spell row, name, level), from its spells.2da column.
 fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {

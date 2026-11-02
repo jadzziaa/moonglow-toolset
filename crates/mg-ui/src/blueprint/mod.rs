@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use egui::Ui;
 use mg_core::{LocString, ResRef, ResType};
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
@@ -481,6 +481,19 @@ fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
     }
 }
 
+/// "≠ 2 of 3" after an entry of a list that some of the objects edited
+/// together have (`having` of `total`); nothing where all have it.
+pub(crate) fn entry_mark(ui: &mut Ui, having: usize, total: usize) {
+    if having >= total {
+        return;
+    }
+    let text = format!("{MIXED} {having} of {total}");
+    ui.colored_label(ui.visuals().warn_fg_color, text).on_hover_text(format!(
+        "{having} of the {total} edited together have it: a change to it is made to those that \
+         have it; added, it is added to the others"
+    ));
+}
+
 /// Shows something of a 2DA row (a picture) in a choice's list.
 pub(super) type Shown<'a> = &'a mut dyn FnMut(&mut Moonglow, &mut Ui, usize);
 
@@ -524,6 +537,20 @@ pub(crate) struct Form<'a> {
     pub also: Vec<(ResKey, GffPath)>,
     /// The object as it is now.
     pub root: Struct,
+    /// What the list pages did to the objects edited together.
+    pub together: Together,
+}
+
+/// What a form's list pages asked of several objects edited together
+/// (`docs/lists-together-proposal.md`).
+#[derive(Debug, Default)]
+pub(crate) struct Together {
+    /// The actions (their places in `app.actions`) built for each of the
+    /// objects, which may reach some of them only: the guard lets them
+    /// through.
+    pub each: Vec<usize>,
+    /// What the last of them did, for the window's note.
+    pub said: Option<String>,
 }
 
 /// The text in the editing language (Options › Language).
@@ -796,6 +823,50 @@ impl Form<'_> {
     /// Several blueprints edited together (not placed objects).
     pub(crate) fn several_blueprints(&self) -> bool {
         !self.is_instance() && !self.also.is_empty()
+    }
+
+    /// Several objects or blueprints edited together.
+    pub(crate) fn several(&self) -> bool {
+        !self.also.is_empty()
+    }
+
+    /// The objects edited (this one first) as the list rules take them
+    /// (`mg_edit::lists`), each as it is now.
+    pub(crate) fn list_targets(&mut self) -> Vec<lists::Target> {
+        let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
+        if let Some(ws) = self.app.ws.as_mut() {
+            for (key, path) in &self.also {
+                if let Some(s) = ws.doc(key).ok().and_then(|d| path.get(&d.root).cloned()) {
+                    out.push(lists::Target::new(*key, path.clone(), s));
+                }
+            }
+        }
+        out
+    }
+
+    /// Makes what a list rule made of the objects, one step named `what`:
+    /// built for each, it may reach some of them only, and the guard of
+    /// several objects edited together lets it through. With several, the
+    /// window's note says what it did (`done`: "Added to") and what it
+    /// left.
+    pub(crate) fn apply_each(&mut self, what: &str, out: lists::Outcome, done: &str) {
+        if self.several() {
+            self.together.said = Some(format!("{what}: {}.", out.said(done)));
+        }
+        if out.edits.is_empty() {
+            return;
+        }
+        self.together.each.push(self.app.actions.len());
+        self.app.actions.push(Action::Apply(Command::new(what, out.edits)));
+    }
+
+    /// [`mark_mixed`](Self::mark_mixed) for a value of a list's entry
+    /// (`label` names it, for its id), which the objects having it differ
+    /// in where `differs`.
+    pub(crate) fn mark_if(&self, ui: &Ui, label: &str, differs: bool) {
+        if differs && self.several() {
+            self.paint_mixed(ui, label);
+        }
     }
 
     /// Whether this is an object placed in an area (not a blueprint).
@@ -1707,6 +1778,7 @@ pub(crate) fn edit_many(
     let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
     let all = if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     // Lists are edited one blueprint or object at a time.
+    let all_pages = all.clone();
     let pages: Vec<&str> =
         if several { all.into_iter().filter(|p| !LIST_PAGES.contains(p)).collect() } else { all };
     let page_key = (key, path.clone());
@@ -1769,12 +1841,12 @@ pub(crate) fn edit_many(
             also.len() + 1
         ));
     }
-    if several {
+    // (The pages not offered: those left in `LIST_PAGES`.)
+    let left: Vec<&str> = all_pages.iter().copied().filter(|p| LIST_PAGES.contains(p)).collect();
+    if several && !left.is_empty() {
         let one = if path.0.is_empty() { "blueprint" } else { "object" };
-        ui.weak(format!(
-            "Inventories, classes, skills, feats, spells and properties are edited one {one} at a \
-             time."
-        ));
+        let names = left.join(", ");
+        ui.weak(format!("{names}: edited one {one} at a time."));
     }
     let note_id = egui::Id::new(("several-note", key));
     if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
@@ -1784,7 +1856,7 @@ pub(crate) fn edit_many(
     if viewed {
         typing_kept_out(ui, ui.available_rect_before_wrap());
     }
-    let mut form = Form { app, key, path, also, root };
+    let mut form = Form { app, key, path, also, root, together: Default::default() };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
@@ -1813,26 +1885,33 @@ pub(crate) fn edit_many(
     // A change only the first would take (a page's own list edits, an item
     // the first object holds) is dropped rather than made to one of several
     // blueprints or placed objects.
+    // A list page's command built for each (`Form::apply_each`) may reach
+    // some of them only, as it means to: it is let through.
     if several {
         let one = if form.is_instance() { "object" } else { "blueprint" };
+        let each = std::mem::take(&mut form.together.each);
         let app = &mut *form.app;
         let mut dropped = false;
-        let mut i = pending;
-        while i < app.actions.len() {
-            let only_some = match &app.actions[i] {
-                Action::Apply(cmd) | Action::ApplyTyped(cmd) => partial(&targets, cmd),
+        let mut kept = Vec::new();
+        for (n, action) in app.actions.drain(pending..).enumerate() {
+            let only_some = match &action {
+                Action::Apply(cmd) | Action::ApplyTyped(cmd) => {
+                    !each.contains(&(pending + n)) && partial(&targets, cmd)
+                }
                 _ => false,
             };
             if only_some {
-                app.actions.remove(i);
                 dropped = true;
             } else {
-                i += 1;
+                kept.push(action);
             }
         }
+        app.actions.extend(kept);
         if dropped {
             let note = format!("That change can only be made to one {one} at a time.");
             ui.data_mut(|d| d.insert_temp(note_id, note));
+        } else if let Some(said) = form.together.said.take() {
+            ui.data_mut(|d| d.insert_temp(note_id, said));
         }
     }
     window_drawn(form.app, pending, &tab, &targets, pressed);
@@ -1939,11 +2018,9 @@ pub(crate) fn read_only_look(ui: &mut Ui) {
 
 /// The pages that edit lists of their own (the first object's only), left
 /// out when editing several blueprints or placed objects.
-const LIST_PAGES: [&str; 9] = [
+const LIST_PAGES: [&str; 7] = [
     "Inventory",
     "Classes",
-    "Skills",
-    "Feats",
     "Spells",
     "Special Abilities",
     "Properties",
