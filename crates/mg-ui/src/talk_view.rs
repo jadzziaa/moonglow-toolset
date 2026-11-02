@@ -63,6 +63,19 @@ impl TalkView {
     fn changed(&mut self) {
         self.revision += 1;
     }
+
+    /// The table changed under the editor (a line typed for a field, or
+    /// taken back): the list and the line edited show it anew.
+    pub(crate) fn changed_outside(&mut self) {
+        self.revision += 1;
+        self.edit = None;
+    }
+}
+
+/// Whether the module's nasher project keeps its table in more than one
+/// language (a JSON file each).
+pub(crate) fn several_languages(app: &Moonglow) -> bool {
+    !app.talk_view.languages.is_empty()
 }
 
 /// The name the module gives its talk table, if any.
@@ -256,13 +269,18 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     if !t.is_dirty() || !t.editable() {
         return true;
     }
-    // (One kept in the module goes into it as a step, which the module's
-    // own save then writes, as a 2DA of the module's does: the table is
-    // saved only once the module has taken it.)
+    // (One kept in the module goes into it outside the module's history,
+    // which the module's own save then writes: the table is saved only
+    // once the module has taken it. Not a step Undo takes back: the
+    // table's editor, and the lines typed for the module's fields, are
+    // what it is made from, and an undone step put the module's old table
+    // back under the lines its fields name.)
     let Some(mut t) = app.talk.take() else { return true };
     let saved = t.save_with_module(&mut |key, data| {
-        let edit = mg_edit::Edit::SetResource { key, data: Some(data) };
-        app.apply(mg_edit::Command::new("Save talk table", vec![edit])).map_err(|e| e.to_string())
+        let Some(ws) = app.ws.as_mut() else { return Err("no module is open".into()) };
+        ws.derive(|m| m.set(key, data)).map_err(|e| e.to_string())?;
+        ws.mark_modified();
+        Ok(())
     });
     let t = app.talk.insert(t);
     match saved {
@@ -301,8 +319,16 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
 pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
     load(app);
     let own = !app.talk_view.outside;
-    let t = app.talk.as_mut().filter(|t| own && t.editable()).ok_or("no talk table to add to")?;
-    let row = t.add_line(line)?;
+    let t = app.talk.as_ref().filter(|t| own && t.editable()).ok_or("no talk table to add to")?;
+    // (At the next free line of the project's range, as typed text takes
+    // one; at the end without one.)
+    let row = crate::talk_typed::next_line(app, t)?;
+    let t = app.talk.as_mut().expect("checked");
+    if row == t.len() {
+        t.add_line(line)?;
+    } else {
+        t.put_line(row, line)?;
+    }
     app.talk_view.changed();
     Ok(Table::strref(row))
 }

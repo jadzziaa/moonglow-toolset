@@ -545,6 +545,11 @@ impl Moonglow {
                 return;
             }
         };
+        // (The history gone: the talk-table lines typed with its steps
+        // stay as they are.)
+        if dropped {
+            self.typed.forget();
+        }
         for c in changes {
             ws.module.took(c);
         }

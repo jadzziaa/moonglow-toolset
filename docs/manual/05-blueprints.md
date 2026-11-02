@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:36Z }
 ---
 
 # Blueprints
@@ -425,7 +425,10 @@ Save, as before; their Cancel drops it. A talk table found in a hak has
 Shared parts:
 
 - **Name** and other text players see: localized strings (the **…**
-  button opens String Edit).
+  button opens String Edit). With Options › Language › Put text typed
+  into the talk table on, what you type goes into the module's custom
+  talk table as a line of its own, and the field names it: see [Text
+  typed into the talk table](03-modules.md#text-typed-into-the-talk-table).
 - **Tag** and **ResRef**: changing a blueprint's ResRef renames it
   everywhere, objects placed from it included (see
   [Modules](03-modules.md)); Edit Copy makes a copy under another name.

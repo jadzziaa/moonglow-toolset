@@ -64,6 +64,20 @@ pub enum ModuleFolders {
 /// how the area view draws the game's shadows. Fast, a shadow map (its
 /// edges as fine as the map's texels: blocky up close), cheap in every
 /// area; High, stencil shadow volumes as the game casts them (edges as
+/// Options › Language › When the talk table has the text: what a text
+/// typed into a field does where the module's talk table has a line with
+/// that text already (`talk_typed`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TalkReuse {
+    /// Asks: use that line, add another, or keep the text in the file.
+    #[default]
+    Ask,
+    /// Uses that line.
+    Use,
+    /// Adds another line.
+    Add,
+}
+
 /// sharp as the picture's, anti-aliased with it), dearer in the largest
 /// areas.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -702,6 +716,13 @@ pub struct Settings {
     /// Options > Conversation Editor: Show popup when creating a new text
     /// entry, off (Aurora's default: on; Add asks for the new line's text).
     pub dialog_no_text_popup: bool,
+    /// Options › Language › Put text typed into the talk table: a name, a
+    /// description or a conversation line typed becomes a line of the
+    /// module's custom talk table (`talk_typed`); off, Aurora's way, the
+    /// text is the file's.
+    pub talk_typed: bool,
+    /// Options › Language › When the talk table has the text.
+    pub talk_reuse: TalkReuse,
     /// Options > Conversation Editor › Paste Link Options: Link Source To
     /// Destination (the copied line gets a link to the selected one); off:
     /// Aurora's default, Link Destination To Source (the selected line gets

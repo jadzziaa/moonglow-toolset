@@ -199,3 +199,85 @@ fn where_the_game_reads_custom_talk_tables() {
         "{report}"
     );
 }
+
+const TYPED_PROBE: &str = r#"void Name(string sTag, string sRes)
+{
+    object o = CreateObject(OBJECT_TYPE_ITEM, sRes, GetStartingLocation());
+    WriteTimestampedLogEntry("MG_" + sTag + " [" + GetName(o) + "]");
+}
+
+void Probe()
+{
+    Name("TYPED", "mg_typed");
+    Name("BOTH", "mg_both");
+    Name("OTHER", "mg_other");
+    WriteTimestampedLogEntry("MG_DONE");
+}
+
+void main()
+{
+    DelayCommand(2.0, Probe());
+}
+"#;
+
+/// Text typed into a field and put in the module's custom talk table
+/// (`mg_module::talk_range::in_line`, what Moonglow writes with Options ›
+/// Language › Put text typed into the talk table): the game reads the
+/// field's name from the table's line by its StrRef (16,777,216 and up),
+/// the field's own English text taken out. A field with its own English
+/// text beside the StrRef shows its own text; so does one with only
+/// another language's text (French, in an English game): any text of the
+/// string's own goes before the line.
+#[test]
+fn a_typed_name_is_read_from_the_custom_talk_table() {
+    use mg_core::{Gender, LocString};
+    use mg_module::talk_range::in_line;
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let dir = scratch_dir("engine_tlk_typed");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let gem = ResKey::new(ResRef::from_str("nw_it_gem001").unwrap(), ResType::UTI);
+    let base = Gff::read(&game.resman.get(&gem).unwrap()).unwrap();
+    let item = |resref: &str, name: LocString| {
+        let mut g = base.clone();
+        g.root.set("LocalizedName", Value::LocString(name));
+        g.root.set("TemplateResRef", Value::ResRef(resref.as_bytes().to_vec()));
+        g.root.set("Identified", Value::Byte(1));
+        let key = ResKey::new(ResRef::from_str(resref).unwrap(), ResType::UTI);
+        (key, g.to_bytes().unwrap())
+    };
+    let typed = LocString::from_text(Language::ENGLISH, Gender::Male, "Typed here");
+    let mut both = LocString::from_text(Language::ENGLISH, Gender::Male, "Own text");
+    both.strref = in_line(&typed, Language::ENGLISH, 3).strref;
+    let mut other = typed.clone();
+    other.set(Language::FRENCH, Gender::Male, b"Nom".to_vec());
+    let mut t = Tlk::new(Language::ENGLISH);
+    for text in ["zero", "one", "two", "From the table"] {
+        t.entries.push(TlkEntry::text(text));
+    }
+    let key = ResKey::new(ResRef::from_str("mg_tlk").unwrap(), ResType::TLK);
+    let extra = [
+        (key, t.to_bytes().unwrap()),
+        item("mg_typed", in_line(&typed, Language::ENGLISH, 3)),
+        item("mg_both", both),
+        item("mg_other", in_line(&other, Language::ENGLISH, 3)),
+    ];
+    probe_module(&root, &user, "mgtyped", TYPED_PROBE, &[], &extra);
+    name_table(&user.join("modules/mgtyped.mod"), "mg_tlk");
+    let run = run_server(&root, &user, "mgtyped", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "{}", run.log);
+    let v = |t: &str| run.values(&format!("MG_{t} ")).join(",");
+    println!("typed {} / both {} / other {}", v("TYPED"), v("BOTH"), v("OTHER"));
+    assert_eq!(v("TYPED"), "[From the table]", "the line, by its StrRef");
+    // Any text of the string's own goes before its StrRef, in the game's
+    // language or another: Moonglow takes the language's text out, and
+    // keeps a string with another language's text in the file.
+    assert_eq!(v("BOTH"), "[Own text]", "the field's own text, not the line");
+    assert_eq!(v("OTHER"), "[Nom]", "another language's text, not the line");
+}

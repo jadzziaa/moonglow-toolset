@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:25:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:34Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1738,6 +1738,26 @@ sound-only entry (`0x2`) and a row past the end. Custom StrRefs are
 - **Checked:** engine, `engine_tlk.rs`.
 - **Moonglow:** `crates/mg-tlk/src/lib.rs`.
 - **Wiki:** missing (the TLK page also calls TLK "a GFF file").
+
+### A localized string's own text goes before its StrRef, in any language
+
+A localized string (CExoLocString) with a StrRef and text of its own
+shows its own text, not the talk table's line: an item named by custom
+StrRef 16777219 with its own English text reads as that text in an
+English game. Its own text in another language does too: with only a
+French text beside the StrRef, an English game names the item by the
+French text. Only a string with no text of its own, in any language,
+reads its line. Moonglow's text typed into the talk table therefore
+takes the string's own text out, and keeps a string with another
+language's text in the file.
+
+- **Checked:** engine, `engine_tlk.rs`
+  `a_typed_name_is_read_from_the_custom_talk_table` (an item blueprint's
+  `LocalizedName`, by `GetName` on the item created).
+- **Moonglow:** `crates/mg-module/src/talk_range.rs` (`in_line`,
+  `other_languages`), `crates/mg-ui/src/talk_typed.rs`.
+- **Wiki:** missing: the GFF page says a CExoLocString holds a StringRef
+  and strings, not which is shown.
 
 ### Line ends: plain in talk tables and localized text, CRLF in comments
 

@@ -560,6 +560,11 @@ enum Cmd {
         /// another line now than there.
         #[arg(long)]
         against: Option<PathBuf>,
+        /// The project whose lines for text typed in the window
+        /// (`moonglow.toml`'s `[talk]`) new keys pass over (default: the
+        /// one in the names file's folder or a folder above it).
+        #[arg(long)]
+        project: Option<PathBuf>,
     },
     /// Follow a module kept as files (a nasher project or a module
     /// folder) while you edit it: a changed script is compiled, with the
@@ -2782,7 +2787,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 project: project.as_deref(),
             })?
         }
-        Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against } => {
+        Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against, project } => {
             tlk_alloc::run(&tlk_alloc::Args {
                 table,
                 from,
@@ -2792,6 +2797,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 start: *start,
                 check: *check,
                 against: against.as_ref(),
+                project: project.as_ref(),
             })?
         }
         Cmd::Watch {
@@ -4700,20 +4706,23 @@ fn verify(
         times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
     };
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
-    let (base, custom) = times.time("the talk tables", || {
+    let (base, custom_table) = times.time("the talk tables", || {
         let base = std::fs::read(gi.talk_table()).ok().and_then(count).unwrap_or(0);
         let language = mg_core::Language::from_short_code(&gi.language);
         let custom = match mg_module::talk::of_module(&m, &rm, &gi.tlk_dirs(), language) {
-            mg_module::talk::Custom::Found { found, .. } => found.tlk_bytes().ok().and_then(count),
+            mg_module::talk::Custom::Found { found, .. } => found.tlk().ok(),
             _ => None,
         };
         (base, custom)
     });
+    let custom = custom_table.as_ref().map(|t| t.entries.len());
     let tlk = mg_module::doctor::TalkTables { base, custom };
     // (The shader programs that compiled, and what was found of the haks'
     // models, kept for the next run, where the window keeps its own.)
     let cache = mg_module::doctor::Cache::user();
     let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
+    // (The lines typed text takes, held to the table.)
+    findings.extend(mg_module::doctor::talk_range(&m, custom_table.as_ref(), skip));
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
     let mut declared = Vec::new();

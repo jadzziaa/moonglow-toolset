@@ -888,12 +888,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let at = |g: Gender| edit.entries.iter().position(|e| e.0 == language && e.1 == g);
                 let (male, female) = (at(Gender::Male), at(Gender::Female));
                 let name = language.name().unwrap_or("?");
+                // (The game shows any text of a string's own before its
+                // StrRef's line, in another language too: `engine_tlk`.)
+                let others = edit.entries.iter().any(|e| e.0 != language);
                 if ui
-                    .add_enabled(male.is_some(), egui::Button::new("Move to Talk Table"))
+                    .add_enabled(male.is_some() && !others, egui::Button::new("Move to Talk Table"))
                     .on_hover_text(format!(
                         "Adds the {name} text as a new line of the module's talk table, and \
                          names it here by its StrRef"
                     ))
+                    .on_disabled_hover_text(match others {
+                        true => format!(
+                            "The string has text in another language than the talk table's \
+                             ({name}): the game shows that text before a talk-table line, to \
+                             every player. Remove it first"
+                        ),
+                        false => format!("The string has no {name} text to move"),
+                    })
                     .clicked()
                 {
                     // (With plain line ends, as the game's own talk table

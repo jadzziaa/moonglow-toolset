@@ -257,6 +257,19 @@ impl Moonglow {
             Tab::Hak(id) => self.haks.retain(|d| d.id != id),
             Tab::Table(id) => self.tables.retain(|d| d.id != id),
             Tab::Tileset(id) => self.tilesets.retain(|d| d.id != id),
+            // (Lines typed for the module's fields are the module's: its
+            // own changes are dropped, those kept.)
+            Tab::TalkTable if self.talk.as_ref().is_some_and(|t| t.has_typed_unsaved()) => {
+                if let Some(t) = self.talk.as_mut()
+                    && !t.drop_own_changes()
+                {
+                    self.log.warn(
+                        "The talk table keeps its changes: it has lines typed for the module's \
+                         fields, which the module's Undo takes back",
+                    );
+                }
+                self.talk_view.changed_outside();
+            }
             Tab::TalkTable if self.talk.as_ref().is_some_and(|t| t.is_dirty()) => {
                 self.talk = None;
                 self.talk_view = Default::default();

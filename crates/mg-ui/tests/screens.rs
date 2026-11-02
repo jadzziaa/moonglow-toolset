@@ -8713,3 +8713,81 @@ fn grouped_context_menus() {
         close(&mut h);
     }
 }
+
+/// Text typed into the talk table (`target/test-output/screens-typed-text/`):
+/// Module Properties › Custom Content with the project's lines and a
+/// builder's own part (`typed-text-module-properties`), Options ›
+/// Language's Talk Table (`typed-text-options`), and the question asked of
+/// a text the table has (`typed-text-question`).
+#[test]
+#[ignore]
+fn typed_text_talk_table() {
+    use mg_core::{Gender, Language, LocString};
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-typed-text");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("krezk"));
+    info.root.write(&ifo::MOD_NAME, LocString::from_text(Language::ENGLISH, Gender::Male, "Krezk"));
+    m.set_info(&info).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[talk]\nlines = \"100000-149999\"\n[talk.builders]\nab = \"100000-109999\"\n\
+         cd = \"110000-119999\"\n",
+    )
+    .unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&project, Some("ab")).unwrap();
+    let line = |text: &str| mg_module::talk::Line {
+        text: text.into(),
+        feminine: None,
+        sound: String::new(),
+        sound_length: 0.0,
+    };
+    let mut t =
+        mg_module::talk::Table::create("krezk", &user.join("tlk"), Language::ENGLISH, false);
+    t.add_line(&line("The Abbey of Saint Markovia")).unwrap();
+    t.save().unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.settings.talk_typed = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "typed-text-module-properties");
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run_steps(2);
+    h.get_by_label("Language").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "typed-text-options");
+    h.state_mut().options = None;
+    h.run_steps(2);
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    let typed =
+        LocString::from_text(Language::ENGLISH, Gender::Male, "The Abbey of Saint Markovia");
+    h.state_mut().actions.push(mg_ui::Action::ApplyTyped(mg_edit::Command::new(
+        "Module name",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: "Mod_Name".into(),
+            value: Some(mg_gff::Value::LocString(typed)),
+        }],
+    )));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "typed-text-question");
+}

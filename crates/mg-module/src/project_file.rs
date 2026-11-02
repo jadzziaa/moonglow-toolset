@@ -26,6 +26,12 @@
 //!
 //! [pack]                              # a nasher project's Pack
 //! compile_models = true               # models kept as text go in compiled
+//!
+//! [talk]                              # text typed into the custom talk table
+//! lines = "100000-149999"             # the lines it takes (0 is StrRef 16777216)
+//! map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: its lines are never taken
+//! [talk.builders]                     # a builder's own part, by their code
+//! ab = "100000-109999"
 //! ```
 //!
 //! And in `.moonglow/user.toml`, the builder's own:
@@ -634,6 +640,9 @@ pub struct ProjectFile {
     pub pack: PackRules,
     /// `[lights]`: lights made as content.
     pub lights: LightRules,
+    /// `[talk]`: the custom talk table's lines text typed takes
+    /// ([`crate::talk_range`]).
+    pub talk: crate::talk_range::TalkRules,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
     /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
@@ -1240,6 +1249,7 @@ impl ProjectFile {
                     }
                 }
                 ("claims", false) => self.read_claim_rules(&mut r, entry),
+                ("talk", false) => self.read_talk_rules(&mut r, entry),
                 ("commands", false) => {
                     for e in r.section(entry) {
                         if let Some(c) = r.command(e) {
@@ -1303,7 +1313,7 @@ impl ProjectFile {
                 }
                 (
                     "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands"
-                    | "pack",
+                    | "pack" | "talk",
                     true,
                 ) => r.warn(
                     key.span().start,
@@ -1315,6 +1325,64 @@ impl ProjectFile {
             }
         }
         self.warnings.append(&mut r.warnings);
+    }
+
+    /// Reads `[talk]`: `lines`, `map` and `[talk.builders]`.
+    fn read_talk_rules(&mut self, r: &mut Reader, entry: Entry) {
+        use crate::talk_range::{Lines, TalkRules};
+        let mut rules = TalkRules::default();
+        let lines = |r: &mut Reader, e: Entry| -> Option<Lines> {
+            let text = match e.1.get_ref() {
+                DeValue::String(s) => s.to_string(),
+                DeValue::Integer(i) => i.as_str().to_string(),
+                DeValue::Array(a) if a.len() == 2 => {
+                    let n: Vec<String> = a
+                        .iter()
+                        .map(|v| match v.get_ref() {
+                            DeValue::Integer(i) => i.as_str().to_string(),
+                            _ => "?".into(),
+                        })
+                        .collect();
+                    format!("{}-{}", n[0], n[1])
+                }
+                _ => {
+                    let message =
+                        format!("{} is to be lines in quotes: \"100000-149999\"", e.0.get_ref());
+                    r.warn(e.1.span().start, message);
+                    return None;
+                }
+            };
+            match Lines::parse(&text) {
+                Ok(l) => Some(l),
+                Err(problem) => {
+                    r.warn(e.1.span().start, format!("{}: {problem}", e.0.get_ref()));
+                    None
+                }
+            }
+        };
+        for e in r.section(entry) {
+            match e.0.get_ref().as_ref() {
+                "lines" => rules.lines = lines(r, e),
+                "map" => {
+                    rules.map = r.text(e).map(|m| m.trim().to_string()).filter(|m| !m.is_empty())
+                }
+                "builders" => {
+                    for b in r.section(e) {
+                        let code = b.0.get_ref().trim().to_ascii_lowercase();
+                        if let Some(problem) = code_problem(&code) {
+                            r.warn(b.0.span().start, format!("builder \"{code}\": {problem}"));
+                        } else if let Some(l) = lines(r, b) {
+                            rules.builders.insert(code, l);
+                        }
+                    }
+                }
+                _ => r.unknown("talk", e),
+            }
+        }
+        for problem in rules.problems() {
+            r.warn(entry.0.span().start, format!("[talk]: {problem}"));
+        }
+        self.talk = rules;
     }
 
     /// Reads `[claims]`.
@@ -1484,6 +1552,25 @@ impl ProjectFile {
         self.place.as_ref()
     }
 
+    /// `[talk] map`: `mg tlk-alloc`'s map, read from beside the team's
+    /// file (none where `[talk]` names none, or the file isn't there yet).
+    pub fn talk_map(&self) -> Result<Option<crate::tlk_alloc::Map>, String> {
+        let Some(dir) = self.path.as_deref().and_then(Path::parent) else { return Ok(None) };
+        let Some(path) = self.talk.map_path(dir) else { return Ok(None) };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => crate::tlk_alloc::Map::read(&text)
+                .map(Some)
+                .map_err(|e| format!("[talk] map {}: {e}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("[talk] map {}: {e}", path.display())),
+        }
+    }
+
+    /// The lines the text this builder types takes ([`crate::talk_range`]).
+    pub fn talk_allowed(&self) -> crate::talk_range::Allowed {
+        self.talk.allowed(self.user.builder_code.as_deref())
+    }
+
     /// Writes the builder's own file (making its folder, which keeps
     /// itself out of version control).
     pub fn write_user(root: &Path, text: &str) -> std::io::Result<()> {
@@ -1582,6 +1669,28 @@ impl ProjectFile {
     }
 }
 
+impl ProjectFile {
+    /// Sets (or, `None`, takes out) `[talk] lines` in the team's file
+    /// where it is (making the file where it isn't: beside a `.mod`,
+    /// `NAME.moonglow.toml`), the rest kept as written.
+    pub fn set_talk_lines(
+        place: &Place,
+        lines: Option<crate::talk_range::Lines>,
+    ) -> std::io::Result<()> {
+        let invalid = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, e);
+        let path = place.team();
+        let text = match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
+        let value = lines.map(|l| format!("\"{l}\""));
+        let text = with_value_in(&place.team_name(), &text, "talk", "lines", value.as_deref())
+            .map_err(invalid)?;
+        crate::write_replacing(&path, text.as_bytes())
+    }
+}
+
 /// A builder's file with its `[builder] code` set to `code` (or taken
 /// out), the rest kept as written; an error where the text is no TOML.
 fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
@@ -1593,8 +1702,18 @@ fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
 /// value, written as it is given) or taken out, the rest kept as written;
 /// an error where the text is no TOML.
 fn with_value(text: &str, section: &str, key: &str, value: Option<&str>) -> Result<String, String> {
+    with_value_in(&format!("{USER_DIR}/{USER_FILE}"), text, section, key, value)
+}
+
+/// [`with_value`] in the file `name` (as its messages name it).
+fn with_value_in(
+    name: &str,
+    text: &str,
+    section: &str,
+    key: &str,
+    value: Option<&str>,
+) -> Result<String, String> {
     let code = value;
-    let name = format!("{USER_DIR}/{USER_FILE}");
     let table = DeTable::parse(text).map_err(|e| {
         let line = e.span().map_or(1, |s| line_of(text, s.start));
         format!("{name}:{line}: {} (mend it first)", e.message().trim())
@@ -2430,5 +2549,56 @@ keeper_variable = "tdod_store"
         m.save().unwrap();
         let m = crate::Module::open(&path).unwrap();
         assert_eq!(m.project_file.used.conversations.globs, ["chat_*"]);
+    }
+
+    /// `[talk]`: the lines typed text takes, the map and each builder's
+    /// part; what can't be read is said with its line, and the range is
+    /// written into the team's file (beside a `.mod` too).
+    #[test]
+    fn talk_lines_are_read_and_written() {
+        use crate::talk_range::Lines;
+        let p = read(
+            "[talk]\nlines = \"100000-149999\"\nmap = \"tlk/s.strrefs.json\"\n\
+             [talk.builders]\nAB = [100000, 109999]\ncd = \"110000-119999\"\n",
+        );
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.talk.lines, Some(Lines { from: 100_000, to: 149_999 }));
+        assert_eq!(p.talk.map.as_deref(), Some("tlk/s.strrefs.json"));
+        assert_eq!(p.talk.builders["ab"], Lines { from: 100_000, to: 109_999 });
+        assert_eq!(p.talk.builders.len(), 2);
+        let bad =
+            read("[talk]\nlines = \"9-3\"\ncolor = 1\n[talk.builders]\na = \"1-5\"\nb = \"4-8\"\n");
+        assert_eq!(bad.talk.lines, None);
+        assert_eq!(bad.warnings.len(), 3, "{:?}", bad.warnings);
+        assert!(bad.warnings[0].contains(":2: lines:"), "{:?}", bad.warnings);
+        assert!(bad.warnings[2].contains("share lines"), "{:?}", bad.warnings);
+        let mut own = ProjectFile::default();
+        own.apply(USER_FILE, "[talk]\nlines = \"1-2\"\n", true);
+        assert!(own.warnings[0].contains("is the team's"), "{:?}", own.warnings);
+
+        let dir = mg_testkit::scratch_dir("project-file-talk");
+        let mut m = crate::Module::new();
+        m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(dir.join(FILE_NAME), "# the team's\n[talk]\nmap = \"m.json\" # kept\n")
+            .unwrap();
+        let place = ProjectFile::place_to_write(m.location.as_ref().unwrap()).unwrap();
+        ProjectFile::set_talk_lines(&place, Some(Lines { from: 5, to: 99 })).unwrap();
+        let text = std::fs::read_to_string(dir.join(FILE_NAME)).unwrap();
+        assert!(text.starts_with("# the team's\n[talk]\nlines = \"5-99\"\nmap"), "{text}");
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file.talk.lines, Some(Lines { from: 5, to: 99 }));
+        ProjectFile::set_talk_lines(&place, None).unwrap();
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file.talk.lines, None);
+        assert_eq!(m.project_file.talk.map.as_deref(), Some("m.json"));
+
+        let path = mg_testkit::scratch_dir("project-file-talk-mod").join("krezk.mod");
+        let mut m = crate::Module::new();
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let place = ProjectFile::place_to_write(m.location.as_ref().unwrap()).unwrap();
+        ProjectFile::set_talk_lines(&place, Some(Lines { from: 7, to: 7 })).unwrap();
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file.talk.lines, Some(Lines { from: 7, to: 7 }));
+        assert!(m.project_file.warnings.is_empty(), "read beside a .mod");
     }
 }

@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:03:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:34Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -123,9 +123,12 @@ the [deferred list](deferred.md) says its place):
 2. ~~GFF paths as strings, built once (Written more than once:
    mechanical).~~ Done after 3.0.0 (2026-10-30): one path, `mg_gff::GffPath`,
    and a typed place (`mg_module::refs::Location`).
-3. New strings written to a talk-table range from a blueprint
-   (Blueprint editors and inventories).
-4. Text put in the talk table as it is written (Custom content data).
+3. ~~New strings written to a talk-table range from a blueprint
+   (Blueprint editors and inventories).~~ Done after 3.0.0 (2026-11-02):
+   [text typed into the talk table](typed-text-proposal.md).
+4. ~~Text put in the talk table as it is written (Custom content data).~~
+   Done with 3 (2026-11-02): one design, every localized-string field
+   typed, a range the project keeps, reuse asked first.
 5. Typing in a very large script, an editor that lays out the lines in
    sight (The code itself).
 6. Lists across several blueprints in Edit Together (Bulk editing).

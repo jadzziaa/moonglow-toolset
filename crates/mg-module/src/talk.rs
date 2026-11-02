@@ -299,6 +299,22 @@ pub struct Table {
     /// The game's codepage, where the open module has its own table
     /// (`encoding.2da`): the game reads the talk tables by it too.
     pub game: Option<mg_core::Codepage>,
+    /// Lines put in or taken back for the module's fields ([`Typed`])
+    /// since the table was saved: they are the module's changes, outside
+    /// the table's own history, and make it unsaved.
+    typed_unsaved: bool,
+}
+
+/// A line put in the table for a field's text typed
+/// ([`Table::put_typed`]): what the line was and is, to take it back
+/// with the module's step that set the field, and put it back again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Typed {
+    pub row: usize,
+    before: Entries,
+    after: Entries,
+    /// The table's length before (it grows to reach a line past its end).
+    len_before: usize,
 }
 
 /// Talk tables are numbered from here in the game's StrRefs.
@@ -322,6 +338,7 @@ impl Table {
             redo: Vec::new(),
             saved: Some(0),
             game: None,
+            typed_unsaved: false,
         })
     }
 
@@ -338,6 +355,7 @@ impl Table {
             redo: Vec::new(),
             saved: None,
             game: None,
+            typed_unsaved: false,
         }
     }
 
@@ -366,7 +384,13 @@ impl Table {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.saved != Some(self.undo.len())
+        self.saved != Some(self.undo.len()) || self.typed_unsaved
+    }
+
+    /// Whether lines put in or taken back for the module's fields are
+    /// not saved yet: the module's save waits on the table's.
+    pub fn has_typed_unsaved(&self) -> bool {
+        self.typed_unsaved
     }
 
     /// How many steps it has to undo and to redo: what is worked out from
@@ -491,11 +515,22 @@ impl Table {
     /// Puts entries at a row: `None` removes the row (the last one), and
     /// the feminine table is padded with copies of the table's lines to
     /// reach it.
+    /// Puts entries at a row: `None` removes the row where it is the last
+    /// (one before the last is emptied: the lines after keep their
+    /// numbers), a row past the end is reached with empty lines, and the
+    /// feminine table is padded with copies of the table's lines to reach
+    /// it.
     fn put(&mut self, row: usize, (m, f): Entries) {
+        let last = self.tlk.entries.len().saturating_sub(1);
         match m {
-            Some(m) if row < self.tlk.entries.len() => self.tlk.entries[row] = m,
-            Some(m) => self.tlk.entries.push(m),
-            None => self.tlk.entries.truncate(row),
+            Some(m) => {
+                if row >= self.tlk.entries.len() {
+                    self.tlk.entries.resize(row + 1, TlkEntry::default());
+                }
+                self.tlk.entries[row] = m;
+            }
+            None if row >= last => self.tlk.entries.truncate(row),
+            None => self.tlk.entries[row] = TlkEntry::default(),
         }
         if let Some((_, fem)) = &mut self.feminine {
             match f {
@@ -509,9 +544,112 @@ impl Table {
                         fem.entries.push(f);
                     }
                 }
-                None => fem.entries.truncate(row),
+                None if row + 1 >= fem.entries.len() || row >= self.tlk.entries.len() => {
+                    fem.entries.truncate(row.min(fem.entries.len()))
+                }
+                None => fem.entries[row] = TlkEntry::default(),
             }
         }
+    }
+
+    /// Whether a line is empty: past the end, or with no text and no
+    /// sound (in the feminine table either).
+    pub fn is_blank(&self, row: usize) -> bool {
+        let blank = |e: Option<&TlkEntry>| {
+            e.is_none_or(|e| {
+                e.flags & (FLAG_TEXT | FLAG_SOUND) == 0 || (e.text.is_empty() && e.sound.is_empty())
+            })
+        };
+        blank(self.tlk.entries.get(row))
+            && self.feminine.as_ref().is_none_or(|(_, f)| blank(f.entries.get(row)))
+    }
+
+    /// The first line with `text` (with its text flag), and in the
+    /// feminine table `feminine` (`text` where `None`): a line a field's
+    /// text typed may name instead of a new one.
+    pub fn find_text(&self, text: &str, feminine: Option<&str>) -> Option<usize> {
+        let codepage = self.codepage();
+        let bytes = codepage.encode(text)?;
+        let fem = codepage.encode(feminine.unwrap_or(text))?;
+        let has = |e: Option<&TlkEntry>, b: &[u8]| {
+            e.is_some_and(|e| e.flags & FLAG_TEXT != 0 && e.text.as_slice() == b)
+        };
+        (0..self.len()).find(|&row| {
+            has(self.tlk.entries.get(row), &bytes)
+                && self.feminine.as_ref().is_none_or(|(_, f)| {
+                    // (A feminine table shorter than the table: its line is
+                    // the table's, as the save pads it.)
+                    match f.entries.get(row) {
+                        Some(_) => has(f.entries.get(row), &fem),
+                        None => *fem == *bytes,
+                    }
+                })
+        })
+    }
+
+    /// Puts `line` at `row` for a field's text typed: outside the table's
+    /// own history (the module's Undo takes it back, [`take_back`]), the
+    /// table reaching it with empty lines where it is past the end.
+    ///
+    /// [`take_back`]: Self::take_back
+    pub fn put_typed(&mut self, row: usize, line: &Line) -> Result<Typed, String> {
+        let after = self.entries(line, row)?;
+        let typed =
+            Typed { row, before: self.current(row), after: after.clone(), len_before: self.len() };
+        self.put(row, after);
+        self.typed_unsaved = true;
+        Ok(typed)
+    }
+
+    /// Takes a typed line back, as it was before: whether it was as it was
+    /// put (one changed since in the editor is left as it is).
+    pub fn take_back(&mut self, typed: &Typed) -> bool {
+        if self.current(typed.row) != typed.after {
+            return false;
+        }
+        self.put(typed.row, typed.before.clone());
+        // (The empty lines it was reached with go too, where nothing came
+        // after it.)
+        if self.len() > typed.len_before && (typed.len_before..self.len()).all(|r| self.is_blank(r))
+        {
+            self.tlk.entries.truncate(typed.len_before);
+            if let Some((_, f)) = &mut self.feminine {
+                f.entries.truncate(typed.len_before.min(f.entries.len()));
+            }
+        }
+        self.typed_unsaved = true;
+        true
+    }
+
+    /// Whether a typed line taken back can be put back: its row empty.
+    pub fn can_put_back(&self, typed: &Typed) -> bool {
+        self.is_blank(typed.row)
+    }
+
+    /// Puts a typed line taken back in again (the module's Redo).
+    pub fn put_back(&mut self, typed: &Typed) -> Result<(), String> {
+        if !self.can_put_back(typed) {
+            return Err(format!(
+                "line {} of the talk table ({}) has been given another text since",
+                typed.row,
+                Self::strref(typed.row).0
+            ));
+        }
+        self.put(typed.row, typed.after.clone());
+        self.typed_unsaved = true;
+        Ok(())
+    }
+
+    /// Takes back the changes made in the table's editor since it was
+    /// last saved (its Cancel), keeping the lines typed for the module's
+    /// fields: whether it could (not where the saved state is gone).
+    pub fn drop_own_changes(&mut self) -> bool {
+        let Some(saved) = self.saved.filter(|s| *s <= self.undo.len()) else { return false };
+        while self.undo.len() > saved {
+            self.undo();
+        }
+        self.redo.clear();
+        self.undo.len() == saved
     }
 
     fn apply(&mut self, change: Change) {
@@ -557,6 +695,16 @@ impl Table {
         let after = self.entries(line, row)?;
         self.apply(Change { row, before: (None, None), after, typing: None, batch: 0 });
         Ok(row)
+    }
+
+    /// Puts a line at `row` (past the end: the table reaches it with empty
+    /// lines), in the table's history: Move to Talk Table's line in the
+    /// project's range.
+    pub fn put_line(&mut self, row: usize, line: &Line) -> Result<(), String> {
+        let after = self.entries(line, row)?;
+        let before = self.current(row);
+        self.apply(Change { row, before, after, typing: None, batch: 0 });
+        Ok(())
     }
 
     /// Removes the last line (only the last: removing another would
@@ -874,6 +1022,7 @@ impl Table {
         }
         write(&self.source, &self.tlk)?;
         self.saved = Some(self.undo.len());
+        self.typed_unsaved = false;
         Ok(())
     }
 }
@@ -1205,5 +1354,60 @@ mod tests {
         back.undo();
         assert!(!back.is_dirty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn text_line(text: &str) -> Line {
+        Line { text: text.into(), feminine: None, sound: String::new(), sound_length: 0.0 }
+    }
+
+    /// A line typed for a field: outside the table's history, making it
+    /// unsaved; taken back and put back as the module's Undo and Redo do,
+    /// the table reaching a line past its end with empty lines and losing
+    /// them again.
+    #[test]
+    fn a_typed_line_is_taken_back_and_put_back_outside_the_history() {
+        let mut t = Table::create("typed", &std::env::temp_dir(), Language::ENGLISH, true);
+        t.add_line(&text_line("Own")).unwrap();
+        t.saved = Some(t.undo.len());
+        assert!(!t.is_dirty());
+        let typed = t.put_typed(10, &text_line("Sword")).unwrap();
+        assert!(t.is_dirty() && t.has_typed_unsaved() && t.can_undo());
+        assert_eq!((t.len(), t.line(10).text.as_str()), (11, "Sword"));
+        assert_eq!(t.line(10).feminine.as_deref(), Some("Sword"), "the feminine table too");
+        assert!(t.is_blank(5) && !t.is_blank(10) && !t.is_blank(0));
+        assert_eq!(t.find_text("Sword", None), Some(10));
+        assert_eq!(t.find_text("Sword", Some("Other")), None);
+        assert_eq!(t.find_text("sword", None), None);
+        // The editor's Undo is its own: the typed line stays.
+        t.undo();
+        assert_eq!(t.len(), 11, "row 0 emptied, not the lines after it taken");
+        assert!(t.is_blank(0));
+        t.redo();
+        assert_eq!(t.line(0).text, "Own");
+        // The module's Undo and Redo.
+        assert!(t.take_back(&typed));
+        assert_eq!(t.len(), 1, "the empty lines it was reached with go too");
+        assert!(t.can_put_back(&typed));
+        t.put_back(&typed).unwrap();
+        assert_eq!(t.line(10).text, "Sword");
+        // Changed in the editor since: left as it is, and not put back.
+        t.set_line(10, &text_line("Blade"), None).unwrap();
+        assert!(!t.take_back(&typed));
+        assert_eq!(t.line(10).text, "Blade");
+        assert!(t.put_back(&typed).unwrap_err().contains("another text"));
+        // Saved: no longer unsaved; the editor's Cancel keeps typed lines.
+        t.saved = None;
+        let dir = mg_testkit::scratch_dir("talk-typed");
+        t.source = Source::File(dir.join("typed.tlk"));
+        t.feminine.as_mut().unwrap().0 = Source::File(dir.join("typedf.tlk"));
+        t.save().unwrap();
+        assert!(!t.is_dirty());
+        let again = t.put_typed(11, &text_line("Shield")).unwrap();
+        t.set_line(0, &text_line("Changed"), None).unwrap();
+        assert!(t.drop_own_changes());
+        assert_eq!((t.line(0).text.as_str(), t.line(11).text.as_str()), ("Own", "Shield"));
+        assert!(t.is_dirty(), "the typed line is still to be saved");
+        assert!(t.take_back(&again));
+        assert_eq!(t.len(), 11);
     }
 }

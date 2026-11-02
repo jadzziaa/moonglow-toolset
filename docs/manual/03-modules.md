@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:19:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
 ---
 
 # Modules
@@ -701,6 +701,12 @@ generated = true                    # on for the team (off unless said)
 hak = "tdod_lights"                 # the hak offered first
 first_row = 20000                   # the least placeables.2da row a light takes
 
+[talk]                              # text typed into the custom talk table
+lines = "100000-149999"             # the lines it takes (0 is StrRef 16777216)
+map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: its lines are never taken
+[talk.builders]                     # each builder's own part, by their code
+ab = "100000-109999"
+
 [claims]
 file = "builders/claims.2da"        # who is building which area
 others = "warn"                     # another builder's area: "warn" before a save, or "read-only"
@@ -743,6 +749,9 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
 | `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later | the end of the table |
+| `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
+| `[talk] map` | `mg tlk-alloc`'s map, from the project's root: the lines it gives keys (in use or retired) are never taken | none |
+| `[talk.builders]` | each builder's own part of the lines, by their code (`ab = "100000-109999"`); a builder without one takes from `lines` past every builder's part | everyone takes from `lines` |
 | `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
@@ -1103,6 +1112,7 @@ Rename window is open).
 | --- | --- | --- |
 | `claims-merged` | an area the table says is merged that the module doesn't have (renamed or deleted) | an error: Verify fails |
 | `claims-tag` | a merged area whose Tag is not the one the table records | an error: Verify fails |
+| `talk-range` | the [lines for typed text](#text-typed-into-the-talk-table) nearly used (a warning) or all used (an error), `mg tlk-alloc`'s lines inside them, builders' parts that share lines, a builder without a part where others have one | warnings, and an error |
 
 ### The project's commands
 
@@ -1495,7 +1505,81 @@ chooses the one edited (with no unsaved changes).
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its
 StrRef in the string in place of the text. That's for translations, and
-for text a server sends many times.
+for text a server sends many times. The line is the next free one of the
+project's lines for typed text (below), at the table's end without them.
+It is not offered for a string with text in another language too: the
+game shows any text of a string's own before its talk-table line, to
+every player; remove the other language's text first.
+
+### Text typed into the talk table
+
+Aurora writes the text you type into a name or a description into the
+file. A persistent world translated, or one that keeps its text in one
+place, wants it in the talk table instead. With **Options › Language ›
+Put text typed into the talk table** on (off by default), text typed
+becomes a line of the module's custom talk table and the field names it
+by its StrRef:
+
+- **Which fields:** every Properties window's names and descriptions
+  (blueprints, placed objects, areas, Module Properties, the journal), a
+  creature's random name, and a conversation line's text, typed in the
+  editor or in Input Text. String Edit keeps every language's text as it
+  is written (its **Move to Talk Table** moves one), as do the GFF
+  editor, imports, pastes, wizards and plugins.
+- **What it becomes:** a new line with the text (and, where the module
+  has a feminine table, the same text there, or the string's own
+  feminine text), at the next free line of your lines (below). The
+  field's StrRef is the line's (16777216 and up) and its own text in the
+  table's language goes: the game reads the line. The log says which
+  line. Several objects edited together take one line. Text typed again
+  later is a new line: a line keeps its text, so that an item a player
+  carries never comes to say another; change a line everywhere it is
+  named in the talk table editor.
+- **A text the table has already:** Moonglow asks: **Use Line N** (the
+  field names that line), **Add a Line**, or **Keep in the File**
+  (Aurora's way, for this text). Options › Language can say Use that
+  line or Add a line without asking.
+- **Undo** takes the field and its line back together, and Redo puts
+  both back. A line changed in the talk table editor since is left as it
+  is; Redo whose line has been given another text since says so and
+  does nothing. The talk table editor's Cancel drops its own changes and
+  keeps the lines typed for the module's fields.
+- **Saving:** the table is saved with the module. Where it can't be
+  (its file can't be written), the module isn't saved either, and the
+  log says why: its fields would name lines the table hasn't.
+- **Kept in the file**, with a note in the log once: where the module has
+  no custom talk table, or one of a hak's; where a nasher project keeps
+  the table in several languages (a line in one would be empty in the
+  others); text typed in another language (Options › Language) than the
+  table's; a string with text in another language as well, since the
+  game shows any text of a string's own before its talk-table line, to
+  every player (`engine_tlk`); and where your lines are all used.
+
+**Your lines** are the project's, in its [project file](#the-project-file-moonglowtoml):
+
+```toml
+[talk]
+lines = "100000-149999"             # the lines typed text takes (0 is StrRef 16777216)
+map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: the lines it gives keys are never taken
+[talk.builders]                     # each builder's own part, by their builder code
+ab = "100000-109999"
+cd = "110000-119999"
+```
+
+**Module Properties › Custom Content › Typed text** sets `lines` (written
+into the project's file, the rest of it kept as written), says which
+builders have parts of their own, and the next free line with how many
+are left. Without `lines`, a line is added at the table's end. The next
+free line is the first of your lines that is past the table's end or
+empty, and not one [`mg tlk-alloc`](11-command-line.md#strings-by-name)'s
+map names. A builder with a part of their own takes from it alone; one
+without takes from `lines` past every builder's part. So two builders of
+one project, each typing in their own checkout, never give one line two
+texts; and `mg tlk-alloc` passes over the project's lines for typed text.
+**Verify** (`talk-range`) warns when a tenth of your lines is left (an
+error when none is), when the map's lines lie inside the range, when two
+builders' parts share lines, and when the others have parts and you have
+none.
 
 **Resources in haks**: when the module and a hak have the same resource,
 the hak's wins in the game. Moonglow warns in the log when you add such a

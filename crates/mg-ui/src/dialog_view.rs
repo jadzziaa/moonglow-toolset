@@ -1471,18 +1471,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let mut ng = g.clone();
             let kind = input.parent.child_kind();
             let i = add_node(&mut ng, input.parent, "");
+            // (With plain line ends, as Aurora writes a line's text.)
+            let text = crate::text::with_loc_line_ends(input.text.trim_end(), "");
+            let t = with_english(Default::default(), &text);
             if let Some(n) = ng.root.list_mut(kind.list()).and_then(|l| l.get_mut(i as usize)) {
-                // (With plain line ends, as Aurora writes a line's text.)
-                let text = crate::text::with_loc_line_ends(input.text.trim_end(), "");
-                let t = with_english(Default::default(), &text);
-                n.set("Text", Value::LocString(t));
+                n.set("Text", Value::LocString(t.clone()));
             }
             let words = word_count(&ng);
             ng.root.set("NumWords", Value::Dword(words));
             if let Parent::Node(k, i) = input.parent {
                 view.collapsed.remove(&(k, i));
             }
-            actions.push(replace(key, "Add line", &ng));
+            // (Its text set as typed, after: put in the module's talk table
+            // first, where Options › Language says so.)
+            let text = Edit::SetField {
+                key,
+                path: node_path(kind, i),
+                label: "Text".into(),
+                value: Some(Value::LocString(t)),
+            };
+            let made = Edit::SetResource { key, data: ng.to_bytes().ok() };
+            actions.push(Action::ApplyTyped(Command::new("Add line", vec![made, text])));
         } else if !cancel {
             view.input = Some(input);
         }
@@ -1854,13 +1863,15 @@ fn text_panel(
         None => crate::widgets::commit_loc_text(app, ui, id, &shown, true, width),
     };
     if let Some(v) = typed {
-        actions.push(set(
+        // (Put in the module's talk table first, where Options › Language
+        // says so.)
+        let edit = Edit::SetField {
             key,
-            "Line text",
-            path.clone(),
-            "Text",
-            with_english(ls.clone(), &v).into_value(),
-        ));
+            path: path.clone(),
+            label: "Text".into(),
+            value: Some(with_english(ls.clone(), &v).into_value()),
+        };
+        actions.push(Action::ApplyTyped(Command::new("Line text", vec![edit])));
     }
     if let Some(t) = from_tlk {
         ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));

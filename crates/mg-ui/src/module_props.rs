@@ -656,6 +656,158 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             app.actions.push(Action::OpenTab(crate::Tab::TalkTable));
         }
     });
+    typed_lines(app, ui);
+}
+
+/// The lines typed text takes (`crate::talk_typed`): the project's range
+/// (`moonglow.toml`'s `[talk] lines`), set here, each builder's part of
+/// it, and how many are left.
+fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
+    use mg_module::project_file::ProjectFile;
+    use mg_module::talk_range::{self, Allowed, Lines};
+    // (The table opened, to say how much of it is left.)
+    crate::talk_view::load(app);
+    let Some(ws) = &app.ws else { return };
+    let pf = &ws.module.project_file;
+    let rules = pf.talk.clone();
+    let allowed = pf.talk_allowed();
+    let code = pf.user.builder_code.clone();
+    let place = ws.module.location.as_ref().and_then(ProjectFile::place_to_write);
+    let file = place
+        .as_ref()
+        .map_or_else(|| mg_module::project_file::FILE_NAME.to_string(), |p| p.team_name());
+    let map = pf.talk_map();
+    let id = egui::Id::new("typed-lines");
+    let shown = |l: Option<Lines>| {
+        l.map_or((String::new(), String::new()), |l| (l.from.to_string(), l.to.to_string()))
+    };
+    let mut draft: (String, String, Option<Lines>) = ui
+        .data_mut(|d| d.get_temp(id))
+        .filter(|d: &(String, String, Option<Lines>)| d.2 == rules.lines)
+        .unwrap_or_else(|| {
+            let (a, b) = shown(rules.lines);
+            (a, b, rules.lines)
+        });
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Typed text");
+        ui.label("lines");
+        ui.add(egui::TextEdit::singleline(&mut draft.0).desired_width(80.0).hint_text("from"));
+        ui.label("to");
+        ui.add(egui::TextEdit::singleline(&mut draft.1).desired_width(80.0).hint_text("to"));
+        let typed = format!("{}-{}", draft.0.trim(), draft.1.trim());
+        let parsed = match (draft.0.trim(), draft.1.trim()) {
+            ("", "") => Ok(None),
+            _ => Lines::parse(&typed).map(Some),
+        };
+        let can = place.is_some() && parsed.as_ref().is_ok_and(|l| *l != rules.lines);
+        let tip = match (&place, &parsed) {
+            (None, _) => "Save the module first: the range is kept in its project's file".into(),
+            (_, Err(e)) => e.clone(),
+            (Some(_), Ok(_)) => format!(
+                "Keep it in {file} ([talk] lines), which every builder of the project and mg \
+                 tlk-alloc read; empty: the table's end"
+            ),
+        };
+        if ui
+            .add_enabled(can, egui::Button::new("Set"))
+            .on_hover_text(&tip)
+            .on_disabled_hover_text(&tip)
+            .clicked()
+            && let (Some(place), Ok(lines)) = (&place, &parsed)
+        {
+            match ProjectFile::set_talk_lines(place, *lines) {
+                Ok(()) => {
+                    match lines {
+                        Some(l) => app.log.info(format!(
+                            "Text typed takes lines {l} of the talk table (StrRefs {} to {}), \
+                             kept in {file}",
+                            l.from | mg_core::StrRef::CUSTOM_FLAG,
+                            l.to | mg_core::StrRef::CUSTOM_FLAG
+                        )),
+                        None => app.log.info(format!(
+                            "Text typed goes at the talk table's end (no lines in {file})"
+                        )),
+                    }
+                    if let Some(ws) = app.ws.as_mut() {
+                        let had = ws.module.project_file.found;
+                        if ws.module.reread_project_file() {
+                            app.log_project_file(true, had);
+                        }
+                    }
+                }
+                Err(e) => app.log.error(format!("{file}: {e}")),
+            }
+        }
+        if let Err(e) = &parsed {
+            ui.colored_label(ui.visuals().warn_fg_color, e);
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, draft));
+    // Each builder's own part, as the project's file says.
+    if !rules.builders.is_empty() {
+        let parts: Vec<String> = rules.builders.iter().map(|(c, l)| format!("{c} {l}")).collect();
+        ui.weak(format!("Builders' own lines ({file} [talk.builders]): {}", parts.join(", ")));
+    }
+    // Where the next one goes, and how many are left.
+    let said = match (&allowed, app.talk.as_ref()) {
+        (_, None) => None,
+        (_, Some(t)) => {
+            let next = crate::talk_typed::next_line(app, t);
+            let map_lines = map
+                .as_ref()
+                .ok()
+                .and_then(|m| m.as_ref())
+                .map(talk_range::map_lines)
+                .unwrap_or_default();
+            let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
+            let left =
+                talk_range::free_lines(&allowed, len, |l| t.is_blank(l as usize), &map_lines);
+            Some(match (next, left) {
+                (Err(e), _) => (e, true),
+                (Ok(row), Some((free, total))) => (
+                    format!(
+                        "Next: line {row} (StrRef {}); {free} of {total} left{}",
+                        mg_module::talk::Table::strref(row).0,
+                        match (&allowed, code.as_deref()) {
+                            (Allowed::Range { but, .. }, _) if !but.is_empty() => {
+                                " (the others' parts passed over)".to_string()
+                            }
+                            (_, Some(c)) if rules.builders.contains_key(c) => {
+                                format!(" of your own ({c})")
+                            }
+                            _ => String::new(),
+                        }
+                    ),
+                    free * 10 <= total,
+                ),
+                (Ok(row), None) => (
+                    format!(
+                        "Next: line {row} (StrRef {}), at the table's end",
+                        mg_module::talk::Table::strref(row).0
+                    ),
+                    false,
+                ),
+            })
+        }
+    };
+    match said {
+        Some((text, true)) => {
+            ui.colored_label(ui.visuals().warn_fg_color, text);
+        }
+        Some((text, false)) => {
+            ui.weak(text);
+        }
+        None => {}
+    }
+    if let Err(e) = &map {
+        ui.colored_label(ui.visuals().warn_fg_color, e);
+    }
+    if !app.settings.talk_typed {
+        ui.weak(
+            "Off: text typed is the field's own, as Aurora writes it (Options › Language › Talk \
+             Table puts it here)",
+        );
+    }
 }
 
 /// Add Haks and Talk Table: the files chosen, where each goes, and whether

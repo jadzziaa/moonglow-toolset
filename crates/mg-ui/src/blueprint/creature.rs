@@ -184,7 +184,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                         });
                     if let Some(n) = name {
                         let current = f.root.locstring(label).cloned().unwrap_or_default();
-                        f.set(
+                        f.set_typed(
                             what,
                             label,
                             Value::LocString(crate::text::with_english(current, &n)),
