@@ -536,7 +536,8 @@ impl ShadowVolumes {
                 continue;
             }
             upload(gpu, set, &counted.casters, camera, size);
-            let params = crate::shadow::stencil_uniform(shadows, camera, size, fog);
+            let plan = lights.filter(|_| lit);
+            let params = crate::shadow::stencil_uniform(shadows, plan, camera, size, fog);
             gpu.queue.write_buffer(&set.params, 0, &params);
             pipelines.count(gpu, encoder, (stencil, depth), set, &counted, !copied);
             copied = true;

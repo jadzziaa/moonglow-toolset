@@ -108,6 +108,10 @@ pub struct MeshState {
 pub struct MeshOverride {
     pub alpha: Option<f32>,
     pub selfillum: Option<Vec3>,
+    /// Not drawn, but casting its shadow still: a tile's roofs and upper
+    /// walls left out by Fade Geometry, whose shadows the game's still
+    /// casts (the faded meshes cast in the client as the others).
+    pub hidden: bool,
     /// Vertices (animated or dangly meshes), in the mesh's own order.
     pub vertices: Option<Vec<crate::model::Vertex>>,
 }

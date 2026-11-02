@@ -13,10 +13,6 @@ use mg_resman::{ResKey, ResMan};
 
 use crate::{Diagnostic, ShaderError};
 
-/// How deep includes may nest. The stock ones nest four deep; a file that
-/// includes itself (a guard doesn't stop a text splice) stops here.
-pub const MAX_DEPTH: usize = 16;
-
 /// The longest name an `#include` takes: the engine reads it with
 /// `#include "%16[^"]"`, so a longer one isn't an include to it (and
 /// glslang then refuses the line).
@@ -316,7 +312,9 @@ impl Splicer<'_> {
         Ok(i)
     }
 
-    fn splice(&mut self, name: &str, depth: usize, from: Option<At>) -> Result<(), ShaderError> {
+    /// The file `name`'s text without its last newline, or the error
+    /// naming it (at the include that asked for it, if one did).
+    fn load(&mut self, name: &str, from: Option<At>) -> Result<(u16, String), ShaderError> {
         let Some((data, origin)) = self.sources.shader(name) else {
             let message = match &from {
                 Some(_) => format!("the include {name:?} isn't in the haks or the game"),
@@ -324,23 +322,57 @@ impl Splicer<'_> {
             };
             return Err(ShaderError::Include(Diagnostic { at: from, message }));
         };
-        let text = text_of(&data);
-        let file = self.file(name, origin)?;
+        let mut text = text_of(&data);
         // Its lines, the last ended by the end of the file or a newline.
-        let body = text.strip_suffix('\n').unwrap_or(&text);
-        for (i, line) in body.split('\n').enumerate() {
-            let line_no = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        if text.ends_with('\n') {
+            text.pop();
+        }
+        let file = self.file(name, origin)?;
+        Ok((file, text))
+    }
+
+    /// Splices `name` and its includes, as deep as they nest: the engine
+    /// takes chains of 1,000 (the findings, "A shader's includes"). Only a
+    /// loop is refused (an include of a file being spliced, which a guard
+    /// doesn't stop in a text splice, so it would never end). The files
+    /// being spliced are kept on a list, not the call stack, so that no
+    /// chain overflows it.
+    fn splice(&mut self, name: &str) -> Result<(), ShaderError> {
+        struct Open {
+            file: u16,
+            name: String,
+            text: String,
+            /// Where its next line starts; past the end when it is done.
+            at: usize,
+            line: u32,
+        }
+        let (file, text) = self.load(name, None)?;
+        let mut open = vec![Open { file, name: name.to_ascii_lowercase(), text, at: 0, line: 0 }];
+        while let Some(top) = open.last_mut() {
+            if top.at > top.text.len() {
+                open.pop();
+                continue;
+            }
+            let rest = &top.text[top.at..];
+            let end = rest.find('\n').unwrap_or(rest.len());
+            let line = &rest[..end];
+            top.at += end + 1;
+            top.line = top.line.saturating_add(1);
+            let (file, line_no) = (top.file, top.line);
             if let Some(inc) = include_name(line) {
+                let inc = inc.to_owned();
                 let at = At { file: self.out.files[usize::from(file)].clone(), line: line_no };
-                if depth >= MAX_DEPTH {
+                let lower = inc.to_ascii_lowercase();
+                if open.iter().any(|o| o.name == lower) {
                     return Err(ShaderError::Include(Diagnostic {
                         at: Some(at),
                         message: format!(
-                            "includes nest more than {MAX_DEPTH} deep here (does {inc:?} include itself?)"
+                            "{inc:?} is included inside itself: the includes loop and never end"
                         ),
                     }));
                 }
-                self.splice(inc, depth + 1, Some(at))?;
+                let (file, text) = self.load(&inc, Some(at))?;
+                open.push(Open { file, name: lower, text, at: 0, line: 0 });
             } else {
                 self.out.text.push_str(line);
                 self.out.text.push('\n');
@@ -375,7 +407,7 @@ pub fn assemble(
         s.out.text.push('\n');
         s.out.lines.push(LineOrigin { file: pre, line: u32::try_from(i + 1).unwrap_or(0) });
     }
-    s.splice(name, 0, None)?;
+    s.splice(name)?;
     Ok(s.out)
 }
 
@@ -420,10 +452,52 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_includes_itself_stops_at_the_depth_limit() {
+    fn a_file_that_includes_itself_is_refused_at_the_include() {
         let src = files(&[("loop", "#ifndef L\n#define L\n#include \"loop\"\n#endif\n")]);
         let e = assemble("loop", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
         assert!(e.to_string().contains("loop.shd:3"), "{e}");
+        assert!(e.to_string().contains("inside itself"), "{e}");
+        // A loop through others, named where it closes, whatever the case.
+        let src = files(&[
+            ("prog", "#include \"a\"\n"),
+            ("a", "#include \"B\"\n"),
+            ("b", "\n#include \"a\"\n"),
+        ]);
+        let e = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
+        assert!(e.to_string().contains("b.shd:2"), "{e}");
+    }
+
+    /// The client compiles and draws chains of 17 to 1,000 includes
+    /// (`batch6_include_splicing`): none is refused for its depth, and a
+    /// chain far past that doesn't overflow the stack.
+    #[test]
+    fn includes_nest_as_deep_as_the_engine_takes_them() {
+        for depth in [17, 1_000, 20_000] {
+            let mut src: BTreeMap<String, String> = (0..depth)
+                .map(|i| (format!("c{i}"), format!("float v{i};\n#include \"c{}\"\n", i + 1)))
+                .collect();
+            src.insert(format!("c{depth}"), "void main() {}".into());
+            src.insert("prog".into(), "#include \"c0\"\n".into());
+            let a = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap();
+            assert!(a.text.ends_with("void main() {}\n"), "{depth}");
+            assert_eq!(a.text.matches("float v").count(), depth);
+            assert_eq!(a.files.len(), depth + 3, "{depth}");
+            let last = u32::try_from(a.lines.len()).unwrap();
+            assert_eq!(a.origin(last).unwrap().file.name, format!("c{depth}"));
+        }
+        // A file included twice, not inside itself, is spliced each time.
+        let src = files(&[("prog", "#include \"a\"\n#include \"a\"\n"), ("a", "x\n")]);
+        let a = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(a.text.ends_with("x\nx\n"));
+    }
+
+    #[test]
+    fn an_empty_include_and_a_file_without_a_last_newline() {
+        let src = files(&[("prog", "a\n#include \"e\"\nb"), ("e", "")]);
+        let a = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let pre = Preamble::default().text(Stage::Fragment).lines().count();
+        assert_eq!(a.text.lines().skip(pre).collect::<Vec<_>>(), ["a", "", "b"]);
+        assert_eq!(a.lines.len(), a.text.lines().count());
     }
 
     #[test]

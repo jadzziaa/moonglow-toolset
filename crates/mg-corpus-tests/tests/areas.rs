@@ -422,7 +422,7 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
         let view = View { fade, ..View::of(&model) };
         let scene = loaded.scene(&model, &view);
         let gone = |i: &mg_render::scene::Instance| {
-            i.state.as_ref().map_or(0, |s| s.meshes.iter().filter(|m| m.alpha == Some(0.0)).count())
+            i.state.as_ref().map_or(0, |s| s.meshes.iter().filter(|m| m.hidden).count())
         };
         (
             scene.instances.iter().map(gone).sum(),
@@ -446,7 +446,7 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
     let walled = scene
         .instances
         .iter()
-        .find(|i| i.state.as_ref().is_some_and(|s| s.meshes.iter().any(|m| m.alpha == Some(0.0))));
+        .find(|i| i.state.as_ref().is_some_and(|s| s.meshes.iter().any(|m| m.hidden)));
     let walled = walled.expect("the walled tile");
     let state = walled.state.as_ref().unwrap();
     let mut by_fade: Vec<(u32, bool)> = walled
@@ -454,7 +454,7 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
         .meshes
         .iter()
         .zip(&state.meshes)
-        .map(|(m, s)| (tilefade(m.node), s.alpha == Some(0.0)))
+        .map(|(m, s)| (tilefade(m.node), s.hidden))
         .collect();
     by_fade.sort();
     by_fade.dedup();

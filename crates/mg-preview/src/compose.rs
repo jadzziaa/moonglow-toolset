@@ -29,8 +29,10 @@ struct Placed {
     /// nodes from here on stand for the base's, posed as the base is
     /// ([`on_skeleton`]).
     skeleton: Option<Skeleton>,
-    /// Its own animations and its supermodels' (animated parts).
-    anims: Vec<(String, Arc<Model>)>,
+    /// Its own animations and its supermodels' (animated parts), each at
+    /// the scale it plays at through the chain of supermodels
+    /// ([`anim::animations_scaled`]).
+    anims: Vec<(String, Arc<Model>, f32)>,
 }
 
 impl Placed {
@@ -46,8 +48,34 @@ impl Placed {
 
     /// One of its animations (its own or a supermodel's), by name.
     fn animation(&self, name: &str) -> Option<&Animation> {
-        let owner = self.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+        let owner = self.anims.iter().find(|(n, ..)| n.eq_ignore_ascii_case(name))?;
         owner.1.animation(name)
+    }
+
+    /// The scale `a` (one of [`Placed::animation`]'s) plays its positions
+    /// at: through the chain of supermodels, each link's but the owner's
+    /// (the client's: `batch6_supermodel_chain`); 1 for its own.
+    fn chain_scale(&self, a: &Animation) -> f32 {
+        let owns = |m: &Model| m.animations.iter().any(|b| std::ptr::eq(a, b));
+        self.anims.iter().find(|(_, m, _)| owns(m)).map_or(1.0, |(.., s)| *s)
+    }
+
+    /// Its model's pose playing `a` (one of [`Placed::animation`]'s) at
+    /// `t`, at the scale of [`Placed::chain_scale`].
+    fn pose(&self, a: &Animation, t: f32) -> Vec<Mat4> {
+        anim::pose_scaled(&self.gpu.model, a, t, self.chain_scale(a))
+    }
+
+    /// The scale a part worn on it plays `a` (one of its
+    /// [`Placed::animation`]'s; none: one of the part's own) at: as it
+    /// moves this model's bones, its own `setanimationscale` for its own
+    /// animation, else the chain's.
+    fn worn_scale(&self, a: Option<&Animation>) -> f32 {
+        let own = |a: &Animation| self.gpu.model.animations.iter().any(|b| std::ptr::eq(a, b));
+        match a {
+            Some(a) if !own(a) => self.chain_scale(a),
+            _ => self.gpu.model.animation_scale,
+        }
     }
 
     /// A body part bound to the skeleton ([`Placed::skeleton`]), posed:
@@ -144,8 +172,11 @@ fn place_unguarded(
         .attach
         .as_deref()
         .and_then(|name| base?.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(name)));
-    let anims =
-        if part.animated || base.is_none() { anim::animations(&model, load) } else { Vec::new() };
+    let anims = if part.animated || base.is_none() {
+        anim::animations_scaled(&model, load)
+    } else {
+        Vec::new()
+    };
     Some(Placed {
         gpu: Arc::new(GpuModel::new(gpu, model)),
         attach,
@@ -334,7 +365,7 @@ impl Composed {
         }
         let idle = self.idle.as_deref().and_then(|a| playing(a, |n| self.base.animation(n)));
         let base_pose = match idle {
-            Some(a) => anim::pose(base_model, a, 0.0),
+            Some(a) => self.base.pose(a, 0.0),
             None => self.base.gpu.rest.clone(),
         };
         let mut lamps = anim::lamps_layers(base_model, idle.as_slice(), 0.0, &base_pose);
@@ -364,7 +395,7 @@ impl Composed {
 
     /// The animations the base can play (its own and its supermodels').
     pub fn animations(&self) -> Vec<String> {
-        self.base.anims.iter().map(|(n, _)| n.clone()).collect()
+        self.base.anims.iter().map(|(n, ..)| n.clone()).collect()
     }
 
     /// The base model's particle emitters, to simulate: the model, the
@@ -381,7 +412,7 @@ impl Composed {
         }
         let playing = animation.and_then(|name| self.base.animation(name));
         let pose = match playing {
-            Some(a) => anim::pose(model, a, t),
+            Some(a) => self.base.pose(a, t),
             None => self.base.gpu.rest.clone(),
         };
         Some((model, playing, pose))
@@ -408,7 +439,7 @@ impl Composed {
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
         let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
         let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
-            Some(a) => anim::pose(&self.base.gpu.model, a, t),
+            Some(a) => self.base.pose(a, t),
             None => self.base.gpu.rest.clone(),
         });
         let instance = |p: &Placed, transform: Mat4, pose: Option<Arc<Vec<Mat4>>>| Instance {
@@ -447,8 +478,9 @@ impl Composed {
                 let own = animation.and_then(|a| p.animation(a));
                 // (A skeleton's animation, the base's or its supermodel's,
                 // moves the part as it moves the base: at the base's
-                // scale. The part's very own keep theirs.)
-                let worn = self.base.gpu.model.animation_scale;
+                // scale, through its chain of supermodels. The part's very
+                // own keep theirs.)
+                let worn = self.base.worn_scale(base_anim);
                 own.or(base_anim).map(|a| Arc::new(anim::pose_worn(&p.gpu.model, a, t, worn)))
             } else {
                 p.skeleton_pose(&base_pose, bones).map(Arc::new)
@@ -486,7 +518,7 @@ impl Composed {
             return self.point_lights(transform);
         };
         let model = &*self.base.gpu.model;
-        let pose = anim::pose(model, a, t);
+        let pose = self.base.pose(a, t);
         let mut lights = self.row_lights(transform);
         let base = anim::lamps_layers(model, &[a], t, &pose);
         let parts = self.lamps.iter().skip(self.base_lamps);
@@ -627,7 +659,7 @@ impl Composed {
     pub fn stance(&self, animation: Option<&str>, t: f32) -> Stance {
         let playing = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
         let (base, playing) = match (playing, animation) {
-            (Some(a), Some(asked)) => (anim::pose(&self.base.gpu.model, a, t), Some((asked, a, t))),
+            (Some(a), Some(asked)) => (self.base.pose(a, t), Some((asked, a, t))),
             _ => (self.base.gpu.rest.clone(), None),
         };
         // The parts: those that play it (wings, tails, robes) as they
@@ -638,7 +670,7 @@ impl Composed {
                 let at = p.attach.and_then(|i| base.get(i).copied()).unwrap_or(Mat4::IDENTITY);
                 let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
                     let own = p.animation(asked);
-                    let worn = self.base.gpu.model.animation_scale;
+                    let worn = self.base.worn_scale(Some(base));
                     Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
                 });
                 let (hung, bones) = p.hung(at);
@@ -1115,6 +1147,61 @@ mod ray_tests {
         let stance = c.stance(Some("pause1"), 0.5);
         let at_rest = stance.parts[0].0.as_ref().is_none_or(|p| p[1].w_axis.x.abs() < 1e-5);
         assert!(at_rest, "its stance as it is drawn");
+    }
+
+    /// A model of scale 2 on one of 3 plays the owner's animation at 6, as
+    /// the client does (`batch6_supermodel_chain`: the owner's own scale,
+    /// here 0.5, not counted), and a part worn on it (a cloak's bone)
+    /// moves at the same scale; the middle model's animation at 2.
+    #[test]
+    fn a_chain_of_scaled_supermodels_plays_at_each_link_s_scale() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let model = |name: &str, sup: &str, scale: f32, anim: &str| {
+            let anim = if anim.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "newanim {anim} {name}\n  length 1\n  transtime 0\n  animroot {name}\n\
+                     node dummy {name}\n  parent NULL\nendnode\n\
+                     node dummy bone\n  parent {name}\n  positionkey 1\n    0 1 0 0\nendnode\n\
+                     doneanim {anim} {name}\n"
+                )
+            };
+            let text = format!(
+                "newmodel {name}\nsetsupermodel {name} {sup}\nclassification character\n\
+                 setanimationscale {scale}\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\n\
+                 endnode\nnode dummy bone\n  parent {name}\n  position 0 0 0\nendnode\n\
+                 endmodelgeom {name}\n{anim}donemodel {name}\n"
+            );
+            Arc::new(Model::read(text.as_bytes()).unwrap())
+        };
+        let owner = model("owner", "NULL", 0.5, "walk");
+        let middle = model("middle", "owner", 3.0, "sit");
+        let top = model("top", "middle", 2.0, "");
+        let cloak = model("cloak", "NULL", 1.0, "");
+        let load = |name: &str| match name {
+            "owner" => Some(owner.clone()),
+            "middle" => Some(middle.clone()),
+            "top" => Some(top.clone()),
+            "cloak" => Some(cloak.clone()),
+            _ => None,
+        };
+        let part = crate::Part { animated: true, ..crate::Part::new("cloak") };
+        let preview = Preview { parts: vec![part], ..Preview::model("top") };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        let bone_x = |animation: &str, i: usize| {
+            let instances = c.instances(Some(animation), 0.0, Mat4::IDENTITY);
+            instances[i].pose.as_ref().map_or(0.0, |pose| pose[1].w_axis.x)
+        };
+        assert!((bone_x("walk", 0) - 6.0).abs() < 1e-5, "{}", bone_x("walk", 0));
+        assert!((bone_x("sit", 0) - 2.0).abs() < 1e-5, "{}", bone_x("sit", 0));
+        assert!((bone_x("walk", 1) - 6.0).abs() < 1e-5, "worn: {}", bone_x("walk", 1));
+        let stance = c.stance(Some("walk"), 0.0);
+        assert!((stance.base[1].w_axis.x - 6.0).abs() < 1e-5);
     }
 
     #[test]

@@ -93,7 +93,7 @@ pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
 
 // (Which animations a model plays: mg-mdl's, as blueprint previews read
 // them without a renderer.)
-pub use mg_mdl::animations;
+pub use mg_mdl::{animations, animations_scaled};
 
 /// The model-space transform of every node of `model` playing `anim` at
 /// time `t` (seconds; see [`time_in`]).
@@ -123,13 +123,25 @@ pub struct Binding {
 impl Binding {
     /// `anim`, played by `model`.
     pub fn new(model: &Model, anim: &Animation) -> Binding {
-        Nodes::of(model, None).bind(model, anim)
+        Nodes::of(model, None).bind(model, anim, None)
     }
 
     /// Each of `anims`, played by `model` (its nodes looked up once).
     pub fn all<'a>(model: &Model, anims: impl IntoIterator<Item = &'a Animation>) -> Vec<Binding> {
         let nodes = Nodes::of(model, None);
-        anims.into_iter().map(|a| nodes.bind(model, a)).collect()
+        anims.into_iter().map(|a| nodes.bind(model, a, None)).collect()
+    }
+
+    /// [`Binding::all`] of animations each with the scale it plays at
+    /// through the model's chain of supermodels
+    /// ([`mg_mdl::animations_scaled`]: the product of each link's but the
+    /// owner's), where `all` takes the model's own scale alone.
+    pub fn all_scaled<'a>(
+        model: &Model,
+        anims: impl IntoIterator<Item = (&'a Animation, f32)>,
+    ) -> Vec<Binding> {
+        let nodes = Nodes::of(model, None);
+        anims.into_iter().map(|(a, scale)| nodes.bind(model, a, Some(scale))).collect()
     }
 }
 
@@ -162,9 +174,11 @@ impl Nodes {
         Nodes { numbered, by_part, by_name, worn }
     }
 
-    fn bind(&self, model: &Model, anim: &Animation) -> Binding {
+    /// `chain`: the scale another model's animation plays at through the
+    /// chain of supermodels ([`Binding::all_scaled`]), else the model's.
+    fn bind(&self, model: &Model, anim: &Animation, chain: Option<f32>) -> Binding {
         let own = model.animations.iter().any(|own| std::ptr::eq(own, anim));
-        let scale = match self.worn.unwrap_or(model.animation_scale) {
+        let scale = match self.worn.or(chain).unwrap_or(model.animation_scale) {
             s if !own && s.is_finite() && s > 0.0 => s,
             _ => 1.0,
         };
@@ -217,9 +231,17 @@ impl<'a> Playing<'a> {
 
     /// [`Playing::new`] of animations not bound before (bound here, by
     /// name where they go by name). `worn`: see [`pose_worn`].
-    fn unbound(model: &Model, layers: &[&'a Animation], t: f32, worn: Option<f32>) -> Playing<'a> {
+    /// `chain`: the scale through the chain of supermodels of each layer
+    /// that is another model's ([`pose_scaled`]).
+    fn unbound(
+        model: &Model,
+        layers: &[&'a Animation],
+        t: f32,
+        worn: Option<f32>,
+        chain: Option<f32>,
+    ) -> Playing<'a> {
         let nodes = Nodes::of(model, worn);
-        let bound: Vec<Binding> = layers.iter().map(|a| nodes.bind(model, a)).collect();
+        let bound: Vec<Binding> = layers.iter().map(|a| nodes.bind(model, a, chain)).collect();
         let layers: Vec<(&'a Animation, &Binding)> = layers.iter().copied().zip(&bound).collect();
         Playing::new(model, &layers, t)
     }
@@ -278,7 +300,7 @@ fn controllers<'a, 'b>(
 /// `day` and animation loops): each controller follows the last layer that
 /// keys it.
 pub fn pose_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Mat4> {
-    Playing::unbound(model, layers, t, None).pose(model)
+    Playing::unbound(model, layers, t, None, None).pose(model)
 }
 
 /// Every node's transform relative to its parent playing `anim` at `t`.
@@ -289,7 +311,7 @@ pub fn locals(model: &Model, anim: &Animation, t: f32) -> Vec<Local> {
 /// [`locals`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local> {
-    Playing::unbound(model, layers, t, None).locals(model)
+    Playing::unbound(model, layers, t, None, None).locals(model)
 }
 
 /// [`pose`] for a model worn by another (a cloak, a robe), playing the
@@ -299,7 +321,17 @@ pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local>
 /// model has no scale of its own, sits on an elf's shoulders, not at a
 /// human's height.
 pub fn pose_worn(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<Mat4> {
-    Playing::unbound(model, &[anim], t, Some(scale)).pose(model)
+    Playing::unbound(model, &[anim], t, Some(scale), None).pose(model)
+}
+
+/// [`pose`] of an animation found through the model's chain of
+/// supermodels, at the scale it plays at there (`scale`, of
+/// [`mg_mdl::animations_scaled`]: the product of the scales of the model
+/// and of each supermodel before the animation's owner), where [`pose`]
+/// takes the model's own scale alone. The model's own animation is played
+/// as keyed, whatever `scale` says.
+pub fn pose_scaled(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<Mat4> {
+    Playing::unbound(model, &[anim], t, None, Some(scale)).pose(model)
 }
 
 /// The rest pose's transforms relative to their parents.
@@ -425,7 +457,7 @@ pub fn lamps_layers(model: &Model, layers: &[&Animation], t: f32, pose: &[Mat4])
     if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_))) {
         return Vec::new();
     }
-    Playing::unbound(model, layers, t, None).lamps(model, pose)
+    Playing::unbound(model, layers, t, None, None).lamps(model, pose)
 }
 
 /// What `anim` at `t` changes in `model`'s meshes: animated alpha and
@@ -439,7 +471,7 @@ pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
 /// [`mesh_state`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> MeshState {
-    Playing::unbound(&model.model, layers, t, None).mesh_state(model)
+    Playing::unbound(&model.model, layers, t, None, None).mesh_state(model)
 }
 
 impl Playing<'_> {
@@ -704,6 +736,15 @@ mod tests {
         let at = |a: &Animation| pose(&model, a, 0.0)[0].to_scale_rotation_translation().2;
         assert_eq!(at(&borrowed), Vec3::new(1.5, 0.0, 3.0), "another model's: scaled");
         assert_eq!(at(&model.animations[0]), Vec3::new(2.0, 0.0, 4.0), "its own: as keyed");
+        // Through a chain of supermodels, at the chain's scale (the
+        // client's, `batch6_supermodel_chain`), bound or not.
+        let at_chain = |p: Vec<Mat4>| p[0].to_scale_rotation_translation().2;
+        assert_eq!(at_chain(pose_scaled(&model, &borrowed, 0.0, 6.0)), Vec3::new(12.0, 0.0, 24.0));
+        let own = pose_scaled(&model, &model.animations[0], 0.0, 6.0);
+        assert_eq!(at_chain(own), Vec3::new(2.0, 0.0, 4.0));
+        let bound = Binding::all_scaled(&model, [(&borrowed, 6.0)]);
+        let playing = Playing::new(&model, &[(&borrowed, &bound[0])], 0.0).pose(&model);
+        assert_eq!(at_chain(playing), Vec3::new(12.0, 0.0, 24.0));
     }
 
     #[test]

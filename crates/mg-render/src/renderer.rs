@@ -682,7 +682,13 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
             });
         }
     }
-    let t = assets.texture(name)?;
+    let mut t = assets.texture(name)?;
+    // What the rippling procedure makes of the picture where it doesn't
+    // ripple it: of a DDS, a flat gray (the client loses its picture);
+    // with `distort 0`, the channels scaled and moved.
+    if let Some(flat) = procedure_picture(&t.texture, &t.txi) {
+        t.texture = flat;
+    }
     let uploaded = GpuTexture::try_upload(gpu, name, &t.texture, t.txi.mipmap());
     let gpu = refused(name, uploaded)?;
     let alpha = alpha_in(&t.texture);
@@ -703,9 +709,66 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
             .map(str::to_ascii_lowercase),
         decal: t.txi.decal(),
         clamp: t.txi.clamp(),
-        ripple: t.txi.ripple(),
+        ripple: ripple_of(&t.texture, &t.txi),
         water: t.txi.water(),
     })
+}
+
+/// The gray a DDS with the rippling procedure is drawn in, its picture
+/// lost as the client loses it (`batch6_procedure_on_dds`: additive cards
+/// of coals and of floor stones alike, 83 and 92 of 255 at their middles
+/// over the room; this gray draws them 86 and 96, as Moonglow lights them).
+pub(crate) const LOST_RIPPLE_GRAY: u8 = 72;
+
+/// The picture a texture with the rippling procedure (`proceduretype
+/// arturo`) is drawn with where the procedure doesn't ripple it, as the
+/// client draws it: a DDS (a compressed one: a TGA's or a PLT's picture is
+/// read as RGBA) flat gray ([`LOST_RIPPLE_GRAY`], opaque), its picture lost
+/// whatever it is (`batch6_procedure_on_dds`); with `distort 0`, each
+/// channel `c × channelscale + channeltranslate` (`batch6_ripple`; one
+/// level, the texture's largest). `None`: the texture as it is.
+fn procedure_picture(
+    texture: &mg_image::Texture,
+    txi: &mg_image::txi::Txi,
+) -> Option<mg_image::Texture> {
+    if !txi.arturo() {
+        return None;
+    }
+    if texture.format != mg_image::Format::Rgba8 {
+        let g = LOST_RIPPLE_GRAY;
+        let data = [g, g, g, 255].repeat(16);
+        return Some(mg_image::Rgba { width: 4, height: 4, data }.into_texture(false));
+    }
+    let (scale, translate) = txi.channels()?;
+    let mut rgba = texture.to_rgba();
+    for px in rgba.data.as_chunks_mut::<4>().0 {
+        for (i, c) in px.iter_mut().enumerate() {
+            let v = f32::from(*c) / 255.0 * scale[i] + translate[i];
+            *c = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+    Some(rgba.into_texture(texture.has_alpha))
+}
+
+/// How a texture with the rippling procedure ripples in Moonglow's own
+/// shader: the push of its `wave` (per unit, texture coordinates) and the
+/// rate of its clock (radians a second). The client's, read with cards
+/// whose texels say where they are sampled (`batch6_ripple`): pushed by
+/// 0.82 × `distortionamplitude` texels of the texture itself (RMS; the
+/// wave's RMS is √2, so 0.58 a unit), whatever its size or `defaultwidth`,
+/// changing by 12 texels a second at `speed` 16 and 4.5 at 4 (at the
+/// zombie's amplitude, 10): the wave's clock at `0.18 × speed^0.83`,
+/// fitted by measuring Moonglow's pictures as the client's were
+/// (`a_texture_ripples_as_far_and_as_fast_as_the_client_s`). Shiny water
+/// keeps Moonglow's own waves' (EE draws it with its water shader, not
+/// this procedure).
+fn ripple_of(texture: &mg_image::Texture, txi: &mg_image::txi::Txi) -> Option<(f32, f32)> {
+    if txi.water() {
+        return txi.ripple().map(|(far, fast)| (far * 0.12, fast * 0.06));
+    }
+    let (amplitude, speed) = txi.ripple_texels()?;
+    let push = 0.58 * amplitude / texture.width.max(1) as f32;
+    Some((push, 0.18 * speed.max(0.0).powf(0.83)))
 }
 
 /// A texture uploaded; or, where the GPU refused it, `None`, said.
@@ -2136,8 +2199,9 @@ impl Renderer {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
                 let alpha =
                     replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
-                // (Wholly see-through: nothing to draw.)
-                if alpha <= 0.0 {
+                // (Wholly see-through, or left out (Fade Geometry's): nothing
+                // to draw.)
+                if alpha <= 0.0 || replaced.is_some_and(|r| r.hidden) {
                     continue;
                 }
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
@@ -3579,6 +3643,7 @@ impl Targets {
 
 #[cfg(test)]
 mod tests {
+    use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
 
     /// A skinned mesh's posed box holds where every bone carries it, and
@@ -3769,5 +3834,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A DDS with the rippling procedure is drawn flat gray, its picture
+    /// lost, as the client draws one (`batch6_procedure_on_dds`); a TGA's
+    /// picture ripples; with `distort 0` the channels are scaled and moved
+    /// (the zombie's scale 0 and translation 1: white, `batch6_ripple`).
+    #[test]
+    fn the_rippling_procedure_s_picture_is_the_client_s() {
+        let txi = |t: &str| mg_image::txi::Txi::parse(t.as_bytes());
+        let rippling = txi("proceduretype arturo\ndistort 1\ndistortionamplitude 10\nspeed 16\n");
+        let picture = mg_image::Rgba { width: 4, height: 4, data: [200, 40, 10, 128].repeat(16) };
+        let tga = picture.clone().into_texture(true);
+        let dds = mg_image::Texture { format: mg_image::Format::Bc3, ..tga.clone() };
+        assert!(procedure_picture(&tga, &rippling).is_none(), "a TGA's picture ripples");
+        let flat = procedure_picture(&dds, &rippling).unwrap().to_rgba();
+        let g = LOST_RIPPLE_GRAY;
+        assert!(flat.data.as_chunks::<4>().0.iter().all(|p| *p == [g, g, g, 255]));
+        assert!(procedure_picture(&dds, &txi("blending additive\n")).is_none());
+        let still = txi("proceduretype arturo\ndistort 0\nchannelscale 4\n0\n0.5\n1\n0\n\
+             channeltranslate 4\n1\n0\n0\n0.5\n");
+        let scaled = procedure_picture(&tga, &still).unwrap().to_rgba();
+        assert_eq!(scaled.pixel(1, 1), [255, 20, 10, 128]);
+        // How far and how fast: in texels of the texture itself.
+        let (push, rate) = ripple_of(&tga, &rippling).unwrap();
+        assert!((push - 0.58 * 10.0 / 4.0).abs() < 1e-6 && rate > 0.0);
+        assert!(ripple_of(&tga, &still).is_none());
     }
 }

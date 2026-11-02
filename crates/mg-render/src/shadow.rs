@@ -269,7 +269,10 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
             }
             let world = node(mesh.node);
             let bounds = world_box(world, mesh);
-            if inst.receives_shadows && inst.opacity >= 1.0 {
+            // (One left out, Fade Geometry's, casts but isn't drawn to
+            // receive.)
+            let hidden = replaced.is_some_and(|r| r.hidden);
+            if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
                 (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
             }
             if casts(inst, mesh, alpha) {
@@ -350,6 +353,80 @@ pub(crate) struct LightPlan<'a> {
     pub(crate) casters: Vec<Caster<'a>>,
     pub(crate) bones: Vec<Mat4>,
     pub(crate) shadows: SunShadows,
+    /// The light at the receivers a shadow's darkness is the casting
+    /// light's share of ([`Share`]).
+    pub(crate) share: Share,
+}
+
+/// How many of a scene's lights a light's shadow's share of the light at
+/// a receiver is worked out with (the casting ones, then the nearest the
+/// camera's target).
+pub(crate) const MAX_SHARE_LIGHTS: usize = 32;
+
+/// What a light's shadow's darkness is worked out from: the client darkens
+/// a receiver by the casting light's share of all the light falling there
+/// (its brightness with the light less without, over with), no more than
+/// the plane's opacity (`reading_light_shadows`: 0.50, 0.52, 0.53, 0.47,
+/// 0.38, 0.29, 0.21, 0.13, 0.11 and 0.08 at 1.5, 2, 3 … 10 m from a lamp
+/// of radius 10, its shares 0.58 to 0.07; the findings, "A light's shadow
+/// takes the light's share"). The area's light and the lights about (in
+/// the world, linear, as Moonglow's shader lights with them), and which of
+/// them each map's shadow is cast from.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct Share {
+    /// The area's ambient and diffuse colors, and the way to its light.
+    area: [[f32; 4]; 3],
+    /// 1 over the lights' greatest intensity and their falloff (the
+    /// shader's attenuation), and how many of `lights` there are.
+    falloff: [f32; 4],
+    /// Each map's light: its place in `lights`.
+    sources: [[u32; 4]; MAX_LIGHT_SHADOWS / 4],
+    /// Each its place (w: its reach squared, less than 0 for an ambient
+    /// one) and color.
+    lights: [[[f32; 4]; 2]; MAX_SHARE_LIGHTS],
+}
+
+impl Share {
+    /// Of `scene`, the lights `sources` (each map's, by its place in the
+    /// scene's), and the others nearest `target`.
+    fn of(scene: &Scene, sources: &[usize], target: Vec3) -> Share {
+        let mut chosen: Vec<usize> = Vec::new();
+        for &s in sources {
+            if !chosen.contains(&s) {
+                chosen.push(s);
+            }
+        }
+        let mut others: Vec<(f32, usize)> = (0..scene.lights.len())
+            .filter(|i| !chosen.contains(i))
+            .map(|i| (scene.lights[i].position.distance_squared(target), i))
+            .collect();
+        others.sort_by(|a, b| a.0.total_cmp(&b.0));
+        chosen.extend(others.into_iter().map(|(_, i)| i));
+        chosen.truncate(MAX_SHARE_LIGHTS);
+        let mut share = <Share as bytemuck::Zeroable>::zeroed();
+        let a = &scene.area;
+        share.area = [
+            a.ambient.extend(1.0).to_array(),
+            a.diffuse.extend(1.0).to_array(),
+            a.direction.normalize_or_zero().extend(0.0).to_array(),
+        ];
+        let (max_inv, falloff) = crate::renderer::attenuation_params();
+        share.falloff = [max_inv, falloff, chosen.len() as f32, 0.0];
+        for (to, &i) in share.lights.iter_mut().zip(&chosen) {
+            let l: &PointLight = &scene.lights[i];
+            let r2 = l.cutoff * l.cutoff;
+            *to = [
+                l.position.extend(if l.ambient_only { -r2 } else { r2 }).to_array(),
+                l.color.extend(1.0).to_array(),
+            ];
+        }
+        for (k, s) in sources.iter().enumerate().take(MAX_LIGHT_SHADOWS) {
+            let at = chosen.iter().position(|c| c == s).map_or(u32::MAX, |p| p as u32);
+            share.sources[k / 4][k % 4] = at;
+        }
+        share
+    }
 }
 
 /// The light a creature at `at` (its box's middle), `radius` round,
@@ -412,7 +489,10 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
         casters: Vec::new(),
         bones: Vec::new(),
         shadows,
+        share: bytemuck::Zeroable::zeroed(),
     };
+    // (Each map's light, by its place in the scene's.)
+    let mut cast_from = Vec::new();
     for (_, inst) in creatures {
         if plan.lights.len() == MAX_LIGHT_SHADOWS {
             break;
@@ -443,6 +523,7 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
             plan.casters.truncate(first);
             continue;
         };
+        cast_from.push(light);
         let light = &scene.lights[light];
         let from = light.position + Vec3::Z * light.shadow_lift;
         let reach = light.cutoff + light.shadow_lift;
@@ -451,6 +532,7 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
         in_drawing_order(&mut plan.casters[first..]);
         plan.ranges.push(first as u32..plan.casters.len() as u32);
     }
+    plan.share = Share::of(scene, &cast_from, camera.target);
     (!plan.lights.is_empty()).then_some(plan)
 }
 
@@ -473,6 +555,9 @@ struct DarkenUniform {
     count: [u32; 4],
     /// From the world to each map's clip space.
     lights: [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS],
+    /// The lights' shadows' share of the light ([`Share`]; zeros for the
+    /// sun's).
+    share: Share,
 }
 
 /// The casting pass's shader: positions alone (and a skinned mesh's bones
@@ -513,15 +598,19 @@ struct CasterData {
 pub(crate) const DARKEN_UNIFORM_SIZE: u64 = std::mem::size_of::<DarkenUniform>() as u64;
 
 /// The darkening's values for the stencil volumes' shadows
-/// ([`crate::volume`]): no maps, the look as the maps' have it.
+/// ([`crate::volume`]): no maps, the look as the maps' have it; the
+/// lights' with their plan's share of the light and how many cast.
 pub(crate) fn stencil_uniform(
     shadows: SunShadows,
+    lights: Option<&LightPlan>,
     camera: &Camera,
     size: (u32, u32),
     fog: Option<crate::scene::Fog>,
 ) -> Vec<u8> {
-    let look = (shadows, 0.0, 0, [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS]);
-    bytemuck::bytes_of(&uniform(look, camera, size, fog)).to_vec()
+    let count = lights.map_or(0, |l| l.lights.len() as u32);
+    let look = (shadows, 0.0, count, [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS]);
+    let share = lights.map(|l| l.share);
+    bytemuck::bytes_of(&uniform(look, share, camera, size, fog)).to_vec()
 }
 
 /// The darkening pass's shader for `samples` samples a pixel: from the
@@ -529,6 +618,15 @@ pub(crate) fn stencil_uniform(
 /// each, the darkest taken); or, where `stencil`, over every pixel the
 /// pass's stencil test lets through (the shadow volumes' counts), the
 /// sun's or the `lights`' way.
+///
+/// The sun's: no more opaque than the plane's fade up the screen nor the
+/// opacity. A light's: its share of the light at the receiver ([`Share`],
+/// worked out as Moonglow's shader lights it, the receiver's normal from
+/// its depth's slope), no more than the opacity times the fade (as
+/// measured in the client at 30 and 100: 0.14 and 0.49 where the fade is
+/// 0.5, where the sun's are 0.30 and 0.45). Where the stencil volumes
+/// count a light's shadow, which light's isn't known: the largest share of
+/// the lights that cast one.
 pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
@@ -539,38 +637,41 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
     } else {
         ("texture_depth_2d", "", "textureLoad(depth, at, 0)")
     };
-    // (The sun's: no more opaque than the fade nor the opacity. The
-    // lights': the opacity times the fade, as measured in the client at 30
-    // and 100 (0.14 and 0.49 where the fade is 0.5), where the sun's are
-    // 0.30 and 0.45.)
-    let opacity = if lights {
-        "let a = clamp(clamp(fade, 0.0, 1.0) * p.screen.w * (1.0 - fogged), 0.0, 1.0) * shade;"
-    } else {
-        "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;"
-    };
-    let (map, shade) = if stencil {
-        ("", "let shade = 1.0;")
-    } else if lights {
-        (
+    let (map, dark) = match (stencil, lights) {
+        (true, false) => ("", "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0);"),
+        (true, true) => (
+            "",
+            "var a = 0.0;
+    for (var k = 0u; k < p.count.x; k = k + 1u) {
+        a = max(a, min(share_of(k, world, n), cap));
+    }",
+        ),
+        (false, true) => (
             "texture_depth_2d_array",
-            "var shade = 0.0;
+            "var a = 0.0;
     for (var k = 0u; k < p.count.x; k = k + 1u) {
         let c = p.lights[k] * vec4<f32>(world, 1.0);
         if (c.w <= 0.0) { continue; }
-        let n = c.xyz / c.w;
-        if (any(abs(n.xy) > vec2<f32>(1.0)) || n.z < 0.0 || n.z > 1.0) { continue; }
-        let uv = vec2<f32>(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5);
-        shade = max(shade, 1.0 - textureSampleCompareLevel(map, cmp, uv, i32(k), n.z - p.bias.x));
+        let m = c.xyz / c.w;
+        if (any(abs(m.xy) > vec2<f32>(1.0)) || m.z < 0.0 || m.z > 1.0) { continue; }
+        let uv = vec2<f32>(m.x * 0.5 + 0.5, 0.5 - m.y * 0.5);
+        let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, i32(k), m.z - p.bias.x);
+        if (shade > 0.0) {
+            a = max(a, shade * min(share_of(k, world, n), cap));
+        }
     }",
-        )
-    } else {
-        (
+        ),
+        (false, false) => (
             "texture_depth_2d",
             "let l = p.lights[0] * vec4<f32>(world, 1.0);
     let uv = vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5);
-    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) { discard; }
-    let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);",
-        )
+    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) {
+        discard;
+        return vec4<f32>(0.0);
+    }
+    let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);
+    let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;",
+        ),
     };
     let maps = if stencil {
         String::new()
@@ -589,10 +690,55 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
     bias: vec4<f32>,
     count: vec4<u32>,
     lights: array<mat4x4<f32>, {MAX_LIGHT_SHADOWS}>,
+    share_area: array<vec4<f32>, 3>,
+    share_falloff: vec4<f32>,
+    share_sources: array<vec4<u32>, {sources}>,
+    share_lights: array<vec4<f32>, {share_lights}>,
 }}
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var depth: {depth};
 {maps}
+fn brightness(c: vec3<f32>) -> f32 {{
+    return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+}}
+// How a light of `bright` lights a receiver facing `n` from the way `l`, as
+// Moonglow's shader lights it (softened past the terminator).
+fn lit(bright: f32, n: vec3<f32>, l: vec3<f32>) -> f32 {{
+    let n_dot_l = dot(n, l);
+    if (n_dot_l <= -0.25) {{ return 0.0; }}
+    return bright * 2.0 * smoothstep(0.0, 2.0, n_dot_l * 0.8 + 0.2);
+}}
+// The light the share's light `i` gives a receiver at `world` facing `n`.
+fn light_at(i: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
+    let at = p.share_lights[2u * i];
+    let to = at.xyz - world;
+    let d2 = dot(to, to);
+    let r2 = abs(at.w);
+    if (d2 > r2) {{ return 0.0; }}
+    let f = d2 / r2;
+    let att = (1.0 - f) / (p.share_falloff.x + p.share_falloff.y * f);
+    let bright = brightness(p.share_lights[2u * i + 1u].rgb) * att;
+    if (at.w < 0.0) {{ return bright; }}
+    return lit(bright, n, normalize(to));
+}}
+// Map `k`'s light's share of the brightness at `world` (facing `n`): what
+// would be lost without it, in the picture's (gamma) terms. 1 where its
+// light isn't known.
+fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
+    let source = p.share_sources[k / 4u][k % 4u];
+    let count = u32(p.share_falloff.z);
+    if (source >= count) {{ return 1.0; }}
+    var total = brightness(p.share_area[0].rgb)
+        + lit(brightness(p.share_area[1].rgb), n, p.share_area[2].xyz);
+    var mine = 0.0;
+    for (var i = 0u; i < count; i = i + 1u) {{
+        let v = light_at(i, world, n);
+        total = total + v;
+        if (i == source) {{ mine = v; }}
+    }}
+    if (total <= 0.0) {{ return 1.0; }}
+    return 1.0 - pow(clamp(1.0 - mine / total, 0.0, 1.0), 1.0 / 2.2);
+}}
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
     return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
@@ -600,13 +746,20 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
 @fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @location(0) vec4<f32> {{
     let at = vec2<i32>(frag.xy);
     let d = {load};
-    // (Nothing drawn there, or the sky at the far plane.)
-    if (d >= 0.99999) {{ discard; }}
     let ndc = vec2<f32>(frag.x / p.screen.x * 2.0 - 1.0, 1.0 - frag.y / p.screen.y * 2.0);
     let w = p.unproject * vec4<f32>(ndc, d, 1.0);
     let world = w.xyz / w.w;
-    {shade}
-    if (shade <= 0.0) {{ discard; }}
+    // The receiver's normal, from the slope of its place (taken before
+    // anything is discarded), turned to face the camera.
+    var n = cross(dpdx(world), dpdy(world));
+    n = select(vec3<f32>(0.0, 0.0, 1.0), normalize(n), dot(n, n) > 1e-20);
+    if ((p.view * vec4<f32>(n, 0.0)).z < 0.0) {{ n = -n; }}
+    // (Nothing drawn there, or the sky at the far plane.) Every discard
+    // returns at once (Metal runs a discarded fragment on).
+    if (d >= 0.99999) {{
+        discard;
+        return vec4<f32>(0.0);
+    }}
     // The game's plane: no more opaque than its fade up the screen (from
     // the bottom, as OpenGL counts) nor than the area's opacity in what
     // fog leaves.
@@ -617,11 +770,17 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
         let along = -(p.view * vec4<f32>(world, 1.0)).z;
         fogged = clamp((along - p.fog.y) * p.fog.w, 0.0, 1.0);
     }}
-    {opacity}
-    if (a <= 0.0) {{ discard; }}
+    let cap = clamp(clamp(fade, 0.0, 1.0) * p.screen.w * (1.0 - fogged), 0.0, 1.0);
+    {dark}
+    if (a <= 0.0) {{
+        discard;
+        return vec4<f32>(0.0);
+    }}
     return vec4<f32>(0.0, 0.0, 0.0, a);
 }}
-"
+",
+        sources = MAX_LIGHT_SHADOWS / 4,
+        share_lights = 2 * MAX_SHARE_LIGHTS,
     )
 }
 
@@ -755,7 +914,7 @@ impl ShadowMaps {
         let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
         lights[0] = plan.light.to_cols_array_2d();
         let look = (plan.shadows, BIAS / plan.depth.max(1e-3), 1, lights);
-        let params = uniform(look, camera, size, fog);
+        let params = uniform(look, None, camera, size, fog);
         gpu.queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
         let darkener = self
             .darkeners
@@ -800,7 +959,7 @@ impl ShadowMaps {
             *to = from.to_cols_array_2d();
         }
         let look = (plan.shadows, LIGHT_BIAS, plan.lights.len() as u32, lights);
-        let params = uniform(look, camera, size, fog);
+        let params = uniform(look, Some(plan.share), camera, size, fog);
         gpu.queue.write_buffer(&maps.params, 0, bytemuck::bytes_of(&params));
         let darkener = self
             .darkeners
@@ -811,10 +970,11 @@ impl ShadowMaps {
 }
 
 /// The darkening pass's values: the shadows' look, the depth bias, how
-/// many maps and their projections; the camera, the picture's size, the
-/// fog.
+/// many maps and their projections; the lights' shadows' share of the
+/// light; the camera, the picture's size, the fog.
 fn uniform(
     (shadows, bias, count, lights): (SunShadows, f32, u32, [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS]),
+    share: Option<Share>,
     camera: &Camera,
     size: (u32, u32),
     fog: Option<crate::scene::Fog>,
@@ -834,6 +994,7 @@ fn uniform(
         bias: [bias, 0.0, 0.0, 0.0],
         count: [count, 0, 0, 0],
         lights,
+        share: share.unwrap_or_else(bytemuck::Zeroable::zeroed),
     }
 }
 

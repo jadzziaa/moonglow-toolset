@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1484,9 +1484,11 @@ compiled and drew).
 
 - **Checked:** game client, `batch6.rs`'s `batch6_include_splicing`
   (2026-11-01, with `MG_DEPTHS` 15 to 18, 24 to 250 and 1,000).
-- **Moonglow:** `crates/mg-shader/src/assemble.rs`: indentation and a
-  missing include as the engine; its depth limit of 16 refuses deeper
-  chains (the deferred list's M0).
+- **Moonglow:** `crates/mg-shader/src/assemble.rs`: indentation, a
+  missing include and the depth as the engine (since 2026-11-02 no
+  limit: only an include of a file being spliced, a loop that would
+  never end, is refused; `includes_nest_as_deep_as_the_engine_takes_them`
+  splices chains of 17, 1,000 and 20,000).
 - **Wiki:** missing.
 
 ### An animation played through a chain of supermodels is scaled by each link
@@ -1501,8 +1503,10 @@ own animation take its scale.
 - **Checked:** game client, `batch6.rs`'s `batch6_supermodel_chain`
   (2026-11-01, with `MG_CHAIN_OWNER` 1 and 0.5: dynamic placeables whose
   green card the owner's `default` holds 0.4 m up).
-- **Moonglow:** `crates/mg-render/src/anim.rs` takes the playing model's
-  scale alone (the deferred list's custom creatures entry).
+- **Moonglow:** as the client since 2026-11-02 (`mg_mdl::animations_scaled`
+  gives each animation its chain's scale; the area view, the previews,
+  a part worn on them and the model viewer play it so:
+  `a_chain_of_scaled_supermodels_plays_at_each_link_s_scale`).
 - **Wiki:** missing.
 
 ### A DDS with a rippling procedure loses its picture
@@ -1519,7 +1523,11 @@ the hak's TGA of it isn't there.
 
 - **Checked:** game client, `batch6.rs`'s `batch6_bioware_dxt1` and
   `batch6_procedure_on_dds` (2026-11-01).
-- **Moonglow:** ripples a DDS as a TGA (the deferred list's M4 entry).
+- **Moonglow:** as the client since 2026-11-02: a texture with the
+  procedure whose picture is a DDS (compressed) is drawn flat gray
+  (`renderer.rs`'s `procedure_picture`, its gray fitted so that the
+  reading's cards draw 86 and 96 of 255 where the client's are 83 and
+  92).
 - **Wiki:** missing.
 
 ### How far and how fast a texture ripples
@@ -1537,8 +1545,13 @@ zombie's scale 0 and translation 1 draw white.
   cards of a texture whose red is its u and green its v, painted as
   sampled, the client's clock along their feet, 60 to 80 pictures over
   20 s; the texel each pixel samples less its mean over the pictures).
-- **Moonglow:** `crates/mg-render/src/shader.wgsl`'s own approximation
-  (the deferred list's "A rippling glow").
+- **Moonglow:** as far and as fast since 2026-11-02 (`renderer.rs`'s
+  `ripple_of`, `shader.wgsl`'s waves: an RMS of 8.6 texels and 95th
+  percentile 12.6 at amplitude 10, 11.9 texels a second at speed 16 and
+  4.6 at 4, measured as the client's pictures were by
+  `a_texture_ripples_as_far_and_as_fast_as_the_client_s`); `distort 0`'s
+  channels baked into the texture. Its waves are its own: they come
+  apart from themselves in about a second, where the client's take 4.5.
 - **Wiki:** says the amplitude is in texels; that `defaultwidth`
   changes nothing is missing.
 
@@ -1557,8 +1570,14 @@ player's own light casts the shadows of the creatures about the player.
 - **Checked:** game client, `batch3.rs`'s `reading_light_shadows` (the
   distances between added 2026-11-01), `batch6.rs`'s
   `batch6_light_shadow_casters` and `batch6_player_light_at_night`.
-- **Moonglow:** `crates/mg-render/src/shadow.rs` darkens by the opacity
-  and the plane's fade alone (the deferred list's "Shadows").
+- **Moonglow:** since 2026-11-02 `crates/mg-render/src/shadow.rs`
+  darkens by the light's share as Moonglow's shader lights the floor
+  (the receiver's normal from its depth's slope), no more than the
+  opacity times the plane's fade: 0.53, 0.53, 0.48, 0.39, 0.31, 0.24,
+  0.19, 0.15, 0.12 and 0.10 at 1.5, 2, 3 … 10 m (`moonglow_light_shadows`),
+  near the client's shares; it was 0.53 to 0.60 at every distance. Past
+  10 m (0.08 at 11 and 12 m) Moonglow's lamp still lights the floor a
+  little, where the client's shows no shadow.
 - **Wiki:** missing.
 
 ### The grass's material: linear colors, and a fade by distance
@@ -1574,8 +1593,9 @@ distance from the camera, batch by batch: about 0.94 at 17 m, 0.87 at
   (2026-11-01, `fsgrass` patched to paint each; `fade` paints the alpha
   beside the distances from the camera and from the player, which it
   doesn't follow).
-- **Moonglow:** the colors as the engine's; the alpha 1 (the deferred
-  list's M5).
+- **Moonglow:** the colors as the engine's; the alpha 1, by decision:
+  the area view draws grass to the far edge of the view, its camera
+  farther off than the game's (the deferred list's M5).
 - **Wiki:** missing.
 
 ### A see-through cut-out is lit through from behind
@@ -1592,8 +1612,9 @@ own shader doesn't.
 - **Checked:** game client, `batch6.rs`'s `batch6_cut_out_lighter`
   (2026-11-01, `fslit` patched to paint the color before lighting, the
   lighting, the alpha, and black with the fragment's alpha).
-- **Moonglow:** `crates/mg-render/src/shader.wgsl` (the deferred list's
-  "Where a cut-out is cut").
+- **Moonglow:** both paths since 2026-11-02 (`shader.wgsl` weighs the
+  light from behind by the alpha before a cut-out is made solid: 156,
+  98, 39 of 255 beside the client's 156, 99, 40).
 - **Wiki:** missing.
 
 ### A `Linked` ribbon's cell runs half a particle past the next
@@ -1609,8 +1630,9 @@ does.
 - **Checked:** game client, `batch5.rs`'s
   `reading_ribbon_pieces_and_order` (2026-10-30) and `batch6.rs`'s
   `batch6_ribbon_sizes` (2026-11-01).
-- **Moonglow:** `crates/mg-render/src/particles.rs` runs the cell from
-  one particle to the next (the deferred list's ribbon entry).
+- **Moonglow:** the cell's run as the client's since 2026-11-02
+  (`particles.rs`'s `reach`); a see-through mesh doesn't hide a ribbon
+  (the deferred list's ribbon entry).
 - **Wiki:** missing.
 
 ## Talk tables and 2DAs

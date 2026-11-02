@@ -4917,6 +4917,78 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// A mesh left out of the picture (a tile's roof with Fade Geometry on:
+/// [`mg_render::scene::MeshOverride::hidden`]) still casts its shadow, as
+/// the game's faded roofs do: a red roof a metre over the ground, hidden,
+/// isn't drawn, and its shadow darkens the ground under it as a roof that
+/// is drawn darkens what is beside it.
+#[test]
+fn a_mesh_left_out_by_fade_geometry_still_casts_its_shadow() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let mut roof = quad();
+    if let NodeKind::Mesh(mesh) = &mut roof.nodes[1].kind {
+        mesh.shadow = true;
+        mesh.diffuse = [1.0, 0.0, 0.0];
+        mesh.ambient = [1.0, 0.0, 0.0];
+    }
+    let roof = Arc::new(GpuModel::new(&gpu, Arc::new(roof)));
+    let mut hidden = mg_render::scene::MeshState::new(&roof);
+    hidden.meshes[0].hidden = true;
+    let hidden = Arc::new(hidden);
+    let scene = |state: Option<Arc<mg_render::scene::MeshState>>, shadows: bool| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance {
+                state,
+                ..Instance::new(
+                    roof.clone(),
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::splat(0.5),
+                        glam::Quat::IDENTITY,
+                        Vec3::new(0.0, 0.0, 1.0),
+                    ),
+                )
+            },
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+        let (shown, faded) = (draw(&scene(None, true)), draw(&scene(Some(hidden.clone()), true)));
+        let bare = draw(&scene(Some(hidden.clone()), false));
+        let under = (32, 32);
+        let p = shown.pixel(under.0, under.1);
+        assert!(p[0] > 2 * p[1].max(1), "the roof drawn, red: {p:?}");
+        let (lit, dark) = (grey(bare.pixel(under.0, under.1)), faded.pixel(under.0, under.1));
+        assert!(lit > 40.0, "{lit}");
+        assert!(dark[0] < dark[1] + 10, "volumes {volumes}: the roof not drawn: {dark:?}");
+        assert!(
+            (grey(dark) - lit * 0.5).abs() <= 2.0,
+            "volumes {volumes}: its shadow: {dark:?} of {lit}"
+        );
+    }
+}
+
 /// A material that samples the framebuffer (its MTR's `sample_framebuffer
 /// 2`, as The Domains of Dread's flow materials, whose programs read
 /// nothing of it) is drawn late, after the framebuffer's copy and after
@@ -5104,8 +5176,10 @@ fn a_skinned_mesh_casts_as_its_bones_pose_it() {
 /// Light shadows: a plate that casts (as a creature does) a metre over a
 /// ground that receives, a lamp that casts shadows 3 m to its west and 2 m
 /// up (lifted 2 m more): the plate's shadow falls east of it, away from the
-/// lamp, as dark as the opacity; none without the lights' shadows, nor
-/// from a light that casts none.
+/// lamp, as dark as the opacity where the lamp gives the ground nearly all
+/// of its light, lighter where the area's light gives it most (the lamp's
+/// share of it, as the client's: `reading_light_shadows`); none without
+/// the lights' shadows, nor from a light that casts none.
 #[test]
 fn a_creature_s_shadow_falls_away_from_its_light() {
     let Some(gpu) = gpu() else { return };
@@ -5115,7 +5189,7 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         mg_render::PointLight::new(Vec3::new(-3.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
             .casting(casts, 10.0, 2.0)
     };
-    let scene = |shadows: bool, casts: bool| Scene {
+    let scene = |shadows: bool, casts: bool, sun: f32| Scene {
         instances: vec![
             Instance {
                 receives_shadows: true,
@@ -5135,8 +5209,8 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         ],
         lights: vec![lamp(casts)],
         area: AreaLight {
-            ambient: Vec3::splat(0.2),
-            diffuse: Vec3::splat(0.6),
+            ambient: Vec3::splat(0.2 * sun),
+            diffuse: Vec3::splat(0.6 * sun),
             direction: Vec3::Z,
         },
         light_shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
@@ -5155,8 +5229,12 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.shadow_volumes = volumes;
         let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
-        let (cast, off, unflagged) =
-            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let (cast, off, unflagged) = (
+            draw(&scene(true, true, 0.02)),
+            draw(&scene(false, true, 0.02)),
+            draw(&scene(true, false, 0.02)),
+        );
+        let (sunlit, sunlit_off) = (draw(&scene(true, true, 1.0)), draw(&scene(false, true, 1.0)));
         let name = format!("shadows_light{}.png", if volumes { "_high" } else { "" });
         save(&cast, &mg_testkit::output_dir("render").join(name));
         // From 4 m up and 3 m west, the plate (a metre across, 1 m up)
@@ -5175,6 +5253,11 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         );
         assert!((at(&cast, west) - at(&off, west)).abs() <= 1.0, "{context}: west");
         assert!((at(&unflagged, east) - lit).abs() <= 1.0, "{context}: a light that casts none");
+        // (Under a bright sun the lamp gives the ground a small share of
+        // its light: its shadow is lighter.)
+        let sunlit_dark = 1.0 - at(&sunlit, east) / at(&sunlit_off, east);
+        eprintln!("{context}: in the sun the shadow darkens by {sunlit_dark:.3}");
+        assert!(sunlit_dark > 0.02 && sunlit_dark < 0.35, "{context}: {sunlit_dark}");
     }
 }
 
@@ -6170,4 +6253,139 @@ fn a_texture_limit_leaves_out_the_levels_over_it() {
     assert_eq!(up(&rgba, true), whole, "within the limit: as it is");
     gpu.set_texture_limit(None);
     assert_eq!(up(&rgba, true), whole);
+}
+
+/// A texture `side` texels square whose red is its u and green its v (the
+/// texel a pixel samples, read back from its colour).
+fn uv_texture(side: u32) -> mg_image::Texture {
+    let level = |i: u32| ((i as f32 + 0.5) / side as f32 * 255.0).round() as u8;
+    let mut data = Vec::new();
+    for y in 0..side {
+        for x in 0..side {
+            data.extend([level(x), level(y), 0, 255]);
+        }
+    }
+    mg_image::Rgba { width: side, height: side, data }.into_texture(false)
+}
+
+/// How far a rippling card's picture is pushed about (texels: the RMS and
+/// 95th percentile of each pixel's push less its mean over the pictures)
+/// and how fast it changes (texels a second, between pictures 0.2 s
+/// apart), as `ripple2.py` reads the client's pictures in `batch6_ripple`:
+/// Moonglow's own shader, a texture `side` texels square with TXI `txi`
+/// (unlit, `decal 1`), over 20 s.
+fn ripple_measured(gpu: &Gpu, side: u32, txi: &str) -> (f32, f32, f32) {
+    const PX: u32 = 192;
+    let mut assets = TestAssets::default();
+    assets.textures.insert("card".into(), uv_texture(side));
+    assets.textures.insert("still".into(), uv_texture(side));
+    let parse = |t: &str| mg_image::txi::Txi::parse(t.as_bytes());
+    assets.txis.insert("card".into(), parse(&format!("decal 1\n{txi}")));
+    assets.txis.insert("still".into(), parse("decal 1\n"));
+    let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let card = |texture: &str| {
+        let mut model = quad();
+        let NodeKind::Mesh(m) = &mut model.nodes[1].kind else { unreachable!() };
+        m.textures[0] = Some(texture.into());
+        m.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let model = Arc::new(GpuModel::new(gpu, Arc::new(model)));
+        // (Standing, facing the camera to the south.)
+        Instance::new(model, Mat4::from_rotation_x(90f32.to_radians()))
+    };
+    // (Seen square on from far off: the card fills the picture, the
+    // texture magnified.)
+    let camera = Camera {
+        eye: Vec3::new(0.0, -20.0, 0.0),
+        target: Vec3::ZERO,
+        fov_y: 2.0 * (0.9f32 / 20.0).atan(),
+        near: 1.0,
+        far: 100.0,
+    };
+    let mut shot = |texture: &str, time: f32| {
+        let scene = Scene { instances: vec![card(texture)], time, ..Default::default() };
+        let img = r.render_image(gpu, &assets, &scene, &camera, PX, PX);
+        let sampled: Vec<[f32; 2]> = (0..PX * PX)
+            .map(|i| {
+                let p = img.pixel(i % PX, i / PX);
+                [f32::from(p[0]) / 255.0 * side as f32, f32::from(p[1]) / 255.0 * side as f32]
+            })
+            .collect();
+        (img, sampled)
+    };
+    let (_, still) = shot("still", 0.0);
+    let wrap = |d: f32| (d + side as f32 / 2.0).rem_euclid(side as f32) - side as f32 / 2.0;
+    let mut pushes: Vec<Vec<[f32; 2]>> = Vec::new();
+    for k in 0..100 {
+        let (img, sampled) = shot("card", k as f32 * 0.2);
+        if k == 0 {
+            save(
+                &img,
+                &mg_testkit::output_dir("render").join(format!("ripple_{side}_{}.png", txi.len())),
+            );
+        }
+        pushes.push(
+            sampled
+                .iter()
+                .zip(&still)
+                .map(|(s, o)| [wrap(s[0] - o[0]), wrap(s[1] - o[1])])
+                .collect(),
+        );
+    }
+    let n = pushes.len() as f32;
+    let mean: Vec<[f32; 2]> = (0..pushes[0].len())
+        .map(|i| {
+            let s = pushes.iter().fold([0.0, 0.0], |a, p| [a[0] + p[i][0], a[1] + p[i][1]]);
+            [s[0] / n, s[1] / n]
+        })
+        .collect();
+    let mut off: Vec<f32> = pushes
+        .iter()
+        .flat_map(|p| p.iter().zip(&mean).map(|(a, m)| (a[0] - m[0]).hypot(a[1] - m[1])))
+        .collect();
+    off.sort_by(f32::total_cmp);
+    let rms = (off.iter().map(|d| d * d).sum::<f32>() / off.len() as f32).sqrt();
+    let p95 = off[(off.len() - 1) * 95 / 100];
+    let change: f32 = pushes
+        .windows(2)
+        .map(|w| {
+            let moved: f32 =
+                w[0].iter().zip(&w[1]).map(|(a, b)| (b[0] - a[0]).hypot(b[1] - a[1])).sum();
+            moved / w[0].len() as f32 / 0.2
+        })
+        .sum::<f32>()
+        / (pushes.len() - 1) as f32;
+    (rms, p95, change)
+}
+
+/// A rippling texture (TXI `proceduretype arturo`, `distort 1`) is pushed
+/// about as far and as fast as the client pushes it (`batch6_ripple`; the
+/// findings, "How far and how fast a texture ripples"): by 0.82 ×
+/// `distortionamplitude` texels of the texture itself (RMS; its 95th
+/// percentile 1.25 ×), at 64 and 128 texels alike, `defaultwidth`
+/// changing nothing; changing by about 12 texels a second at `speed` 16
+/// and 4.5 at 4 (at the zombie's amplitude, 10).
+#[test]
+fn a_texture_ripples_as_far_and_as_fast_as_the_client_s() {
+    let Some(gpu) = gpu() else { return };
+    let zombie = "proceduretype arturo\ndistort 1\narturowidth 32\narturoheight 32\n\
+                  distortionamplitude 10\nspeed 16\n";
+    let near = |got: f32, want: f32, within: f32| (got - want).abs() <= want * within;
+    for (side, txi, (amplitude, change)) in [
+        (128, zombie.to_owned(), (10.0, 12.0)),
+        (64, zombie.to_owned(), (10.0, 12.0)),
+        (128, format!("{zombie}defaultwidth 16\n"), (10.0, 12.0)),
+        (128, zombie.replace("speed 16", "speed 4"), (10.0, 4.5)),
+        (128, zombie.replace("amplitude 10", "amplitude 20"), (20.0, 24.0)),
+    ] {
+        let (rms, p95, rate) = ripple_measured(&gpu, side, &txi);
+        eprintln!(
+            "{side} texels, {:?}: RMS {rms:.2}, 95th {p95:.2}, change {rate:.2} a second",
+            txi.lines()
+                .filter(|l| l.contains("speed") || l.contains("width 16"))
+                .collect::<Vec<_>>()
+        );
+        assert!(near(rms, 0.82 * amplitude, 0.15), "RMS {rms} for {amplitude}");
+        assert!(near(p95, 1.25 * amplitude, 0.2), "95th {p95} for {amplitude}");
+        assert!(near(rate, change, 0.2), "{rate} a second, the client's {change}");
+    }
 }

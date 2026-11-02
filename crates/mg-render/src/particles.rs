@@ -771,6 +771,17 @@ fn cell(frame: u32, gx: u32, gy: u32) -> (Vec2, Vec2) {
     (uv0, uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32))
 }
 
+/// How far along its cell a linked particle's piece is at the next
+/// particle, `gap` metres on, for a ribbon `width` across (twice the
+/// particle's size): `gap / (gap + size / 2)`, fitted to the client's
+/// (`batch6_ribbon_sizes`: 0.93 to 0.63 at a metre's gap for sizes 0.15 to
+/// 1.2 m). The cell runs on past the next particle, where the next piece
+/// starts its own.
+fn reach(gap: f32, width: f32) -> f32 {
+    let run = gap + width / 4.0;
+    if run > 0.0 { gap / run } else { 1.0 }
+}
+
 /// Camera-facing quads joining points (position, width, colour). Without
 /// `cells`, the texture's v runs along the whole strip (a bolt of
 /// lightning). With them (one a point: the corners of its frame in the
@@ -791,7 +802,13 @@ fn strip(
             |p: Vec3, width: f32| (b - a).cross(eye - p).normalize_or(Vec3::X) * (width * 0.5);
         let (sa, sb) = (side(a, wa), side(b, wb));
         let (uv0, uv1) = match cells.and_then(|c| c.get(i)) {
-            Some(cell) => *cell,
+            // (The piece's cell reaches the next particle at
+            // `gap / (gap + size / 2)` of it, running on half the older
+            // particle's size past it, as the client draws it
+            // (`batch6_ribbon_sizes`); the width is twice the size.)
+            Some(&(c0, c1)) => {
+                (c0, Vec2::new(c1.x, c0.y + (c1.y - c0.y) * reach(a.distance(b), wa)))
+            }
             None => (Vec2::new(0.0, i as f32 / n), Vec2::new(1.0, (i + 1) as f32 / n)),
         };
         let v = |p: Vec3, u: f32, v: f32, c: [f32; 4]| ParticleVertex {
@@ -1296,5 +1313,34 @@ mod tests {
         }
         let n = p.emitters[0].particles.len();
         assert!((9..=10).contains(&n), "{n} particles over 2 m");
+    }
+
+    /// A linked particle's piece runs its cell past the next particle, as
+    /// the client draws it (`batch6_ribbon_sizes`, at a metre's gap: 0.93,
+    /// 0.87, 0.82, 0.77, 0.69 and 0.63 at sizes 0.15 to 1.2 m), where the
+    /// next piece starts its own.
+    #[test]
+    fn a_ribbon_s_cell_runs_half_a_particle_past_the_next() {
+        for (size, want) in
+            [(0.15, 0.93), (0.3, 0.87), (0.45, 0.82), (0.6, 0.77), (0.9, 0.69), (1.2, 0.63)]
+        {
+            let got = reach(1.0, 2.0 * size);
+            assert!((got - want).abs() < 0.01, "{size}: {got}");
+        }
+        assert_eq!(reach(0.0, 0.0), 1.0);
+        let points = [
+            (Vec3::ZERO, 1.2, [1.0; 4]),
+            (Vec3::new(1.0, 0.0, 0.0), 1.2, [1.0; 4]),
+            (Vec3::new(2.0, 0.0, 0.0), 1.2, [1.0; 4]),
+        ];
+        let cells = [(Vec2::new(0.0, 0.5), Vec2::new(0.5, 1.0)); 3];
+        let v = strip(&points, Some(&cells), Vec3::new(0.0, 0.0, 10.0));
+        assert_eq!(v.len(), 12);
+        // (Each piece: its older particle at the cell's start, the next
+        // 0.77 of the way along it.)
+        for piece in v.chunks(6) {
+            assert_eq!(piece[0].uv, [0.0, 0.5]);
+            assert!((piece[2].uv[1] - (0.5 + 0.5 * 0.769)).abs() < 1e-3, "{:?}", piece[2].uv);
+        }
     }
 }

@@ -288,7 +288,22 @@ pub(crate) fn repo() -> PathBuf {
 #[allow(dead_code)]
 /// Runs the client until the scene is ready and screenshots its window.
 /// One client at a time: the screenshot finds the window by its title.
+///
+/// With `MG_CLIENT_PICTURES` set to the `test-output` folder of an earlier
+/// run, the client isn't run: its picture and log are taken from that
+/// run's folder of the same name, so that a reading's Moonglow side is
+/// drawn again (after a change to the renderer) beside the client's
+/// picture without the client or the off-screen display.
 pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
+    if let Some(earlier) = std::env::var_os("MG_CLIENT_PICTURES") {
+        let from = Path::new(&earlier).join(dir.file_name()?);
+        let log = "user/logs/nwclientLog1.txt";
+        std::fs::create_dir_all(dir.join("user/logs")).ok()?;
+        std::fs::copy(from.join(log), dir.join(log)).ok()?;
+        std::fs::copy(from.join("client.png"), dir.join("client.png")).ok()?;
+        eprintln!("the client's picture of {}", from.display());
+        return Some(read_png(&dir.join("client.png")));
+    }
     static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // In single player the game's server logs to the client's log.

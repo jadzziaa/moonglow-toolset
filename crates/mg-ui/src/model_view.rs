@@ -944,8 +944,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
 
     // Animations: the model's own, then its supermodels'.
     let own = own_resources(app, &source);
-    let anims =
-        anim::animations(&model.model, &|n| load_super(app, own.as_deref(), &view.supermodels, n));
+    let anims = anim::animations_scaled(&model.model, &|n| {
+        load_super(app, own.as_deref(), &view.supermodels, n)
+    });
     // Wrapping in a narrow window, so none of it is cut off.
     let mut pop_out = false;
     let mut export = false;
@@ -976,8 +977,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             ui.separator();
         }
         let current = view.animation.clone().unwrap_or_else(|| "(rest pose)".into());
-        let options: Vec<Option<String>> =
-            std::iter::once(None).chain(anims.iter().map(|(name, _)| Some(name.clone()))).collect();
+        let options: Vec<Option<String>> = std::iter::once(None)
+            .chain(anims.iter().map(|(name, ..)| Some(name.clone())))
+            .collect();
         let was = view.animation.clone();
         crate::widgets::dropdown_labelled(("anim", &key), "Animation").selected_text(current).show(
             ui,
@@ -1065,11 +1067,13 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     };
     view.time += dt;
     view.last_frame = Some(now);
-    let playing: Option<&mg_mdl::Animation> = view.animation.as_ref().and_then(|name| {
-        let (_, owner) = anims.iter().find(|(n, _)| n == name)?;
-        owner.animation(name)
+    // (At the scale the chain of supermodels plays it at.)
+    let playing: Option<(&mg_mdl::Animation, f32)> = view.animation.as_ref().and_then(|name| {
+        let (_, owner, scale) = anims.iter().find(|(n, ..)| n == name)?;
+        Some((owner.animation(name)?, *scale))
     });
-    let pose = playing.map(|a| Arc::new(anim::pose(&model.model, a, view.time)));
+    let pose = playing.map(|(a, s)| Arc::new(anim::pose_scaled(&model.model, a, view.time, s)));
+    let playing = playing.map(|(a, _)| a);
     let lights = if view.model_lights {
         let p = pose.as_deref().unwrap_or(&model.rest);
         anim::lights(&model.model, playing, view.time, p, Mat4::IDENTITY, &|_| None)

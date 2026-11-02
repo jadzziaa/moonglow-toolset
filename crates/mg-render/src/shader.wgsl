@@ -385,17 +385,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
     // Tangent frame and parallax.
     var uv = in.uv;
-    // Water: the picture pushed about by two slow waves each way (an
-    // approximation of the game's procedure, which is its own).
+    // A rippling texture (`proceduretype arturo`) and water: the picture
+    // pushed about by two slow waves each way (an approximation of the
+    // game's procedure, which is its own), as far (x) and as fast (y, the
+    // clock's rate) as the renderer's `ripple_of` says.
     if (draws[this_draw].water.x > 0.0) {
-        let t = frame.time.x * draws[this_draw].water.y * 0.06;
+        let t = frame.time.x * draws[this_draw].water.y;
         let k = 6.2831853;
         let wave = vec2<f32>(
             sin(k * uv.y * 1.0 + t) + sin(k * uv.x * 0.7 + t * 0.63 + 1.3),
             cos(k * uv.x * 1.0 + t * 0.81) + cos(k * uv.y * 0.6 + t * 0.47 + 2.1),
         );
-        // (Under the waves of Enhanced Edition's water, half as far.)
-        uv = uv + wave * (draws[this_draw].water.x * select(0.25, 0.12, draws[this_draw].water.z > 0.5));
+        uv = uv + wave * draws[this_draw].water.x;
     }
     // A known custom shader's doings (see `Draw.effect`).
     let fx = u32(draws[this_draw].effect.x + 0.5);
@@ -514,6 +515,11 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     if (draws[this_draw].extra.w > 3.5) {
         return vec4<f32>(0.0);
     }
+    // The alpha the light through it from behind is weighed by: a
+    // cut-out's own (the mesh's times the texel's) though it is drawn
+    // solid, as the game's lighting takes it (`batch6_cut_out_lighter`: a
+    // disc of mesh `alpha 0.5` a quarter lighter, lit from behind).
+    let light_alpha = color.a;
     if (draws[this_draw].extra.w > 2.5) {
         color.a = 1.0;
     } else if (draws[this_draw].extra.w > 1.5) {
@@ -638,7 +644,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let r2 = rough * rough;
     let k = rough;
     // Light through transparent surfaces from behind.
-    let translucence = 1.0 - color.a;
+    let translucence = 1.0 - light_alpha;
 
     var acc: Accum;
     acc.ambient = frame.area_ambient.rgb;
