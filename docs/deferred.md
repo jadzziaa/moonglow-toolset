@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:50:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:01:51Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -253,29 +253,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     blueprints, areas or scripts. (M)
   - A row both copies changed is taken whole or left: its cells are not
     chosen one by one. (S)
-  - Column widths (dansen9191's report, 2026-10-21) are kept by the
-    table's name and the column's, in the settings (the last 200
-    tables): two different tables of one name (two haks' `custom.2da`)
-    share them, and there is no way to put a column back to its first
-    width but to drag it there. The resource browser's **From** column
-    (the layer a row comes from) keeps its width. A double click on an
-    edge fits the column to its rows as shown then (Find's rows, the
-    strings as text or not), not to all of them. (S each)
   - The resource browser's read-only view (with its scroll bars since
     2026-10-21) has no keys of its own: no cell to select, nor the
     arrows to move with, nor Find. It is drawn by code of its own beside
     the editor's grid, which it copies (the column names and rows'
     numbers that follow the scroll); one grid for both, with the editing
     left out, would serve. (M)
-  - Large tables were not timed while edited (a persistent world's
-    `appearance.2da`); Find looks through every cell at each frame
-    (Take Rows reads the copies once, and works the rows out once for
-    a copy). (S)
-  - No row is put between others, by decision (Delete Row takes any
-    row away since 1.22.1); no sorting, no `DEFAULT:` edited. (—)
   - Asked for by builders on 1.22.0 and 1.22.1 (October 2026), none
     begun:
-    - **Columns hidden** from view. (S)
     - **A table's description** (`name.2da.toml`: what each column
       holds, lists from a script's constants, `mg 2da-check`; built
       after 1.22.1 from a builder's workbook,
@@ -1595,6 +1580,13 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **The 2DA editor puts no row between others** (Delete Row takes any
+  row away since 1.22.1), sorts no rows and edits no `DEFAULT:`, by
+  decision: a row's number is what every other table, blueprint and
+  script names it by, so a row put between others would move every row
+  after it under what names them (settled in the deferred sprint,
+  2026-11-01).
 
 - **The custom palettes where a save differs from Aurora's, or sees no
   change** (settled in the deferred sprint, 2026-11-01; the rest of the

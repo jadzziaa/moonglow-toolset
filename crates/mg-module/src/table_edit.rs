@@ -35,6 +35,9 @@ pub struct Editing {
     /// How many steps were done when it was last saved (`None`: a step
     /// that was saved has been taken back and another made in its place).
     saved: Option<usize>,
+    /// Bumped at every change, an Undo and a Redo too: what is worked out
+    /// from the table (the rows a Find shows) is kept until it moves.
+    changes: u64,
 }
 
 /// Why a row of another copy is offered.
@@ -101,7 +104,7 @@ pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Cand
 
 impl Editing {
     pub fn new(table: TwoDa) -> Editing {
-        Editing { table, undo: Vec::new(), redo: Vec::new(), saved: Some(0) }
+        Editing { table, undo: Vec::new(), redo: Vec::new(), saved: Some(0), changes: 0 }
     }
 
     pub fn table(&self) -> &TwoDa {
@@ -131,7 +134,14 @@ impl Editing {
         self.redo.last().map(|(l, _)| l.as_str())
     }
 
+    /// How many changes the table has had (every step, Undo and Redo):
+    /// the same number, the same table.
+    pub fn changes(&self) -> u64 {
+        self.changes
+    }
+
     fn done(&mut self, label: impl Into<String>, change: Change) {
+        self.changes += 1;
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
@@ -398,6 +408,7 @@ impl Editing {
     /// Takes the last step back; whether there was one.
     pub fn undo(&mut self) -> bool {
         let Some((label, change)) = self.undo.pop() else { return false };
+        self.changes += 1;
         self.back(&change);
         self.redo.push((label, change));
         true
@@ -405,6 +416,7 @@ impl Editing {
 
     pub fn redo(&mut self) -> bool {
         let Some((label, change)) = self.redo.pop() else { return false };
+        self.changes += 1;
         self.again(&change);
         self.undo.push((label, change));
         true

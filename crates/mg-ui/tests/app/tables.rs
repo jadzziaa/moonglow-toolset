@@ -599,6 +599,14 @@ fn two_da_view_shows_where_rows_come_from() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
     h.run();
     h.get_by_label("From");
+    // The From column is widened by its edge, as the others are, and kept.
+    let edge = h.get_by_label("Width of From").rect().center();
+    let resource_at = h.get_by_label("Resource").rect().left();
+    drag(&mut h, edge, edge + egui::vec2(60.0, 0.0));
+    h.run();
+    assert!(h.get_by_label("Resource").rect().left() > resource_at + 40.0, "From widened");
+    let kept = &h.state().settings.table_widths;
+    assert!(kept.iter().any(|(t, w)| t == "ambientmusic" && w.iter().any(|(c, _)| c == "<from>")));
     let summary = h.query_by_label_contains("override: adds 1, changes 1");
     assert!(summary.is_some(), "the summary names what override does");
     h.get_by_label("mus_mine");
@@ -1579,7 +1587,9 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     drag(&mut h, edge, edge + egui::vec2(100.0, 0.0));
     let wide = widths(&h);
     assert_eq!(wide.len(), 1);
-    assert_eq!(wide[0].0, "loose");
+    // (Kept by the file's folder and its name: another folder's
+    // loose.2da keeps its own.)
+    assert!(wide[0].0.ends_with("/loose") && wide[0].0.len() > 6, "{}", wide[0].0);
     let (column, width) = &wide[0].1[0];
     assert_eq!(column, "Label");
     // (116 points at first.)
@@ -1611,6 +1621,37 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let _ = id;
     let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
     assert!((label_width - fitted as f32).abs() < 12.0, "{label_width} for {fitted}");
+    // Another folder's table of the name has widths of its own.
+    let other = mg_testkit::scratch_dir("ui-table-widths-other").join("loose.2da");
+    std::fs::write(&other, SMALL_TABLE).unwrap();
+    h.state_mut().tables.retain(|d| d.id != id);
+    h.run_steps(4);
+    let second = mg_ui::table_view::open_path(h.state_mut(), &other).unwrap();
+    h.run_steps(4);
+    let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
+    assert!((label_width - 116.0).abs() < 12.0, "its first width: {label_width}");
+    h.state_mut().tables.retain(|d| d.id != second);
+    h.run_steps(4);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    // Reset Width, on the column's menu: its first width again.
+    h.get_by_label("Label").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Reset Width").click();
+    h.run_steps(3);
+    assert!(widths(&h).iter().all(|(_, w)| w.iter().all(|(c, _)| c != "Label")), "reset");
+    let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
+    assert!((label_width - 116.0).abs() < 12.0, "its first width again: {label_width}");
+    // Hide Column: out of sight, its cells kept; Show Hidden Columns.
+    h.get_by_label("Cost").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Hide Column").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Cost").is_none(), "hidden");
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "kept");
+    h.get_by_label("Show Hidden Columns (1)").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Cost").is_some(), "shown again");
 }
 
 /// A builder's report: a game's table read in the resource browser (not

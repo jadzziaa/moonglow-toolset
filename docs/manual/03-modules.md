@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:50:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:01:51Z }
 ---
 
 # Modules
@@ -1598,10 +1598,21 @@ numbers at the left as it scrolls.
   do), and empty it otherwise.
 - **A column's width** is set by dragging the edge at the right of its
   name (the pointer turns into a double arrow over it); a double click
-  there makes the column as wide as its widest cell, as a spreadsheet
-  does. Widths are kept for the table's name, between runs too: another
-  copy of `appearance.2da`, and the game's own read in the resource
-  browser, show the columns as wide.
+  there makes the column as wide as its widest cell of every row (not
+  only those a Find shows), as a spreadsheet does. Widths are kept
+  between runs, for the table where it is: the module's
+  `appearance.2da` by its name (the game's own, read in the resource
+  browser, shows the columns as wide), a hak's by the hak and its name
+  and a file's by its folder, so two haks' `custom.2da` keep widths of
+  their own (a table given none takes those of its name). **Reset
+  Width** and **Reset All Widths**, on a column's right-click menu, put
+  one column or every column back to the width it began with. The
+  resource browser's **From** column (the layer a row comes from) is
+  widened as the others are.
+- **Hide Column**, on the same menu, takes a column out of sight while
+  the table is open (its cells are kept and saved, and the arrow keys
+  pass over it); **Show Hidden Columns (n)**, over the table, brings
+  every one back.
 - **Add Column…** adds one at the end. A column is moved by dragging
   its name onto another column's (a line shows where it will go), or by
   **Move Left** and **Move Right** in the menu a right click on its name

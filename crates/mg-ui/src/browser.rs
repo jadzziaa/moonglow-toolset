@@ -15,6 +15,9 @@ use crate::{Action, FileKind, Moonglow, Tab};
 
 /// How far an overridden copy's row is set in under its resource's.
 const COPY_INDENT: f32 = 18.0;
+/// What the width of a 2DA view's **From** column (the layer a row comes
+/// from) is kept under: no table's column is named so.
+const FROM: &str = "<from>";
 
 /// A resource's bytes from the load order: the copy the game reads, or
 /// (`layer`, by its label) the copy that layer has.
@@ -892,6 +895,9 @@ pub(crate) fn two_da(
     let bottom = l.copies.len() - 1;
     let changed = ui.visuals().warn_fg_color;
     let width = 110.0;
+    // (The layer a row comes from: a column of its own, as wide as it was
+    // given, kept as the others are under a name no table's column has.)
+    let from = column_widths(settings, &key.resref.to_string(), &[FROM.to_string()], width)[0];
     let name = key.resref.to_string();
     let columns: Vec<String> = t.columns().to_vec();
     let widths = column_widths(settings, &name, &columns, width);
@@ -905,7 +911,7 @@ pub(crate) fn two_da(
     let scroll: egui::Vec2 = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
     let still = egui::scroll_area::ScrollSource::NONE;
-    let mut edge = None;
+    let (mut edge, mut from_edge) = (None, None);
     ui.horizontal(|ui| {
         fixed(ui, NUMBER, egui::RichText::new(""));
         egui::ScrollArea::horizontal()
@@ -917,7 +923,10 @@ pub(crate) fn two_da(
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if layered {
-                        fixed(ui, width, egui::RichText::new("From").strong());
+                        let r = fixed(ui, from, egui::RichText::new("From").strong());
+                        if let Some(act) = column_edge(ui, id.with("from-edge"), r.rect, "From") {
+                            from_edge = Some(act);
+                        }
                     }
                     for (c, column) in columns.iter().enumerate() {
                         let size = egui::vec2(widths[c], row_height);
@@ -940,8 +949,17 @@ pub(crate) fn two_da(
     match edge {
         Some((c, Edge::Width(w))) => set_column_width(settings, &name, &columns[c], w),
         Some((c, Edge::Fit)) => {
-            let w = fit_width(ui, &columns[c], rows.iter().map(|&r| shows(r, c).0));
+            // (To every row, not those of a Find alone.)
+            let w = fit_width(ui, &columns[c], (0..t.len()).map(|r| shows(r, c).0));
             set_column_width(settings, &name, &columns[c], w);
+        }
+        None => {}
+    }
+    match from_edge {
+        Some(Edge::Width(w)) => set_column_width(settings, &name, FROM, w),
+        Some(Edge::Fit) => {
+            let w = fit_width(ui, "From", l.copies.iter().map(|c| c.0.clone()));
+            set_column_width(settings, &name, FROM, w);
         }
         None => {}
     }
@@ -980,7 +998,7 @@ pub(crate) fn two_da(
                                     let text = egui::RichText::new(&l.copies[origin].0);
                                     fixed(
                                         ui,
-                                        width,
+                                        from,
                                         if origin < bottom { text } else { text.weak() },
                                     );
                                 }
