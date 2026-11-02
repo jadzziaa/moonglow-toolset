@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:55:25Z }
 ---
 
 # Plugins: a proposal
@@ -211,6 +211,52 @@ Why Luau over JavaScript: the sandbox is the reason for the tier, and
 Luau's is the better proven. JavaScript's syntax is nearer NWScript's
 and more builders may know it. Either is workable; both is twice the
 upkeep.
+
+## External programs: the design (2026-11-01)
+
+The second tier, designed and not yet built (the deferred list's
+"Plugins, beyond API 0.4"). A plugin whose code is a program of its own
+(Python, Nim, a shell script) speaks to Moonglow over its standard input
+and output, so that a team's own tools in any language plug in, with
+their own libraries and debugger.
+
+- **The manifest.** `[plugin] runtime = "external"` and `program =
+  "tool.py"` (a file of the plugin's folder) with `interpreter`
+  (`"python3"`, found on the PATH) where the file is no executable;
+  everything else as a script plugin's: `[command]`, `[check]`,
+  `[event]`, `[setting]`, the same ids and keys. Refused under an `api`
+  before the version that brings it.
+- **The protocol** is the API, not a second one: JSON-RPC 2.0 framed as
+  the language server's is (`Content-Length` headers; `mg lsp` has the
+  framing), one process for one job, started when the job begins and
+  ended when it does. Moonglow sends `run` (`{ kind: "command" | "check" |
+  "event", id, selection, open, settings, event }`); the program calls
+  back the API by its names as the reference writes them, `{ method:
+  "ctx.module:gff", params: ["guard.utc"] }`, `"ctx.edit:set"`,
+  `"ctx.ui:form"`, and answers `run` with what a handler returns (a
+  label, findings with fixes recorded through `"ctx.fix"` handles). So
+  one reference serves both tiers, and the test that holds it to the
+  code holds the protocol too.
+- **The sandbox it can't have.** A program runs with the user's rights:
+  no system sandboxes a process the same way everywhere. So an external
+  plugin is marked as such everywhere it shows (Manage Plugins, the
+  project's question: "runs as a program of yours, with your rights"),
+  is enabled only by its own question, never by Allow All, and a
+  project's is never allowed by a yes to the same files elsewhere (its
+  digest says it is the same file, not what the interpreter it names
+  does). Its edits still come back as data and go in through
+  `Moonglow::apply`, as one step of Undo.
+- **Limits** as a script's where they can be kept (the time an event
+  has; a job's edits all or none; nothing written outside the module but
+  through `ctx.hak` and `folder:write`, by the same questions), and the
+  process killed when the job is canceled or out of time.
+- **Tests.** `mg plugin test` runs an external plugin's tests as a
+  script plugin's; CI runs one example written in Python against each
+  platform's `python3`.
+
+Built in that order: the manifest and the process with `run` and
+`ctx.log`, then the reading half of the API (`ctx.module`, `ctx.game`),
+then edits, questions and checks' fixes, then events. M.
 
 ## Proposed and not done so
 

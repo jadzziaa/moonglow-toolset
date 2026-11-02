@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:55:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1202,46 +1202,23 @@ contribution itself states as not done or not checked.
     hak question were driven through the UI harness and `mg`, not with
     the real file dialogs (the file dialog of `open_file` filters by
     the extensions asked for; that filter was not seen on a desktop
-    either). (S)
+    either); nor were a project's plugins' question (and Allow All, the
+    folder looked at while open), the settings' form (the kinds of 0.5,
+    Choose… for a folder, Tidy Up; rendered as `plugin-settings` and
+    `plugin-settings-kinds`), the menus of 0.5 (tiles, categories,
+    groups, tabs, the script editor, Find References, Advanced Search),
+    Verify's fixes (a fix that asks, Fix All, Undo) and the events of
+    3.3.0 (Save As, the makers, Manage Plugins' time): all driven
+    through the UI harness. Waits on a desktop session. (S)
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)
-  - **A project's own plugins, on a desktop** (API 0.4, the Domains of
-    Dread's builder proposal A2; since 3.3.0 a yes holds for the
-    plugin's very files wherever the project is, the folder is looked at
-    while the project is open, and the window has Allow All): the
-    question and the Plugins window were driven through the UI harness
-    and looked at as rendered pictures (one plugin asked about), not
-    used on a desktop. Waits on a desktop session. (S)
-  - **A plugin's settings, on a desktop** (API 0.4, A5; since 3.3.0
-    the kinds `float`, `list` and `color`, a `pattern`, a folder's
-    `pick`, `mg` keeping and reading those of scope `user`, Tidy Up and
-    `mg plugin tidy`): driven through the UI harness, with rendered
-    pictures of the form (`plugin-settings`, `plugin-settings-kinds`),
-    not used on a desktop. Waits on a desktop session. (S)
   - **More kinds of things to add:** exporters and importers, wizards,
     panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
     complexity.)
-  - **Commands on what is selected, on a desktop** (API 0.4, A1; since
-    3.3.0 `placed …` and `… blueprint`, tiles, a resource's type, the
-    menus of categories, groups, tabs, the script editor, Find
-    References and Advanced Search, the pane clicked in,
-    `ctx.open.together`): driven through the UI harness, not used on a
-    desktop. Waits on a desktop session. (S)
-  - **Fixes for findings, on a desktop** (API 0.4, A3; since 3.3.0 a fix
-    that asks, Undo offering the button again, Fix All, `mg verify --fix`
-    of a check there is none of failing): driven through the UI harness,
-    with one rendered picture of the log's buttons; not used on a
-    desktop. Waits on a desktop session. (S)
   - **The 2DA editor's faults with fixes:** the 2DA editor is another
     package's this round; its faults offer no fix yet. Waits on that
     work. (S)
-  - **A resource's own events, on a desktop** (API 0.4, A4 and A6; since
-    3.3.0 Save As asked, more makers firing `resource-created`, a
-    script's changed lines, the time a setting, `--strict`, and mg's
-    other saving commands asking the project's plugins): driven through
-    the UI harness, not used on a desktop. Waits on a desktop session.
-    (S)
   - **The type file was not tried in an editor:** it loads as Luau, and
     tests hold it to have every name and the reference's parameters
     (`the_type_file_has_the_whole_api`, `the_reference_says_what_the_code_has`),
@@ -1251,7 +1228,12 @@ contribution itself states as not done or not checked.
     a download of `luau-lsp` (or `luau-analyze`), the owner's to allow.
     (S)
   - **External programs** as plugins (a protocol over standard input and
-    output, for Python or Nim): not started. (M)
+    output, for Python or Nim): designed (the
+    [proposal](plugin-proposal.md#external-programs-the-design-2026-11-01):
+    JSON-RPC over standard input and output, the reference's names as
+    its methods, marked as running with the user's rights), not built:
+    left for its own round, after this one's S items, in the owner's
+    order of the brief ("last, if room remains"). (M)
   - **The window with plugins was run on Linux only:** the application
     itself was driven on an off-screen display there (plugins installed
     from archives listed and enabled, a command as a background job, a
