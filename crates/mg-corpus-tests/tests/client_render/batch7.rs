@@ -462,7 +462,7 @@ fn batch7_low_sun_city_tiles() {
         .unwrap()
         .iter()
         .map(|t| {
-            let n = |l| t.int(l).unwrap_or(0) as i32;
+            let n = |l| t.int(l).unwrap_or(0);
             (n("Tile_ID"), n("Tile_Orientation"), n("Tile_Height"))
         })
         .collect();

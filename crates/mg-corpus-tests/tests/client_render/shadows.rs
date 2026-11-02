@@ -615,7 +615,7 @@ fn raise_north(r: &mut Reading, from: u32) {
         .map(|t| mg_tiles::Placement {
             tile: t.int("Tile_ID").unwrap_or(0) as u32,
             orientation: t.int("Tile_Orientation").unwrap_or(0) as u8,
-            height: t.int("Tile_Height").unwrap_or(0) as i32,
+            height: t.int("Tile_Height").unwrap_or(0),
         })
         .collect();
     let mut grid = mg_tiles::paint::Grid::new(&index, w, h, tiles).expect("the area's tiles");

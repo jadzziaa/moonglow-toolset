@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:17:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:25:19Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1679,7 +1679,10 @@ and a placeable's shadow at a cliff's top reaches the ground below it.
 - **Checked:** game client, `batch7.rs`'s `batch7_wall_sides` and
   `batch7_low_sun_city_tiles` (2026-11-02), `shadows.rs`'s
   `high_shadows_beside_the_client` case `cliff` (the tileset's own
-  cliff tiles).
+  cliff tiles). Its case `finhead` (run again 2026-11-02, Fast and High
+  agreeing with the client 0.49 and 0.57) doesn't tell: the fins'
+  shadows overlap in one shape, alike in both at that camera, the two
+  fins turned from that sun lying 17 and 28 degrees off its light.
 - **Moonglow:** `crates/mg-render/src/shadow.rs` and `volume.rs` cast
   from both sides (the deferred list's "Shadows").
 - **Wiki:** "Model Shadows" says the volumes come of a mesh's faces;
