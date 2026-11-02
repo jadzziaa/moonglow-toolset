@@ -840,33 +840,16 @@ impl ModelView {
 
     /// Fits the camera to the model as it stands in the animation it
     /// plays (a dragon at rest lies stretched out, wings spread, far out
-    /// of the box around its pause).
+    /// of the box around its pause). (The model is there exactly when the
+    /// composed preview is: both come of one `compose`.)
     pub fn frame(&mut self) {
-        if let Some(c) = &self.composed {
-            let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
-            // (The box around it as it is stood.)
-            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for p in mg_render::box_corners(low, high) {
-                let w = self.stand.transform_point3(p);
-                (min, max) = (min.min(w), max.max(w));
-            }
-            self.orbit.target = (min + max) * 0.5;
-            let radius = ((max - min).length() * 0.5).max(0.1);
-            self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
-            return;
-        }
-        let Ok(m) = &self.model else { return };
-        let pose = mg_render::rest_pose(&m.model);
+        let Some(c) = &self.composed else { return };
+        let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
+        // (The box around it as it is stood.)
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for mesh in &m.meshes {
-            for p in mg_render::box_corners(mesh.min, mesh.max) {
-                let w = pose[mesh.node].transform_point3(p);
-                min = min.min(w);
-                max = max.max(w);
-            }
-        }
-        if min.x > max.x {
-            (min, max) = (Vec3::splat(-1.0), Vec3::splat(1.0));
+        for p in mg_render::box_corners(low, high) {
+            let w = self.stand.transform_point3(p);
+            (min, max) = (min.min(w), max.max(w));
         }
         self.orbit.target = (min + max) * 0.5;
         let radius = ((max - min).length() * 0.5).max(0.1);

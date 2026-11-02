@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:03:44Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -13,6 +13,9 @@ sources:
   - id: owner-2026-10-30
     resource: conversation with the owner, 2026-10-30
     title: 'The owner''s verdicts: the proposals accepted as recommended; the large entries after 3.0.0, in order of complexity'
+  - id: owner-2026-11-01
+    resource: conversation with the owner, 2026-11-01
+    title: 'The last pieces examined: the largest areas a 10th large entry, the audit''s leftovers filed, the wiki corrections left low'
   - id: deferred
     resource: deferred.md
     title: 'Deferred: what was left out, for a decision later'
@@ -106,6 +109,7 @@ land in `deferred.md` itself.
 | 2026-10-30, the second Aurora batch, the fifth client batch and the frame budget merged | 83 | 168 | 275 | 62 | 54 | 85 |
 | 2026-10-30, the owner's verdicts, round two | 76 | 157 | 275 | 62 | 55 | 91 |
 | 2026-10-30, wave 6 (two packages), Advanced Search's OR/NOT and the hak names merged | 71 | 150 | 287 | 63 | 55 | 98 |
+| 2026-11-01, the last pieces examined: one closed, the performance audit's six leftovers filed as one entry (the owner's word) | 70 | 154 | 288 | 63 | 55 | 98 |
 
 ## After 3.0.0
 
@@ -131,5 +135,7 @@ the [deferred list](deferred.md) says its place):
    importers, wizards and panels (Automation).
 9. Plugins beyond API 0.4: a builder's terrain tool as the measure,
    sculpted terrain inside Moonglow (Automation).
+10. The largest areas in full view: fewer draws, or render bundles for
+    what doesn't move (Frames; the owner's word, 2026-11-01).
 
 [^owner]: The owner's scope, 2026-10-28: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved.

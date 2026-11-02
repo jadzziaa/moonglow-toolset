@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T21:45:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:03:44Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -87,8 +87,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Persistent-world scale
 
-- **Other machines:** budgets were measured only on the development
-  machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
+- **Other machines:** budgets were measured on the development machine
+  alone: a Ryzen 9 9950X with a Radeon RX 9070 XT and, since the
+  [performance audit](performance-audit.md) of 2026-11-01, its CPU's
+  integrated Radeon (2 compute units, weaker than most laptops') as the
+  stand-in for weaker hardware. Not measured: an Intel integrated GPU,
+  Direct3D 12's heaps on Windows, macOS. (S, waits on a builder's
+  machine)
 
 ## Frames (a steady 144 a second)
 
@@ -124,6 +129,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   meshes of many tiles in one, each mesh's lights found by its vertices)
   or render bundles for what doesn't move. ([the frames
   note](research/notes_frames.md), 27 and 30 October) (L)
+  (After 3.0.0, the owner's word, 2026-11-01: 10th by complexity.)
+- **The performance audit's leftovers** ([the audit](performance-audit.md)
+  of 2026-11-01; beyond what it was asked, filed by the owner's word the
+  same day):
+  - **The meshes' chunks** (`mg_render`'s `pool.rs`) grow to the size of
+    all before them: TDoD's woods hold about 370 MB of chunks (184 + 92 +
+    46 + …), up to half of it room. A cap on a chunk's growth, or chunks
+    sized to what is read, would give some back. (S, renderer: the CI
+    branch)
+  - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
+    saves about a tenth of an integrated GPU's picture and 107 MB of
+    targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
+    is made anew on a change. (M)
+  - **TGA and PLT textures are uncompressed** (RGBA8: Tyrants of the
+    Moonsea's 70 of 96 MB of textures). Compressing them on the CPU as
+    they are read would take a quarter to an eighth of that, at a cost
+    in reading time and an encoder of its own. (M)
+  - **The animation step could follow what a picture costs:** a slow GPU
+    stepping less often while the window is in front, measured with the
+    GPU's timestamps (not on every backend). (M)
+  - **An area's opening to its last texture** is about 50 ms longer since
+    3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
+  - **The model viewer playing an animation** asks for a frame at once,
+    every frame, while the window has the focus (144 a second here),
+    where a step as the area view's would do. (S)
 
 ## EE fields Aurora hides
 
@@ -1542,12 +1572,6 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Never used:** the second half of `ModelView::frame`
-  (`model_view.rs`: the model is there exactly when the composed preview
-  is). The rest of what this entry listed went on 2026-10-29; this is
-  left while the sprint's packages 07 and 08 change that file (waits on
-  their merge). (S)
-
 ### The review of 2026-10-27: what is left
 
 Six readers over the workspace and clippy's pedantic lints as a finder
@@ -1574,12 +1598,6 @@ with a test (the log, 2026-10-21). This is what is left: places by file
 and line as they were that day, found by reading, not by running unless
 it says so. One question settles most of them: which copy is the source
 of truth, and does each caller's difference matter.
-
-### To build once (the structure the copies want)
-
-### Settled in the engine or Aurora first
-
-### Smaller, each S
 
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
