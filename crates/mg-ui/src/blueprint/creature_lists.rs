@@ -1436,7 +1436,7 @@ const SECONDARY: u32 = 0x20;
 
 /// Equipment slots: (bit, name). The last four are the creature's natural
 /// equipment.
-const SLOTS: [(u32, &str); 18] = [
+pub(super) const SLOTS: [(u32, &str); 18] = [
     (0x1, "Helmet"),
     (0x2, "Armor"),
     (0x4, "Boots"),
@@ -1591,7 +1591,7 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
 /// A creature's items' flags (Aurora's Options, under its palette): each
 /// field, labeled as Aurora labels it, and Aurora's tip with what the game
 /// does with it.
-const ITEM_FLAGS: [(&str, &str); 2] = [
+pub(super) const ITEM_FLAGS: [(&str, &str); 2] = [
     (
         "Dropable",
         "Specify if selected item can be dropped: the game leaves it on the creature's remains \
@@ -1700,7 +1700,7 @@ fn item_options(
 
 /// The slots an item can go in (its base item's `EquipableSlots`): a
 /// whole item's own base item (`item`, one moved), else its blueprint's.
-fn item_slots(f: &mut Form<'_>, resref: ResRef, item: Option<&Struct>) -> u32 {
+pub(super) fn item_slots(f: &mut Form<'_>, resref: ResRef, item: Option<&Struct>) -> u32 {
     let base = match item.and_then(|s| s.integer("BaseItem")) {
         Some(b) => Some(b),
         None => f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem")),
@@ -1742,7 +1742,7 @@ fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
 /// another object's inventory): itself, and the edits that take it from
 /// there (none for a copy), made with the equipping as one step.
 #[derive(Debug, Clone, PartialEq)]
-struct Moving {
+pub(super) struct Moving {
     item: Struct,
     taken: Vec<Edit>,
 }
@@ -1766,7 +1766,7 @@ fn after_taken(f: &Form<'_>, items: &[Struct], of: &str, taken: &[Edit]) -> Vec<
 /// The edits that equip `r` in slot `bit`: `moving` taken from where it
 /// was and put there as it is, else a new item of blueprint `r`. What
 /// the slot held goes to the end of the backpack (`backpack`), as it is.
-fn equip_edits(
+pub(super) fn equip_edits(
     f: &mut Form<'_>,
     (equipped, backpack): (&[Struct], &[Struct]),
     bit: u32,
@@ -1805,6 +1805,10 @@ fn equip_edits(
 }
 
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        super::inventory_together::page(f, ui, super::inventory_together::Holder::Creature);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     if !f.app.settings.no_inventory_warning {

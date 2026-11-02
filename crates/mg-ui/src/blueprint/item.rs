@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::ResType;
-use mg_edit::{Command, Edit};
+use mg_edit::{Command, Edit, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::items::{ItemProperty, ItemValue, PropertyType, part_number, wide_label};
@@ -908,12 +908,37 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
     super::situated::preview_button(f, ui);
 }
 
+/// An assigned property as the Properties page lists it: the property,
+/// and how many of the items edited together have it so (its type,
+/// subtype and value).
+struct Assigned {
+    p: ItemProperty,
+    having: usize,
+}
+
+/// The Properties page: the properties the item's base item takes, beside
+/// those it has. Several items edited together: the properties any has
+/// (matched by type, subtype and value), ≠ with how many where some do;
+/// one added is given to each that lacks it and whose base item takes it,
+/// one removed is taken from each, its parameters are set on each.
 fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let here = f.path.clone();
     let key = f.key;
     let base = f.int("BaseItem").max(0) as u32;
-    let assigned: Vec<ItemProperty> =
-        f.root.list("PropertiesList").unwrap_or(&[]).iter().map(ItemProperty::from_gff).collect();
+    let several = f.several();
+    let targets = f.list_targets();
+    let total = targets.len();
+    // One item's, each as it is listed; several items' merged.
+    let assigned: Vec<Assigned> = if several {
+        let key_of = |e: &Struct| Some(lists::property_key(&ItemProperty::from_gff(e)));
+        lists::merged(&targets, "PropertiesList", key_of)
+            .into_iter()
+            .map(|m| Assigned { p: ItemProperty::from_gff(&m.entry), having: m.having.len() })
+            .collect()
+    } else {
+        let list = f.root.list("PropertiesList").unwrap_or(&[]);
+        list.iter().map(|e| Assigned { p: ItemProperty::from_gff(e), having: 1 }).collect()
+    };
     let state_id = egui::Id::new(("uti-props", key));
     // (available type chosen, its subtype chosen, assigned index chosen)
     let (mut chosen, mut chosen_sub, mut selected): (Option<u16>, Option<u16>, Option<usize>) =
@@ -921,7 +946,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     selected = selected.filter(|&i| i < assigned.len());
     let available = game.available_properties(base);
     let mut add: Option<(PropertyType, Option<u16>)> = None;
-    let mut remove = None;
+    let (mut remove, mut give) = (None, None);
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
         if col == 0 {
             crate::widgets::section_heading(ui, "Available Properties");
@@ -996,11 +1021,14 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
                 ui,
                 |ui| {
-                    for (i, p) in assigned.iter().enumerate() {
-                        if ui.selectable_label(selected == Some(i), game.property_text(p)).clicked()
-                        {
-                            selected = Some(i);
-                        }
+                    for (i, a) in assigned.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let text = game.property_text(&a.p);
+                            if ui.selectable_label(selected == Some(i), text).clicked() {
+                                selected = Some(i);
+                            }
+                            super::entry_mark(ui, a.having, total);
+                        });
                     }
                 },
             );
@@ -1014,10 +1042,19 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 if ui.add_enabled(selected.is_some(), egui::Button::new("Remove")).clicked() {
                     remove = selected;
                 }
+                let some = selected.filter(|&i| assigned[i].having < total);
+                if several
+                    && ui
+                        .add_enabled(some.is_some(), egui::Button::new("Give to All"))
+                        .on_hover_text(super::creature_lists::GIVE_TIP)
+                        .clicked()
+                {
+                    give = some;
+                }
             });
             if let Some(i) = selected {
                 ui.separator();
-                property_editor(f, ui, game, base, i, &assigned[i]);
+                property_editor(f, ui, game, base, i, &assigned[i].p, &targets);
             }
         }
     });
@@ -1038,30 +1075,58 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 table => game.property_params(table).first().map_or(0, |c| c.row as u8),
             };
         }
-        f.app.actions.push(Action::Apply(Command::new(
-            "Add property",
-            vec![Edit::insert_item(
-                key,
-                here.clone(),
-                "PropertiesList",
-                assigned.len(),
-                p.to_gff(),
-            )],
-        )));
-        selected = Some(assigned.len());
+        if several {
+            let out = lists::add_property(&targets, &p, |t| takes(game, t, p.property));
+            f.apply_each("Add property", out, "Added to");
+            let k = lists::property_key(&p);
+            selected = assigned.iter().position(|a| lists::property_key(&a.p) == k);
+            selected = selected.or(Some(assigned.len()));
+        } else {
+            f.app.actions.push(Action::Apply(Command::new(
+                "Add property",
+                vec![Edit::insert_item(
+                    key,
+                    here.clone(),
+                    "PropertiesList",
+                    assigned.len(),
+                    p.to_gff(),
+                )],
+            )));
+            selected = Some(assigned.len());
+        }
+    }
+    if let Some(i) = give {
+        let p = assigned[i].p;
+        let out = lists::add_property(&targets, &p, |t| takes(game, t, p.property));
+        f.apply_each("Add property", out, "Added to");
     }
     if let Some(i) = remove {
-        f.app.actions.push(Action::Apply(Command::new(
-            "Remove property",
-            vec![Edit::remove_item(key, here, "PropertiesList", i)],
-        )));
+        if several {
+            let out = lists::remove_property(&targets, lists::property_key(&assigned[i].p));
+            f.apply_each("Remove property", out, "Taken from");
+        } else {
+            f.app.actions.push(Action::Apply(Command::new(
+                "Remove property",
+                vec![Edit::remove_item(key, here, "PropertiesList", i)],
+            )));
+        }
         selected = None;
     }
     ui.data_mut(|d| d.insert_temp(state_id, (chosen, chosen_sub, selected)));
 }
 
+/// Whether the base item of an item edited together takes property type
+/// `property`.
+fn takes(game: &GameData, t: &lists::Target, property: u16) -> bool {
+    let base = t.at.integer("BaseItem").unwrap_or(0).max(0) as u32;
+    game.available_properties(base).iter().any(|a| a.row == property)
+}
+
 /// An assigned property's parameters (Aurora's Select Property
-/// Parameters): subtype, value, parameter, chance of appearing.
+/// Parameters): subtype, value, parameter, chance of appearing. Several
+/// items edited together: set on each one's property of its type,
+/// subtype and value.
+#[allow(clippy::too_many_arguments)]
 fn property_editor(
     f: &mut Form<'_>,
     ui: &mut Ui,
@@ -1069,6 +1134,7 @@ fn property_editor(
     base: u32,
     index: usize,
     p: &ItemProperty,
+    targets: &[lists::Target],
 ) {
     let here = f.path.clone();
     let Some(t) = game.property_type(p.property) else { return };
@@ -1135,6 +1201,19 @@ fn property_editor(
             ui.end_row();
         },
     );
+    if !changes.is_empty() && f.several() {
+        let k = lists::property_key(p);
+        let labels: Vec<&str> = changes.iter().map(|(l, _)| *l).collect();
+        let out = lists::set(
+            targets,
+            "PropertiesList",
+            |e| lists::is_property(e, k),
+            &labels,
+            |_, l| changes.iter().find(|(c, _)| *c == l).map(|(_, v)| v.clone()),
+        );
+        f.apply_each("Property parameters", out, "Set on");
+        return;
+    }
     if !changes.is_empty() {
         let edits = changes
             .into_iter()

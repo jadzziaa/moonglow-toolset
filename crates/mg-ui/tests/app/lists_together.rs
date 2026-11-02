@@ -490,6 +490,251 @@ fn a_known_spell_is_added_to_each_creature_of_the_class() {
     assert!(h.get_by_label("Save Class Spell List").accesskit_node().is_disabled());
 }
 
+/// Item properties: an Enhancement Bonus +1 on the first and +2 on the
+/// second are two entries (matched by type, subtype and value), each ≠ 1
+/// of 3. Give to All gives the +1 to the second (beside its +2) and leaves
+/// the third, whose base item takes no enhancement; a parameter set is
+/// set on each that has the property; Remove takes it from each. Each one
+/// step.
+#[test]
+fn an_item_property_is_matched_by_type_subtype_and_value() {
+    let enhancement = |cost: u16| mg_rules::ItemProperty {
+        property: 6,
+        subtype: 0,
+        cost_table: 2,
+        cost_value: cost,
+        param1: 255,
+        param1_value: 0,
+        chance: 100,
+    };
+    let tweak = move |i: usize, s: &mut Struct, game: &mg_rules::GameData| {
+        let props = match i {
+            0 => vec![enhancement(1).to_gff()],
+            1 => vec![enhancement(2).to_gff()],
+            _ => {
+                // A base item that takes no enhancement.
+                let t = game.table("baseitems").unwrap();
+                let row = (0..t.len())
+                    .find(|&r| {
+                        t.get_int(r, "PropColumn").is_some()
+                            && !game.available_properties(r as u32).iter().any(|p| p.row == 6)
+                            && !game.available_properties(r as u32).is_empty()
+                    })
+                    .unwrap();
+                s.set("BaseItem", Value::Int(row as i32));
+                vec![]
+            }
+        };
+        s.set("PropertiesList", Value::List(props));
+    };
+    let Some((mut h, keys)) = together("nw_wswls001", ResType::UTI, 3, "Properties", tweak) else {
+        return;
+    };
+    let props = |s: &Struct| -> Vec<(i64, i64, i64)> {
+        let list = s.list("PropertiesList").unwrap_or(&[]);
+        list.iter()
+            .map(|p| {
+                let n = |l: &str| p.integer(l).unwrap_or(0);
+                (n("PropertyName"), n("CostValue"), n("ChanceAppear"))
+            })
+            .collect()
+    };
+    let before = each(&mut h, &keys, props);
+    assert_eq!(h.query_all_by_label("≠ 1 of 3").count(), 2);
+    let game = h.state().game.clone().unwrap();
+    let text = |p| game.property_text(&p);
+    let plus_one = text(enhancement(1));
+    h.get_by_label(&plus_one).click();
+    h.run();
+    h.get_by_label("Give to All").click();
+    h.run();
+    let given = each(&mut h, &keys, props);
+    assert_eq!(given[0], before[0]);
+    assert_eq!(given[1], [(6, 2, 100), (6, 1, 100)]);
+    assert_eq!(given[2], before[2]);
+    assert!(h.query_by_label_contains("mg_c: its base item doesn't take it").is_some());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add property"));
+    // Its chance of appearing, set on the two that have it.
+    let chance = number_beside(&h, "Chance of Appearing (%)", 0);
+    set_number(&h, &chance, 50.0);
+    h.run();
+    let set = each(&mut h, &keys, props);
+    assert_eq!(set[0], [(6, 1, 50)]);
+    assert_eq!(set[1], [(6, 2, 100), (6, 1, 50)]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Property parameters"));
+    undo(&mut h);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, props), before);
+    // The +2 removed: from the second.
+    let plus_two = text(enhancement(2));
+    h.get_by_label(&plus_two).click();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    let taken = each(&mut h, &keys, props);
+    assert!(taken[1].is_empty());
+    assert_eq!(taken[0], before[0]);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, props), before);
+}
+
+/// An inventory's entry of an item blueprint, at a place.
+fn held_entry(r: &str, x: u16) -> Struct {
+    let mut s = Struct::new(u32::from(x));
+    s.set("InventoryRes", Value::resref(ResRef::from_str(r).unwrap()));
+    s.set("Repos_PosX", Value::Word(x));
+    s.set("Repos_Posy", Value::Word(0));
+    s
+}
+
+/// The item blueprints a list holds.
+fn held_items(s: &Struct, list: &str) -> Vec<String> {
+    let items = s.list(list).unwrap_or(&[]);
+    items.iter().filter_map(|i| i.resref("InventoryRes")).map(|r| r.to_string()).collect()
+}
+
+/// Inventories: three chests, a longsword in two of them (one holding
+/// two) and a torch in one, are listed merged, ≠ with how many. Give to
+/// All puts a torch in the two without, each at its own free place;
+/// Remove takes every longsword from each; Paste adds the item copied to
+/// each. Each one step.
+#[test]
+fn an_inventory_s_items_are_added_to_each_and_taken_from_each() {
+    let tweak = |i: usize, p: &mut Struct, _: &mg_rules::GameData| {
+        p.set("HasInventory", Value::Byte(1));
+        let items = match i {
+            0 => vec![held_entry("nw_wswls001", 0)],
+            1 => vec![
+                held_entry("nw_wswls001", 0),
+                held_entry("nw_wswls001", 2),
+                held_entry("nw_it_torch001", 4),
+            ],
+            _ => vec![],
+        };
+        p.set("ItemList", Value::List(items));
+    };
+    let Some((mut h, keys)) = together("plc_chest1", ResType::UTP, 3, "Inventory", tweak) else {
+        return;
+    };
+    let items = |s: &Struct| held_items(s, "ItemList");
+    let before = each(&mut h, &keys, items);
+    assert!(h.query_by_label("≠ 2 of 3").is_some(), "the longsword");
+    assert!(h.query_by_label("≠ 1 of 3").is_some(), "the torch");
+    assert!(h.query_all_by_value("≠").count() >= 1, "two longswords and one");
+    h.get_all_by_label("Give to All").last().unwrap().click();
+    h.run_steps(4);
+    let given = each(&mut h, &keys, items);
+    for g in &given {
+        assert_eq!(g.iter().filter(|r| *r == "nw_it_torch001").count(), 1, "{g:?}");
+    }
+    // At its own first free place: beside the first's longsword.
+    let first = field(&mut h, &keys[0]);
+    let torch = &first.list("ItemList").unwrap()[1];
+    assert_ne!(torch.integer("Repos_PosX"), Some(0), "not on the longsword");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add item"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, items), before);
+    // Remove, on the longsword's row (the first).
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(4);
+    let taken = each(&mut h, &keys, items);
+    assert!(taken.iter().all(|t| !t.contains(&"nw_wswls001".to_string())), "{taken:?}");
+    assert_eq!(taken[1], ["nw_it_torch001"]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Remove item"));
+    undo(&mut h);
+    // Paste: the item copied, added to each.
+    h.state_mut().item_clip = vec![held_entry("nw_it_gem001", 0)];
+    h.run();
+    h.get_by_label("Paste").click();
+    h.run_steps(4);
+    let pasted = each(&mut h, &keys, items);
+    for (p, b) in pasted.iter().zip(&before) {
+        assert_eq!(p.len(), b.len() + 1);
+        assert_eq!(p.last().map(String::as_str), Some("nw_it_gem001"));
+    }
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, items), before);
+}
+
+/// A creature's equipment, edited together: a battleaxe chosen in the
+/// palette and equipped in the primary weapon slot is worn by each, what
+/// each wore there going to its backpack, in one step.
+#[test]
+fn an_item_is_equipped_on_each_creature() {
+    let tweak = |i: usize, c: &mut Struct, _: &mg_rules::GameData| {
+        if i == 2 {
+            c.set("Equip_ItemList", Value::List(Vec::new()));
+        }
+    };
+    let Some((mut h, keys)) = together("nw_bandit001", ResType::UTC, 3, "Inventory", tweak) else {
+        return;
+    };
+    let primary = |s: &Struct| -> Option<String> {
+        let list = s.list("Equip_ItemList").unwrap_or(&[]);
+        list.iter()
+            .find(|e| e.id == 0x10)
+            .and_then(|e| e.resref("EquippedRes"))
+            .map(|r| r.to_string())
+    };
+    let before = each(&mut h, &keys, primary);
+    let backpacks = each(&mut h, &keys, |s| held_items(s, "ItemList"));
+    assert!(before[0].is_some() && before[2].is_none());
+    assert!(h.query_all_by_value("≠").count() >= 1, "the third wears nothing");
+    type_into_hint(&mut h, "Find", "nw_waxbt001");
+    h.get_by_label("Battleaxe").click();
+    h.run();
+    let row = h.get_by_label("Primary Weapon").rect();
+    h.get_all_by_label("Equip")
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 8.0)
+        .expect("the slot's Equip")
+        .click();
+    h.run_steps(4);
+    assert_eq!(each(&mut h, &keys, primary), vec![Some("nw_waxbt001".to_string()); 3]);
+    let now = each(&mut h, &keys, |s| held_items(s, "ItemList"));
+    for i in 0..2 {
+        assert_eq!(now[i].len(), backpacks[i].len() + 1, "the old weapon in the backpack");
+    }
+    assert_eq!(now[2], backpacks[2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Equip"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, primary), before);
+}
+
+/// A store's inventory, edited together: an item pasted goes to each
+/// store, on the page of its kind (made where a store has none).
+#[test]
+fn a_store_s_item_goes_to_each_on_its_page() {
+    let tweak = |i: usize, s: &mut Struct, _: &mg_rules::GameData| {
+        if i == 1 {
+            s.set("StoreList", Value::List(Vec::new()));
+        }
+    };
+    let Some((mut h, keys)) = together("nw_storebar01", ResType::UTM, 2, "Inventory", tweak) else {
+        return;
+    };
+    let pages = |s: &Struct| -> Vec<(u32, Vec<String>)> {
+        let list = s.list("StoreList").unwrap_or(&[]);
+        list.iter().map(|p| (p.id, held_items(p, "ItemList"))).collect()
+    };
+    let before = each(&mut h, &keys, pages);
+    h.state_mut().item_clip = vec![held_entry("nw_wswls001", 0)];
+    h.run();
+    h.get_by_label("Paste").click();
+    h.run_steps(4);
+    let after = each(&mut h, &keys, pages);
+    for (a, b) in after.iter().zip(&before) {
+        let count = |p: &[(u32, Vec<String>)]| {
+            p.iter().flat_map(|(_, i)| i).filter(|r| *r == "nw_wswls001").count()
+        };
+        assert_eq!(count(a), count(b) + 1);
+    }
+    // The second, which had no pages, gains the weapons' page.
+    assert_eq!(after[1].len(), 1);
+    assert_eq!(after[1][0].1, ["nw_wswls001"]);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, pages), before);
+}
+
 /// The feats of each, as rows of feat.2da.
 fn feat_rows(s: &Struct) -> Vec<i64> {
     s.list("FeatList").unwrap_or(&[]).iter().filter_map(|f| f.integer("Feat")).collect()

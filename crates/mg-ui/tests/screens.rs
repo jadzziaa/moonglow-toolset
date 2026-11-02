@@ -3030,7 +3030,36 @@ fn lists_together() {
         }
         c.set("ClassList", Value::List(list));
     };
-    let cases: [(&str, ResType, &str, Tweak); 7] = [
+    let chest: Tweak = |i, p| {
+        let held = |r: &str, x: u16| {
+            let mut s = Struct::new(u32::from(x));
+            s.set("InventoryRes", Value::resref(mg_core::ResRef::from_str(r).unwrap()));
+            s.set("Repos_PosX", Value::Word(x));
+            s.set("Repos_Posy", Value::Word(0));
+            s
+        };
+        p.set("HasInventory", Value::Byte(1));
+        let items = match i {
+            0 => vec![held("nw_wswls001", 0), held("nw_it_gem001", 2)],
+            1 => vec![held("nw_wswls001", 0), held("nw_wswls001", 2), held("nw_it_torch001", 4)],
+            _ => vec![held("nw_it_gem001", 0)],
+        };
+        p.set("ItemList", Value::List(items));
+    };
+    let bandits: Tweak = |i, c| {
+        if i == 2 {
+            c.set("Equip_ItemList", Value::List(Vec::new()));
+        }
+    };
+    let stores: Tweak = |i, s| {
+        if i == 1 {
+            s.set("StoreList", Value::List(Vec::new()));
+        }
+    };
+    let cases: [(&str, ResType, &str, Tweak); 10] = [
+        ("plc_chest1", ResType::UTP, "Inventory", chest),
+        ("nw_bandit001", ResType::UTC, "Inventory", bandits),
+        ("nw_storebar01", ResType::UTM, "Inventory", stores),
         ("nw_bandit001", ResType::UTC, "Skills", skills),
         ("nw_bandit001", ResType::UTC, "Feats", feats),
         ("nw_bandit001", ResType::UTC, "Special Abilities", abilities),
@@ -3051,7 +3080,7 @@ fn lists_together() {
             tweak(i, &mut g.root);
             m.set(*k, g.to_bytes().unwrap());
         }
-        let slug = page.to_lowercase().replace(' ', "-");
+        let slug = format!("{}-{}", page.to_lowercase().replace(' ', "-"), t.extension().unwrap());
         let path = mg_testkit::scratch_dir("screens-lists-together").join(format!("{slug}.mod"));
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         app.open_module(&path);

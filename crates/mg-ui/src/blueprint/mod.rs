@@ -27,6 +27,7 @@ mod door;
 pub(crate) mod encounter;
 pub(crate) mod follow;
 mod inventory;
+mod inventory_together;
 mod item;
 pub(crate) mod picker;
 mod placeable;
@@ -1776,11 +1777,10 @@ pub(crate) fn edit_many(
     let held = crate::claims::area_of(&key).and_then(|a| crate::claims::read_only(app, a));
     let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
     let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
-    let all = if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
-    // Lists are edited one blueprint or object at a time.
-    let all_pages = all.clone();
+    // (Every page, of several too: their lists are edited on each,
+    // `docs/lists-together-proposal.md`.)
     let pages: Vec<&str> =
-        if several { all.into_iter().filter(|p| !LIST_PAGES.contains(p)).collect() } else { all };
+        if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     let page_key = (key, path.clone());
     let mut page = (app.blueprint_pages.get(&page_key).copied())
         .or_else(|| app.open_tabs.page(&tab, &pages))
@@ -1840,13 +1840,6 @@ pub(crate) fn edit_many(
             "{} {what}: shown as the first; what you change is set on each (≠: they differ there)",
             also.len() + 1
         ));
-    }
-    // (The pages not offered: those left in `LIST_PAGES`.)
-    let left: Vec<&str> = all_pages.iter().copied().filter(|p| LIST_PAGES.contains(p)).collect();
-    if several && !left.is_empty() {
-        let one = if path.0.is_empty() { "blueprint" } else { "object" };
-        let names = left.join(", ");
-        ui.weak(format!("{names}: edited one {one} at a time."));
     }
     let note_id = egui::Id::new(("several-note", key));
     if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
@@ -2015,10 +2008,6 @@ pub(crate) fn read_only_look(ui: &mut Ui) {
     v.extreme_bg_color = v.panel_fill;
     v.text_edit_bg_color = Some(v.panel_fill);
 }
-
-/// The pages that edit lists of their own (the first object's only), left
-/// out when editing several blueprints or placed objects.
-const LIST_PAGES: [&str; 2] = ["Inventory", "Properties"];
 
 #[cfg(test)]
 mod tests {

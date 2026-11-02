@@ -21,7 +21,7 @@ pub(super) const PAGES: [&str; 5] = ["Basic", "Inventory", "Advanced", "Restrict
 pub(crate) use mg_rules::rows::STORE_PAGES;
 
 /// The `StoreList` struct id of each baseitems.2da `StorePanel`.
-const PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];
+pub(super) const PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];
 
 /// The struct id of `WillNotBuy` and `WillOnlyBuy` items.
 const BASE_ITEM_ID: u32 = mg_schema::utm::WILL_NOT_BUY.item_id;
@@ -169,6 +169,10 @@ fn add_items(f: &mut Form<'_>, adds: &[Added], taken: Vec<Edit>) -> Option<u32> 
 }
 
 fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        super::inventory_together::page(f, ui, super::inventory_together::Holder::Store);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
