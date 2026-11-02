@@ -3598,11 +3598,77 @@ void main ()
         float d = dot(lit, n);
         c *= vec3(0.25) + vec3(0.75) * (nShow == 2 ? max(d, 0.0) : d);
     }
-    gl_FragColor = nShow == 1 ? vec4(abs(vT), 1.0) : vec4(c, 1.0);
+    gl_FragColor = nShow == 1 ? vec4(abs(vT), 1.0) : nShow == 4 ? vec4(vT * 0.5 + 0.5, 1.0) : vec4(c, 1.0);
 }
 "#;
     assets.shaders.insert("vs_uvset".into(), vs.into());
     assets.shaders.insert("fs_uvset".into(), fs.into());
+}
+
+/// The tangents the renderer makes are sharp across a mirrored seam, as
+/// the client's (`reading_tangents` in `client_render.rs`): a card whose
+/// texture runs u 0 to 1 to its middle and back, drawn by a custom pair
+/// (its MTR's render hint asking for tangents) painting the tangent's x,
+/// is +x (bright) on the west half and −x (dark) on the east to the
+/// middle's pixel. Summed across the seam, the middle's vertices had a
+/// tangent of neither, and the halves ran into each other over a quarter
+/// of the card.
+#[test]
+fn made_tangents_are_sharp_across_a_mirrored_seam() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_uv_set_pair(&mut assets);
+    assets.opaque("seam", [255, 255, 255]);
+    let mtr = "customshadervs vs_uvset\ncustomshaderfs fs_uvset\nparameter int nShow 4\n\
+        renderhint NormalAndSpecMapped\n";
+    assets.materials.insert("seam".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let mut card = quad();
+    if let NodeKind::Mesh(mesh) = &mut card.nodes[1].kind {
+        // (Standing, facing −y: x across, z up; its middle shared.)
+        mesh.vertices = vec![
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 2.0],
+            [0.0, 0.0, 2.0],
+            [1.0, 0.0, 2.0],
+        ];
+        mesh.normals = vec![[0.0, -1.0, 0.0]; 6];
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source = (0..6).collect();
+        mesh.faces = [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]
+            .map(|vertices| Face { vertices, material: 0 })
+            .to_vec();
+        mesh.textures[0] = Some("seam".into());
+    }
+    let card = Instance::new(Arc::new(GpuModel::new(&gpu, Arc::new(card))), Mat4::IDENTITY);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene { instances: vec![card], background: [0.0, 0.0, 0.0], ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&img, &mg_testkit::output_dir("render").join("made_tangents_seam.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 1);
+    // A row across the card's middle: bright to the middle, dark after.
+    let row: Vec<u8> = (0..64).map(|x| img.pixel(x, 32)[0]).collect();
+    let card_px: Vec<usize> = (0..64usize).filter(|&x| img.pixel(x as u32, 32)[1] > 0).collect();
+    let (first, last) = (card_px[0], *card_px.last().unwrap());
+    let middle = (first + last) / 2;
+    assert!(last - first > 30, "{row:?}");
+    for x in first..=last {
+        if x + 1 < middle {
+            assert!(row[x] >= 250, "west of the seam at {x}: {row:?}");
+        } else if x > middle + 1 {
+            assert!(row[x] <= 5, "east of the seam at {x}: {row:?}");
+        }
+    }
 }
 
 /// A custom shader reads every texture coordinate set of the mesh by the

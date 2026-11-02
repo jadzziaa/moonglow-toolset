@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:54:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -577,22 +577,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     MB at the area view's size), filled from the targets as the frame
     begins where the frame before was of the same view; a picture drawn
     once has no frame before. (S–M)
-  - The tangents the renderer makes (a mesh with a render hint and none
-    of its own) are summed per face (`made_tangents`): across a
-    mirrored UV seam they run smoothly where the client splits the seam
-    at load as the game's compiler does (a vertex whose handedness flips
-    copied, `engine_tangents`, MDL-MESH-043: read 2026-10-30,
-    `reading_tangents`, an ASCII card with a mirrored seam under a
-    custom pair painting its tangent and handedness, sharp in the
-    client). How: `mg_mdl::compile`'s `engine_tangents` already splits
-    as the compiler does (skin weights, dangly constraints and the source
-    maps copied with the vertex, an animated mesh's left); the renderer
-    would take its split with the made tangents' sums (so that a mesh
-    with no mirrored seam keeps every pixel), the copies at the end of
-    the mesh's vertices and its indices rewritten (`GpuModel::new`), and
-    the two readers that write a mesh's vertices a frame give the copies
-    their originals' (`Dangly`'s rest and limits, `animated_vertices`
-    by `source`). (S–M)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21)
