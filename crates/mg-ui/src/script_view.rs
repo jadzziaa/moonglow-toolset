@@ -2778,10 +2778,12 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             Named::Cancelled => None,
             Named::Chosen(k) => {
                 let data = Some(NEW_SCRIPT.as_bytes().to_vec());
-                app.actions.push(Action::Apply(Command::new(
+                let cmd = Command::new(
                     format!("New script {k}"),
                     vec![Edit::SetResource { key: k, data }],
-                )));
+                );
+                let made = crate::plugin_events::Made::resources("new-script", vec![k]);
+                app.actions.push(Action::ApplyMade(cmd, made));
                 app.actions.push(Action::OpenResource(k));
                 None
             }

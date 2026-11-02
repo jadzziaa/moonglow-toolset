@@ -882,6 +882,27 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
     Ok(t)
 }
 
+/// The lines of a text that differ between `old` and `new`, as
+/// `ctx.event.changed` gives them: what is between the lines they begin
+/// and end with alike, each line taken out (`12: - text`) and put in
+/// (`12: + text`) by its number, at most `most`.
+pub(crate) fn text_changes(old: &str, new: &str, most: usize) -> Vec<String> {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let head = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let tail =
+        (a[head..].iter().rev()).zip(b[head..].iter().rev()).take_while(|(x, y)| x == y).count();
+    let mut out = Vec::new();
+    for (i, l) in a[head..a.len() - tail].iter().enumerate() {
+        out.push(format!("{}: - {l}", head + i + 1));
+    }
+    for (i, l) in b[head..b.len() - tail].iter().enumerate() {
+        out.push(format!("{}: + {l}", head + i + 1));
+    }
+    out.truncate(most);
+    out
+}
+
 /// A setting's value as the plugin reads it.
 fn setting_value(lua: &Lua, v: &crate::SettingValue) -> mlua::Result<LuaValue> {
     Ok(match v {
@@ -1615,6 +1636,16 @@ fn event_table(
                                 let lines = mg_gff::diff(&a, &b, CHANGED_LINES);
                                 LuaValue::Table(lua.create_sequence_from(lines)?)
                             }
+                            // (A script or another text: its lines that
+                            // differ.)
+                            (false, _, _) => match (before.as_deref(), now().as_deref()) {
+                                (Some(a), Some(b)) => {
+                                    let text = |b: &[u8]| codepage().decode(b).into_owned();
+                                    let lines = text_changes(&text(a), &text(b), CHANGED_LINES);
+                                    LuaValue::Table(lua.create_sequence_from(lines)?)
+                                }
+                                _ => LuaValue::Nil,
+                            },
                             _ => LuaValue::Nil,
                         }
                     }

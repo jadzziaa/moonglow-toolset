@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:22Z }
 ---
 
 # Plugin API changes
@@ -50,6 +50,14 @@ refused, with the reason.
   a finding's fix whose button runs one of the plugin's commands on what
   the finding is about (`on`, or the finding's resource), which asks with
   its form. It records no edits; `mg verify --fix` does not make it.
+- Events: `resource-created` fires for the Script Wizard, New Script
+  (`by = "new-script"`), a new NUI window (`"new-nui"`) and an import
+  (`"import"`), and an event's `for` takes a resource's type (`nss`);
+  Save As asks the `resource-saving` handlers as Save does;
+  `ctx.event.changed` gives a script's (a text's) lines that differ;
+  the time at-once handlers have is set in Manage Plugins; `mg set` and
+  `mg apply` take `--strict`, and `mg rename`, `replace`, `areas`,
+  `update-instances` and `import` run the project's plugins' save events.
 - Settings of scope `user` are kept in Moonglow's own folder
   (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
   plugin run` a plugin reads the values the user set in the window, and

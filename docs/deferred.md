@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1236,40 +1236,12 @@ contribution itself states as not done or not checked.
   - **The 2DA editor's faults with fixes:** the 2DA editor is another
     package's this round; its faults offer no fix yet. Waits on that
     work. (S)
-  - **A resource's own events and the after-create hook** (API 0.4, the
-    Domains of Dread's builder proposal A4 and A6: `resource-saving`,
-    which warns of or refuses what a save would write, with fixes, in
-    the Before saving window; `resource-saved`; `object-placed`,
-    `object-pasted` and `resource-created`, whose edits join the user's
-    own command; a 5-second budget; `mg set` and `mg apply --plugins`;
-    `mg plugin run --event --was/--select/--by`; a test's `was`, `by`,
-    `warned`, `refused`). Not done: Save As (to another place) asks no
-    plugin, nor do the 2DA, talk table and hak editors' own saves, a
-    script's own Save, Build Module or `mg watch`; the custom palettes
-    Moonglow rebuilds at a save are not among what a handler reads;
-    what fires `resource-created` is the Area Wizard, the creature and
-    blueprint wizards, Add to Palette, Setup Store and Copy (Copy As,
-    Edit Copy), not the Script Wizard, New Script, a NUI window, an
-    import or what a plugin makes, and `object-placed` is a palette's
-    blueprint, the Placeable Gallery, a light, Create Waypoint and Setup
-    Store's store, not a spawn point, the start location or an
-    encounter's points; a handler of a placing, a paste or a making can
-    only edit and log (no warning beside what was made, no refusing a
-    paste); a fix in the Before saving window is made one at a time, the
-    save asked again after each; "as it was" is as each file was read
-    (a module folder, a project) or, for a module kept in one file, as
-    it was at the last save or opening, in this run; `ctx.event.changed`
-    says what differs in a GFF only (100 lines at most), not in a
-    script's text; the budget is fixed (5 seconds), not a setting, and a
-    handler is stopped between steps of its code, not inside a long call
-    of the API (a large `ctx.module:gff`); `mg` runs a save's events for
-    `mg set` and `mg apply` alone (not `mg areas`, `mg rename`, `mg
-    replace`, `mg update-instances`, `mg import`, `mg verify --fix` or a
-    plugin command's own save), and a warning there never fails it (no
-    `--strict`). Driven through the UI harness (a save refused, warned
-    of, its fix made, Save Anyway and Cancel; a paste and a copy edited,
-    one Undo), with rendered pictures of the window warning and
-    refusing; not used on a desktop. (S each)
+  - **A resource's own events, on a desktop** (API 0.4, A4 and A6; since
+    3.3.0 Save As asked, more makers firing `resource-created`, a
+    script's changed lines, the time a setting, `--strict`, and mg's
+    other saving commands asking the project's plugins): driven through
+    the UI harness, not used on a desktop. Waits on a desktop session.
+    (S)
   - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
     test`). Not done: what a plugin writes outside the module (haks, a
     chosen folder) is not written and not held to anything; a command's
@@ -1631,6 +1603,25 @@ is not taken for a new gap.
   but Mark as Used, there already; the tileset editor's faults are of a
   tileset being made, edited in its own fields. Fixes of different
   checks are made one at a time, or a check's all at once (Fix All).
+
+- **What a resource's own events are not for** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a save of what is no resource
+  of the module (a hak's, a talk table's, a 2DA file's own editor) asks
+  no plugin, whose events are of the module's resources; a script's Save
+  puts its text into the module, and the module's save is asked; Build
+  Module and `mg watch` write a build and a development folder, not the
+  module; the custom palettes Moonglow makes again at a save are made
+  from the blueprints a handler reads already. What a plugin makes
+  itself fires none (or plugins would answer each other), and spawn
+  points, the start location and an encounter's points are no placed
+  objects. A handler of a placing, a paste or a making edits and logs:
+  warning of or refusing what the user just did is the save's to do,
+  where the Before saving window asks. A fix there is made one at a
+  time, the save asked again on what it now is; "as it was" is as each
+  file was last read or saved (a module kept in one file: as it was
+  saved or opened, in this run), what the window can know. A handler is
+  stopped between steps of its code: a call of the API is Rust code that
+  runs to its end, and the time is looked at when it returns.
 
 - **What a plugin's command is not offered on** (the deferred list's
   "Plugins, beyond API 0.4", 2026-11-01): a trigger's or an encounter's

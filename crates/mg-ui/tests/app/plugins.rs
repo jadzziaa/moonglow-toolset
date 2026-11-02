@@ -1707,6 +1707,19 @@ fn a_plugin_refuses_a_save_and_says_why() {
             && m == "House rules: tavern.are: its tag was TAVERN, now INN: players' places are kept by it"),
         "{log:#?}"
     );
+    // Save As (to another place) is asked about as Save is: refused,
+    // nothing is written there.
+    let elsewhere = mg_testkit::scratch_dir("ui-plugin-save-as").join("copy.mod");
+    let _ = std::fs::remove_file(&elsewhere);
+    h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Archive(elsewhere.clone())));
+    h.run_steps(3);
+    h.get_by_label("Refused");
+    assert!(!elsewhere.exists(), "nothing written there");
+    // The time what plugins do at once may take: 5 s, or as Manage
+    // Plugins sets it.
+    assert_eq!(h.state().plugin_event_budget(), std::time::Duration::from_secs(5));
+    h.state_mut().settings.plugin_event_seconds = 12;
+    assert_eq!(h.state().plugin_event_budget(), std::time::Duration::from_secs(12));
 }
 
 /// A plugin's warning about what a save would write is asked about before
@@ -1753,6 +1766,48 @@ fn a_plugin_warns_before_a_save() {
     h.run();
     h.get_by_label_contains("before a save, reads each resource it writes (are)");
     h.get_by_label_contains("when objects (waypoint) are pasted: may change them");
+}
+
+/// New Script fires `resource-created` (API 0.5's `for = "nss"`): the
+/// plugin's edit of the script goes in with it.
+#[test]
+fn a_new_script_is_made_for_the_plugins_to_see() {
+    let plugins = mg_testkit::scratch_dir("ui-plugin-made-script-plugins");
+    let dir = plugins.join("made");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.scripts\"\nname = \"Scripts\"\nversion = \"1\"\napi = \"0.5\"\n\
+         license = \"MIT\"\n[event]\nid = \"made\"\non = \"resource-created\"\nfor = \"nss\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.on("made", function(ctx)
+            local e = ctx.event
+            ctx.edit:write(e.resource, "// header\n" .. ctx.module:text(e.resource))
+            ctx.log:info(`{e.resource} by {e.by}`)
+        end)
+        "#,
+    )
+    .unwrap();
+    let Some((mut h, _)) = plugin_harness("ui-plugin-made-script", false) else { return };
+    h.state_mut().plugin_dir = Some(plugins);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.scripts", true);
+    h.run();
+    h.state_mut().new_script = Some("fresh".into());
+    h.run();
+    h.get_by_label("Create").click();
+    h.run_steps(3);
+    let key = ResKey::parse("fresh", ResType::NSS).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let text = String::from_utf8_lossy(ws.module.get(&key).unwrap()).into_owned();
+    assert!(text.starts_with("// header\n"), "{text}");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Scripts: fresh.nss by new-script"));
 }
 
 /// What a plugin does on a resource made (a copy here; a wizard's alike):

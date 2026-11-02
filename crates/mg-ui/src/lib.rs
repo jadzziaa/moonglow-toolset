@@ -213,6 +213,9 @@ pub enum Action {
     ApplyOptions(Box<OptionsDraft>),
     Save,
     SaveAsDialog,
+    /// Saves the module to another place (Save As's), once the plugins'
+    /// `resource-saving` handlers have had their say.
+    SaveAt(ModuleLocation),
     /// File › Save As nasher Project…: the module into a nasher project
     /// (made in the folder chosen if it has none).
     SaveAsProjectDialog,
@@ -3635,6 +3638,12 @@ impl Moonglow {
                     } else {
                         ModuleLocation::Folder(p)
                     };
+                    self.run_now(Action::SaveAt(loc));
+                }
+            }
+            Action::SaveAt(loc) => {
+                // (What the plugins say of what it writes, as for Save.)
+                if !plugin_events::hold_save(self, Action::SaveAt(loc.clone())) {
                     self.save(Some(loc));
                 }
             }

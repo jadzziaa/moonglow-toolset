@@ -120,6 +120,10 @@ pub enum Pane {
     Area(mg_core::ResRef),
 }
 
+/// The most seconds the handlers of an event that runs at once may be
+/// given.
+const MOST_EVENT_SECONDS: u32 = 120;
+
 /// What a folder of plugins holds, as a number that changes when a file
 /// in it is added, removed, written or renamed (none: no such folder).
 fn folder_stamp(dir: &Path) -> Option<u64> {
@@ -628,6 +632,15 @@ impl Moonglow {
         said.dedup();
         for s in said {
             self.log.warn(s);
+        }
+    }
+
+    /// How long the handlers of an event that runs at once may take
+    /// (Manage Plugins; the default [`mg_plugin::EVENT_BUDGET`]).
+    pub fn plugin_event_budget(&self) -> std::time::Duration {
+        match self.settings.plugin_event_seconds {
+            0 => mg_plugin::EVENT_BUDGET,
+            s => std::time::Duration::from_secs(u64::from(s.clamp(1, MOST_EVENT_SECONDS))),
         }
     }
 
@@ -1879,6 +1892,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                  change it.",
                 mg_plugin::API
             ));
+            // How long what plugins do within a save, a paste or a
+            // wizard's Finish may take.
+            ui.horizontal(|ui| {
+                let mut seconds = app.plugin_event_budget().as_secs() as u32;
+                crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
+                    "How long each plugin's handlers of a save, a paste or a wizard's Finish \
+                         may take, which wait for them; past it, they are stopped (and a save \
+                         goes on)",
+                );
+                let r = ui.add(
+                    egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"),
+                );
+                if r.changed() {
+                    app.settings.plugin_event_seconds = seconds;
+                }
+            });
             ui.add_space(4.0);
             // The buttons first, the folder under them: its path may be
             // longer than the window is wide.

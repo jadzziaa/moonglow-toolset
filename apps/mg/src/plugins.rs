@@ -989,11 +989,14 @@ pub(crate) fn run(
     }
     let cmd = Command::new(outcome.label, outcome.edits);
     let module = m.clone();
-    let mut out =
-        match super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None) {
-            Ok(out) => out,
-            Err(e) => return Err(take_back(&mut written, e)),
-        };
+    // (Its save asks the project's own plugins, as `mg set`'s does.)
+    let guard = save_guard(gi, &m, &[], &mut notes)?;
+    let ran =
+        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, guard.as_ref());
+    let mut out = match ran {
+        Ok(out) => out,
+        Err(e) => return Err(take_back(&mut written, e)),
+    };
     let kept = keep_settings(&plugin, &module, &outcome.settings, dry_run, &mut notes)?;
     if let serde_json::Value::Object(o) = &mut out.json {
         if !kept.is_empty() {
@@ -1126,6 +1129,8 @@ pub(crate) fn findings(
 pub(crate) struct SaveGuard {
     plugins: Vec<(Plugin, mg_plugin::Settings)>,
     game: Option<Arc<GameData>>,
+    /// A warning stops the save too (`--strict`).
+    strict: bool,
 }
 
 /// The plugins that look at what `mg set` or `mg apply` saves, if any
@@ -1162,10 +1167,17 @@ pub(crate) fn save_guard(
         with.push((p, settings));
     }
     let game = game_for(gi, m, &mut Output::default());
-    Ok(Some(SaveGuard { plugins: with, game }))
+    Ok(Some(SaveGuard { plugins: with, game, strict: false }))
 }
 
 impl SaveGuard {
+    /// With `on`, a plugin's warning of the save stops it, as a refusal
+    /// does (`--strict`).
+    pub(crate) fn strict(mut self, on: bool) -> SaveGuard {
+        self.strict = on;
+        self
+    }
+
     /// Runs the handlers of `kind` on what the save writes (`now` against
     /// `was`): what they said, as JSON, and as notes; a plugin that fails
     /// is a warning.
@@ -1221,6 +1233,9 @@ impl SaveGuard {
         };
         let refused: Vec<String> = said.iter().filter(|(_, s)| s.refused).map(line).collect();
         let warned: Vec<String> = said.iter().filter(|(_, s)| !s.refused).map(line).collect();
+        if refused.is_empty() && self.strict && !warned.is_empty() {
+            bail!("not saved (--strict): a plugin warns of it\n  {}", warned.join("\n  "));
+        }
         if !refused.is_empty() {
             let mut why = format!("not saved: a plugin refuses it\n  {}", refused.join("\n  "));
             if !warned.is_empty() {

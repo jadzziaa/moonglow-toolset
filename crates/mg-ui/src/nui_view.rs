@@ -318,13 +318,17 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
         [ResType::JUI, ResType::TXT].iter().filter_map(|ty| ResKey::parse(name, *ty)).collect();
     say_left_out(app, name, &files);
     let Some(ws) = &app.ws else { return };
-    match mg_nui::create(&ws.module, name) {
-        Ok(cmd) => match app.apply(cmd) {
-            Ok(()) => app.actions.extend(
-                ResKey::parse(name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key))),
-            ),
-            Err(e) => app.log.error(e.to_string()),
-        },
+    let cmd = match mg_nui::create(&ws.module, name) {
+        Ok(cmd) => cmd,
+        Err(e) => return app.log.error(e.to_string()),
+    };
+    // (A window made: the plugins' resource-created handlers see it.)
+    let made = crate::plugin_events::Made::new_in(ws, &cmd, "new-nui");
+    let cmd = crate::plugin_events::with_plugins(app, cmd, &made);
+    match app.apply(cmd) {
+        Ok(()) => app.actions.extend(
+            ResKey::parse(name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key))),
+        ),
         Err(e) => app.log.error(e.to_string()),
     }
 }
@@ -381,6 +385,12 @@ fn bring_in(app: &mut Moonglow, windows: &[mg_nui::import::Incoming]) {
         say_left_out(app, &w.name, &w.resources);
     }
     let made = mg_nui::import::command(windows);
+    // (Imported: the plugins' resource-created handlers see what is new.)
+    let new = app.ws.as_ref().map(|ws| crate::plugin_events::Made::new_in(ws, &made, "import"));
+    let made = match new {
+        Some(new) => crate::plugin_events::with_plugins(app, made, &new),
+        None => made,
+    };
     if !made.edits.is_empty()
         && let Err(e) = app.apply(made)
     {

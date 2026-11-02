@@ -1151,6 +1151,9 @@ enum Cmd {
         /// own plugins do too, as you allowed them.
         #[arg(long)]
         plugins: Vec<PathBuf>,
+        /// A plugin's warning of the save stops it too, as a refusal does.
+        #[arg(long)]
+        strict: bool,
     },
     /// Apply a file of edits (JSON: fields set and removed, list items
     /// inserted and removed, resources written and removed) to a module and
@@ -1165,6 +1168,9 @@ enum Cmd {
         /// Plugins whose handlers look at what is saved, as for `mg set`.
         #[arg(long)]
         plugins: Vec<PathBuf>,
+        /// A plugin's warning of the save stops it too, as a refusal does.
+        #[arg(long)]
+        strict: bool,
     },
 }
 
@@ -2176,21 +2182,21 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes.splice(0..0, notes.notes);
             out
         }
-        Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
+        Cmd::Set { module, resource, fields, remove, dry_run, plugins, strict } => {
             let m = crate::open_module(module)?;
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
-            let guard = save_guard(cli, &m, plugins, &mut notes)?;
+            let guard = save_guard(cli, &m, plugins, &mut notes)?.map(|g| g.strict(*strict));
             let mut out =
                 edits::set(m, resource, fields, remove, *dry_run, codepage, guard.as_ref())?;
             out.notes.splice(0..0, notes.notes);
             out
         }
-        Cmd::Apply { module, edits, dry_run, plugins } => {
+        Cmd::Apply { module, edits, dry_run, plugins, strict } => {
             let m = crate::open_module(module)?;
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
-            let guard = save_guard(cli, &m, plugins, &mut notes)?;
+            let guard = save_guard(cli, &m, plugins, &mut notes)?.map(|g| g.strict(*strict));
             let mut out = edits::apply(m, edits, *dry_run, codepage, guard.as_ref())?;
             out.notes.splice(0..0, notes.notes);
             out
@@ -3073,6 +3079,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 return nui::rename(cli, module, &from.resref.to_string(), to, *strings);
             }
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
             let mut out = Output::default();
@@ -3082,7 +3090,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 let results = mg_module::rename::recompile(&mut m, &rm, &report, None, false);
                 compile = compiled(&mut out, &results);
             }
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             let codepage = scripts_codepage(cli, &m);
             let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true, codepage);
             for x in &left {
@@ -3272,6 +3280,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 kinds = TextKind::PLAYERS.to_vec();
             }
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let game = Some(module_codepage(cli, &m));
             let o =
                 Options { match_case: *match_case, whole_word: *whole_word, regex: *regex, game };
@@ -3309,7 +3319,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 for w in edits::objects_made_twice(&m, &tags) {
                     out.note(w);
                 }
-                m.save()?;
+                save_asked(cli, &was, &mut m, &mut out)?;
                 replaced = n;
                 out.note(format!("replaced {n} times in {} strings", hits.len() - errors.len()));
             }
@@ -3387,6 +3397,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 changes.push(Change::DynamicPlaceables);
             }
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let mut out = Output::default();
             // The game's data where there is a game: the areas' names as
             // the module tree shows them, and the rows named.
@@ -3650,7 +3662,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     ));
                 } else {
                     if !done.is_empty() {
-                        m.save()?;
+                        save_asked(cli, &was, &mut m, &mut out)?;
                     }
                     out.note(format!("changed {} of {} areas chosen", changed.len(), chosen.len()));
                 }
@@ -3687,6 +3699,8 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::UpdateInstances { module, blueprints, area } => {
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let gi = install(cli)?;
             let wanted: Vec<ResKey> = if blueprints.is_empty() {
                 m.keys()
@@ -3749,7 +3763,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             if total > 0 {
-                m.save()?;
+                save_asked(cli, &was, &mut m, &mut out)?;
             }
             out.json = json!({ "updated": total, "areas": by_area, "blueprints": wanted.len() });
             out.note(format!("updated {total} objects from {} blueprints", wanted.len()));
@@ -3877,6 +3891,8 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Import { module, erf, overwrite } => {
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let data = std::fs::read(erf)?;
             let gi = install(cli)?;
             let mut out = Output::default();
@@ -3900,7 +3916,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 out.note(format!("warning: {w}"));
             }
             let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
             out.json = json!({
                 "added": names(&s.added),
@@ -4392,6 +4408,22 @@ fn save_guard(
     plugins::save_guard(gi.as_ref(), m, dirs, out)
 }
 
+/// Saves a module a command changed, as `mg set` saves: the project's own
+/// plugins (as the builder allowed them) are asked first (`resource-saving`:
+/// a refusal stops it, nothing written) and told after (`resource-saved`),
+/// of what differs from `was`.
+fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Result<()> {
+    let guard = save_guard(cli, m, &[], out)?;
+    if let Some(g) = &guard {
+        g.before(was, m, out)?;
+    }
+    m.save()?;
+    if let Some(g) = &guard {
+        g.after(was, m, out);
+    }
+    Ok(())
+}
+
 /// An export's stamp ([`mg_module::stamp`]) as JSON.
 fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
     serde_json::json!({
@@ -4478,6 +4510,7 @@ struct Fixes<'a> {
 /// [`mg_edit::fix::Guard`]) and saves. The findings fixed, by place in
 /// `found`, and the report's lines and JSON.
 fn make_fixes(
+    gi: &GameInstall,
     m: &Module,
     found: &[mg_edit::fix::Found],
     asked: &Fixes<'_>,
@@ -4556,7 +4589,16 @@ fn make_fixes(
         }
     }
     if !fixed.is_empty() && !asked.dry_run {
+        // (The project's own plugins asked first, as `mg set` asks them.)
+        ws.flush()?;
+        let guard = plugins::save_guard(Some(gi), m, &[], out)?;
+        if let Some(g) = &guard {
+            g.before(m, &ws.module, out)?;
+        }
         ws.save()?;
+        if let Some(g) = &guard {
+            g.after(m, &ws.module, out);
+        }
     }
     let made = serde_json::json!({ "made": made, "refused": refused, "dry_run": asked.dry_run });
     Ok((fixed, made, lines))
@@ -4636,7 +4678,7 @@ fn verify(
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {
-        make_fixes(&m, &found, asked, &declared, &mut out)?
+        make_fixes(gi, &m, &found, asked, &declared, &mut out)?
     };
     let findings: Vec<&mg_module::doctor::Finding> = found.iter().map(|f| &f.finding).collect();
     let errors = missing.iter().filter(|x| x.is_error()).count()

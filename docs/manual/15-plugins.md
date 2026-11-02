@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:21Z }
 ---
 
 # Plugins
@@ -283,16 +283,18 @@ writes nothing. A **refusal** stops the save: the window says why, and
 **Close** leaves the module unsaved. Beside either, a plugin may offer a
 fix (Put back TAVERN); clicking it makes the change, as a step Edit ›
 Undo takes back, and saves again, the plugins reading the module as it
-now is. Before a save a plugin never changes the module itself: you
-save what you see. A plugin that fails, or takes longer than it may (5
-seconds), is a warning in that window ("could not check the save"),
+now is. Save As is asked about as Save is. Before a save a plugin never
+changes the module itself: you save what you see. A plugin that fails,
+or takes longer than it may (5 seconds, or as Manage Plugins' **Time
+within a save or a paste** sets it), is a warning in that window ("could not check the save"),
 never a refusal, so a broken plugin never keeps you from saving
 (disable it in Manage Plugins). After a save, a plugin may read what
 was written (to copy it somewhere you chose, say).
 
 **On a paste, and on what a wizard makes.** When you place or paste
 objects in an area, or a wizard (area, creature, item, placeable,
-door…), Add to Palette, Setup Store or Copy makes something, a plugin
+door…, the Script Wizard), Add to Palette, Setup Store, Copy, New
+Script, a new NUI window or an import makes something, a plugin
 may change what was made at once: give a pasted waypoint a tag of its
 own, put the team's variable on a new area. Moonglow's own work comes
 first (your builder code in the ResRef, the project's store script),

@@ -873,6 +873,40 @@ fn a_plugin_refuses_or_warns_of_what_mg_saves() {
         notes.contains("warning: House rules: tavern.are: its tag was TAVERN, now Inn"),
         "{out}"
     );
+    // --strict: a warning stops the save too.
+    let (ok, out) = mg(&[
+        "set",
+        dir.to_str().unwrap(),
+        "tavern.are",
+        "Tag=Hall",
+        "--strict",
+        "--plugins",
+        rules.to_str().unwrap(),
+    ]);
+    assert!(!ok);
+    assert!(out["error"].as_str().unwrap().contains("not saved (--strict): a plugin warns"));
+    assert_eq!(area_tag(&dir), "Inn", "nothing written");
+
+    // The project's own plugin, allowed, is asked by mg's other saving
+    // commands too (mg replace here): its refusal writes nothing.
+    let dir = tavern("mg-plugin-save-replace", "");
+    let home = dir.join("home");
+    let into = dir.join("plugins/house-rules");
+    std::fs::create_dir_all(&into).unwrap();
+    for f in std::fs::read_dir(&rules).unwrap().flatten() {
+        if f.file_type().unwrap().is_file() {
+            std::fs::copy(f.path(), into.join(f.file_name())).unwrap();
+        }
+    }
+    let (ok, out) = mg_at(&home, &["plugin", "allow", dir.to_str().unwrap()]);
+    assert!(ok, "{out}");
+    let (ok, out) = mg_at(
+        &home,
+        &["replace", dir.to_str().unwrap(), "TAVERN", "INN", "--only", "tags", "--match-case"],
+    );
+    assert!(!ok, "{out}");
+    assert!(out["error"].as_str().unwrap().contains("not saved: a plugin refuses it"), "{out}");
+    assert_eq!(area_tag(&dir), "TAVERN", "nothing written");
 }
 
 /// `mg plugin run --event` runs the new events' handlers by hand: a save's

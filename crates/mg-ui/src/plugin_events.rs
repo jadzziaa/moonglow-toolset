@@ -24,7 +24,7 @@ use mg_edit::fix::Fix;
 use mg_edit::{Command, Workspace};
 use mg_module::ModuleLocation;
 use mg_plugin::{
-    EVENT_BUDGET, Event, EventKind, Host, Input, Plugin, PluginError, Question, Selected, run_event,
+    Event, EventKind, Host, Input, Plugin, PluginError, Question, Selected, run_event,
 };
 use mg_resman::ResKey;
 
@@ -48,6 +48,21 @@ impl Made {
     /// Resources made by `by`.
     pub fn resources(by: &'static str, resources: Vec<ResKey>) -> Made {
         Made { by, resources, objects: Vec::new(), pasted: false }
+    }
+
+    /// The resources `cmd` makes (those it writes that the module of `ws`
+    /// lacks), made by `by`.
+    pub fn new_in(ws: &mg_edit::Workspace, cmd: &Command, by: &'static str) -> Made {
+        let mut made = Vec::new();
+        for e in &cmd.edits {
+            if let mg_edit::Edit::SetResource { key, data: Some(_) } = e
+                && !ws.module.contains(key)
+                && !made.contains(key)
+            {
+                made.push(*key);
+            }
+        }
+        Made::resources(by, made)
     }
 
     /// Objects placed (or `pasted`) by `by`.
@@ -143,7 +158,7 @@ fn run_at_once(
     let host = Rc::new(AtOnce::default());
     let input = Input {
         settings: Some(settings),
-        budget: Some(EVENT_BUDGET),
+        budget: Some(app.plugin_event_budget()),
         ..Input::new(module, app.game.clone())
     };
     let made = run_event(plugin, id, event, input, host.clone());
