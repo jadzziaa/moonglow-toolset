@@ -45,6 +45,18 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.3.0" date="2026-11-02">
+      <description>
+        <p>Moonglow installs its own updates, checked against the
+        project's signature. Text typed into names, descriptions and
+        conversations can go into the module's talk table. Edit Together
+        edits lists across several blueprints, and typing in very large
+        scripts keeps up. The 2DA editor, Advanced Search and the palettes
+        do more, plugins can add exporters, importers, wizards and panels
+        (plugin API 0.6), and shadows, see-through meshes, custom shaders
+        and textures draw closer to the game.</p>
+      </description>
+    </release>
     <release version="3.2.0" date="2026-11-01">
       <description>
         <p>The area view can draw the tile border past an area's edge, as
