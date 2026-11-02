@@ -59,6 +59,7 @@ pub mod paint_mode;
 pub mod palette_categories;
 pub mod palette_view;
 pub mod plugin_events;
+pub mod plugin_kinds;
 pub mod plugins;
 pub mod prefabs;
 mod project_commands;
@@ -248,6 +249,13 @@ pub enum Action {
         plugin: String,
         command: String,
         selected: Vec<mg_plugin::Selected>,
+    },
+    /// Runs a plugin's exporter, importer or wizard (API 0.6), or shows
+    /// its panel (or, shown, closes it).
+    RunPluginEntry {
+        kind: plugin_kinds::Added,
+        plugin: String,
+        id: String,
     },
     /// Makes the fix offered beside this line of the log (a finding of
     /// Verify Module's), as one undoable command.
@@ -1486,6 +1494,7 @@ impl Moonglow {
         self.poll_job(ui.ctx());
         updates::frame(self, ui.ctx());
         self.next_plugin_event();
+        self.panels_frame(ui.ctx());
         // (Before the menus and the toolbar, which are drawn before the
         // editor: they see the keys it had.)
         script_view::undo_target(self, ui.ctx());
@@ -3957,6 +3966,9 @@ impl Moonglow {
             Action::RunPluginCommand { plugin, command, selected } => {
                 self.run_plugin_command_on(&plugin, &command, selected);
             }
+            Action::RunPluginEntry { kind, plugin, id } => {
+                self.run_plugin_entry(kind, &plugin, &id);
+            }
             Action::DynamicPlaceables(areas) => self.dynamic_placeables(&areas),
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
@@ -5691,6 +5703,9 @@ impl Moonglow {
         if Arc::strong_count(game) == 1 {
             return;
         }
+        // (The panels' renders hold it: stopped, to be drawn again.)
+        self.plugins.stop_panels();
+        let Some(game) = &self.game else { return };
         if let Some(vp) = &mut self.viewport {
             vp.release_game_data();
         }

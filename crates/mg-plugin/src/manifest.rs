@@ -9,13 +9,13 @@ pub use mg_module::project_plugins::SettingValue;
 use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.5";
+pub const API: &str = "0.6";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 5] = ["0.1", "0.2", "0.3", "0.4", "0.5"];
+pub const APIS: [&str; 6] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"];
 
 /// What a manifest says.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Manifest {
     /// Its id, the same wherever it is installed (`author.plugin-name`).
     pub id: String,
@@ -36,6 +36,222 @@ pub struct Manifest {
     /// The values it keeps (API 0.4), which the user can set in the
     /// Plugins window and it reads as `ctx.settings`.
     pub settings: Vec<SettingDecl>,
+    /// What it exports, imports, asks page by page and shows in a pane
+    /// (API 0.6).
+    pub exporters: Vec<ExporterDecl>,
+    pub importers: Vec<ImporterDecl>,
+    pub wizards: Vec<WizardDecl>,
+    pub panels: Vec<PanelDecl>,
+}
+
+/// An exporter a plugin adds to File › Export (API 0.6): it writes a file
+/// or a folder the user chooses, of the module or of what is selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExporterDecl {
+    pub id: String,
+    pub title: String,
+    pub hint: String,
+    /// It writes into a folder (`to = "folder"`), else one file.
+    pub folder: bool,
+    /// The file's extension, without the dot (the save dialog's filter
+    /// and the name it suggests); empty for any.
+    pub extension: String,
+    /// What it exports (`for`): what is selected, of these kinds. None:
+    /// the module.
+    pub targets: Vec<Target>,
+}
+
+/// An importer a plugin adds to File › Import (API 0.6): it reads a file
+/// or a folder the user chooses into the module, as one step of Undo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImporterDecl {
+    pub id: String,
+    pub title: String,
+    pub hint: String,
+    /// It reads a folder (`from = "folder"`), else one file.
+    pub folder: bool,
+    /// The extensions of the files it reads, without dots (none: any).
+    pub extensions: Vec<String>,
+}
+
+/// A wizard a plugin adds to the Wizards menu (API 0.6): pages of a form,
+/// its edits made at Finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WizardDecl {
+    pub id: String,
+    pub title: String,
+    pub hint: String,
+}
+
+/// A panel a plugin adds (API 0.6): a pane showing what its code returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelDecl {
+    pub id: String,
+    pub title: String,
+    pub hint: String,
+    /// Drawn again after each change of the module (`refresh = "edits"`).
+    pub on_edits: bool,
+    /// Drawn again when what is selected changes (`"selection"`).
+    pub on_selection: bool,
+}
+
+impl Manifest {
+    /// The ids of what it declares of a kind (`command`, `check`, `event`,
+    /// `exporter`, `importer`, `wizard`, `panel`), in its order.
+    pub fn ids(&self, kind: &str) -> Vec<&str> {
+        match kind {
+            "command" => self.commands.iter().map(|c| c.id.as_str()).collect(),
+            "check" => self.checks.iter().map(|c| c.id.as_str()).collect(),
+            "event" => self.events.iter().map(|c| c.id.as_str()).collect(),
+            "exporter" => self.exporters.iter().map(|c| c.id.as_str()).collect(),
+            "importer" => self.importers.iter().map(|c| c.id.as_str()).collect(),
+            "wizard" => self.wizards.iter().map(|c| c.id.as_str()).collect(),
+            "panel" => self.panels.iter().map(|c| c.id.as_str()).collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// The kinds of thing a plugin's code registers: each kind's name, the
+/// function of `mg` that registers one (`mg.command`), and where they are
+/// kept.
+pub(crate) const KINDS: [(&str, &str, &str); 7] = [
+    ("command", "command", "mg.commands"),
+    ("check", "check", "mg.checks"),
+    ("event", "on", "mg.events"),
+    ("exporter", "exporter", "mg.exporters"),
+    ("importer", "importer", "mg.importers"),
+    ("wizard", "wizard", "mg.wizards"),
+    ("panel", "panel", "mg.panels"),
+];
+
+/// A list in a manifest's value (`"csv, txt"`), each part trimmed.
+fn list_of(value: &str) -> Vec<String> {
+    value.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()
+}
+
+/// An extension as a manifest gives it: letters and digits, no dot.
+fn extension_of(s: &Section, value: &str) -> Result<String, String> {
+    let e = value.trim().trim_start_matches('.').to_ascii_lowercase();
+    if e.len() > 16 || !e.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("line {}: {value:?} is no file's extension (csv, json…)", s.line));
+    }
+    Ok(e)
+}
+
+/// `to` or `from`: a file (the default) or a folder.
+fn file_or_folder(s: &Section, key: &str, value: &str) -> Result<bool, String> {
+    match value {
+        "" | "file" => Ok(false),
+        "folder" => Ok(true),
+        other => Err(format!(
+            "line {}: [{}]'s {key} is \"file\" or \"folder\", not {other:?}",
+            s.line, s.name
+        )),
+    }
+}
+
+/// An `[exporter]`, `[importer]`, `[wizard]` or `[panel]` section read.
+fn kind_0_6(s: &Section, m: &mut Manifest) -> Result<(), String> {
+    let seen = |ids: Vec<&str>, id: &str| {
+        if ids.contains(&id) {
+            Err(format!("line {}: a second {} {id:?}", s.line, s.name))
+        } else {
+            Ok(())
+        }
+    };
+    match s.name.as_str() {
+        "exporter" => {
+            let get = keys(s, &["id", "title", "hint", "to", "extension", "for"])?;
+            let id = id_of(s, get("id"))?;
+            seen(m.ids("exporter"), &id)?;
+            let folder = file_or_folder(s, "to", get("to"))?;
+            let extension = extension_of(s, get("extension"))?;
+            if folder && !extension.is_empty() {
+                return Err(format!(
+                    "line {}: an exporter to a folder has no extension (its code names its \
+                     files)",
+                    s.line
+                ));
+            }
+            let targets = targets_of(s)?;
+            if let Some(t) = targets.iter().find(|t| matches!(t, Target::Resource(_))) {
+                return Err(format!(
+                    "line {}: an exporter is for objects, areas or tiles selected, not {:?}",
+                    s.line,
+                    t.name()
+                ));
+            }
+            m.exporters.push(ExporterDecl {
+                id,
+                title: required(s, "title", get("title"))?.to_string(),
+                hint: get("hint").to_string(),
+                folder,
+                extension,
+                targets,
+            });
+        }
+        "importer" => {
+            let get = keys(s, &["id", "title", "hint", "from", "extensions"])?;
+            let id = id_of(s, get("id"))?;
+            seen(m.ids("importer"), &id)?;
+            let folder = file_or_folder(s, "from", get("from"))?;
+            let extensions = (list_of(get("extensions")).iter())
+                .map(|e| extension_of(s, e))
+                .collect::<Result<Vec<_>, _>>()?;
+            if folder && !extensions.is_empty() {
+                return Err(format!(
+                    "line {}: an importer from a folder has no extensions (it reads the \
+                     folder's files)",
+                    s.line
+                ));
+            }
+            m.importers.push(ImporterDecl {
+                id,
+                title: required(s, "title", get("title"))?.to_string(),
+                hint: get("hint").to_string(),
+                folder,
+                extensions,
+            });
+        }
+        "wizard" => {
+            let get = keys(s, &["id", "title", "hint"])?;
+            let id = id_of(s, get("id"))?;
+            seen(m.ids("wizard"), &id)?;
+            m.wizards.push(WizardDecl {
+                id,
+                title: required(s, "title", get("title"))?.to_string(),
+                hint: get("hint").to_string(),
+            });
+        }
+        _ => {
+            let get = keys(s, &["id", "title", "hint", "refresh"])?;
+            let id = id_of(s, get("id"))?;
+            seen(m.ids("panel"), &id)?;
+            let (mut on_edits, mut on_selection) = (false, false);
+            for when in list_of(get("refresh")) {
+                match when.as_str() {
+                    "edits" => on_edits = true,
+                    "selection" => on_selection = true,
+                    other => {
+                        return Err(format!(
+                            "line {}: a panel's refresh is \"edits\", \"selection\" or both, \
+                             not {other:?}",
+                            s.line
+                        ));
+                    }
+                }
+            }
+            m.panels.push(PanelDecl {
+                id,
+                title: required(s, "title", get("title"))?.to_string(),
+                hint: get("hint").to_string(),
+                on_edits,
+                on_selection,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// A setting a plugin keeps: a value of one kind, kept where its scope
@@ -836,6 +1052,10 @@ impl Manifest {
         let (mut commands, mut checks) = (Vec::<CommandDecl>::new(), Vec::<CheckDecl>::new());
         let mut events = Vec::<EventDecl>::new();
         let mut settings = Vec::<SettingDecl>::new();
+        // (What API 0.6 added, read into a manifest of its own, and the
+        // first section of it, for the error of an earlier `api`.)
+        let mut of_0_6 = Manifest::default();
+        let mut since_0_6: Option<(usize, String)> = None;
         for s in &all {
             match s.name.as_str() {
                 "plugin" => {
@@ -893,6 +1113,10 @@ impl Manifest {
                         checks: Vec::new(),
                         events: Vec::new(),
                         settings: Vec::new(),
+                        exporters: Vec::new(),
+                        importers: Vec::new(),
+                        wizards: Vec::new(),
+                        panels: Vec::new(),
                     });
                 }
                 "command" => {
@@ -984,10 +1208,14 @@ impl Manifest {
                     }
                     settings.push(decl);
                 }
+                "exporter" | "importer" | "wizard" | "panel" => {
+                    since_0_6.get_or_insert((s.line, s.name.clone()));
+                    kind_0_6(s, &mut of_0_6)?;
+                }
                 other => {
                     return Err(format!(
                         "line {}: no section [{other}] (there are [plugin], [command], [check], \
-                         [event] and [setting])",
+                         [event], [setting], [exporter], [importer], [wizard] and [panel])",
                         s.line
                     ));
                 }
@@ -1051,6 +1279,18 @@ impl Manifest {
                 d.id, plugin.api
             ));
         }
+        if let Some((line, name)) = since_0_6
+            && api_before(&plugin.api, "0.6")
+        {
+            return Err(format!(
+                "line {line}: [{name}] is plugin API 0.6; the manifest says api = {:?}",
+                plugin.api
+            ));
+        }
+        plugin.exporters = of_0_6.exporters;
+        plugin.importers = of_0_6.importers;
+        plugin.wizards = of_0_6.wizards;
+        plugin.panels = of_0_6.panels;
         plugin.commands = commands;
         plugin.checks = checks;
         plugin.events = events;
@@ -1373,7 +1613,7 @@ pick = "folder"
                 .contains("a second check \"tag-case\"")
         );
         assert!(with("severity = \"error\"", "severity = \"fatal\"").contains("not \"fatal\""));
-        assert!(with("[command]", "[panel]").contains("no section [panel]"));
+        assert!(with("[command]", "[pane]").contains("no section [pane]"));
         for entry in ["../other.luau", "/etc/passwd", "a\\b.luau", "c:x.luau", "./main.luau"] {
             let text =
                 SAMPLE.replace("api = \"0.1\"", &format!("api = \"0.1\"\nentry = {entry:?}"));

@@ -1,0 +1,42 @@
+# The plugin's own tests: `mg plugin test docs/plugins/examples/creature-sheet`.
+# An export names the file it writes to (`to`: nothing is written) and
+# what the file has; an import reads the first of `files`.
+module = "module"
+
+[[test]]
+name = "every creature, a row each"
+export = "creatures-csv"
+to = "creatures.csv"
+written = ["creatures.csv"]
+log = ["2 creatures written to creatures.csv"]
+content = { "creatures.csv" = [
+    "resref,tag,name,level",
+    "guard,gate_guard,Gate Guard,3",
+    "captain,CAPTAIN,\"Captain, of the Guard\",7",
+] }
+
+[[test]]
+name = "the creatures selected"
+export = "selected-csv"
+select = ["captain.utc"]
+to = "captain.csv"
+written = ["captain.csv"]
+content = { "captain.csv" = ["captain,CAPTAIN"] }
+
+[[test]]
+name = "a sheet read back sets the tag and the name, in one step"
+import = "creatures-csv"
+files = ["sheet.csv"]
+edits = 2
+resources = ["guard.utc"]
+log = ["ghost.utc is not in the module", "1 creatures read from sheet.csv"]
+[[test.field]]
+resource = "guard.utc"
+field = "Tag"
+value = "NIGHT_GUARD"
+
+[[test]]
+name = "a file that is no CSV is not read"
+import = "creatures-csv"
+files = ["module/nasher.cfg"]
+error = "reads .csv"

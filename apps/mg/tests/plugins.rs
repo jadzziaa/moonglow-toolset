@@ -985,3 +985,92 @@ fn a_plugin_s_new_events_run_by_hand() {
     assert_eq!(events[1]["for"], json!(["waypoint"]));
     assert!(events[2]["says"].as_str().unwrap().starts_with("when a wizard, Add to Palette"));
 }
+
+fn example(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples").join(name)
+}
+
+/// API 0.6 from the command line: `mg plugin export` writes the file an
+/// exporter makes and changes nothing (`--dry-run` writes none either);
+/// `mg plugin import` reads a file into the module and saves; `mg plugin
+/// list` says what each adds.
+#[test]
+fn exporters_and_importers_run_from_the_command_line() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-export");
+    let m = module(&dir);
+    let sheet = example("creature-sheet");
+    let (m, sheet) = (m.to_str().unwrap(), sheet.to_str().unwrap());
+    let out = dir.join("creatures.csv");
+    let dry = dir.join("dry.csv");
+    let (ok, said) =
+        mg(&["plugin", "export", m, sheet, "creatures-csv", dry.to_str().unwrap(), "--dry-run"]);
+    assert!(ok && !dry.exists(), "{said}");
+    let (ok, said) = mg(&["plugin", "export", m, sheet, "creatures-csv", out.to_str().unwrap()]);
+    assert!(ok, "{said}");
+    assert_eq!(said["files"], json!([out.display().to_string()]));
+    assert!(said["log"][0]["text"].as_str().unwrap().contains("1 creatures written"), "{said}");
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.contains("guard,gate_guard,,0"), "{text}");
+    assert_eq!(tag(Path::new(m)), "gate_guard", "an export changes nothing");
+    // What it has not.
+    let (ok, said) = mg(&["plugin", "export", m, sheet, "pdf", out.to_str().unwrap()]);
+    assert!(!ok && said.to_string().contains("no exporter \\\"pdf\\\""), "{said}");
+
+    let input = dir.join("night.csv");
+    std::fs::write(&input, "resref,tag,name\nguard,NIGHT_GUARD,Night\n").unwrap();
+    let (ok, said) = mg(&["plugin", "import", m, sheet, "creatures-csv", input.to_str().unwrap()]);
+    assert!(ok, "{said}");
+    assert_eq!(said["label"], "Import 1 creatures", "{said}");
+    assert_eq!(tag(Path::new(m)), "NIGHT_GUARD");
+    // A file of another kind is not read.
+    let (ok, said) = mg(&["plugin", "import", m, sheet, "creatures-csv", m]);
+    assert!(!ok && said.to_string().contains("reads .csv"), "{said}");
+
+    let (ok, listed) = mg(&["plugin", "list", sheet]);
+    assert!(ok);
+    let p = &listed["plugins"][0];
+    assert_eq!(p["exporters"][0]["extension"], "csv");
+    assert_eq!(p["exporters"][1]["for"], json!(["creature blueprint"]));
+    assert_eq!(p["importers"][0]["extensions"], json!(["csv"]));
+}
+
+/// `mg plugin wizard`: each page answered from `--answers` (a JSON file)
+/// and `--answer`, over the defaults; its Finish's edits saved. A page's
+/// check that objects is an error, and nothing is saved.
+#[test]
+fn a_wizard_is_answered_from_the_command_line() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-wizard");
+    let m = module(&dir);
+    let wizard = example("store-wizard");
+    let (m, wizard) = (m.to_str().unwrap(), wizard.to_str().unwrap());
+    let answers = dir.join("answers.json");
+    std::fs::write(&answers, r#"{ "name": "Iron Hand", "kind": "Smith", "markup": 170 }"#).unwrap();
+    let (ok, said) = mg(&[
+        "plugin",
+        "wizard",
+        m,
+        wizard,
+        "new-store",
+        "--answers",
+        answers.to_str().unwrap(),
+        "--answer",
+        "markup=160",
+    ]);
+    assert!(ok, "{said}");
+    assert_eq!(said["label"], "New store Iron Hand");
+    let store = Module::open(Path::new(m)).unwrap().gff(&key("ironhand.utm")).unwrap().unwrap();
+    assert_eq!(store.root.get("MarkUp"), Some(&Value::Int(160)), "--answer over --answers");
+    let log: Vec<&str> =
+        said["log"].as_array().unwrap().iter().filter_map(|l| l["text"].as_str()).collect();
+    assert!(log.contains(&"page 3 of 3 (What it buys)"), "{log:?}");
+
+    let (ok, said) =
+        mg(&["plugin", "wizard", m, wizard, "new-store", "--answer", "name= ", "--dry-run"]);
+    assert!(!ok && said.to_string().contains("A store needs a name."), "{said}");
+    let (ok, listed) = mg(&["plugin", "list", wizard]);
+    assert!(ok);
+    assert_eq!(listed["plugins"][0]["wizards"][0]["title"], "Shop Wizard…");
+    let (ok, listed) = mg(&["plugin", "list", example("module-overview").to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!(listed["plugins"][0]["panels"][0]["refresh"], json!(["edits", "selection"]));
+}

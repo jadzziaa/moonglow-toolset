@@ -110,6 +110,9 @@ pub struct Plugins {
     /// The pane last clicked in, whose selection a command from the
     /// Plugins menu, the Command Palette or a key runs on.
     pub pane: Option<Pane>,
+    /// The open panels (API 0.6), by plugin and panel id: what each
+    /// showed last, and its render under way.
+    pub panels: std::collections::HashMap<(String, String), crate::plugin_kinds::PanelState>,
 }
 
 /// A pane whose selection a plugin's command may run on.
@@ -459,6 +462,12 @@ impl Host for JobHost {
 
     fn cancelled(&self) -> bool {
         self.progress.cancelled()
+    }
+
+    /// The job's window asks (a wizard's page asked again, saying what its
+    /// check objects to).
+    fn interactive(&self) -> bool {
+        self.ask.is_some() && self.answers.borrow().is_empty()
     }
 
     fn ask(&self, question: &Question) -> Option<Answer> {
@@ -999,6 +1008,7 @@ impl Moonglow {
         if let Ok(mut now) = ENABLED.lock() {
             *now = enabled;
         }
+        self.close_stray_panels();
     }
 
     pub fn plugin_enabled(&self, id: &str) -> bool {
@@ -1461,7 +1471,7 @@ impl Moonglow {
     /// A job running a plugin's code (`run`), with the window as its host.
     /// `console`: the plugin console's, whose output shows under it too;
     /// `plugin`: whose settings what it sets are.
-    fn run_plugin(
+    pub(crate) fn run_plugin(
         &mut self,
         name: String,
         title: String,
@@ -1496,6 +1506,10 @@ impl Moonglow {
             },
             move |app, result| {
                 app.plugin_finished(&job_name, &title, console, quiet, result, &log);
+                // (Its panels show what it did.)
+                if let Some(p) = &plugin {
+                    app.plugins.stale_panels(&p.manifest.id);
+                }
                 // What it set (`ctx.settings:set`), kept once it is done.
                 if let (Some(p), Some(set)) = (&plugin, app.plugins.last_set.take()) {
                     app.keep_plugin_settings(p, &set);
@@ -1778,57 +1792,11 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             });
         }
         Question::Form { title, fields } => {
-            // Its values, from the defaults when it is first shown.
-            let fresh = !matches!(&app.plugins.form, Some((q, _)) if *q == question);
-            if fresh {
-                let defaults = fields
-                    .iter()
-                    .map(|f| match &f.kind {
-                        FieldKind::Text { default } => serde_json::json!(default),
-                        FieldKind::Number { default, .. } => serde_json::json!(default),
-                        FieldKind::Check { default } => serde_json::json!(default),
-                        FieldKind::Choice { choices, default } => {
-                            serde_json::json!(choices[*default])
-                        }
-                    })
-                    .collect();
-                app.plugins.form = Some((question.clone(), defaults));
-            }
-            let Some((_, values)) = &mut app.plugins.form else { return true };
+            let values = form_values(app, &question, fields);
             if !title.is_empty() {
                 crate::widgets::section_heading(ui, title);
             }
-            egui::Grid::new("plugin-form").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                for (f, value) in fields.iter().zip(values.iter_mut()) {
-                    crate::widgets::field_label(ui, &f.label);
-                    match &f.kind {
-                        FieldKind::Text { .. } => {
-                            let mut text = value.as_str().unwrap_or_default().to_string();
-                            ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
-                            *value = serde_json::json!(text);
-                        }
-                        FieldKind::Number { min, max, .. } => {
-                            let mut n = value.as_f64().unwrap_or_default();
-                            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
-                            ui.add(egui::DragValue::new(&mut n).range(range));
-                            *value = serde_json::json!(n);
-                        }
-                        FieldKind::Check { .. } => {
-                            let mut on = value.as_bool().unwrap_or_default();
-                            ui.checkbox(&mut on, "");
-                            *value = serde_json::json!(on);
-                        }
-                        FieldKind::Choice { choices, .. } => {
-                            let mut chosen = value.as_str().unwrap_or_default().to_string();
-                            crate::widgets::dropdown(("plugin-form", &f.id))
-                                .selected_text(chosen.clone())
-                                .show(ui, &mut chosen, choices, Clone::clone);
-                            *value = serde_json::json!(chosen);
-                        }
-                    }
-                    ui.end_row();
-                }
-            });
+            form_grid(ui, fields, values);
             ui.add_space(6.0);
             let mut done = None;
             ui.horizontal(|ui| {
@@ -1871,6 +1839,47 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 }
             });
         }
+        Question::Page(page) => {
+            let values = form_values(app, &question, &page.fields);
+            let heading = if page.title.is_empty() { &page.wizard } else { &page.title };
+            crate::widgets::section_heading(ui, heading);
+            ui.weak(format!("Page {} of {}", page.step, page.steps));
+            if !page.text.is_empty() {
+                ui.add_space(4.0);
+                ui.label(&page.text);
+            }
+            ui.add_space(6.0);
+            form_grid(ui, &page.fields, values);
+            if let Some(error) = &page.error {
+                ui.add_space(4.0);
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+            ui.add_space(6.0);
+            let mut go = None;
+            ui.horizontal(|ui| {
+                if ui.add_enabled(page.back, egui::Button::new("< Back")).clicked() {
+                    go = Some(Some(true));
+                }
+                let next = if page.last { "Finish" } else { "Next >" };
+                if ui.button(next).clicked() {
+                    go = Some(Some(false));
+                }
+                if crate::widgets::cancel(ui) {
+                    go = Some(None);
+                }
+            });
+            match go {
+                Some(Some(back)) => {
+                    let values = (page.fields.iter())
+                        .zip(values.iter())
+                        .map(|(f, v)| (f.id.clone(), v.clone()))
+                        .collect();
+                    ask.answer(Some(Answer::Page { values, back }));
+                }
+                Some(None) => ask.answer(None),
+                None => {}
+            }
+        }
         Question::Folder { title } => {
             let what = if title.is_empty() { "The plugin asks for a folder." } else { title };
             ui.label(what);
@@ -1889,6 +1898,56 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
         }
     }
     true
+}
+
+/// The values of a form (or a wizard's page) being filled: from its
+/// defaults when it is first shown.
+fn form_values<'a>(
+    app: &'a mut Moonglow,
+    question: &Question,
+    fields: &[mg_plugin::FormField],
+) -> &'a mut Vec<serde_json::Value> {
+    let fresh = !matches!(&app.plugins.form, Some((q, _)) if q == question);
+    if fresh {
+        let defaults = fields.iter().map(|f| f.kind.default_value()).collect();
+        app.plugins.form = Some((question.clone(), defaults));
+    }
+    &mut app.plugins.form.get_or_insert_with(|| (question.clone(), Vec::new())).1
+}
+
+/// A form's fields, each with its label, and what was typed into them.
+fn form_grid(ui: &mut egui::Ui, fields: &[mg_plugin::FormField], values: &mut [serde_json::Value]) {
+    egui::Grid::new("plugin-form").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+        for (f, value) in fields.iter().zip(values.iter_mut()) {
+            crate::widgets::field_label(ui, &f.label);
+            match &f.kind {
+                FieldKind::Text { .. } => {
+                    let mut text = value.as_str().unwrap_or_default().to_string();
+                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
+                    *value = serde_json::json!(text);
+                }
+                FieldKind::Number { min, max, .. } => {
+                    let mut n = value.as_f64().unwrap_or_default();
+                    let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
+                    ui.add(egui::DragValue::new(&mut n).range(range));
+                    *value = serde_json::json!(n);
+                }
+                FieldKind::Check { .. } => {
+                    let mut on = value.as_bool().unwrap_or_default();
+                    ui.checkbox(&mut on, "");
+                    *value = serde_json::json!(on);
+                }
+                FieldKind::Choice { choices, .. } => {
+                    let mut chosen = value.as_str().unwrap_or_default().to_string();
+                    crate::widgets::dropdown(("plugin-form", &f.id))
+                        .selected_text(chosen.clone())
+                        .show(ui, &mut chosen, choices, Clone::clone);
+                    *value = serde_json::json!(chosen);
+                }
+            }
+            ui.end_row();
+        }
+    });
 }
 
 /// Tools › Plugins: the plugins installed, each to enable; where they are
@@ -1918,7 +1977,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ctx,
         |ui| {
             ui.label(
-                "A plugin adds commands and checks. It reads the open module and the game data \
+                "A plugin adds commands and checks, and may add exporters, importers, wizards \
+                 and panels. It reads the open module and the game data \
              and hands back changes that Undo takes back; it cannot reach your files, the \
              network or other programs, but for a file or a folder you choose for it and \
              what you allow it to write there. Each is off until you enable it.",
@@ -2212,6 +2272,19 @@ fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
     }
     for e in &m.events {
         ui.label(format!("By itself, {}: {}", e.said(), e.id));
+    }
+    for e in &m.exporters {
+        let of = if e.targets.is_empty() { "" } else { " (of what is selected)" };
+        ui.label(format!("Export: {}{of}", e.title.trim_end_matches('…'))).on_hover_text(&e.hint);
+    }
+    for e in &m.importers {
+        ui.label(format!("Import: {}", e.title.trim_end_matches('…'))).on_hover_text(&e.hint);
+    }
+    for e in &m.wizards {
+        ui.label(format!("Wizard: {}", e.title.trim_end_matches('…'))).on_hover_text(&e.hint);
+    }
+    for e in &m.panels {
+        ui.label(format!("Panel: {}", e.title)).on_hover_text(&e.hint);
     }
     // Its settings, by where they are kept (the team's are written into
     // the project's moonglow.toml).

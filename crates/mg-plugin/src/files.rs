@@ -128,10 +128,7 @@ pub(crate) fn questions(lua: &Lua, sh: &Rc<Shared>, ui: &Table) -> mlua::Result<
             let Some(Answer::Path(path)) = s.host.ask(&Question::File { title, extensions }) else {
                 return Ok(LuaValue::Nil);
             };
-            let file = lua.create_table()?;
-            file.set("name", name_of(&path))?;
-            file.set("bytes", lua.create_string(read(&path)?)?)?;
-            Ok(LuaValue::Table(file))
+            Ok(LuaValue::Table(file_table(lua, &path)?))
         })?,
     )?;
     let s = sh.clone();
@@ -142,55 +139,69 @@ pub(crate) fn questions(lua: &Lua, sh: &Rc<Shared>, ui: &Table) -> mlua::Result<
             let Some(Answer::Path(dir)) = s.host.ask(&Question::Folder { title }) else {
                 return Ok(LuaValue::Nil);
             };
-            if !dir.is_dir() {
-                return fail(format!("{} is not a folder", dir.display()));
-            }
-            let folder = lua.create_table()?;
-            folder.set("name", name_of(&dir))?;
-            let d = dir.clone();
-            folder.set("files", lua.create_function(move |_, _: This| Ok(listing(&d)))?)?;
-            let d = dir.clone();
-            folder.set(
-                "bytes",
-                lua.create_function(move |lua, (_, name): (This, String)| {
-                    lua.create_string(read(&inside(&d, &name)?)?)
-                })?,
-            )?;
-            let (d, sh) = (dir.clone(), s.clone());
-            folder.set(
-                "to_hak",
-                lua.create_function(
-                    move |_, (_, hak, file, name): (This, String, String, Option<String>)| {
-                        let path = inside(&d, &file)?;
-                        let name = name.unwrap_or_else(|| name_of(&path));
-                        put(&sh, &hak, &name, HakData::File(path))
-                    },
-                )?,
-            )?;
-            let (d, sh) = (dir.clone(), s.clone());
-            folder.set(
-                "write",
-                lua.create_function(
-                    move |_, (_, name, bytes): (This, String, mlua::LuaString)| {
-                        write(&sh, &d, &name, bytes.as_bytes().to_vec())
-                    },
-                )?,
-            )?;
-            folder.set(
-                "text",
-                lua.create_function(move |lua, (_, name): (This, String)| {
-                    let bytes = read(&inside(&dir, &name)?)?;
-                    // UTF-8 if it is, else as the module's codepage has it.
-                    match String::from_utf8(bytes) {
-                        Ok(text) => lua.create_string(text.trim_start_matches('\u{feff}')),
-                        Err(e) => lua.create_string(codepage().decode(e.as_bytes()).as_bytes()),
-                    }
-                })?,
-            )?;
-            Ok(LuaValue::Table(folder))
+            Ok(LuaValue::Table(folder_table(lua, &s, dir)?))
         })?,
     )?;
     Ok(())
+}
+
+/// A file of the user's, as a plugin gets one: its name and bytes.
+pub(crate) fn file_table(lua: &Lua, path: &Path) -> mlua::Result<Table> {
+    let file = lua.create_table()?;
+    file.set("name", name_of(path))?;
+    file.set("bytes", lua.create_string(read(path)?)?)?;
+    Ok(file)
+}
+
+/// A folder of the user's, as a plugin gets one: its files to read, and
+/// to write into with their leave.
+pub(crate) fn folder_table(lua: &Lua, s: &Rc<Shared>, dir: PathBuf) -> mlua::Result<Table> {
+    if !dir.is_dir() {
+        return fail(format!("{} is not a folder", dir.display()));
+    }
+    {
+        let folder = lua.create_table()?;
+        folder.set("name", name_of(&dir))?;
+        let d = dir.clone();
+        folder.set("files", lua.create_function(move |_, _: This| Ok(listing(&d)))?)?;
+        let d = dir.clone();
+        folder.set(
+            "bytes",
+            lua.create_function(move |lua, (_, name): (This, String)| {
+                lua.create_string(read(&inside(&d, &name)?)?)
+            })?,
+        )?;
+        let (d, sh) = (dir.clone(), s.clone());
+        folder.set(
+            "to_hak",
+            lua.create_function(
+                move |_, (_, hak, file, name): (This, String, String, Option<String>)| {
+                    let path = inside(&d, &file)?;
+                    let name = name.unwrap_or_else(|| name_of(&path));
+                    put(&sh, &hak, &name, HakData::File(path))
+                },
+            )?,
+        )?;
+        let (d, sh) = (dir.clone(), s.clone());
+        folder.set(
+            "write",
+            lua.create_function(move |_, (_, name, bytes): (This, String, mlua::LuaString)| {
+                write(&sh, &d, &name, bytes.as_bytes().to_vec())
+            })?,
+        )?;
+        folder.set(
+            "text",
+            lua.create_function(move |lua, (_, name): (This, String)| {
+                let bytes = read(&inside(&dir, &name)?)?;
+                // UTF-8 if it is, else as the module's codepage has it.
+                match String::from_utf8(bytes) {
+                    Ok(text) => lua.create_string(text.trim_start_matches('\u{feff}')),
+                    Err(e) => lua.create_string(codepage().decode(e.as_bytes()).as_bytes()),
+                }
+            })?,
+        )?;
+        Ok(folder)
+    }
 }
 
 /// A file for a folder the user chose, with their leave for the first one

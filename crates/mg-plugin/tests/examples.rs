@@ -90,10 +90,13 @@ fn every_example_registers_what_it_declares() {
         [
             "example.builder-tags",
             "example.creature-report",
+            "example.creature-sheet",
             "example.hello",
             "example.house-rules",
+            "example.module-overview",
             "example.set-local",
             "example.store-markup",
+            "example.store-wizard",
             "example.tag-conventions",
             "example.tileset-import"
         ]
@@ -187,6 +190,43 @@ fn tag_conventions_passes_its_own_tests() {
     }
     for line in ["local fix = ctx.fix(\"Upper-case this tag\")", "fix = fix,"] {
         assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
+    }
+}
+
+/// The examples of API 0.6, an exporter and an importer, a wizard and a
+/// panel: their own tests pass (an export's file, an import's edits, the
+/// wizard's pages answered and refused, what the panel shows), and the
+/// manual shows their code as it is.
+#[test]
+fn the_examples_of_0_6_pass_their_own_tests() {
+    let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    let examples: [(&str, usize, &[&str]); 3] = [
+        (
+            "creature-sheet",
+            4,
+            &[
+                "mg.exporter(\"creatures-csv\", function(ctx, out)",
+                "    out:write(csv.write(rows))",
+                "mg.importer(\"creatures-csv\", function(ctx, file)",
+            ],
+        ),
+        ("store-wizard", 4, &["mg.wizard(\"new-store\", {", "    finish = function(ctx, answers)"]),
+        (
+            "module-overview",
+            3,
+            &["mg.panel(\"overview\", function(ctx)", "refresh = \"edits, selection\""],
+        ),
+    ];
+    for (name, tests, lines) in examples {
+        let plugin = example(name);
+        assert_eq!(plugin.manifest.api, "0.6", "{name}");
+        let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
+        assert_eq!(results.len(), tests, "{name}: {results:#?}");
+        assert!(results.iter().all(|r| r.passed()), "{name}: {results:#?}");
+        assert!(mg_plugin::test_faults(&plugin).is_empty(), "{name}");
+        for line in lines {
+            assert!(guide.contains(line), "the manual lacks {name}'s line {line:?}");
+        }
     }
 }
 
@@ -570,6 +610,7 @@ fn the_reference_says_what_the_code_has() {
             "area" => "Area",
             "folder" => "Folder",
             "image" => "Image",
+            "out" => "Out",
             "twoda" => "TwoDa",
             "tlk" => "Tlk",
             _ => return None,
@@ -675,6 +716,7 @@ fn the_type_file_has_the_whole_api() {
                     "fix" => "Fix",
                     "ctx.settings" => "Settings",
                     "ctx.event" => "Event",
+                    "out" => "Out",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

@@ -81,53 +81,16 @@ impl Host for CliHost {
                 self.log(Level::Info, &format!("{text} {said}"));
                 Some(if self.yes { Answer::Yes } else { Answer::No })
             }
-            Question::Form { fields, .. } => {
-                let mut values = BTreeMap::new();
-                for f in fields {
-                    let given = self.answers.get(&f.id);
-                    if given.is_some() {
-                        self.used.borrow_mut().push(f.id.clone());
-                    }
-                    let fault = |why: String| {
-                        self.faults.borrow_mut().push(format!("--answer {}: {why}", f.id));
-                    };
-                    let value = match (&f.kind, given) {
-                        (FieldKind::Text { default }, g) => json!(g.unwrap_or(default)),
-                        (FieldKind::Number { default, min, max }, g) => {
-                            let n = match g.map(|g| g.trim().parse::<f64>()) {
-                                None => *default,
-                                Some(Ok(n)) => n,
-                                Some(Err(_)) => {
-                                    fault(format!("{:?} is not a number", g.unwrap()));
-                                    *default
-                                }
-                            };
-                            if min.is_some_and(|m| n < m) || max.is_some_and(|m| n > m) {
-                                fault(format!("{n} is outside what the field takes"));
-                            }
-                            json!(n)
-                        }
-                        (FieldKind::Check { default }, g) => match g.map(|g| g.trim()) {
-                            None => json!(default),
-                            Some("true" | "yes" | "1") => json!(true),
-                            Some("false" | "no" | "0") => json!(false),
-                            Some(other) => {
-                                fault(format!("{other:?} is not true or false"));
-                                json!(default)
-                            }
-                        },
-                        (FieldKind::Choice { choices, default }, g) => match g {
-                            None => json!(choices[*default]),
-                            Some(g) if choices.contains(g) => json!(g),
-                            Some(g) => {
-                                fault(format!("{g:?} is not one of {}", choices.join(", ")));
-                                json!(choices[*default])
-                            }
-                        },
-                    };
-                    values.insert(f.id.clone(), value);
-                }
-                Some(Answer::Values(values))
+            Question::Form { fields, .. } => Some(Answer::Values(self.values(fields))),
+            // A wizard's page: as a form, then on (nobody goes back).
+            Question::Page(page) => {
+                let at = if page.title.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", page.title)
+                };
+                self.log(Level::Info, &format!("page {} of {}{at}", page.step, page.steps));
+                Some(Answer::Page { values: self.values(&page.fields), back: false })
             }
             Question::File { title, .. } | Question::Folder { title } => {
                 let given = self.files.borrow_mut().pop_front();
@@ -142,17 +105,95 @@ impl Host for CliHost {
 }
 
 impl CliHost {
-    pub(crate) fn new(answers: &[String], files: &[PathBuf], yes: bool) -> Result<CliHost> {
-        let answers = answers
-            .iter()
-            .map(|a| {
-                a.split_once('=')
-                    .map(|(k, v)| (k.trim().to_string(), v.to_string()))
-                    .with_context(|| format!("--answer {a:?}: give it as ID=VALUE"))
-            })
-            .collect::<Result<_>>()?;
+    /// A form's values: its defaults, and the `--answer`s for its fields.
+    fn values(&self, fields: &[mg_plugin::FormField]) -> BTreeMap<String, serde_json::Value> {
+        {
+            let mut values = BTreeMap::new();
+            for f in fields {
+                let given = self.answers.get(&f.id);
+                if given.is_some() {
+                    self.used.borrow_mut().push(f.id.clone());
+                }
+                let fault = |why: String| {
+                    self.faults.borrow_mut().push(format!("--answer {}: {why}", f.id));
+                };
+                let value = match (&f.kind, given) {
+                    (FieldKind::Text { default }, g) => json!(g.unwrap_or(default)),
+                    (FieldKind::Number { default, min, max }, g) => {
+                        let n = match g.map(|g| g.trim().parse::<f64>()) {
+                            None => *default,
+                            Some(Ok(n)) => n,
+                            Some(Err(_)) => {
+                                fault(format!("{:?} is not a number", g.unwrap()));
+                                *default
+                            }
+                        };
+                        if min.is_some_and(|m| n < m) || max.is_some_and(|m| n > m) {
+                            fault(format!("{n} is outside what the field takes"));
+                        }
+                        json!(n)
+                    }
+                    (FieldKind::Check { default }, g) => match g.map(|g| g.trim()) {
+                        None => json!(default),
+                        Some("true" | "yes" | "1") => json!(true),
+                        Some("false" | "no" | "0") => json!(false),
+                        Some(other) => {
+                            fault(format!("{other:?} is not true or false"));
+                            json!(default)
+                        }
+                    },
+                    (FieldKind::Choice { choices, default }, g) => match g {
+                        None => json!(choices[*default]),
+                        Some(g) if choices.contains(g) => json!(g),
+                        Some(g) => {
+                            fault(format!("{g:?} is not one of {}", choices.join(", ")));
+                            json!(choices[*default])
+                        }
+                    },
+                };
+                values.insert(f.id.clone(), value);
+            }
+            values
+        }
+    }
+
+    /// `answers` (`ID=VALUE`) over those of `answers_file` (a JSON
+    /// object of values by field id, `--answers`).
+    pub(crate) fn new(
+        answers: &[String],
+        answers_file: Option<&Path>,
+        files: &[PathBuf],
+        yes: bool,
+    ) -> Result<CliHost> {
+        let mut all: BTreeMap<String, String> = BTreeMap::new();
+        if let Some(path) = answers_file {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("--answers {}", path.display()))?;
+            let given: serde_json::Value = serde_json::from_str(&text)
+                .with_context(|| format!("--answers {}: not JSON", path.display()))?;
+            let Some(given) = given.as_object() else {
+                bail!("--answers {}: a JSON object of values by field id", path.display());
+            };
+            for (id, v) in given {
+                let v = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(_) | serde_json::Value::Bool(_) => v.to_string(),
+                    other => bail!(
+                        "--answers {}: {id}: text, a number, true or false, not {other}",
+                        path.display()
+                    ),
+                };
+                all.insert(id.clone(), v);
+            }
+        }
+        for a in answers {
+            let (k, v) = a
+                .split_once('=')
+                .with_context(|| format!("--answer {a:?}: give it as ID=VALUE"))?;
+            all.insert(k.trim().to_string(), v.to_string());
+        }
         let files = RefCell::new(files.iter().cloned().collect());
-        Ok(CliHost { answers, files, yes, ..Default::default() })
+        Ok(CliHost { answers: all, files, yes, ..Default::default() })
     }
 
     /// What was wrong with the answers given, if anything: nothing is
@@ -398,6 +439,39 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                     for e in &m.events {
                         out.line(format!("\tevent\t{}\t{}\t{}", e.id, e.on.name(), e.said()));
                     }
+                    let names = |t: &[mg_plugin::Target]| -> Vec<String> {
+                        t.iter().map(|t| t.name()).collect()
+                    };
+                    for e in &m.exporters {
+                        let to = match (e.folder, e.extension.as_str()) {
+                            (true, _) => "to a folder".to_string(),
+                            (false, "") => "to a file".to_string(),
+                            (false, ext) => format!("to a .{ext} file"),
+                        };
+                        let of = match names(&e.targets).as_slice() {
+                            [] => "of the module".to_string(),
+                            t => format!("of what is selected ({})", t.join(", ")),
+                        };
+                        out.line(format!("\texporter\t{}\t{}\t{to}, {of}", e.id, e.title));
+                    }
+                    for i in &m.importers {
+                        let from = match (i.folder, i.extensions.as_slice()) {
+                            (true, _) => "from a folder".to_string(),
+                            (false, []) => "from a file".to_string(),
+                            (false, e) => format!("from a file ({})", e.join(", ")),
+                        };
+                        out.line(format!("\timporter\t{}\t{}\t{from}", i.id, i.title));
+                    }
+                    for w in &m.wizards {
+                        out.line(format!("\twizard\t{}\t{}", w.id, w.title));
+                    }
+                    for p in &m.panels {
+                        let when = match refresh_of(p).as_slice() {
+                            [] => String::new(),
+                            w => format!("\tredrawn on {}", w.join(" and ")),
+                        };
+                        out.line(format!("\tpanel\t{}\t{}{when}", p.id, p.title));
+                    }
                     // Its settings, with their values in the project.
                     let in_project = file.as_ref().filter(|_| trust.is_some());
                     let user = user_values(&m.id, &mut out);
@@ -436,6 +510,23 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                             "says": e.said(),
                         })).collect::<Vec<_>>(),
                         "settings": settings,
+                        "exporters": m.exporters.iter().map(|e| json!({
+                            "id": e.id, "title": e.title, "hint": e.hint,
+                            "to": if e.folder { "folder" } else { "file" },
+                            "extension": e.extension, "for": names(&e.targets),
+                        })).collect::<Vec<_>>(),
+                        "importers": m.importers.iter().map(|i| json!({
+                            "id": i.id, "title": i.title, "hint": i.hint,
+                            "from": if i.folder { "folder" } else { "file" },
+                            "extensions": i.extensions,
+                        })).collect::<Vec<_>>(),
+                        "wizards": m.wizards.iter().map(|w| json!({
+                            "id": w.id, "title": w.title, "hint": w.hint,
+                        })).collect::<Vec<_>>(),
+                        "panels": m.panels.iter().map(|p| json!({
+                            "id": p.id, "title": p.title, "hint": p.hint,
+                            "refresh": refresh_of(p),
+                        })).collect::<Vec<_>>(),
                         "project": project,
                     }));
                 }
@@ -445,6 +536,14 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
     }
     out.json = json!({ "plugins": all });
     Ok(out)
+}
+
+/// When a panel is drawn again, as its manifest's `refresh` says.
+fn refresh_of(p: &mg_plugin::PanelDecl) -> Vec<&'static str> {
+    [(p.on_edits, "edits"), (p.on_selection, "selection")]
+        .into_iter()
+        .filter_map(|(on, w)| on.then_some(w))
+        .collect()
 }
 
 fn severity(s: Severity) -> &'static str {
@@ -755,6 +854,9 @@ pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Outp
 /// all of the module's).
 pub(crate) struct What<'a> {
     pub id: &'a str,
+    /// What is run: a command (or with `changed`, an event), an importer
+    /// on its source, or a wizard.
+    pub kind: Kind<'a>,
     pub changed: Option<Vec<mg_resman::ResKey>>,
     /// What a command is run on (`--select`), and what is open
     /// (`--open`).
@@ -893,27 +995,20 @@ pub(crate) fn run(
     // wrote them.)
     let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |g| g.text_codepage());
     let host = Rc::new(host);
-    // What it is run on is the module's (a blueprint may be the game's).
-    let named = what.selection.selected.iter().chain(&what.selection.open);
-    for s in named {
-        let (key, _) = s.place();
-        if let Some(layer) = s.layer() {
-            // (A layer's copy: that layer of the game's load order has it.)
-            let rm = game.as_ref().map(|g| &g.resman);
-            let at = rm.and_then(|rm| rm.layers().iter().position(|l| l.label == layer));
-            if !at.is_some_and(|i| rm.is_some_and(|rm| rm.get_in(i, &key).is_ok())) {
-                bail!("{layer} has no {key} (`mg which {key}` lists the layers that have it)");
-            }
-            continue;
-        }
-        let game_has = game.as_ref().is_some_and(|g| g.resman.get(&key).is_ok());
-        if !m.contains(&key) && !(matches!(s, mg_plugin::Selected::Blueprint(_)) && game_has) {
-            bail!("{key} is not in the module");
+    if !what.changed.is_some() && !matches!(what.kind, Kind::Command) {
+        let kind = if matches!(what.kind, Kind::Wizard) { "wizard" } else { "importer" };
+        if !plugin.manifest.ids(kind).contains(&what.id) {
+            bail!(
+                "{} has no {kind} {:?} (it has: {})",
+                plugin.manifest.id,
+                what.id,
+                plugin.manifest.ids(kind).join(", ")
+            );
         }
     }
-    if let (Some(decl), false) =
-        (plugin.manifest.commands.iter().find(|c| c.id == what.id), what.changed.is_some())
-    {
+    named_there(&m, game.as_deref(), &what.selection)?;
+    let command = plugin.manifest.commands.iter().find(|c| c.id == what.id);
+    if let (Some(decl), false, Kind::Command) = (command, what.changed.is_some(), what.kind) {
         // (A command run on what it is not for: as the window would not
         // offer it. It is still run: it may say so itself.)
         let unfit: Vec<String> = (what.selection.selected.iter())
@@ -936,7 +1031,13 @@ pub(crate) fn run(
         ..Input::new(m.clone(), game)
     };
     let outcome = match &what.changed {
-        None => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
+        None => match what.kind {
+            Kind::Command => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
+            Kind::Import(from) => {
+                mg_plugin::run_import(&plugin, what.id, from, input, host.clone())
+            }
+            Kind::Wizard => mg_plugin::run_wizard(&plugin, what.id, input, host.clone()),
+        },
         Some(_) => {
             let event = event_for(&plugin, what.id, &m, what)?;
             // (What is selected names the objects, not ctx.selection; one
@@ -1056,6 +1157,213 @@ pub(crate) fn run(
     if refused > 0 {
         out.note(format!("the save would be refused: {refused} refusal(s)"));
         out.failed = true;
+    }
+    out.notes.splice(0..0, notes.notes);
+    host.finish(&mut out);
+    Ok(out)
+}
+
+/// What a job is run on, held to the module: each is the module's (a
+/// blueprint may be the game's; a layer's copy, that layer's).
+fn named_there(
+    m: &Module,
+    game: Option<&GameData>,
+    selection: &mg_plugin::Selection,
+) -> Result<()> {
+    for s in selection.selected.iter().chain(&selection.open) {
+        let (key, _) = s.place();
+        if let Some(layer) = s.layer() {
+            // (A layer's copy: that layer of the game's load order has it.)
+            let rm = game.map(|g| &g.resman);
+            let at = rm.and_then(|rm| rm.layers().iter().position(|l| l.label == layer));
+            if !at.is_some_and(|i| rm.is_some_and(|rm| rm.get_in(i, &key).is_ok())) {
+                bail!("{layer} has no {key} (`mg which {key}` lists the layers that have it)");
+            }
+            continue;
+        }
+        let game_has = game.is_some_and(|g| g.resman.get(&key).is_ok());
+        if !m.contains(&key) && !(matches!(s, mg_plugin::Selected::Blueprint(_)) && game_has) {
+            bail!("{key} is not in the module");
+        }
+    }
+    Ok(())
+}
+
+/// What `mg plugin run` runs, besides an event: a command, an importer
+/// (API 0.6) on what it reads, or a wizard (API 0.6).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Kind<'a> {
+    Command,
+    Import(&'a Path),
+    Wizard,
+}
+
+/// What `mg plugin export`, `import` and `wizard` take beside the module,
+/// the plugin and the id, as `mg plugin run` has them.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub(crate) struct JobArgs {
+    /// What it is run on, as if selected in the window (`ctx.selection`),
+    /// as often as needed: a blueprint or an area (`guard.utc`,
+    /// `tavern.are`), or an object placed in an area as its GIT and its
+    /// place there (`tavern.git/Placeable List[3]`).
+    #[arg(long, value_name = "NAME[/PATH]")]
+    pub select: Vec<String>,
+    /// What is open in front, as in the window (`ctx.open`).
+    #[arg(long, value_name = "NAME[/PATH]")]
+    pub open: Option<String>,
+    /// A form's (or a wizard's page's) field, `ID=VALUE`, over --answers
+    /// (the others take their defaults).
+    #[arg(long)]
+    pub answer: Vec<String>,
+    /// A JSON file of the fields' values by id (`{ "name": "Smithy",
+    /// "markup": 140 }`), for every form and page the plugin asks.
+    #[arg(long, value_name = "FILE")]
+    pub answers: Option<PathBuf>,
+    /// A file or folder for the plugin where it asks for one, in the
+    /// order it asks.
+    #[arg(long)]
+    pub file: Vec<PathBuf>,
+    /// Where the haks it writes go (else the user folder's `hak`).
+    #[arg(long)]
+    pub hak_dir: Option<PathBuf>,
+    /// Answer yes where the plugin asks to confirm, or to write a hak
+    /// (else: no).
+    #[arg(long)]
+    pub yes: bool,
+    /// A setting of the plugin for this run, `ID=VALUE` (repeatable).
+    #[arg(long, value_name = "ID=VALUE")]
+    pub setting: Vec<String>,
+    /// Say what it would do; change and write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// What `--select` and `--open` name, as the plugin's selection.
+pub(crate) fn selection_of(
+    select: &[String],
+    open: Option<&String>,
+) -> Result<mg_plugin::Selection> {
+    let selected = |n: &String| mg_plugin::Selected::parse(n).map_err(|e| anyhow!("--select {e}"));
+    // (A layer's copy is only ever open, as the window has it.)
+    let chosen = |n: &String| match selected(n)? {
+        mg_plugin::Selected::Copy { .. } => {
+            bail!("--select {n}: a layer's copy is only --open")
+        }
+        s => Ok(s),
+    };
+    Ok(mg_plugin::Selection {
+        selected: select.iter().map(chosen).collect::<Result<_>>()?,
+        open: open.map(selected).transpose()?,
+        together: Vec::new(),
+    })
+}
+
+impl JobArgs {
+    pub(crate) fn host(&self) -> Result<CliHost> {
+        CliHost::new(&self.answer, self.answers.as_deref(), &self.file, self.yes)
+    }
+
+    pub(crate) fn selection(&self) -> Result<mg_plugin::Selection> {
+        selection_of(&self.select, self.open.as_ref())
+    }
+
+    /// What it runs as `mg plugin run` takes it: an importer's or a
+    /// wizard's id.
+    pub(crate) fn what<'a>(&'a self, id: &'a str, kind: Kind<'a>) -> Result<What<'a>> {
+        Ok(What {
+            id,
+            kind,
+            changed: None,
+            selection: self.selection()?,
+            settings: &self.setting,
+            was: None,
+            by: None,
+        })
+    }
+}
+
+/// `mg plugin export`: a plugin's exporter run on a module, writing the
+/// file, or into the folder, `to` (made if it isn't there). The module is
+/// not changed.
+pub(crate) fn export(
+    gi: Option<&GameInstall>,
+    module: &Path,
+    dir: &Path,
+    id: &str,
+    to: &Path,
+    job: &JobArgs,
+) -> Result<Output> {
+    let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
+    let Some(decl) = plugin.manifest.exporters.iter().find(|c| c.id == id) else {
+        bail!(
+            "{} has no exporter {id:?} (it has: {})",
+            plugin.manifest.id,
+            plugin.manifest.ids("exporter").join(", ")
+        );
+    };
+    let m = crate::open_module(module)?;
+    let mut notes = Output::default();
+    let game = game_for(gi, &m, &mut notes);
+    let host = Rc::new(job.host()?);
+    let selection = job.selection()?;
+    named_there(&m, game.as_deref(), &selection)?;
+    if !decl.targets.is_empty() {
+        let fit = !selection.selected.is_empty()
+            && selection.selected.iter().all(|s| s.fits(&decl.targets));
+        if !fit {
+            notes.note(format!(
+                "warning: {id} exports what is selected, of {} (--select): the window offers it \
+                 only then",
+                decl.targets.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    let settings = settings_for(&plugin, &m, &job.setting, &mut notes)?;
+    let input = Input { selection, settings: Some(settings), ..Input::new(m.clone(), game) };
+    if decl.folder && !job.dry_run {
+        std::fs::create_dir_all(to).with_context(|| format!("{}", to.display()))?;
+    }
+    let outcome = match mg_plugin::run_export(&plugin, id, to, input, host.clone()) {
+        Ok(o) => o,
+        Err(e) => {
+            let log: Vec<String> =
+                host.log.borrow().iter().map(|(_, text)| format!("\n  {text}")).collect();
+            bail!("{e}{}", log.concat());
+        }
+    };
+    host.answered()?;
+    let mut files = Vec::new();
+    for folder in &outcome.folders {
+        let names: Vec<&str> = folder.files.iter().map(|(n, _)| n.as_str()).collect();
+        if job.dry_run {
+            notes.note(format!("would write {} into {}", names.join(", "), folder.dir.display()));
+        } else {
+            let (new, replaced) =
+                folder.write().map_err(|e| anyhow!("{}: {e}", folder.dir.display()))?;
+            notes.note(format!(
+                "{}: {new} files written, {replaced} replaced",
+                folder.dir.display()
+            ));
+        }
+        files.extend(names.into_iter().map(|n| folder.dir.join(n).display().to_string()));
+    }
+    if files.is_empty() {
+        notes.note(format!("{}: {} wrote nothing", plugin.manifest.name, decl.title));
+    }
+    let kept = keep_settings(&plugin, &m, &outcome.settings, job.dry_run, &mut notes)?;
+    let mut out = Output::new(json!({
+        "exporter": id,
+        "to": to.display().to_string(),
+        "files": files,
+        "dry_run": job.dry_run,
+    }));
+    if let serde_json::Value::Object(o) = &mut out.json
+        && !kept.is_empty()
+    {
+        o.insert("settings".into(), kept.into());
+    }
+    for f in &files {
+        out.line(f.clone());
     }
     out.notes.splice(0..0, notes.notes);
     host.finish(&mut out);

@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -143,8 +143,10 @@ the [deferred list](deferred.md) says its place):
    package checked against the release's SHA256SUMS signed with
    minisign (`mg-update`); Windows and macOS wait to be tried there, and
    the first signed release on the owner's key.
-8. Plugins beyond API 0.4: more kinds of things to add, exporters,
-   importers, wizards and panels (Automation).
+8. ~~Plugins beyond API 0.4: more kinds of things to add, exporters,
+   importers, wizards and panels (Automation).~~ Done after 3.0.0
+   (2026-11-02): plugin API 0.6, designed in the
+   [proposal](plugin-proposal.md#api-06-exporters-importers-wizards-and-panels-2026-11-02).
 9. Plugins beyond API 0.4: a builder's terrain tool as the measure,
    sculpted terrain inside Moonglow (Automation).
 10. The largest areas in full view: fewer draws, or render bundles for

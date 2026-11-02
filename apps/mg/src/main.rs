@@ -1308,6 +1308,10 @@ enum PluginCmd {
         /// A form's field, `ID=VALUE` (the others take their defaults).
         #[arg(long)]
         answer: Vec<String>,
+        /// A JSON file of forms' fields' values by id (`{ "sell": 140 }`),
+        /// under the --answer given.
+        #[arg(long, value_name = "FILE")]
+        answers: Option<PathBuf>,
         /// A file or folder for the plugin where it asks for one, in the
         /// order it asks.
         #[arg(long)]
@@ -1328,6 +1332,49 @@ enum PluginCmd {
         /// Print the edits it would make; change nothing.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Run a plugin's exporter on a module (API 0.6), as File › Export ›
+    /// (its title) does: it writes the file OUT, or into the folder OUT
+    /// for an exporter to a folder (made if it isn't there). The module is
+    /// not changed; nothing else is written.
+    Export {
+        module: PathBuf,
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The exporter's id (`mg plugin list` shows them).
+        exporter: String,
+        /// The file (or the folder) to write.
+        out: PathBuf,
+        #[command(flatten)]
+        job: plugins::JobArgs,
+    },
+    /// Run a plugin's importer on a module (API 0.6), as File › Import ›
+    /// (its title) does: it reads SOURCE, a file or a folder, and its edits
+    /// are applied as one command, all or none, and saved.
+    Import {
+        module: PathBuf,
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The importer's id (`mg plugin list` shows them).
+        importer: String,
+        /// The file (or the folder) it reads.
+        source: PathBuf,
+        #[command(flatten)]
+        job: plugins::JobArgs,
+    },
+    /// Run a plugin's wizard on a module (API 0.6): each page answered
+    /// from --answers and --answer (by field id; the rest take their
+    /// defaults), then its Finish, whose edits are applied as one command
+    /// and saved. A page whose check objects is an error, and nothing is
+    /// saved.
+    Wizard {
+        module: PathBuf,
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The wizard's id (`mg plugin list` shows them).
+        wizard: String,
+        #[command(flatten)]
+        job: plugins::JobArgs,
     },
     /// Run a plugin's own tests: the files `tests/*.toml` in its folder,
     /// each naming a fixture module and the checks, commands and events to
@@ -2340,13 +2387,14 @@ fn run(cli: &Cli) -> Result<Output> {
                 by,
                 open,
                 answer,
+                answers,
                 file,
                 hak_dir,
                 yes,
                 setting,
                 dry_run,
             } => {
-                let host = plugins::CliHost::new(answer, file, *yes)?;
+                let host = plugins::CliHost::new(answer, answers.as_deref(), file, *yes)?;
                 // (A plugin that reads no game data needs no game.)
                 let gi = install(cli).ok();
                 let hak_dir = hak_dir.as_deref();
@@ -2363,23 +2411,10 @@ fn run(cli: &Cli) -> Result<Output> {
                     ),
                     false => None,
                 };
-                let selected = |n: &String| {
-                    mg_plugin::Selected::parse(n).map_err(|e| anyhow::anyhow!("--select {e}"))
-                };
-                // (A layer's copy is only ever open, as the window has it.)
-                let chosen = |n: &String| match selected(n)? {
-                    mg_plugin::Selected::Copy { .. } => {
-                        anyhow::bail!("--select {n}: a layer's copy is only --open")
-                    }
-                    s => Ok(s),
-                };
-                let selection = mg_plugin::Selection {
-                    selected: select.iter().map(chosen).collect::<Result<_>>()?,
-                    open: open.as_ref().map(selected).transpose()?,
-                    together: Vec::new(),
-                };
+                let selection = plugins::selection_of(select, open.as_ref())?;
                 let what = plugins::What {
                     id: command,
+                    kind: plugins::Kind::Command,
                     changed,
                     selection,
                     settings: setting,
@@ -2387,6 +2422,22 @@ fn run(cli: &Cli) -> Result<Output> {
                     by: by.as_deref(),
                 };
                 plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
+            }
+            PluginCmd::Export { module, plugin, exporter, out, job } => {
+                let gi = install(cli).ok();
+                plugins::export(gi.as_ref(), module, plugin, exporter, out, job)?
+            }
+            PluginCmd::Import { module, plugin, importer, source, job } => {
+                let gi = install(cli).ok();
+                let what = job.what(importer, plugins::Kind::Import(source))?;
+                let hak_dir = job.hak_dir.as_deref();
+                plugins::run(gi.as_ref(), module, plugin, &what, job.host()?, hak_dir, job.dry_run)?
+            }
+            PluginCmd::Wizard { module, plugin, wizard, job } => {
+                let gi = install(cli).ok();
+                let what = job.what(wizard, plugins::Kind::Wizard)?;
+                let hak_dir = job.hak_dir.as_deref();
+                plugins::run(gi.as_ref(), module, plugin, &what, job.host()?, hak_dir, job.dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
             PluginCmd::Install { file, folder, replace } => {

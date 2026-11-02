@@ -89,7 +89,7 @@ impl Source {
 pub(crate) struct Shared {
     files: Source,
     pub(crate) ws: RefCell<Workspace>,
-    edits: RefCell<Vec<Edit>>,
+    pub(crate) edits: RefCell<Vec<Edit>>,
     /// What the job wants written into haks, each hak once.
     pub(crate) haks: RefCell<Vec<HakWrite>>,
     /// How many bytes of it are held in memory ([`crate::HELD_IN_MEMORY`]),
@@ -110,9 +110,9 @@ pub(crate) struct Shared {
     /// read back), and what it set.
     decls: RefCell<Vec<crate::SettingDecl>>,
     settings: RefCell<crate::Settings>,
-    settings_set: RefCell<Vec<crate::SettingWrite>>,
+    pub(crate) settings_set: RefCell<Vec<crate::SettingWrite>>,
     /// Why `ctx.settings:set` is refused in this job (a check's), if it is.
-    no_set: std::cell::Cell<Option<&'static str>>,
+    pub(crate) no_set: std::cell::Cell<Option<&'static str>>,
     /// How long the job may run ([`Input::budget`]), and when it must
     /// have ended.
     budget: Option<std::time::Duration>,
@@ -759,7 +759,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
 }
 
 /// A form's fields from the plugin's table of them.
-fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
+pub(crate) fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
     let mut out = Vec::new();
     for field in fields.sequence_values::<Table>() {
         let f = field?;
@@ -1061,7 +1061,7 @@ fn unknown_setting(name: &str, decls: &[crate::SettingDecl]) -> String {
 }
 
 /// What a job's handler gets (`about`: the plugin's id, name and version).
-fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
+pub(crate) fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
     let ctx = lua.create_table()?;
     ctx.set("module", reader(lua, sh, false)?)?;
     ctx.set("game", reader(lua, sh, true)?)?;
@@ -1154,16 +1154,39 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
 fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     let mg = lua.create_table()?;
     mg.set("api", crate::API)?;
-    for (kind, registry) in
-        [("command", "mg.commands"), ("check", "mg.checks"), ("event", "mg.events")]
-    {
+    for (kind, name, registry) in crate::manifest::KINDS {
         lua.set_named_registry_value(registry, lua.create_table()?)?;
         mg.set(
-            if kind == "event" { "on" } else { kind },
-            lua.create_function(move |lua, (id, handler): (String, Function)| {
+            name,
+            lua.create_function(move |lua, (id, handler): (String, LuaValue)| {
                 let handlers: Table = lua.named_registry_value(registry)?;
                 if handlers.contains_key(id.as_str())? {
                     return fail(format!("the {kind} {id:?} is registered twice"));
+                }
+                // (A wizard is its pages and its finish; the rest, a
+                // function.)
+                match (&handler, kind) {
+                    (LuaValue::Table(t), "wizard") => {
+                        if !t.get::<LuaValue>("pages")?.is_table() {
+                            return fail(format!(
+                                "mg.wizard({id:?}, {{ pages = {{ … }}, finish = … }}): its pages, \
+                                 a list"
+                            ));
+                        }
+                        if !t.get::<LuaValue>("finish")?.is_function() {
+                            return fail(format!(
+                                "mg.wizard({id:?}, {{ pages = …, finish = function(ctx, answers) \
+                                 … end }}): what its Finish does"
+                            ));
+                        }
+                    }
+                    (_, "wizard") => {
+                        return fail(format!(
+                            "mg.wizard({id:?}, {{ pages = {{ … }}, finish = … }}): a table"
+                        ));
+                    }
+                    (LuaValue::Function(_), _) => {}
+                    _ => return fail(format!("mg.{name}({id:?}, handler): a function")),
                 }
                 handlers.set(id, handler)
             })?,
@@ -1311,7 +1334,7 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
 
 /// A machine for one job, the plugin's code loaded (`entry`; the console
 /// has none).
-fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
+pub(crate) fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     let lua = Lua::new();
     lua.set_memory_limit(MEMORY_LIMIT)?;
     lua.set_named_registry_value("mg.api", api(&lua, sh)?)?;
@@ -1410,12 +1433,12 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     Ok(lua)
 }
 
-fn about(plugin: &Plugin) -> [&str; 3] {
+pub(crate) fn about(plugin: &Plugin) -> [&str; 3] {
     [&plugin.manifest.id, &plugin.manifest.name, &plugin.manifest.version]
 }
 
 /// A job's failure as the host reports it.
-fn failed(plugin: &Plugin, sh: &Shared, e: mlua::Error) -> PluginError {
+pub(crate) fn failed(plugin: &Plugin, sh: &Shared, e: mlua::Error) -> PluginError {
     if let Some(budget) = sh.budget.filter(|_| sh.out_of_time() && !sh.host.cancelled()) {
         return PluginError::Script {
             plugin: plugin.manifest.name.clone(),
@@ -1441,7 +1464,7 @@ fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
     PluginError::Script { plugin: name.to_string(), message }
 }
 
-fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+pub(crate) fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
     let sh = shared_in(source_of(plugin), &plugin.manifest.name, input, host);
     // Each declared setting has a value: the host's, else its default.
     {
@@ -1481,7 +1504,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
     })
 }
 
-fn handler(lua: &Lua, registry: &str, kind: &str, id: &str) -> mlua::Result<Function> {
+pub(crate) fn handler(lua: &Lua, registry: &str, kind: &str, id: &str) -> mlua::Result<Function> {
     let handlers: Table = lua.named_registry_value(registry)?;
     match handlers.get::<Option<Function>>(id)? {
         Some(f) => Ok(f),
@@ -2016,14 +2039,9 @@ pub(crate) fn inspect(
             let handlers: Table = lua.named_registry_value(registry)?;
             handlers.pairs::<String, LuaValue>().map(|p| p.map(|(id, _)| id)).collect()
         };
-        let declared: BTreeMap<&str, Vec<&str>> = BTreeMap::from([
-            ("command", manifest.commands.iter().map(|c| c.id.as_str()).collect()),
-            ("check", manifest.checks.iter().map(|c| c.id.as_str()).collect()),
-            ("event", manifest.events.iter().map(|c| c.id.as_str()).collect()),
-        ]);
-        for (kind, registry) in
-            [("command", "mg.commands"), ("check", "mg.checks"), ("event", "mg.events")]
-        {
+        let declared: BTreeMap<&str, Vec<&str>> =
+            crate::manifest::KINDS.iter().map(|(kind, _, _)| (*kind, manifest.ids(kind))).collect();
+        for (kind, _, registry) in crate::manifest::KINDS {
             let mut code = registered(registry)?;
             code.sort();
             for id in &declared[kind] {
@@ -2165,6 +2183,7 @@ pub(crate) fn api_names() -> Vec<String> {
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));
+        out.extend(crate::kinds::NAMES.map(String::from));
         out.extend(crate::tables::NAMES.map(String::from));
         out.extend(crate::terrain::NAMES.map(String::from));
         out.sort();

@@ -19,6 +19,7 @@
 
 mod files;
 mod kept;
+mod kinds;
 mod manifest;
 mod package;
 pub mod project;
@@ -34,8 +35,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub use manifest::{
-    API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, RESOURCE_TARGETS, Scope,
-    SettingDecl, SettingKind, SettingValue, Target, is_color,
+    API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, ExporterDecl, ImporterDecl, Manifest,
+    PanelDecl, RESOURCE_TARGETS, Scope, SettingDecl, SettingKind, SettingValue, Target, WizardDecl,
+    is_color,
 };
 use mg_core::{ResRef, ResType};
 pub use mg_edit::fix::{Fix, Found};
@@ -243,6 +245,18 @@ pub enum FieldKind {
     },
 }
 
+impl FieldKind {
+    /// What a field of this kind starts with, as its value comes back.
+    pub fn default_value(&self) -> serde_json::Value {
+        match self {
+            FieldKind::Text { default } => serde_json::json!(default),
+            FieldKind::Number { default, .. } => serde_json::json!(default),
+            FieldKind::Check { default } => serde_json::json!(default),
+            FieldKind::Choice { choices, default } => serde_json::json!(choices[*default]),
+        }
+    }
+}
+
 /// Something a plugin asks of the user.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Question {
@@ -257,6 +271,31 @@ pub enum Question {
     File { title: String, extensions: Vec<String> },
     /// A folder of the user's to read the files of.
     Folder { title: String },
+    /// A page of a wizard (API 0.6), answered by [`Answer::Page`].
+    Page(Page),
+}
+
+/// A page of a plugin's wizard, as the window shows it: its fields (their
+/// defaults what was typed before, going back or kept on the page), and
+/// where it is among the wizard's pages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Page {
+    /// The wizard's title, and the page's.
+    pub wizard: String,
+    pub title: String,
+    /// What the page says above its fields.
+    pub text: String,
+    pub fields: Vec<FormField>,
+    /// Its place, from 1, among `steps` pages.
+    pub step: usize,
+    pub steps: usize,
+    /// There is a page to go back to.
+    pub back: bool,
+    /// It is the last: Finish, not Next.
+    pub last: bool,
+    /// What the page's check said is wrong with what was given, asking
+    /// again.
+    pub error: Option<String>,
 }
 
 /// The user's answer.
@@ -270,6 +309,12 @@ pub enum Answer {
     Values(BTreeMap<String, serde_json::Value>),
     /// The file or the folder chosen.
     Path(PathBuf),
+    /// A wizard's page answered: its values, by field id, and whether the
+    /// user went back (else on: Next, or Finish on the last).
+    Page {
+        values: BTreeMap<String, serde_json::Value>,
+        back: bool,
+    },
 }
 
 /// What a plugin's code reaches of whoever runs it.
@@ -281,6 +326,13 @@ pub trait Host {
 
     /// Whether the job was called off: the plugin's code stops at once.
     fn cancelled(&self) -> bool {
+        false
+    }
+
+    /// Whether a person answers the questions (a window), who can change
+    /// what a wizard's page's check objects to. Without one (`mg`, a
+    /// test), that check ends the wizard with what it said.
+    fn interactive(&self) -> bool {
         false
     }
 
@@ -736,6 +788,84 @@ pub fn run_check(
     })?;
     runtime::run_check(plugin, decl, input, host)
 }
+
+/// Runs an exporter of a plugin (`exporter`: its id) on a module, writing
+/// to `to`, the file or the folder the user chose: the files it wrote, as
+/// the outcome's `folders` (to write when it is done), and no edits.
+pub fn run_export(
+    plugin: &Plugin,
+    exporter: &str,
+    to: &Path,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let decl = plugin.manifest.exporters.iter().find(|c| c.id == exporter).ok_or_else(|| {
+        PluginError::Unknown {
+            plugin: plugin.manifest.id.clone(),
+            kind: "exporter",
+            id: exporter.to_string(),
+        }
+    })?;
+    kinds::run_export(plugin, decl, to, input, host)
+}
+
+/// Runs an importer of a plugin on a module, reading `from`, the file or
+/// the folder the user chose: its edits, to apply as one command.
+pub fn run_import(
+    plugin: &Plugin,
+    importer: &str,
+    from: &Path,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let decl = plugin.manifest.importers.iter().find(|c| c.id == importer).ok_or_else(|| {
+        PluginError::Unknown {
+            plugin: plugin.manifest.id.clone(),
+            kind: "importer",
+            id: importer.to_string(),
+        }
+    })?;
+    kinds::run_import(plugin, decl, from, input, host)
+}
+
+/// Runs a wizard of a plugin: its pages asked of the host one at a time
+/// ([`Question::Page`]), then its Finish: the edits, to apply as one
+/// command. Canceled on a page: [`PluginError::Canceled`], nothing made.
+pub fn run_wizard(
+    plugin: &Plugin,
+    wizard: &str,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let decl = plugin.manifest.wizards.iter().find(|c| c.id == wizard).ok_or_else(|| {
+        PluginError::Unknown {
+            plugin: plugin.manifest.id.clone(),
+            kind: "wizard",
+            id: wizard.to_string(),
+        }
+    })?;
+    kinds::run_wizard(plugin, decl, input, host)
+}
+
+/// Runs a panel's handler: what the panel shows. It only reads; past
+/// [`PANEL_BUDGET`] (unless the input says another) it is stopped.
+pub fn run_panel(
+    plugin: &Plugin,
+    panel: &str,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Shown, PluginError> {
+    let decl = plugin.manifest.panels.iter().find(|c| c.id == panel).ok_or_else(|| {
+        PluginError::Unknown {
+            plugin: plugin.manifest.id.clone(),
+            kind: "panel",
+            id: panel.to_string(),
+        }
+    })?;
+    kinds::run_panel(plugin, decl, input, host)
+}
+
+pub use kinds::{Element, Item, MAX_ELEMENTS, MAX_TEXT, PANEL_BUDGET, Shown, Tone};
 
 /// Runs code typed into the plugin console on a module, with `mg` (the
 /// API) and `ctx` (as a command's handler gets it) at hand: what it

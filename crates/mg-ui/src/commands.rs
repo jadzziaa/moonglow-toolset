@@ -137,6 +137,14 @@ pub enum Item {
     Wizards,
     /// The enabled plugins' commands.
     PluginCommands,
+    /// A command, and the enabled plugins' entries of a kind after it in
+    /// a submenu of the command's name where there are any (File › Export
+    /// › an exporter, API 0.6); else the command alone.
+    WithPlugins(Id, crate::plugin_kinds::Added),
+    /// The enabled plugins' wizards (API 0.6).
+    PluginWizards,
+    /// The enabled plugins' panels, in a submenu Panels (API 0.6).
+    PluginPanels,
     /// The commands the project names (moonglow.toml's `[commands]`).
     Project,
 }
@@ -157,8 +165,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::SaveAsProject),
             Item::Project,
             Separator,
-            Do(Id::Import),
-            Do(Id::Export),
+            Item::WithPlugins(Id::Import, crate::plugin_kinds::Added::Importer),
+            Item::WithPlugins(Id::Export, crate::plugin_kinds::Added::Exporter),
             Do(Id::ImportConversation),
             Separator,
             Do(Id::Close),
@@ -207,7 +215,16 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ResetLayout),
         ],
     ),
-    ("Wizards", &[Do(Id::AreaWizard), Separator, Do(Id::CreatureWizard), Item::Wizards]),
+    (
+        "Wizards",
+        &[
+            Do(Id::AreaWizard),
+            Separator,
+            Do(Id::CreatureWizard),
+            Item::Wizards,
+            Item::PluginWizards,
+        ],
+    ),
     (
         "Tools",
         &[
@@ -245,7 +262,10 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::AreaStatistics),
         ],
     ),
-    ("Plugins", &[Item::PluginCommands, Do(Id::Plugins), Do(Id::InstallPlugin)]),
+    (
+        "Plugins",
+        &[Item::PluginCommands, Item::PluginPanels, Do(Id::Plugins), Do(Id::InstallPlugin)],
+    ),
     (
         "Help",
         &[Do(Id::Manual), Do(Id::CommandPalette), Separator, Do(Id::CheckUpdates), Do(Id::About)],
@@ -295,7 +315,7 @@ impl Id {
         fn walk(items: &[Item], out: &mut Vec<Id>) {
             for item in items {
                 match item {
-                    Do(id) => out.push(*id),
+                    Do(id) | Item::WithPlugins(id, _) => out.push(*id),
                     Sub(_, items) => walk(items, out),
                     Item::Wizards => {
                         out.extend(crate::blueprint_wizard::KINDS.into_iter().map(Id::Wizard));
@@ -304,6 +324,8 @@ impl Id {
                     | Item::Recent
                     | Item::Prefabs
                     | Item::PluginCommands
+                    | Item::PluginWizards
+                    | Item::PluginPanels
                     | Item::Project => {}
                 }
             }
@@ -1449,6 +1471,35 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     button(app, ui, Id::Wizard(kind), level);
                 }
             }
+            Item::WithPlugins(id, kind) => {
+                let entries = app.plugin_entries(kind);
+                if entries.is_empty() {
+                    button(app, ui, id, level);
+                } else {
+                    let name = id.label(app).trim_end_matches('…').to_string();
+                    submenu(app, ui, level, &name, true, |app, ui| {
+                        button(app, ui, id, level + 1);
+                        ui.separator();
+                        plugin_entries(app, ui, &entries, level + 1);
+                    });
+                }
+            }
+            Item::PluginWizards => {
+                let entries = app.plugin_entries(crate::plugin_kinds::Added::Wizard);
+                if !entries.is_empty() {
+                    ui.separator();
+                    plugin_entries(app, ui, &entries, level);
+                }
+            }
+            Item::PluginPanels => {
+                let entries = app.plugin_entries(crate::plugin_kinds::Added::Panel);
+                if !entries.is_empty() {
+                    submenu(app, ui, level, "Panels", true, |app, ui| {
+                        plugin_entries(app, ui, &entries, level + 1);
+                    });
+                    ui.separator();
+                }
+            }
             Item::PluginCommands => {
                 let commands = app.plugin_commands();
                 let several = commands.iter().any(|c| c.plugin != commands[0].plugin);
@@ -1591,16 +1642,63 @@ pub struct Finder {
     focused: bool,
 }
 
+/// The enabled plugins' exporters, importers, wizards or panels in a
+/// menu: each plugin's under its name, where there are several; a panel's
+/// ticked while it is shown.
+fn plugin_entries(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    entries: &[crate::plugin_kinds::PluginEntry],
+    level: usize,
+) {
+    let several = entries.iter().any(|e| e.plugin != entries[0].plugin);
+    let mut last = None;
+    for e in entries {
+        if several && last != Some(&e.plugin) {
+            ui.weak(&e.plugin_name);
+        }
+        last = Some(&e.plugin);
+        let enabled = app.plugin_entry_enabled(e);
+        // (A panel ticked while shown, as View's panes are.)
+        let title = match e.kind {
+            crate::plugin_kinds::Added::Panel => {
+                let tick = if app.plugin_panel_open(&e.plugin, &e.id) { "✔ " } else { "    " };
+                format!("{tick}{}", e.title)
+            }
+            _ => e.title.clone(),
+        };
+        let (entry, chosen) = row(app, level, &e.title, egui::Button::new(&title), enabled);
+        let mut r = ui.add_enabled(enabled, entry);
+        let tip = match e.hint.as_str() {
+            "" => format!("Of the plugin {}", e.plugin_name),
+            hint => format!("{hint}\nOf the plugin {}", e.plugin_name),
+        };
+        r = r.on_hover_text(tip);
+        if r.clicked() || chosen {
+            app.actions.push(Action::RunPluginEntry {
+                kind: e.kind,
+                plugin: e.plugin.clone(),
+                id: e.id.clone(),
+            });
+            egui::Popup::close_all(ui.ctx());
+        }
+    }
+}
+
 /// The menu a command is in.
 fn menu_of(id: Id) -> Option<&'static str> {
     fn has(items: &[Item], id: Id) -> bool {
         items.iter().any(|item| match item {
-            Do(other) => *other == id,
+            Do(other) | Item::WithPlugins(other, _) => *other == id,
             Sub(_, items) => has(items, id),
             Item::Wizards => matches!(id, Id::Wizard(_)),
-            Separator | Item::Recent | Item::Prefabs | Item::PluginCommands | Item::Project => {
-                false
-            }
+            Separator
+            | Item::Recent
+            | Item::Prefabs
+            | Item::PluginCommands
+            | Item::PluginWizards
+            | Item::PluginPanels
+            | Item::Project => false,
         })
     }
     MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)
@@ -1612,6 +1710,8 @@ pub(crate) enum Choice {
     Window(Id),
     /// A plugin's command: the plugin's id and the command's.
     Plugin(String, String),
+    /// A plugin's exporter, importer, wizard or panel (API 0.6).
+    Entry(crate::plugin_kinds::Added, String, String),
     /// A project's command (`[commands]`), by its name.
     Project(String),
 }
@@ -1653,6 +1753,26 @@ pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
         key_id: c.key_id,
         enabled: app.ws.is_some(),
     });
+    // (Their exporters, importers, wizards and panels, by their menus.)
+    use crate::plugin_kinds::Added;
+    let entries = [
+        (Added::Exporter, "Export"),
+        (Added::Importer, "Import"),
+        (Added::Wizard, "Wizards"),
+        (Added::Panel, "Panels"),
+    ]
+    .into_iter()
+    .flat_map(|(kind, menu)| {
+        app.plugin_entries(kind).into_iter().map(move |e| (menu, e)).collect::<Vec<_>>()
+    })
+    .map(|(menu, e)| Row {
+        enabled: app.plugin_entry_enabled(&e),
+        key_id: format!("{}/{}:{}", e.plugin, menu.to_lowercase(), e.id),
+        label: e.title.clone(),
+        menu: format!("{menu} {}", e.plugin_name),
+        choice: Choice::Entry(e.kind, e.plugin, e.id),
+    })
+    .collect::<Vec<_>>();
     // (The project's commands, as File › Project has them.)
     let project = crate::project_commands::commands(app).map(|(_, c)| c).unwrap_or_default();
     let project = project.into_iter().map(|c| Row {
@@ -1664,6 +1784,7 @@ pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
     });
     let mut found: Vec<(bool, Row)> = window
         .chain(plugins)
+        .chain(entries)
         .chain(project)
         .filter_map(|row| {
             let name = row.label.to_lowercase();
@@ -1758,6 +1879,9 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
     match run {
         Some(Choice::Window(id)) => id.run(app, ctx),
         Some(Choice::Plugin(plugin, command)) => app.run_plugin_command(&plugin, &command),
+        Some(Choice::Entry(kind, plugin, id)) => {
+            app.actions.push(Action::RunPluginEntry { kind, plugin, id })
+        }
         // (Saved first, asked as from File › Project.)
         Some(Choice::Project(name)) => app.actions.push(Action::ProjectCommand(name)),
         None if modal.should_close() => {}

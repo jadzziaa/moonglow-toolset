@@ -89,6 +89,8 @@ pub enum Tab {
     /// the tileset says of it (a double click in the tiles palette's
     /// Gallery).
     Tile { tileset: mg_core::ResRef, tile: u32 },
+    /// A plugin's panel (API 0.6): what its code returns, drawn.
+    PluginPanel { plugin: String, panel: String },
 }
 
 impl Tab {
@@ -148,6 +150,7 @@ impl Tab {
             Tab::Options => "options",
             Tab::TileProperties => "tile-properties",
             Tab::Tile { .. } => "tile",
+            Tab::PluginPanel { .. } => "plugin-panel",
         }
     }
 
@@ -187,6 +190,7 @@ impl Tab {
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
             Tab::TileProperties => (560.0, 640.0),
+            Tab::PluginPanel { .. } => (380.0, 560.0),
             // (Each with OK and Cancel under it: 32 points of its height.)
             Tab::Blueprint(_)
             | Tab::Blueprints(_)
@@ -424,6 +428,9 @@ impl Viewer<'_> {
             Tab::Options => crate::options::ui(self.app, ui),
             Tab::TileProperties => crate::tile_select::ui(self.app, ui),
             Tab::Tile { tileset, tile } => crate::tile_view::ui(self.app, ui, *tileset, *tile),
+            Tab::PluginPanel { plugin, panel } => {
+                crate::plugin_kinds::panel_ui(self.app, ui, plugin, panel)
+            }
         }
     }
 }
@@ -515,6 +522,9 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
+            }
+            Tab::PluginPanel { plugin, panel } => {
+                crate::plugin_kinds::panel_title(self.app, plugin, panel).into()
             }
         }
     }
@@ -733,6 +743,7 @@ fn fits(tab: &Tab) -> bool {
                 | Tab::Dialog(_)
                 | Tab::TalkTable
                 | Tab::Tileset(_)
+                | Tab::PluginPanel { .. }
         )
     }
 }

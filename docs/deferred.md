@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:50:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:17:07Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -748,7 +748,8 @@ contribution itself states as not done or not checked.
   and the after-create hook; 0.5 (3.3.0) a batch of strokes, more kinds
   of setting, more of what a command is for and the menus it is in, a
   fix that asks, archives of several plugins and the rest of this
-  round's gaps):
+  round's gaps; 0.6 (2026-11-02) exporters, importers, wizards and
+  panels, the proposal's "API 0.6"):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -771,14 +772,15 @@ contribution itself states as not done or not checked.
     `plugin-settings-kinds`), the menus of 0.5 (tiles, categories,
     groups, tabs, the script editor, Find References, Advanced Search),
     Verify's fixes (a fix that asks, Fix All, Undo) and the events of
-    3.3.0 (Save As, the makers, Manage Plugins' time): all driven
-    through the UI harness. Waits on a desktop session. (S)
+    3.3.0 (Save As, the makers, Manage Plugins' time), and what API 0.6
+    added (File › Export's and Import's submenus, the save dialog's
+    filter of an exporter's kind of file, a wizard's pages, a panel
+    docked beside the area; rendered as `plugin-export-menu`,
+    `plugin-wizard-check`, `plugin-wizard-page`, `plugin-panel`): all
+    driven through the UI harness. Waits on a desktop session. (S)
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)
-  - **More kinds of things to add:** exporters and importers, wizards,
-    panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
-    complexity.)
   - **The 2DA editor's faults with fixes:** the 2DA editor is another
     package's this round; its faults offer no fix yet. Waits on that
     work. (S)

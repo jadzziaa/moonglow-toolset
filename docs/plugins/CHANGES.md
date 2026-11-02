@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,49 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.6
+
+Not yet in a release. Only additions: a plugin written for 0.5 or before
+runs as it is. A plugin that uses what is new says `api = "0.6"`; a
+manifest with any of the new sections and an earlier `api` is refused,
+with the reason. The design is the proposal's "API 0.6".
+
+- Exporters: `[exporter]` (`id`, `title`, `hint`, `to = "file"` or
+  `"folder"`, `extension`, `for`) and `mg.exporter(id, function(ctx,
+  out))`, in File › Export: the user chooses the file or the folder
+  first, and the exporter writes it with `out:write(bytes)` (a folder's
+  files with `out:write(name, bytes)`; `out.name` is its name). It only
+  reads; one that edits, or writes a hak or elsewhere, fails. With
+  `for`, it exports what is selected, and is offered only then. `mg
+  plugin export MODULE PLUGIN ID OUT`.
+- Importers: `[importer]` (`id`, `title`, `hint`, `from = "file"` or
+  `"folder"`, `extensions`) and `mg.importer(id, function(ctx, source))`,
+  in File › Import: `source` is the file or the folder the user chose,
+  as `ctx.ui:open_file` and `open_folder` give them; its edits are one
+  step of Undo, named by what it returns or "Import" and its title. `mg
+  plugin import MODULE PLUGIN ID SOURCE`.
+- Wizards: `[wizard]` (`id`, `title`, `hint`) and `mg.wizard(id, {
+  pages = { … }, finish = function(ctx, answers) })`, in the Wizards
+  menu: pages asked in turn with Back, Next and Finish (each a table, or
+  a function of the answers so far, nil to skip it; `check` keeps a page
+  with what is wrong), `answers` by field id, the edits at Finish as one
+  step of Undo, Cancel making nothing. `mg plugin wizard MODULE PLUGIN
+  ID`, its pages answered by `--answers FILE` (JSON) and `--answer`;
+  `mg plugin run` takes `--answers` too.
+- Panels: `[panel]` (`id`, `title`, `hint`, `refresh = "edits,
+  selection"`) and `mg.panel(id, function(ctx) return { … } end)`, a pane
+  of Plugins › Panels showing the elements it returns (`heading`,
+  `text`, `value`, `separator`, `button` running one of the plugin's
+  commands, `list` of items that open what they name or run a command),
+  drawn by Moonglow; run beside the window, within 250 ms, at most 2,000
+  elements; it only reads. Not in `mg`.
+- A plugin's own tests: `export`, `import`, `wizard` and `panel`, with
+  `to` and `content` (an export's file and what it has) and `shows`
+  (what a panel shows). `mg plugin list` lists the new kinds.
+- The host: `Question::Page` and `Answer::Page` (a wizard's page and its
+  answer), and `Host::interactive` (whether a page's check that objects
+  asks again, or ends the wizard).
 
 ## 0.5
 

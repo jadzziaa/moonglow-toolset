@@ -6200,6 +6200,130 @@ fn plugins_window() {
     shoot(&mut h, &dir, "plugins-replace");
 }
 
+/// What API 0.6 added, with the examples enabled, in
+/// `target/test-output/screens-plugin-kinds/`: File › Export with the
+/// plugins' exporters (`plugin-export-menu`), a wizard's page saying what
+/// its check objects to (`plugin-wizard-check`) and its next page
+/// (`plugin-wizard-page`), the panel beside the window
+/// (`plugin-panel`), and Manage Plugins listing what they add
+/// (`plugin-kinds-window`).
+#[test]
+#[ignore]
+fn plugin_kinds() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-plugin-kinds");
+    let project = dir.join("module");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    for (name, tag) in [("guard", "gate_guard"), ("captain", "CAPTAIN")] {
+        let mut g = mg_gff::Gff::new(*b"UTC ");
+        g.root.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        m.set_gff(ResKey::parse(name, ResType::UTC).unwrap(), &g).unwrap();
+    }
+    let mut are = mg_gff::Gff::new(*b"ARE ");
+    are.root.set(
+        "Name",
+        mg_gff::Value::LocString(mg_core::LocString::from_text(
+            mg_core::Language::ENGLISH,
+            mg_core::Gender::Male,
+            "The Tavern",
+        )),
+    );
+    m.set_gff(ResKey::parse("tavern", ResType::ARE).unwrap(), &are).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples"));
+    app.load_plugins();
+    for id in ["example.creature-sheet", "example.store-wizard", "example.module-overview"] {
+        app.enable_plugin(id, true);
+    }
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Export").hover();
+    h.run();
+    h.get_by_label("Export").click();
+    h.run();
+    shoot(&mut h, &dir, "plugin-export-menu");
+    h.key_press(egui::Key::Escape);
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // The wizard, its pages in the job's window.
+    h.state_mut().background_jobs = true;
+    h.state_mut().actions.push(mg_ui::Action::RunPluginEntry {
+        kind: mg_ui::plugin_kinds::Added::Wizard,
+        plugin: "example.store-wizard".into(),
+        id: "new-store".into(),
+    });
+    let shows = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            assert!(started.elapsed().as_secs() < 60, "{label:?} never showed");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.step();
+        }
+        h.step();
+    };
+    shows(&mut h, "Page 1 of 3");
+    let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput
+            && n.value().as_deref() == Some("General Store")
+    };
+    let name = h.get(egui_kittest::kittest::by().predicate(field));
+    let id = name.accesskit_node().id();
+    name.focus();
+    h.step();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    h.step();
+    h.get_by_label("Next >").click();
+    shows(&mut h, "A store needs a name.");
+    shoot(&mut h, &dir, "plugin-wizard-check");
+    h.get_by(move |n| n.id() == id).focus();
+    h.step();
+    h.event(egui::Event::Text("Iron Hand".into()));
+    h.step();
+    h.step();
+    h.get_by_label("Next >").click();
+    shows(&mut h, "Iron Hand's prices");
+    shoot(&mut h, &dir, "plugin-wizard-page");
+    h.get_by_label("Next >").click();
+    for _ in 0..100 {
+        if !h.state().busy() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.state_mut().background_jobs = false;
+
+    // The panel, with the guard chosen in the palette.
+    h.state_mut().palette.selected = Some(ResKey::parse("guard", ResType::UTC).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::RunPluginEntry {
+        kind: mg_ui::plugin_kinds::Added::Panel,
+        plugin: "example.module-overview".into(),
+        id: "overview".into(),
+    });
+    h.run_steps(4);
+    shoot(&mut h, &dir, "plugin-panel");
+
+    h.state_mut().plugins.window = true;
+    h.run_steps(3);
+    h.get_by_label("Panel: Module Overview").scroll_to_me();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "plugin-kinds-window");
+}
+
 /// A project's plugins (the builder-tags example in a project's
 /// `plugins/`): the question when it is opened (`project-plugins-ask`),
 /// the Plugins window with it allowed (`project-plugins-window`), and its

@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:55:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:42Z }
 ---
 
 # Plugins: a proposal
@@ -17,11 +17,14 @@ not the description of the API and not the list of what is planned:
   and checks in sandboxed Luau) and are marked experimental. API 0.2
   (1.16.0) added files and folders the user chooses, haks, areas and
   terrain, and pictures; API 0.3 (1.21.0) added 2DAs and talk tables,
-  files written into a chosen folder, and events; API 0.4 (not yet in a
-  release) what is selected and open, commands in right-click menus,
-  fixes for findings, a plugin's own tests, settings, a project's own
-  plugins, a resource's own events around a save, and events on objects
-  placed or pasted and on what a wizard makes. For users:
+  files written into a chosen folder, and events; API 0.4 (2.1.0) what is
+  selected and open, commands in right-click menus, fixes for findings, a
+  plugin's own tests, settings, a project's own plugins, a resource's own
+  events around a save, and events on objects placed or pasted and on
+  what a wizard makes; API 0.5 (3.3.0) more menus, settings and events;
+  and API 0.6 (not yet in a release) exporters, importers, wizards and
+  panels ([below](#api-06-exporters-importers-wizards-and-panels-2026-11-02)).
+  For users:
   [Plugins](manual/15-plugins.md). For authors:
   [Writing plugins](manual/16-writing-plugins.md), the
   [Plugin API reference](manual/17-plugin-api.md), the
@@ -37,7 +40,8 @@ not the description of the API and not the list of what is planned:
 - **Plugins add things Moonglow already has kinds of**: menu commands and
   checks for Verify Module first; import and export formats, wizards,
   panels and area tools were proposed for later. (Shipped: commands,
-  checks and events. The other kinds are not built.)
+  checks and events; exporters, importers, wizards and panels with API
+  0.6. Area tools are not built.)
 - **A plugin never edits the module itself.** It reads a snapshot and
   hands back a list of edits; Moonglow checks them and applies them as
   one undo step, as it does for its own editors. Untouched data stays
@@ -258,6 +262,172 @@ Built in that order: the manifest and the process with `run` and
 `ctx.log`, then the reading half of the API (`ctx.module`, `ctx.game`),
 then edits, questions and checks' fixes, then events. M.
 
+## API 0.6: exporters, importers, wizards and panels (2026-11-02)
+
+The four kinds of thing the summary proposed for later, designed here
+before they were built (the deferred list's "More kinds of things to
+add", the owner's 8th large entry). Each is declared in the manifest as
+a command is, registered by the code as a command is, and gated as every
+addition is: a manifest that declares one and says an `api` before 0.6
+is refused, with the reason. What all four keep from the rest of the
+API: the code runs sandboxed in a job of its own on a copy of the
+module; it reads with `ctx.module` and `ctx.game`, sees `ctx.selection`,
+`ctx.open` and `ctx.settings`; edits come back as data and go in through
+`Moonglow::apply`, one step of Undo; nothing outside the module is
+written without the user's choice or leave.
+
+### Exporters
+
+- **Manifest.** `[exporter]` with `id`, `title`, `hint`, `to = "file"`
+  (the default) or `"folder"`, `extension` (the file's, without the dot:
+  the dialog's filter and the suggested name's), and `for` (kinds of
+  object, as a command's): with `for` it exports what is selected and is
+  offered only when what is selected is all of those kinds; without, it
+  exports the module (and still sees `ctx.selection`).
+- **Luau.** `mg.exporter(id, function(ctx, out) … end)`. `out.name` is
+  the file's or the folder's name; to a file, `out:write(bytes)` is the
+  whole file (a second call replaces what the first gave); to a folder,
+  `out:write(name, bytes)` writes a file into it by name (a name alone,
+  as `folder:write` takes). It may return text, which the log says.
+- **Sandbox.** The user chooses where, in the save dialog (File ›
+  Export › the exporter) or the folder dialog, before any of the code
+  runs, and that choice is the leave: `out:write` asks nothing more. The
+  files are written when the handler has returned, all or none, as
+  `folder:write`'s are. An exporter only reads: one that edits the
+  module, writes a hak or writes into another folder fails, as a check
+  that edits does. It may ask with a form (options of the export).
+- **`mg`.** `mg plugin export MODULE PLUGIN ID OUT` (a file, or with
+  `to = "folder"` a folder, made if it isn't there), with `--select`,
+  `--answer`, `--setting` and `--dry-run` as `mg plugin run` has them.
+  File › Export and Import are submenus only with a plugin's exporter or
+  importer enabled: without, they are Moonglow's own Export… and
+  Import…, as Aurora's.
+- **Tests.** A plugin's own tests: `export = "id"`, `to = "name"` (the
+  file's or folder's name the plugin sees; nothing is written), and
+  `written` (the files' names) and `content` (`{ "guards.csv" = [ …
+  ] }`, text each file has).
+- **Undo.** Nothing to undo: the module is not changed, and files written
+  outside it are not taken back (as `folder:write`'s are not).
+
+### Importers
+
+- **Manifest.** `[importer]` with `id`, `title`, `hint`, `from = "file"`
+  (the default) or `"folder"`, and `extensions` (`"csv, txt"`: the open
+  dialog's filter; none, any file).
+- **Luau.** `mg.importer(id, function(ctx, source) … end)`. `source` is
+  what the user chose, as `ctx.ui:open_file` and `ctx.ui:open_folder`
+  give them: a `file` (`name`, `bytes`) or a `folder` (`name`, `files`,
+  `bytes`, `text`, `to_hak`, `write`). It edits with `ctx.edit`, and may
+  put the files into a hak with the user's leave as a command does.
+- **Sandbox.** The user chooses the file or folder (File › Import › the
+  importer) before the code runs: it reads that and nothing else of
+  their disk. A folder's `write` and `to_hak`, and `ctx.hak`, ask the
+  user as a command's do.
+- **`mg`.** `mg plugin import MODULE PLUGIN ID SOURCE`, saving the module
+  as `mg plugin run` does (`--yes` for a hak, `--hak-dir`, `--dry-run`).
+- **Tests.** `import = "id"`, its source the first of `files`, and the
+  fields after (`[[test.field]]`) as a command's.
+- **Undo.** Its edits are one step, named by what it returns or "Import"
+  and its title; a hak it wrote goes with them, as a command's.
+
+### Wizards
+
+- **Manifest.** `[wizard]` with `id`, `title` and `hint`. The wizards
+  are in the Wizards menu, under the blueprint wizards.
+- **Luau.** `mg.wizard(id, { pages = { … }, finish = function(ctx,
+  answers) … end })`. A page is `{ id, title, text?, fields, check? }`
+  (`fields` as a form's), or a function `(ctx, answers) -> page?` that
+  makes one from the answers so far (nil: the page is skipped). `answers`
+  is one table of every page's values by field id, so a field's id is
+  its own across the pages. `check(ctx, answers)` may return text: what
+  is wrong, shown on the page, which stays. `finish` makes the edits.
+- **The window.** One page at a time with **Back**, **Next** (on the
+  last, **Finish**) and **Cancel**, "Page 2 of 3"; Back keeps what was
+  typed; a page's defaults are its values when it is shown again. The
+  last is the last of the list: where the pages after the one shown are
+  all skipped, its Next finishes (which pages are skipped depends on
+  what that page is given).
+- **Sandbox.** The pages and their checks only read: one that edits
+  fails ("a wizard edits in finish"). `finish` edits, and may write a
+  hak with the user's leave, as a command does.
+- **`mg`.** `mg plugin wizard MODULE PLUGIN ID`, each page answered from
+  `--answers FILE` (a JSON object of values by field id) and `--answer
+  ID=VALUE`, the rest by their defaults; a page's check that objects is
+  an error, and nothing is saved. (Built so; `mg plugin run` takes
+  `--answers` too, for a command's forms.) The host says whether a
+  person answers (`Host::interactive`): in the window a check that
+  objects asks the page again, saying why; without one it ends the
+  wizard, or it would ask the same page for ever.
+- **Tests.** `wizard = "id"` with `answers` by field id, and the fields
+  after; `error` for a check that objects.
+- **Undo.** Finish's edits are one step, named by what `finish` returns
+  or the wizard's title; Cancel, or closing the window, changes nothing
+  (nothing is made until Finish).
+
+### Panels
+
+- **Manifest.** `[panel]` with `id`, `title`, `hint` and `refresh`:
+  `"edits"` (after each change of the module: an edit, Undo, Redo),
+  `"selection"` (when what is selected changes), both, or none (built
+  so, edits one after another, a drag's steps, draw it once, when they
+  have stopped for 200 ms: not stopped and started at each). Every
+  panel is also drawn again when it opens, by its **Refresh** button, and
+  after a job of its plugin's (a command, an import, a wizard) ends.
+- **Luau.** `mg.panel(id, function(ctx) return { … } end)`: what it
+  shows, a list of elements, each a table with its `type`: `heading`
+  (`text`), `text` (`text`, `weak`, `color` `"warning"` or `"error"`),
+  `value` (`label`, `text`), `separator`, `button` (`text`, `hint`,
+  `command`: one of the plugin's commands, run on `on`, an entry or a
+  list of entries as `ctx.selection` has them, else on what is
+  selected), and `list` (`items`, each `{ text, hint?, open?, command?,
+  on? }`: a click opens `open`, a resource's name or an entry, or runs
+  `command`). Moonglow draws them; the plugin never draws.
+- **Sandbox.** A panel's handler only reads: no edits, no questions
+  (`confirm` is false, a form nil, no file is given), nothing written; a
+  button runs one of the plugin's commands, which asks and edits as any
+  command does. It runs on a thread of its own, never in a frame and
+  not as a job (a job has the window to itself; while one runs, a panel
+  waits), one at a time per panel (a change while it runs draws it again
+  after), with 250 ms; past that it is stopped and the panel says so.
+  What it logs goes nowhere: it shows what it has to say. The frame draws what it returned,
+  data, which is held to 2,000 elements and items and 1,000 characters a
+  text: the rest is cut, saying so. A render is stopped when the game's
+  data is to change (a hak attached, the module layer refreshed), and
+  run again after.
+- **The window.** A panel is a pane like the others: opened from
+  Plugins › Panels (and the Command Palette), it opens in a window of
+  its own and is moved, docked or floated as any tab is (its place
+  remembered as other windows' are); it is kept with the module's open
+  tabs, and closes when its plugin is disabled. (Built so: proposed, it
+  opened docked beside the area as the palettes do; a window of its own
+  is what every other tab opens as, and docks where the user drags it.)
+- **`mg`.** None: there is no window to show it in. `mg plugin check`
+  holds its registration to the manifest as for the other kinds.
+- **Tests.** `panel = "id"` with `shows` (texts it must show, each part
+  of an element's text, a button's or an item's) and `select`/`open` as
+  for a command.
+- **Undo.** None of its own: it changes nothing. What its buttons run is
+  a command, with that command's Undo.
+
+### What stays out, and why
+
+- **Exporters and importers in right-click menus, and drop or open by
+  extension** (a `.csv` dropped on the window, or chosen in File ›
+  Open): File › Export and Import are where the user expects them, and
+  a file type claimed by several plugins needs a way to choose first.
+  Asked for, they come later.
+- **Importers firing `resource-created`**, and wizards too: what a
+  plugin makes itself fires no event (Safety), or plugins would answer
+  each other.
+- **A wizard's fields beyond a form's** (pictures, lists, a 3D preview):
+  pages are forms, the kinds the user already knows; a page's `text`
+  says what a picture would.
+- **Panels that take text, draw, or run on a clock**: a panel shows and
+  links; what asks is a command's form, and plugin code on a timer is
+  plugin code per frame by another name (Principle 5).
+- **Panels in `mg`**: nothing to show them in; their tests run with
+  `mg plugin test`.
+
 ## Proposed and not done so
 
 Parts of the proposal that were built differently, so that this record
@@ -274,7 +444,8 @@ is not read as a description:
   plugins. The 0.2 and 0.3 that shipped were something else (files,
   haks, terrain, pictures, tables); of the proposed list, events came
   with 0.3, and quick fixes, storage (a plugin's settings) and a
-  project's plugins with 0.4.
+  project's plugins with 0.4, and exporters, importers and wizards (with
+  panels) with 0.6.
 - **Where commands show.** Proposed: Tools › Plugins, context menus, and
   `menu` and `when` keys in the manifest. Built: a **Plugins** menu
   (with Manage Plugins… and Install Plugin from File…), the Command
