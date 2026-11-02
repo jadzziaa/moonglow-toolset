@@ -828,9 +828,13 @@ pub(crate) fn part(m: &Member) -> Part {
         Bones => Part::Bones,
         Param(name) if unfilled(&name) => Part::Frame,
         // (An MTR's parameter is one value, a float, a vector or an int:
-        // an array or a matrix of a name the contract doesn't know is
-        // zero for every draw.)
-        Param(_) if m.count.is_none() && !matches!(m.ty, ValueType::Matrix(..)) => Part::Draw,
+        // an array, a matrix or a struct of a name the contract doesn't
+        // know is zero for every draw.)
+        Param(_)
+            if m.count.is_none() && !matches!(m.ty, ValueType::Matrix(..) | ValueType::Struct) =>
+        {
+            Part::Draw
+        }
         _ => Part::Frame,
     }
 }

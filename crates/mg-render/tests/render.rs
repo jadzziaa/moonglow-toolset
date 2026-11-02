@@ -2940,6 +2940,45 @@ fn a_material_s_own_programs_draw_it_and_move_with_the_clock() {
     assert_eq!(a.data, b.data);
 }
 
+/// A program with an array of samplers is drawn (its elements split as
+/// single samplers are), not refused: the elements, which the engine binds
+/// no texture of its own to, read white, and the material's texture shows.
+/// A uniform that is a struct (or an array of them), which no MTR fills,
+/// is zero.
+#[test]
+fn a_program_with_an_array_of_samplers_or_a_struct_draws() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    let fs = "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nuniform sampler2D extra[2];\n\
+        struct Glow { vec4 color; float strength; };\nuniform Glow glow;\nuniform Glow glows[2];\n\
+        varying vec2 vUv;\nvoid main ()\n{\n    gl_FragColor = texture2D(texUnit0, vUv)\n\
+        * texture2D(extra[1], vUv) * texture2D(extra[0], vUv)\n\
+        + glow.color * glow.strength + glows[1].color;\n}\n";
+    assets.shaders.insert("fs_arrays".into(), fs.into());
+    assets.opaque("arrays", [255, 0, 0]);
+    let mtr = "customshadervs vs_sway\ncustomshaderfs fs_arrays\ntexture0 arrays\n";
+    assets.materials.insert("arrays".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "arrays", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 1, "{:?}", r.drawn);
+    assert_eq!(img.pixel(32, 32), [255, 0, 0, 255]);
+}
+
 /// Made while the frames go on (`game_background`, the area view's): the
 /// first frame draws the mesh with Moonglow's own shader and says a
 /// pipeline is being made; the window is woken when it is; then the

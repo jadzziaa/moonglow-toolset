@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:03:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:20:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -538,10 +538,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
   compiles each program at six settings since 2026-10-29, and keeps what
   compiled, `doctor::settings`)
-  - Arrays of samplers are refused (not split) where a view draws the
-    program (Verify, which asks glslang alone, takes them), and
-    `customShaderGS` (a geometry shader) is not read; no shader seen has
-    either. (S)
   - What the engine does is assumed in three places, none checked in the
     client: an indented `#include` is spliced (14 of the stock ones
     are), a missing include fails the program, and splicing stops 16
@@ -551,10 +547,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     its, one with an indented include, one naming an include that isn't
     there and one at the end of a chain 17 deep, each drawn magenta or
     not)
-  - A uniform that is a struct is described as `Other`, without its
-    members (none in the stock blocks). (Locations, which glslang numbers
-    in the order a stage first uses them, are settled in M1: vertex
-    inputs bound by name, varyings matched by name.) (S)
   - The C++ build: glslang is in every program and test binary that
     links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders

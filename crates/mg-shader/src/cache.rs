@@ -252,8 +252,9 @@ void main ()
 
     /// Verify's check: glslang alone, kept as a compile keeps it (and a
     /// program compiled for an area's view is checked by reading it); one
-    /// glslang refuses is an error and not kept; one only Moonglow's passes
-    /// refuse (an array of samplers) is no error, as the game takes it.
+    /// glslang refuses is an error and not kept. (One only Moonglow's passes
+    /// refused would be no error, as the game takes it, and not kept: since
+    /// arrays of samplers are split, GLSL 330 has none.)
     #[test]
     fn a_check_keeps_what_glslang_takes() {
         let d = dir("check");
@@ -276,6 +277,8 @@ void main ()
         let b = assemble("fs_broken", Stage::Fragment, &Preamble::default(), &broken).unwrap();
         assert!(matches!(cache.check(&b), Err(ShaderError::Compile(_))));
         assert!(matches!(cache.check(&b), Err(ShaderError::Compile(_))), "not kept");
+        // (An array of samplers, which the passes refused before they split
+        // it, is kept as any other.)
         let mut arrays = sources();
         arrays.insert(
             "fs_arrays".into(),
@@ -284,11 +287,10 @@ void main ()
                 .into(),
         );
         let c = assemble("fs_arrays", Stage::Fragment, &Preamble::default(), &arrays).unwrap();
-        assert!(matches!(crate::compile_assembled(&c), Err(ShaderError::Spirv(_))));
-        assert!(crate::check_assembled(&c).is_ok());
+        assert!(crate::compile_assembled(&c).is_ok());
         assert_eq!(cache.check(&c).unwrap(), Cached::Miss);
-        assert_eq!(cache.check(&c).unwrap(), Cached::Miss, "not kept: the passes refuse it");
-        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2);
+        assert_eq!(cache.check(&c).unwrap(), Cached::Hit);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 3);
         let _ = std::fs::remove_dir_all(&d);
     }
 
