@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:42Z }
 ---
 
 # Plugins
@@ -290,8 +290,8 @@ says, in Moonglow's own headings, text, lists and buttons: a list's
 item opens what it names, and a button runs one of the plugin's
 commands, with its own step of Undo. **Refresh** draws it again; it is
 drawn again by itself after the plugin's commands, and, if its plugin
-says so, after each change of the module or when what is selected
-changes. Its plugin's code runs beside the window, so a panel never
+says so, after each change of the module (once you stop, while you drag
+or type) or when what is selected changes. Its plugin's code runs beside the window, so a panel never
 slows it down: while it draws, the panel shows what it showed before. A
 panel goes when its plugin is disabled.
 

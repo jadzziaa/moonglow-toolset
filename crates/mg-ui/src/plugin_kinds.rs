@@ -63,9 +63,16 @@ pub struct PanelState {
     /// selected.
     revision: Option<u64>,
     selection: Vec<Selected>,
+    /// The module's revision last seen, and when the edits will have
+    /// stopped long enough to draw it again ([`PANEL_QUIET`]): not
+    /// between the steps of a drag.
+    seen: Option<u64>,
+    quiet_at: Option<Instant>,
     /// When the render under way began, and how long the last took.
     began: Option<Instant>,
     pub took: Option<Duration>,
+    /// How many times its code has been run.
+    pub drawn: usize,
 }
 
 impl Default for PanelState {
@@ -76,8 +83,11 @@ impl Default for PanelState {
             running: None,
             revision: None,
             selection: Vec::new(),
+            seen: None,
+            quiet_at: None,
             began: None,
             took: None,
+            drawn: 0,
         }
     }
 }
@@ -87,7 +97,17 @@ impl PanelState {
     pub fn drawing(&self) -> bool {
         self.running.is_some()
     }
+
+    /// Whether it waits for the edits to stop, to be drawn again.
+    pub fn waiting(&self) -> bool {
+        self.quiet_at.is_some()
+    }
 }
+
+/// How long the module has to stay as it is before a panel that follows
+/// its edits is drawn again: a drag's steps, typing, edit after edit, draw
+/// it once, after them.
+pub const PANEL_QUIET: Duration = Duration::from_millis(200);
 
 /// A panel's render as a plugin's host: nobody is asked anything, and
 /// what it logs goes nowhere (it shows what it has to say).
@@ -362,7 +382,20 @@ impl Moonglow {
                 }
             }
             if decl.on_edits && state.revision.is_some() && state.revision != revision {
-                state.stale = true;
+                // (Edits that come one after another, a drag's, draw it
+                // once, when they stop; with jobs run to their end at
+                // once, at once.)
+                let now = Instant::now();
+                if state.seen != revision {
+                    state.seen = revision;
+                    state.quiet_at = Some(now + PANEL_QUIET);
+                }
+                match state.quiet_at {
+                    _ if !self.background_jobs => state.stale = true,
+                    Some(t) if now >= t => state.stale = true,
+                    Some(t) => ctx.request_repaint_after(t - now),
+                    None => state.stale = true,
+                }
             }
             if let Some(s) = &selection
                 && *s != state.selection
@@ -373,7 +406,10 @@ impl Moonglow {
                 continue;
             }
             state.stale = false;
+            state.drawn += 1;
+            state.quiet_at = None;
             state.revision = revision;
+            state.seen = revision;
             state.selection = selection.clone().unwrap_or_default();
             state.began = Some(Instant::now());
             self.start_panel(plugin, &decl.id, key, ctx);

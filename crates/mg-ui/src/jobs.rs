@@ -154,7 +154,7 @@ impl Moonglow {
         if self.thumbnails.waiting() > 0 {
             return Some("pictures to make");
         }
-        if self.plugins.panels.values().any(crate::plugin_kinds::PanelState::drawing) {
+        if (self.plugins.panels.values()).any(|p| p.drawing() || p.waiting()) {
             return Some("a plugin's panel being drawn");
         }
         if self.thumbnails.reading() > 0 {

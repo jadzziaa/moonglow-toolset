@@ -279,6 +279,51 @@ fn a_plugin_s_panel_draws_beside_the_window() {
     h.get_by_label("Nothing is selected.");
 }
 
+/// A panel that follows the module's edits is drawn once when edits that
+/// come one after another (a drag's steps) stop, not for each: its code
+/// is not run, nor stopped for the game's data, between them.
+#[test]
+fn a_plugin_s_panel_is_drawn_once_after_edits_one_after_another() {
+    let Some(mut h) = with_example("ui-plugin-panel-quiet", "example.module-overview") else {
+        return;
+    };
+    h.state_mut().background_jobs = true;
+    let tab =
+        Tab::PluginPanel { plugin: "example.module-overview".into(), panel: "overview".into() };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+    h.step();
+    settle(&mut h);
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().plugins.panels.values().next().unwrap().drawn;
+    assert_eq!(drawn(&h), 1);
+    let started = std::time::Instant::now();
+    let mut longest = std::time::Duration::ZERO;
+    for i in 0..10 {
+        let before = std::time::Instant::now();
+        let key = ResKey::parse(&format!("extra{i}"), ResType::UTC).unwrap();
+        let utc = Gff::new(*b"UTC ").to_bytes().unwrap();
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "Another",
+            vec![mg_edit::Edit::SetResource { key, data: Some(utc) }],
+        )));
+        h.step();
+        longest = longest.max(before.elapsed());
+    }
+    let quick = longest < mg_ui::plugin_kinds::PANEL_QUIET;
+    if quick {
+        assert_eq!(drawn(&h), 1, "not drawn between the edits ({:?})", started.elapsed());
+    } else {
+        eprintln!("an edit took {longest:?}: the panel may be drawn between them");
+    }
+    settle(&mut h);
+    h.run_steps(2);
+    if quick {
+        assert_eq!(drawn(&h), 2, "once, after them");
+    }
+    let shown = h.state().plugins.panels.values().next().unwrap().shown.clone();
+    let texts = shown.unwrap().unwrap().texts();
+    assert!(texts.contains(&"Creature blueprints: 11".to_string()), "{texts:?}");
+}
+
 /// A panel is kept with the module's open windows: the module opened again
 /// has it again, while its plugin is enabled.
 #[test]

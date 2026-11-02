@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:42Z }
 ---
 
 # Plugins: a proposal
@@ -368,7 +368,9 @@ written without the user's choice or leave.
 
 - **Manifest.** `[panel]` with `id`, `title`, `hint` and `refresh`:
   `"edits"` (after each change of the module: an edit, Undo, Redo),
-  `"selection"` (when what is selected changes), both, or none. Every
+  `"selection"` (when what is selected changes), both, or none (built
+  so, edits one after another, a drag's steps, draw it once, when they
+  have stopped for 200 ms: not stopped and started at each). Every
   panel is also drawn again when it opens, by its **Refresh** button, and
   after a job of its plugin's (a command, an import, a wizard) ends.
 - **Luau.** `mg.panel(id, function(ctx) return { … } end)`: what it

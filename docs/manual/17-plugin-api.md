@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels, ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:43Z }
 ---
 
 # Plugin API reference
@@ -209,8 +209,9 @@ path = "/Creature List[0]" }`), or its text (`"tavern.git/Creature
 List[0]"`, `"guard.utc"`). The handler runs when the panel opens, by its
 **Refresh**, after a job of its plugin's ends (a command, an import, a
 wizard), and as its manifest's `refresh` says: after each change of the
-module (`"edits"`: an edit, Undo, Redo) and when what is selected
-changes (`"selection"`). It runs beside the window, not in a frame: the
+module (`"edits"`: an edit, Undo, Redo; edits one after another, a
+drag's steps, draw it once, when they have stopped for 200
+milliseconds) and when what is selected changes (`"selection"`). It runs beside the window, not in a frame: the
 panel shows what it returned last until the next is done, one render at
 a time. A panel only reads: nothing is asked (`ctx.ui:confirm` is false,
 a form nil, no file is given), it can't set a setting or write outside
