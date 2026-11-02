@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:43:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:44:17Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -92,8 +92,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
   [performance audit](performance-audit.md) of 2026-11-01, its CPU's
   integrated Radeon (2 compute units, weaker than most laptops') as the
   stand-in for weaker hardware. Not measured: an Intel integrated GPU,
-  Direct3D 12's heaps on Windows, macOS. (S, waits on a builder's
-  machine)
+  Direct3D 12's heaps on Windows, macOS. Not seen either: the game
+  client's black of a custom shader's normal map without tangents on
+  Windows and macOS (the stock include normalizing a zero tangent; read
+  on Linux, `reading_tangents`; Moonglow draws the same black on CI's
+  Direct3D 12 and Metal). (S, waits on a builder's machine)
 
 ## Frames (a steady 144 a second)
 
@@ -500,16 +503,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   copy the load order puts over them, with each shader's color: that
   line from the next release says which of the two it was. (S) (Heed's
   reports, October 2026)
-- **A custom shader's tangents, the black on Windows and macOS:** the
-  client's rule (tangents from the model or a render hint,
-  `NormalAndSpecMapped` or `NormalTangents`, the model's or its MTR's,
-  else zeros) is read for every case on Linux (`reading_tangents`,
-  2026-10-30: `texture1` named in the model alone gives none, nor a
-  model compiled by nwnmdlcomp with its hint, which it doesn't keep);
-  the black of a normal map without tangents (the stock include
-  normalizing a zero vector) was not seen on Windows or macOS (waits on
-  a Windows and a Mac client, or the renderer's CI branch). (S) (Heed's
-  report, October 2026)
 - **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
   way B is built behind its option (Custom Light…, `mg_module::lights`;
   the server reads the hak, finds the model in it and places the row:
@@ -567,15 +560,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     water's flow and the grass's sway, which are not compared with the
     client frame by frame until it is. (S: the timer read back over a
     few runs an hour apart, and after a long-running client)
-  - The game's programs draw on CI's Metal and Direct3D 12 (the
-    renderer's CI branch, 2026-10-29: three draws, no failures), but a
-    discarding one's depth is not tested there: naga's `discard` from
-    the game's, and the alpha discard `keep_alpha` adds (a bare `Kill`),
-    run on, and on Metal a discarded fragment that runs on writes its
-    depth (`a_shader_returns_where_it_discards` holds Moonglow's own
-    shader to returning). (S: a see-through mesh's solid part through
-    the game's programs, as `a_see_through_edge_does_not_hide_the_ground_behind_it`
-    draws Moonglow's, on the renderer's CI branch)
   - The Domains of Dread's fountain is 10.6 of 255 from the client on
     average with the Shaders switch on (the game's `fswater` with the
     framebuffer's copies; 11.7 with Moonglow's own water). The rural
