@@ -61,6 +61,13 @@ fn as_target<R>(f: &mut Form<'_>, t: &lists::Target, with: impl FnOnce(&mut Form
     out
 }
 
+/// Why target `t` takes no item: a placeable without an inventory
+/// (Basic › Has Inventory).
+fn takes_none(t: &lists::Target, holder: Holder) -> Option<&'static str> {
+    let none = holder == Holder::Placeable && t.at.integer("HasInventory").unwrap_or(0) == 0;
+    none.then_some("no inventory (Basic › Has Inventory)")
+}
+
 /// The edits that add `added` to target `t`: at the end of its
 /// `ItemList`, at the first free place; a store's on the page of its kind
 /// (made where it has none of that page yet).
@@ -209,6 +216,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                                 if *c > 0 {
                                     continue;
                                 }
+                                if let Some(why) = takes_none(t, holder) {
+                                    out.left.push(format!("{}: {why}", t.name));
+                                    continue;
+                                }
                                 out.edits.extend(adding(f, t, holder, &Added::Blueprint(r)));
                                 out.changed += 1;
                             }
@@ -227,6 +238,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     if !adds.is_empty() {
         let mut out = lists::Outcome::default();
         for t in &targets {
+            if let Some(why) = takes_none(t, holder) {
+                out.left.push(format!("{}: {why}", t.name));
+                continue;
+            }
             // (Each added after those before it, at its own free place.)
             let mut t = t.clone();
             for added in &adds {

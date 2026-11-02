@@ -21,7 +21,12 @@ pub(crate) fn together(
         eprintln!("skipped: no game install");
         return None;
     };
-    let dir = mg_testkit::scratch_dir(&format!("ui-together-{name}-{}", page.replace(' ', "-")));
+    // (A folder of each call's own: two tests of one blueprint's page
+    // would empty each other's.)
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let page_name = page.replace(' ', "-");
+    let dir = mg_testkit::scratch_dir(&format!("ui-together-{name}-{page_name}-{call}"));
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
@@ -654,6 +659,28 @@ fn an_inventory_s_items_are_added_to_each_and_taken_from_each() {
     }
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, items), before);
+}
+
+/// Placeables edited together of which the first has no inventory: the
+/// Inventory page is the others', and an item pasted goes to those with
+/// one, the one without left and said.
+#[test]
+fn a_placeable_without_an_inventory_is_left() {
+    let tweak = |i: usize, p: &mut Struct, _: &mg_rules::GameData| {
+        p.set("HasInventory", Value::Byte(u8::from(i > 0)));
+        p.set("ItemList", Value::List(Vec::new()));
+    };
+    let Some((mut h, keys)) = together("plc_chest1", ResType::UTP, 2, "Inventory", tweak) else {
+        return;
+    };
+    assert!(h.query_by_label_contains("has no inventory").is_none());
+    h.state_mut().item_clip = vec![held_entry("nw_it_gem001", 0)];
+    h.run();
+    h.get_by_label("Paste").click();
+    h.run_steps(4);
+    let items = each(&mut h, &keys, |s| held_items(s, "ItemList"));
+    assert_eq!(items, [vec![], vec!["nw_it_gem001".to_string()]]);
+    assert!(h.query_by_label_contains("mg_a: no inventory").is_some());
 }
 
 /// A creature's equipment, edited together: a battleaxe chosen in the

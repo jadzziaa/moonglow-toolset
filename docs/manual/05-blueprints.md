@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:57:56Z }
 ---
 
 # Blueprints
@@ -369,7 +369,8 @@ clicked moves each store's items to it. An inventory lists each item
 blueprint they hold, with how many the first holds: an item picked in
 the palette (**Add Item**), pasted (**Paste**) or dropped from the
 palette goes to each at its own first free place (a store's on the
-page of its kind); a creature's equipment shows each slot's item, ≠
+page of its kind; a placeable without an inventory is left); a
+creature's equipment shows each slot's item, ≠
 where they wear others, and **Equip** there puts the item chosen in the
 palette on each (what each wore goes to its backpack; the question
 about a feat it lacks is asked of one creature only). The Levelup

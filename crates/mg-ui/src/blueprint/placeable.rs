@@ -169,12 +169,13 @@ fn illumination(f: &mut Form<'_>, ui: &mut Ui) {
 /// The items the placeable holds.
 fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
-    if f.int("HasInventory") == 0 {
-        ui.weak("The placeable has no inventory (Basic › Has Inventory).");
-        return;
-    }
+    // (Several: those without an inventory are left, and said.)
     if f.several() {
         super::inventory_together::page(f, ui, super::inventory_together::Holder::Placeable);
+        return;
+    }
+    if f.int("HasInventory") == 0 {
+        ui.weak("The placeable has no inventory (Basic › Has Inventory).");
         return;
     }
     let key = f.key;
