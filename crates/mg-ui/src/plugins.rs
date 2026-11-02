@@ -2463,7 +2463,13 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                             label.on_hover_text(&d.help);
                         }
                         let value = form.values.entry(d.id.clone()).or_insert(d.default.clone());
-                        ui.add_enabled_ui(usable, |ui| setting_field(app, ui, d, value, &project));
+                        // (Each setting's widgets under its own id: a click
+                        // reaches its button whatever the rows above do.)
+                        ui.push_id(&d.id, |ui| {
+                            ui.add_enabled_ui(usable, |ui| {
+                                setting_field(app, ui, d, value, &project)
+                            })
+                        });
                         let note = ui.weak(scope_short(d.scope));
                         if usable {
                             note.on_hover_text(mg_plugin::settings::scope_words(d.scope));

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:20:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:23:23Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -769,8 +769,10 @@ contribution itself states as not done or not checked.
     proposal](terrain-proposal.md) (a mode of the area view, a tileset
     of the area's own, layers blended in the game by a shader Moonglow
     writes, six milestones, the readings to take in the engine and
-    client, eleven questions). Nothing is built. Waits on the owner's
-    verdict on its questions.
+    client, eleven questions), its recommendations accepted by the owner
+    the same day, the terrain shader to be offered under MIT. Nothing is
+    built: waits on the owner's word to start M1, and on dafena's answer
+    (a license and an export, which the owner asks for).
   - **Not tried in the application on a desktop:** the folder and the
     hak question were driven through the UI harness and `mg`, not with
     the real file dialogs (the file dialog of `open_file` filters by

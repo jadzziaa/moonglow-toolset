@@ -4,7 +4,7 @@ title: 'Sculpted terrain in Moonglow: a design'
 description: A builder's free height field sculpted over an area's tiles inside Moonglow, with NWN Mapper as the measure - what a builder sculpts and paints (heights, texture layers, the walkmesh's surfaces; placeables kept as objects, the game's own lighting), how it becomes what the game reads (a model and walkmesh per tile, a tileset of the area's own, a terrain shader in a hak, the ARE retiled), the game's limits with numbers, where it lives (a mode of the area view, not a plugin), what stays out, six milestones with sizes, the risks, the readings to take in the engine and client before building, and the owner's questions.
 tags: [proposal, terrain, tilesets, areas, walkmesh, rendering, haks]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:50:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:23:23Z }
 sources:
   - id: owner
     resource: human:august (the deferred sprint's large entry 9, 2026-11-02)
@@ -785,6 +785,15 @@ design (R2 or R5 above all), the change is made before M2.
 11. **Area size:** keep 32 × 32 as the limit? Recommended: yes, until R12
     shows the engine and the client's load time take more.
 
+### The owner's answers (2026-11-02)
+
+The recommendations are accepted, every one of the eleven, and nothing
+is built yet: the owner says when M1 starts. The terrain shader is
+offered under MIT (question 7). The owner asks dafena for a license and
+an export (question 9); until then Moonglow reads nothing of Mapper's
+files.[^answers]
+
+[^answers]: human:august, 2026-11-02: the recommendations accepted, the build to wait for the owner's word; the shader under MIT; the owner to contact dafena.
 [^owner]: human:august, 2026-11-02: the deferred sprint's large entry 9, design first, then build.
 [^deferred]: The deferred list, "A builder's terrain tool (NWN Mapper) as the measure".
 [^mapper]: github.com/Dafena/nwn_mapper_ffeom, read 2026-11-02 (README, nwn_area.gd, nwn_terrain.gd, nwn_exporter.gd, main.gd, export_shaders/); no license file.
