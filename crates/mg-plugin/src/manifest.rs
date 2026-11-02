@@ -9,10 +9,10 @@ pub use mg_module::project_plugins::SettingValue;
 use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.4";
+pub const API: &str = "0.5";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 4] = ["0.1", "0.2", "0.3", "0.4"];
+pub const APIS: [&str; 5] = ["0.1", "0.2", "0.3", "0.4", "0.5"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, PartialEq, Eq)]

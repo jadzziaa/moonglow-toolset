@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T03:31:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:27:39Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,13 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.5
+
+In Moonglow 3.3.0. Only additions: a plugin written for 0.4 or before
+runs as it is. A plugin that uses what is new says `api = "0.5"`; a
+manifest that declares what 0.5 added and says an earlier API is
+refused, with the reason.
 
 ## 0.4
 
