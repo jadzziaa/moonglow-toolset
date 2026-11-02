@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
 ---
 
 # Areas
@@ -601,10 +601,12 @@ Aurora):
   appearances, the conversation, the variables, each of an area's flags),
   and the pointer resting on it says what it means. A list the Visuals
   page sets whole (texture and animation replacements, shader
-  parameters) says so under its heading where they differ. Inventories, classes,
-  skills, feats, spells and the other lists of an object's own are
-  edited one object at a time, so those pages aren't offered there (and
-  a placeable's **Inventory…** is grayed).
+  parameters) says so under its heading where they differ. The pages
+  of lists (inventories, classes, skills, feats, spells and the rest)
+  are edited on each, as for blueprints edited together ([Blueprints](05-blueprints.md),
+  "Lists edited together"): an entry some have is marked ≠ with how
+  many, one added goes to each that lacks it, one removed is taken from
+  each.
 
 ### Setup Store
 

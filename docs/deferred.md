@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:53:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -191,24 +191,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Bulk editing
 
-- **Lists across several blueprints:** Edit Together leaves out the
-  pages that edit lists (`blueprint::LIST_PAGES`: inventories, classes,
-  skills, feats, spells, special abilities, item properties, an
-  encounter's creatures, a store's restrictions); those are edited one
-  blueprint at a time. Each page builds its commands for the first
-  object alone, and `blueprint::partial` drops a command that reaches
-  some of the objects but not all, as "add this feat to each" would
-  where some have it already. What each page needs, looked at in the
-  deferred sprint (2026-10-29): skills, a rank set at the skill's index
-  on each (`creature.rs` `skills`, the simplest); feats, special
-  abilities, an encounter's creatures and a store's restrictions, an
-  entry added to those that lack it and taken from those that have it,
-  marked (≠) where only some have it; classes, a level per class on
-  each and a class added where there is room; spells, per class; item
-  properties, matched by type, subtype and value; inventories
-  (`inventory.rs`), items added to each. Several days' work with a
-  design of its own for the marks and the guard. (L) (After 3.0.0, the
-  owner's word, 2026-10-30: 6th of 9 by complexity.)
 - **Advanced Search, what it doesn't do** (from builders' asks on
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
@@ -218,15 +200,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   into the encounters that spawn it, since 2026-10-29; a spell by the
   class that knows it, a conversation's lines kept by several
   conditions, and the haks' and the game's blueprints searched
-  read-only, since 2026-11-02). Changes are a variable, a script or a
-  field: item properties aren't added or removed on the items found,
-  nor list entries (feats, classes, inventory) on the creatures; a
-  field is set only where the object has it (none is added). Edit
-  Together takes blueprints of one type and objects of one kind placed
-  in one area; items held by placed objects, and conversations, open
-  one by one. (S–M; shares its design with editing lists across several
-  blueprints, and is left to be done with that entry, beyond what it is
-  alone: the deferred sprint, 2026-11-01)
+  read-only, since 2026-11-02; feats, classes, item properties and
+  items held added and removed on what it found, through Edit
+  Together's list rules, since 2026-11-02:
+  [the design](lists-together-proposal.md)). A field is set only where
+  the object has it (none is added). Edit Together takes blueprints of
+  one type and objects of one kind placed in one area; items held by
+  placed objects, and conversations, open one by one. (S–M; beyond what
+  was asked of the lists' work, which left these as they were: the
+  deferred sprint, 2026-11-02)
 
 ## Palettes
 

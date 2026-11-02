@@ -3,7 +3,7 @@ type: Proposal
 title: 'Lists across several blueprints: a design'
 description: How Edit Together edits the pages of lists (skills, feats, special abilities, an encounter's creatures, a store's restrictions, classes, spells, item properties, inventories) on several blueprints or placed objects at once - a list shown merged with an entry some have marked ≠ and how many, what adding, removing and changing an entry does to each, the guard that dropped a change reaching some of them and how it becomes explicit, one Undo step, the rules' limits (room for a class, levels and spells per class, item properties matched by type, subtype and value), and Advanced Search's changes to what it found through the same commands.
 tags: [proposal, bulk-editing, edit-together, blueprints, advanced-search]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:11Z }
 sources:
   - id: deferred
     resource: deferred.md
@@ -91,9 +91,12 @@ Details the table leaves out:
   each that has the ability (more are copies of its first use).
 - **Restrictions.** A store either will not buy the base items listed
   (`WillNotBuy`) or will only buy them (`WillOnlyBuy`). Stores in
-  different modes show the first one's mode, marked ≠; adding and
-  removing go to that mode's list on each. Clicking a mode moves each
-  store's items to it where it is in the other mode, as one store's do.
+  different modes show the first one's mode, marked ≠; adding goes to
+  that mode's list on each store in that mode or with none (a store in
+  the other mode is left, and said: its list there would be the one its
+  mode ignores), removing takes from that list on each. Clicking a mode
+  moves each store's items to it where it is in the other mode, as one
+  store's do.
 - **Classes.** A creature takes up to 8 classes; one with 8 is left
   without the class added. A creature keeps one class at least: Remove
   leaves the class of one that has no other. The Levelup Wizard levels
@@ -115,13 +118,19 @@ Details the table leaves out:
   offered are those the first one's base item takes; an item whose base
   item doesn't take the type is left, and said. Total Cost is the
   first's.
+- **Encounters, restrictions, item properties and inventories** keep
+  one object's page
+  as it was for one: a list there can hold the same entry twice, which
+  a merged list can't show.
 - **Inventory.** The list is of item blueprints, each with how many of
   them hold it; dragging rows, Copy and a held item's own Properties are
   for one object at a time (dropping an item from the palette, and
   pasting, add it to each). A creature's equipment: a slot shows the
   item all of them wear there, or ≠; an item equipped there from the
   palette is worn by each (what each wore there goes to its backpack, as
-  for one), and Unequip takes each one's to its backpack.
+  for one), To Backpack takes each one's to its backpack and Remove
+  takes it away. The question one creature is asked when it lacks the
+  feat an item needs is not asked of several.
 
 ## Advanced Search: lists changed on what it found
 
@@ -144,6 +153,19 @@ there too:
 What each leaves, and why, is said as the other changes say it ("mg_b:
 has it already"). Objects of another kind found are left and said
 ("door DOOR_01: no feats").
+
+## What was built
+
+All nine pages, in the order the deferred list gave (2026-11-02):
+`mg_edit::lists` (the merged list, add, remove, set, a count, and the
+rules: a skill's rank, feats, classes, item properties, an item's
+place), `Form::apply_each` and the guard in `blueprint::edit_many`,
+the pages in `creature.rs`, `creature_lists.rs`, `encounter.rs`,
+`store.rs`, `item.rs` and `inventory_together.rs`; Advanced Search's
+`found::Change::AddEntry` and `RemoveEntry`. Tested in
+`tests/app/lists_together.rs` (a page each: several blueprints,
+entries some have, one Undo) and `found.rs`'s unit tests; pictured by
+`screens.rs`'s `lists_together`.
 
 ## What is not in it
 

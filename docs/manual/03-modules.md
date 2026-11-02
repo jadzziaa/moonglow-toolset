@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
 ---
 
 # Modules
@@ -320,8 +320,19 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
   or **Set a field** (by label, its value typed as the field reads it:
   the field found where it was found, as a class's level, else the
   object's own; an appearance's field is offered after a search of
-  appearances). What couldn't be changed (an object without that event
-  or field) is said, and the search runs again.
+  appearances), **Add a feat** and **Remove a feat**, **Add a class**
+  (at a level) and **Remove a class**, **Add an item property** and
+  **Remove an item property** (its type, subtype, value and parameter
+  chosen as a condition's; removed where an item's matches the parts
+  chosen, any where none is), **Add an item** and **Remove an item**
+  (by its blueprint's resref: one at each inventory's first free place,
+  a store's on the page of its kind; every one taken from a backpack, a
+  placeable or a store). The lists follow the rules of [lists edited
+  together](05-blueprints.md): an entry is added where it lacks, a
+  class where there is room and never a creature's last one taken, a
+  property where the base item takes it. What couldn't be changed (an
+  object without that event or field, a door asked for a feat, a
+  creature with the feat already) is said, and the search runs again.
 - **Edit the N ticked together** opens blueprints of one type in one
   window, and objects of one kind placed in one area in one window, as
   the palette's and the area's Edit Together do; **Choose Areas…** opens
