@@ -61,6 +61,38 @@ fn again(h: &Harness<'_, Moonglow>) -> std::time::Duration {
     out.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay)
 }
 
+/// An area's clock set (`AreaView::set_clock`, `frame_perf`'s
+/// `FRAME_SHOTS`) draws its picture anew at that time whatever came
+/// before: the same picture after a second more of frames.
+#[test]
+fn an_area_s_clock_set_draws_the_same_picture_whatever_came_before() {
+    let Some((mut h, area)) = area_harness("area-clock") else { return };
+    settle(&mut h);
+    let shot = |h: &mut Harness<'_, Moonglow>| {
+        let pictures = h.state().area_views[&area].pictures;
+        h.state_mut().area_views.get_mut(&area).unwrap().set_clock(10.0);
+        h.run_steps(1);
+        assert!(h.state().area_views[&area].pictures > pictures, "drawn anew");
+        let rect = h.state().area_views[&area].rect;
+        let img = h.render().unwrap();
+        let ppp = h.ctx.pixels_per_point();
+        let px = |x: f32, y: f32| *img.get_pixel((x * ppp) as u32, (y * ppp) as u32);
+        (0..8)
+            .flat_map(|i| (0..8).map(move |j| (i, j)))
+            .map(|(i, j)| {
+                let (x, y) = (
+                    rect.left() + rect.width() * (i as f32 + 0.5) / 8.0,
+                    rect.top() + rect.height() * (j as f32 + 0.5) / 8.0,
+                );
+                px(x, y)
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = shot(&mut h);
+    h.run_steps(60);
+    assert_eq!(shot(&mut h), first);
+}
+
 /// An area's view steps its animations 25 times a second while the window
 /// has the focus; behind another program's window it asks for no frame
 /// (its picture kept as it is), and steps again once it has the focus.

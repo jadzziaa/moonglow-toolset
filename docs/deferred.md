@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:26:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:30:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -691,11 +691,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     draw), the upload 0.09 ms, the submit 0.07 ms. `m_normal` from the
     3×3 part, or values that the camera alone changes kept per instance
     and multiplied in the vertex program, would cut it. (M)
-  - The area views saved with `FRAME_SHOTS=1` are not comparable from
-    one run to the next where tiles animate (up to 31 of 255 over
-    area092's sea): they are drawn at the running clock, where
-    `FRAME_PARTS_SHOTS` draws at a fixed one. A fixed clock for the
-    shots would make them comparable. (S)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): not
   reproduced. The game's own balor, fire elemental, campfire and brazier
