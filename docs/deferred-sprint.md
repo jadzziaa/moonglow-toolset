@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -129,8 +129,10 @@ the [deferred list](deferred.md) says its place):
 4. ~~Text put in the talk table as it is written (Custom content data).~~
    Done with 3 (2026-11-02): one design, every localized-string field
    typed, a range the project keeps, reuse asked first.
-5. Typing in a very large script, an editor that lays out the lines in
-   sight (The code itself).
+5. ~~Typing in a very large script, an editor that lays out the lines in
+   sight (The code itself).~~ Done after 3.0.0 (2026-11-02): each line
+   laid out and kept, a change laying out the lines it touched
+   (`script_layout`), egui's own editor kept.
 6. Lists across several blueprints in Edit Together (Bulk editing).
 7. Installing updates from the app (The install, starting and crashes;
    GitHub issue 28).

@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:59:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -460,9 +460,11 @@ BioWare's own palettes contain.
 and the targets are `test = false`, so neither `cargo test` nor CI runs
 them): `campaign_perf.rs` (the three largest campaigns) and
 `world_perf.rs` (a synthetic persistent world) hold each step to a budget;
-`frame_perf.rs` (frames against 144 a second) and `editor_perf.rs` (the
-script editor on `nwscript.nss`) print timings. They need the game, and
-all but `editor_perf.rs` a GPU. Budgets are set from the first
+`frame_perf.rs` and `editor_perf.rs` (the script editor on `nwscript.nss`:
+typing, moving the cursor and the selection, scrolling, pasting) hold
+frames to 144 a second, and `editor_perf.rs` times the 2DA editor and
+Select Texture besides. They need the game, and all but `editor_perf.rs`
+a GPU. Budgets are set from the first
 measurements (three to five times them in `world_perf.rs`) and only
 tightened.
 
