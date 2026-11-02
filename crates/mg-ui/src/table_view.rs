@@ -78,8 +78,18 @@ pub struct TableDoc {
     scroll: egui::Vec2,
     /// Saved with one space between cells, not with the columns in line.
     pub compact: bool,
+    /// The file as it was read or last saved: a save writes the table
+    /// as it is laid out (its widths, row labels and tabs), and what it
+    /// was read from changing under it reads it again.
+    read: Arc<[u8]>,
+    /// When what the table was read from was last looked at (the time
+    /// egui gives).
+    read_at: f64,
     /// Talk-table columns show their text, not their numbers.
     pub strref_text: bool,
+    /// The columns hidden from view, by name in lower case (Hide Column;
+    /// Show Hidden Columns brings them back).
+    pub hidden: std::collections::BTreeSet<String>,
     /// Columns described as a list or as flags show their values' names.
     pub value_names: bool,
     /// The table's description, where a file beside it gives one.
@@ -90,6 +100,10 @@ pub struct TableDoc {
     /// Bumped at every change: what is worked out from the table is kept
     /// until then.
     revision: u64,
+    /// The rows shown, for the table and the Find they were worked out
+    /// for ([`shown_rows`]).
+    #[allow(clippy::type_complexity)]
+    shown: Option<((u64, u64, String, bool), Arc<Vec<usize>>)>,
     faults: Option<(u64, Arc<Vec<CellFault>>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
@@ -147,11 +161,15 @@ impl TableDoc {
             reveal: false,
             scroll: egui::Vec2::ZERO,
             compact: false,
+            read: Arc::from(&[][..]),
+            read_at: f64::NEG_INFINITY,
             strref_text: true,
+            hidden: Default::default(),
             value_names: true,
             described: None,
             described_at: f64::NEG_INFINITY,
             revision: 0,
+            shown: None,
             faults: None,
             add_count: 1,
             new_column: None,
@@ -164,6 +182,28 @@ impl TableDoc {
 
     pub fn name(&self) -> String {
         self.key.resref.to_string()
+    }
+
+    /// What its columns' widths are kept by ([`column_widths`]): the
+    /// module's table by its name; a hak's by the hak's file and its
+    /// name (`cep_2da.hak/appearance`); a file's by its folder and its
+    /// name.
+    pub(crate) fn widths_key(&self, app: &Moonglow) -> String {
+        let name = self.name();
+        match &self.home {
+            Home::Module => name,
+            Home::Hak(hak) => {
+                let hak = app.haks.iter().find(|d| d.id == *hak);
+                let file = hak.and_then(|d| {
+                    d.hak.path.as_ref()?.file_name().map(|f| f.to_string_lossy().to_lowercase())
+                });
+                file.map_or(name.clone(), |f| format!("{f}/{name}"))
+            }
+            Home::File(path) => match path.parent() {
+                Some(dir) => format!("{}/{name}", dir.display()),
+                None => name,
+            },
+        }
     }
 
     /// The table's description, where it has one that reads.
@@ -248,7 +288,7 @@ fn codepage(app: &Moonglow) -> mg_core::Codepage {
 
 /// (`compact`: the table's file had one blank between cells, and is saved
 /// so again unless the builder says otherwise.)
-fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, compact: bool) -> u32 {
+fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, data: &[u8]) -> u32 {
     if let Some(d) = app.tables.iter().find(|d| d.key == key && d.home == home) {
         let id = d.id;
         app.actions.push(Action::OpenTab(Tab::Table(id)));
@@ -257,7 +297,8 @@ fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, compact:
     app.next_table += 1;
     let id = app.next_table;
     let mut doc = TableDoc::new(id, key, home, edit);
-    doc.compact = compact;
+    doc.compact = is_compact(data);
+    doc.read = Arc::from(data);
     app.tables.push(doc);
     app.actions.push(Action::OpenTab(Tab::Table(id)));
     id
@@ -275,7 +316,7 @@ fn parse(app: &Moonglow, key: ResKey, data: &[u8]) -> Result<TwoDa, String> {
 pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
     let data = app.ws.as_ref()?.module.get(&key)?.to_vec();
     match parse(app, key, &data) {
-        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t), is_compact(&data))),
+        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t), &data)),
         Err(e) => {
             app.log.error(e);
             None
@@ -286,8 +327,8 @@ pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
 /// Opens a table of a hak that is open in the hak editor.
 pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
     let data = app.haks.iter().find(|d| d.id == hak)?.hak.data(key);
-    match data.and_then(|d| Ok((parse(app, key, &d)?, is_compact(&d)))) {
-        Ok((t, compact)) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t), compact)),
+    match data.and_then(|d| Ok((parse(app, key, &d)?, d))) {
+        Ok((t, d)) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t), &d)),
         Err(e) => {
             app.log.error(e);
             None
@@ -298,15 +339,15 @@ pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
 /// Opens a 2DA file anywhere.
 pub fn open_path(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
     let name = path.file_stem().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let read = || -> Result<(ResKey, TwoDa, bool), String> {
+    let read = || -> Result<(ResKey, TwoDa, Vec<u8>), String> {
         let resref = ResRef::from_str(&name).map_err(|e| format!("{}: {e}", path.display()))?;
         let key = ResKey::new(resref, ResType::TWODA);
         let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok((key, parse(app, key, &data)?, is_compact(&data)))
+        Ok((key, parse(app, key, &data)?, data))
     };
     match read() {
-        Ok((key, t, compact)) => {
-            Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t), compact))
+        Ok((key, t, data)) => {
+            Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t), &data))
         }
         Err(e) => {
             app.log.error(e);
@@ -471,7 +512,13 @@ pub fn edit_copy(app: &mut Moonglow, key: ResKey, home: Home) -> Option<u32> {
         Ok(t) => {
             let mut edit = Editing::new(t);
             edit.mark_unsaved();
-            Some(open_doc(app, key, home, edit, is_compact(&data)))
+            let id = open_doc(app, key, home, edit, &data);
+            // (Laid out as the game's copy, not read from its home: nothing
+            // there to follow until it is saved.)
+            if let Some(doc) = app.tables.iter_mut().find(|d| d.id == id) {
+                doc.read_at = f64::INFINITY;
+            }
+            Some(id)
         }
         Err(e) => {
             app.log.error(e);
@@ -514,13 +561,23 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
         true => mg_2da::Layout::Compact,
         false => mg_2da::Layout::Aligned,
     };
-    let bytes = match app.tables[at].edit.table().to_bytes_as(cp, layout) {
+    // As its file is laid out (its widths, row labels, tabs and line
+    // ends), where it is saved as the file was (in line, or compact);
+    // else anew in the layout chosen.
+    let doc = &app.tables[at];
+    let like = !doc.read.is_empty() && mg_2da::Layout::of(&doc.read) == layout;
+    let written = match like {
+        true => doc.edit.table().to_bytes_like(cp, &doc.read),
+        false => doc.edit.table().to_bytes_as(cp, layout),
+    };
+    let bytes = match written {
         Ok(b) => b,
         Err(e) => {
             app.tables[at].problem = Some(format!("Not saved: {e}"));
             return false;
         }
     };
+    let kept: Arc<[u8]> = Arc::from(&bytes[..]);
     let saved = match &home {
         Home::Module => {
             let edit = Edit::SetResource { key, data: Some(bytes) };
@@ -544,6 +601,8 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
             let where_ = home_text(app, &home);
             let doc = &mut app.tables[at];
             doc.edit.mark_saved();
+            doc.read = kept;
+            doc.read_at = f64::NEG_INFINITY;
             doc.problem = None;
             let more = match home {
                 Home::Hak(_) => {
@@ -599,6 +658,55 @@ fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
             let table = in_folder.or_else(|| Some(hak.hak.path.as_ref()?.with_file_name(&name)))?;
             Some(path_beside(&table))
         }
+    }
+}
+
+/// What the table was read from, as it is now: the module's resource (an
+/// Undo of the module may take its save back), the hak's (replaced in the
+/// hak editor) or the file's (changed outside). `None`: it is no more.
+fn source_now(app: &Moonglow, doc: &TableDoc) -> Option<Vec<u8>> {
+    match &doc.home {
+        Home::Module => Some(app.ws.as_ref()?.module.get(&doc.key)?.to_vec()),
+        Home::Hak(hak) => app.haks.iter().find(|d| d.id == *hak)?.hak.data(doc.key).ok(),
+        Home::File(path) => std::fs::read(path).ok(),
+    }
+}
+
+/// Reads the table again when what it was read from changes under it
+/// (looked at once a second): with no change of the builder's not saved,
+/// the editor shows the table as it is now; with one, it says so, and a
+/// save writes over it. A copy not yet saved anywhere (Edit a Copy) has
+/// nothing to follow.
+fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    let now = ctx.input(|i| i.time);
+    if now - app.tables[at].read_at < 1.0 || app.tables[at].read.is_empty() {
+        return;
+    }
+    app.tables[at].read_at = now;
+    let Some(data) = source_now(app, &app.tables[at]) else { return };
+    if data[..] == app.tables[at].read[..] {
+        return;
+    }
+    let key = app.tables[at].key;
+    let parsed = parse(app, key, &data);
+    let doc = &mut app.tables[at];
+    doc.read = Arc::from(&data[..]);
+    match parsed {
+        Ok(t) if !doc.has_unsaved() => {
+            doc.edit = Editing::new(t);
+            doc.compact = is_compact(&data);
+            doc.changed();
+            doc.problem = None;
+            app.log.info(format!("{key} was changed where it was read from: read again"));
+        }
+        Ok(_) => {
+            doc.problem = Some(
+                "Changed where it was read from since it was opened: Save writes this table \
+                 over that one"
+                    .into(),
+            );
+        }
+        Err(e) => doc.problem = Some(format!("Changed where it was read from, unreadable: {e}")),
     }
 }
 
@@ -798,22 +906,50 @@ const WIDEST: f32 = 1600.0;
 const WIDTHS_KEPT: usize = 200;
 
 /// Each column's width: the one given it (by dragging the edge of its
-/// name, in this table or another of its name), else `default`.
+/// name) in this table, else in a table of its name, else `default`.
+/// `table` is a table's name (`appearance`), or where it is and its name
+/// (`cep_2da.hak/appearance`, [`TableDoc::widths_key`]): two haks'
+/// `custom.2da` keep widths of their own, and take those of the name
+/// until given one.
 pub(crate) fn column_widths(
     settings: &crate::settings::Settings,
     table: &str,
     columns: &[String],
     default: f32,
 ) -> Vec<f32> {
-    let kept = settings.table_widths.iter().find(|(t, _)| t.eq_ignore_ascii_case(table));
-    let kept = kept.map_or(&[][..], |(_, w)| w.as_slice());
+    let kept = |t: &str| {
+        let kept = settings.table_widths.iter().find(|(k, _)| k.eq_ignore_ascii_case(t));
+        kept.map_or(&[][..], |(_, w)| w.as_slice())
+    };
+    let name = table.rsplit('/').next().unwrap_or(table);
+    let (own, named) = (kept(table), kept(name));
     columns
         .iter()
         .map(|c| {
-            let given = kept.iter().find(|(k, _)| k.eq_ignore_ascii_case(c));
-            given.map_or(default, |(_, w)| *w as f32)
+            let given = |list: &[(String, u32)]| {
+                list.iter().find(|(k, _)| k.eq_ignore_ascii_case(c)).map(|(_, w)| *w as f32)
+            };
+            given(own).or_else(|| given(named)).unwrap_or(default)
         })
         .collect()
+}
+
+/// Puts a column back to its first width (`None`: every column of the
+/// table), in this table and in the tables of its name.
+pub(crate) fn reset_column_width(
+    settings: &mut crate::settings::Settings,
+    table: &str,
+    column: Option<&str>,
+) {
+    let name = table.rsplit('/').next().unwrap_or(table).to_string();
+    for t in [table.to_string(), name] {
+        if let Some((_, widths)) =
+            settings.table_widths.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case(&t))
+        {
+            widths.retain(|(c, _)| column.is_some_and(|col| !c.eq_ignore_ascii_case(col)));
+        }
+    }
+    settings.table_widths.retain(|(_, w)| !w.is_empty());
 }
 
 /// Gives a column of the table `table` its width, kept for the tables of
@@ -858,6 +994,14 @@ fn rename_column_width(
             *c = to.to_string();
         }
     }
+}
+
+/// What a column's menu asks of how it is shown.
+enum ColumnView {
+    /// Hidden from view (its place among the columns).
+    Hide(usize),
+    /// Its width put back to the first (`None`: every column's).
+    Reset(Option<usize>),
 }
 
 /// What was done to the edge at the right of a column's name.
@@ -959,6 +1103,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     if crate::side_doc::ok_cancel(app, ui, &Tab::Table(id), false, commit) {
         return;
     }
+    read_again(app, ui.ctx(), at);
     describe(app, ui.ctx(), at);
     let faults = faults(app, at);
     let name = app.tables[at].name();
@@ -1129,6 +1274,19 @@ fn header(
             "Columns that hold a talk-table string's number show the string; the number is \
              what is edited",
         );
+        if !doc.hidden.is_empty() {
+            let names: Vec<String> = (doc.edit.table().columns().iter())
+                .filter(|c| doc.hidden.contains(&c.to_lowercase()))
+                .cloned()
+                .collect();
+            if ui
+                .button(format!("Show Hidden Columns ({})", doc.hidden.len()))
+                .on_hover_text(format!("Hidden from view: {}", names.join(", ")))
+                .clicked()
+            {
+                doc.hidden.clear();
+            }
+        }
         if doc.description().is_some() {
             ui.checkbox(&mut doc.value_names, "Values as names").on_hover_text(
                 "Columns the table's description says are a list or flags show each value's \
@@ -1211,7 +1369,23 @@ fn header(
 }
 
 /// The rows shown: all, or those with the filter's text in a cell.
-fn shown_rows(doc: &TableDoc) -> Vec<usize> {
+/// The rows shown: those a Find finds, else every row. Worked out once
+/// for the table as it is and the Find as it is typed (a large table's
+/// every cell was looked through at each frame), and again when either
+/// changes.
+fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
+    let key = (doc.revision, doc.edit.changes(), doc.filter.clone(), doc.value_names);
+    if let Some((k, rows)) = &doc.shown
+        && *k == key
+    {
+        return rows.clone();
+    }
+    let rows = Arc::new(rows_found(doc));
+    doc.shown = Some((key, rows.clone()));
+    rows
+}
+
+fn rows_found(doc: &TableDoc) -> Vec<usize> {
     let t = doc.edit.table();
     let needle = mg_core::text::Needle::new(&doc.filter);
     if needle.is_empty() {
@@ -1313,11 +1487,16 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     } else if pressed(ui, none, Key::Tab) {
         tab = true;
     }
+    // (Past the columns hidden from view, to the next one shown.)
+    let names = doc.edit.table().columns().to_vec();
+    let shown = |c: usize| !names.get(c).is_some_and(|n| doc.hidden.contains(&n.to_lowercase()));
     if pressed(ui, none, Key::ArrowRight) || tab {
-        to = Some((row, (column + 1).min(columns.saturating_sub(1))));
+        let next = (column + 1..columns).find(|c| shown(*c)).unwrap_or(column);
+        to = Some((row, next));
     }
     if pressed(ui, none, Key::ArrowLeft) || back_tab {
-        to = Some((row, column.saturating_sub(1)));
+        let next = (0..column).rev().find(|c| shown(*c)).unwrap_or(column);
+        to = Some((row, next));
     }
     if let Some(to) = to {
         match shift && !tab && !back_tab {
@@ -1402,18 +1581,26 @@ fn grid(
     faults: &[CellFault],
 ) {
     let game = app.game.clone();
+    let table_name = app.tables[at].widths_key(app);
     let settings = &mut app.settings;
     let doc = &mut app.tables[at];
     let rows = shown_rows(doc);
     let columns: Vec<String> = doc.edit.table().columns().to_vec();
-    let table_name = doc.name();
-    let widths = column_widths(settings, &table_name, &columns, CELL);
+    // (A column hidden from view is drawn in no room: its cells are kept
+    // and saved, and the keys pass over it.)
+    let widths: Vec<f32> = column_widths(settings, &table_name, &columns, CELL)
+        .into_iter()
+        .zip(&columns)
+        .map(|(w, c)| if doc.hidden.contains(&c.to_ascii_lowercase()) { 0.0 } else { w })
+        .collect();
     // Where each column begins, from the first's left.
     let lefts: Vec<f32> = widths
         .iter()
         .scan(0.0, |x, w| {
             let left = *x;
-            *x += w + ui.spacing().item_spacing.x;
+            if *w > 0.0 {
+                *x += w + ui.spacing().item_spacing.x;
+            }
             Some(left)
         })
         .collect();
@@ -1456,6 +1643,8 @@ fn grid(
     // A column moved: from which place to which (its menu, or its name
     // dragged onto another's).
     let mut column_move = None;
+    // A column hidden, or its width (or every column's) put back.
+    let mut column_view = None;
     let moving = doc.moving.filter(|_| ui.input(|i| i.pointer.primary_down()));
     let released = doc.moving.is_some() && moving.is_none();
     let mut over_column = None;
@@ -1477,6 +1666,9 @@ fn grid(
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     for (index, c) in columns.iter().enumerate() {
+                        if widths[index] == 0.0 {
+                            continue;
+                        }
                         let text = egui::RichText::new(c).strong();
                         let (rect, r) = ui.allocate_exact_size(
                             egui::vec2(widths[index], row_height),
@@ -1518,6 +1710,34 @@ fn grid(
                                 .clicked()
                             {
                                 column_act = Some((index, true));
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui
+                                .button("Hide Column")
+                                .on_hover_text(
+                                    "Out of sight while the table is open (its cells are kept \
+                                     and saved); Show Hidden Columns brings it back",
+                                )
+                                .clicked()
+                            {
+                                column_view = Some(ColumnView::Hide(index));
+                                ui.close();
+                            }
+                            if ui
+                                .button("Reset Width")
+                                .on_hover_text("This column back to the width it began with")
+                                .clicked()
+                            {
+                                column_view = Some(ColumnView::Reset(Some(index)));
+                                ui.close();
+                            }
+                            if ui
+                                .button("Reset All Widths")
+                                .on_hover_text("Every column of this table back to its first width")
+                                .clicked()
+                            {
+                                column_view = Some(ColumnView::Reset(None));
                                 ui.close();
                             }
                         });
@@ -1575,12 +1795,25 @@ fn grid(
     match edge {
         Some((c, Edge::Width(w))) => set_column_width(settings, &table_name, &columns[c], w),
         Some((c, Edge::Fit)) => {
+            // (To every row's cell, as shown: not those of a Find alone.)
             let t = doc.edit.table();
-            let cells = rows
-                .iter()
-                .map(|&r| cell_shows(t.cell(r, c), strref[c], named[c], game.as_deref()).0);
+            let cells = (0..t.len())
+                .map(|r| cell_shows(t.cell(r, c), strref[c], named[c], game.as_deref()).0);
             let w = fit_width(ui, &columns[c], cells);
             set_column_width(settings, &table_name, &columns[c], w);
+        }
+        None => {}
+    }
+    match column_view {
+        Some(ColumnView::Hide(c)) => {
+            doc.hidden.insert(columns[c].to_lowercase());
+            if doc.selected.is_some_and(|(_, sc)| sc == c) {
+                doc.selected = None;
+                doc.anchor = None;
+            }
+        }
+        Some(ColumnView::Reset(c)) => {
+            reset_column_width(settings, &table_name, c.map(|c| columns[c].as_str()));
         }
         None => {}
     }
@@ -1679,6 +1912,9 @@ fn grid(
                         ui.horizontal(|ui| {
                             for (c, is_strref) in strref.iter().copied().enumerate() {
                                 let width = widths[c];
+                                if width == 0.0 {
+                                    continue;
+                                }
                                 let here = selected == Some((r, c));
                                 if here && let Some(text) = doc.typing.as_mut() {
                                     let edit = egui::TextEdit::singleline(text)
@@ -2078,7 +2314,7 @@ fn inspector(
                 }
             }
             Some(ColumnKind::Model) => {
-                ui.weak("a model's name");
+                model_choice(ui, id, game.as_deref(), value.as_deref(), &mut set);
             }
             Some(k @ (ColumnKind::Row(_) | ColumnKind::RowBy { .. })) => {
                 // (Of a requirement, the table its kind names, if any.)
@@ -2153,6 +2389,91 @@ fn inspector(
 
 /// A row of the table `target` to choose (the table itself as it is now,
 /// for a row of its own; else `other`, as read), with the one named now.
+/// The models the game reads (its own, the haks', the module's) whose
+/// names hold `find`, by name, at most `most`.
+pub(crate) fn models_named(
+    game: &mg_rules::GameData,
+    find: &str,
+    most: usize,
+) -> (Vec<String>, usize) {
+    let find = find.trim().to_ascii_lowercase();
+    let mut names: Vec<String> = (game.resman.layers().iter())
+        .flat_map(|l| l.container.keys().filter(|k| k.restype == ResType::MDL).map(|k| k.resref))
+        .map(|r| r.to_string())
+        .filter(|n| n.contains(&find))
+        .collect();
+    names.sort();
+    names.dedup();
+    let all = names.len();
+    names.truncate(most);
+    (names, all)
+}
+
+/// A model's cell, chosen: whether the game has the model it names (and
+/// where: the layer the game reads it from), checked for the cell chosen
+/// (not for every row, which the game's own tables would fail: they name
+/// models the game never shipped), and **Choose Model…**, a list of the
+/// models the game reads, found by a part of the name.
+fn model_choice(
+    ui: &mut Ui,
+    id: u32,
+    game: Option<&mg_rules::GameData>,
+    value: Option<&str>,
+    set: &mut Option<Option<String>>,
+) {
+    let Some(game) = game else {
+        ui.weak("a model's name");
+        return;
+    };
+    let key = value.and_then(|v| ResRef::from_str(v).ok()).map(|r| ResKey::new(r, ResType::MDL));
+    match key.map(|k| (k, game.resman.copies(&k))) {
+        None => _ = ui.weak("a model's name"),
+        Some((_, copies)) if copies.is_empty() => {
+            let warn = ui.visuals().warn_fg_color;
+            ui.colored_label(warn, "no model of this name in the game, its haks or the module")
+                .on_hover_text("Used, the row shows nothing (or the game's stand-in)");
+        }
+        Some((_, copies)) => {
+            let layer = &game.resman.layers()[copies[0]].label;
+            ui.weak(format!("a model, read from {layer}"));
+        }
+    }
+    let find_id = egui::Id::new(("table-model-find", id));
+    let open_id = find_id.with("open");
+    let mut open: bool = ui.data(|d| d.get_temp(open_id)).unwrap_or(false);
+    if ui.selectable_label(open, "Choose Model…").clicked() {
+        open = !open;
+    }
+    ui.data_mut(|d| d.insert_temp(open_id, open));
+    if !open {
+        return;
+    }
+    // (On a line of its own under the cell's: the panel's row wraps.)
+    ui.end_row();
+    ui.vertical(|ui| {
+        ui.set_width(ui.available_width().clamp(200.0, 360.0));
+        let mut find: String = ui.data(|d| d.get_temp(find_id)).unwrap_or_default();
+        let _ = crate::widgets::SearchField::new(find_id.with("field"), &mut find)
+            .hint("Part of a model's name")
+            .show(ui);
+        ui.data_mut(|d| d.insert_temp(find_id, find.clone()));
+        let (names, all) = models_named(game, &find, 200);
+        if all > names.len() {
+            ui.weak(format!("{} of {all}: type more of the name", names.len()));
+        }
+        let list = egui::ScrollArea::vertical().id_salt(find_id.with("list")).max_height(240.0);
+        list.show(ui, |ui| {
+            for n in names {
+                let now = value.is_some_and(|v| v.eq_ignore_ascii_case(&n));
+                if ui.selectable_label(now, &n).clicked() {
+                    *set = Some(Some(n));
+                    ui.data_mut(|d| d.insert_temp(open_id, false));
+                }
+            }
+        });
+    });
+}
+
 fn row_choice(
     ui: &mut Ui,
     id: u32,

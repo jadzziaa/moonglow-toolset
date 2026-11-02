@@ -61,7 +61,8 @@ fn shipped_2das_parse_and_agree_with_nwn_twoda() {
             //   (e.g. random_hostile row 10 puts "trivial" in GREETING instead
             //   of ADJECTIVE). The engine reads it as we do; see
             //   engine_2da.rs.
-            if ours.is_empty() || bytes.windows(2).any(|w| w == b"\"\"") {
+            let blank = ours.rows.iter().all(|r| r.iter().all(Option::is_none));
+            if blank || bytes.windows(2).any(|w| w == b"\"\"") {
                 return None;
             }
             let (input, output) = (dir.join(format!("{i}.2da")), dir.join(format!("{i}.out.2da")));
@@ -74,6 +75,18 @@ fn shipped_2das_parse_and_agree_with_nwn_twoda() {
                 return Some(format!("{name}: nwn_twoda failed: {}", String::from_utf8_lossy(&status.stderr)));
             }
             let theirs = TwoDa::parse(&std::fs::read(&output).unwrap(), cp).unwrap();
+            // - it drops the rows of empty cells at a table's end (the game's
+            //   ambientsound.2da's last 52); the engine counts them, as
+            //   Moonglow reads them (engine_counts_an_empty_last_row):
+            //   compared without them.
+            let trimmed = |t: &TwoDa| {
+                let mut t = t.clone();
+                while t.rows.last().is_some_and(|r| r.iter().all(Option::is_none)) {
+                    t.rows.pop();
+                }
+                t
+            };
+            let (ours, theirs) = (trimmed(&ours), trimmed(&theirs));
             if theirs != ours {
                 let row = (0..ours.len().max(theirs.len())).find(|&r| ours.rows.get(r) != theirs.rows.get(r));
                 return Some(format!(

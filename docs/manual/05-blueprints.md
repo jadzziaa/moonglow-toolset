@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
 ---
 
 # Blueprints
@@ -54,26 +54,41 @@ deleted since the module was opened or saved (here, or outside
 Moonglow in a module folder or a nasher project: a `.uti` copied into
 the folder is listed as soon as the folder's files are read again, and
 the palette changed is unsaved work); then only that blueprint's
-entry changes, as Aurora changes it: a new one goes in at its place by
-name, an edited one whose name or category no longer matches its entry is
-made right and moved to its place (one that still matches is left alone:
-a talk-table name stays a `STRREF`), a deleted one's entry goes (unless a
-hak still has the blueprint), and a renamed one keeps its entry where it
-is. A new entry for a name from the talk table is its `STRREF`, as
-Aurora's Build writes it (Aurora's Edit Copy writes the text). Every
-other entry keeps its fields, its name and its place: those of a hak's
-blueprints are never taken out. Unlike Aurora, a save doesn't put each
-category back in order by name or drop fields it doesn't know.
+entry changes, as Aurora changes it: a new one goes into its category,
+an edited one whose name or category no longer matches its entry is
+made right and moved to its category (one that still matches is left
+alone: a talk-table name stays a `STRREF`), a deleted one's entry goes
+(unless a hak still has the blueprint), and a renamed one keeps its
+entry where it is. The category an entry goes into is put in order by
+name, as Aurora's save puts it (entries of one name in the order they
+had, the new one after them); a category no entry went into keeps the
+order the file has. A new entry for a name from the talk table is its
+`STRREF`, as Aurora's Build writes it (Aurora's Edit Copy writes the
+text). As Aurora's save does, every creature entry gets its blueprint's
+challenge rating and faction (a faction renamed, or a hak's creature
+changed, moves its entries so). Every other entry keeps its fields, its
+name and its place: those of a hak's blueprints are never taken out.
+Unlike Aurora, a save doesn't put every category in order or drop
+fields it doesn't know, so that a commit changes only what you changed.
+The command line keeps the palettes the same way: `mg set`, `mg apply`,
+`mg import`, `mg replace`, `mg rename` and the plugins' commands run
+with `mg plugin run` bring the entries of the blueprints they change up
+to date before they save.
 **Refresh Palette** (under **More**) makes the custom palette of the type
 shown anew from the module's and its haks' blueprints, as Aurora's
 Refresh Palette does (Undo takes it back): for entries left stale by
 another tool, a merge, or files changed while the module was closed.
 Build › Build Module… with **Palettes** does the same for every type.
+**Remove from Palette**, on the right-click menu of an entry whose
+blueprint isn't the module's (a hak's, the override folder's or one
+there is no more), takes that entry alone out of the palette (Undo puts
+it back); the blueprint stays where it is.
 
 A right click on a blueprint, on a category or in the room under the
 list offers **New Creature…** (or the kind shown): the wizard New… opens.
 A filter typed opens every category with a match; they can be closed
-again while it stands. Home and End go to the list's top and bottom.
+again while it stands. A blueprint it finds that arrives later (made,
+copied in or named so) opens its category too. Home and End go to the list's top and bottom.
 
 **Categories…** (under **More**) edits the categories blueprints of the type
 shown go in: **Add Category**, **Add Group** (a branch that holds

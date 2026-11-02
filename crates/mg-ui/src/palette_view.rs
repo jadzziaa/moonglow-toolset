@@ -62,6 +62,10 @@ pub struct PaletteView {
         Arc<std::collections::HashSet<ResRef>>,
         Needle,
     )>,
+    /// The blueprints the search found that it hadn't before the module
+    /// changed (one added, here or outside, or named so it is found):
+    /// their categories open, as typing the search opened the others.
+    arrived: std::collections::HashSet<ResRef>,
     /// Blueprints' tags, for the search: by palette (and module revision).
     tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
     /// More blueprints chosen with Ctrl+click (with `selected`): custom
@@ -412,6 +416,7 @@ impl Default for PaletteView {
             fold: None,
             about: None,
             found: None,
+            arrived: Default::default(),
             tags: HashMap::new(),
             chosen: Vec::new(),
             tiles: false,
@@ -576,6 +581,42 @@ pub(crate) fn refresh(app: &mut Moonglow, kind: BlueprintKind) {
     }
 }
 
+/// Remove from Palette, on a custom palette's entry whose blueprint isn't
+/// the module's (a hak's, the override folder's or one there is no more:
+/// Aurora's palette lists them as its file has them, and so does
+/// Moonglow's): the entry taken out of the palette as the next save
+/// writes it, as one command (Undo puts it back); the blueprint is left
+/// where it is. Build's Palettes lists a hak's blueprint again.
+pub(crate) fn remove_entry(app: &mut Moonglow, kind: BlueprintKind, resref: ResRef) {
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
+    let key = kind.custom_key();
+    let made = ws.flush().map_err(|e| e.to_string()).and_then(|()| {
+        let shown = update_custom_palette(&ws.module, ws.saved(), game, kind)?;
+        let mut g = match shown {
+            Some(g) => g,
+            None => match ws.module.gff(&key) {
+                Some(g) => g.map_err(|e| e.to_string())?,
+                None => return Ok(None),
+            },
+        };
+        if !mg_module::palette::remove_entries(&mut g, resref) {
+            return Ok(None);
+        }
+        g.to_bytes().map(Some).map_err(|e| e.to_string())
+    });
+    match made {
+        Err(e) => app.log.error(format!("Remove from Palette: {e}")),
+        Ok(None) => app.log.info(format!("Remove from Palette: {resref} has no entry")),
+        Ok(Some(bytes)) => {
+            let edit = Edit::SetResource { key, data: Some(bytes) };
+            let cmd = Command::new(format!("Remove {resref} from the Palette"), vec![edit]);
+            if let Err(e) = app.apply(cmd) {
+                app.log.error(format!("Remove from Palette: {e}"));
+            }
+        }
+    }
+}
+
 /// What a search finds in a palette, kept until the search, the palette
 /// or the module changes: the blueprints, and how (by words, or by letters
 /// in order when nothing has every word).
@@ -616,6 +657,13 @@ fn found(
     if hits.is_empty() {
         find = find.letters_in_order();
         hits = search(&find);
+    }
+    // The same search of the same palette, the module changed: what it
+    // finds now that it didn't (their categories open).
+    if let Some(((k, c, f, _), was, _)) = &app.palette.found
+        && (*k, *c, f) == (key.0, key.1, &key.2)
+    {
+        app.palette.arrived = hits.difference(was).copied().collect();
     }
     let hits = Arc::new(hits);
     app.palette.found = Some((key, hits.clone(), find.clone()));
@@ -661,6 +709,9 @@ enum Pick {
     View(ResKey),
     EditCopy(ResKey),
     Delete(ResKey),
+    /// A custom palette's entry whose blueprint isn't the module's, taken
+    /// out of the palette ([`remove_entry`]).
+    RemoveEntry(ResKey),
     Preview(ResKey),
     /// The objects selected in the area become ones of this blueprint
     /// (keeping their own tags, names, scripts and variables).
@@ -1272,6 +1323,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         open_changed: false,
         new: app.ws.is_some().then_some(new_label.as_str()),
         found: found.as_deref(),
+        arrived: std::mem::take(&mut view.arrived),
         tags: &tags,
         favorites: favorites
             .iter()
@@ -1442,6 +1494,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.log.error(e.to_string());
                 }
             }
+            Pick::RemoveEntry(key) => remove_entry(app, kind, key.resref),
             Pick::New => crate::commands::Id::new_blueprint(kind).run(app, ui.ctx()),
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::Replace(key, own) => match app.palette.area {
@@ -1569,6 +1622,9 @@ struct Tree<'a> {
     new: Option<&'a str>,
     /// The blueprints the search finds (`None`: no search).
     found: Option<&'a std::collections::HashSet<ResRef>>,
+    /// Those the search finds since the module changed: their categories
+    /// open this frame (`PaletteView::arrived`).
+    arrived: std::collections::HashSet<ResRef>,
     tags: &'a HashMap<ResRef, String>,
     /// This palette's favorites.
     favorites: std::collections::HashSet<ResRef>,
@@ -1658,6 +1714,14 @@ impl Tree<'_> {
         self.found.is_none_or(|f| f.contains(&b.resref))
     }
 
+    /// Whether a blueprint the search finds since the module changed is in
+    /// a node or under it.
+    fn arrives_in(&self, node: &PaletteNode) -> bool {
+        !self.arrived.is_empty()
+            && (node.blueprints.iter().any(|b| self.arrived.contains(&b.resref))
+                || node.children.iter().any(|c| self.arrives_in(c)))
+    }
+
     /// Whether a node or anything under it passes the search.
     fn any_shown(&self, node: &PaletteNode) -> bool {
         self.found.is_none()
@@ -1740,7 +1804,7 @@ impl Tree<'_> {
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path, searching))
             .default_open(searching || self.open.contains(&remembered))
-            .open(self.asked(&branch))
+            .open(self.asked(&branch).or_else(|| self.arrives_in(node).then_some(true)))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
                     let mut p = path.to_vec();
@@ -2024,6 +2088,22 @@ impl Tree<'_> {
             }
             if mine && ui.button("Delete").clicked() {
                 picks.push(Pick::Delete(key));
+                ui.close();
+            }
+            // An entry of the custom palette whose blueprint isn't the
+            // module's (a hak's, the override folder's, one there is no
+            // more): its entry alone taken out, the blueprint left.
+            if custom
+                && !mine
+                && ui
+                    .button("Remove from Palette")
+                    .on_hover_text(
+                        "Take its entry out of the module's palette: the blueprint isn't the \
+                         module's, and stays where it is (Build's Palettes lists a hak's again)",
+                    )
+                    .clicked()
+            {
+                picks.push(Pick::RemoveEntry(key));
                 ui.close();
             }
             // The plugins' commands for the kind, run on the blueprints

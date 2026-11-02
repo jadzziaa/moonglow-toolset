@@ -845,7 +845,7 @@ pub(crate) fn run(
     let cmd = Command::new(outcome.label, outcome.edits);
     let module = m.clone();
     let mut out =
-        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None)?;
+        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None, gi)?;
     let kept = keep_settings(&plugin, &module, &outcome.settings, dry_run, &mut notes)?;
     if let serde_json::Value::Object(o) = &mut out.json {
         if !kept.is_empty() {

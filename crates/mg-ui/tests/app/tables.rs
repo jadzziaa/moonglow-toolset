@@ -599,6 +599,14 @@ fn two_da_view_shows_where_rows_come_from() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
     h.run();
     h.get_by_label("From");
+    // The From column is widened by its edge, as the others are, and kept.
+    let edge = h.get_by_label("Width of From").rect().center();
+    let resource_at = h.get_by_label("Resource").rect().left();
+    drag(&mut h, edge, edge + egui::vec2(60.0, 0.0));
+    h.run();
+    assert!(h.get_by_label("Resource").rect().left() > resource_at + 40.0, "From widened");
+    let kept = &h.state().settings.table_widths;
+    assert!(kept.iter().any(|(t, w)| t == "ambientmusic" && w.iter().any(|(c, _)| c == "<from>")));
     let summary = h.query_by_label_contains("override: adds 1, changes 1");
     assert!(summary.is_some(), "the summary names what override does");
     h.get_by_label("mus_mine");
@@ -1260,10 +1268,25 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
     h.get_by_label("Save").click();
     h.run_steps(3);
-    // (The empty row at the end is not in the file: a table read has no
-    // empty rows after its last.)
-    assert_eq!(stored(&mut h).rows[..], table_of(&h, id).rows[..2]);
+    // (The empty row at the end is in the file, a row as the game counts
+    // it: `engine_counts_an_empty_last_row`.)
+    assert_eq!(stored(&mut h).rows, table_of(&h, id).rows);
     assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    // The module's Undo takes the save back with the table open: the
+    // editor reads it again.
+    // (The module's own Undo: the one under the menu is the grid's while
+    // it is open.)
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while table_of(&h, id).get(1, "Label") != Some("Cheese") {
+        assert!(std::time::Instant::now() < deadline, "read again after the Undo");
+        h.run_steps(5);
+    }
+    h.state_mut().ws.as_mut().unwrap().redo().unwrap();
+    while table_of(&h, id).get(1, "Label") != Some("Cheesey") {
+        assert!(std::time::Instant::now() < deadline, "read again after the Redo");
+        h.run_steps(5);
+    }
     // (Closed, the table's grid has the keys no more: Undo is the
     // module's.)
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
@@ -1564,7 +1587,9 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     drag(&mut h, edge, edge + egui::vec2(100.0, 0.0));
     let wide = widths(&h);
     assert_eq!(wide.len(), 1);
-    assert_eq!(wide[0].0, "loose");
+    // (Kept by the file's folder and its name: another folder's
+    // loose.2da keeps its own.)
+    assert!(wide[0].0.ends_with("/loose") && wide[0].0.len() > 6, "{}", wide[0].0);
     let (column, width) = &wide[0].1[0];
     assert_eq!(column, "Label");
     // (116 points at first.)
@@ -1596,6 +1621,37 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let _ = id;
     let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
     assert!((label_width - fitted as f32).abs() < 12.0, "{label_width} for {fitted}");
+    // Another folder's table of the name has widths of its own.
+    let other = mg_testkit::scratch_dir("ui-table-widths-other").join("loose.2da");
+    std::fs::write(&other, SMALL_TABLE).unwrap();
+    h.state_mut().tables.retain(|d| d.id != id);
+    h.run_steps(4);
+    let second = mg_ui::table_view::open_path(h.state_mut(), &other).unwrap();
+    h.run_steps(4);
+    let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
+    assert!((label_width - 116.0).abs() < 12.0, "its first width: {label_width}");
+    h.state_mut().tables.retain(|d| d.id != second);
+    h.run_steps(4);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    // Reset Width, on the column's menu: its first width again.
+    h.get_by_label("Label").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Reset Width").click();
+    h.run_steps(3);
+    assert!(widths(&h).iter().all(|(_, w)| w.iter().all(|(c, _)| c != "Label")), "reset");
+    let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
+    assert!((label_width - 116.0).abs() < 12.0, "its first width again: {label_width}");
+    // Hide Column: out of sight, its cells kept; Show Hidden Columns.
+    h.get_by_label("Cost").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Hide Column").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Cost").is_none(), "hidden");
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "kept");
+    h.get_by_label("Show Hidden Columns (1)").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Cost").is_some(), "shown again");
 }
 
 /// A builder's report: a game's table read in the resource browser (not
@@ -1772,4 +1828,90 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
     key_(&mut h, none, egui::Key::ArrowDown);
     assert_eq!(at(&h), Some((1, 0)), "the table's keys left");
     assert_ne!(h.state().tree_cursor, tree, "the tree's again");
+}
+
+/// A table saved keeps its file's layout: its row labels and its tabs.
+/// Changed outside while open, it is read again (nothing of the
+/// builder's unsaved), or said to have changed (something unsaved: a
+/// save writes over it).
+#[test]
+fn a_file_s_table_keeps_its_layout_and_is_read_again_when_changed() {
+    let dir = mg_testkit::scratch_dir("ui-table-read-again");
+    let file = dir.join("tabs.2da");
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t2\n")
+        .unwrap();
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1200.0, 800.0);
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(1, 1, Some("3".into())).unwrap();
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t3\n",
+        "its labels and tabs kept"
+    );
+    // Changed outside: read again.
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t4\n")
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while table_of(&h, id).get(1, "Cost") != Some("4") {
+        assert!(std::time::Instant::now() < deadline, "read again");
+        h.run_steps(5);
+    }
+    // With a change not saved: said, and the builder's change kept.
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(0, 1, Some("8".into())).unwrap();
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t5\n")
+        .unwrap();
+    let said = |h: &Harness<'_, Moonglow>| {
+        let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
+        doc.problem.as_deref().is_some_and(|p| p.contains("Changed where it was read from"))
+    };
+    while !said(&h) {
+        assert!(std::time::Instant::now() < deadline, "said");
+        h.run_steps(5);
+    }
+    assert_eq!(table_of(&h, id).get(0, "Cost"), Some("8"));
+    assert_eq!(table_of(&h, id).get(1, "Cost"), Some("4"));
+}
+
+/// A model's cell chosen says whether the game has the model (and where
+/// it reads it from), and Choose Model… lists the models the game reads,
+/// found by a part of the name: one chosen is put in the cell.
+#[test]
+fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-models");
+    let file = dir.join("placeables.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\n\n   Label   ModelName\n0  Chest   plc_c01\n1  Nothing mg_none\n",
+    )
+    .unwrap();
+    let mut h = harness(game_app(&root, None), 1280.0, 1300.0);
+    // (Tall: the list of models opens under the cell's panel.)
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
+        h.run_steps(4);
+    };
+    choose(&mut h, 0);
+    h.get_by_label_contains("a model, read from");
+    choose(&mut h, 1);
+    h.get_by_label("no model of this name in the game, its haks or the module");
+    h.get_by_label("Choose Model…").click();
+    h.run_steps(3);
+    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    click_pos(&h, field);
+    h.run_steps(2);
+    h.event(egui::Event::Text("plc_c0".into()));
+    h.run_steps(4);
+    let at = h.get_by_label("plc_c02").rect().center();
+    click_pos(&h, at);
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
 }

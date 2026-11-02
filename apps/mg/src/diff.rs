@@ -29,6 +29,15 @@ fn table(path: &Path, cp: Codepage) -> Result<TwoDa> {
     TwoDa::parse(&data, cp).with_context(|| path.display().to_string())
 }
 
+/// `table` written as the file `like` is laid out (`TwoDa::to_bytes_like`:
+/// its columns in line or compact, their widths, its rows' labels, its
+/// tabs and line ends): a merge written like the table A it was made
+/// into, an update like the table B it is.
+fn written_like(table: &TwoDa, like: &Path, cp: Codepage) -> Result<Vec<u8>> {
+    let file = std::fs::read(like).with_context(|| like.display().to_string())?;
+    Ok(table.to_bytes_like(cp, &file)?)
+}
+
 fn shown(cell: &Option<String>) -> String {
     match cell {
         None => "****".into(),
@@ -48,10 +57,18 @@ fn row_name(tables: &[&TwoDa], row: usize) -> String {
 }
 
 /// An edit file that sets `resource` to `table`, for `mg apply`.
-fn edit_file(resource: &str, table: &TwoDa, cp: Codepage, label: &str) -> Result<Value> {
+/// (`like`: the file the table is written like, its layout, widths, row
+/// labels and tabs kept.)
+fn edit_file(
+    resource: &str,
+    table: &TwoDa,
+    like: &Path,
+    cp: Codepage,
+    label: &str,
+) -> Result<Value> {
     let key = ResKey::from_filename(resource)
         .with_context(|| format!("{resource:?} is not a resource name like classes.2da"))?;
-    let data = table.to_bytes(cp)?;
+    let data = written_like(table, like, cp)?;
     let edit = mg_edit::Edit::SetResource { key, data: Some(data) };
     let command = mg_edit::Command::new(label, vec![edit]);
     Ok(mg_edit::wire::command_to_json(&command, cp)?)
@@ -111,7 +128,7 @@ pub(crate) fn twoda(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         out.json["same"] = json!(d.is_empty());
         lines(&mut out, &d, &[&b, &a], "");
         if let Some(file) = args.changes {
-            let edits = edit_file(&resource, &b, cp, &format!("Update {resource}"))?;
+            let edits = edit_file(&resource, &b, args.b, cp, &format!("Update {resource}"))?;
             std::fs::write(file, serde_json::to_string_pretty(&edits)? + "\n")?;
         }
         out.note(match d.is_empty() {
@@ -158,11 +175,12 @@ pub(crate) fn twoda(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         return Ok(out);
     }
     if let Some(file) = args.output {
-        std::fs::write(file, merged.table.to_bytes(cp)?)
+        std::fs::write(file, written_like(&merged.table, args.a, cp)?)
             .with_context(|| file.display().to_string())?;
     }
     if let Some(file) = args.changes {
-        let edits = edit_file(&resource, &merged.table, cp, &format!("Merge {resource}"))?;
+        let label = format!("Merge {resource}");
+        let edits = edit_file(&resource, &merged.table, args.a, cp, &label)?;
         std::fs::write(file, serde_json::to_string_pretty(&edits)? + "\n")?;
     }
     out.note(format!(

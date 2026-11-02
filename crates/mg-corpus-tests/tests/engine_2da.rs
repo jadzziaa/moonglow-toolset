@@ -135,3 +135,32 @@ fn engine_reads_a_table_the_editor_wrote() {
     assert!(cells.contains(&"3.Label=[Two Words]".to_string()));
     assert!(cells.contains(&"1.Label=[]".to_string()), "an emptied row is there, and empty");
 }
+
+/// A row of empty cells at a table's end, `****` or a label alone, is a
+/// row to the game (`Get2DARowCount`), and the blank lines after it are
+/// not: Moonglow reads it so, and writes it again.
+#[test]
+fn engine_counts_an_empty_last_row() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_2da_last_row");
+    let stars = b"2DA V2.0\r\n\r\n   Label   Cost\r\n0  Bread   1\r\n1  ****    ****\r\n\r\n";
+    let label = b"2DA V2.0\r\n\r\n   Label   Cost\r\n0  Bread   1\r\n1\r\n\r\n\r\n";
+    let script = "void main()\n{\n    WriteTimestampedLogEntry(\"MG_ROWS \" + IntToString(Get2DARowCount(\"mg_stars\")) + \" \" + IntToString(Get2DARowCount(\"mg_label\")));\n    WriteTimestampedLogEntry(\"MG_DONE\");\n}\n";
+    let key = |n: &str| mg_resman::ResKey::parse(n, ResType::TWODA).unwrap();
+    let tables = [(key("mg_stars"), stars.to_vec()), (key("mg_label"), label.to_vec())];
+    crate::common::probe_module(&root, &dir, "mg_rows_p", script, &[], &tables);
+    let run = run_server(&root, &dir, "mg_rows_p", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "{}", &run.log[run.log.len().saturating_sub(2000)..]);
+    assert_eq!(run.values("MG_ROWS"), ["2 2"], "the game's count");
+    let cp = mg_core::Codepage::default();
+    for data in [&stars[..], &label[..]] {
+        let t = mg_2da::TwoDa::parse(data, cp).unwrap();
+        assert_eq!(t.len(), 2, "Moonglow's count");
+        assert_eq!(mg_2da::TwoDa::parse(&t.to_bytes(cp).unwrap(), cp).unwrap().len(), 2);
+    }
+}

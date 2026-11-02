@@ -172,7 +172,30 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
         h.state_mut().palette.filter = filter.into();
         h.run_steps(4);
         assert!(h.query_by_label(shown).is_some(), "{shown} listed");
+        // Remove from Palette, on an entry whose blueprint isn't the
+        // module's: the entry goes (the blueprint isn't the module's to
+        // delete); Undo puts it back.
+        h.get_by_label(shown).click_secondary();
+        h.run_steps(4);
+        assert!(h.query_by_label("Delete").is_none(), "not the module's to delete");
+        h.get_by_label("Remove from Palette").click();
+        h.run_steps(4);
+        assert!(h.query_by_label(shown).is_none(), "{shown} taken out");
+        assert!(h.state().ws.as_ref().unwrap().is_modified());
+        h.state_mut().actions.push(mg_ui::Action::Undo);
+        h.run_steps(4);
+        assert!(h.query_by_label(shown).is_some(), "{shown} back");
     }
+    // The module's own blueprint has no Remove from Palette (Delete
+    // takes its entry with it).
+    h.state_mut().palette.filter = "Potion".into();
+    h.run_steps(4);
+    let potion = h.query_all_by_label_contains("Potion").next().unwrap().accesskit_node().label();
+    h.get_by_label(potion.unwrap().as_str()).click_secondary();
+    h.run_steps(4);
+    assert!(h.query_by_label("Remove from Palette").is_none());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
 
     // A new blueprint, then Save: its entry added, every other as it was.
     {
@@ -204,7 +227,22 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
     }
     let axe = take(saved.root.list_mut("MAIN").unwrap(), "mg_axe").expect("the axe's entry");
     assert_eq!(axe.string("NAME"), Some(&b"Axe"[..]));
-    assert_eq!(saved, before, "every other entry as it was");
+    // Every other entry as it was (the category the axe went into put in
+    // order by name, as Aurora's save puts it).
+    fn entries(list: &[mg_gff::Struct], out: &mut Vec<String>) {
+        for n in list {
+            match n.resref("RESREF") {
+                Some(_) => out.push(format!("{n:?}")),
+                None => entries(n.list("LIST").unwrap_or(&[]), out),
+            }
+        }
+    }
+    let (mut now, mut was) = (Vec::new(), Vec::new());
+    entries(saved.root.list("MAIN").unwrap(), &mut now);
+    entries(before.root.list("MAIN").unwrap(), &mut was);
+    now.sort();
+    was.sort();
+    assert!(now == was, "every other entry as it was");
 }
 
 /// A blueprint copied with a tag another blueprint has is said in the
@@ -1643,18 +1681,12 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
             .any(|l| l == name || l.starts_with(&cr))
     };
     let modified = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().is_modified();
-    // (The search typed again, which opens the categories with a match:
-    // one that had none stays closed as the builder left it.)
-    let search = |h: &mut Harness<'_, Moonglow>| {
-        h.state_mut().palette.filter.clear();
-        h.run_steps(2);
-        h.state_mut().palette.filter = shown.into();
-        h.run_steps(4);
-    };
+    // (Read again with the search left as it was typed: a blueprint it
+    // finds that arrives after it opens its category, as typing opens
+    // the others.)
     let reload = |h: &mut Harness<'_, Moonglow>| {
         h.state_mut().reload_project_files();
         h.run_steps(4);
-        search(h);
     };
     let save = |h: &mut Harness<'_, Moonglow>| {
         h.state_mut().actions.push(mg_ui::Action::Save);
@@ -1663,6 +1695,11 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     assert!(listed(&h, &kept));
     assert!(!listed(&h, shown) && !listed(&h, &closed));
     assert!(!modified(&h));
+    // Every category closed (Collapse All) with the search typed: the one
+    // a blueprint the search finds arrives in opens again.
+    h.get_all_by_label("⏶").last().unwrap().click();
+    h.run_steps(4);
+    assert!(!listed(&h, &kept), "closed");
 
     // Copied in: listed after the reload.
     std::fs::write(file("mg_outside"), blueprint("mg_outside", shown)).unwrap();
@@ -1698,12 +1735,10 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     h.run_steps(2);
     h.get_by_label("Refresh Palette").click();
     h.run_steps(4);
-    search(&mut h);
     assert!(listed(&h, &closed), "refreshed");
     assert!(modified(&h), "refreshed: to be saved");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(4);
-    search(&mut h);
     assert!(!listed(&h, &closed), "undone");
 }
 

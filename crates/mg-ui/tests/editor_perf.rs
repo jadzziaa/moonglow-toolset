@@ -192,3 +192,52 @@ fn opening_select_texture() {
     h.step();
     println!("the click's frame, opened again (the list kept): {:?}", t.elapsed());
 }
+
+/// The 2DA editor on a large table, as a persistent world's appearance.2da
+/// is (the game's, its rows repeated to 12,000), with a Find typed: plain
+/// egui frames (no accessibility tree), idle and with a cell set at each.
+/// Find's rows are worked out once for the table and the Find as they
+/// are (they were looked for in every cell at each frame).
+#[test]
+#[ignore]
+fn editing_a_large_table() {
+    let root = mg_testkit::corpus!();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let data = game.resman.get_named("appearance", ResType::TWODA).unwrap().into_owned();
+    let mut t = mg_2da::TwoDa::parse(&data, game.codepage()).unwrap();
+    let base = t.rows.clone();
+    while t.rows.len() < 12_000 {
+        t.rows.extend(base.iter().cloned());
+    }
+    let dir = mg_testkit::scratch_dir("editor-perf-table");
+    let file = dir.join("appearance.2da");
+    std::fs::write(&file, t.to_bytes(game.codepage()).unwrap()).unwrap();
+    drop(game);
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let id = mg_ui::table_view::open_path(&mut app, &file).unwrap();
+    let ctx = egui::Context::default();
+    let input = || egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))),
+        ..Default::default()
+    };
+    let frames = |app: &mut Moonglow, n: usize, edit: bool| {
+        let mut out = Vec::new();
+        for i in 0..n {
+            if edit {
+                let doc = app.tables.iter_mut().find(|d| d.id == id).unwrap();
+                doc.edit.set(i % 50, 1, Some(format!("x{i}"))).unwrap();
+            }
+            let t = Instant::now();
+            let o = ctx.run_ui(input(), |ui| app.ui(ui));
+            let _ = ctx.tessellate(o.shapes, o.pixels_per_point);
+            out.push(t.elapsed());
+        }
+        out.sort();
+        (out[n / 2], *out.last().unwrap())
+    };
+    let _ = frames(&mut app, 5, false);
+    println!("{} rows: idle {:?}", t.len(), frames(&mut app, 20, false));
+    app.tables.iter_mut().find(|d| d.id == id).unwrap().filter = "dragon".into();
+    println!("Find typed, idle: {:?}", frames(&mut app, 20, false));
+    println!("Find typed, a cell set each frame: {:?}", frames(&mut app, 20, true));
+}

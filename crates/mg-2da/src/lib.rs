@@ -168,6 +168,10 @@ impl TwoDa {
         let width = t.columns.len();
         let lines: Vec<&str> = lines.skip_while(|l| l.is_empty()).collect();
         let mut padding = PaddingBudget::for_input(data.len());
+        // (How many rows there are up to the last line with a label: a
+        // row of empty cells at the end is a row, the blank lines after
+        // it are not.)
+        let mut labeled = 0;
         for line in lines {
             let mut cells = split_cells(line, width + 1);
             // The first cell is the row label, which the game ignores.
@@ -177,10 +181,11 @@ impl TwoDa {
             padding.take(width - cells.len())?;
             cells.resize(width, None);
             t.rows.push(cells);
+            if !line.is_empty() {
+                labeled = t.rows.len();
+            }
         }
-        while t.rows.last().is_some_and(|r| r.iter().all(Option::is_none)) {
-            t.rows.pop();
-        }
+        t.rows.truncate(labeled);
         Ok(t)
     }
 
@@ -417,8 +422,17 @@ impl TwoDa {
                     .unwrap_or(0)
             })
             .collect();
-        let id_width =
-            (rows.len().saturating_sub(1).to_string().len().max(1) + 2).max(at_least.numbers);
+        // Each row's label: the file's, where it had the row (and one of a
+        // word), else its number.
+        let labels: Vec<String> = (0..rows.len())
+            .map(|i| match at_least.labels.get(i) {
+                Some(l) if !l.is_empty() && !l.contains([' ', '\t', '"']) => l.clone(),
+                _ => i.to_string(),
+            })
+            .collect();
+        let widest = labels.iter().map(|l| l.chars().count()).max().unwrap_or(1).max(1);
+        let id_width = (widest + 2).max(at_least.numbers);
+        let sep = if at_least.tabs { '\t' } else { ' ' };
         let end = if at_least.lf { "\n" } else { "\r\n" };
         let mut out = format!("2DA V2.0{end}");
         if let Some(d) = &self.default {
@@ -431,7 +445,7 @@ impl TwoDa {
                 // rows begin with their numbers.)
                 let mut l = label.to_string();
                 for c in cells {
-                    l.push(' ');
+                    l.push(sep);
                     l += c;
                 }
                 return l + end;
@@ -448,8 +462,8 @@ impl TwoDa {
             l + end
         };
         out += &line("", &self.columns);
-        for (i, r) in rows.iter().enumerate() {
-            out += &line(&i.to_string(), r);
+        for (label, r) in labels.iter().zip(&rows) {
+            out += &line(label, r);
         }
         codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
     }
@@ -464,6 +478,11 @@ struct Widths {
     columns: Vec<(String, usize)>,
     numbers: usize,
     lf: bool,
+    /// The rows' labels as the file has them, in order (the game passes
+    /// over them: a builder's own, as `Sword` or a number out of step).
+    labels: Vec<String>,
+    /// The rows' cells are set apart by tabs (one between each).
+    tabs: bool,
 }
 
 impl Widths {
@@ -490,7 +509,20 @@ impl Widths {
             .enumerate()
             .filter_map(|(i, n)| Some((n.to_string(), starts.get(i + 1)? - starts.get(i)?)))
             .collect();
-        Widths { columns, numbers: starts.first().copied().unwrap_or(0), lf }
+        // The rows: each line after the column names' (blank ones as the
+        // parse takes them, up to the last with a label).
+        let rows: Vec<&str> = (text.lines().map(str::trim))
+            .skip_while(|l| *l != header.trim())
+            .skip(1)
+            .skip_while(|l| l.is_empty())
+            .collect();
+        let rows = &rows[..rows.iter().rposition(|l| !l.is_empty()).map_or(0, |i| i + 1)];
+        let labels = (rows.iter())
+            .map(|l| split_cells(l, 1).into_iter().next().flatten().unwrap_or_default())
+            .collect();
+        let tabs = rows.iter().any(|l| l.contains('\t'))
+            && rows.iter().all(|l| !l.contains("  ") && !l.contains(" \t") && !l.contains("\t "));
+        Widths { columns, numbers: starts.first().copied().unwrap_or(0), lf, labels, tabs }
     }
 
     /// A column's width, its name's and the space after it, where the file
@@ -596,8 +628,10 @@ mod tests {
         let t = TwoDa::parse(SAMPLE.as_bytes(), Codepage::default()).unwrap();
         assert_eq!(t.default.as_deref(), Some("7"));
         assert_eq!(t.columns(), ["LABEL", "HOSTILE", "Name"]);
-        // Blank lines inside the table are rows; trailing empty rows go.
-        assert_eq!(t.len(), 4);
+        // Blank lines inside the table are rows, and so is a label alone at
+        // its end (the game counts it: `engine_counts_an_empty_last_row`);
+        // the blank line after the last row is not.
+        assert_eq!(t.len(), 6);
         assert_eq!(t.get(0, "name"), Some("Two words"));
         assert_eq!(t.get_int(1, "HOSTILE"), Some(16));
         assert_eq!(t.get(1, "Name"), None);
@@ -623,7 +657,7 @@ mod tests {
             text
         };
         let t = TwoDa::parse(table(1000, 10).as_bytes(), Codepage::default()).unwrap();
-        assert_eq!((t.columns().len(), t.rows.len()), (1000, 0), "trailing empty rows go");
+        assert_eq!((t.columns().len(), t.rows.len()), (1000, 10), "a label alone is a row");
         let t = TwoDa::parse(format!("{}9 x\n", table(1000, 10)).as_bytes(), Codepage::default());
         assert_eq!(t.unwrap().rows.iter().map(Vec::len).collect::<Vec<_>>(), [1000; 11]);
         let e = TwoDa::parse(table(20_000, 30_000).as_bytes(), Codepage::default()).unwrap_err();
@@ -681,6 +715,33 @@ mod tests {
             t.to_bytes_like(cp, compact).unwrap(),
             b"2DA V2.0\r\n\r\n Label Cost\r\n0 Sword 12\r\n"
         );
+    }
+
+    /// The file's own row labels (the game passes over them), its tabs
+    /// between cells and a row of empty cells at its end are kept when
+    /// it is written again; blank lines after the last row are not rows.
+    #[test]
+    fn labels_tabs_and_an_empty_last_row_are_kept() {
+        let cp = Codepage::default();
+        let tabbed = b"2DA V2.0\n\n\tLabel\tCost\nsword\tSword\t10\nAXE\tAxe\t5\n2\t****\t****\n\n";
+        let mut t = TwoDa::parse(tabbed, cp).unwrap();
+        assert_eq!(t.len(), 3, "the empty row at the end is a row, the blank line not");
+        t.set(1, 1, Some("7".into())).unwrap();
+        let written = String::from_utf8(t.to_bytes_like(cp, tabbed).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            "2DA V2.0\n\n\tLabel\tCost\nsword\tSword\t10\nAXE\tAxe\t7\n2\t****\t****\n"
+        );
+        // A row added is numbered; aligned, the labels are padded.
+        t.add_row();
+        let aligned = b"2DA V2.0\n\n      Label  Cost\nsword  Sword  10\n";
+        let written = String::from_utf8(t.to_bytes_like(cp, aligned).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            "2DA V2.0\n\n       Label  Cost\nsword  Sword  10\n1      Axe    7\n2      ****   ****\n\
+             3      ****   ****\n"
+        );
+        assert_eq!(TwoDa::parse(written.as_bytes(), cp).unwrap(), t);
     }
 
     #[test]

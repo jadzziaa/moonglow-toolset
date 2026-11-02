@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:38:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:11:04Z }
 ---
 
 # Modules
@@ -1598,10 +1598,21 @@ numbers at the left as it scrolls.
   do), and empty it otherwise.
 - **A column's width** is set by dragging the edge at the right of its
   name (the pointer turns into a double arrow over it); a double click
-  there makes the column as wide as its widest cell, as a spreadsheet
-  does. Widths are kept for the table's name, between runs too: another
-  copy of `appearance.2da`, and the game's own read in the resource
-  browser, show the columns as wide.
+  there makes the column as wide as its widest cell of every row (not
+  only those a Find shows), as a spreadsheet does. Widths are kept
+  between runs, for the table where it is: the module's
+  `appearance.2da` by its name (the game's own, read in the resource
+  browser, shows the columns as wide), a hak's by the hak and its name
+  and a file's by its folder, so two haks' `custom.2da` keep widths of
+  their own (a table given none takes those of its name). **Reset
+  Width** and **Reset All Widths**, on a column's right-click menu, put
+  one column or every column back to the width it began with. The
+  resource browser's **From** column (the layer a row comes from) is
+  widened as the others are.
+- **Hide Column**, on the same menu, takes a column out of sight while
+  the table is open (its cells are kept and saved, and the arrow keys
+  pass over it); **Show Hidden Columns (n)**, over the table, brings
+  every one back.
 - **Add Column…** adds one at the end. A column is moved by dragging
   its name onto another column's (a line shows where it will go), or by
   **Move Left** and **Move Right** in the menu a right click on its name
@@ -1626,7 +1637,13 @@ and is not: seven appearances name footstep 30 of 18); the count above the grid 
 the grid, the selected cell is shown by what its column holds: a
 talk-table string as its text (**Strings as text** shows them so in the
 grid too), a row of another table as that row's name, with a list to
-choose another from.
+choose another from, and a model (an appearance's `RACE`, a
+placeable's `ModelName`, a door's) as whether the game has it and
+which layer it is read from, or that there is no model of the name in
+the game, its haks or the module; **Choose Model…** lists the models the
+game reads, found by a part of the name, and one clicked goes in the
+cell. (A model is checked for the cell chosen, not for every row: the
+game's own tables name models it never shipped.)
 
 **Find References to Row** lists the cells, in every table the game
 reads, of the columns known to name a row of this table: who would be
@@ -1642,13 +1659,25 @@ one, or all of a kind with the **New** (those yours lacks) and
 unticks them all. **Take** brings each ticked row in whole, as one
 step.
 
-Saving lays the table out as the game's own files are (columns in line,
-rows numbered from 0), or, with **Compact** ticked, with one space
-between cells: a smaller file with less for the game to pass over as it
-reads, where columns in line are easier to read and to copy from. The
-box begins as the file was (one space or one tab between its cells:
-compact), and ticking it is a change to save. An empty row at the very
-end is not written: a table has no empty rows after its last.
+Saving lays the table out as its file was: columns in line as wide as
+there (wider where a cell needs it), or, with **Compact** ticked, with
+one space between cells (a smaller file with less for the game to pass
+over as it reads, where columns in line are easier to read and to copy
+from); its rows' labels as the file has them (the game passes over
+them: a builder's `Sword` stays `Sword`; a row added is numbered), tabs
+between cells where the file had tabs, and its line ends. The box
+begins as the file was (one space or one tab between its cells:
+compact), and ticking it is a change to save: the table is then laid
+out anew. A row of empty cells at the end is a row, as the game counts
+it, and is written; blank lines after the last row are not rows. `mg
+2da-diff -o` and its edit file write a table so too, as table A (or B,
+for an update) is laid out.
+
+**A table changed where it was read from** while it is open (the
+module's Undo taking its save back, the hak's table replaced, the file
+changed by another program) is read again, as it is now, where nothing
+in the editor is unsaved; with something unsaved, the editor says so
+over the table, and Save writes the editor's table over the other.
 
 Under the table are **OK** and **Cancel**: OK saves the table and closes
 its window; Cancel closes it without saving, asking first where there
