@@ -2355,6 +2355,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 let selection = mg_plugin::Selection {
                     selected: select.iter().map(chosen).collect::<Result<_>>()?,
                     open: open.as_ref().map(selected).transpose()?,
+                    together: Vec::new(),
                 };
                 let what = plugins::What {
                     id: command,

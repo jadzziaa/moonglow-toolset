@@ -329,6 +329,7 @@ fn set_local_acts_on_the_selection() {
             Selected::Blueprint(key("nw_chest.utp")),
         ],
         open: Some(Selected::Area(area)),
+        together: Vec::new(),
     };
     let host = Rc::new(TestHost::default());
     let values = BTreeMap::from([
@@ -370,10 +371,10 @@ fn set_local_acts_on_the_selection() {
 
     // The area right-clicked; else the one open.
     let host = Rc::new(TestHost::default());
-    let on = Selection { selected: vec![Selected::Area(area)], open: None };
+    let on = Selection { selected: vec![Selected::Area(area)], ..Default::default() };
     run_command(&plugin, "count-objects", Input { selection: on, ..input(&m) }, host.clone())
         .unwrap();
-    let opened = Selection { selected: vec![], open: Some(Selected::Area(area)) };
+    let opened = Selection { open: Some(Selected::Area(area)), ..Default::default() };
     run_command(&plugin, "count-objects", Input { selection: opened, ..input(&m) }, host.clone())
         .unwrap();
     assert_eq!(

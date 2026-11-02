@@ -1145,6 +1145,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;
     let mut ctrl_click = None;
+    // (The plugins' commands for scripts, for its right-click menu.)
+    let commands = app.plugin_menu_commands();
+    let script = [mg_plugin::Selected::Resource(key)];
+    let script_kinds = crate::plugins::kinds_of(&script);
+    let mut plugin_chosen = None;
     let Moonglow { scripts, laid_out, script_tools, open_tabs, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
     // Tab indents as the script is indented (Jasperre's report), else as
@@ -1396,6 +1401,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                         ui.close();
                     }
                 }
+                // The plugins' commands for scripts, run on this one.
+                plugin_chosen = crate::plugins::menu_commands(ui, &commands, &script_kinds);
             });
             let field = out.response.response.rect;
             let radius = ui.style().interact(&out.response.response).corner_radius;
@@ -1442,6 +1449,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (a.min(b), a.max(b))
     });
     buf.seen = Some((shown.state.offset, cursor_now));
+    if let Some(i) = plugin_chosen {
+        app.actions.push(crate::plugins::run_on(&commands[i], script.to_vec()));
+    }
     if stepped.is_some() || script_tools.keys_back.take_if(|k| *k == key).is_some() {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }

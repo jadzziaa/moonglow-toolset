@@ -428,6 +428,105 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     h.get_by_label("Command: Count Objects (right-click: area)");
 }
 
+/// API 0.5: a command for placed objects alone is not in a blueprint's
+/// menu, one for blueprints alone is; a group's row of the module tree
+/// runs a command on every one of the group; a command from the Plugins
+/// menu runs on what is chosen in the pane last clicked in; several
+/// edited together are `ctx.open.together`.
+#[test]
+fn a_plugin_s_command_is_for_placed_objects_blueprints_groups_and_the_pane_clicked() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-menus-0-5", false) else { return };
+    let dir = mg_testkit::scratch_dir("ui-plugin-menus-0-5-plugins");
+    let plugin = dir.join("where");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let mut cfg =
+        "[plugin]\nid = \"test.where\"\nname = \"Where\"\nversion = \"1\"\napi = \"0.5\"\n\
+                   license = \"MIT\"\n"
+            .to_string();
+    for (id, title, on) in [
+        ("placed", "Placed Only", "placed creature"),
+        ("blueprints", "Blueprints Only", "creature blueprint"),
+        ("both", "Both Kinds", "creature"),
+        ("plain", "Plain", ""),
+    ] {
+        cfg += &format!("\n[command]\nid = \"{id}\"\ntitle = \"{title}\"\n");
+        if !on.is_empty() {
+            cfg += &format!("for = \"{on}\"\n");
+        }
+    }
+    std::fs::write(plugin.join("plugin.cfg"), cfg).unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nlocal function say(id)\n  mg.command(id, \
+         function(ctx)\n    local on = {}\n    for _, s in ipairs(ctx.selection) do \
+         table.insert(on, s.resource) end\n    local together = ctx.open and ctx.open.together \
+         and #ctx.open.together or 0\n    ctx.log:info(id .. \": \" .. table.concat(on, \",\") .. \
+         \" together \" .. together)\n  end)\nend\nfor _, id in { \"placed\", \"blueprints\", \
+         \"both\", \"plain\" } do say(id) end\n",
+    )
+    .unwrap();
+    // A second creature blueprint.
+    let cook = ResKey::parse("cook", ResType::UTC).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cook",
+        vec![mg_edit::Edit::SetResource {
+            key: cook,
+            data: Some(Gff::new(*b"UTC ").to_bytes().unwrap()),
+        }],
+    )));
+    h.state_mut().plugin_dir = Some(dir.clone());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.where", true);
+    h.run();
+    let logged = |h: &Harness<'_, Moonglow>, id: &str| -> Option<String> {
+        let start = format!("Where: {id}: ");
+        (h.state().log.entries.iter().rev())
+            .find_map(|(_, m)| m.strip_prefix(&start).map(str::to_string))
+    };
+    // A blueprint's row: those for blueprints, not those for placed ones.
+    h.get_by_label_contains("Creatures (2)").click();
+    h.run();
+    h.get_by_label("guard.utc").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Placed Only").is_none(), "for placed objects alone");
+    h.get_by_label("Both Kinds");
+    h.get_by_label("Blueprints Only").click();
+    h.run_steps(3);
+    assert_eq!(logged(&h, "blueprints").as_deref(), Some("guard.utc together 0"));
+    // The group's row: on every one of the group.
+    h.get_by_label_contains("Creatures (2)").click_secondary();
+    h.run();
+    h.get_by_label("Both Kinds").click();
+    h.run_steps(3);
+    let both = logged(&h, "both").unwrap();
+    assert!(both.contains("guard.utc") && both.contains("cook.utc"), "{both}");
+    // From the Plugins menu: what is chosen in the pane clicked in last
+    // (the tree's), not the palette's.
+    h.state_mut().tree_selected = [cook].into_iter().collect();
+    h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Tree);
+    h.state_mut().run_plugin_command("test.where", "plain");
+    h.run_steps(3);
+    assert_eq!(logged(&h, "plain").as_deref(), Some("cook.utc together 0"));
+    // Two blueprints edited together: ctx.open is the first, and
+    // ctx.open.together lists both.
+    let guard = ResKey::parse("guard", ResType::UTC).unwrap();
+    let together = Tab::Blueprints(vec![guard, cook]);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(together.clone()));
+    h.run_steps(3);
+    // (Its window in front, as a click in it puts it.)
+    let path = h.state().dock.find_tab(&together).unwrap();
+    h.state_mut().dock.set_focused_node_and_surface(path.node_path());
+    h.run();
+    h.state_mut().run_plugin_command("test.where", "plain");
+    h.run_steps(3);
+    assert!(
+        logged(&h, "plain").unwrap().ends_with("together 2"),
+        "{:?} {:?}",
+        logged(&h, "plain"),
+        h.state().front_tab()
+    );
+}
+
 /// API 0.4: in a palette, a plugin's command for the kind is last in a
 /// blueprint's menu, and runs on the blueprint (a module's: changed, as
 /// one undoable step; one of the game's is the game's, and the example

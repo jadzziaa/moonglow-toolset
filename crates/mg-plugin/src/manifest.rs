@@ -456,30 +456,86 @@ pub struct CommandDecl {
 }
 
 /// What a command can be for: a kind of object (placed in an area, or its
-/// blueprint) or an area. Their right-click menus have the command.
+/// blueprint, or both), an area, an area's tiles, or (API 0.5) another
+/// kind of resource by its type. Their right-click menus have the command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Target {
     /// Objects of this kind placed in an area, and their blueprints.
     Object(ObjectKind),
     Area,
+    /// Objects of this kind placed in an area alone (`placed creature`;
+    /// API 0.5).
+    Placed(ObjectKind),
+    /// Blueprints of this kind alone (`creature blueprint`; API 0.5).
+    Blueprint(ObjectKind),
+    /// An area's tiles, selected in its view (`tile`; API 0.5).
+    Tile,
+    /// Another resource, open in its editor, by its type (`nss`, `dlg`;
+    /// API 0.5).
+    Resource(mg_core::ResType),
 }
 
+/// The types of resource a command may be for by its type (`for =
+/// "nss"`): those Moonglow has an editor of that is no object's or area's.
+pub const RESOURCE_TARGETS: [mg_core::ResType; 8] = [
+    mg_core::ResType::NSS,
+    mg_core::ResType::DLG,
+    mg_core::ResType::IFO,
+    mg_core::ResType::FAC,
+    mg_core::ResType::JRL,
+    mg_core::ResType::TWODA,
+    mg_core::ResType::GUI,
+    mg_core::ResType::JUI,
+];
+
 impl Target {
-    /// Every one, in the order the manual lists them.
+    /// Every one of API 0.4, in the order the manual lists them.
     pub fn all() -> impl Iterator<Item = Target> {
         ObjectKind::ALL.into_iter().map(Target::Object).chain([Target::Area])
     }
 
-    /// Its name in a manifest: `creature`, `placeable`, `area`.
-    pub fn name(self) -> &'static str {
+    /// Every one, those API 0.5 added after.
+    pub fn every() -> impl Iterator<Item = Target> {
+        Target::all()
+            .chain(ObjectKind::ALL.into_iter().map(Target::Placed))
+            .chain(ObjectKind::ALL.into_iter().map(Target::Blueprint))
+            .chain([Target::Tile])
+            .chain(RESOURCE_TARGETS.into_iter().map(Target::Resource))
+    }
+
+    /// Its name in a manifest: `creature`, `placeable`, `area`, `placed
+    /// creature`, `creature blueprint`, `tile`, `nss`.
+    pub fn name(self) -> String {
         match self {
-            Target::Object(kind) => kind.name(),
-            Target::Area => "area",
+            Target::Object(kind) => kind.name().to_string(),
+            Target::Area => "area".into(),
+            Target::Placed(kind) => format!("placed {}", kind.name()),
+            Target::Blueprint(kind) => format!("{} blueprint", kind.name()),
+            Target::Tile => "tile".into(),
+            Target::Resource(t) => t.extension().unwrap_or_default().to_string(),
         }
     }
 
     pub fn named(name: &str) -> Option<Target> {
-        Target::all().find(|t| t.name() == name)
+        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+        Target::every().find(|t| t.name() == name)
+    }
+
+    /// Whether it is one plugin API 0.5 added.
+    pub fn since_0_5(self) -> bool {
+        !matches!(self, Target::Object(_) | Target::Area)
+    }
+
+    /// Whether a command for it is for `what`, which a menu is on (a
+    /// placed object is `Placed`, a blueprint `Blueprint`): a kind of
+    /// object takes both, placed and blueprint.
+    pub fn takes(self, what: Target) -> bool {
+        match (self, what) {
+            (Target::Object(a), Target::Object(b) | Target::Placed(b) | Target::Blueprint(b)) => {
+                a == b
+            }
+            (a, b) => a == b,
+        }
     }
 }
 
@@ -496,9 +552,10 @@ fn targets_of(s: &Section) -> Result<Vec<Target>, String> {
     let given = s.pairs.iter().filter(|(k, _)| k == "for");
     for name in given.flat_map(|(_, v)| v.split(',')).map(str::trim) {
         let Some(t) = Target::named(name) else {
-            let names: Vec<&str> = Target::all().map(Target::name).collect();
+            let names: Vec<String> = Target::all().map(Target::name).collect();
             return Err(format!(
-                "line {}: {} is for {}, not {name:?}",
+                "line {}: {} is for {} (each also as \"placed …\" or \"… blueprint\"), tile, \
+                 or a resource's type (nss, dlg…), not {name:?}",
                 s.line,
                 if s.name == "event" { "an event" } else { "a command" },
                 names.join(", ")
@@ -675,15 +732,18 @@ impl EventDecl {
         let types = self.types.is_empty() || self.types.contains(&key.restype);
         let kind = match key.restype {
             mg_core::ResType::ARE => Some(Target::Area),
-            t => ObjectKind::from_restype(t).map(Target::Object),
+            t => ObjectKind::from_restype(t)
+                .map(Target::Blueprint)
+                .or_else(|| RESOURCE_TARGETS.contains(&t).then_some(Target::Resource(t))),
         };
-        let targets = self.targets.is_empty() || kind.is_some_and(|k| self.targets.contains(&k));
+        let targets = self.targets.is_empty()
+            || kind.is_some_and(|k| self.targets.iter().any(|t| t.takes(k)));
         types && targets
     }
 
     /// Whether it is for an object of this kind (its `for`).
     pub fn is_for_kind(&self, kind: ObjectKind) -> bool {
-        self.targets.is_empty() || self.targets.contains(&Target::Object(kind))
+        self.targets.is_empty() || self.targets.iter().any(|t| t.takes(Target::Placed(kind)))
     }
 
     /// When it acts, and what it may do, for people (the Plugins window,
@@ -898,6 +958,23 @@ impl Manifest {
                             on.name()
                         ));
                     }
+                    // (Objects placed or pasted are placed objects; what
+                    // is made, blueprints, areas and other resources.)
+                    let fits = |t: &Target| match on {
+                        EventKind::ObjectPlaced | EventKind::ObjectPasted => {
+                            matches!(t, Target::Object(_) | Target::Placed(_))
+                        }
+                        _ => !matches!(t, Target::Placed(_) | Target::Tile),
+                    };
+                    if let Some(t) = targets.iter().find(|t| !fits(t)) {
+                        return Err(format!(
+                            "line {}: an event is for what it makes or places: {} is not \
+                             {:?}",
+                            s.line,
+                            on.name(),
+                            t.name()
+                        ));
+                    }
                     events.push(EventDecl { id, on, types, targets });
                 }
                 "setting" => {
@@ -919,6 +996,19 @@ impl Manifest {
         let mut plugin = plugin.ok_or("it has no [plugin] section")?;
         // (What a later API added, in a manifest that names an earlier
         // one: said plainly, as a Moonglow without it would refuse it.)
+        let newer = |t: &Vec<Target>| t.iter().find(|t| t.since_0_5()).copied();
+        let later = (commands.iter().filter_map(|c| newer(&c.targets).map(|t| (&c.id, t))))
+            .chain(events.iter().filter_map(|e| newer(&e.targets).map(|t| (&e.id, t))))
+            .next();
+        if let Some((id, t)) = later
+            && api_before(&plugin.api, "0.5")
+        {
+            return Err(format!(
+                "{id:?} is for {:?}, which is plugin API 0.5; the manifest says api = {:?}",
+                t.name(),
+                plugin.api
+            ));
+        }
         if let Some(c) = commands.iter().find(|c| !c.targets.is_empty())
             && api_before(&plugin.api, "0.4")
         {
@@ -1031,7 +1121,7 @@ severity = "error"
             ]
         );
         assert!(Manifest::parse(SAMPLE).unwrap().commands[0].targets.is_empty());
-        let names: Vec<&str> = Target::all().map(Target::name).collect();
+        let names: Vec<String> = Target::all().map(Target::name).collect();
         assert_eq!(
             names,
             [
@@ -1055,6 +1145,42 @@ severity = "error"
         assert!(with("for = \"creature\"").contains("for creature twice"));
         let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
         assert!(e.contains("plugin API 0.4") && e.contains("\"fix-tags\""), "{e}");
+    }
+
+    /// API 0.5: a command for placed objects alone or blueprints alone,
+    /// for tiles, or for a resource of another editor by its type; a kind
+    /// of object takes both placed and blueprint.
+    #[test]
+    fn a_command_is_for_placed_objects_blueprints_tiles_or_a_type() {
+        let text = SAMPLE.replace("api = \"0.1\"", "api = \"0.5\"").replace(
+            "key = \"Ctrl+Alt+T\"",
+            "key = \"Ctrl+Alt+T\"\nfor = \"placed  creature, door blueprint, tile, nss\"",
+        );
+        let m = Manifest::parse(&text).unwrap();
+        let (creature, door) = (ObjectKind::Creature, ObjectKind::Door);
+        assert_eq!(
+            m.commands[0].targets,
+            [
+                Target::Placed(creature),
+                Target::Blueprint(door),
+                Target::Tile,
+                Target::Resource(mg_core::ResType::NSS)
+            ]
+        );
+        let names: Vec<String> = m.commands[0].targets.iter().map(|t| t.name()).collect();
+        assert_eq!(names, ["placed creature", "door blueprint", "tile", "nss"]);
+        // What takes what.
+        assert!(Target::Object(creature).takes(Target::Placed(creature)));
+        assert!(Target::Object(creature).takes(Target::Blueprint(creature)));
+        assert!(Target::Placed(creature).takes(Target::Placed(creature)));
+        assert!(!Target::Placed(creature).takes(Target::Blueprint(creature)));
+        assert!(!Target::Blueprint(door).takes(Target::Placed(door)));
+        assert!(!Target::Object(door).takes(Target::Placed(creature)));
+        // Under an earlier API, refused; a store's blueprint is no type's.
+        let e = Manifest::parse(&text.replace("api = \"0.5\"", "api = \"0.4\"")).unwrap_err();
+        assert!(e.contains("\"placed creature\", which is plugin API 0.5"), "{e}");
+        let e = Manifest::parse(&text.replace(", nss", ", utm")).unwrap_err();
+        assert!(e.contains("not \"utm\""), "{e}");
     }
 
     /// API 0.4: settings, each of a kind, with a default and a scope.

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:08:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1222,24 +1222,12 @@ contribution itself states as not done or not checked.
   - **More kinds of things to add:** exporters and importers, wizards,
     panels. (L) (After 3.0.0, the owner's word, 2026-10-30: 8th of 9 by
     complexity.)
-  - **Commands on what is selected** (API 0.4, the Domains of Dread's
-    builder proposal A1: `ctx.selection`, `ctx.open`, a command's
-    `for`). Not done: `for` names a kind for its placed objects and its
-    blueprints alike (a command for one only checks `blueprint` itself);
-    a selection is objects, blueprints or one area, never tiles, a
-    trigger's points, the start location, several areas or several of
-    the module tree's rows; the commands are in the area view's, the
-    module tree's and the palettes' menus, not in Find References,
-    Advanced Search, the Properties editors or the other editors' own;
-    an area's commands are in the area view's menu only when nothing is
-    selected there; from the Plugins menu or a key the selection is the
-    area view shown last, else the palette's, not that of the pane with
-    the focus; `ctx.open` is nil for several objects or blueprints edited
-    together; a palette's blueprint menu has no Properties to end it, so
-    the plugins' commands come last there; a palette's categories and
-    the tree's groups have none. Driven through the UI harness, with one
-    rendered picture of the area view's menu; not used on a desktop.
-    (S each)
+  - **Commands on what is selected, on a desktop** (API 0.4, A1; since
+    3.3.0 `placed …` and `… blueprint`, tiles, a resource's type, the
+    menus of categories, groups, tabs, the script editor, Find
+    References and Advanced Search, the pane clicked in,
+    `ctx.open.together`): driven through the UI harness, not used on a
+    desktop. Waits on a desktop session. (S)
   - **Fixes for findings** (API 0.4, the Domains of Dread's builder
     proposal A3: `ctx.fix`, Verify's button beside a finding, `mg verify
     --fix CHECK`, a finding's `fix` in `mg verify --json`). Not done: a
@@ -1647,6 +1635,17 @@ is not taken for a new gap.
   settings of scope `user` (it stands in for that plugin, and the
   user's own values are the user's); a module kept in one file has no
   project, so no project plugins.
+
+- **What a plugin's command is not offered on** (the deferred list's
+  "Plugins, beyond API 0.4", 2026-11-01): a trigger's or an encounter's
+  points and the start location are no selection in the window (a
+  polygon is redrawn whole, Redraw Polygon; the start location is set
+  where the area is right-clicked), so there is nothing of them to hand
+  a plugin: it edits a trigger's `Geometry` through the trigger, and the
+  start location through `module.ifo`. A conversation's line is not an
+  entry of `ctx.selection` either: the conversation's tab menu has the
+  commands for `dlg`. A palette's blueprint menu has no Properties to
+  end it, so there the plugins' commands come last, by design.
 
 - **A plugin's settings outside Undo, and a `path` it reads no file by**
   (the deferred list's "Plugins, beyond API 0.4", 2026-11-01): what the

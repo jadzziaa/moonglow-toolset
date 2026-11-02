@@ -1107,15 +1107,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 });
         }
+        let commands = app.plugin_menu_commands();
+        let on_hit = |h: &mg_module::search::Hit| {
+            // (The object or resource the hit is on: a placed object's
+            // path is its list item, then what is in it.)
+            let path = mg_edit::GffPath(h.path.0.iter().take(1).cloned().collect());
+            crate::plugins::selected_at(h.key, &path)
+        };
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for (i, h) in draft.hits.iter().enumerate() {
+            for (i, place) in places.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut draft.ticked[i], "");
+                    let h = &draft.hits[i];
                     let hover = format!("{} {}", h.key, h.path);
-                    if ui.link(&places[i]).on_hover_text(hover).clicked() {
+                    let r = ui.link(place).on_hover_text(hover);
+                    if r.clicked() {
                         go = Some(i);
                     }
                     ui.weak(&h.matched);
+                    // The plugins' commands for it, or (one of those
+                    // ticked) for each ticked.
+                    if !commands.is_empty() {
+                        let mut on: Vec<mg_plugin::Selected> = if draft.ticked[i] {
+                            (draft.hits.iter().zip(&draft.ticked))
+                                .filter(|(_, t)| **t)
+                                .map(|(h, _)| on_hit(h))
+                                .collect()
+                        } else {
+                            vec![on_hit(h)]
+                        };
+                        on.dedup();
+                        if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
+                            r.context_menu(|ui| {
+                                crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
+                            });
+                        }
+                    }
                 });
             }
         });

@@ -384,7 +384,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         p.dir.display()
                     ));
                     for c in &m.commands {
-                        let on: Vec<&str> = c.targets.iter().map(|t| t.name()).collect();
+                        let on: Vec<String> = c.targets.iter().map(|t| t.name()).collect();
                         let on = if on.is_empty() {
                             String::new()
                         } else {
@@ -878,7 +878,7 @@ pub(crate) fn run(
         // (A command run on what it is not for: as the window would not
         // offer it. It is still run: it may say so itself.)
         let unfit: Vec<String> = (what.selection.selected.iter())
-            .filter(|s| !s.target().is_some_and(|t| decl.targets.contains(&t)))
+            .filter(|s| !s.fits(&decl.targets))
             .map(|s| s.place().0.to_string())
             .collect();
         if !decl.targets.is_empty() && !unfit.is_empty() {

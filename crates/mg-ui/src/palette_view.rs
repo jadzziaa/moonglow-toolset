@@ -1753,7 +1753,22 @@ impl Tree<'_> {
             });
         self.header(ui, &branch, listing, &shown.header_response, behind);
         self.remember(remembered, shown.openness > 0.5);
+        // The plugins' commands for its kind, run on every blueprint of
+        // the category (and those under it).
+        let object = mg_area::ObjectKind::from_restype(kind.restype());
+        let kinds: Vec<mg_plugin::Target> =
+            object.map(mg_plugin::Target::Blueprint).into_iter().collect();
+        let plugins = self.commands.iter().any(|c| c.fits(&kinds));
         if !custom {
+            if plugins {
+                shown.header_response.context_menu(|ui| {
+                    if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
+                        let mut keys = Vec::new();
+                        all_under(node, kind, &mut keys);
+                        self.picks.push(Pick::Plugin(i, keys));
+                    }
+                });
+            }
             return;
         }
         // A custom blueprint dropped on a category moves into it.
@@ -1781,8 +1796,11 @@ impl Tree<'_> {
                 .on_hover_text("Every blueprint in this category")
                 .clicked()
             {
-                self.picks.push(Pick::UpdateInstances(keys));
+                self.picks.push(Pick::UpdateInstances(keys.clone()));
                 ui.close();
+            }
+            if plugins && let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
+                self.picks.push(Pick::Plugin(i, keys));
             }
         });
         if made {
@@ -2032,7 +2050,7 @@ impl Tree<'_> {
                 && let Some(i) = crate::plugins::menu_commands(
                     ui,
                     commands,
-                    &[mg_plugin::Target::Object(object)],
+                    &[mg_plugin::Target::Blueprint(object)],
                 )
             {
                 picks.push(Pick::Plugin(i, sel.bulk(key)));

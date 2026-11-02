@@ -107,6 +107,17 @@ pub struct Plugins {
     /// The project's plugins' folder as it was when its plugins were read
     /// (each file's path, size and time), to see that it changed.
     project_stamp: Option<u64>,
+    /// The pane last clicked in, whose selection a command from the
+    /// Plugins menu, the Command Palette or a key runs on.
+    pub pane: Option<Pane>,
+}
+
+/// A pane whose selection a plugin's command may run on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pane {
+    Tree,
+    Palette,
+    Area(mg_core::ResRef),
 }
 
 /// What a folder of plugins holds, as a number that changes when a file
@@ -242,9 +253,84 @@ pub struct PluginCommand {
 
 impl PluginCommand {
     /// Whether it is for every one of `kinds` (and there are some): a
-    /// right-click menu on them has it.
+    /// right-click menu on them has it. A kind is what the menu is on (a
+    /// placed object `Placed`, a blueprint `Blueprint`), which a command
+    /// for both takes ([`mg_plugin::Target::takes`]).
     pub fn fits(&self, kinds: &[mg_plugin::Target]) -> bool {
-        !kinds.is_empty() && kinds.iter().all(|k| self.targets.contains(k))
+        !kinds.is_empty() && kinds.iter().all(|k| self.targets.iter().any(|t| t.takes(*k)))
+    }
+}
+
+/// The kinds of what is selected, as a menu on them has commands for
+/// ([`PluginCommand::fits`]); none where one of them is of no kind.
+pub(crate) fn kinds_of(selected: &[mg_plugin::Selected]) -> Vec<mg_plugin::Target> {
+    let mut kinds: Vec<mg_plugin::Target> =
+        selected.iter().map(|s| s.target()).collect::<Option<_>>().unwrap_or_default();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
+/// What a place in a resource is, as a plugin's selection: an object
+/// placed in an area (a GIT's list item), an area, a blueprint or another
+/// resource of an editor of its own (Find References' and Advanced
+/// Search's rows).
+pub(crate) fn selected_at(key: mg_resman::ResKey, path: &mg_edit::GffPath) -> mg_plugin::Selected {
+    use mg_core::ResType;
+    use mg_plugin::Selected;
+    match (key.restype, path.0.first()) {
+        (ResType::GIT, Some(mg_edit::Step::Item(list, index))) => {
+            match mg_area::ObjectKind::from_list(list) {
+                Some(kind) => Selected::Object { area: key.resref, kind, index: *index },
+                None => Selected::Area(key.resref),
+            }
+        }
+        (ResType::ARE | ResType::GIT | ResType::GIC, _) => Selected::Area(key.resref),
+        (t, _) if mg_area::ObjectKind::from_restype(t).is_some() => Selected::Blueprint(key),
+        _ => Selected::Resource(key),
+    }
+}
+
+/// What a tab edits, as a plugin's selection: the object, blueprint or
+/// area of a Properties window (each of several edited together), or the
+/// resource of another editor; none for the rest.
+pub(crate) fn tab_selection(tab: &crate::Tab) -> Vec<mg_plugin::Selected> {
+    use crate::Tab;
+    use mg_plugin::Selected;
+    let root = mg_edit::GffPath::root();
+    let object = |area: mg_core::ResRef, path: &mg_edit::GffPath| {
+        Some(crate::plugins::selected_at(mg_resman::ResKey::new(area, mg_core::ResType::GIT), path))
+            .filter(|s| matches!(s, Selected::Object { .. }))
+    };
+    match tab {
+        Tab::Blueprint(key) => vec![Selected::Blueprint(*key)],
+        Tab::Blueprints(keys) => keys.iter().map(|k| Selected::Blueprint(*k)).collect(),
+        Tab::Instance { area, path } => object(*area, path).into_iter().collect(),
+        Tab::Instances { area, paths } => paths.iter().filter_map(|p| object(*area, p)).collect(),
+        Tab::Area(area) | Tab::AreaProperties(area) => vec![Selected::Area(*area)],
+        Tab::AreasProperties(areas) => areas.iter().map(|a| Selected::Area(*a)).collect(),
+        Tab::Script(key) | Tab::Dialog(key) | Tab::Nui(key) | Tab::Gff(key) => {
+            vec![selected_at(*key, &root)]
+        }
+        Tab::ModuleProperties => vec![Selected::Resource(
+            mg_core::ResRef::from_str("module")
+                .map(|r| mg_resman::ResKey::new(r, mg_core::ResType::IFO))
+                .unwrap_or_else(|_| unreachable!()),
+        )],
+        _ => Vec::new(),
+    }
+}
+
+/// The plugins' commands for `selected` in a right-click menu (as
+/// [`menu_commands`]), the one chosen run on it.
+pub(crate) fn menu_on(
+    ui: &mut egui::Ui,
+    commands: &[PluginCommand],
+    selected: &[mg_plugin::Selected],
+    actions: &mut Vec<Action>,
+) {
+    if let Some(i) = menu_commands(ui, commands, &kinds_of(selected)) {
+        actions.push(run_on(&commands[i], selected.to_vec()));
     }
 }
 
@@ -948,23 +1034,116 @@ impl Moonglow {
     /// the area view shown last, else the blueprints selected in the
     /// palette.
     pub fn plugin_selection(&self) -> Vec<mg_plugin::Selected> {
-        let area = self.palette.area.and_then(|a| Some((a, self.area_views.get(&a)?)));
-        if let Some((area, view)) = area.filter(|(_, v)| !v.selection.is_empty()) {
+        // The pane last clicked in, where something is selected there.
+        let from = match self.plugins.pane {
+            Some(Pane::Tree) => self.tree_selection(),
+            Some(Pane::Palette) => self.palette_selection(),
+            Some(Pane::Area(area)) => self.area_selection(area),
+            None => Vec::new(),
+        };
+        if !from.is_empty() {
+            return from;
+        }
+        // Else the area view shown last, else the palette's.
+        let area = self.palette.area.map(|a| self.area_selection(a)).unwrap_or_default();
+        if !area.is_empty() {
+            return area;
+        }
+        self.palette_selection()
+    }
+
+    /// What is selected in an area's view: its objects, or in tile mode
+    /// its tiles.
+    fn area_selection(&self, area: mg_core::ResRef) -> Vec<mg_plugin::Selected> {
+        let Some(view) = self.area_views.get(&area) else { return Vec::new() };
+        if !view.selection.is_empty() {
             let object = |&(kind, index): &(mg_area::ObjectKind, usize)| {
                 mg_plugin::Selected::Object { area, kind, index }
             };
             return view.selection.iter().map(object).collect();
         }
+        if view.tile_mode && !view.tile_selection.is_empty() {
+            return self.tiles_of(area, &view.tile_selection);
+        }
+        Vec::new()
+    }
+
+    /// An area's tiles (column, row) as a plugin's selection.
+    pub(crate) fn tiles_of(
+        &self,
+        area: mg_core::ResRef,
+        cells: &[(u32, u32)],
+    ) -> Vec<mg_plugin::Selected> {
+        let key = mg_resman::ResKey::new(area, mg_core::ResType::ARE);
+        let width = (self.ws.as_ref())
+            .and_then(|ws| ws.loaded(&key).and_then(|g| g.root.integer("Width")))
+            .or_else(|| {
+                let bytes = self.ws.as_ref()?.module.get(&key)?;
+                mg_gff::Gff::read(bytes).ok()?.root.integer("Width")
+            })
+            .unwrap_or(0)
+            .max(0) as usize;
+        (cells.iter())
+            .map(|&(x, y)| mg_plugin::Selected::Tile {
+                area,
+                index: y as usize * width + x as usize,
+            })
+            .collect()
+    }
+
+    /// The blueprints chosen in the palette.
+    fn palette_selection(&self) -> Vec<mg_plugin::Selected> {
         let p = &self.palette;
         let mut keys: Vec<mg_resman::ResKey> = p.selected.into_iter().collect();
         keys.extend(p.chosen.iter().filter(|k| p.selected != Some(**k)));
         keys.into_iter().map(mg_plugin::Selected::Blueprint).collect()
     }
 
+    /// What is chosen in the module tree: objects of an area's list, or
+    /// its rows (areas, blueprints, other resources).
+    fn tree_selection(&self) -> Vec<mg_plugin::Selected> {
+        if let Some((area, set)) = &self.tree_objects
+            && !set.is_empty()
+        {
+            let area = *area;
+            return (set.iter())
+                .map(|&(kind, index)| mg_plugin::Selected::Object { area, kind, index })
+                .collect();
+        }
+        let path = mg_edit::GffPath::root();
+        self.tree_selected.iter().map(|k| selected_at(*k, &path)).collect()
+    }
+
+    /// What is open in front edited together, where it is several (a
+    /// Properties window of several blueprints, objects or areas): each,
+    /// the first being [`Moonglow::plugin_open`]'s.
+    pub fn plugin_together(&self) -> Vec<mg_plugin::Selected> {
+        use crate::Tab;
+        use mg_plugin::Selected;
+        match self.front_tab() {
+            Some(Tab::Blueprints(keys)) => keys.into_iter().map(Selected::Blueprint).collect(),
+            Some(Tab::AreasProperties(areas)) => areas.into_iter().map(Selected::Area).collect(),
+            Some(Tab::Instances { area, paths }) => (paths.iter())
+                .filter_map(|p| match p.0.as_slice() {
+                    [mg_edit::Step::Item(list, index)] => Some(Selected::Object {
+                        area,
+                        kind: mg_area::ObjectKind::from_list(list)?,
+                        index: *index,
+                    }),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The area or editor in front, for `ctx.open`.
     pub fn plugin_open(&self) -> Option<mg_plugin::Selected> {
         use crate::Tab;
         use mg_plugin::Selected;
+        if let Some(first) = self.plugin_together().into_iter().next() {
+            return Some(first);
+        }
         Some(match self.front_tab()? {
             Tab::Area(area) | Tab::AreaProperties(area) => Selected::Area(area),
             Tab::Instance { area, path } => match path.0.as_slice() {
@@ -1007,7 +1186,11 @@ impl Moonglow {
         command: &str,
         selected: Vec<mg_plugin::Selected>,
     ) {
-        let selection = mg_plugin::Selection { selected, open: self.plugin_open() };
+        let selection = mg_plugin::Selection {
+            selected,
+            open: self.plugin_open(),
+            together: self.plugin_together(),
+        };
         let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == plugin).cloned();
         let Some(plugin) = found else {
             self.log.error(format!("The plugin {plugin} is not enabled"));
@@ -1214,8 +1397,11 @@ impl Moonglow {
         let code = self.plugins.console.clone();
         // (With what is selected and open, as a command from the Plugins
         // menu has them: to try `ctx.selection` on.)
-        let selection =
-            mg_plugin::Selection { selected: self.plugin_selection(), open: self.plugin_open() };
+        let selection = mg_plugin::Selection {
+            selected: self.plugin_selection(),
+            open: self.plugin_open(),
+            together: self.plugin_together(),
+        };
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_console(&code, Input { selection, ..input }, host)
         };
@@ -1933,7 +2119,7 @@ fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
         let menus = match c.targets.as_slice() {
             [] => String::new(),
             t => {
-                let names: Vec<&str> = t.iter().map(|t| t.name()).collect();
+                let names: Vec<String> = t.iter().map(|t| t.name()).collect();
                 format!(" (right-click: {})", names.join(", "))
             }
         };

@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
 ---
 
 # Plugin API changes
@@ -33,6 +33,19 @@ refused, with the reason.
   a folder (`pick = "folder"`). `ctx.settings` reads a float as a
   number and a list as a table of texts, and `ctx.settings:set` takes
   them so. A manifest with any of these and an earlier `api` is refused.
+- A command's `for` (and an event's) takes a kind's placed objects
+  alone (`"placed creature"`) or its blueprints alone (`"creature
+  blueprint"`), where `"creature"` is both; `tile`, the tiles selected
+  in an area's view (an entry's `kind` `"tile"`, with `index`, `x` and
+  `y`); and another resource's type (`nss`, `dlg`…). The commands are
+  also in the menus of a palette's category and a module tree's group
+  (run on every one of them), a Properties window's tab, the script
+  editor, and the rows of Find References and Advanced Search; an
+  area's are in the area view's menu with objects selected too (**The
+  Area**). From the Plugins menu, a command runs on what is chosen in
+  the pane last clicked in. `ctx.open.together` lists those edited
+  together in one Properties window. `mg plugin run --select` takes a
+  tile as `tavern.are/Tile_List[5]`.
 - Settings of scope `user` are kept in Moonglow's own folder
   (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
   plugin run` a plugin reads the values the user set in the window, and

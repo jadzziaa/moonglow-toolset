@@ -34,8 +34,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub use manifest::{
-    API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Scope, SettingDecl,
-    SettingKind, SettingValue, Target, is_color,
+    API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, RESOURCE_TARGETS, Scope,
+    SettingDecl, SettingKind, SettingValue, Target, is_color,
 };
 use mg_core::{ResRef, ResType};
 pub use mg_edit::fix::{Fix, Found};
@@ -351,6 +351,9 @@ pub enum Selected {
     /// by the layer's label (`hak:castle`, `key:nwn_base`): the resource
     /// browser's overridden copies, open read-only (only as what is open).
     Copy { key: ResKey, layer: String },
+    /// A tile of an area, item `index` of its ARE's `Tile_List` (rows
+    /// from the south-west, as the list has them; API 0.5).
+    Tile { area: ResRef, index: usize },
 }
 
 impl Selected {
@@ -365,20 +368,33 @@ impl Selected {
                 None => key.restype.extension().unwrap_or_default().to_string(),
             },
             Selected::Area(_) => "area".to_string(),
+            Selected::Tile { .. } => "tile".to_string(),
             Selected::Resource(key) | Selected::Copy { key, .. } => {
                 key.restype.extension().unwrap_or_default().to_string()
             }
         }
     }
 
-    /// What a command must be for to be run on it.
+    /// What it is, as a command's `for` takes it ([`Target::takes`]): a
+    /// placed object `Placed`, a blueprint `Blueprint`.
     pub fn target(&self) -> Option<Target> {
         match self {
-            Selected::Object { kind, .. } => Some(Target::Object(*kind)),
-            Selected::Blueprint(key) => ObjectKind::from_restype(key.restype).map(Target::Object),
+            Selected::Object { kind, .. } => Some(Target::Placed(*kind)),
+            Selected::Blueprint(key) => {
+                ObjectKind::from_restype(key.restype).map(Target::Blueprint)
+            }
             Selected::Area(_) => Some(Target::Area),
-            Selected::Resource(_) | Selected::Copy { .. } => None,
+            Selected::Tile { .. } => Some(Target::Tile),
+            Selected::Resource(key) => {
+                RESOURCE_TARGETS.contains(&key.restype).then_some(Target::Resource(key.restype))
+            }
+            Selected::Copy { .. } => None,
         }
+    }
+
+    /// Whether a command for `targets` is for it.
+    pub fn fits(&self, targets: &[Target]) -> bool {
+        self.target().is_some_and(|t| targets.iter().any(|c| c.takes(t)))
     }
 
     /// The resource it is in, and where in it (the root: `""`), as
@@ -393,6 +409,9 @@ impl Selected {
                 (*key, GffPath::root())
             }
             Selected::Area(area) => (ResKey::new(*area, ResType::ARE), GffPath::root()),
+            Selected::Tile { area, index } => {
+                (ResKey::new(*area, ResType::ARE), GffPath::root().item("Tile_List", *index))
+            }
         }
     }
 
@@ -423,6 +442,18 @@ impl Selected {
         };
         let key = ResKey::from_filename(name)
             .ok_or_else(|| format!("{name:?} is not a resource's name (name.ext)"))?;
+        if key.restype == ResType::ARE && !path.is_empty() {
+            let path: GffPath = path.parse().map_err(|e| format!("{text:?}: {e}"))?;
+            return match path.0.as_slice() {
+                [mg_edit::Step::Item(list, index)] if list == "Tile_List" => {
+                    Ok(Selected::Tile { area: key.resref, index: *index })
+                }
+                _ => Err(format!(
+                    "{text:?}: a tile is its area's ARE and its place in the tile list \
+                     (\"{name}/Tile_List[0]\")"
+                )),
+            };
+        }
         if key.restype == ResType::GIT {
             let path: GffPath = match path {
                 "" => GffPath::root(),
@@ -459,6 +490,10 @@ impl Selected {
 pub struct Selection {
     pub selected: Vec<Selected>,
     pub open: Option<Selected>,
+    /// What is open in front edited together, where it is several
+    /// (`ctx.open.together`; `open` is the first): several blueprints,
+    /// placed objects or areas in one Properties window. Empty for one.
+    pub together: Vec<Selected>,
 }
 
 /// What a command made: the edits to apply as one command, and its name;

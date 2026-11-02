@@ -605,7 +605,7 @@ fn a_layer_s_copy_is_open_and_read() {
             tostring(select(2, pcall(function() return ctx.module:bytes(o.resource, o.layer) end)))
     "#;
     let host = Rc::new(TestHost::default());
-    let selection = Selection { selected: Vec::new(), open: Some(open) };
+    let selection = Selection { open: Some(open), ..Default::default() };
     let input = Input { selection, ..Input::new(module(), Some(game.clone())) };
     run_console(code, input, host.clone()).unwrap();
     let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
@@ -849,6 +849,7 @@ fn a_plugin_reads_what_is_selected_and_open() {
             Selected::Area(area),
         ],
         open: Some(Selected::Resource(key("old.nss"))),
+        together: Vec::new(),
     };
     let code = r#"
         local function line(s)
@@ -892,6 +893,44 @@ fn a_plugin_reads_what_is_selected_and_open() {
     mg_plugin::run_console(code, Input::new(module(), None), host.clone()).unwrap();
     let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
     assert_eq!(said, ["0", "true"]);
+
+    // Tiles (API 0.5): each its place in the tile list, and its column
+    // and row by the area's width; and several open together, each as
+    // `ctx.open.together` lists them, the first being `ctx.open`.
+    let mut m = module();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Width", Value::Int(4));
+    are.root.set("Tile_List", Value::List(vec![Struct::new(1); 8]));
+    m.set_gff(key("yard.are"), &are).unwrap();
+    let yard = ResRef::from_str("yard").unwrap();
+    let selection = Selection {
+        selected: vec![Selected::Tile { area: yard, index: 6 }],
+        open: Some(Selected::Blueprint(key("guard.utc"))),
+        together: vec![Selected::Blueprint(key("guard.utc")), Selected::Blueprint(key("cook.utc"))],
+    };
+    let code = r#"
+        local t = ctx.selection[1]
+        local names = {}
+        for _, s in ipairs(ctx.open.together) do table.insert(names, s.resource) end
+        return t.kind, t.resource, t.path, t.x, t.y, t.index, t.area, table.concat(names, ",")
+    "#;
+    let host = Rc::new(TestHost::default());
+    let input = Input { selection, ..Input::new(m, None) };
+    mg_plugin::run_console(code, input, host.clone()).unwrap();
+    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    assert_eq!(
+        said,
+        [
+            "\"tile\"",
+            "\"yard.are\"",
+            "\"/Tile_List[6]\"",
+            "2",
+            "1",
+            "6",
+            "\"yard\"",
+            "\"guard.utc,cook.utc\""
+        ]
+    );
 }
 
 /// What `mg plugin run --select` takes: a resource's name, and for an
@@ -904,12 +943,27 @@ fn a_selection_is_named_as_a_resource_and_a_path() {
     let tavern = ResRef::from_str("tavern").unwrap();
     let chest = Selected::parse("tavern.git/Placeable List[3]").unwrap();
     assert_eq!(chest, Selected::Object { area: tavern, kind: ObjectKind::Placeable, index: 3 });
-    assert_eq!(chest.target(), Some(Target::Object(ObjectKind::Placeable)));
+    assert_eq!(chest.target(), Some(Target::Placed(ObjectKind::Placeable)));
+    assert!(chest.fits(&[Target::Object(ObjectKind::Placeable)]));
+    assert!(!chest.fits(&[Target::Blueprint(ObjectKind::Placeable)]));
     assert_eq!(chest.place().1.to_string(), "/Placeable List[3]");
     assert_eq!(Selected::parse("tavern.are").unwrap(), Selected::Area(tavern));
     assert_eq!(Selected::parse("guard.utc").unwrap(), Selected::Blueprint(key("guard.utc")));
     assert_eq!(Selected::parse("old.nss").unwrap(), Selected::Resource(key("old.nss")));
-    assert_eq!(Selected::parse("old.nss").unwrap().target(), None);
+    assert_eq!(
+        Selected::parse("old.nss").unwrap().target(),
+        Some(Target::Resource(mg_core::ResType::NSS))
+    );
+    assert_eq!(
+        Selected::parse("guard.utc").unwrap().target(),
+        Some(Target::Blueprint(ObjectKind::Creature))
+    );
+    // A tile: its area's ARE and its place in the tile list.
+    let tile = Selected::parse("tavern.are/Tile_List[5]").unwrap();
+    assert_eq!(tile, Selected::Tile { area: tavern, index: 5 });
+    assert_eq!((tile.kind(), tile.target()), ("tile".to_string(), Some(Target::Tile)));
+    assert_eq!(tile.place().1.to_string(), "/Tile_List[5]");
+    assert!(Selected::parse("tavern.are/Tile_List").is_err());
     for (bad, says) in [
         ("tavern", "is not a resource's name"),
         ("tavern.git", "its place in a list"),

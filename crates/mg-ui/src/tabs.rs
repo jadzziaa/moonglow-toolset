@@ -347,6 +347,15 @@ impl Viewer<'_> {
                 self.app.escape_cancel = Some(tab.clone());
             }
         }
+        // (The pane clicked in last, whose selection a plugin's command
+        // from the Plugins menu or a key runs on.)
+        if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
+            match tab {
+                Tab::Palette => self.app.plugins.pane = Some(crate::plugins::Pane::Palette),
+                Tab::Area(area) => self.app.plugins.pane = Some(crate::plugins::Pane::Area(*area)),
+                _ => {}
+            }
+        }
         // (A side editor's Undo and Redo are its own with the pointer over
         // it.)
         if crate::side_doc::is_side(tab) {
@@ -613,6 +622,14 @@ impl TabViewer for Viewer<'_> {
                 self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
                 ui.close();
             }
+        }
+        // The plugins' commands for what it edits (a Properties window's
+        // object, blueprint or area, or several edited together; another
+        // editor's resource), run on it.
+        let edited = crate::plugins::tab_selection(tab);
+        let commands = self.app.plugin_menu_commands();
+        if !edited.is_empty() && !commands.is_empty() {
+            crate::plugins::menu_on(ui, &commands, &edited, &mut self.app.actions);
         }
         // Closing those of its pane (its own Close is the dock's, below).
         if tab.closeable() {

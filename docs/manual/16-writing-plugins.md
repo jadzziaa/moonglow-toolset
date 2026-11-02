@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
 ---
 
 # Writing plugins
@@ -247,7 +247,7 @@ running the plugin, to list what it adds.
 | `title` | Needed. Its name in the Plugins menu, written as menu commands are (`Fix Creature Tags`; with `…` at the end if it asks before it acts). |
 | `hint` | What its tip says. |
 | `key` | A key it has until the user chooses another: `Ctrl+Alt+T` (`Ctrl`, `Alt`, `Shift` and a key's name; Ctrl is Cmd on macOS). A key something else has already is reported as a conflict in Options › Keyboard, so choose an unusual one, or none. |
-| `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line. It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
+| `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line; since API 0.5 also a kind's placed objects alone (`"placed creature"`) or its blueprints alone (`"creature blueprint"`), `tile`, and another resource's type (`nss`, `dlg`, `ifo`, `fac`, `jrl`, `2da`, `gui`, `jui`). It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
 
 `[check]`, once for each check:
 
@@ -264,7 +264,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The id the code registers it under (`mg.on`). |
 | `on` | Needed. What it waits for: `"module-opened"`, `"module-saved"` and, since API 0.4, `"resource-saving"`, `"resource-saved"`, `"object-placed"`, `"object-pasted"` or `"resource-created"` ([the events](17-plugin-api.md#ctxevent)). |
 | `types` | For `resource-saving` and `resource-saved` (API 0.4): the types of resource it is for, as a list (`"are, git"`); left out, every one. |
-| `for` | For `object-placed`, `object-pasted` and `resource-created` (API 0.4): the kinds of object, or `area`, it is for, as a command's `for`; left out, every one. |
+| `for` | For `object-placed`, `object-pasted` and `resource-created` (API 0.4): the kinds of object, or `area`, it is for, as a command's `for`; left out, every one. Since API 0.5 `"placed creature"` for objects placed or pasted, and `"creature blueprint"` or a resource's type (`nss`) for what is made. |
 
 `[setting]`, once for each value the plugin keeps (since API 0.4;
 [Settings](#settings)):
@@ -348,16 +348,27 @@ for = "creature, door, encounter, item, placeable, sound, store, trigger, waypoi
   an area and their blueprints: the area view's menu on them (all the
   objects selected must be of the kinds the command is for), the module
   tree's rows of an area's objects and of blueprints, and a palette's
-  rows. `area` is an area: the module tree's row of it, and the area
-  view's menu when nothing is selected.
+  rows. Since API 0.5, `placed placeable` is the placed objects alone and
+  `placeable blueprint` the blueprints alone. `area` is an area: the
+  module tree's row of it, and the area view's menu (with objects
+  selected, in its submenu **The Area**).
+- Since API 0.5 also: `tile`, the tiles selected in an area's view (its
+  tile menu; each entry's `x`, `y` and `index`); a resource's type
+  (`nss`), the script editor's menu and its tab's; a palette's category
+  and a group of the module tree (`Creatures`), whose menus run the
+  command on every one of them; a Properties window's tab (of what it
+  edits; several edited together, each); and the rows of Find
+  References and of Advanced Search (there, the ticked ones, where the
+  row is one of them).
 - In each menu the plugins' commands come together, after the menu's
   own, above Variables and Properties (which end a menu, as in Aurora).
 - The handler gets what the menu was opened on as `ctx.selection`: every
   object selected in the area view, every blueprint chosen in a palette
   (Ctrl+click chooses several), or the one row. Chosen from the Plugins
-  menu, the Command Palette or a key, it gets the objects selected in
-  the area view, else the blueprints selected in the palette; it should
-  say so when that is nothing.
+  menu, the Command Palette or a key, it gets what is chosen in the
+  pane last clicked in (the module tree, a palette, an area's view),
+  else the objects selected in the area view, else the blueprints
+  selected in the palette; it should say so when that is nothing.
 
 Each entry of `ctx.selection` says what it is and where, as `ctx.edit`
 takes it: `resource` is the area's GIT for a placed object (and `path`
@@ -377,12 +388,14 @@ end)
 ```
 
 `ctx.open` is the area or editor in front, an entry of the same shape
-(or nil): a command for the area in view can use it. The
+(or nil): a command for the area in view can use it. Where several are
+edited together (a Properties window of several blueprints), it is the
+first, and `ctx.open.together` lists them all. The
 [reference](17-plugin-api.md#ctxselection-ctxopen) lists every field;
 the example plugin `set-local` (in `docs/plugins/examples`) sets a local
 variable on what was clicked and counts an area's objects. With `mg
 plugin run`, `--select guard.utc --select "tavern.git/Placeable List[3]"`
-gives the selection and `--open tavern.are` what is open.
+(a tile: `--select "tavern.are/Tile_List[5]"`) gives the selection and `--open tavern.are` what is open.
 
 A plugin reads the selection as it reads the module: no question is
 asked. Its edits are one undoable step, as any command's.

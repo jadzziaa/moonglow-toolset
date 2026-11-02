@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:22:18Z }
 ---
 
 # Plugins
@@ -222,14 +222,20 @@ changed there. A command run by its key while you are typing in a field
 runs on what you typed: the field sets it first, as when you click
 elsewhere.
 
-A command made for a kind of object (placeables, creatures…) or for
-areas is also in their right-click menus: the area view's menu on the
-objects selected (or, with nothing selected, on the area), the module
-tree's rows, and the palettes' blueprints. It comes after the menu's own
-commands, above Variables and Properties, and acts on what you clicked:
-every object selected in the area view, or every blueprint chosen in the
-palette. Manage Plugins says which menus each command is in. Chosen from
-the Plugins menu instead, it acts on the objects selected in the area
+A command made for a kind of object (placeables, creatures…), for
+areas, for tiles or for a kind of resource (scripts) is also in their
+right-click menus: the area view's menu on the objects selected (an
+area's under **The Area**; with nothing selected, on the area), its
+tile menu, the module tree's rows and groups, the palettes' blueprints
+and categories, a Properties window's tab, the script editor's menu, and
+the rows of Find References and Advanced Search. It comes after the
+menu's own commands, above Variables and Properties, and acts on what
+you clicked: every object selected in the area view, every blueprint
+chosen in the palette, every one of a group or a category. A command may
+be for placed objects alone or blueprints alone. Manage Plugins says
+which menus each command is in. Chosen from the Plugins menu instead, it
+acts on what is chosen in the pane you last clicked in (the module tree,
+a palette, an area's view), or else on the objects selected in the area
 view, or else on the blueprints selected in the palette.
 
 A command needs a module open. It runs as other long work does

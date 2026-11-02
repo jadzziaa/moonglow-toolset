@@ -192,7 +192,7 @@ export type Terrain = {
 -- where (the resource and path that ctx.edit takes: a field of it is
 -- `path .. "/Tag"`).
 export type Selected = {
-    -- "creature", "placeable"... (placed, or a blueprint), "area"; for
+    -- "creature", "placeable"... (placed, or a blueprint), "area", "tile"; for
     -- another editor open, or a layer's copy, its resource's type ("nss",
     -- "dlg").
     kind: string,
@@ -205,8 +205,13 @@ export type Selected = {
     module: boolean,
     -- The area's resref, for a placed object and an area.
     area: string?,
-    -- A placed object's place in its list, from 0.
+    -- A placed object's place in its list, or a tile's in Tile_List, from 0.
     index: number?,
+    -- A tile's column and row, from 0 at the south-west (API 0.5).
+    x: number?,
+    y: number?,
+    -- ctx.open edited together with others: each, itself first (API 0.5).
+    together: { Selected }?,
     tag: string?,
     -- A blueprint's or an area's own; a placed object's blueprint.
     resref: string?,

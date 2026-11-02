@@ -803,7 +803,7 @@ fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
 
 /// The fields of an entry of `ctx.selection` (and of `ctx.open`), as the
 /// reference names them.
-pub(crate) const SELECTED: [&str; 10] = [
+pub(crate) const SELECTED: [&str; 13] = [
     "selected.kind",
     "selected.resource",
     "selected.path",
@@ -814,6 +814,9 @@ pub(crate) const SELECTED: [&str; 10] = [
     "selected.tag",
     "selected.resref",
     "selected.layer",
+    "selected.x",
+    "selected.y",
+    "selected.together",
 ];
 
 /// An entry of `ctx.selection`, or `ctx.open`: what it is, where it is
@@ -832,6 +835,16 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
         Selected::Object { area, index, .. } => {
             t.set("area", area.to_string())?;
             t.set("index", *index)?;
+        }
+        // (Its column and row, by the area's width.)
+        Selected::Tile { area, index } => {
+            t.set("area", area.to_string())?;
+            t.set("index", *index)?;
+            let width = sh.gff(&key, false).ok().and_then(|g| g.root.integer("Width"));
+            if let Some(w) = width.filter(|w| *w > 0).map(|w| w as usize) {
+                t.set("x", index % w)?;
+                t.set("y", index / w)?;
+            }
         }
         Selected::Area(area) => t.set("area", area.to_string())?,
         Selected::Copy { layer, .. } => t.set("layer", layer.as_str())?,
@@ -857,12 +870,13 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
         // (What a placed object was made from; else its own name.)
         let resref = match s {
             Selected::Object { .. } => at.resref("TemplateResRef"),
+            Selected::Tile { .. } => None,
             _ => Some(key.resref),
         };
         if let Some(r) = resref {
             t.set("resref", r.to_string())?;
         }
-    } else if !matches!(s, Selected::Object { .. }) {
+    } else if !matches!(s, Selected::Object { .. } | Selected::Tile { .. }) {
         t.set("resref", key.resref.to_string())?;
     }
     Ok(t)
@@ -1045,7 +1059,16 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
     }
     ctx.set("selection", chosen)?;
     if let Some(open) = &sh.selection.open {
-        ctx.set("open", selected(lua, sh, open)?)?;
+        let entry = selected(lua, sh, open)?;
+        // (Several edited together: each, the first being `open` itself.)
+        if !sh.selection.together.is_empty() {
+            let together = lua.create_table()?;
+            for (i, s) in sh.selection.together.iter().enumerate() {
+                together.raw_seti(i + 1, selected(lua, sh, s)?)?;
+            }
+            entry.set("together", together)?;
+        }
+        ctx.set("open", entry)?;
     }
 
     let log = lua.create_table()?;

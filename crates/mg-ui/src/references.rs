@@ -1015,13 +1015,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.weak("Nothing in the module names it.");
         } else {
             ui.label(format!("Used in {}:", places(usages.len())));
+            let commands = app.plugin_menu_commands();
             for (i, u) in usages.iter().enumerate() {
                 if out_of_sight(ui) {
                     continue;
                 }
                 let label = shown(app, u);
-                if ui.link(label).on_hover_text(format!("{} {}", u.from, u.path)).clicked() {
+                let r = ui.link(label).on_hover_text(format!("{} {}", u.from, u.path));
+                if r.clicked() {
                     go = Some(i);
+                }
+                // (The plugins' commands for what names it.)
+                if let (Some(path), false) = (u.path.gff(), commands.is_empty()) {
+                    let on = [crate::plugins::selected_at(u.from, path)];
+                    if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
+                        r.context_menu(|ui| {
+                            crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
+                        });
+                    }
                 }
             }
         }
