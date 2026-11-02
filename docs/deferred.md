@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:43:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -553,14 +553,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
   leaves out (the Shaders switch, on by default since M3; Moonglow
   Viewer draws them since its 0.2.0). (from M1, 2026-10-21)
-  - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
-    OpenGL: counted from the bottom (in IR) only in a program that reads
-    the framebuffer's copies (`fswater`, `fsparticle`), whose size gives
-    the height. Of the other stock ones keyholing (off),
-    `fs_shadowplane` and `fs_cg_btn_col` (not drawn) read it, and none
-    of The Domains of Dread's 37. A screen-space custom shader that
-    reads no copy would see it upside down; its height would come from
-    `screenParams`. (S)
   - `worldtimerTimeOfDay` counts real milliseconds and
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
     starts both at 0 when the scene's time does. The client's timer is a

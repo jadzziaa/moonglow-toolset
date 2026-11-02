@@ -3119,6 +3119,67 @@ fn a_program_with_an_array_of_samplers_or_a_struct_draws() {
     assert_eq!(img.pixel(32, 32), [255, 0, 0, 255]);
 }
 
+/// A program that works in the screen's pixels and reads no framebuffer
+/// copy counts `gl_FragCoord.y` from the bottom, as OpenGL does: painting
+/// its height in the picture, it is bright at the top and dark at the
+/// bottom, its height `screenParams'` (read by the program or not). One
+/// with no height to count from (neither a copy nor `screenParams`) falls
+/// back to Moonglow's own shader, said.
+#[test]
+fn a_program_in_the_screen_s_pixels_counts_from_the_bottom() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    let programs = [
+        ("fs_screen", "uniform vec2 screenParams;\n", "gl_FragCoord.y / screenParams.y"),
+        ("fs_unread", "uniform vec2 screenParams;\n", "gl_FragCoord.y / 64.0"),
+        ("fs_heightless", "", "gl_FragCoord.y / 64.0"),
+    ];
+    for (name, declared, red) in programs {
+        let fs = format!(
+            "#define SHADER_TYPE 2\n{declared}void main ()\n{{\n    \
+             gl_FragColor = vec4({red}, 0.0, 0.0, 1.0);\n}}\n"
+        );
+        assets.shaders.insert(name.into(), fs);
+        assets.opaque(name, [0, 0, 255]);
+        let mtr = format!("customshadervs vs_sway\ncustomshaderfs {name}\n");
+        assets.materials.insert(name.into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    }
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for (name, _, _) in programs {
+        let scene = Scene {
+            // (Larger than the view: every pixel of it.)
+            instances: vec![standing_quad(&gpu, name, Vec3::new(0.0, 0.0, 1.0), 20.0)],
+            background: [0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        let (top, bottom) = (img.pixel(32, 0), img.pixel(32, 63));
+        if name == "fs_heightless" {
+            assert_eq!(r.drawn.game, 0, "{name}");
+            let failures = r.game_shader_failures();
+            assert!(
+                failures
+                    .iter()
+                    .any(|(what, why)| what.ends_with(name) && why.contains("screenParams")),
+                "{failures:?}"
+            );
+            continue;
+        }
+        assert_eq!(r.game_shader_failures(), &[], "{name}");
+        assert_eq!(r.drawn.game, 1, "{name}");
+        assert!(top[0] >= 250 && bottom[0] <= 5, "{name}: top {top:?}, bottom {bottom:?}");
+    }
+}
+
 /// Made while the frames go on (`game_background`, the area view's): the
 /// first frame draws the mesh with Moonglow's own shader and says a
 /// pipeline is being made; the window is woken when it is; then the

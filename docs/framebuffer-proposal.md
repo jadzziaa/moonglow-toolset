@@ -3,7 +3,7 @@ type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
 description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:25:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:43:18Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -121,7 +121,9 @@ of The Domains of Dread's 37 programs reads the framebuffer.
   at its `gl_FragCoord` and, in another program, at its projected
   position, finds the picture behind the water at both (without the pass,
   all 324 of its pixels are wrong), and `texFBDepth` gives the 10 m
-  behind it; with 4x MSAA and without.
+  behind it; with 4x MSAA and without. (Since 2026-11-01 a program that
+  reads no copy counts from the bottom too, by the engine's
+  `screenParams`: `a_program_in_the_screen_s_pixels_counts_from_the_bottom`.)
 - **The 45° of `inc_framebuffer`** (`fFOV`, used by `GetNormalVector`, the
   reflection's test of what it hit) is the game's constant, kept: the
   client's own camera isn't 45° either (Moonglow's fitted camera for the

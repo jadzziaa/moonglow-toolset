@@ -1718,17 +1718,16 @@ impl Worker {
             vs.at_far_plane().map_err(|e| at(&key.vs, e.to_string()))?;
         }
         let particles = matches!(key.pass, GamePass::Particles(_));
-        // The framebuffer's copies, where the fragment program reads them:
-        // `gl_FragCoord.y` counted from the bottom as OpenGL counts it (the
-        // copies have OpenGL's rows), and the copies bound in group 1,
-        // with the bones (bound for the pipeline, not the material).
+        // The framebuffer's copies, where the fragment program reads them,
+        // bound in group 1, with the bones (bound for the pipeline, not the
+        // material); and `gl_FragCoord.y` counted from the bottom as OpenGL
+        // counts it, the height the copies' (which have OpenGL's rows) or,
+        // reading none, `screenParams'`.
         let fs_used = used(&fs);
         let reads_fb = fs.reflection.textures.iter().any(|t| {
             matches!(unit(&t.name), Unit::FbColor | Unit::FbDepth) && fs_used.contains(&t.binding)
         });
-        if reads_fb {
-            fs.frag_coord_from_bottom().map_err(|e| at(&key.fs, e.to_string()))?;
-        }
+        fs.frag_coord_from_bottom(reads_fb).map_err(|e| at(&key.fs, e.to_string()))?;
         let wants_fb = reads_fb && !particles;
         vs.set_group(STAGE_GROUPS[0]).map_err(|e| at(&key.vs, e.to_string()))?;
         fs.set_group(STAGE_GROUPS[1]).map_err(|e| at(&key.fs, e.to_string()))?;

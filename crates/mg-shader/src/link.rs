@@ -459,16 +459,19 @@ impl Program {
     /// Counts `gl_FragCoord.y` from the bottom of the picture, as OpenGL
     /// does (wgpu counts it from the top, on every backend): the fragment
     /// entry point's position is stored for the program as
-    /// `(x, height − y, z, w)`, the height that of the framebuffer's copy
-    /// it reads (the picture's). For a program that reads the copies,
-    /// which Moonglow writes with OpenGL's rows, so that a pixel found from
-    /// `gl_FragCoord` and one found from the projection (y up) are the
-    /// same pixel, as in the client (`docs/framebuffer-proposal.md`).
-    /// `false`, the program unchanged, where it doesn't read the
-    /// fragment's position; an error where it does but declares no copy
-    /// ([`FRAMEBUFFER_IMAGES`]).
-    pub fn frag_coord_from_bottom(&mut self) -> Result<bool, ShaderError> {
-        let changed = frag_coord_from_bottom(&mut self.module).map_err(naga_err)?;
+    /// `(x, height − y, z, w)`, the picture's height. With `copies` (the
+    /// program reads the framebuffer's copies, which Moonglow writes with
+    /// OpenGL's rows, so that a pixel found from `gl_FragCoord` and one
+    /// found from the projection, y up, are the same pixel, as in the
+    /// client: `docs/framebuffer-proposal.md`) the height is the copy's it
+    /// declares ([`FRAMEBUFFER_IMAGES`]); without, the engine's
+    /// `screenParams` (the picture's width and height, which `inc_common`
+    /// declares for every stock program), so that a program that works in
+    /// the screen's pixels and reads no copy isn't upside down. `false`,
+    /// the program unchanged, where it doesn't read the fragment's
+    /// position; an error where it does but has neither height.
+    pub fn frag_coord_from_bottom(&mut self, copies: bool) -> Result<bool, ShaderError> {
+        let changed = frag_coord_from_bottom(&mut self.module, copies).map_err(naga_err)?;
         if changed {
             self.revalidate()?;
         }
@@ -509,15 +512,41 @@ const PAD: &str = "mg_unused";
 /// split): the colour, the depth.
 pub const FRAMEBUFFER_IMAGES: [&str; 2] = ["texFBColor_image", "texFBDepth_image"];
 
+/// Where [`Program::frag_coord_from_bottom`] finds the picture's height.
+#[derive(Clone, Copy)]
+enum Height {
+    /// A framebuffer's copy: its size.
+    Copy(naga::Handle<naga::GlobalVariable>),
+    /// The uniform block, and `screenParams`' place in it (`.y`).
+    Screen(naga::Handle<naga::GlobalVariable>, u32),
+}
+
 /// [`Program::frag_coord_from_bottom`] on a module.
-fn frag_coord_from_bottom(module: &mut Module) -> Result<bool, String> {
-    // A copy of the framebuffer the program declares: its size is the
-    // picture's.
-    let image = module
-        .global_variables
-        .iter()
-        .find(|(_, g)| g.name.as_deref().is_some_and(|n| FRAMEBUFFER_IMAGES.contains(&n)))
-        .map(|(h, _)| h);
+fn frag_coord_from_bottom(module: &mut Module, copies: bool) -> Result<bool, String> {
+    // A copy of the framebuffer the program reads, whose size is the
+    // picture's; else the engine's screen size.
+    let image = copies
+        .then(|| {
+            module
+                .global_variables
+                .iter()
+                .find(|(_, g)| g.name.as_deref().is_some_and(|n| FRAMEBUFFER_IMAGES.contains(&n)))
+                .map(|(h, _)| Height::Copy(h))
+        })
+        .flatten();
+    let screen = module.global_variables.iter().find_map(|(h, g)| {
+        if g.space != naga::AddressSpace::Uniform {
+            return None;
+        }
+        let TypeInner::Struct { members, .. } = &module.types[g.ty].inner else { return None };
+        let k = members.iter().position(|m| m.name.as_deref() == Some("screenParams"))?;
+        let two = matches!(
+            module.types[members[k].ty].inner,
+            TypeInner::Vector { size: naga::VectorSize::Bi, scalar: naga::Scalar::F32 }
+        );
+        two.then_some(Height::Screen(h, k as u32))
+    });
+    let height_of = image.or(screen);
     let mut changed = false;
     for ep in module.entry_points.iter_mut().filter(|e| e.stage == naga::ShaderStage::Fragment) {
         let f = &mut ep.function;
@@ -529,9 +558,13 @@ fn frag_coord_from_bottom(module: &mut Module) -> Result<bool, String> {
             continue;
         };
         let pos_ty = f.arguments[arg].ty;
-        let image = image.ok_or("it reads gl_FragCoord but no framebuffer copy")?;
-        let e = &mut f.expressions;
-        let Some(value) = e
+        let height_of = height_of.ok_or(if copies {
+            "it reads gl_FragCoord but no framebuffer copy"
+        } else {
+            "it reads gl_FragCoord but neither a framebuffer copy nor screenParams"
+        })?;
+        let Some(value) = f
+            .expressions
             .iter()
             .find(|(_, x)| matches!(x, Expression::FunctionArgument(i) if *i as usize == arg))
             .map(|(h, _)| h)
@@ -546,40 +579,89 @@ fn frag_coord_from_bottom(module: &mut Module) -> Result<bool, String> {
         else {
             return Err("the fragment entry point doesn't store its position".into());
         };
-        let global = e.append(Expression::GlobalVariable(image), Span::UNDEFINED);
-        let mut emitter = Emitter::default();
-        emitter.start(e);
-        let size = e.append(
-            Expression::ImageQuery { image: global, query: naga::ImageQuery::Size { level: None } },
-            Span::UNDEFINED,
-        );
-        let height = e.append(Expression::AccessIndex { base: size, index: 1 }, Span::UNDEFINED);
-        let height = e.append(
-            Expression::As { expr: height, kind: ScalarKind::Float, convert: Some(4) },
-            Span::UNDEFINED,
-        );
-        let c = |e: &mut naga::Arena<Expression>, index| {
-            e.append(Expression::AccessIndex { base: value, index }, Span::UNDEFINED)
-        };
-        let (x, y, z, w) = (c(e, 0), c(e, 1), c(e, 2), c(e, 3));
-        let y = e.append(
-            Expression::Binary { op: BinaryOperator::Subtract, left: height, right: y },
-            Span::UNDEFINED,
-        );
-        let pos = e.append(
-            Expression::Compose { ty: pos_ty, components: vec![x, y, z, w] },
-            Span::UNDEFINED,
-        );
-        let emit = emitter.finish(e).map(|(s, _)| s);
-        if let Statement::Store { value: v, .. } = &mut f.body[at] {
-            *v = pos;
-        }
-        if let Some(emit) = emit {
-            f.body.splice(at..at, Block::from_vec(vec![emit]));
+        match height_of {
+            Height::Copy(image) => {
+                // In the wrapper, as it stores the position.
+                let e = &mut f.expressions;
+                let global = e.append(Expression::GlobalVariable(image), Span::UNDEFINED);
+                let mut emitter = Emitter::default();
+                emitter.start(e);
+                let size = e.append(
+                    Expression::ImageQuery {
+                        image: global,
+                        query: naga::ImageQuery::Size { level: None },
+                    },
+                    Span::UNDEFINED,
+                );
+                let height =
+                    e.append(Expression::AccessIndex { base: size, index: 1 }, Span::UNDEFINED);
+                let height = e.append(
+                    Expression::As { expr: height, kind: ScalarKind::Float, convert: Some(4) },
+                    Span::UNDEFINED,
+                );
+                let pos = from_bottom(e, value, height, pos_ty);
+                let emit = emitter.finish(e).map(|(s, _)| s);
+                if let Statement::Store { value: v, .. } = &mut f.body[at] {
+                    *v = pos;
+                }
+                if let Some(emit) = emit {
+                    f.body.splice(at..at, Block::from_vec(vec![emit]));
+                }
+            }
+            Height::Screen(block, k) => {
+                // In the program's own `main`, which the wrapper calls once
+                // it has stored the position, as it begins: the uniform
+                // block is read where the program reads it (where
+                // `Program::split_uniforms` finds the spare blocks it moves
+                // the member to).
+                let Statement::Store { pointer, .. } = f.body[at] else { unreachable!() };
+                let Expression::GlobalVariable(var) = f.expressions[pointer] else {
+                    return Err("the fragment entry point stores its position elsewhere".into());
+                };
+                let main = f.body.iter().find_map(|s| match s {
+                    Statement::Call { function, .. } => Some(*function),
+                    _ => None,
+                });
+                let main = main.ok_or("the fragment entry point calls no main")?;
+                let m = &mut module.functions[main];
+                let e = &mut m.expressions;
+                let stored = e.append(Expression::GlobalVariable(var), Span::UNDEFINED);
+                let global = e.append(Expression::GlobalVariable(block), Span::UNDEFINED);
+                let mut emitter = Emitter::default();
+                emitter.start(e);
+                let member =
+                    e.append(Expression::AccessIndex { base: global, index: k }, Span::UNDEFINED);
+                let y =
+                    e.append(Expression::AccessIndex { base: member, index: 1 }, Span::UNDEFINED);
+                let height = e.append(Expression::Load { pointer: y }, Span::UNDEFINED);
+                let was = e.append(Expression::Load { pointer: stored }, Span::UNDEFINED);
+                let pos = from_bottom(e, was, height, pos_ty);
+                let emit = emitter.finish(e).map(|(s, _)| s);
+                let store = Statement::Store { pointer: stored, value: pos };
+                m.body.splice(0..0, Block::from_vec(emit.into_iter().chain([store]).collect()));
+            }
         }
         changed = true;
     }
     Ok(changed)
+}
+
+/// `(x, height − y, z, w)` of a position (expressions appended: emitted
+/// by the caller).
+fn from_bottom(
+    e: &mut naga::Arena<Expression>,
+    position: naga::Handle<Expression>,
+    height: naga::Handle<Expression>,
+    ty: naga::Handle<naga::Type>,
+) -> naga::Handle<Expression> {
+    let mut c =
+        |index| e.append(Expression::AccessIndex { base: position, index }, Span::UNDEFINED);
+    let (x, y, z, w) = (c(0), c(1), c(2), c(3));
+    let y = e.append(
+        Expression::Binary { op: BinaryOperator::Subtract, left: height, right: y },
+        Span::UNDEFINED,
+    );
+    e.append(Expression::Compose { ty, components: vec![x, y, z, w] }, Span::UNDEFINED)
 }
 
 /// [`Program::split_uniforms`] on a module: each part's variable and its
@@ -1244,9 +1326,10 @@ void main () { gl_FragColor = first(lightPosition) + lightColor[1]; }
     }
 
     /// `gl_FragCoord.y` counted from the bottom: the position stored for
-    /// the program is the copy's height less y; the program still splits;
-    /// one that never reads the position is left as it is, and one that
-    /// reads it without a copy is an error.
+    /// the program is the copy's height less y, or without a copy
+    /// `screenParams`'; the program still splits; one that never reads the
+    /// position is left as it is, and one that reads it with neither
+    /// height is an error.
     #[test]
     fn the_fragment_s_position_is_counted_from_the_bottom() {
         let src: BTreeMap<String, String> = [
@@ -1275,10 +1358,16 @@ void main ()
                 "#define SHADER_TYPE 2\nvoid main () { gl_FragColor = gl_FragCoord; }\n"
                     .to_string(),
             ),
+            (
+                "fs_screen".to_string(),
+                "#define SHADER_TYPE 2\nuniform vec2 screenParams;\n\
+                 void main () { gl_FragColor = vec4(gl_FragCoord.xy / screenParams, 0.0, 1.0); }\n"
+                    .to_string(),
+            ),
         ]
         .into();
         let mut p = compile("fs_coord", Stage::Fragment, &Preamble::default(), &src).unwrap();
-        assert!(p.frag_coord_from_bottom().unwrap());
+        assert!(p.frag_coord_from_bottom(true).unwrap());
         let wgsl = naga::back::wgsl::write_string(
             &p.module,
             &p.info,
@@ -1294,10 +1383,22 @@ void main ()
         assert!(p.reflection.uniform("screenParams").is_some());
         let mut plain = compile("fs_plain", Stage::Fragment, &Preamble::default(), &src).unwrap();
         let before = format!("{:?}", plain.module);
-        assert!(!plain.frag_coord_from_bottom().unwrap());
+        assert!(!plain.frag_coord_from_bottom(false).unwrap());
         assert_eq!(before, format!("{:?}", plain.module));
         let mut bare = compile("fs_bare", Stage::Fragment, &Preamble::default(), &src).unwrap();
-        assert!(bare.frag_coord_from_bottom().is_err());
+        assert!(bare.frag_coord_from_bottom(false).is_err());
+        // No copy read: the height is screenParams'.
+        let mut screen = compile("fs_screen", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(screen.frag_coord_from_bottom(false).unwrap());
+        let wgsl = naga::back::wgsl::write_string(
+            &screen.module,
+            &screen.info,
+            naga::back::wgsl::WriterFlags::empty(),
+        )
+        .unwrap();
+        assert!(!wgsl.contains("textureDimensions"), "{wgsl}");
+        assert!(screen.split_uniforms(part).unwrap());
+        assert!(screen.reflection.uniform("screenParams").is_some());
     }
 
     #[test]

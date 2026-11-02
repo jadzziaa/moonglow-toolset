@@ -58,12 +58,16 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
             let split = compile(name, *stage, &pre, rm).and_then(|mut p| {
                 let had = !p.reflection.uniforms.is_empty();
                 let direct = mg_shader::LIGHT_ARRAYS.iter().any(|a| p.reads_uniform(a));
-                // (A program that reads the framebuffer's copies counts
-                // `gl_FragCoord.y` from the bottom, as the renderer has it:
-                // `fswater`, `fsparticle`, the post-processing ones.)
+                // (A fragment program counts `gl_FragCoord.y` from the
+                // bottom, as the renderer has it: by the framebuffer's
+                // copies' height where it reads them (`fswater`,
+                // `fsparticle`, the post-processing ones), else by
+                // `screenParams'`.)
                 let fb = p.reflection.textures.iter().any(|t| t.name.starts_with("texFB"));
+                if *stage == Stage::Fragment {
+                    p.frag_coord_from_bottom(fb)?;
+                }
                 if fb && *stage == Stage::Fragment {
-                    p.frag_coord_from_bottom()?;
                     FRAMEBUFFER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 let split = p.split_uniforms(part)?;
