@@ -1579,7 +1579,11 @@ fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
         assert!(h.query_all_by_label(label).next().is_some(), "{label}");
     }
     h.get_by_label("2 values kept are not as the plugin declares them.");
-    // A folder chosen for the folder's path.
+    // A folder chosen for the folder's path. (Hovered first, a frame run:
+    // a click on a button the window's layout moves a frame later misses,
+    // as it did twice on CI's Windows.)
+    h.get_by_label("Choose…").hover();
+    h.run();
     h.get_by_label("Choose…").click();
     h.run();
     {
