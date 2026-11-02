@@ -1,0 +1,79 @@
+# The game's baseitems.2da, described by Moonglow (from nwn.wiki's page on
+# it, and nwscript.nss's AC_* constants written out: it needs no game
+# install): a copy of the table with no description of the builder's is
+# held to this, and its lists and flags are shown by name.
+
+[columns.Name]
+kind = "strref"
+
+[columns.Description]
+kind = "strref"
+
+[columns.BaseItemStatRef]
+kind = "strref"
+
+[columns.EquipableSlots]
+kind = "flags"
+values = { Helmet = "0x00001", Armor = "0x00002", Boots = "0x00004", Gloves = "0x00008", "Main hand" = "0x00010", "Off-hand" = "0x00020", Cloak = "0x00040", "Left ring" = "0x00080", "Right ring" = "0x00100", Amulet = "0x00200", Belt = "0x00400", Arrow = "0x00800", Bullet = "0x01000", Bolt = "0x02000", "Left claw" = "0x04000", "Right claw" = "0x08000", Bite = "0x10000", "Creature armor" = "0x20000" }
+note = "The slots it can be worn or held in"
+
+[columns.ModelType]
+kind = "list"
+values = { Simple = 0, Layered = 1, Composite = 2, Armor = 3 }
+
+[columns.Container]
+kind = "list"
+values = { No = 0, Yes = 1 }
+
+[columns.WeaponWield]
+kind = "list"
+values = { "Not wieldable" = 1, "Two-handed (polearm)" = 4, Bow = 5, Crossbow = 6, Shield = 7, "Double-sided" = 8, "Creature weapon" = 9, Sling = 10, Throwing = 11 }
+other = true
+note = "Empty: a standard weapon, one-handed (two-handed for a smaller creature)"
+
+[columns.WeaponType]
+kind = "list"
+values = { None = 0, Piercing = 1, Bludgeoning = 2, Slashing = 3, "Slashing and piercing" = 4, "Piercing and bludgeoning" = 5 }
+
+[columns.WeaponSize]
+kind = "list"
+values = { Tiny = 1, Small = 2, Medium = 3, Large = 4, Huge = 5 }
+other = true
+note = "A row of creaturesize.2da"
+
+[columns.RangedWeapon]
+kind = "row"
+table = "baseitems"
+note = "Its ammunition's base item (a thrown weapon's own)"
+
+[columns.StorePanel]
+kind = "list"
+values = { "Armor and clothing" = 0, Weapons = 1, "Potions and scrolls" = 2, "Wands and magic items" = 3, Miscellaneous = 4 }
+
+[columns.ReqFeat0]
+kind = "row"
+table = "feat"
+
+[columns.ReqFeat1]
+kind = "row"
+table = "feat"
+
+[columns.ReqFeat2]
+kind = "row"
+table = "feat"
+
+[columns.ReqFeat3]
+kind = "row"
+table = "feat"
+
+[columns.ReqFeat4]
+kind = "row"
+table = "feat"
+
+[columns.AC_Enchant]
+kind = "list"
+values = { AC_DODGE_BONUS = 0, AC_NATURAL_BONUS = 1, AC_ARMOUR_ENCHANTMENT_BONUS = 2, AC_SHIELD_ENCHANTMENT_BONUS = 3, AC_DEFLECTION_BONUS = 4 }
+
+[columns.QBBehaviour]
+kind = "list"
+values = { Default = 0, "Select spell, target" = 1, "Select spell, self" = 2 }

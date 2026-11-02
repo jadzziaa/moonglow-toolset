@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:28:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:44:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -220,28 +220,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Edit Together and Edit Areas Together from its results; conditions
   together, a class by its levels, number ranges and floats; an item
   blueprint followed through bags in bags, and a creature blueprint
-  into the encounters that spawn it, since 2026-10-29):
-  - Changes are a variable, a script or a field: item properties aren't
-    added or removed on the items found, nor list entries (feats,
-    classes, inventory) on the creatures; a field is set only where the
-    object has it (none is added). Edit Together takes blueprints of one
-    type and objects of one kind placed in one area; items held by
-    placed objects, and conversations, open one by one. (S–M; shares
-    its design with editing lists across several blueprints, and is
-    left to be done with that entry, beyond what it is alone: the
-    deferred sprint, 2026-11-01)
-  - No spell by the class that knows it (a spell found is any class's);
-    a conversation's lines and other things on no object drop out of a
-    search with more than one condition (there is no object for the
-    others to be found on). (S each) (`mg search` takes a condition of
-    each kind at once, class levels and number ranges too, any of them
-    or one left out, since 2026-10-30; still one of a kind, two
-    variables not.)
-  - The module only: blueprints in haks and the game's own palettes
-    aren't searched (`Kept::search` walks `Module::keys`; the haks' and
-    palettes' blueprints read as the module's are would be a layer of
-    hits of their own, read-only, and a change offered on none of
-    them). (S–M)
+  into the encounters that spawn it, since 2026-10-29; a spell by the
+  class that knows it, a conversation's lines kept by several
+  conditions, and the haks' and the game's blueprints searched
+  read-only, since 2026-11-02). Changes are a variable, a script or a
+  field: item properties aren't added or removed on the items found,
+  nor list entries (feats, classes, inventory) on the creatures; a
+  field is set only where the object has it (none is added). Edit
+  Together takes blueprints of one type and objects of one kind placed
+  in one area; items held by placed objects, and conversations, open
+  one by one. (S–M; shares its design with editing lists across several
+  blueprints, and is left to be done with that entry, beyond what it is
+  alone: the deferred sprint, 2026-11-01)
 
 ## Palettes
 
@@ -260,58 +250,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
-  after 1.21.3: a table's cells in the module, a hak or a file, checked
-  as typed, with rows taken from another copy). Not done:
-  - A talk-table string's cell offers the talk table, not a new line
-    in it. (S; not reached in the deferred sprint of 2026-11-01, which
-    did the model's cell: its list and its check, on the cell chosen)
-  - Find References to Row looks in the tables' known columns, not in
-    blueprints, areas or scripts. (M)
-  - A row both copies changed is taken whole or left: its cells are not
-    chosen one by one. (S)
-  - The resource browser's read-only view (with its scroll bars since
-    2026-10-21) has no keys of its own: no cell to select, nor the
-    arrows to move with, nor Find. It is drawn by code of its own beside
-    the editor's grid, which it copies (the column names and rows'
-    numbers that follow the scroll); one grid for both, with the editing
-    left out, would serve. (M)
-  - Asked for by builders on 1.22.0 and 1.22.1 (October 2026), none
-    begun:
-    - **A table's description** (`name.2da.toml`: what each column
-      holds, lists from a script's constants, `mg 2da-check`; built
-      after 1.22.1 from a builder's workbook,
-      [the proposal](2da-editor-proposal.md#columns-that-say-what-they-hold-a-builders-spreadsheet-read)).
-      Not done:
-      - One description for a family of tables (`loot_*`); the game's
-        own tables described the same way. (M)
-      - Verify Module reads the descriptions of the module's own
-        tables, not those of its haks' (`mg 2da-check` on the hak's
-        sources does). (S)
-      - A constant whose value is a function's result is left out of a
-        list, and said; one made of constants of another script it
-        includes is too. (S)
-      - A description's folder is walked when it is read (once, and
-        again when the file changes; the folders a build fills are
-        passed over): a second and a half for a repository of 144,000
-        files in a build made for testing, during which the window
-        waits. A table of the project that a description names is read
-        from its file once, not as it is open in the editor. (S)
-      - Without a game install, `mg 2da-check` knows no talk table: a
-        `strref` column's custom string is said not to exist; a
-        plugin's `faults` does not look strings up at all. (S)
-      - A hak's table's description (beside its file in the hak's
-        folder) was tried beside the hak's file, not in a folder a hak
-        is built from. (S)
-    - **A talk-table string chosen from the talk table** in the cell,
-      not gone to. (S; with "a new line in it" above)
-    - **A class's spell tables checked against `spells.2da`** (each
-      spell a class's table names is one the class can learn): Verify
-      Module holds the lists a class names to rows that exist, not to
-      what those rows allow. (M)
-    One builder's view, to weigh the rest by: a spreadsheet does most
-    of this already, and the editor earns its place on a module's own
-    tables (treasure, spawns), not on the game's.
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -977,6 +915,12 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
+  - **A table's description's `faults` looks no strings up**
+    (`mg.twoda.describe`): a `strref` column's string is not held to a
+    talk table, which would come from the plugin host. The last of the
+    2DA editor's entry (the rest done in the deferred sprint,
+    2026-11-02); left because `crates/mg-plugin` was another package's
+    that round, not begun. (S)
 
 ## Tileset authoring
 

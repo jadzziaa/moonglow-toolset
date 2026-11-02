@@ -369,6 +369,12 @@ impl Table {
         self.saved != Some(self.undo.len())
     }
 
+    /// How many steps it has to undo and to redo: what is worked out from
+    /// its lines (a search through them) is kept while these stay.
+    pub fn steps(&self) -> (usize, usize) {
+        (self.undo.len(), self.redo.len())
+    }
+
     /// Reads the table (and the feminine table) again from its files,
     /// changed outside Moonglow (a `git pull` of a project's JSON): where
     /// what they hold differs, the table is theirs, and its history goes

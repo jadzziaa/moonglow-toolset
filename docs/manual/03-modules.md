@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:17:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:19:59Z }
 ---
 
 # Modules
@@ -230,7 +230,9 @@ to look for:
 - **Creatures by class, feat, spell or skill:** a class (with the
   level each has; **Levels** keeps it to creatures with so many levels
   in it, 4 to 10), a feat, a spell known, memorized or used as a special
-  ability, a skill with at least so many ranks.
+  ability (**As class** keeps it to those that know or have memorized
+  it as that class: a cleric's Heal, not a druid's; a special ability is
+  no class's), a skill with at least so many ranks.
 - **Appearances:** of creatures, placeables, tileset doors, generic
   doors, waypoints, or items' base types.
 - **Scripts attached:** by name, `*` as in variables: objects' and
@@ -248,8 +250,11 @@ is kept where the same object meets them all, as "Fighters with
 Alertness" (Creatures by class, and Creatures by feat). An object holding
 what a condition finds, or held by it, counts as meeting it too:
 fighters carrying an item with a property, items held by fighters,
-creatures in an area with a variable. What each condition found is told
-after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
+creatures in an area with a variable. What is on no object, a
+conversation's lines, meets them in the same resource: a conversation
+with a script on one line and a text on another. What each condition
+found is told after the first's (`Class: Fighter, level 5 · Feat:
+Alertness`).
 
 With more than one condition, **Find objects** chooses **meeting all of
 the conditions** (as above) or **meeting any of the conditions**: then
@@ -275,6 +280,19 @@ name unless anchored (`^tdod_(rent|own)`, `^Tag$`), the letters A to Z
 in either case. The lists come from the game's 2DAs and the module's haks; with
 no game data loaded, choose rows by number.
 
+**The haks' and the game's blueprints too** searches, beside the
+module's, the blueprints its haks and the game have that the module has
+none of (each as the game reads it: a hak's over the game's of the same
+name), as the standard palette offers them. They are listed after the
+module's, each with the layer it is read from (`(hak:cep2_top_v28)`,
+`(key:nwn_base)`), and are read-only: never ticked, so neither changed
+nor edited together; a click opens the copy to look at. A module's
+blueprint that carries a game's item found, or an encounter that spawns
+a game's creature found, is the module's (`crate.utp › carries
+nw_it_gem001.uti`), and is changed as any other. It costs little (the
+game's 6,500 or so blueprints add some 30 ms to a
+search) but lists much: it is off unless ticked.
+
 What's found is listed by place, as in Find References: `keep ›
 creature GUARD_01 › item OLD_SWORD`, `sword.uti`, `keep (area)`, with
 what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
@@ -288,10 +306,11 @@ placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
 CAMP_01 › spawns boss.utc`); a change made to one of those is made to
 the creature blueprint. The command line has the same, a condition of
 each kind at once, class levels and number ranges too, `--any` and
-`--not`:
+`--not`, a spell's class (`--spell-class`) and the haks' and the
+game's blueprints (`--haks-and-game`):
 `mg search` ([Command-line tools](11-command-line.md)).
 
-Each one found is ticked; untick those to leave out (**Tick All**,
+Each one found in the module is ticked; untick those to leave out (**Tick All**,
 **Tick None**). Then:
 - **Change the N ticked** makes one change to each object, in one step
   that Undo takes back: **Set a variable** (added, or its type and value
@@ -1600,8 +1619,8 @@ numbers at the left as it scrolls.
   it is then one number lower. A row's number is what other tables,
   blueprints, areas and scripts know it by, and nothing is changed to
   follow: delete a row others come after only in a table whose rows
-  nothing names yet (**Find References to Row** shows the tables that
-  do), and empty it otherwise.
+  nothing names yet (**Find References to Row** shows the tables,
+  blueprints, areas and scripts that do), and empty it otherwise.
 - **A column's width** is set by dragging the edge at the right of its
   name (the pointer turns into a double arrow over it); a double click
   there makes the column as wide as its widest cell of every row (not
@@ -1649,11 +1668,28 @@ which layer it is read from, or that there is no model of the name in
 the game, its haks or the module; **Choose Model…** lists the models the
 game reads, found by a part of the name, and one clicked goes in the
 cell. (A model is checked for the cell chosen, not for every row: the
-game's own tables name models it never shipped.)
+game's own tables name models it never shipped.) A talk-table string's
+cell has **Choose String…**, the strings of the module's talk table and
+the game's `dialog.tlk` found by a part of their text (the module's
+first; one clicked goes in the cell), and **New Line…**, which adds the
+text typed as a new line at the end of the module's own talk table and
+puts its number (16777216 and on) in the cell. The line is saved with
+the talk table (its own Save, or the module's); until then the cell
+shows it by its text all the same.
 
 **Find References to Row** lists the cells, in every table the game
-reads, of the columns known to name a row of this table: who would be
-left pointing at nothing if the row were emptied.
+reads, of the columns known to name a row of this table, and the
+module's own places that name it: the fields of its blueprints, areas
+and placed objects that hold a row of the table (a creature's
+appearance, classes, feats, spells and skills, an item's base item and
+its properties' subtypes and values, a placeable's or a door's
+appearance, an area's music and load screen), and its scripts' lines
+that do, by a constant of `nwscript` that stands for the row
+(`SPELL_FIREBALL` for row 58 of `spells.2da`, `FEAT_`, `CLASS_TYPE_`,
+`APPEARANCE_TYPE_`, `VFX_`…) or by `Get2DAString` of the table at the
+row (its number written, or a constant). A click on one of the module's
+goes there. That is who would be left pointing at nothing if the row
+were emptied; a script that works a row out as it runs is not found.
 
 **Take Rows…** is for a table that hides another copy of itself (your
 hak's `appearance.2da` over another hak's, or over the game's). It lists
@@ -1662,8 +1698,11 @@ differently; against a copy that has one below it, it tells the rows
 only the other changed from those you both changed. Tick rows one by
 one, or all of a kind with the **New** (those yours lacks) and
 **Differ** (those it has differently) boxes; **Clear Selections**
-unticks them all. **Take** brings each ticked row in whole, as one
-step.
+unticks them all. A row you both changed has **Cells…**: under the list,
+each cell that differs, with whose change it is (**changed there**,
+**changed here** or **changed in both**), to tick the ones to take from
+the other copy, leaving the rest as yours has them. **Take** brings each
+ticked row in whole, and each cell ticked alone, as one step.
 
 Saving lays the table out as its file was: columns in line as wide as
 there (wider where a cell needs it), or, with **Compact** ticked, with
@@ -1751,19 +1790,41 @@ require = "Cures"               # ...where another says so
   `"0x0010"`), or read from a script: `constants` names the script and
   `prefix` what the names begin with. The script is one of your project's
   (any folder of it) or the game's; its constants are read when the
-  table is opened, so the list is never behind the script. A constant
-  made of others of its script (`A | B`, `1 << 3`) is worked out; one
-  that cannot be (a function's result) is left out, and said. Both may
-  be given: the written values come first. A cell with several flags
-  shows each by its name, and not a name for them all together too.
+  table is opened, so the list is never behind the script. The scripts
+  it includes (`#include`) are read too: their constants are listed with
+  its own. A constant made of others, of its script or of one it
+  includes (`A | B`, `1 << 3`), is worked out; a global given by a
+  function as the script runs (`int X = GetX();`: no `const` can be, the
+  compiler refuses it) is left out, and said. Both may be given: the
+  written values come first. A cell with several flags shows each by its
+  name, and not a name for them all together too.
 - **`rows`** says the table's rows are another table's, row for row (the
   AI's facts about each spell beside `spells.2da`): the other table's
   row is shown with the cell, and a row past the other's last is wrong.
 - **A rule** wants one cell filled where another holds a value (its name
   or the value itself).
 - A table the description names is your project's own if it has one of
-  that name, else the game's. The project is the folder above the table
-  that has a `nasher.cfg` or a `.git`; else the table's own folder.
+  that name (as it is open in the 2DA editor, if it is, else as its file
+  has it), else the game's. The project is the folder above the table
+  that has a `nasher.cfg` or a `.git`; else the table's own folder. The
+  editor reads the project's folders on a thread of its own when the
+  description is read, saying so over the table, and goes on meanwhile:
+  a repository may have a hundred thousand files.
+- **`tables`** makes one description a family's: `tables = ["loot_*"]`
+  in a description file of the folder (`loot.2da.toml`, or any
+  `*.2da.toml`) describes every table there whose name is so (`*` any
+  run of letters, `?` one) and that has no description of its own; of
+  two families, the one that names it more closely (`loot_gold*` before
+  `loot_*`).
+- **The game's own tables**: Moonglow brings descriptions of
+  `spells.2da` (its schools, ranges, metamagic and target types, the
+  talent categories, the rows its master and sub-radial spells name…)
+  and `baseitems.2da` (the slots an item is worn in, its model type,
+  how it is wielded, its damage type and size, the store panel, the
+  feats it needs…), from nwn.wiki's pages on them. A copy of it with no description of
+  yours (one you edit in the module, a hak or a file) is held to it, and
+  its lists and flags are shown by name; a cell as the game's own copy
+  has it is the game's, and not said wrong.
 
 In the 2DA editor, a described table says so under its buttons, and:
 
@@ -1789,8 +1850,14 @@ Where the description is looked for:
 | A hak's, in a hak built from a folder | beside the table's file in that folder |
 | A hak's, otherwise | beside the hak's file |
 
-**Verify Module** (and `mg verify`) holds the module's own described
-tables to their descriptions, as the check `2da-described`. From a
+In each of those folders, a family's description (`tables`) stands for
+a table that has none of its own.
+
+**Verify Module** (and `mg verify`) holds the module's described tables
+to their descriptions, as the check `2da-described`, and its haks' too
+(the copy the game reads): a hak's table's description is beside the
+hak's file, else beside the one table of that name in the module's
+project (the folder the hak is built from) that has one. From a
 terminal, `mg 2da-check` does it for every described table of a folder,
 a hak's sources too ([Command-line tools](11-command-line.md)); a
 plugin reads a description with `mg.twoda.describe`

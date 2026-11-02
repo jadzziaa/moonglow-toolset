@@ -562,7 +562,7 @@ impl UsageIndex {
 }
 
 /// Where each line of a source begins.
-fn line_starts(src: &[u8]) -> Vec<usize> {
+pub(crate) fn line_starts(src: &[u8]) -> Vec<usize> {
     std::iter::once(0)
         .chain(src.iter().enumerate().filter(|(_, b)| **b == b'\n').map(|(i, _)| i + 1))
         .collect()
@@ -573,7 +573,7 @@ fn line_starts(src: &[u8]) -> Vec<usize> {
 /// only its own line is read, in `codepage` (scripts have none of their
 /// own: the game reads their strings in its language's, Windows-1250 for
 /// Polish).
-fn mention_at(
+pub(crate) fn mention_at(
     script: ResKey,
     src: &[u8],
     lines: &[usize],

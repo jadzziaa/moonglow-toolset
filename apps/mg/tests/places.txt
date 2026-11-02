@@ -535,7 +535,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "enc.ute",
@@ -547,7 +548,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": "guard.utc"
+      "spawned": "guard.utc",
+      "layer": null
     },
     {
       "resource": "guard.utc",
@@ -559,7 +561,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.are",
@@ -571,7 +574,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -583,7 +587,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 0,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -595,7 +600,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 1,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -607,7 +613,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 2,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -619,7 +626,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 3,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -631,7 +639,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 4,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -643,7 +652,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 5,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -655,7 +665,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 6,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -667,7 +678,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 7,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -679,7 +691,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 8,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -691,7 +704,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 9,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -703,7 +717,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 10,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -715,7 +730,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 11,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -727,7 +743,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 0,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -739,7 +756,8 @@ $ mg --json search MODULE --script hello
       "area": "keep",
       "index": 0,
       "carried": null,
-      "spawned": "guard.utc"
+      "spawned": "guard.utc",
+      "layer": null
     },
     {
       "resource": "module.ifo",
@@ -751,7 +769,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -763,7 +782,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -775,7 +795,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -787,7 +808,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -799,7 +821,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -811,7 +834,8 @@ $ mg --json search MODULE --script hello
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     }
   ],
   "notes": [
@@ -839,7 +863,8 @@ $ mg --json search MODULE --var sDeidad
       "area": null,
       "index": null,
       "carried": "sword.uti",
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "guard.utc",
@@ -851,7 +876,8 @@ $ mg --json search MODULE --var sDeidad
       "area": null,
       "index": null,
       "carried": "sword.uti",
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -863,7 +889,8 @@ $ mg --json search MODULE --var sDeidad
       "area": "keep",
       "index": 0,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "sword.uti",
@@ -875,7 +902,8 @@ $ mg --json search MODULE --var sDeidad
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     }
   ],
   "notes": [
@@ -912,7 +940,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -924,7 +953,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 0,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -936,7 +966,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 1,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -948,7 +979,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 2,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -960,7 +992,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 3,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -972,7 +1005,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 4,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -984,7 +1018,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 5,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -996,7 +1031,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 6,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -1008,7 +1044,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 7,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -1020,7 +1057,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 8,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -1032,7 +1070,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 9,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -1044,7 +1083,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 10,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "keep.git",
@@ -1056,7 +1096,8 @@ $ mg --json search MODULE --field Tag --text GUARD
       "area": "keep",
       "index": 11,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     }
   ],
   "notes": [
@@ -1082,7 +1123,8 @@ $ mg --json search MODULE --int 0
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     },
     {
       "resource": "talk.dlg",
@@ -1094,7 +1136,8 @@ $ mg --json search MODULE --int 0
       "area": null,
       "index": null,
       "carried": null,
-      "spawned": null
+      "spawned": null,
+      "layer": null
     }
   ],
   "notes": [

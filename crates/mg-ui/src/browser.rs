@@ -15,10 +15,6 @@ use crate::{Action, FileKind, Moonglow, Tab};
 
 /// How far an overridden copy's row is set in under its resource's.
 const COPY_INDENT: f32 = 18.0;
-/// What the width of a 2DA view's **From** column (the layer a row comes
-/// from) is kept under: no table's column is named so.
-const FROM: &str = "<from>";
-
 /// A resource's bytes from the load order: the copy the game reads, or
 /// (`layer`, by its label) the copy that layer has.
 fn read_copy<'a>(
@@ -76,7 +72,28 @@ pub struct Browser {
     pub cursor: Option<usize>,
     /// The cursor moved: the list goes to it.
     reveal: bool,
+    /// The 2DA views, each table where it is (its key and layer) on the
+    /// editor's grid, read-only: its cell selected, its Find, its hidden
+    /// columns, kept while it is shown.
+    pub(crate) table_views: std::collections::HashMap<(ResKey, Option<String>), TableView>,
+    /// How many views have been made (their grids' ids are counted down
+    /// from the highest, apart from the editor's).
+    made_views: u32,
 }
+
+/// A 2DA's read-only view.
+#[derive(Debug)]
+pub(crate) struct TableView {
+    /// The table's layers it was made for (where they are): another is
+    /// made for others.
+    of: usize,
+    /// The layer whose rows alone it shows (Rows from), as last set.
+    rows_from: Option<usize>,
+    pub(crate) doc: crate::table_view::TableDoc,
+}
+
+/// How many 2DA views are kept: more are made anew.
+const VIEWS_KEPT: usize = 16;
 
 impl Browser {
     pub fn new() -> Browser {
@@ -824,10 +841,12 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
 /// A 2DA as a table; only the rows in view are laid out. With copies of
 /// it in several layers (haks over the game's), each row says which layer
 /// it comes from, and the cells a layer changed are marked, with what they
-/// were below. Cells of StrRef columns show their text. As in the 2DA
-/// editor, the column names stay in sight over the rows and the rows'
-/// numbers beside them, and a column is as wide as the edge of its name
-/// was dragged to (here or there: the widths are the table's).
+/// were below. Cells of StrRef columns show their text. It is the 2DA
+/// editor's grid with the editing left out: the column names stay in
+/// sight over the rows and the rows' numbers beside them, a column is as
+/// wide as the edge of its name was dragged to (here or there: the widths
+/// are the table's), a cell is selected by a click and the arrows, Find
+/// narrows the rows, Ctrl+C copies, and a column can be hidden.
 pub(crate) fn two_da(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -835,11 +854,10 @@ pub(crate) fn two_da(
     layer: Option<&str>,
     l: &mg_module::table_layers::Layered,
 ) {
-    use crate::table_view::{
-        Edge, NUMBER, column_edge, column_widths, fit_width, set_column_width,
-    };
-    use mg_module::table_layers::is_strref_column;
-    let Moonglow { browser, game, settings, .. } = app;
+    use crate::table_view::{GridOf, TableDoc, grid_in, keys_in, view_header};
+    let name = key.resref.to_string();
+    let kinds = crate::table_view::kinds(app, &name);
+    let Moonglow { browser, game, settings, talk, talk_view, .. } = app;
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
@@ -875,167 +893,35 @@ pub(crate) fn two_da(
             .collect();
         ui.weak(format!("{} copies, lowest first. {}", l.copies.len(), parts.join("; ")));
     }
-    let rows: Vec<usize> = match browser.rows_from.filter(|_| layered) {
-        Some(o) => (0..t.len()).filter(|&r| l.row_origin(r) == o).collect(),
-        None => (0..t.len()).collect(),
-    };
-    let strrefs: Vec<bool> =
-        t.columns().iter().map(|c| !browser.raw_strrefs && is_strref_column(c)).collect();
-    let game = game.as_deref();
-    // What a cell shows: its string's text, in a StrRef column (and that
-    // text), else its value.
-    let shows = |r: usize, c: usize| {
-        let raw = t.cell(r, c);
-        let text = raw
-            .filter(|_| strrefs[c])
-            .and_then(|v| v.parse::<u32>().ok())
-            .and_then(|n| game?.string(mg_core::StrRef(n)));
-        (text.clone().unwrap_or_else(|| raw.unwrap_or("****").into()), text)
-    };
-    let bottom = l.copies.len() - 1;
-    let changed = ui.visuals().warn_fg_color;
-    let width = 110.0;
-    // (The layer a row comes from: a column of its own, as wide as it was
-    // given, kept as the others are under a name no table's column has.)
-    let from = column_widths(settings, &key.resref.to_string(), &[FROM.to_string()], width)[0];
-    let name = key.resref.to_string();
-    let columns: Vec<String> = t.columns().to_vec();
-    let widths = column_widths(settings, &name, &columns, width);
-    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
-    let fixed = |ui: &mut Ui, w: f32, text: egui::RichText| {
-        ui.add_sized([w, row_height], egui::Label::new(text).truncate())
-    };
-    // The column names over the rows and the rows' numbers beside them go
-    // with the rows' own scroll (a frame behind), kept here.
-    let id = egui::Id::new(("2da-view", key, layer));
-    let scroll: egui::Vec2 = ui.data(|d| d.get_temp(id)).unwrap_or_default();
-    let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
-    let still = egui::scroll_area::ScrollSource::NONE;
-    let (mut edge, mut from_edge) = (None, None);
-    ui.horizontal(|ui| {
-        fixed(ui, NUMBER, egui::RichText::new(""));
-        egui::ScrollArea::horizontal()
-            .id_salt(id.with("head"))
-            .auto_shrink([false, true])
-            .scroll_bar_visibility(hidden)
-            .scroll_source(still)
-            .horizontal_scroll_offset(scroll.x)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if layered {
-                        let r = fixed(ui, from, egui::RichText::new("From").strong());
-                        if let Some(act) = column_edge(ui, id.with("from-edge"), r.rect, "From") {
-                            from_edge = Some(act);
-                        }
-                    }
-                    for (c, column) in columns.iter().enumerate() {
-                        let size = egui::vec2(widths[c], row_height);
-                        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                        let text = egui::RichText::new(column).strong();
-                        ui.put(rect, egui::Label::new(text).truncate().selectable(false))
-                            .on_hover_text(format!(
-                                "{column}\nDrag its right edge: its width (double click there: \
-                                 as wide as its widest cell)"
-                            ));
-                        if let Some(act) = column_edge(ui, id.with(("edge", c)), rect, column) {
-                            edge = Some((c, act));
-                        }
-                    }
-                    // (Room for the rows' own scroll bar at the right.)
-                    ui.add_space(ui.spacing().scroll.bar_width + 12.0);
-                });
-            });
+    // The view, kept while it is of these layers.
+    let at = (key, layer.map(str::to_string));
+    let of = l as *const mg_module::table_layers::Layered as usize;
+    let kept = browser.table_views.get(&at).is_some_and(|v| {
+        let had = v.doc.edit.table();
+        v.of == of && had.len() == t.len() && had.columns() == t.columns()
     });
-    match edge {
-        Some((c, Edge::Width(w))) => set_column_width(settings, &name, &columns[c], w),
-        Some((c, Edge::Fit)) => {
-            // (To every row, not those of a Find alone.)
-            let w = fit_width(ui, &columns[c], (0..t.len()).map(|r| shows(r, c).0));
-            set_column_width(settings, &name, &columns[c], w);
+    if !kept {
+        if browser.table_views.len() >= VIEWS_KEPT {
+            browser.table_views.clear();
         }
-        None => {}
+        browser.made_views += 1;
+        let id = u32::MAX - browser.made_views;
+        let doc = TableDoc::read_only(id, key, t.clone());
+        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc });
     }
-    match from_edge {
-        Some(Edge::Width(w)) => set_column_width(settings, &name, FROM, w),
-        Some(Edge::Fit) => {
-            let w = fit_width(ui, "From", l.copies.iter().map(|c| c.0.clone()));
-            set_column_width(settings, &name, FROM, w);
-        }
-        None => {}
+    let rows_from = browser.rows_from.filter(|_| layered);
+    let strrefs = !browser.raw_strrefs;
+    let view = browser.table_views.get_mut(&at).expect("made above");
+    if view.rows_from != rows_from {
+        view.rows_from = rows_from;
+        view.doc.within = rows_from
+            .map(|o| std::sync::Arc::new((0..t.len()).filter(|&r| l.row_origin(r) == o).collect()));
     }
-    let room = ui.available_height();
-    let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
-    let shown = ui
-        .horizontal_top(|ui| {
-            let gutter = egui::vec2(NUMBER, (room - bar).max(row_height));
-            let down = egui::Layout::top_down(egui::Align::Min);
-            ui.allocate_ui_with_layout(gutter, down, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt(id.with("numbers"))
-                    .auto_shrink([false, false])
-                    .scroll_bar_visibility(hidden)
-                    .scroll_source(still)
-                    .vertical_scroll_offset(scroll.y)
-                    .show_rows(ui, row_height, rows.len(), |ui, range| {
-                        for &r in &rows[range] {
-                            fixed(
-                                ui,
-                                NUMBER,
-                                egui::RichText::new(r.to_string()).weak().monospace(),
-                            );
-                        }
-                    });
-            });
-            ui.vertical(|ui| {
-                egui::ScrollArea::both()
-                    .id_salt(id.with("rows"))
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_height, rows.len(), |ui, range| {
-                        for &r in &rows[range] {
-                            ui.horizontal(|ui| {
-                                let origin = l.row_origin(r);
-                                if layered {
-                                    let text = egui::RichText::new(&l.copies[origin].0);
-                                    fixed(
-                                        ui,
-                                        from,
-                                        if origin < bottom { text } else { text.weak() },
-                                    );
-                                }
-                                for (c, &w) in widths.iter().enumerate() {
-                                    let raw = t.cell(r, c);
-                                    let (shown, text) = shows(r, c);
-                                    let mut rich = egui::RichText::new(shown).monospace();
-                                    let cell_origin = l.cell_origin(r, c);
-                                    // Changed, not added: the row is in the copy below.
-                                    let was = (layered
-                                        && cell_origin < bottom
-                                        && r < l.copies[cell_origin + 1].1.len())
-                                    .then(|| l.before(r, c))
-                                    .flatten();
-                                    if was.is_some() {
-                                        rich = rich.color(changed);
-                                    }
-                                    let resp = fixed(ui, w, rich);
-                                    if text.is_some() || was.is_some() {
-                                        let mut tip = Vec::new();
-                                        if text.is_some() {
-                                            tip.push(format!("StrRef {}", raw.unwrap_or_default()));
-                                        }
-                                        if let Some((below, value)) = was {
-                                            let from = &l.copies[cell_origin].0;
-                                            let value = value.unwrap_or("****");
-                                            tip.push(format!("Set by {from}; {value} in {below}"));
-                                        }
-                                        resp.on_hover_text(tip.join("\n"));
-                                    }
-                                }
-                            });
-                        }
-                    })
-            })
-            .inner
-        })
-        .inner;
-    ui.data_mut(|d| d.insert_temp(id, shown.state.offset));
+    let doc = &mut view.doc;
+    doc.strref_text = strrefs;
+    view_header(ui, doc);
+    keys_in(doc, ui, true);
+    let talk = talk.as_ref().filter(|_| !talk_view.outside);
+    let of = GridOf { settings, table_name: &name, talk, game: game.as_deref() };
+    grid_in(ui, doc, of, &kinds, &[], Some(l));
 }

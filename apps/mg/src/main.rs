@@ -459,6 +459,12 @@ enum Cmd {
         /// nasher project it is in, else its own folder)
         #[arg(long)]
         beside: Option<PathBuf>,
+        /// The talk table (a .tlk, or a nasher project's .tlk.json) a
+        /// strref column's custom strings (16777216 and on) are held to
+        /// (default: the folder's own, where it has one; with none, they
+        /// are not looked up)
+        #[arg(long)]
+        tlk: Option<PathBuf>,
     },
     /// What differs between two talk tables (.tlk), by line. With --base
     /// (the table both were made from), the two merged, as `mg 2da-diff`
@@ -2735,10 +2741,11 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(ran.summary());
             out
         }
-        Cmd::TwodaCheck { paths, beside } => {
+        Cmd::TwodaCheck { paths, beside, tlk } => {
             // (A table that names nothing of the game's needs no game.)
             let game = install(cli).ok().and_then(|gi| mg_rules::GameData::open(&gi).ok());
-            diff::check(paths, beside.as_deref(), game.as_ref(), Codepage::default())?
+            let (beside, tlk) = (beside.as_deref(), tlk.as_deref());
+            diff::check(paths, beside, tlk, game.as_ref(), Codepage::default())?
         }
         Cmd::TwodaDiff { a, b, base, output, edits, prefer, resource } => diff::twoda(
             &diff::Args {

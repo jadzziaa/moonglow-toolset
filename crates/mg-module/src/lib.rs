@@ -44,6 +44,7 @@ pub mod query;
 pub mod refs;
 pub mod rename;
 pub mod roundtrip;
+pub mod row_uses;
 pub mod script_set;
 pub mod script_wizard;
 pub mod search;

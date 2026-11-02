@@ -14,6 +14,18 @@ use mg_resman::{GameInstall, ResKey};
 use mg_ui::script_wizard::{ScriptWizard, Step};
 use mg_ui::{Moonglow, NoDialogs};
 
+/// Waits for the tables' descriptions' folders, walked on threads of
+/// their own.
+fn described(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..500 {
+        h.run_steps(1);
+        if !h.state().tables.iter().any(mg_ui::table_view::TableDoc::walking) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
     // Steps rather than runs: animated views keep repainting.
     h.run_steps(3);
@@ -654,6 +666,72 @@ fn table_editor() {
     shoot(&mut h, &dir, "table-editor-edit-menu");
 }
 
+/// Take Rows with a row both copies changed (the override's feat.2da over
+/// the game's), its cells being chosen; and a talk-table string's cell,
+/// its strings found by a part of their text.
+#[test]
+#[ignore]
+fn table_take_cells_and_strings() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-table-cells");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let install = GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let base = (*game.table("feat").unwrap()).clone();
+    let set = |t: &mut mg_2da::TwoDa, c: &str, v: &str| {
+        let c = t.column(c).unwrap();
+        t.set(3, c, Some(v.into())).unwrap();
+    };
+    let cp = mg_core::Codepage::default();
+    let mut theirs = base.clone();
+    set(&mut theirs, "LABEL", "Theirs");
+    set(&mut theirs, "MINDEX", "15");
+    std::fs::write(user.join("override/feat.2da"), theirs.to_bytes(cp).unwrap()).unwrap();
+    let mut ours = base.clone();
+    set(&mut ours, "LABEL", "Ours");
+    set(&mut ours, "MINSTR", "13");
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, ours.to_bytes(cp).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().taking = Some(Default::default());
+    h.run_steps(6);
+    h.get_by_label("Cells…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-take-cells");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.taking = None;
+        let name = doc.edit.table().column("FEAT").unwrap();
+        doc.go_to(3, name);
+    }
+    h.run_steps(4);
+    h.get_by_label("Choose String…").click();
+    h.run_steps(3);
+    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    h.hover_at(field);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: field,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.event(egui::Event::Text("dodge".into()));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-choose-string");
+}
+
 /// The game's spells.2da read in the resource browser (not editable): its
 /// scroll bars, as it opens and scrolled down and to the right; and the
 /// 2DA editor on a copy of appearance.2da, a column widened by dragging
@@ -680,6 +758,34 @@ fn table_read_only_and_column_widths() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
     h.run_steps(5);
     shoot(&mut h, &dir, "2da-read-only");
+    // A cell selected and the arrows (the editor's grid, read-only), and
+    // Find narrowing the rows.
+    h.get_by_label("Acid_Fog").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "2da-read-only-selected");
+    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let field = field.rect().center();
+    h.hover_at(field);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: field,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.event(egui::Event::Text("fire".into()));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "2da-read-only-found");
+    // (Escape clears what is typed, and again leaves the field.)
+    for _ in 0..2 {
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+    }
     // The wheel over the rows: down, and sideways.
     let at = h.get_by_label("Acid_Fog").rect().center();
     h.hover_at(at);
@@ -781,6 +887,7 @@ fn described_table() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    described(&mut h);
     h.run_steps(6);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, 2);
     h.run_steps(4);
@@ -828,6 +935,7 @@ fn table_row_list_opened() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    described(&mut h);
     h.run_steps(6);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(4);

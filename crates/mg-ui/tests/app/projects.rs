@@ -1098,6 +1098,8 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.run_steps(2);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     h.get_by_label_contains("Described by loot.2da.toml: 4 columns");
     let d = h.state().tables[0].description().expect("the description is read");
     assert_eq!(d.column("Kinds").unwrap().kind.entries().len(), 2);
@@ -1189,7 +1191,19 @@ fn a_described_table_is_chosen_from_its_lists() {
         .unwrap();
     // (Looked at once a second, of the time egui gives.)
     h.run_steps(90);
+    settle(&mut h);
     h.get_by_label("1 cell is wrong");
+    // A table the description names, open in the editor: as it is there,
+    // not as its file has it.
+    let places = dir.join("src/places.2da");
+    let places = mg_ui::table_view::open_path(h.state_mut(), &places).unwrap();
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == places).unwrap();
+    doc.edit.set(1, 0, Some("Loft".into())).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Table(id)));
+    h.state_mut().tables[0].go_to(1, 0);
+    h.run_steps(4);
+    h.get_by_label_contains("Loft of places.2da");
 }
 
 /// With the option, a project's script opens in the external editor alone:

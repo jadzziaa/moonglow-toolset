@@ -661,6 +661,97 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     h.get_by_label("Choose a class");
 }
 
+/// A spell by the class that knows it (As class), and the game's own
+/// blueprints searched with the module's: listed after them, said to be
+/// read-only, never ticked (so neither changed nor edited together), and
+/// opened as their copy to look at.
+#[test]
+fn advanced_search_finds_a_spell_by_its_class_and_the_game_s_blueprints() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-spell-class");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // A fighter (4) who knows spell 107, as a blueprint of the module's and
+    // of the game's.
+    let fighter = |tag: &str| {
+        let mut known = Struct::new(3);
+        known.set("Spell", Value::Word(107));
+        let mut class = Struct::new(2);
+        class.set("Class", Value::Int(4));
+        class.set("ClassLevel", Value::Short(5));
+        class.set("KnownList1", Value::List(vec![known]));
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        utc.root.set("ClassList", Value::List(vec![class]));
+        utc
+    };
+    let guard = ResKey::parse("guard", ResType::UTC).unwrap();
+    let set = Edit::SetResource { key: guard, data: Some(fighter("GUARD").to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut mem = mg_resman::MemContainer::new();
+    mem.insert(
+        ResKey::parse("classes", ResType::TWODA).unwrap(),
+        &b"2DA V2.0\n\n Label Name\n0 Barbarian ****\n1 Bard ****\n2 Cleric ****\n3 Druid ****\n4 Fighter 1\n"[..],
+    );
+    let bandit = ResKey::parse("nw_bandit", ResType::UTC).unwrap();
+    mem.insert(bandit, &fighter("BANDIT").to_bytes().unwrap()[..]);
+    let mut rm = mg_resman::ResMan::new();
+    rm.add(mg_resman::priority::KEY, "base", mg_resman::LayerClass::Key, mem);
+    let mut tlk = mg_tlk::Tlk::new(Language::ENGLISH);
+    tlk.entries.push(mg_tlk::TlkEntry::text("Bad Strref"));
+    tlk.entries.push(mg_tlk::TlkEntry::text("Fighter"));
+    app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Spell, row: Some(107), ..Default::default() };
+    h.run();
+    // The class it is known as, chosen from the game's classes.
+    h.get_by_label("As class");
+    h.state_mut().advanced_search.first.class = Some(4);
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("Known spell: row 107 (Fighter)");
+    h.state_mut().advanced_search.first.class = Some(2);
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("Nothing in the module holds it.");
+
+    // The game's blueprints too: the bandit, after the guard, read-only.
+    h.state_mut().advanced_search.first.class = Some(4);
+    h.get_by_label("The haks' and the game's blueprints too").click();
+    h.run();
+    assert!(h.state().advanced_search.haks_and_game);
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 found:");
+    h.get_by_label("(1 of them the haks' or the game's, read-only)");
+    h.get_by_label("(base)");
+    let d = &h.state().advanced_search;
+    assert_eq!(d.hits[1].layer.as_deref(), Some("base"));
+    assert_eq!(d.ticked, [true, false], "the game's is not ticked");
+    assert_eq!(d.chosen().len(), 1);
+    h.get_by_label("Change the 1 ticked");
+    // Tick All leaves it out; a tick set by hand is not taken.
+    h.state_mut().advanced_search.ticked = vec![true, true];
+    h.run();
+    assert_eq!(h.state().advanced_search.chosen().len(), 1);
+    // A click opens its copy, to look at.
+    h.get_by_label("nw_bandit.utc").click();
+    h.run_steps(3);
+    let copy = Tab::ResourceCopy { key: bandit, layer: "base".into() };
+    assert!(h.state().dock.find_tab(&copy).is_some());
+}
+
 /// Advanced Search's Value list of an item property keeps the cost
 /// table's order, as the item editor's Cost Parameter does (+2 before
 /// +10), where it went by name past 12 rows.

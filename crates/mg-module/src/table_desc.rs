@@ -33,6 +33,12 @@
 //! when = { column = "Effect", is = "CURE" }
 //! require = "Cures"
 //! ```
+//!
+//! One description may be a family's: `tables = ["loot_*"]` in a file of
+//! the folder (`loot.2da.toml`, or any `*.2da.toml`) describes each table
+//! there whose name is so and has no description of its own. And Moonglow
+//! brings descriptions of some of the game's own tables
+//! ([`game_description`]), for a copy of one that has none.
 
 use std::path::{Path, PathBuf};
 
@@ -99,6 +105,10 @@ pub struct Rule {
 /// A table's description.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Description {
+    /// The names of the tables it describes, beside its own (`loot_*`: a
+    /// family's; `*` any run of letters, `?` one): empty, the table of
+    /// its file's name alone.
+    pub tables: Vec<String>,
     /// The table (without `.2da`) each of whose rows this table's row of
     /// the same number says more of.
     pub rows: Option<String>,
@@ -115,6 +125,122 @@ pub fn path_beside(table: &Path) -> PathBuf {
     let mut name = table.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".toml");
     table.with_file_name(name)
+}
+
+/// Whether a table's name (without `.2da`) is one a description's
+/// `tables` names: `*` any run of letters, `?` one, whatever their case.
+pub fn names_table(pattern: &str, name: &str) -> bool {
+    fn fits(p: &[u8], n: &[u8]) -> bool {
+        match (p.first(), n.first()) {
+            (None, None) => true,
+            (Some(b'*'), _) => fits(&p[1..], n) || (!n.is_empty() && fits(p, &n[1..])),
+            (Some(b'?'), Some(_)) => fits(&p[1..], &n[1..]),
+            (Some(a), Some(b)) if a.eq_ignore_ascii_case(b) => fits(&p[1..], &n[1..]),
+            _ => false,
+        }
+    }
+    let pattern = pattern.trim().trim_end_matches(".2da");
+    fits(pattern.as_bytes(), name.as_bytes())
+}
+
+/// The names a description file says it describes (its `tables`), read
+/// alone: no lists are read from scripts for it.
+fn tables_of(file: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(file) else { return Vec::new() };
+    let Ok(t) = text.parse::<toml::Table>() else { return Vec::new() };
+    patterns(&t)
+}
+
+fn patterns(t: &toml::Table) -> Vec<String> {
+    match t.get("tables") {
+        Some(toml::Value::String(s)) => vec![s.clone()],
+        Some(toml::Value::Array(a)) => {
+            a.iter().filter_map(|v| v.as_str()).map(str::to_string).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// How closely a pattern names a table: its letters that are not `*` or
+/// `?` (`loot_gold*` before `loot_*`).
+fn closeness(pattern: &str) -> usize {
+    pattern.chars().filter(|c| *c != '*' && *c != '?').count()
+}
+
+/// Of the description files `files` (each with the tables it names), the
+/// one that describes the table `name`: the closest pattern, then the
+/// first file by name.
+fn family_of<'a>(name: &str, files: &'a [(PathBuf, Vec<String>)]) -> Option<&'a Path> {
+    files
+        .iter()
+        .filter_map(|(file, names)| {
+            let best = names.iter().filter(|p| names_table(p, name)).map(|p| closeness(p)).max()?;
+            Some((best, file))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(a.1)))
+        .map(|(_, f)| f.as_path())
+}
+
+/// The description files of a folder that name tables of a family
+/// (`tables = […]`), each with the names.
+fn families_in(dir: &Path) -> Vec<(PathBuf, Vec<String>)> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut out: Vec<(PathBuf, Vec<String>)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().to_ascii_lowercase().ends_with(".2da.toml"))
+        .map(|p| {
+            let names = tables_of(&p);
+            (p, names)
+        })
+        .filter(|(_, names)| !names.is_empty())
+        .collect();
+    out.sort();
+    out
+}
+
+/// The description of the table at `table` (its file, or where its file
+/// would be): `name.2da.toml` beside it, else a family's in its folder
+/// (a `*.2da.toml` whose `tables` name it). `None`: neither is there.
+pub fn find_for(table: &Path) -> Option<PathBuf> {
+    let own = path_beside(table);
+    if own.is_file() {
+        return Some(own);
+    }
+    let name = table.file_stem()?.to_string_lossy().into_owned();
+    let dir = table.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    family_of(&name, &families_in(dir)).map(Path::to_path_buf)
+}
+
+/// Where the module's table would be on disk, for its description: its
+/// file (a nasher project's source, a module folder's file), or, for a
+/// module kept in one file, beside that file.
+pub fn table_in_module(module: &crate::Module, key: &mg_resman::ResKey) -> Option<PathBuf> {
+    if let Some(file) = module.file_of(key) {
+        return Some(file.to_path_buf());
+    }
+    match &module.location {
+        Some(crate::ModuleLocation::Archive(path)) => Some(path.with_file_name(key.to_string())),
+        _ => None,
+    }
+}
+
+/// The description of one of the module's tables that is there
+/// ([`find_for`] where [`table_in_module`] puts it).
+pub fn description_in_module(module: &crate::Module, key: &mg_resman::ResKey) -> Option<PathBuf> {
+    find_for(&table_in_module(module, key)?)
+}
+
+/// The description Moonglow brings of one of the game's own tables, by
+/// its name (from nwn.wiki's pages on it): a table of that name with no
+/// description of the builder's is held to it, its lists and flags shown
+/// by name.
+pub fn game_description(name: &str) -> Option<&'static str> {
+    match name.trim_end_matches(".2da").to_ascii_lowercase().as_str() {
+        "spells" => Some(include_str!("table_desc/spells.2da.toml")),
+        "baseitems" => Some(include_str!("table_desc/baseitems.2da.toml")),
+        _ => None,
+    }
 }
 
 /// Where the description of one of a module's tables would be: beside
@@ -194,6 +320,16 @@ impl Beside {
         Beside { files }
     }
 
+    /// Every file walked.
+    pub fn files(&self) -> &[PathBuf] {
+        &self.files
+    }
+
+    /// A table of the folder's file, by its name: where it is.
+    pub fn table_file(&self, name: &str) -> Option<&Path> {
+        self.named(name, "2da")
+    }
+
     /// A table of the folder, by its name.
     pub fn table(&self, name: &str, codepage: mg_core::Codepage) -> Option<TwoDa> {
         let data = std::fs::read(self.named(name, "2da")?).ok()?;
@@ -220,16 +356,37 @@ impl Beside {
         self.table(name, codepage).map(|t| t.len())
     }
 
-    /// The tables of the folder that have a description beside them: each
-    /// with its description's file.
+    /// The tables of the folder that have a description: each with its
+    /// description's file (beside it, or a family's in its folder).
     pub fn described(&self) -> Vec<(PathBuf, PathBuf)> {
-        let mut out: Vec<(PathBuf, PathBuf)> = self
+        let mut families: std::collections::HashMap<PathBuf, Vec<(PathBuf, Vec<String>)>> =
+            Default::default();
+        let mut out: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for p in self
             .files
             .iter()
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("2da")))
-            .map(|p| (p.clone(), path_beside(p)))
-            .filter(|(_, d)| self.files.contains(d))
-            .collect();
+        {
+            let own = path_beside(p);
+            if self.files.contains(&own) {
+                out.push((p.clone(), own));
+                continue;
+            }
+            let dir = p.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let in_dir = families.entry(dir.clone()).or_insert_with(|| {
+                self.files
+                    .iter()
+                    .filter(|f| f.parent() == Some(dir.as_path()))
+                    .filter(|f| f.to_string_lossy().to_ascii_lowercase().ends_with(".2da.toml"))
+                    .map(|f| (f.clone(), tables_of(f)))
+                    .filter(|(_, names)| !names.is_empty())
+                    .collect()
+            });
+            let name = p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if let Some(family) = family_of(&name, in_dir) {
+                out.push((p.clone(), family.to_path_buf()));
+            }
+        }
         out.sort();
         out
     }
@@ -240,12 +397,51 @@ impl Beside {
 /// the script's other constants comes to (`A | B`, `1 << 3`); with `text`,
 /// a string constant's text too. And how many could not be worked out (a
 /// function's result).
-pub(crate) fn constants(source: &[u8], prefix: &str, text: bool) -> (Vec<Entry>, usize) {
-    let outline = mg_script::outline::outline(source);
-    // (A constant may be made of others of its script: `A | B`.)
-    let given = |g: &&mg_script::outline::Global| g.is_const || g.value.is_some();
+///
+/// The scripts it includes are read too (`script` reads one by its name):
+/// their constants are listed with its own, and a constant made of theirs
+/// is worked out.
+pub(crate) fn constants_in(
+    source: &[u8],
+    prefix: &str,
+    text: bool,
+    script: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> (Vec<Entry>, usize) {
+    // The script and those it includes, each once, those included first
+    // (as the compiler reads them).
+    fn gather(
+        source: Vec<u8>,
+        script: &dyn Fn(&str) -> Option<Vec<u8>>,
+        seen: &mut Vec<String>,
+        out: &mut Vec<mg_script::outline::Outline>,
+    ) {
+        let outline = mg_script::outline::outline(&source);
+        for include in &outline.includes {
+            let name = include.name.trim_end_matches(".nss").to_ascii_lowercase();
+            if seen.contains(&name) || seen.len() > 64 {
+                continue;
+            }
+            seen.push(name.clone());
+            if let Some(included) = script(&name) {
+                gather(included, script, seen, out);
+            }
+        }
+        out.push(outline);
+    }
+    let mut outlines = Vec::new();
+    gather(source.to_vec(), script, &mut Vec::new(), &mut outlines);
+    // (Each once: a script that includes itself, or one included twice.)
+    let mut globals: Vec<&mg_script::outline::Global> = Vec::new();
+    for g in outlines.iter().flat_map(|o| o.globals.iter()) {
+        if !globals.iter().any(|x| x.name == g.name) {
+            globals.push(g);
+        }
+    }
+    // (A constant may be made of others of its script, or of one it
+    // includes: `A | B`.)
+    let given = |g: &&&mg_script::outline::Global| g.is_const || g.value.is_some();
     let mut known: Vec<(&str, i64)> = Vec::new();
-    for g in outline.globals.iter().filter(given) {
+    for g in globals.iter().filter(given) {
         if let Some(v) = g.value.as_deref().and_then(|v| evaluate(v, &known)) {
             known.push((g.name.as_str(), v));
         }
@@ -254,7 +450,7 @@ pub(crate) fn constants(source: &[u8], prefix: &str, text: bool) -> (Vec<Entry>,
     // (Constants, and the globals given a value: the game's own
     // `nwscript` declares its constants so, `int DAMAGE_TYPE_ACID =
     // 16;`.)
-    for g in outline.globals.iter().filter(given).filter(|g| g.name.starts_with(prefix)) {
+    for g in globals.iter().filter(given).filter(|g| g.name.starts_with(prefix)) {
         // A number as written, a text or a fraction as it is, or what an
         // expression of whole numbers comes to.
         let written = g.value.as_deref().map(str::trim);
@@ -524,8 +720,9 @@ impl Description {
     ) -> Result<Description, String> {
         let file: toml::Table = source.parse().map_err(|e| format!("{e}"))?;
         let mut d = Description { rows: text(&file, "rows"), ..Default::default() };
+        d.tables = patterns(&file);
         for key in file.keys() {
-            if !["rows", "columns", "rules"].contains(&key.as_str()) {
+            if !["rows", "columns", "rules", "tables"].contains(&key.as_str()) {
                 d.notes.push(format!("\"{key}\" is not a key this reads"));
             }
         }
@@ -652,7 +849,7 @@ impl Description {
             let Some(source) = script(from) else {
                 return Err(format!("column {name}: the script {from} was not found"));
             };
-            let (found, unread) = constants(&source, &prefix, false);
+            let (found, unread) = constants_in(&source, &prefix, false, script);
             for e in found {
                 if !entries.iter().any(|x| x.name == e.name) {
                     entries.push(e);
@@ -660,8 +857,9 @@ impl Description {
             }
             if unread > 0 {
                 self.notes.push(format!(
-                    "column {name}: {unread} of {from}'s constants that begin {prefix} are \
-                     not numbers that can be worked out, and are left out"
+                    "column {name}: {unread} of {from}'s values that begin {prefix} are not \
+                     numbers that can be worked out (a global given by a function as the \
+                     script runs: no const can be, the compiler refuses it), and are left out"
                 ));
             }
         }
@@ -961,6 +1159,103 @@ require = "Cures"
         }
         assert_eq!(d.column("Name").unwrap().kind, Kind::StrRef);
         assert_eq!(d.column("Script").unwrap().kind, Kind::Script);
+    }
+
+    /// A constant made of another script's that the script includes is
+    /// worked out, and the included script's constants are listed too; a
+    /// global given by a function is left out, and said so.
+    #[test]
+    fn constants_of_included_scripts_are_worked_out() {
+        let scripts = |name: &str| match name {
+            "my_flags" => Some(
+                b"#include \"my_base\"\nconst int FLAG_BOTH = BASE_A | BASE_B;\nint FLAG_RUN = \
+                  Foo();\n#include \"my_flags\"\n"
+                    .to_vec(),
+            ),
+            "my_base" => Some(b"const int BASE_A = 1;\nconst int BASE_B = 0x4;\n".to_vec()),
+            _ => None,
+        };
+        let d = Description::parse(
+            "[columns.F]\nkind = \"flags\"\nconstants = \"my_flags\"\nprefix = \"\"\n",
+            &scripts,
+        )
+        .unwrap();
+        let entries = d.column("F").unwrap().kind.entries();
+        let named: Vec<(&str, &str)> =
+            entries.iter().map(|e| (e.name.as_str(), e.value.as_str())).collect();
+        assert_eq!(named, [("BASE_A", "1"), ("BASE_B", "0x4"), ("FLAG_BOTH", "5")]);
+        assert_eq!(d.notes.len(), 1, "{:?}", d.notes);
+        assert!(d.notes[0].contains("1 of my_flags's values") && d.notes[0].contains("function"));
+    }
+
+    /// One description for a family of tables (`tables = ["loot_*"]`), in
+    /// the folder: a table's own description comes before it, and the
+    /// closest name before another family's.
+    #[test]
+    fn a_family_s_description_is_found_for_its_tables() {
+        assert!(names_table("loot_*", "LOOT_gold") && names_table("loot_?", "loot_a"));
+        assert!(!names_table("loot_*", "loo") && !names_table("loot_?", "loot_ab"));
+        assert!(names_table("spells.2da", "spells") && names_table("*", "x"));
+        let dir = mg_testkit::scratch_dir("table-desc-family");
+        let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+        write("loot.2da.toml", "tables = [\"loot_*\"]\n[columns.Gold]\nkind = \"int\"\n");
+        write("gold.2da.toml", "tables = \"loot_gold*\"\n[columns.Gold]\nkind = \"int\"\n");
+        write("loot_own.2da.toml", "[columns.Gold]\nkind = \"text\"\n");
+        for t in ["loot_a", "loot_gold1", "loot_own", "spells"] {
+            write(&format!("{t}.2da"), "2DA V2.0\n\n   Gold\n0  1\n");
+        }
+        let found = |t: &str| find_for(&dir.join(format!("{t}.2da")));
+        assert_eq!(found("loot_a"), Some(dir.join("loot.2da.toml")));
+        assert_eq!(found("loot_gold1"), Some(dir.join("gold.2da.toml")), "the closest");
+        assert_eq!(found("loot_own"), Some(dir.join("loot_own.2da.toml")), "its own");
+        assert_eq!(found("spells"), None);
+        let d = Description::parse(
+            &std::fs::read_to_string(dir.join("loot.2da.toml")).unwrap(),
+            &script,
+        )
+        .unwrap();
+        assert_eq!((d.tables.as_slice(), d.notes.len()), (&["loot_*".to_string()][..], 0));
+        // A folder's described tables, the family's among them.
+        let described: Vec<String> = Beside::of(&dir)
+            .described()
+            .iter()
+            .map(|(t, d)| {
+                let name = |p: &PathBuf| p.file_name().unwrap().to_string_lossy().into_owned();
+                format!("{} {}", name(t), name(d))
+            })
+            .collect();
+        assert_eq!(
+            described,
+            [
+                "loot_a.2da loot.2da.toml",
+                "loot_gold1.2da gold.2da.toml",
+                "loot_own.2da loot_own.2da.toml"
+            ]
+        );
+    }
+
+    /// Moonglow's descriptions of the game's own tables read, with no
+    /// script (`nwscript`'s constants are written out in them).
+    #[test]
+    fn the_game_s_tables_moonglow_describes_read() {
+        // (Read with no script: they need no game install.)
+        let text = game_description("Spells.2da").expect("spells is described");
+        let d = Description::parse(text, &|_| None).unwrap();
+        assert!(d.notes.is_empty(), "{:?}", d.notes);
+        assert_eq!(d.column("School").unwrap().kind.named("V").as_deref(), Some("Evocation"));
+        assert_eq!(
+            d.column("MetaMagic").unwrap().kind.named("0x09").as_deref(),
+            Some("Empower | Quicken")
+        );
+        assert_eq!(d.column("Name").unwrap().kind, Kind::StrRef);
+        let d = Description::parse(game_description("baseitems").unwrap(), &|_| None).unwrap();
+        assert!(d.notes.is_empty(), "{:?}", d.notes);
+        let slots = &d.column("EquipableSlots").unwrap().kind;
+        assert_eq!(
+            slots.named("0x1C030").as_deref(),
+            Some("Main hand | Off-hand | Left claw | Right claw | Bite")
+        );
+        assert!(game_description("feat").is_none());
     }
 
     #[test]

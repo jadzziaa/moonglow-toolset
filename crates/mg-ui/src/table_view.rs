@@ -18,7 +18,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit};
 use mg_module::doctor::{CellFault, ColumnKind, TalkTables};
 use mg_module::table_desc::{Beside, Description, Kind};
-use mg_module::table_edit::{Candidate, Editing, Offered};
+use mg_module::table_edit::{Candidate, Editing, Offered, Whose};
 use mg_resman::ResKey;
 
 use crate::palette_view::{Keys, give_keys, keys_are};
@@ -41,6 +41,11 @@ pub struct Taking {
     /// Which of the other copies (by its layer's name).
     pub from: Option<String>,
     pub chosen: BTreeSet<usize>,
+    /// Cells chosen one by one (a row and this table's column), of rows
+    /// both copies changed: taken where their row is not taken whole.
+    pub cells: BTreeSet<(usize, usize)>,
+    /// The row whose cells are being chosen.
+    pub open_row: Option<usize>,
     /// The copies in the load order, read once as the window opens.
     copies: Option<Arc<Vec<(String, TwoDa)>>>,
     /// The rows offered, worked out for a copy and the table as it was
@@ -94,17 +99,27 @@ pub struct TableDoc {
     pub value_names: bool,
     /// The table's description, where a file beside it gives one.
     described: Option<Described>,
+    /// The folder a description names scripts and tables from, being
+    /// walked on a thread of its own (a repository may have a hundred
+    /// thousand files): the description, its file's time, and the walk.
+    walking: Option<(PathBuf, Option<std::time::SystemTime>, std::thread::JoinHandle<Beside>)>,
     /// When the description's file was last looked at (the time egui
     /// gives): it is read again when it changes.
     described_at: f64,
     /// Bumped at every change: what is worked out from the table is kept
     /// until then.
     revision: u64,
+    /// The rows it is narrowed to besides a Find's (the resource
+    /// browser's Rows from: those a layer last changed).
+    pub(crate) within: Option<Arc<Vec<usize>>>,
     /// The rows shown, for the table and the Find they were worked out
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, u64, String, bool), Arc<Vec<usize>>)>,
-    faults: Option<(u64, Arc<Vec<CellFault>>)>,
+    shown: Option<((u64, usize, u64, String, bool), Arc<Vec<usize>>)>,
+    /// The cells that are wrong, for the table's revision and the other
+    /// open tables' changes (a table the description names may be one).
+    #[allow(clippy::type_complexity)]
+    faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -114,16 +129,19 @@ pub struct TableDoc {
     pub renaming: Option<usize>,
     pub taking: Option<Taking>,
     /// Where a row is named, as last asked: the row, and each place.
-    pub references: Option<(usize, Vec<Reference>)>,
+    /// The module's blueprints, areas and scripts that name it.
+    pub references: Option<(usize, Vec<Reference>, Vec<mg_module::rename::Usage>)>,
     /// What went wrong last (a cell refused, a save that failed).
     pub problem: Option<String>,
 }
 
 /// A table's description as read from its file (`name.2da.toml` beside
-/// the table: [`mg_module::table_desc`]).
+/// the table, or a family's: [`mg_module::table_desc`]), or Moonglow's of
+/// the game's table of its name.
 #[derive(Debug, Clone)]
 struct Described {
-    path: PathBuf,
+    /// Its file; `None`: Moonglow's description of the game's table.
+    path: Option<PathBuf>,
     modified: Option<std::time::SystemTime>,
     /// The description, or why it could not be read.
     read: Result<Arc<Description>, String>,
@@ -167,8 +185,10 @@ impl TableDoc {
             hidden: Default::default(),
             value_names: true,
             described: None,
+            walking: None,
             described_at: f64::NEG_INFINITY,
             revision: 0,
+            within: None,
             shown: None,
             faults: None,
             add_count: 1,
@@ -182,6 +202,13 @@ impl TableDoc {
 
     pub fn name(&self) -> String {
         self.key.resref.to_string()
+    }
+
+    /// A table to look at, not to edit: the resource browser's view of a
+    /// table the game reads (its own id, of those counted down from the
+    /// highest).
+    pub(crate) fn read_only(id: u32, key: ResKey, table: TwoDa) -> TableDoc {
+        TableDoc::new(id, key, Home::Module, Editing::new(table))
     }
 
     /// What its columns' widths are kept by ([`column_widths`]): the
@@ -209,6 +236,12 @@ impl TableDoc {
     /// The table's description, where it has one that reads.
     pub fn description(&self) -> Option<Arc<Description>> {
         self.described.as_ref().and_then(|d| d.read.clone().ok())
+    }
+
+    /// Whether its description's folder is being walked (a UI test waits
+    /// for it: [`crate::Moonglow::under_way`]).
+    pub fn walking(&self) -> bool {
+        self.walking.is_some()
     }
 
     pub fn title(&self) -> String {
@@ -637,16 +670,16 @@ fn save_as_file(app: &mut Moonglow, id: u32) {
     save(app, id);
 }
 
-/// Where a table's description would be: beside its file (a file's own,
-/// the module's table's in a project or a module folder), beside the
-/// module's file for a module kept in one, and for a hak's table in the
-/// folder the hak is built from (beside the table's file there), else
-/// beside the hak's file.
+/// Where a table's description is: beside its file (a file's own, the
+/// module's table's in a project or a module folder), beside the module's
+/// file for a module kept in one, and for a hak's table in the folder the
+/// hak is built from (beside the table's file there), else beside the
+/// hak's file; or a family's in that folder (`tables = ["loot_*"]`).
 fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
-    use mg_module::table_desc::{path_beside, path_in_module};
+    use mg_module::table_desc::{description_in_module, find_for};
     match &doc.home {
-        Home::File(path) => Some(path_beside(path)),
-        Home::Module => path_in_module(&app.ws.as_ref()?.module, &doc.key),
+        Home::File(path) => find_for(path),
+        Home::Module => description_in_module(&app.ws.as_ref()?.module, &doc.key),
         Home::Hak(id) => {
             let hak = app.haks.iter().find(|d| d.id == *id)?;
             let name = doc.key.to_string();
@@ -656,7 +689,7 @@ fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
                 })
             });
             let table = in_folder.or_else(|| Some(hak.hak.path.as_ref()?.with_file_name(&name)))?;
-            Some(path_beside(&table))
+            find_for(&table)
         }
     }
 }
@@ -711,8 +744,23 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
 }
 
 /// Reads the table's description where there is one, and again when its
-/// file changes (looked at once a second).
+/// file changes (looked at once a second); with none of the builder's,
+/// Moonglow's of the game's table of its name, if it has one. The folder
+/// the description names scripts and tables from is walked on a thread
+/// of its own first, the window going on meanwhile.
 fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    use mg_module::table_desc::game_description;
+    // (A walk under way is looked at every frame.)
+    if let Some((_, _, walk)) = &app.tables[at].walking {
+        if !walk.is_finished() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            return;
+        }
+        let (path, modified, walk) = app.tables[at].walking.take().expect("walking");
+        let files = Arc::new(walk.join().unwrap_or_default());
+        read_description(app, at, Some(path), modified, files);
+        return;
+    }
     let now = ctx.input(|i| i.time);
     if now - app.tables[at].described_at < 1.0 {
         return;
@@ -720,33 +768,89 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     app.tables[at].described_at = now;
     let path = description_path(app, &app.tables[at]).filter(|p| p.is_file());
     let Some(path) = path else {
-        if app.tables[at].described.take().is_some() {
-            app.tables[at].changed();
+        // Moonglow's, of the game's table of the name.
+        let had = app.tables[at].described.as_ref().map(|d| d.path.is_none());
+        match game_description(&app.tables[at].name()) {
+            Some(_) if had == Some(true) => {}
+            Some(_) => read_description(app, at, None, None, Arc::default()),
+            None if had.is_some() => {
+                app.tables[at].described = None;
+                app.tables[at].changed();
+            }
+            None => {}
         }
         return;
     };
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    if app.tables[at].described.as_ref().is_some_and(|d| d.path == path && d.modified == modified) {
+    let doc = &mut app.tables[at];
+    if doc
+        .described
+        .as_ref()
+        .is_some_and(|d| d.path.as_ref() == Some(&path) && d.modified == modified)
+    {
         return;
     }
-    let table_file = path.with_extension("");
-    let files = Arc::new(Beside::of(&Beside::root_of(&table_file)));
+    // (The description's folder: a repository's or project's, which may be
+    // large.)
+    let root = Beside::root_of(&path.with_extension(""));
+    let walk = std::thread::spawn(move || Beside::of(&root));
+    doc.walking = Some((path, modified, walk));
+    ctx.request_repaint();
+}
+
+/// Reads a description (`path`'s file; `None`: Moonglow's of the game's
+/// table), its lists from the scripts of `files` or the game's.
+fn read_description(
+    app: &mut Moonglow,
+    at: usize,
+    path: Option<PathBuf>,
+    modified: Option<std::time::SystemTime>,
+    files: Arc<Beside>,
+) {
     let game = app.game.clone();
     let script = |name: &str| {
         let key = ResKey::from_filename(&format!("{name}.nss"))?;
         files.script(name).or_else(|| Some(game.as_deref()?.resman.get(&key).ok()?.into_owned()))
     };
-    let read = std::fs::read_to_string(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|text| Description::parse(&text, &script))
-        .map(Arc::new);
+    let text = match &path {
+        Some(path) => std::fs::read_to_string(path).map_err(|e| e.to_string()),
+        None => mg_module::table_desc::game_description(&app.tables[at].name())
+            .map(str::to_string)
+            .ok_or_else(|| "no description".to_string()),
+    };
+    let read = text.and_then(|text| Description::parse(&text, &script)).map(Arc::new);
     let doc = &mut app.tables[at];
     doc.described = Some(Described { path, modified, read, files, tables: Default::default() });
     doc.changed();
 }
 
+/// A table a description names, of its project: as it is open in the
+/// editor (a file's, or the module's from that file), else as its file is
+/// read (once, until the description is read again).
+fn project_table(app: &Moonglow, d: &Described, name: &str) -> Option<Arc<TwoDa>> {
+    let file = d.files.table_file(name)?;
+    // (The same file however its path is written: `a/../b`.)
+    let same = |p: &std::path::Path| {
+        p == file || p.canonicalize().is_ok_and(|p| file.canonicalize().is_ok_and(|f| f == p))
+    };
+    let named = |t: &&TableDoc| t.name().eq_ignore_ascii_case(name);
+    let open = app.tables.iter().filter(named).find(|t| match &t.home {
+        Home::File(p) => same(p),
+        Home::Module => app.ws.as_ref().and_then(|ws| ws.module.file_of(&t.key)).is_some_and(same),
+        Home::Hak(_) => false,
+    });
+    if let Some(t) = open {
+        return Some(Arc::new(t.edit.table().clone()));
+    }
+    let mut read = d.tables.borrow_mut();
+    let cp = codepage(app);
+    read.entry(name.to_ascii_lowercase())
+        .or_insert_with(|| d.files.table(name, cp).map(Arc::new))
+        .clone()
+}
+
 /// What the table's columns hold, where the checks know.
-fn kinds(app: &Moonglow, name: &str) -> Vec<(&'static str, ColumnKind)> {
+pub(crate) fn kinds(app: &Moonglow, name: &str) -> Vec<(&'static str, ColumnKind)> {
     let read = |n: &str| app.game.as_deref().and_then(|g| g.table(n).ok());
     mg_module::doctor::column_kinds_as_named(name, &read)
 }
@@ -760,9 +864,14 @@ fn talk_tables(app: &Moonglow) -> TalkTables {
 
 /// The cells that are wrong, kept until the table changes.
 fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
+    // (Another open table's change may be one a description names.)
+    let others: u64 = (app.tables.iter().enumerate())
+        .filter(|(i, _)| *i != at)
+        .map(|(_, t)| t.revision.wrapping_add(t.edit.changes()))
+        .fold(0, u64::wrapping_add);
     let doc = &app.tables[at];
-    if let Some((revision, found)) = &doc.faults
-        && *revision == doc.revision
+    if let Some((mark, found)) = &doc.faults
+        && *mark == (doc.revision, others)
     {
         return found.clone();
     }
@@ -812,13 +921,22 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     if let Some(d) = &doc.described
         && let Ok(description) = &d.read
     {
-        let cp = codepage(app);
         let rows_of = |n: &str| match n.eq_ignore_ascii_case(&name) {
             true => Some(doc.edit.table().len()),
-            false => d.files.rows_of(n, cp).or_else(|| rows_of(n)),
+            false => project_table(app, d, n).map(|t| t.len()).or_else(|| rows_of(n)),
         };
-        for f in description.faults(doc.edit.table(), &rows_of, talk_tables(app)) {
-            if !found.iter().any(|x| (x.row, x.column) == (f.row, f.column)) {
+        // (Moonglow's description of the game's table: a cell as the
+        // game's own copy has it is the game's, not the builder's.)
+        let base = match d.path {
+            None => game.and_then(|g| mg_module::doctor::game_copy(&g.resman, &name)),
+            Some(_) => None,
+        };
+        let table = doc.edit.table();
+        for f in description.faults(table, &rows_of, talk_tables(app)) {
+            let column = &table.columns()[f.column];
+            let the_game_s =
+                base.as_ref().is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
+            if !the_game_s && !found.iter().any(|x| (x.row, x.column) == (f.row, f.column)) {
                 found.push(f);
             }
         }
@@ -826,7 +944,7 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     }
     let found = Arc::new(found);
     let doc = &mut app.tables[at];
-    doc.faults = Some((doc.revision, found.clone()));
+    doc.faults = Some(((doc.revision, others), found.clone()));
     found
 }
 
@@ -895,6 +1013,14 @@ pub fn references(app: &Moonglow, name: &str, own: &TwoDa, row: usize) -> Vec<Re
         }
     }
     out
+}
+
+/// Where the module names row `row` of the table `name`: its blueprints',
+/// areas' and placed objects' fields, and its scripts
+/// ([`mg_module::row_uses`]).
+pub fn module_row_uses(app: &Moonglow, name: &str, row: usize) -> Vec<mg_module::rename::Usage> {
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    mg_module::row_uses::row_uses(&ws.module, name, row, app.game.as_deref(), codepage(app))
 }
 
 const CELL: f32 = 116.0;
@@ -1075,12 +1201,12 @@ fn cell_shows(
     raw: Option<&str>,
     strref: bool,
     named: Option<&Kind>,
-    game: Option<&mg_rules::GameData>,
+    (talk, game): (Option<&mg_module::talk::Table>, Option<&mg_rules::GameData>),
 ) -> (String, Option<String>, bool) {
     let text = raw
         .filter(|_| strref)
         .and_then(|v| v.parse::<u32>().ok())
-        .and_then(|n| game?.string(mg_core::StrRef(n)));
+        .and_then(|n| talk_string(talk, game, n));
     // (A value by its name, where the description gives it one.)
     let name = raw.zip(named).and_then(|(v, k)| k.named(v));
     let was_named = name.is_some();
@@ -1122,7 +1248,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let mut act = None;
     header(app, ui, at, &home, has_copies, faults.len(), &mut act);
     keys(app, ui, at);
-    let below = 96.0;
+    // (More room under the grid while a list to choose a cell's value
+    // from is open there.)
+    let below = if choosing_under(ui, id) { 96.0 + 300.0 } else { 96.0 };
     let grid_height = (ui.available_height() - below).max(120.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         grid(app, ui, at, &kinds, &faults);
@@ -1136,6 +1264,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Some(Act::SaveAs) => save_as_file(app, id),
         None => {}
     }
+}
+
+/// Whether one of the cell's lists is open under the grid (Choose
+/// Model…, Choose String…, New Line…).
+fn choosing_under(ui: &Ui, id: u32) -> bool {
+    let string = egui::Id::new(("table-string", id));
+    let open = [
+        egui::Id::new(("table-model-find", id)).with("open"),
+        string.with("choose"),
+        string.with("new"),
+    ];
+    open.iter().any(|o| ui.data(|d| d.get_temp::<bool>(*o)).unwrap_or(false))
 }
 
 enum Act {
@@ -1229,8 +1369,8 @@ fn header(
             .on_hover_text(
                 "The selected row taken away. Every row after it is then one number lower, \
                  and what names those rows by number (other tables, blueprints, scripts) is \
-                 not changed to follow: Find References to Row shows the tables that do. To \
-                 keep the numbers, Empty Row",
+                 not changed to follow: Find References to Row shows the tables, blueprints, \
+                 areas and scripts that do. To keep the numbers, Empty Row",
             )
             .clicked()
             && let Some(row) = row
@@ -1294,17 +1434,30 @@ fn header(
             );
         }
     });
+    if doc.walking.is_some() {
+        ui.weak("Reading the folder the table's description names scripts and tables from…");
+    }
     if let Some(d) = &doc.described {
-        let file = d.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = match &d.path {
+            Some(path) => {
+                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            }
+            None => format!("Moonglow (the game's {}.2da)", doc.name()),
+        };
         ui.horizontal_wrapped(|ui| match &d.read {
             Ok(description) => {
                 let columns = description.columns.len();
                 let said = ui.weak(format!("Described by {file}: {columns} columns"));
-                said.on_hover_text(format!(
-                    "{}\nWhat each column holds, and the lists to choose from. It is read \
-                     again when the file changes.",
-                    d.path.display()
-                ));
+                said.on_hover_text(match &d.path {
+                    Some(path) => format!(
+                        "{}\nWhat each column holds, and the lists to choose from. It is read \
+                         again when the file changes.",
+                        path.display()
+                    ),
+                    None => "What each column of the game's table holds, as Moonglow knows it: \
+                             a description of yours beside the table comes before it"
+                        .to_string(),
+                });
                 if let Some(table) = &description.rows {
                     ui.weak(format!("its rows are {table}.2da's"));
                 }
@@ -1374,7 +1527,8 @@ fn header(
 /// every cell was looked through at each frame), and again when either
 /// changes.
 fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
-    let key = (doc.revision, doc.edit.changes(), doc.filter.clone(), doc.value_names);
+    let within = doc.within.as_ref().map_or(0, |w| Arc::as_ptr(w) as usize);
+    let key = (doc.revision, within, doc.edit.changes(), doc.filter.clone(), doc.value_names);
     if let Some((k, rows)) = &doc.shown
         && *k == key
     {
@@ -1388,15 +1542,19 @@ fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
 fn rows_found(doc: &TableDoc) -> Vec<usize> {
     let t = doc.edit.table();
     let needle = mg_core::text::Needle::new(&doc.filter);
+    let all: Vec<usize> = match &doc.within {
+        Some(within) => within.iter().copied().filter(|r| *r < t.len()).collect(),
+        None => (0..t.len()).collect(),
+    };
     if needle.is_empty() {
-        return (0..t.len()).collect();
+        return all;
     }
     // (And by the names shown for the values of a list or of flags.)
     let description = doc.description().filter(|_| doc.value_names);
     let kinds: Vec<Option<&Kind>> =
         t.columns().iter().map(|c| Some(&description.as_deref()?.column(c)?.kind)).collect();
     // (Every word in one of the row's cells, or their names.)
-    (0..t.len())
+    all.into_iter()
         .filter(|&r| {
             let mut fields = Vec::new();
             for (c, kind) in kinds.iter().enumerate() {
@@ -1429,6 +1587,17 @@ fn keys_table(ctx: &egui::Context) -> Option<u32> {
 /// Keyboard) are the table's while the keys are in its grid.
 fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let doc = &mut app.tables[at];
+    // Undo and Redo are the table's while the keys are in its grid (the
+    // keymap's, through `Moonglow::local_undo`).
+    if keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id) {
+        app.undo_keys = Some(Tab::Table(doc.id));
+    }
+    keys_in(doc, ui, false);
+}
+
+/// [`keys`] in a table's grid; `read_only` (the resource browser's view):
+/// the keys that move and Ctrl+C alone, while its grid has them.
+pub(crate) fn keys_in(doc: &mut TableDoc, ui: &mut Ui, read_only: bool) {
     // "Go to the next wrong cell", from the header's button.
     if doc.go_to == "!" {
         doc.go_to.clear();
@@ -1446,12 +1615,11 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
             take_keys(ui.ctx(), doc.id);
         }
     }
-    // Undo and Redo are the table's while the keys are in its grid (the
-    // keymap's, through `Moonglow::local_undo`).
-    if keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id) {
-        app.undo_keys = Some(Tab::Table(doc.id));
-    }
     if !keys_are(ui.ctx(), Keys::Table) || doc.typing.is_some() {
+        return;
+    }
+    // (A view's keys are its own grid's alone: another's are its.)
+    if read_only && keys_table(ui.ctx()) != Some(doc.id) {
         return;
     }
     if ui.ctx().egui_wants_keyboard_input() {
@@ -1514,6 +1682,16 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let chosen: Vec<usize> =
         rows.iter().copied().filter(|r| (first..=last_row).contains(r)).collect();
     let several = chosen.len() > 1 || right > left;
+    if pressed(ui, none, Key::Escape) {
+        give_keys(ui.ctx(), Keys::Area);
+    }
+    if read_only {
+        let (copy, _, _) = crate::widgets::copy_cut_paste(ui);
+        if copy {
+            ui.ctx().copy_text(copied(doc.edit.table(), &chosen, left, right));
+        }
+        return;
+    }
     if pressed(ui, none, Key::Enter) || pressed(ui, none, Key::F2) {
         let now = doc.edit.table().cell(row, column).unwrap_or_default().to_string();
         doc.typing = Some(now);
@@ -1530,23 +1708,9 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     if pressed(ui, none, Key::Delete) && doc.edit.clear_cells(&chosen, left, right) > 0 {
         doc.changed();
     }
-    if pressed(ui, none, Key::Escape) {
-        give_keys(ui.ctx(), Keys::Area);
-    }
     let (copy, cut, paste) = crate::widgets::copy_cut_paste(ui);
     if copy || cut {
-        // A line a row, tabs between the cells, as a spreadsheet copies
-        // them (and as Paste reads them).
-        let t = doc.edit.table();
-        let lines: Vec<String> = chosen
-            .iter()
-            .map(|&r| {
-                let cells: Vec<&str> =
-                    (left..=right).map(|c| t.cell(r, c).unwrap_or("****")).collect();
-                cells.join("\t")
-            })
-            .collect();
-        ui.ctx().copy_text(lines.join("\n"));
+        ui.ctx().copy_text(copied(doc.edit.table(), &chosen, left, right));
         if cut && doc.edit.clear_cells(&chosen, left, right) > 0 {
             doc.changed();
         }
@@ -1573,6 +1737,64 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     }
 }
 
+/// Over a read-only view's grid (the resource browser's): Find, Go to
+/// and Show Hidden Columns, as the editor has them.
+pub(crate) fn view_header(ui: &mut Ui, doc: &mut TableDoc) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Find");
+        let field = ui.id().with(("table-filter", doc.id));
+        crate::widgets::SearchField::new(field, &mut doc.filter)
+            .hint("text in any cell")
+            .width(170.0)
+            .find_over()
+            .show(ui);
+        ui.label("Go to");
+        let go =
+            ui.add(egui::TextEdit::singleline(&mut doc.go_to).desired_width(70.0).hint_text("row"));
+        if go.lost_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            && let Ok(row) = doc.go_to.trim().parse::<usize>()
+            && row < doc.edit.table().len()
+        {
+            doc.filter.clear();
+            doc.anchor = None;
+            doc.selected = Some((row, doc.selected.map_or(0, |s| s.1)));
+            doc.reveal = true;
+            take_keys(ui.ctx(), doc.id);
+        }
+        if !doc.hidden.is_empty() {
+            let names: Vec<&str> = doc.hidden.iter().map(String::as_str).collect();
+            if ui
+                .button(format!("Show Hidden Columns ({})", doc.hidden.len()))
+                .on_hover_text(format!("Hidden from view: {}", names.join(", ")))
+                .clicked()
+            {
+                doc.hidden.clear();
+            }
+        }
+        if let Some((row, column)) = doc.selected
+            && let Some(name) = doc.edit.table().columns().get(column)
+        {
+            // (The whole value, which its cell may cut short.)
+            let value = doc.edit.table().cell(row, column).unwrap_or("****");
+            ui.weak(format!("Row {row}, {name}: {value}"));
+        }
+    });
+}
+
+/// The cells `chosen` (rows) from `left` to `right`, as a spreadsheet
+/// copies them (and Paste reads them): a line a row, tabs between cells.
+fn copied(t: &TwoDa, chosen: &[usize], left: usize, right: usize) -> String {
+    let lines: Vec<String> = chosen
+        .iter()
+        .map(|&r| {
+            let cells: Vec<&str> = (left..=right).map(|c| t.cell(r, c).unwrap_or("****")).collect();
+            cells.join("\t")
+        })
+        .collect();
+    lines.join("\n")
+}
+
 fn grid(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1582,13 +1804,55 @@ fn grid(
 ) {
     let game = app.game.clone();
     let table_name = app.tables[at].widths_key(app);
-    let settings = &mut app.settings;
+    let talk = app.talk.as_ref().filter(|_| !app.talk_view.outside);
     let doc = &mut app.tables[at];
+    let settings = &mut app.settings;
+    let of = GridOf { settings, table_name: &table_name, talk, game: game.as_deref() };
+    grid_in(ui, doc, of, kinds, faults, None);
+}
+
+/// What a grid is drawn with besides its table.
+pub(crate) struct GridOf<'a> {
+    pub settings: &'a mut crate::settings::Settings,
+    /// What its columns' widths are kept by ([`TableDoc::widths_key`]).
+    pub table_name: &'a str,
+    /// The module's talk table, open for editing (its lines not yet saved
+    /// shown too).
+    pub talk: Option<&'a mg_module::talk::Table>,
+    pub game: Option<&'a mg_rules::GameData>,
+}
+
+/// The name a view's column of layers ("From") keeps its width by: no
+/// table's column is named so.
+pub(crate) const FROM: &str = "<from>";
+
+/// A table's grid: the editor's, or (`layers` given) the resource
+/// browser's read-only view of a table the game reads, each row's layer
+/// beside it and the cells a layer changed marked; there a cell is
+/// selected, the keys move, Find narrows and Ctrl+C copies, and nothing
+/// is changed (a column hidden or its width aside).
+pub(crate) fn grid_in(
+    ui: &mut Ui,
+    doc: &mut TableDoc,
+    of: GridOf<'_>,
+    kinds: &[(&'static str, ColumnKind)],
+    faults: &[CellFault],
+    layers: Option<&mg_module::table_layers::Layered>,
+) {
+    let GridOf { settings, table_name, talk, game } = of;
+    let read_only = layers.is_some();
+    // (The layer each row comes from, where the table has several.)
+    let layered = layers.filter(|l| l.copies.len() > 1);
+    let from_width = match layered {
+        Some(_) => column_widths(settings, table_name, &[FROM.to_string()], 110.0)[0],
+        None => 0.0,
+    };
+    let lead = if layered.is_some() { from_width + ui.spacing().item_spacing.x } else { 0.0 };
     let rows = shown_rows(doc);
     let columns: Vec<String> = doc.edit.table().columns().to_vec();
     // (A column hidden from view is drawn in no room: its cells are kept
     // and saved, and the keys pass over it.)
-    let widths: Vec<f32> = column_widths(settings, &table_name, &columns, CELL)
+    let widths: Vec<f32> = column_widths(settings, table_name, &columns, CELL)
         .into_iter()
         .zip(&columns)
         .map(|(w, c)| if doc.hidden.contains(&c.to_ascii_lowercase()) { 0.0 } else { w })
@@ -1596,7 +1860,7 @@ fn grid(
     // Where each column begins, from the first's left.
     let lefts: Vec<f32> = widths
         .iter()
-        .scan(0.0, |x, w| {
+        .scan(lead, |x, w| {
             let left = *x;
             if *w > 0.0 {
                 *x += w + ui.spacing().item_spacing.x;
@@ -1604,16 +1868,21 @@ fn grid(
             Some(left)
         })
         .collect();
-    // The edge of a column's name dragged or double-clicked.
+    // The edge of a column's name dragged or double-clicked (or of From).
     let mut edge = None;
+    let mut from_edge = None;
     let description = doc.description();
     let described = |c: &str| description.as_deref().and_then(|d| d.column(c));
     let kind_of = |c: &str| {
         let known = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(c)).map(|(_, k)| *k);
         known.or_else(|| matches!(described(c)?.kind, Kind::StrRef).then_some(ColumnKind::StrRef))
     };
-    let strref: Vec<bool> =
-        columns.iter().map(|c| doc.strref_text && kind_of(c) == Some(ColumnKind::StrRef)).collect();
+    // (A view takes a column by its name too: Name, Description…)
+    let is_strref = |c: &str| {
+        kind_of(c) == Some(ColumnKind::StrRef)
+            || (read_only && mg_module::table_layers::is_strref_column(c))
+    };
+    let strref: Vec<bool> = columns.iter().map(|c| doc.strref_text && is_strref(c)).collect();
     // The columns whose values are shown by name.
     let value_names = doc.value_names;
     let named: Vec<Option<&Kind>> = columns
@@ -1649,6 +1918,7 @@ fn grid(
     let released = doc.moving.is_some() && moving.is_none();
     let mut over_column = None;
     let wrong = ui.visuals().error_fg_color;
+    let changed = ui.visuals().warn_fg_color;
     // The column names stay in sight over the rows, and the rows' numbers
     // beside them: each goes with the rows' own scroll, a frame behind.
     let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
@@ -1665,15 +1935,33 @@ fn grid(
             .horizontal_scroll_offset(scroll_x)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    if layered.is_some() {
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(from_width, row_height),
+                            egui::Sense::hover(),
+                        );
+                        let text = egui::RichText::new("From").strong();
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        let inner = rect.shrink2(egui::vec2(4.0, 0.0));
+                        ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
+                            .add(egui::Label::new(text).truncate().selectable(false))
+                            .on_hover_text("The layer each row comes from");
+                        let edge_id = egui::Id::new(("table-from-edge", id));
+                        if let Some(act) = column_edge(ui, edge_id, rect, "From") {
+                            from_edge = Some(act);
+                        }
+                    }
                     for (index, c) in columns.iter().enumerate() {
                         if widths[index] == 0.0 {
                             continue;
                         }
                         let text = egui::RichText::new(c).strong();
-                        let (rect, r) = ui.allocate_exact_size(
-                            egui::vec2(widths[index], row_height),
-                            egui::Sense::click_and_drag(),
-                        );
+                        let sense = match read_only {
+                            true => egui::Sense::click(),
+                            false => egui::Sense::click_and_drag(),
+                        };
+                        let (rect, r) =
+                            ui.allocate_exact_size(egui::vec2(widths[index], row_height), sense);
                         // Dragged by its name to another column's place.
                         if r.drag_started() {
                             doc.moving = Some(index);
@@ -1689,6 +1977,21 @@ fn grid(
                             }
                         }
                         r.context_menu(|ui| {
+                            if read_only {
+                                if ui.button("Hide Column").clicked() {
+                                    column_view = Some(ColumnView::Hide(index));
+                                    ui.close();
+                                }
+                                if ui.button("Reset Width").clicked() {
+                                    column_view = Some(ColumnView::Reset(Some(index)));
+                                    ui.close();
+                                }
+                                if ui.button("Reset All Widths").clicked() {
+                                    column_view = Some(ColumnView::Reset(None));
+                                    ui.close();
+                                }
+                                return;
+                            }
                             if ui.button("Rename Column…").clicked() {
                                 column_act = Some((index, false));
                                 ui.close();
@@ -1773,12 +2076,19 @@ fn grid(
                             }
                             (None, None) => c.clone(),
                         };
-                        r.on_hover_text(
-                            about
-                                + "\nDrag: move the column. Drag its right edge: its width \
-                                   (double click there: as wide as its widest cell). \
-                                   Right-click: rename, move or remove it",
-                        );
+                        r.on_hover_text(match read_only {
+                            true => {
+                                about
+                                    + "\nDrag its right edge: its width (double click there: \
+                                       as wide as its widest cell). Right-click: hide it"
+                            }
+                            false => {
+                                about
+                                    + "\nDrag: move the column. Drag its right edge: its \
+                                       width (double click there: as wide as its widest \
+                                       cell). Right-click: rename, move or remove it"
+                            }
+                        });
                         // (On top of the name: its right end is the edge's.)
                         let edge_id = egui::Id::new(("table-edge", id, index));
                         if doc.moving.is_none()
@@ -1793,16 +2103,24 @@ fn grid(
             });
     });
     match edge {
-        Some((c, Edge::Width(w))) => set_column_width(settings, &table_name, &columns[c], w),
+        Some((c, Edge::Width(w))) => set_column_width(settings, table_name, &columns[c], w),
         Some((c, Edge::Fit)) => {
             // (To every row's cell, as shown: not those of a Find alone.)
             let t = doc.edit.table();
-            let cells = (0..t.len())
-                .map(|r| cell_shows(t.cell(r, c), strref[c], named[c], game.as_deref()).0);
+            let cells =
+                (0..t.len()).map(|r| cell_shows(t.cell(r, c), strref[c], named[c], (talk, game)).0);
             let w = fit_width(ui, &columns[c], cells);
-            set_column_width(settings, &table_name, &columns[c], w);
+            set_column_width(settings, table_name, &columns[c], w);
         }
         None => {}
+    }
+    match (from_edge, layered) {
+        (Some(Edge::Width(w)), _) => set_column_width(settings, table_name, FROM, w),
+        (Some(Edge::Fit), Some(l)) => {
+            let w = fit_width(ui, "From", l.copies.iter().map(|c| c.0.clone()));
+            set_column_width(settings, table_name, FROM, w);
+        }
+        _ => {}
     }
     match column_view {
         Some(ColumnView::Hide(c)) => {
@@ -1813,7 +2131,7 @@ fn grid(
             }
         }
         Some(ColumnView::Reset(c)) => {
-            reset_column_width(settings, &table_name, c.map(|c| columns[c].as_str()));
+            reset_column_width(settings, table_name, c.map(|c| columns[c].as_str()));
         }
         None => {}
     }
@@ -1881,7 +2199,7 @@ fn grid(
         let left = lefts.get(column).copied().unwrap_or_default();
         let step = widths.get(column).copied().unwrap_or(CELL) + ui.spacing().item_spacing.x;
         let width = ui.available_width() - NUMBER;
-        if left < scroll_x || left + step > scroll_x + width {
+        if left - lead < scroll_x || left + step > scroll_x + width {
             list = list.horizontal_scroll_offset((left - width / 2.0).max(0.0));
         }
     }
@@ -1910,6 +2228,21 @@ fn grid(
                 list.show_rows(ui, row_height, rows.len(), |ui, range| {
                     for &r in &rows[range] {
                         ui.horizontal(|ui| {
+                            // (The layer the row comes from, in a view.)
+                            if let Some(l) = layered {
+                                let origin = l.row_origin(r);
+                                let text = egui::RichText::new(&l.copies[origin].0);
+                                let text =
+                                    if origin + 1 < l.copies.len() { text } else { text.weak() };
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(from_width, row_height),
+                                    egui::Sense::hover(),
+                                );
+                                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                                let inner = rect.shrink2(egui::vec2(4.0, 0.0));
+                                ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
+                                    .add(egui::Label::new(text).truncate().selectable(false));
+                            }
                             for (c, is_strref) in strref.iter().copied().enumerate() {
                                 let width = widths[c];
                                 if width == 0.0 {
@@ -1947,13 +2280,28 @@ fn grid(
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = faults.iter().find(|f| f.row == r && f.column == c);
                                 let (label, text, was_named) =
-                                    cell_shows(raw, is_strref, named[c], game.as_deref());
+                                    cell_shows(raw, is_strref, named[c], (talk, game));
                                 let mut rich = egui::RichText::new(label).monospace();
                                 if raw.is_none() {
                                     rich = rich.weak();
                                 }
                                 if fault.is_some() {
                                     rich = rich.color(wrong);
+                                }
+                                // (A cell a layer changed, not added: the
+                                // row is in the copy below.)
+                                let was = layered.and_then(|l| {
+                                    let origin = l.cell_origin(r, c);
+                                    let below = l.copies.get(origin + 1)?;
+                                    (r < below.1.len()).then(|| l.before(r, c)).flatten().map(
+                                        |(below, value)| {
+                                            let by = l.copies[origin].0.clone();
+                                            (by, below.to_string(), value.map(str::to_string))
+                                        },
+                                    )
+                                });
+                                if was.is_some() {
+                                    rich = rich.color(changed);
                                 }
                                 let (rect, cell) = ui.allocate_exact_size(
                                     egui::vec2(width, row_height),
@@ -2008,6 +2356,10 @@ fn grid(
                                 if let Some(f) = fault {
                                     tip.push(f.message.clone());
                                 }
+                                if let Some((by, below, value)) = &was {
+                                    let value = value.as_deref().unwrap_or("****");
+                                    tip.push(format!("Set by {by}; {value} in {below}"));
+                                }
                                 let cell = match tip.is_empty() {
                                     true => cell,
                                     false => cell.on_hover_text(tip.join("\n")),
@@ -2016,7 +2368,7 @@ fn grid(
                                     reach = Some((r, c));
                                 } else if cell.clicked() || cell.double_clicked() {
                                     clicked = Some((r, c));
-                                    begin = cell.double_clicked();
+                                    begin = cell.double_clicked() && !read_only;
                                 }
                             }
                         });
@@ -2159,34 +2511,30 @@ fn inspector(
         );
         return;
     };
-    let table: &TwoDa = app.tables[at].edit.table();
-    let Some(column_name) = table.columns().get(column).cloned() else { return };
-    let value = table.cell(row, column).map(str::to_string);
-    let kind = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(&column_name)).map(|(_, k)| *k);
-    // What the table's own description says of the column comes first.
-    let description = app.tables[at].description();
-    let described = description.as_deref().and_then(|d| d.column(&column_name));
-    let kind = match described.map(|d| &d.kind) {
-        Some(Kind::StrRef) => Some(ColumnKind::StrRef),
-        Some(Kind::Text) | None => kind,
-        Some(_) => None,
+    let Some(column_name) = app.tables[at].edit.table().columns().get(column).cloned() else {
+        return;
     };
+    let description = app.tables[at].description();
+    let kind = column_kind(kinds, description.as_deref(), &column_name);
+    // (A talk-table string's cell offers a new line in the module's table,
+    // where it has one to add to: looked at for such a cell alone.)
+    let addable = kind == Some(ColumnKind::StrRef) && crate::talk_view::can_add(app).is_some();
+    let talk = app.talk.as_ref().filter(|_| !app.talk_view.outside);
+    let table: &TwoDa = app.tables[at].edit.table();
+    let value = table.cell(row, column).map(str::to_string);
+    let described = description.as_deref().and_then(|d| d.column(&column_name));
     let id = app.tables[at].id;
     // A table the description names: the project's own, else the game's.
     let files = app.tables[at].described.as_ref();
-    let cp = codepage(app);
     let named_table = |n: &str| -> Option<Arc<TwoDa>> {
-        let own = files.and_then(|d| {
-            let mut read = d.tables.borrow_mut();
-            read.entry(n.to_ascii_lowercase())
-                .or_insert_with(|| d.files.table(n, cp).map(Arc::new))
-                .clone()
-        });
+        let own = files.and_then(|d| project_table(app, d, n));
         own.or_else(|| game.as_deref().and_then(|g| g.table(n).ok()))
     };
     let mut set: Option<Option<String>> = None;
     let mut find_references = false;
-    let mut talk = false;
+    let mut go: Option<mg_module::rename::Usage> = None;
+    let mut open_talk = false;
+    let mut new_line: Option<String> = None;
     ui.horizontal_wrapped(|ui| {
         ui.strong(format!("Row {row}, {column_name}"));
         ui.monospace(value.as_deref().unwrap_or("****"));
@@ -2304,14 +2652,16 @@ fn inspector(
                 let text = value
                     .as_deref()
                     .and_then(|v| v.parse::<u32>().ok())
-                    .and_then(|n| game.as_deref()?.string(mg_core::StrRef(n)));
+                    .and_then(|n| talk_string(talk, game.as_deref(), n));
                 match text {
                     Some(text) => ui.label(format!("\u{201c}{text}\u{201d}")),
                     None => ui.weak("a talk-table string's number"),
                 };
                 if ui.button("Talk Table").on_hover_text("Open the talk table editor").clicked() {
-                    talk = true;
+                    open_talk = true;
                 }
+                let strings = (talk, game.as_deref());
+                string_choice(ui, id, strings, value.as_deref(), addable, &mut set, &mut new_line);
             }
             Some(ColumnKind::Model) => {
                 model_choice(ui, id, game.as_deref(), value.as_deref(), &mut set);
@@ -2349,17 +2699,20 @@ fn inspector(
             .button(format!("Find References to Row {row}"))
             .on_hover_text(
                 "The cells of other tables (and this one) that name this row, in the columns \
-                 known to name a row of this table",
+                 known to name a row of this table; and the module's blueprints, areas and \
+                 placed objects whose fields hold it, and its scripts that name it (a \
+                 constant of nwscript's that stands for it, a Get2DAString of this table at \
+                 it)",
             )
             .clicked()
         {
             find_references = true;
         }
-        if let Some((of, found)) = &app.tables[at].references
+        if let Some((of, found, uses)) = &app.tables[at].references
             && *of == row
         {
-            if found.is_empty() {
-                ui.weak("No table's known columns name it.");
+            if found.is_empty() && uses.is_empty() {
+                ui.weak("No table's known columns name it, nor the module's fields and scripts.");
             }
             for r in found.iter().take(12) {
                 ui.label(format!("{}.2da row {}, {}", r.table, r.row, r.column));
@@ -2367,9 +2720,34 @@ fn inspector(
             if found.len() > 12 {
                 ui.weak(format!("and {} more", found.len() - 12));
             }
+            // (The module's: a click goes there.)
+            for u in uses.iter().take(24) {
+                if ui.link(&u.place).on_hover_text("Go there").clicked() {
+                    go = Some(u.clone());
+                }
+            }
+            if uses.len() > 24 {
+                ui.weak(format!("and {} more in the module", uses.len() - 24));
+            }
         }
     });
     let found = find_references.then(|| references(app, &name, table, row));
+    let uses = find_references.then(|| module_row_uses(app, &name, row));
+    if let Some(text) = new_line {
+        let line =
+            mg_module::talk::Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
+        match crate::talk_view::add_line(app, &line) {
+            Ok(strref) => {
+                set = Some(Some(strref.0.to_string()));
+                app.log.info(format!(
+                    "Added talk-table line {} for {name}.2da row {row}, {column_name}: saved with \
+                     the talk table (its own Save, or the module's)",
+                    strref.0
+                ));
+            }
+            Err(e) => app.tables[at].problem = Some(format!("New Line: {e}")),
+        }
+    }
     if let Some(value) = set {
         let doc = &mut app.tables[at];
         doc.typing = None;
@@ -2379,12 +2757,217 @@ fn inspector(
             Err(e) => doc.problem = Some(e.to_string()),
         }
     }
-    if let Some(found) = found {
-        app.tables[at].references = Some((row, found));
+    if let (Some(found), Some(uses)) = (found, uses) {
+        app.tables[at].references = Some((row, found, uses));
     }
-    if talk {
+    if let Some(u) = go {
+        app.go_to_usage(&u);
+    }
+    if open_talk {
         app.actions.push(Action::OpenTab(Tab::TalkTable));
     }
+}
+
+/// What a column holds, where the checks know: the table's own
+/// description first (a `strref` column of it is a talk-table string's
+/// cell; one of another kind is the description's alone), else the kinds
+/// the checks know of the game's tables.
+fn column_kind(
+    kinds: &[(&'static str, ColumnKind)],
+    description: Option<&Description>,
+    column: &str,
+) -> Option<ColumnKind> {
+    let known = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(column)).map(|(_, k)| *k);
+    match description.and_then(|d| d.column(column)).map(|d| &d.kind) {
+        Some(Kind::StrRef) => Some(ColumnKind::StrRef),
+        Some(Kind::Text) | None => known,
+        Some(_) => None,
+    }
+}
+
+/// A talk-table string's text: a custom one (16777216 and on) as the
+/// module's talk table open for editing has it (a line added and not yet
+/// saved too), else as the game reads it.
+pub fn talk_string(
+    talk: Option<&mg_module::talk::Table>,
+    game: Option<&mg_rules::GameData>,
+    n: u32,
+) -> Option<String> {
+    let strref = mg_core::StrRef(n);
+    if strref.is_custom()
+        && let Some(t) = talk
+    {
+        let row = strref.index() as usize;
+        return (row < t.len()).then(|| t.line(row).text).filter(|t| !t.is_empty());
+    }
+    game?.string(strref)
+}
+
+/// How many strings a list of them shows at most.
+const STRINGS_SHOWN: usize = 200;
+
+/// The talk tables' strings whose text holds `find` (as Find reads it):
+/// the module's own table's first (as it is being edited, else as the
+/// game reads it), then the game's `dialog.tlk`'s, which is looked
+/// through only for something typed. Each string's number and text, at
+/// most [`STRINGS_SHOWN`], and how many there are in all.
+pub fn strings_found(
+    talk: Option<&mg_module::talk::Table>,
+    game: Option<&mg_rules::GameData>,
+    find: &str,
+) -> (Vec<(u32, String)>, usize) {
+    let needle = mg_core::text::Needle::new(find.trim());
+    let mut found = Vec::new();
+    let mut all = 0;
+    let mut offer = |n: u32, text: String| {
+        if !text.is_empty() && needle.finds(&text) {
+            all += 1;
+            if found.len() < STRINGS_SHOWN {
+                found.push((n, text));
+            }
+        }
+    };
+    match (talk, game.and_then(|g| g.custom_tlk())) {
+        (Some(t), _) => (0..t.len())
+            .for_each(|row| offer(mg_module::talk::Table::strref(row).0, t.line(row).text)),
+        (None, Some(tlk)) => {
+            let cp = game.map(|g| g.codepage()).unwrap_or_default();
+            for row in 0..tlk.entries.len() {
+                let strref = mg_core::StrRef(mg_core::StrRef::CUSTOM_FLAG | row as u32);
+                offer(strref.0, tlk.text_in(strref, cp).unwrap_or_default());
+            }
+        }
+        (None, None) => {}
+    }
+    if let Some(g) = game
+        && !needle.is_empty()
+    {
+        let (tlk, cp) = (g.tlk(), g.codepage());
+        for row in 0..tlk.entries.len() as u32 {
+            offer(row, tlk.text_in(mg_core::StrRef(row), cp).unwrap_or_default());
+        }
+    }
+    (found, all)
+}
+
+/// A talk-table string's cell, chosen: **Choose String…**, the strings
+/// found by a part of their text, one clicked going in the cell; and
+/// **New Line…**, a line of text added to the module's own talk table,
+/// whose number goes in the cell (`addable`: the module has a table to
+/// add to; the line is then `new_line`'s, added by the caller).
+fn string_choice(
+    ui: &mut Ui,
+    id: u32,
+    (talk, game): (Option<&mg_module::talk::Table>, Option<&mg_rules::GameData>),
+    value: Option<&str>,
+    addable: bool,
+    set: &mut Option<Option<String>>,
+    new_line: &mut Option<String>,
+) {
+    let base = egui::Id::new(("table-string", id));
+    let (choose_id, new_id) = (base.with("choose"), base.with("new"));
+    let mut choosing: bool = ui.data(|d| d.get_temp(choose_id)).unwrap_or(false);
+    let mut adding: bool = ui.data(|d| d.get_temp(new_id)).unwrap_or(false);
+    let choose = ui
+        .selectable_label(choosing, "Choose String…")
+        .on_hover_text("The strings of the module's talk table and the game's, by their text");
+    if choose.clicked() {
+        choosing = !choosing;
+        adding = false;
+    }
+    let new = ui
+        .add_enabled(addable, egui::Button::selectable(adding, "New Line…"))
+        .on_hover_text("Adds a line to the module's talk table and puts its number in the cell")
+        .on_disabled_hover_text(
+            "Needs the module's own talk table, open for editing (Module Properties › Custom \
+             Content names it)",
+        );
+    if new.clicked() {
+        adding = !adding;
+        choosing = false;
+    }
+    if choosing {
+        // (On a line of its own under the cell's: the panel's row wraps.)
+        ui.end_row();
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width().clamp(260.0, 560.0));
+            let field_id = base.with("find");
+            let mut find: String = ui.data(|d| d.get_temp(field_id)).unwrap_or_default();
+            let _ = crate::widgets::SearchField::new(field_id.with("field"), &mut find)
+                .hint("Part of a string's text")
+                .show(ui);
+            ui.data_mut(|d| d.insert_temp(field_id, find.clone()));
+            // (Looked through again when what is typed, or the module's
+            // table, changes: the game's has a hundred thousand strings.)
+            let mark = (find.clone(), talk.map(|t| (t.len(), t.steps())));
+            let kept_id = base.with("found");
+            type Kept = (String, Option<(usize, (usize, usize))>, Arc<(Vec<(u32, String)>, usize)>);
+            let kept: Option<Kept> = ui.data(|d| d.get_temp(kept_id));
+            let found = match kept.filter(|(f, t, _)| (f, t) == (&mark.0, &mark.1)) {
+                Some((_, _, found)) => found,
+                None => {
+                    let found = Arc::new(strings_found(talk, game, &find));
+                    ui.data_mut(|d| d.insert_temp(kept_id, (mark.0, mark.1, found.clone())));
+                    found
+                }
+            };
+            let (names, all) = (&found.0, found.1);
+            match (all, find.trim().is_empty()) {
+                (0, true) => _ = ui.weak("Type a part of a string's text"),
+                (0, false) => _ = ui.weak("No string has it"),
+                (n, _) if n > names.len() => {
+                    ui.weak(format!("{} of {n}: type more of the text", names.len()));
+                }
+                _ => {}
+            }
+            let list = egui::ScrollArea::vertical()
+                .id_salt(base.with("list"))
+                .max_height(240.0)
+                .min_scrolled_height(200.0);
+            list.show(ui, |ui| {
+                for (n, text) in names {
+                    let now = value.and_then(|v| v.trim().parse::<u32>().ok()) == Some(*n);
+                    let line = text.lines().next().unwrap_or_default();
+                    let label = egui::Button::selectable(now, format!("{n}  {line}")).truncate();
+                    if ui.add(label).on_hover_text(text).clicked() {
+                        *set = Some(Some(n.to_string()));
+                        choosing = false;
+                    }
+                }
+            });
+        });
+    }
+    if adding && addable {
+        ui.end_row();
+        ui.vertical(|ui| {
+            let text_id = base.with("text");
+            let mut text: String = ui.data(|d| d.get_temp(text_id)).unwrap_or_default();
+            ui.label("The new line's text");
+            let field =
+                ui.add(egui::TextEdit::multiline(&mut text).desired_rows(2).desired_width(420.0));
+            crate::widgets::autofocus(ui, &field);
+            let typed = !text.trim().is_empty();
+            ui.horizontal(|ui| {
+                let add = ui
+                    .add_enabled(typed, egui::Button::new("Add to Talk Table"))
+                    .on_hover_text("A new line at the talk table's end; the cell takes its number");
+                if add.clicked() {
+                    *new_line = Some(text.trim().to_string());
+                    text.clear();
+                    adding = false;
+                }
+                if crate::widgets::cancel(ui) {
+                    text.clear();
+                    adding = false;
+                }
+            });
+            ui.data_mut(|d| d.insert_temp(text_id, text));
+        });
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(choose_id, choosing);
+        d.insert_temp(new_id, adding);
+    });
 }
 
 /// A row of the table `target` to choose (the table itself as it is now,
@@ -2461,7 +3044,10 @@ fn model_choice(
         if all > names.len() {
             ui.weak(format!("{} of {all}: type more of the name", names.len()));
         }
-        let list = egui::ScrollArea::vertical().id_salt(find_id.with("list")).max_height(240.0);
+        let list = egui::ScrollArea::vertical()
+            .id_salt(find_id.with("list"))
+            .max_height(240.0)
+            .min_scrolled_height(200.0);
         list.show(ui, |ui| {
             for n in names {
                 let now = value.is_some_and(|v| v.eq_ignore_ascii_case(&n));
@@ -2589,6 +3175,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
     if taking.from.as_ref().is_none_or(|f| !others.iter().any(|(l, _)| l == f)) {
         taking.from = others.first().map(|(l, _)| l.clone());
         taking.chosen.clear();
+        taking.cells.clear();
+        taking.open_row = None;
     }
     let from = taking.from.clone();
     let other = from.as_ref().and_then(|f| others.iter().find(|(l, _)| l == f));
@@ -2632,6 +3220,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 if pick != from {
                     taking.from = pick;
                     taking.chosen.clear();
+                    taking.cells.clear();
+                    taking.open_row = None;
                 }
                 let count = |o: Offered| found.iter().filter(|c| c.offered == o).count();
                 ui.weak(match told {
@@ -2678,6 +3268,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 }
                 if ui.button("Clear Selections").clicked() {
                     taking.chosen.clear();
+                    taking.cells.clear();
                 }
             });
             ui.separator();
@@ -2685,7 +3276,10 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 ui.weak("This table has every row of that copy as it has them.");
             }
             let height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-            let room = (ui.available_height() - 40.0).max(120.0);
+            // (Room under the list for the buttons, and for a row's cells
+            // being chosen.)
+            let under = if taking.open_row.is_some() { 150.0 } else { 40.0 };
+            let room = (ui.available_height() - under).max(120.0);
             egui::ScrollArea::vertical().max_height(room).auto_shrink([false, false]).show_rows(
                 ui,
                 height,
@@ -2711,6 +3305,23 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                                 Offered::Conflict => text.color(ui.visuals().warn_fg_color),
                                 _ => text.weak(),
                             });
+                            // (A row both changed: its cells, chosen one by
+                            // one under the list.)
+                            if c.offered == Offered::Conflict {
+                                let open = taking.open_row == Some(c.row);
+                                let some = taking.cells.iter().filter(|(r, _)| *r == c.row).count();
+                                let label = match some {
+                                    0 => "Cells…".to_string(),
+                                    n => format!("Cells… ({n})"),
+                                };
+                                if ui
+                                    .selectable_label(open, label)
+                                    .on_hover_text("Choose the cells of this row to take")
+                                    .clicked()
+                                {
+                                    taking.open_row = if open { None } else { Some(c.row) };
+                                }
+                            }
                             // The cells that differ: here, then there.
                             let cells: Vec<String> = c
                                 .cells
@@ -2735,12 +3346,64 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     }
                 },
             );
+            // The cells of the row both changed, to take one by one.
+            if let Some(c) = taking.open_row.and_then(|r| found.iter().find(|c| c.row == r)) {
+                ui.separator();
+                let whole = taking.chosen.contains(&c.row);
+                ui.label(match whole {
+                    true => format!("Row {}: taken whole (untick it to choose its cells)", c.row),
+                    false => format!("Row {}'s cells: tick those to take from that copy", c.row),
+                });
+                // (A line each, in a list of its own: a row may differ in
+                // many cells.)
+                let cells = egui::ScrollArea::vertical().id_salt("take-cells").max_height(100.0);
+                ui.add_enabled_ui(!whole, |ui| {
+                    cells.auto_shrink([false, true]).show(ui, |ui| {
+                        for (i, (col, mine, theirs)) in c.cells.iter().enumerate() {
+                            let (mine, theirs) = (
+                                mine.as_deref().unwrap_or("****"),
+                                theirs.as_deref().unwrap_or("****"),
+                            );
+                            let mut on = whole || taking.cells.contains(&(c.row, *col));
+                            let line = format!("{}: {mine} \u{2192} {theirs}", columns[*col]);
+                            ui.horizontal(|ui| {
+                                let text = egui::RichText::new(line).monospace();
+                                let r = ui.checkbox(&mut on, text);
+                                let whose = match c.whose.get(i) {
+                                    Some(Whose::Theirs) => "changed there",
+                                    Some(Whose::Ours) => "changed here",
+                                    Some(Whose::Both) => "changed in both",
+                                    _ => "",
+                                };
+                                if !whose.is_empty() {
+                                    ui.weak(whose);
+                                }
+                                if r.changed() {
+                                    match on {
+                                        true => _ = taking.cells.insert((c.row, *col)),
+                                        false => _ = taking.cells.remove(&(c.row, *col)),
+                                    }
+                                }
+                            });
+                        }
+                    });
+                });
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 let n = taking.chosen.len();
+                let m = taking.cells.iter().filter(|(r, _)| !taking.chosen.contains(r)).count();
+                let label = match (n, m) {
+                    (n, 0) => format!("Take {n} Rows"),
+                    (0, m) => format!("Take {m} Cells"),
+                    (n, m) => format!("Take {n} Rows and {m} Cells"),
+                };
                 if ui
-                    .add_enabled(n > 0, egui::Button::new(format!("Take {n} Rows")))
-                    .on_hover_text("Each row whole, as that copy has it; one step to undo")
+                    .add_enabled(n + m > 0, egui::Button::new(label))
+                    .on_hover_text(
+                        "Each row ticked whole, and each cell chosen alone, as that copy has \
+                         them; one step to undo",
+                    )
                     .clicked()
                 {
                     take = true;
@@ -2752,7 +3415,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
         });
     if take && let Some((_, t)) = other {
         let rows: Vec<usize> = taking.chosen.iter().copied().collect();
-        if doc.edit.take_rows(t, &rows) > 0 {
+        let cells: Vec<(usize, usize)> = taking.cells.iter().copied().collect();
+        if doc.edit.take(t, &rows, &cells) != (0, 0) {
             doc.changed();
         }
         doc.taking = None;

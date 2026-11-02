@@ -643,6 +643,8 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -689,6 +691,8 @@ fn a_flags_list_is_ticked_by_the_keys() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -1174,6 +1178,8 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     .unwrap();
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
     assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
     h.get_by_label("mystore.2da");
@@ -1321,6 +1327,8 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
         .unwrap();
     let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
     h.run_steps(3);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the hak");
     {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
@@ -1914,4 +1922,307 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     click_pos(&h, at);
     h.run_steps(4);
     assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
+}
+
+/// The resource browser's read-only view of a table is the editor's grid
+/// with the editing left out: a cell selected by a click and the arrows,
+/// Ctrl+C copies, Find narrows the rows, Go to goes to one, a column is
+/// hidden; Delete, typing and a double click change nothing.
+#[test]
+fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
+    let root = mg_testkit::corpus!();
+    let mut h = harness(game_app(&root, None), 1280.0, 800.0);
+    h.run_steps(3);
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(5);
+    let before = h.state().game.as_deref().unwrap().table("spells").unwrap();
+    let label = |r: usize| before.get(r, "Label").unwrap().to_string();
+    h.get_by_label(&label(0)).click();
+    h.run_steps(2);
+    h.get_by_label_contains(&format!("Row 0, Label: {}", label(0)));
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.get_by_label_contains(&format!("Row 2, Label: {}", label(2)));
+    h.event(egui::Event::Copy);
+    h.step();
+    let copied = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(copied, Some(format!("{}\n{}", label(1), label(2))));
+    // Nothing is typed into or emptied.
+    let fields =
+        |h: &Harness<'_, Moonglow>| h.get_all_by_role(egui::accesskit::Role::TextInput).count();
+    let typing = fields(&h);
+    h.key_press(egui::Key::Delete);
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("x".into()));
+    h.run_steps(2);
+    let fifth = h.get_by_label(&label(5)).rect().center();
+    double_click(&mut h, fifth);
+    h.run_steps(2);
+    assert_eq!(fields(&h), typing, "no cell is typed in");
+    assert!(h.query_all_by_label(&label(1)).count() > 0, "not emptied");
+    // Find narrows the rows; Escape clears it.
+    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    click_pos(&h, find.rect().center());
+    h.run_steps(2);
+    h.event(egui::Event::Text("fireball".into()));
+    h.run_steps(3);
+    assert!(h.query_all_by_label("Fireball").count() > 0);
+    assert!(h.query_by_label(&label(0)).is_none(), "narrowed");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label(&label(0));
+    // A column hidden, from its name's menu, and shown again.
+    h.get_by_label("IconResRef").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Hide Column").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("IconResRef").is_none());
+    h.get_by_label("Show Hidden Columns (1)").click();
+    h.run_steps(2);
+    h.get_by_label("IconResRef");
+    assert_eq!(
+        h.state().game.as_deref().unwrap().table("spells").unwrap().get(1, "Label"),
+        Some(label(1).as_str()),
+        "the game's table as it was"
+    );
+}
+
+/// A hak built from a folder: its table's description is the family's in
+/// that folder (`tables = "loot_*"`), not looked for beside the hak's
+/// file; and a copy of the game's spells.2da with no description of its
+/// own is held to Moonglow's, the cells the game's copy has as they are
+/// not said.
+#[test]
+fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-families");
+    let content = dir.join("content");
+    std::fs::create_dir_all(&content).unwrap();
+    std::fs::write(content.join("loot_a.2da"), "2DA V2.0\n\n   Label Chance\n0  a     500\n")
+        .unwrap();
+    std::fs::write(
+        content.join("loot.2da.toml"),
+        "tables = \"loot_*\"\n\n[columns.Chance]\nkind = \"int\"\nmax = 100\n",
+    )
+    .unwrap();
+    let dialogs = NoDialogs { folders: vec![content.clone()], ..Default::default() };
+    let mut h = harness(game_app_with(&root, None, dialogs), 1280.0, 800.0);
+    h.run_steps(3);
+    mg_ui::hak_view::build_from_folder(h.state_mut());
+    h.run_steps(3);
+    let hak = h.state().haks[0].id;
+    let key = ResKey::parse("loot_a", ResType::TWODA).unwrap();
+    mg_ui::table_view::open_in_hak(h.state_mut(), hak, key).unwrap();
+    h.run_steps(3);
+    settle(&mut h);
+    h.get_by_label_contains("Described by loot.2da.toml");
+    h.get_by_label("1 cell is wrong");
+    // The game's spells.2da, a school changed to one the engine lacks.
+    let game = game_data(&root);
+    let mut t = (*game.table("spells").unwrap()).clone();
+    let school = t.column("School").unwrap();
+    t.set(1, school, Some("X".into())).unwrap();
+    let file = dir.join("spells.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    settle(&mut h);
+    h.get_by_label_contains("Described by Moonglow (the game's spells.2da)");
+    // (Bigby's Crushing Hand's MetaMagic of 0xff, the game's, is not
+    // said: one cell in each table open, the hak's and this.)
+    assert_eq!(h.get_all_by_label("1 cell is wrong").count(), 2);
+    let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
+    let description = doc.description().unwrap();
+    let school = &description.column("School").unwrap().kind;
+    assert_eq!(school.named("V").as_deref(), Some("Evocation"));
+}
+
+/// Take Rows: a row both copies changed is taken cell by cell, each cell
+/// saying whose change it is against the lowest copy (the game's).
+#[test]
+fn a_row_both_copies_changed_is_taken_cell_by_cell() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-take-cells");
+    let user = user_folder(&dir, &["override"]);
+    let game = game_data(&root);
+    let base = (*game.table("feat").unwrap()).clone();
+    let cell = |t: &mg_2da::TwoDa, c: &str| t.get(3, c).unwrap_or("****").to_string();
+    let set = |t: &mut mg_2da::TwoDa, c: &str, v: &str| {
+        let c = t.column(c).unwrap();
+        t.set(3, c, Some(v.into())).unwrap();
+    };
+    // Theirs (the override's) changed row 3's LABEL and MINDEX; ours its
+    // LABEL and MINSTR.
+    let mut theirs = base.clone();
+    set(&mut theirs, "LABEL", "Theirs");
+    set(&mut theirs, "MINDEX", "15");
+    let cp = mg_core::Codepage::default();
+    std::fs::write(user.join("override/feat.2da"), theirs.to_bytes(cp).unwrap()).unwrap();
+    let mut ours = base.clone();
+    set(&mut ours, "LABEL", "Ours");
+    set(&mut ours, "MINSTR", "13");
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, ours.to_bytes(cp).unwrap()).unwrap();
+    let mut h = harness(game_app(&root, Some(user)), 1280.0, 900.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.get_by_label("Take Rows…").click();
+    h.run_steps(4);
+    h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
+    h.get_by_label("Cells…").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Row 3's cells");
+    // (The row's, in the list, and LABEL's.)
+    assert_eq!(h.get_all_by_label("changed in both").count(), 2);
+    h.get_by_label("changed here");
+    h.get_by_label("changed there");
+    let mindex = format!("MINDEX: {} \u{2192} 15", cell(&base, "MINDEX"));
+    h.get_by_label(&mindex).click();
+    h.run_steps(2);
+    h.get_by_label("Take 1 Cells").click();
+    h.run_steps(3);
+    let now = table_of(&h, id);
+    assert_eq!(now.get(3, "MINDEX"), Some("15"), "taken");
+    assert_eq!((now.get(3, "LABEL"), now.get(3, "MINSTR")), (Some("Ours"), Some("13")), "kept");
+    assert!(h.state().tables[0].taking.is_none(), "the window closed");
+    assert_eq!(h.state().tables[0].edit.undo_label(), Some("Take 1 cells"));
+}
+
+/// Find References to Row lists the module's blueprints, areas and
+/// scripts that name the row, beside the tables' cells, and a click goes
+/// there.
+#[test]
+fn find_references_to_row_finds_the_module_s_blueprints_and_scripts() {
+    let dir = mg_testkit::scratch_dir("ui-table-row-uses");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let table = ResKey::parse("mg_looks", ResType::TWODA).unwrap();
+    let guard = ResKey::parse("mg_guard", ResType::UTC).unwrap();
+    let script = ResKey::parse("mg_look", ResType::NSS).unwrap();
+    let mut utc = mg_gff::Gff::new(*b"UTC ");
+    utc.root.set("Appearance_Type", mg_gff::Value::Word(2));
+    let src = b"void main()\n{\n    string s = Get2DAString(\"mg_looks\", \"Label\", 2);\n}\n";
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table, a creature and a script",
+        vec![
+            mg_edit::Edit::SetResource {
+                key: table,
+                data: Some(b"2DA V2.0\n\n   Label\n0  a\n1  b\n2  c\n".to_vec()),
+            },
+            mg_edit::Edit::SetResource { key: guard, data: Some(utc.to_bytes().unwrap()) },
+            mg_edit::Edit::SetResource { key: script, data: Some(src.to_vec()) },
+        ],
+    )));
+    let mut h = harness(app, 1280.0, 900.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), table).unwrap();
+    h.run_steps(4);
+    // (The creature's appearance is appearance.2da's row, not this one's.)
+    let uses = mg_ui::table_view::module_row_uses(h.state(), "appearance", 2);
+    assert_eq!(uses.len(), 1, "{uses:?}");
+    assert!(uses[0].place.ends_with("Appearance_Type"), "{uses:?}");
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(2, 0);
+    h.run_steps(3);
+    h.get_by_label("Find References to Row 2").click();
+    h.run_steps(3);
+    let line = h.get_by_label_contains("mg_look line 3: Get2DAString");
+    line.click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some(), "the script opened");
+}
+
+/// A talk-table string's cell is chosen from the talk tables by a part of
+/// its text, the module's own and the game's, and given a new line of the
+/// module's talk table, whose number goes in the cell.
+#[test]
+fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
+    use mg_module::talk::Line;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-strings");
+    let user = user_folder(&dir, &[]);
+    let path = sample_module(&dir);
+    let tlk_key = ResKey::parse("mg_strs", ResType::TLK).unwrap();
+    let key = ResKey::parse("mg_strs", ResType::TWODA).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("mg_strs"));
+    m.set_info(&info).unwrap();
+    let mut t = mg_module::talk::Table::create("mg_strs", &dir, Language::ENGLISH, false);
+    let line = |text: &str| Line {
+        text: text.into(),
+        feminine: None,
+        sound: String::new(),
+        sound_length: 0.0,
+    };
+    t.add_line(&line("Old words of the module")).unwrap();
+    m.set(tlk_key, t.tlk.to_bytes().unwrap());
+    m.set(key, b"2DA V2.0\n\n   Label Name\n0  a     ****\n1  b     ****\n".to_vec());
+    m.save().unwrap();
+    // (The column is a string's by the table's description.)
+    std::fs::write(path.with_file_name("mg_strs.2da.toml"), "[columns.Name]\nkind = \"strref\"\n")
+        .unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1280.0, 1300.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
+    let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
+        h.run_steps(4);
+    };
+    let type_in_last = |h: &mut Harness<'_, Moonglow>, role, text: &str| {
+        let field = h.get_all_by_role(role).last().unwrap().rect().center();
+        click_pos(h, field);
+        h.run_steps(2);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(4);
+    };
+    // The module's string, found by a part of its text.
+    choose(&mut h, 0);
+    h.get_by_label("Choose String…").click();
+    h.run_steps(3);
+    type_in_last(&mut h, egui::accesskit::Role::TextInput, "old words");
+    h.get_by_label("16777216  Old words of the module").click();
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(0, "Name"), Some("16777216"));
+    h.get_by_label("\u{201c}Old words of the module\u{201d}");
+    // The game's, as well.
+    let (n, text) = {
+        let game = h.state().game.as_deref().unwrap();
+        let tlk = game.tlk();
+        (100..tlk.entries.len() as u32)
+            .find_map(|n| {
+                let t = tlk.text_in(mg_core::StrRef(n), game.codepage())?;
+                (t.len() > 30 && t.len() < 60 && !t.contains('\n')).then_some((n, t))
+            })
+            .unwrap()
+    };
+    let found = mg_ui::table_view::strings_found(None, h.state().game.as_deref(), &text);
+    assert!(found.0.iter().any(|(m, _)| *m == n), "{n} {text:?} in {found:?}");
+    // A new line of the module's talk table, its number put in the cell.
+    choose(&mut h, 1);
+    h.get_by_label("New Line…").click();
+    h.run_steps(3);
+    type_in_last(&mut h, egui::accesskit::Role::MultilineTextInput, "Brand new words");
+    h.get_by_label("Add to Talk Table").click();
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(1, "Name"), Some("16777217"));
+    let talk = h.state().talk.as_ref().expect("the module's talk table");
+    assert_eq!((talk.line(1).text.as_str(), talk.is_dirty()), ("Brand new words", true));
+    // (Shown by its text before the talk table is saved.)
+    h.get_by_label("\u{201c}Brand new words\u{201d}");
 }
