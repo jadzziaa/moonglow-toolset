@@ -24,7 +24,7 @@ pub struct ModelTexture {
     /// Lower case, as the models name it.
     pub name: String,
     /// Only a PLT has the name (no DDS or TGA): drawn in the object's
-    /// colors, and not replaced by the game.
+    /// colors; replaced as any other, the new texture drawn as it is.
     pub plt: bool,
     /// The models that use it.
     pub models: Vec<String>,

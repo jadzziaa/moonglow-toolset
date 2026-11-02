@@ -837,6 +837,14 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     let sword = blueprint(&game, "nw_wswls001", ResType::UTI);
     let lying = mg_preview::item_placed(&game, &sword.root).unwrap();
     assert_eq!(models(&lying), models(&item(&game, &sword.root).unwrap()));
+    // Its own models reflect the area's map there (`default`), where held
+    // they reflect `chrome1`: a small shield lying in `tin01` shows its
+    // copper map in the client (`batch6_item_env_map_own_model`).
+    let shield = blueprint(&game, "nw_ashsw001", ResType::UTI);
+    let lying = mg_preview::item_placed(&game, &shield.root).unwrap();
+    assert_eq!(lying.base.env_map.as_deref(), Some("default"));
+    let held = item(&game, &shield.root).unwrap();
+    assert_eq!(held.base.env_map.as_deref(), Some("chrome1"));
     // How each is turned where it lies: baseitems.2da's RotateOnGround.
     let turn =
         |name: &str| mg_preview::ground_turn(&game, &blueprint(&game, name, ResType::UTI).root);

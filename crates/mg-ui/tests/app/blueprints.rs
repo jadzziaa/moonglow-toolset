@@ -1238,11 +1238,12 @@ fn visuals_page_picks_an_animation_replacement_and_resets_it() {
 }
 
 /// A creature of body parts lists its parts' textures, mostly PLTs, which
-/// the game doesn't replace: shown, with no Select Texture to pick one (the
-/// game's hands have a simple texture, which has one). Its animations are
-/// its skeleton's and their supermodels'.
+/// the game replaces as any other (a creature's head drawn with the
+/// texture picked: `batch6_replaced_textures` in `client_render.rs`):
+/// each with Select Texture to pick one. Its animations are its
+/// skeleton's and their supermodels'.
 #[test]
-fn visuals_page_lists_a_creature_s_plt_textures_without_a_gallery() {
+fn visuals_page_lists_a_creature_s_plt_textures_with_a_gallery() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_vis", ResType::UTC) else {
         return;
     };
@@ -1282,8 +1283,7 @@ fn visuals_page_lists_a_creature_s_plt_textures_without_a_gallery() {
     }
     let buttons: Vec<bool> =
         h.get_all_by_label("Select Texture…").map(|b| b.accesskit_node().is_disabled()).collect();
-    let plt: Vec<bool> = textures.iter().map(|t| t.plt).collect();
-    assert_eq!(buttons, plt, "a PLT has none to pick");
+    assert_eq!(buttons, vec![false; textures.len()], "a PLT has one to pick too");
 }
 
 /// A placed placeable's Properties have the same pickers: Reset on its

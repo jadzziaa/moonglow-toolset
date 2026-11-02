@@ -96,6 +96,10 @@ pub struct Part {
     /// the model placed so within the node it hangs from, as the whole
     /// object's is placed within the object ([`visual_matrix`]).
     pub local: Option<Mat4>,
+    /// The model of an item a creature wears or holds (a helmet, a cloak,
+    /// a weapon or shield), not of its body: the creature's texture
+    /// replacements don't reach it ([`replaced`]).
+    pub item: bool,
 }
 
 impl Part {
@@ -110,6 +114,7 @@ impl Part {
             env_map_default: false,
             animated: false,
             local: None,
+            item: false,
         }
     }
 }
@@ -185,10 +190,14 @@ impl Preview {
 /// An object's texture and animation replacements (EE's
 /// `ReplaceObjectTexture` and `ReplaceObjectAnimation`, saved as
 /// `TextureReplace` and `AnimationReplace`) applied to its preview: each
-/// model's texture of an old name drawn with the new one (PLT textures,
-/// which the game doesn't replace, keep their colouring), and the idle
-/// animation replaced. `mg-corpus-tests/tests/engine_ee_fields.rs` checks
-/// the engine reads them.
+/// model's texture of an old name drawn with the new one, a PLT's too
+/// (drawn plainly, as the client draws a creature's head replaced), and
+/// the idle animation replaced. A creature's reach its body, not what it
+/// wears or holds ([`Part::item`]: in the client neither the field nor
+/// the script call replaces its helmet's or cloak's,
+/// `batch6_replaced_textures` in `client_render.rs`, 2026-11-01).
+/// `mg-corpus-tests/tests/engine_ee_fields.rs` checks the engine reads
+/// them.
 pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
     let pairs = |outer: &str, list: &str, old: &str, new: &str| -> Vec<(String, String)> {
         let Some(items) = object.child(outer).and_then(|s| s.list(list)) else { return Vec::new() };
@@ -202,7 +211,7 @@ pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
             .collect()
     };
     let textures = pairs("TextureReplace", "TextureReplaceLi", "OldTexture", "NewTexture");
-    for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut()) {
+    for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut().filter(|p| !p.item)) {
         for (old, new) in &textures {
             // An empty new name restores the original.
             if !new.is_empty() {
@@ -436,6 +445,28 @@ mod tests {
         assert_eq!(p.base.textures.get("plc_chest1").map(String::as_str), Some("mg_new"));
         assert_eq!(p.base.textures.get("restored").map(String::as_str), Some("fallback"));
         assert_eq!(p.idle.as_deref(), Some("mg_idle"));
+    }
+
+    /// A creature's replacements reach its body (its PLT head too), not
+    /// the items it wears or holds: in the client neither a helmet's nor a
+    /// cloak's texture is replaced, by the field or the script call
+    /// (`batch6_replaced_textures`, 2026-11-01).
+    #[test]
+    fn a_creature_s_replacements_leave_its_items_alone() {
+        let mut o = Struct::new(0);
+        let mut t = Struct::new(9);
+        let list = ["pmh0_head001", "helm_001"]
+            .map(|old| pair(old, "mgred", ("OldTexture", "NewTexture")))
+            .to_vec();
+        t.set("TextureReplaceLi", Value::List(list));
+        o.set("TextureReplace", Value::Struct(t));
+        let mut p = Preview::model("c_body");
+        p.parts.push(Part::new("pmh0_head001"));
+        p.parts.push(Part { item: true, ..Part::new("helm_001") });
+        let p = replaced(p, &o);
+        let new = |part: &Part, old: &str| part.textures.get(old).cloned();
+        assert_eq!(new(&p.parts[0], "pmh0_head001").as_deref(), Some("mgred"), "the head");
+        assert_eq!(new(&p.parts[1], "helm_001"), None, "the helmet");
     }
 
     /// A container that lists its resources and gives none.

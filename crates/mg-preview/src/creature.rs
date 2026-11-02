@@ -253,6 +253,7 @@ pub(crate) fn dressed(
                     lk.bitmaps(&p.model).into_iter().map(|b| (b, texture.clone())).collect();
                 p.colors = Some(item_colors(c, colors));
                 p.env_map = env_map(cell(&cloaks, row, "ENVMAP"));
+                p.item = true;
                 preview.parts.push(p);
             }
         }
@@ -314,6 +315,7 @@ pub(crate) fn dressed(
                     p.env_map = Some("chrome1".into());
                     // (In the head's place, as the head's.)
                     p.local = crate::scope_matrix(utc, HEAD_SCOPE);
+                    p.item = true;
                     preview.parts.push(p);
                 }
             }
@@ -373,6 +375,7 @@ pub(crate) fn dressed(
             for mut p in crate::item::item_parts(game, &it, colors, false)? {
                 p.attach = Some(node.into());
                 p.scale = weapon_scale;
+                p.item = true;
                 preview.parts.push(p);
             }
         }

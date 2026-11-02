@@ -440,10 +440,11 @@ impl Composed {
             let placed = transform * hung;
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
+            // A part without the one asked plays none of its own: the
+            // client stands it as the base's leaves it
+            // (`reading_wings_without_bones`, 2026-11-01).
             let pose = if p.animated {
-                let own = animation.and_then(|a| p.animation(a)).or_else(|| {
-                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| p.animation(a))
-                });
+                let own = animation.and_then(|a| p.animation(a));
                 // (A skeleton's animation, the base's or its supermodel's,
                 // moves the part as it moves the base: at the base's
                 // scale. The part's very own keep theirs.)
@@ -636,9 +637,7 @@ impl Composed {
             .map(|p| {
                 let at = p.attach.and_then(|i| base.get(i).copied()).unwrap_or(Mat4::IDENTITY);
                 let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
-                    let find = |name: &str| p.animation(name);
-                    let own = find(asked)
-                        .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
+                    let own = p.animation(asked);
                     let worn = self.base.gpu.model.animation_scale;
                     Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
                 });
@@ -1067,6 +1066,55 @@ mod ray_tests {
         let pose = instances[1].pose.as_ref().expect("posed by the skeleton");
         let torso = instances[1].transform * pose[4];
         assert!(torso.w_axis.truncate().abs_diff_eq(Vec3::Z * 1.5, 1e-5), "{torso}");
+    }
+
+    /// An animated part (wings, a tail) without the animation asked plays
+    /// none of its own: the game's `c_wings2`, whose animations are all a
+    /// creature's, stands spread on a human playing `pause1` in the
+    /// client, as at rest (`reading_wings_without_bones`, 2026-11-01),
+    /// where its `creadyl` hung it edge on.
+    #[test]
+    fn an_animated_part_without_the_animation_plays_none_of_its_own() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let base = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+            beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+            endmodelgeom base\n\
+            newanim pause1 base\n  length 1\n  transtime 0\n  animroot base\n\
+            node dummy base\n  parent NULL\nendnode\ndoneanim pause1 base\n\
+            donemodel base\n";
+        let wing = "newmodel wing\nsetsupermodel wing NULL\nclassification character\n\
+            beginmodelgeom wing\nnode dummy wing\n  parent NULL\nendnode\n\
+            node dummy bone\n  parent wing\n  position 0 0 0\nendnode\n\
+            endmodelgeom wing\n\
+            newanim creadyl wing\n  length 1\n  transtime 0\n  animroot wing\n\
+            node dummy wing\n  parent NULL\nendnode\n\
+            node dummy bone\n  parent wing\n  positionkey 2\n    0 1 0 0\n    1 1 0 0\nendnode\n\
+            doneanim creadyl wing\ndonemodel wing\n";
+        let (base, wing) = (
+            Arc::new(Model::read(base.as_bytes()).unwrap()),
+            Arc::new(Model::read(wing.as_bytes()).unwrap()),
+        );
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "wing" => Some(wing.clone()),
+            _ => None,
+        };
+        let part = crate::Part { animated: true, ..crate::Part::new("wing") };
+        let preview = Preview { parts: vec![part], ..Preview::model("base") };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        let bone_x = |animation: &str| {
+            let instances = c.instances(Some(animation), 0.5, Mat4::IDENTITY);
+            instances[1].pose.as_ref().map_or(0.0, |pose| pose[1].w_axis.x)
+        };
+        assert!(bone_x("pause1").abs() < 1e-5, "standing: the wing at rest");
+        assert!((bone_x("creadyl") - 1.0).abs() < 1e-5, "its own, asked: played");
+        let stance = c.stance(Some("pause1"), 0.5);
+        let at_rest = stance.parts[0].0.as_ref().is_none_or(|p| p[1].w_axis.x.abs() < 1e-5);
+        assert!(at_rest, "its stance as it is drawn");
     }
 
     #[test]

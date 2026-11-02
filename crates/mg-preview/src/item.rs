@@ -74,7 +74,18 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
     let class = cell(&baseitems, row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
     let armor = cell_int(&baseitems, row, "ModelType") == Some(3);
     if !armor && class != "cloak" {
-        return item(game, uti);
+        // Its own models reflect the area's map (the tileset's `EnvMap`),
+        // where a held one's reflect `chrome1`: a small shield lying in
+        // `tin01` shows its copper map in the client
+        // (`batch6_item_env_map_own_model` in `client_render.rs`,
+        // 2026-11-01).
+        let mut p = item(game, uti)?;
+        for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut()) {
+            if part.env_map.as_deref() == Some("chrome1") {
+                part.env_map = Some("default".into());
+            }
+        }
+        return Ok(p);
     }
     let one = |mut part: Part, env: Option<String>| {
         // (A model with a PLT texture takes the item's colors.)

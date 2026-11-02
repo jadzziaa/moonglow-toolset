@@ -11,9 +11,21 @@ use crate::{ImageError, Rgba, Texture, check_size};
 /// rows from the top and columns from the left, by the origin its header
 /// declares. ([`read`] keeps them as stored, as the game takes a model's
 /// texture; a plugin's copy turned every file over, a top-left one upside
-/// down.)
+/// down.) A 15- or 16-bit true-colour picture's five-bit levels are
+/// `c × 255 / 31` rounded down, as the client draws a NUI image of one
+/// (4 is 32, 30 is 246: `nui_readings_in_the_client` in `mg-corpus-tests`'
+/// `client_render.rs`), where its model textures take [`read`]'s.
 pub fn read_picture(data: &[u8]) -> Result<Rgba, ImageError> {
     let mut rgba = read(data)?.to_rgba();
+    let (image_type, bits) = (data.get(2).copied(), data.get(16).copied());
+    if matches!(image_type, Some(2 | 10)) && matches!(bits, Some(15 | 16)) {
+        for p in rgba.data.as_chunks_mut::<4>().0 {
+            for c in &mut p[..3] {
+                // ([`color`]'s level keeps the five bits on top.)
+                *c = ((u32::from(*c >> 3) * 255) / 31) as u8;
+            }
+        }
+    }
     let descriptor = data.get(17).copied().unwrap_or(0);
     if descriptor & 0x20 == 0 {
         rgba = rgba.top_down();
@@ -40,7 +52,9 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let width = u32::from(r.u16()?);
     let height = u32::from(r.u16()?);
     let bits = r.u8()?;
-    let descriptor = r.u8()?;
+    // (The image descriptor: its origin bits are ignored, as the game
+    // ignores them, and its alpha bits too: below.)
+    let _descriptor = r.u8()?;
     check_size(width, height)?;
     r.skip(id_len as usize)?;
     let map = if map_type == 1 {
@@ -49,7 +63,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
         // An entry is a true-color pixel. A map of any other depth is
         // skipped: an image that needs it is refused below.
         matches!(map_bits, 15 | 16 | 24 | 32).then(|| {
-            let entries = raw.chunks_exact(entry).map(|c| color(c, map_bits, true));
+            let entries = raw.chunks_exact(entry).map(|c| color(c, map_bits));
             (entries.collect::<Vec<_>>(), map_first)
         })
     } else {
@@ -97,7 +111,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let mut img = Rgba::new(width, height);
     for (px, out) in raw.chunks_exact(bpp).zip(img.data.as_chunks_mut::<4>().0) {
         let c = match kind {
-            Kind::True => color(px, bits, descriptor & 0x0F != 0),
+            Kind::True => color(px, bits),
             Kind::Grey => [px[0], px[0], px[0], if bpp == 2 { px[1] } else { 255 }],
             Kind::Mapped => {
                 let (map, first) = map.as_ref().expect("checked");
@@ -118,7 +132,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     // bit 4: the columns are taken as stored too, `placeables_look` in
     // `client_render.rs`.)
     let has_alpha = match kind {
-        Kind::True => bits == 32 || (bits == 16 && descriptor & 0x0F != 0),
+        Kind::True => bits == 32,
         Kind::Grey => bpp == 2,
         Kind::Mapped => map_bits == 32,
     };
@@ -140,9 +154,13 @@ enum Kind {
     Mapped,
 }
 
-/// A stored true-colour pixel (BGR order) as RGBA; a 16-bit pixel's top
-/// bit is alpha when the file declares an alpha bit.
-fn color(px: &[u8], bits: u8, alpha_bit: bool) -> [u8; 4] {
+/// A stored true-colour pixel (BGR order) as RGBA. A 15- or 16-bit
+/// pixel's five-bit levels are `(c << 3) | (c >> 2)` (4 is 33, 30 is 247)
+/// and it is opaque, its top bit taken for no alpha even where the file
+/// declares an alpha bit: as the client draws a model's texture of one
+/// (`batch6_tga16_texture` in `mg-corpus-tests`' `client_render.rs`,
+/// 2026-11-01), and a NUI image's alpha alike.
+fn color(px: &[u8], bits: u8) -> [u8; 4] {
     match bits {
         15 | 16 => {
             let v = u16::from_le_bytes([px[0], px[1]]);
@@ -150,8 +168,7 @@ fn color(px: &[u8], bits: u8, alpha_bit: bool) -> [u8; 4] {
                 let c = ((v >> s) & 0x1F) as u8;
                 (c << 3) | (c >> 2)
             };
-            let a = if bits == 16 && alpha_bit && v & 0x8000 == 0 { 0 } else { 255 };
-            [c5(10), c5(5), c5(0), a]
+            [c5(10), c5(5), c5(0), 255]
         }
         24 => [px[2], px[1], px[0], 255],
         _ => [px[2], px[1], px[0], px[3]],
@@ -263,6 +280,39 @@ mod tests {
         (f[1], f[5], f[7]) = (1, 2, 8);
         f.extend_from_slice(&[9, 9, 1, 2, 3]);
         assert_eq!(read(&f).unwrap().to_rgba().data, vec![3, 2, 1, 255]);
+    }
+
+    /// A 16-bit TGA as the client draws it: a model's texture's levels
+    /// `(c << 3) | (c >> 2)`, a picture's (a NUI image's) `c × 255 / 31`
+    /// rounded down, and the top bit no alpha in either, though the
+    /// descriptor declares one alpha bit.
+    #[test]
+    fn a_16_bit_tga_is_opaque_and_its_levels_are_the_client_s() {
+        // Red 4 with the bit set, green 30 with it clear, blue 8 and
+        // white 31 with it clear.
+        let mut f = header(2, 4, 1, 16, 0x21);
+        for v in [0x8000u16 | (4 << 10), 30 << 5, 8, 0x7fff] {
+            f.extend_from_slice(&v.to_le_bytes());
+        }
+        let t = read(&f).unwrap();
+        assert!(!t.has_alpha);
+        let img = t.to_rgba();
+        assert_eq!(img.pixel(0, 0), [33, 0, 0, 255]);
+        assert_eq!(img.pixel(1, 0), [0, 247, 0, 255]);
+        assert_eq!(img.pixel(2, 0), [0, 0, 66, 255]);
+        assert_eq!(img.pixel(3, 0), [255, 255, 255, 255]);
+        let picture = read_picture(&f).unwrap();
+        assert_eq!(picture.pixel(0, 0), [32, 0, 0, 255]);
+        assert_eq!(picture.pixel(1, 0), [0, 246, 0, 255]);
+        assert_eq!(picture.pixel(2, 0), [0, 0, 65, 255]);
+        assert_eq!(picture.pixel(3, 0), [255, 255, 255, 255]);
+        // Every level of the picture's table.
+        for c in 0..32u16 {
+            let mut f = header(2, 1, 1, 15, 0);
+            f.extend_from_slice(&(c << 10).to_le_bytes());
+            let want = (u32::from(c) * 255 / 31) as u8;
+            assert_eq!(read_picture(&f).unwrap().pixel(0, 0)[0], want, "{c}");
+        }
     }
 
     #[test]
