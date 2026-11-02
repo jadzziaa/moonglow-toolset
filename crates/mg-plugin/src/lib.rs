@@ -51,7 +51,7 @@ pub use package::{
 };
 pub use runtime::EVENT_NAMES;
 pub use settings::{SettingWrite, Settings};
-pub use testing::{GAME_FOLDER, GameFor, TestResult, run_tests, test_files};
+pub use testing::{GAME_FOLDER, GameFor, TestResult, run_tests, test_faults, test_files};
 use thiserror::Error;
 
 /// What can go wrong with a plugin.

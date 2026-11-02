@@ -495,10 +495,12 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
             let (name, faults) = match found {
                 Ok(p) => {
                     let host = Rc::new(CliHost::default());
-                    let faults = match mg_plugin::inspect(&p, host) {
+                    let mut faults = match mg_plugin::inspect(&p, host) {
                         Ok(faults) => faults,
                         Err(e) => vec![e.to_string()],
                     };
+                    // (And its own tests' files, read, not run.)
+                    faults.extend(mg_plugin::test_faults(&p));
                     (p.manifest.id.clone(), faults)
                 }
                 Err(e) => (dir.display().to_string(), vec![e.to_string()]),
@@ -520,6 +522,43 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
 /// game. A line a test, a summary; failing if a test fails or there are
 /// none.
 pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) -> Result<Output> {
+    if dir.join("plugin.cfg").is_file() {
+        return test_one(gi, dir, module);
+    }
+    // A folder of plugins: each one's that has tests, its lines under its
+    // id; failing if one fails, or none has tests.
+    let mut out = Output::default();
+    let mut all = Vec::new();
+    for d in mg_plugin::folders(dir) {
+        let Ok(p) = Plugin::load(&d) else {
+            out.note(format!("warning: {}: its plugin.cfg does not read", d.display()));
+            continue;
+        };
+        if mg_plugin::test_files(&p).is_empty() {
+            out.note(format!("{}: no tests", p.manifest.id));
+            continue;
+        }
+        let one = test_one(gi, &d, module)?;
+        for l in one.text {
+            out.line(format!("{}\t{l}", p.manifest.id));
+        }
+        for n in one.notes {
+            if !out.notes.contains(&n) {
+                out.note(n);
+            }
+        }
+        out.failed |= one.failed;
+        all.push(one.json);
+    }
+    if all.is_empty() {
+        bail!("{}: no plugin there has tests (tests/*.toml)", dir.display());
+    }
+    out.json = json!({ "plugins": all });
+    Ok(out)
+}
+
+/// `mg plugin test` of one plugin's folder.
+fn test_one(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) -> Result<Output> {
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
     let mut out = Output::default();
     let notes = RefCell::new(Output::default());

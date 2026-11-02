@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1242,16 +1242,6 @@ contribution itself states as not done or not checked.
     other saving commands asking the project's plugins): driven through
     the UI harness, not used on a desktop. Waits on a desktop session.
     (S)
-  - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
-    test`). Not done: what a plugin writes outside the module (haks, a
-    chosen folder) is not written and not held to anything; a command's
-    edits are held by the fields they leave, their count and resources,
-    not as an edit file to compare; a finding's message is matched
-    whole; `mg plugin test` runs one plugin, not a folder of them, and
-    the window does not run them; `mg plugin check` does not read the
-    test files; the plugin gets the game's data only where `mg` finds a
-    game, so a pipeline without one cannot test what reads `ctx.game`.
-    (S each)
   - **The type file was not tried in an editor:** it loads as Luau, and
     tests hold it to have every name and the reference's parameters
     (`the_type_file_has_the_whole_api`, `the_reference_says_what_the_code_has`),
@@ -1622,6 +1612,16 @@ is not taken for a new gap.
   saved or opened, in this run), what the window can know. A handler is
   stopped between steps of its code: a call of the API is Rust code that
   runs to its end, and the time is looked at when it returns.
+
+- **How a plugin's tests hold a job** (the deferred list's "Plugins,
+  beyond API 0.4", 2026-11-01): a command's edits are held by the fields
+  they leave, their count and the resources they change, not compared
+  as an edit file (whose order and paths change with any refactoring of
+  the plugin that makes the same module); a finding's message is matched
+  whole, as a test of a check's words is meant to be; the game's data is
+  the game `mg` finds, the one at a test's `root`, or the test's own
+  `game/` folder, which is how a pipeline without the game tests what
+  reads `ctx.game` (the game's files are never in a repository).
 
 - **What a plugin's command is not offered on** (the deferred list's
   "Plugins, beyond API 0.4", 2026-11-01): a trigger's or an encounter's

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
 ---
 
 # Writing plugins
@@ -868,7 +868,13 @@ A plugin's tests are files `tests/*.toml` in its folder (plugin API
 lists what to run on it and what is to come of it.
 `mg plugin test DIR` runs them all: a line a test (`ok`, or `FAIL` and
 what was not as wanted), a summary, and an exit that fails if one test
-does (or there are none), so that a build pipeline can run it. The
+does (or there are none), so that a build pipeline can run it. DIR may
+be a folder of plugins: each one's tests run, its lines under its id
+(since Moonglow 3.3.0). `mg plugin check` reads the test files too,
+without running them: a file that doesn't read, a test of a check,
+command or event the manifest lacks, a fixture that isn't there. In the
+window, Manage Plugins' **Run Tests** beside a plugin with tests runs
+them, the log saying what each came to. The
 `tag-conventions` example has one file, `tests/tags.toml`:
 
 ```toml
@@ -1099,6 +1105,8 @@ and says what is to come of it (each key may be left out):
 | `left` | How many findings the check makes once the fixes are made: on the module as fixed, which the game's data has too (a fixed 2DA of the module's is read so through `ctx.game`, and by Moonglow's checks; since Moonglow 2.13.0). |
 | `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. `field` may be a list's item (`Equip_ItemList[2]`, `/VarTable[0]`; since Moonglow 2.2.0): it is there, or with `absent = true` it is not; an item has no `value`. |
 | `edits`, `resources` | How many edits there were, and which resources they change. |
+| `haks` | What the job puts into haks, by hak, every resource in any order (since Moonglow 3.3.0): `haks = { tiles = ["tiles.set", "grass.tga"] }`. Nothing is written. |
+| `written` | The files the job writes into folders the user chose (`folder:write`), by their names, every one in any order (since 3.3.0). Nothing is written. |
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |
 | `set` | The settings the command or event sets (`ctx.settings:set`), each with the value it ends with: `set = { code = "cd" }`. |

@@ -392,6 +392,31 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
         .unwrap();
     assert!(!none.status.success());
     assert!(String::from_utf8_lossy(&none.stderr).contains("has no tests"));
+
+    // A folder of plugins: each one's tests, its lines under its id.
+    let examples = example.parent().unwrap();
+    let (ok, json) = mg(&["plugin", "test", examples.to_str().unwrap()]);
+    assert!(ok, "{json}");
+    let ids: Vec<&str> =
+        json["plugins"].as_array().unwrap().iter().map(|p| p["plugin"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"example.tag-conventions") && ids.len() >= 2, "{ids:?}");
+
+    // `mg plugin check` reads the test files too (not running them).
+    let work = dir.join("checked");
+    std::fs::create_dir_all(work.join("tests")).unwrap();
+    for f in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::copy(example.join(f), work.join(f)).unwrap();
+    }
+    std::fs::write(
+        work.join("tests/bad.toml"),
+        "module = \"nowhere\"\n[[test]]\nname = \"x\"\ncommand = \"no-such\"\n",
+    )
+    .unwrap();
+    let (ok, checked) = mg(&["plugin", "check", work.to_str().unwrap()]);
+    assert!(!ok);
+    let faults = checked["plugins"][0]["faults"].to_string();
+    assert!(faults.contains("the manifest declares no command \\\"no-such\\\""), "{faults}");
+    assert!(faults.contains("its fixture nowhere is not there"), "{faults}");
 }
 
 /// `mg plugin test` with no game: a test whose game data is its own (a

@@ -842,6 +842,42 @@ impl Moonglow {
         }
     }
 
+    /// Runs a plugin's own tests (`tests/*.toml`) as a job, as `mg plugin
+    /// test` does: each on its fixture, with the game's data of the
+    /// install (or none); the log says what each came to.
+    pub fn run_plugin_tests(&mut self, plugin: Plugin) {
+        let install = self.install.clone();
+        let name = plugin.manifest.name.clone();
+        self.start_job_anywhere(
+            format!("{name}: Run Tests"),
+            move |_| {
+                let game = |m: &mg_module::Module, root: Option<&Path>| {
+                    let at = match (root, &install) {
+                        (Some(root), _) => mg_resman::GameInstall::new(root, None, "en"),
+                        (None, Some(gi)) => gi.clone(),
+                        (None, None) => return Ok(None),
+                    };
+                    m.game_data(&at).map(|f| Some(f.game)).map_err(|e| e.to_string())
+                };
+                mg_plugin::run_tests(&plugin, None, &game)
+            },
+            move |app, results| {
+                let failed = results.iter().filter(|r| !r.passed()).count();
+                for r in &results {
+                    for p in &r.problems {
+                        app.log.error(format!("{name}: FAIL {} › {}: {p}", r.file, r.name));
+                    }
+                    if r.passed() {
+                        app.log.info(format!("{name}: ok {} › {}", r.file, r.name));
+                    }
+                }
+                let n = results.len();
+                let said = format!("{name}: {n} tests, {} passed, {failed} failed", n - failed);
+                if failed > 0 { app.log.warn(said) } else { app.log.info(said) }
+            },
+        );
+    }
+
     /// What is kept of a plugin's settings that is not as its manifest
     /// declares (a value not of its kind, of a setting it doesn't declare,
     /// in the other file than its scope's), as the log says it when the
@@ -1865,7 +1901,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
     let mut forgotten = None;
-    let (mut toggle_project, mut open_settings) = (None, None);
+    let (mut toggle_project, mut open_settings, mut run_tests) = (None, None, None);
     let allowed: std::collections::HashMap<String, usize> = (app.plugins.installed.iter())
         .filter_map(|i| i.plugin.as_ref().ok())
         .map(|p| (p.manifest.id.clone(), app.plugin_grants(&p.manifest.id)))
@@ -2039,6 +2075,19 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 {
                                     open_settings = Some(m.id.clone());
                                 }
+                                // (Its own tests, as `mg plugin test` runs them.)
+                                if let Ok(p) = &installed.plugin
+                                    && !mg_plugin::test_files(p).is_empty()
+                                    && ui
+                                        .small_button("Run Tests")
+                                        .on_hover_text(
+                                            "Its own tests (tests/*.toml), on their fixtures: \
+                                             the log says what each came to",
+                                        )
+                                        .clicked()
+                                {
+                                    run_tests = Some(p.clone());
+                                }
                             });
                             ui.indent(("plugin", &m.id, installed.project), |ui| {
                                 if let Some(t) = trust {
@@ -2116,6 +2165,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     if let Some(id) = open_settings {
         app.open_plugin_settings(&id);
+    }
+    if let Some(p) = run_tests {
+        app.run_plugin_tests(p);
     }
     if let Some(id) = forgotten {
         app.forget_plugin_grants(&id);

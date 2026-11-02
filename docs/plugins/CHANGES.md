@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:53:27Z }
 ---
 
 # Plugin API changes
@@ -58,6 +58,10 @@ refused, with the reason.
   the time at-once handlers have is set in Manage Plugins; `mg set` and
   `mg apply` take `--strict`, and `mg rename`, `replace`, `areas`,
   `update-instances` and `import` run the project's plugins' save events.
+- A plugin's tests: `haks` and `written` hold what a job writes
+  outside the module (nothing is written); `mg plugin test` takes a
+  folder of plugins; `mg plugin check` reads the test files; Manage
+  Plugins runs them (Run Tests).
 - Settings of scope `user` are kept in Moonglow's own folder
   (`plugin-settings.json`), which `mg` reads and keeps too: with `mg
   plugin run` a plugin reads the values the user set in the window, and

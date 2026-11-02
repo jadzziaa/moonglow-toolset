@@ -1071,6 +1071,33 @@ fn an_archive_of_several_plugins_installs_each() {
     assert_eq!(sorted, ["1.0.0", "1.1.0"], "one replaced, the other left: {versions:?}");
 }
 
+/// Manage Plugins runs a plugin's own tests (Run Tests), as `mg plugin
+/// test` does: the log says what each came to.
+#[test]
+fn a_plugin_s_own_tests_run_in_the_window() {
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.plugins.window = true;
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    let button = h.get_all_by_label("Run Tests").next().unwrap();
+    button.scroll_to_me();
+    h.run();
+    h.get_all_by_label("Run Tests").next().unwrap().click();
+    let started = std::time::Instant::now();
+    loop {
+        h.run_steps(1);
+        let log = &h.state().log.entries;
+        if log.iter().any(|(_, m)| m.contains(" tests, ") && m.contains(" passed, ")) {
+            break;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "{log:#?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains(": ok ")));
+}
+
 /// Started with `--no-plugins`: none is loaded, whatever is installed and
 /// was enabled, and Manage Plugins says so.
 #[test]

@@ -247,6 +247,55 @@ fn a_check_s_fixes_are_recorded_apart() {
     assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
+/// A plugin's test holds what the job writes outside the module (the
+/// haks it puts resources into, the files it writes into a folder),
+/// writing none of it.
+#[test]
+fn a_plugin_s_test_holds_what_it_writes_outside_the_module() {
+    let dir = mg_testkit::scratch_dir("plugin-test-outside");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.outside\"\nname = \"Outside\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\n[command]\nid = \"out\"\ntitle = \"Out\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"local mg = require("@moonglow")
+mg.command("out", function(ctx)
+    ctx.hak:write("tiles", "a.txt", "a")
+    ctx.hak:write("tiles", "b.txt", "b")
+    local folder = ctx.ui:open_folder({ title = "Where" })
+    folder:write("notes.txt", "hello")
+end)
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("tests/fixture")).unwrap();
+    std::fs::create_dir_all(dir.join("tests/out")).unwrap();
+    module().save_as(&mg_module::ModuleLocation::Folder(dir.join("tests/fixture"))).unwrap();
+    let test = |haks: &str, written: &str| {
+        std::fs::write(
+            dir.join("tests/out.toml"),
+            format!(
+                "module = \"fixture\"\n[[test]]\nname = \"writes\"\ncommand = \"out\"\nyes = true\n\
+                 files = [\"out\"]\nwritten = [{written}]\n[test.haks]\ntiles = [{haks}]\n"
+            ),
+        )
+        .unwrap();
+        let p = Plugin::load(&dir).unwrap();
+        mg_plugin::run_tests(&p, None, &|_, _| Ok(None)).remove(0).problems
+    };
+    assert_eq!(test("\"b.txt\", \"A.TXT\"", "\"notes.txt\""), Vec::<String>::new());
+    let wrong = test("\"a.txt\"", "\"other.txt\"");
+    assert_eq!(wrong.len(), 2, "{wrong:?}");
+    assert!(
+        wrong[0].contains("into haks, not") && wrong[1].contains("into folders, not"),
+        "{wrong:?}"
+    );
+    assert!(!dir.join("tests/out/notes.txt").exists(), "nothing written");
+    assert!(mg_plugin::test_faults(&Plugin::load(&dir).unwrap()).is_empty());
+}
+
 /// A fix that asks (API 0.5): `ctx.fix(label, { command = … })` runs a
 /// command of the plugin's on what the finding is about (or `on`), when
 /// the user clicks it; a command the manifest lacks, or edits of its own,

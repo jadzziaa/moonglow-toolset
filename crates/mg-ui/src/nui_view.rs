@@ -326,9 +326,9 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
     let made = crate::plugin_events::Made::new_in(ws, &cmd, "new-nui");
     let cmd = crate::plugin_events::with_plugins(app, cmd, &made);
     match app.apply(cmd) {
-        Ok(()) => app.actions.extend(
-            ResKey::parse(name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key))),
-        ),
+        Ok(()) => app
+            .actions
+            .extend(ResKey::parse(name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key)))),
         Err(e) => app.log.error(e.to_string()),
     }
 }
