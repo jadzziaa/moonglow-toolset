@@ -532,14 +532,32 @@ pub fn animations(
     model: &std::sync::Arc<Model>,
     load: &dyn Fn(&str) -> Option<std::sync::Arc<Model>>,
 ) -> Vec<(String, std::sync::Arc<Model>)> {
-    let mut out: Vec<(String, std::sync::Arc<Model>)> = Vec::new();
+    animations_scaled(model, load).into_iter().map(|(n, m, _)| (n, m)).collect()
+}
+
+/// [`animations`], each with the scale the model plays its positions at:
+/// 1 for the model's own; for a supermodel's, the `setanimationscale` of
+/// the model times that of each supermodel between it and the one whose
+/// animation it is, not counting that one's own (the client: a model of
+/// 2 on one of 3 plays the owner's animation at 6, the owner's scale,
+/// 0.5 or 1, alike; `batch6_supermodel_chain`). A scale that isn't a
+/// positive number counts as 1.
+pub fn animations_scaled(
+    model: &std::sync::Arc<Model>,
+    load: &dyn Fn(&str) -> Option<std::sync::Arc<Model>>,
+) -> Vec<(String, std::sync::Arc<Model>, f32)> {
+    let mut out: Vec<(String, std::sync::Arc<Model>, f32)> = Vec::new();
     let mut current = Some(model.clone());
     let mut depth = 0;
+    let mut scale = 1.0;
     while let Some(m) = current {
         for a in &m.animations {
-            if !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(&a.name)) {
-                out.push((a.name.clone(), m.clone()));
+            if !out.iter().any(|(n, ..)| n.eq_ignore_ascii_case(&a.name)) {
+                out.push((a.name.clone(), m.clone(), scale));
             }
+        }
+        if m.animation_scale.is_finite() && m.animation_scale > 0.0 {
+            scale *= m.animation_scale;
         }
         depth += 1;
         current = if depth > 16 { None } else { m.supermodel.as_deref().and_then(load) };
@@ -598,6 +616,50 @@ mod tests {
         assert!((x[0] - 0.5f32.sin()).abs() < 1e-6 && (x[3] - 0.5f32.cos()).abs() < 1e-6);
         assert_eq!(x[1..3], [0.0, 0.0]);
         assert_eq!(axis_angle([0.0, 0.0, 0.0], 0.0), IDENTITY);
+    }
+
+    /// The client's chain of scaled supermodels (`batch6_supermodel_chain`):
+    /// a model of 2 on one of 3 plays the owner's animation at 6, the
+    /// supermodel's own at 2, its own at 1; the owner's scale (0.5) not
+    /// counted; a scale of 0 counts as 1.
+    #[test]
+    fn a_chain_of_supermodels_scales_by_each_link_but_the_owner() {
+        use std::sync::Arc;
+        let model = |name: &str, scale: f32, sup: Option<&str>, anims: &[&str]| {
+            Arc::new(Model {
+                name: name.into(),
+                animation_scale: scale,
+                supermodel: sup.map(Into::into),
+                animations: anims
+                    .iter()
+                    .map(|a| Animation { name: (*a).into(), ..Default::default() })
+                    .collect(),
+                ..Default::default()
+            })
+        };
+        let owner = model("owner", 0.5, None, &["walk", "run"]);
+        let middle = model("middle", 3.0, Some("owner"), &["run", "sit"]);
+        let zero = model("zero", 0.0, Some("middle"), &[]);
+        let load = |n: &str| match n {
+            "owner" => Some(owner.clone()),
+            "middle" => Some(middle.clone()),
+            "zero" => Some(zero.clone()),
+            _ => None,
+        };
+        let top = model("top", 2.0, Some("middle"), &["idle"]);
+        let got: Vec<(String, String, f32)> = animations_scaled(&top, &load)
+            .into_iter()
+            .map(|(n, m, s)| (n, m.name.clone(), s))
+            .collect();
+        let want = [("idle", "top", 1.0), ("run", "middle", 2.0), ("sit", "middle", 2.0)];
+        let want: Vec<(String, String, f32)> =
+            want.iter().map(|(a, b, s)| (a.to_string(), b.to_string(), *s)).collect();
+        assert_eq!(got[..3], want[..]);
+        assert_eq!(got[3], ("walk".into(), "owner".into(), 6.0));
+        let on_zero = model("on_zero", 1.0, Some("zero"), &[]);
+        let walk = animations_scaled(&on_zero, &load).into_iter().find(|a| a.0 == "walk");
+        assert_eq!(walk.map(|a| a.2), Some(3.0));
+        assert_eq!(animations(&top, &load).len(), 4);
     }
 
     /// A plane whose `faces` list says `count` and has `rows`.

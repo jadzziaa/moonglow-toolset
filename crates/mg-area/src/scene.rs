@@ -183,16 +183,22 @@ struct Loaded {
 }
 
 impl Loaded {
-    fn new(gpu: Arc<GpuModel>, anims: Vec<(String, Arc<Model>)>) -> Loaded {
+    /// `anims`: [`anim::animations_scaled`]'s, each at the scale it plays
+    /// at through the chain of supermodels.
+    fn new(gpu: Arc<GpuModel>, anims: Vec<(String, Arc<Model>, f32)>) -> Loaded {
         let model = &gpu.model;
         let at: Vec<Option<usize>> = (anims.iter())
-            .map(|(name, owner)| {
+            .map(|(name, owner, _)| {
                 owner.animations.iter().position(|a| a.name.eq_ignore_ascii_case(name))
             })
             .collect();
-        let found = anims.iter().zip(&at).filter_map(|((_, owner), i)| owner.animations.get((*i)?));
-        let mut bindings = anim::Binding::all(model, found).into_iter();
+        let found = anims
+            .iter()
+            .zip(&at)
+            .filter_map(|((_, owner, scale), i)| Some((owner.animations.get((*i)?)?, *scale)));
+        let mut bindings = anim::Binding::all_scaled(model, found).into_iter();
         let bound = at.iter().map(|i| Some(((*i)?, bindings.next()?))).collect();
+        let anims: Vec<(String, Arc<Model>)> = anims.into_iter().map(|(n, m, _)| (n, m)).collect();
         let tile =
             TILE_ANIMATIONS.map(|t| anims.iter().position(|(n, _)| n.eq_ignore_ascii_case(t)));
         let sources = [1, 2].map(|slot| {
@@ -417,7 +423,7 @@ impl AreaScene {
         let built = |name: &str| -> Option<Option<Loaded>> {
             mg_render::guard::guarded(name, || {
                 let model = load(name)?;
-                let anims = anim::animations(&model, &load);
+                let anims = anim::animations_scaled(&model, &load);
                 Some(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims))
             })
         };
@@ -637,7 +643,7 @@ impl AreaScene {
                 .or_insert_with(|| {
                     mg_render::guard::guarded(name, || {
                         let model = load(name)?;
-                        let anims = anim::animations(&model, &load);
+                        let anims = anim::animations_scaled(&model, &load);
                         Some(Arc::new(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims)))
                     })
                     .flatten()
