@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:40:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:17:57Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1613,6 +1613,78 @@ does.
   one particle to the next (the deferred list's ribbon entry).
 - **Wiki:** missing.
 
+### The client's clock starts from the machine's
+
+The shaders' `worldtimerTimeOfDay` is the client's own world timer's
+time of day: the server's time never reaches it, and the module's
+start hour, day and dawn don't move it. The timer is made as the game's
+services start (`CClientExoAppInternal::StartServices`, a second or so
+before the player enters the area) with a day of 5 minutes an hour
+(7,200,000 ms) set to 23:59:56 (10,496,000 ms, past that day's end)
+against the machine's `CLOCK_MONOTONIC` (`CExoTimers::GetMicrosecondTimer`:
+the time since it booted, not the wall clock, the time zone or daylight
+saving); loading the module sets its minutes an hour
+(`CWorldTimer::SetMinutesPerHour` from `CNWCModule::LoadModule`), which
+changes the day's length but not the offset taken. So the timer is
+`(10,496,000 + 7,200,000 × ⌊b / 7,200,000⌋ + t) mod (minutes an hour ×
+1,440,000)`, `b` the boot clock's milliseconds as the timer was made and
+`t` the milliseconds since; it follows the wall clock within a run, and
+its start moves in steps of two hours of the machine's uptime. At 60
+minutes an hour, the boot clock at 66,083 s: 75,304,169 eight seconds
+in; the wall clock moved two hours, the same; the boot clock moved two
+hours, 82,504,381, and four, 3,304,388 (past the day).
+
+- **Checked:** the client's code (89.8193.37: `CWorldTimer::CWorldTimer`,
+  `GetWorldTime`, `SetWorldTime`; `GLRender::CheckAndUpdateUniformDirtyDataForFrame`
+  reads the client's timer for the uniform) and game client runs,
+  `batch7.rs`'s `batch7_timer_origin` (2026-11-02; the clocks moved for
+  the client alone by `tools/nwclient/timeshift.c`).
+- **Moonglow:** its clock starts at 0 (`mg-render`'s `time_values`): a
+  player's machine decides the client's.
+- **Wiki:** missing.
+
+### Static geometry is drawn in buckets
+
+A tile's meshes, and a static placeable's, that share a texture are
+drawn as one bucket, with the first one's (in the model's order)
+`NO_DISCARD` and opacity: an opaque mesh first, a mesh of `alpha 0.5`
+after it is drawn solid and not alpha-tested; a mesh of `alpha 0.5`
+first, an opaque one after it is drawn half see-through and
+alpha-tested. Each keeps its own program (a decal's `vsvt`/`fst`, an
+environment map's `vslit_sm`/`fslit_sm`). A dynamic placeable's
+meshes are each their own.
+
+- **Checked:** game client, `batch7.rs`'s `batch7_bucket_order`
+  (2026-11-02: every stock program marked, three pairs of cards in each
+  order, in two static placeables and a tile's model; `MG_UNMARKED=1`
+  for the opacity); `programs.rs`'s `program_choice_in_the_client` with
+  and without `MG_STATIC=1` (2026-10-29), which first showed it.
+- **Moonglow:** decides each mesh's alone (`mg-render`'s
+  `game::no_discard`; the deferred list's M4).
+- **Wiki:** missing.
+
+### A face casts the sun's shadow from its front only
+
+The client casts the sun's and moon's shadows from the faces whose
+front faces the light: a single face with its back to the sun casts
+nothing (of two single white walls under a sun low in the west, the
+one facing west casts, the one facing east doesn't). Buildings built of
+single faces cast only from the sides they turn to the sun: the city's
+edge tiles that face into the area (`tcn01_c02_07`, `c02_08`), their
+backs to a western sun, leave the street lit; turned the other way,
+they cast their long shadows. A cliff's rock face turned from the sun
+leaves the ground at its foot lit. A caster out of sight still casts,
+and a placeable's shadow at a cliff's top reaches the ground below it.
+
+- **Checked:** game client, `batch7.rs`'s `batch7_wall_sides` and
+  `batch7_low_sun_city_tiles` (2026-11-02), `shadows.rs`'s
+  `high_shadows_beside_the_client` case `cliff` (the tileset's own
+  cliff tiles).
+- **Moonglow:** `crates/mg-render/src/shadow.rs` and `volume.rs` cast
+  from both sides (the deferred list's "Shadows").
+- **Wiki:** "Model Shadows" says the volumes come of a mesh's faces;
+  not that a face casts from its front only.
+
 ## Talk tables and 2DAs
 
 ### Where the game finds a custom talk table
@@ -1741,6 +1813,28 @@ even when listed later in `Mod_HakList`. `ResManGetAliasFor` returns
 - **Wiki:** "Content Load Order" lists user haks above install haks, but
   its hak-order section says only that the first listed wins. The alias
   strings are not documented.
+
+### The body parts the creation screen offers
+
+Character creation's Appearance offers the same body parts to every
+race and gender, from no table: part 1 of every part but the belt, the
+shoulders and the robe (0), and, by its Tattoo choice (16 patterns),
+part 2 of the chest (the pattern's first bit), the biceps (its second),
+the shins (its third) and the forearms (its fourth); the thighs have no
+tattoo. Its Body offers the phenotypes of ruleset.2da's
+`CHARGEN_ENABLED_PHENOTYPES` (a bit each; 5, phenotypes 0 and 2, in the
+game's). parts_*.2da is not read. The game's pregenerated characters
+are made so (parts 1 and 2 on those parts alone, 0 on the belt and
+shoulders).
+
+- **Checked:** the client's code (89.8193.37:
+  `CCharacterAppearancePanel::PostAttachmentInitialize`,
+  `HandleTattooNextButton`, `HandleBodyNextButton`) and the install's
+  pregenerated characters (`data/lcv/*.bic`); the screen not driven.
+- **Moonglow:** What the Module Uses (`mg_preview::usage`'s
+  `players_choose`).
+- **Wiki:** "Character Generation and Levelup" names Head, Tattoo, Body
+  and Clothing, not what each offers.
 
 ### A woman's inventory icons: armor's, not cloaks'
 
@@ -2309,6 +2403,30 @@ gains `Mod_UUID`; `nss`, `ndb` and `gic` are left out.
   against the game.
 - **Moonglow:** `crates/mg-module/src/nwsync.rs`, `crates/mg-erf`.
 - **Wiki:** "NWSync technical guide" shows only the folders.
+
+### A module reloaded when empty is advertised without NWSync
+
+A server given its NWSync repository on the command line (`-nwsyncurl`,
+`-nwsynchash`) reloads its module when its last player leaves
+(`server.reload-when-empty`, Server Options' "Reload Module When Empty",
+on by default) and from then on advertises it without the manifest
+(`CServerExoAppInternal::PlayerListChange` loads it again with an empty
+`NWSync::Advertisement`): the client is told less of the server (61
+bytes where it was 125), and one whose haks came by NWSync leaves at
+once. A player who downloads leaves the server for it, so on a server
+with nobody else on it, the downloader's second join finds no manifest.
+With `reload-when-empty = false` it joins and plays. A client started
+with `+connect` ends itself (exit 0) whenever it goes back to the main
+menu (`CAutoConnectPanel::Bail`): after a download, and after such a
+refused join. With the feminine talk table published and downloaded,
+the client's own lookups for a woman still read the masculine one.
+
+- **Checked:** game client and server, `joined.rs`'s
+  `joined_nwsync_download` (2026-11-02, the client's network log on),
+  and their code (89.8193.37).
+- **Moonglow:** `mg_testkit::joined` keeps the module loaded; the
+  manual's Publish to NWSync says to.
+- **Wiki:** missing.
 
 ### Talk tables as `nwn_tlk`'s JSON (nasher's)
 
