@@ -78,6 +78,13 @@ pub struct TableDoc {
     scroll: egui::Vec2,
     /// Saved with one space between cells, not with the columns in line.
     pub compact: bool,
+    /// The file as it was read or last saved: a save writes the table
+    /// as it is laid out (its widths, row labels and tabs), and what it
+    /// was read from changing under it reads it again.
+    read: Arc<[u8]>,
+    /// When what the table was read from was last looked at (the time
+    /// egui gives).
+    read_at: f64,
     /// Talk-table columns show their text, not their numbers.
     pub strref_text: bool,
     /// Columns described as a list or as flags show their values' names.
@@ -147,6 +154,8 @@ impl TableDoc {
             reveal: false,
             scroll: egui::Vec2::ZERO,
             compact: false,
+            read: Arc::from(&[][..]),
+            read_at: f64::NEG_INFINITY,
             strref_text: true,
             value_names: true,
             described: None,
@@ -248,7 +257,7 @@ fn codepage(app: &Moonglow) -> mg_core::Codepage {
 
 /// (`compact`: the table's file had one blank between cells, and is saved
 /// so again unless the builder says otherwise.)
-fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, compact: bool) -> u32 {
+fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, data: &[u8]) -> u32 {
     if let Some(d) = app.tables.iter().find(|d| d.key == key && d.home == home) {
         let id = d.id;
         app.actions.push(Action::OpenTab(Tab::Table(id)));
@@ -257,7 +266,8 @@ fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, compact:
     app.next_table += 1;
     let id = app.next_table;
     let mut doc = TableDoc::new(id, key, home, edit);
-    doc.compact = compact;
+    doc.compact = is_compact(data);
+    doc.read = Arc::from(data);
     app.tables.push(doc);
     app.actions.push(Action::OpenTab(Tab::Table(id)));
     id
@@ -275,7 +285,7 @@ fn parse(app: &Moonglow, key: ResKey, data: &[u8]) -> Result<TwoDa, String> {
 pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
     let data = app.ws.as_ref()?.module.get(&key)?.to_vec();
     match parse(app, key, &data) {
-        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t), is_compact(&data))),
+        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t), &data)),
         Err(e) => {
             app.log.error(e);
             None
@@ -286,8 +296,8 @@ pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
 /// Opens a table of a hak that is open in the hak editor.
 pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
     let data = app.haks.iter().find(|d| d.id == hak)?.hak.data(key);
-    match data.and_then(|d| Ok((parse(app, key, &d)?, is_compact(&d)))) {
-        Ok((t, compact)) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t), compact)),
+    match data.and_then(|d| Ok((parse(app, key, &d)?, d))) {
+        Ok((t, d)) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t), &d)),
         Err(e) => {
             app.log.error(e);
             None
@@ -298,15 +308,15 @@ pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
 /// Opens a 2DA file anywhere.
 pub fn open_path(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
     let name = path.file_stem().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let read = || -> Result<(ResKey, TwoDa, bool), String> {
+    let read = || -> Result<(ResKey, TwoDa, Vec<u8>), String> {
         let resref = ResRef::from_str(&name).map_err(|e| format!("{}: {e}", path.display()))?;
         let key = ResKey::new(resref, ResType::TWODA);
         let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok((key, parse(app, key, &data)?, is_compact(&data)))
+        Ok((key, parse(app, key, &data)?, data))
     };
     match read() {
-        Ok((key, t, compact)) => {
-            Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t), compact))
+        Ok((key, t, data)) => {
+            Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t), &data))
         }
         Err(e) => {
             app.log.error(e);
@@ -471,7 +481,13 @@ pub fn edit_copy(app: &mut Moonglow, key: ResKey, home: Home) -> Option<u32> {
         Ok(t) => {
             let mut edit = Editing::new(t);
             edit.mark_unsaved();
-            Some(open_doc(app, key, home, edit, is_compact(&data)))
+            let id = open_doc(app, key, home, edit, &data);
+            // (Laid out as the game's copy, not read from its home: nothing
+            // there to follow until it is saved.)
+            if let Some(doc) = app.tables.iter_mut().find(|d| d.id == id) {
+                doc.read_at = f64::INFINITY;
+            }
+            Some(id)
         }
         Err(e) => {
             app.log.error(e);
@@ -514,13 +530,23 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
         true => mg_2da::Layout::Compact,
         false => mg_2da::Layout::Aligned,
     };
-    let bytes = match app.tables[at].edit.table().to_bytes_as(cp, layout) {
+    // As its file is laid out (its widths, row labels, tabs and line
+    // ends), where it is saved as the file was (in line, or compact);
+    // else anew in the layout chosen.
+    let doc = &app.tables[at];
+    let like = !doc.read.is_empty() && mg_2da::Layout::of(&doc.read) == layout;
+    let written = match like {
+        true => doc.edit.table().to_bytes_like(cp, &doc.read),
+        false => doc.edit.table().to_bytes_as(cp, layout),
+    };
+    let bytes = match written {
         Ok(b) => b,
         Err(e) => {
             app.tables[at].problem = Some(format!("Not saved: {e}"));
             return false;
         }
     };
+    let kept: Arc<[u8]> = Arc::from(&bytes[..]);
     let saved = match &home {
         Home::Module => {
             let edit = Edit::SetResource { key, data: Some(bytes) };
@@ -544,6 +570,8 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
             let where_ = home_text(app, &home);
             let doc = &mut app.tables[at];
             doc.edit.mark_saved();
+            doc.read = kept;
+            doc.read_at = f64::NEG_INFINITY;
             doc.problem = None;
             let more = match home {
                 Home::Hak(_) => {
@@ -599,6 +627,55 @@ fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
             let table = in_folder.or_else(|| Some(hak.hak.path.as_ref()?.with_file_name(&name)))?;
             Some(path_beside(&table))
         }
+    }
+}
+
+/// What the table was read from, as it is now: the module's resource (an
+/// Undo of the module may take its save back), the hak's (replaced in the
+/// hak editor) or the file's (changed outside). `None`: it is no more.
+fn source_now(app: &Moonglow, doc: &TableDoc) -> Option<Vec<u8>> {
+    match &doc.home {
+        Home::Module => Some(app.ws.as_ref()?.module.get(&doc.key)?.to_vec()),
+        Home::Hak(hak) => app.haks.iter().find(|d| d.id == *hak)?.hak.data(doc.key).ok(),
+        Home::File(path) => std::fs::read(path).ok(),
+    }
+}
+
+/// Reads the table again when what it was read from changes under it
+/// (looked at once a second): with no change of the builder's not saved,
+/// the editor shows the table as it is now; with one, it says so, and a
+/// save writes over it. A copy not yet saved anywhere (Edit a Copy) has
+/// nothing to follow.
+fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    let now = ctx.input(|i| i.time);
+    if now - app.tables[at].read_at < 1.0 || app.tables[at].read.is_empty() {
+        return;
+    }
+    app.tables[at].read_at = now;
+    let Some(data) = source_now(app, &app.tables[at]) else { return };
+    if data[..] == app.tables[at].read[..] {
+        return;
+    }
+    let key = app.tables[at].key;
+    let parsed = parse(app, key, &data);
+    let doc = &mut app.tables[at];
+    doc.read = Arc::from(&data[..]);
+    match parsed {
+        Ok(t) if !doc.has_unsaved() => {
+            doc.edit = Editing::new(t);
+            doc.compact = is_compact(&data);
+            doc.changed();
+            doc.problem = None;
+            app.log.info(format!("{key} was changed where it was read from: read again"));
+        }
+        Ok(_) => {
+            doc.problem = Some(
+                "Changed where it was read from since it was opened: Save writes this table \
+                 over that one"
+                    .into(),
+            );
+        }
+        Err(e) => doc.problem = Some(format!("Changed where it was read from, unreadable: {e}")),
     }
 }
 
@@ -959,6 +1036,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     if crate::side_doc::ok_cancel(app, ui, &Tab::Table(id), false, commit) {
         return;
     }
+    read_again(app, ui.ctx(), at);
     describe(app, ui.ctx(), at);
     let faults = faults(app, at);
     let name = app.tables[at].name();

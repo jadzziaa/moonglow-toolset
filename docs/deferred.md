@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:35:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:50:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -253,14 +253,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     blueprints, areas or scripts. (M)
   - A row both copies changed is taken whole or left: its cells are not
     chosen one by one. (S)
-  - A table saved is laid out anew, columns in line or compact as its
-    file was (its own widths, its tabs and its row labels are not
-    kept: rows are numbered), and an empty row at the end is not
-    written. `mg 2da-diff -o` and a plugin's `twoda:write` write
-    columns in line only. (S)
-  - A table open in the editor is not read again when what it was read
-    from changes under it (the module's Undo taking its save back, the
-    hak's table replaced, the file changed outside). (S)
   - Column widths (dansen9191's report, 2026-10-21) are kept by the
     table's name and the column's, in the settings (the last 200
     tables): two different tables of one name (two haks' `custom.2da`)

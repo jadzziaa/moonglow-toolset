@@ -1260,10 +1260,25 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
     h.get_by_label("Save").click();
     h.run_steps(3);
-    // (The empty row at the end is not in the file: a table read has no
-    // empty rows after its last.)
-    assert_eq!(stored(&mut h).rows[..], table_of(&h, id).rows[..2]);
+    // (The empty row at the end is in the file, a row as the game counts
+    // it: `engine_counts_an_empty_last_row`.)
+    assert_eq!(stored(&mut h).rows, table_of(&h, id).rows);
     assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    // The module's Undo takes the save back with the table open: the
+    // editor reads it again.
+    // (The module's own Undo: the one under the menu is the grid's while
+    // it is open.)
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while table_of(&h, id).get(1, "Label") != Some("Cheese") {
+        assert!(std::time::Instant::now() < deadline, "read again after the Undo");
+        h.run_steps(5);
+    }
+    h.state_mut().ws.as_mut().unwrap().redo().unwrap();
+    while table_of(&h, id).get(1, "Label") != Some("Cheesey") {
+        assert!(std::time::Instant::now() < deadline, "read again after the Redo");
+        h.run_steps(5);
+    }
     // (Closed, the table's grid has the keys no more: Undo is the
     // module's.)
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
@@ -1772,4 +1787,51 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
     key_(&mut h, none, egui::Key::ArrowDown);
     assert_eq!(at(&h), Some((1, 0)), "the table's keys left");
     assert_ne!(h.state().tree_cursor, tree, "the tree's again");
+}
+
+/// A table saved keeps its file's layout: its row labels and its tabs.
+/// Changed outside while open, it is read again (nothing of the
+/// builder's unsaved), or said to have changed (something unsaved: a
+/// save writes over it).
+#[test]
+fn a_file_s_table_keeps_its_layout_and_is_read_again_when_changed() {
+    let dir = mg_testkit::scratch_dir("ui-table-read-again");
+    let file = dir.join("tabs.2da");
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t2\n")
+        .unwrap();
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1200.0, 800.0);
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(1, 1, Some("3".into())).unwrap();
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t3\n",
+        "its labels and tabs kept"
+    );
+    // Changed outside: read again.
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t4\n")
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while table_of(&h, id).get(1, "Cost") != Some("4") {
+        assert!(std::time::Instant::now() < deadline, "read again");
+        h.run_steps(5);
+    }
+    // With a change not saved: said, and the builder's change kept.
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(0, 1, Some("8".into())).unwrap();
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\ncheese\tCheese\t5\n")
+        .unwrap();
+    let said = |h: &Harness<'_, Moonglow>| {
+        let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
+        doc.problem.as_deref().is_some_and(|p| p.contains("Changed where it was read from"))
+    };
+    while !said(&h) {
+        assert!(std::time::Instant::now() < deadline, "said");
+        h.run_steps(5);
+    }
+    assert_eq!(table_of(&h, id).get(0, "Cost"), Some("8"));
+    assert_eq!(table_of(&h, id).get(1, "Cost"), Some("4"));
 }

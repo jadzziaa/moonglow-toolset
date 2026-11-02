@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:38:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:50:12Z }
 ---
 
 # Modules
@@ -1642,13 +1642,25 @@ one, or all of a kind with the **New** (those yours lacks) and
 unticks them all. **Take** brings each ticked row in whole, as one
 step.
 
-Saving lays the table out as the game's own files are (columns in line,
-rows numbered from 0), or, with **Compact** ticked, with one space
-between cells: a smaller file with less for the game to pass over as it
-reads, where columns in line are easier to read and to copy from. The
-box begins as the file was (one space or one tab between its cells:
-compact), and ticking it is a change to save. An empty row at the very
-end is not written: a table has no empty rows after its last.
+Saving lays the table out as its file was: columns in line as wide as
+there (wider where a cell needs it), or, with **Compact** ticked, with
+one space between cells (a smaller file with less for the game to pass
+over as it reads, where columns in line are easier to read and to copy
+from); its rows' labels as the file has them (the game passes over
+them: a builder's `Sword` stays `Sword`; a row added is numbered), tabs
+between cells where the file had tabs, and its line ends. The box
+begins as the file was (one space or one tab between its cells:
+compact), and ticking it is a change to save: the table is then laid
+out anew. A row of empty cells at the end is a row, as the game counts
+it, and is written; blank lines after the last row are not rows. `mg
+2da-diff -o` and its edit file write a table so too, as table A (or B,
+for an update) is laid out.
+
+**A table changed where it was read from** while it is open (the
+module's Undo taking its save back, the hak's table replaced, the file
+changed by another program) is read again, as it is now, where nothing
+in the editor is unsaved; with something unsaved, the editor says so
+over the table, and Save writes the editor's table over the other.
 
 Under the table are **OK** and **Cancel**: OK saves the table and closes
 its window; Cancel closes it without saving, asking first where there
