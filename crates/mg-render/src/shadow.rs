@@ -219,7 +219,11 @@ fn seen(camera: &Camera, aspect: f32, receivers: (Vec3, Vec3)) -> Option<(Vec3, 
             max = max.max(p);
         }
     }
+    // (A millimeter's give: the rays' crossings of a flat receiver, a
+    // ground of one height, lie at its height but for the last bits, and
+    // one a bit above it left no box.)
     let (min, max) = (min.max(receivers.0), max.min(receivers.1));
+    let min = Vec3::select(min.cmpgt(max) & (min - max).cmplt(Vec3::splat(1e-3)), max, min);
     (min.cmple(max).all()).then_some((min, max))
 }
 
@@ -863,7 +867,7 @@ impl ShadowMaps {
         ShadowMaps {
             map,
             sampler,
-            casting: Casting::new(device),
+            casting: Casting::new(device, Some(wgpu::Face::Back)),
             params: buffer(
                 "shadow darkening",
                 std::mem::size_of::<DarkenUniform>() as u64,
@@ -1044,12 +1048,18 @@ impl LightMaps {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        LightMaps { layers, array, casting: Casting::new(device), params }
+        LightMaps { layers, array, casting: Casting::new(device, None), params }
     }
 }
 
 impl Casting {
-    pub(crate) fn new(device: &wgpu::Device) -> Casting {
+    /// The casters' pipelines, culling the faces `cull` names as the
+    /// light sees them: the sun's and moon's map culls those turned from
+    /// the light, as the client casts from a face's front only
+    /// (`docs/findings.md`, "A face casts the sun's shadow from its front
+    /// only": a single wall with its back to a low sun casts nothing); the
+    /// lights' maps cull none (not read).
+    pub(crate) fn new(device: &wgpu::Device, cull: Option<wgpu::Face>) -> Casting {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow casters"),
             source: wgpu::ShaderSource::Wgsl(CAST.into()),
@@ -1106,8 +1116,11 @@ impl Casting {
                     compilation_options: Default::default(),
                     buffers,
                 },
-                // (Both sides: the game's meshes are not all closed.)
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: cull,
+                    ..Default::default()
+                },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: MAP_FORMAT,
                     depth_write_enabled: Some(true),
@@ -1458,6 +1471,18 @@ mod tests {
             ..above
         };
         assert_eq!(seen(&away, 1.5, area), None);
+        // (A flat receiver, a ground of one height, seen at a slant: the
+        // rays cross its height but for the last bits.)
+        let flat = (Vec3::new(-3.0, -3.0, -0.01), Vec3::new(3.0, 3.0, -0.01));
+        let slant = Camera {
+            eye: Vec3::new(2.13, 4.71, 1.83),
+            target: Vec3::new(0.0, 0.0, 0.84),
+            fov_y: 0.7,
+            near: 0.05,
+            far: 200.0,
+        };
+        let (min, max) = seen(&slant, 1.4, flat).unwrap();
+        assert!(min.z == -0.01 && max.z == -0.01 && max.x > min.x + 1.0, "{min} {max}");
     }
 
     /// A creature casts its lights' shadow from the light nearest its

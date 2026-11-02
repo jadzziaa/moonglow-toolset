@@ -1214,3 +1214,31 @@ fn an_item_s_part_scopes_transform_its_parts() {
     assert_eq!(which(253), vec!["wswls_t_011".to_string()]);
     assert!(which(252).is_empty() && which(251).is_empty());
 }
+
+/// A model with no mesh to draw, a fog of particles alone (a builder's
+/// custom fog), is boxed by what its emitters' particles fill, so that the
+/// viewer frames it: its emitter's area (3 m square about it, a metre and
+/// a half each way), as far up as its particles fly in their life (0.5
+/// m/s for 4 s), and half their size round it; where it had a 2 m box
+/// about the origin, whatever its emitters.
+#[test]
+fn a_model_of_emitters_alone_is_boxed_by_its_particles() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let text = "newmodel mg_fog\nsetsupermodel mg_fog NULL\nclassification EFFECT\n\
+                beginmodelgeom mg_fog\nnode dummy mg_fog\n  parent NULL\nendnode\n\
+                node emitter fog\n  parent mg_fog\n  position 2 0 1\n  xsize 300\n  \
+                ysize 300\n  velocity 0.5\n  lifeExp 4\n  sizeStart 1\n  sizeEnd 1\n  \
+                birthrate 1\n  update Fountain\n  render Normal\n  blend Normal\nendnode\n\
+                endmodelgeom mg_fog\ndonemodel mg_fog\n";
+    let model = Arc::new(Model::read(text.as_bytes()).unwrap());
+    let load = |name: &str| (name == "mg_fog").then(|| model.clone());
+    let c = Composed::new(&gpu, &Preview::model("mg_fog"), &load).unwrap();
+    let (min, max) = c.bounds();
+    let near = |a: glam::Vec3, b: glam::Vec3| (a - b).abs().max_element() < 0.01;
+    assert!(near(min, glam::Vec3::new(0.0, -2.0, 0.5)), "{min}");
+    assert!(near(max, glam::Vec3::new(4.0, 2.0, 3.5)), "{max}");
+}

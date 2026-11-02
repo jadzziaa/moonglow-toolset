@@ -373,6 +373,10 @@ pub struct Settings {
     /// custom ones among them (`docs/shaders-proposal.md`). `None`: as
     /// [`GAME_SHADERS_BY_DEFAULT`] has it, until the switch is used.
     pub game_shaders: Option<bool>,
+    /// The model viewer's Shadow switch: the model casts the sun's shadow
+    /// on a ground under it that takes only shadows. `None`: on, until
+    /// the switch is used.
+    pub model_shadows: Option<bool>,
     /// The kinds of objects the area view's toolbar hides (`Triggers`,
     /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
     /// `Start` for the start location's marker; `Merchants`, as 1.35 and
@@ -802,6 +806,11 @@ impl Settings {
     /// The Shaders switch: the game's own shaders draw the 3D views.
     pub fn game_shaders(&self) -> bool {
         self.game_shaders.unwrap_or(GAME_SHADERS_BY_DEFAULT)
+    }
+
+    /// The model viewer's Shadow switch ([`Settings::model_shadows`]).
+    pub fn model_shadows(&self) -> bool {
+        self.model_shadows.unwrap_or(true)
     }
 
     /// Puts a module at the top of the recent list.

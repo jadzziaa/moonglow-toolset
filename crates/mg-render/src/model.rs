@@ -141,6 +141,12 @@ pub struct GpuMesh {
     /// Its shadow volume ([`crate::volume`]), made the first time it casts
     /// one with the shadows' High quality.
     pub(crate) volume: crate::volume::VolumeSlot,
+    /// The first of its model's meshes (in the model's order) naming the
+    /// same textures (case not counted), itself if none before does: in
+    /// static geometry (a tile, a static placeable) the client draws them
+    /// as one bucket, with that mesh's alpha and `NO_DISCARD`
+    /// (`docs/findings.md`, "Static geometry is drawn in buckets").
+    pub(crate) bucket: usize,
 }
 
 impl GpuMesh {
@@ -148,6 +154,25 @@ impl GpuMesh {
     /// row bind its buffers once.
     pub(crate) fn chunk(&self) -> u64 {
         self.slot.chunk.id
+    }
+}
+
+/// Each mesh's [`GpuMesh::bucket`]: the first mesh before it naming the
+/// same textures (a texture, and the same maps), case not counted.
+fn buckets(meshes: &mut [GpuMesh]) {
+    let names = |m: &Material| {
+        std::iter::once(&m.texture)
+            .chain(&m.maps)
+            .map(|t| t.as_deref().map(str::to_ascii_lowercase))
+            .collect::<Vec<_>>()
+    };
+    let keys: Vec<Option<Vec<Option<String>>>> =
+        meshes.iter().map(|m| m.material.texture.is_some().then(|| names(&m.material))).collect();
+    for (j, mesh) in meshes.iter_mut().enumerate() {
+        mesh.bucket = match &keys[j] {
+            Some(k) => keys.iter().position(|o| o.as_ref() == Some(k)).unwrap_or(j),
+            None => j,
+        };
     }
 }
 
@@ -310,9 +335,11 @@ impl GpuModel {
                 skin,
                 slot: Arc::new(slot),
                 volume: Default::default(),
+                bucket: 0,
             };
             if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
+        buckets(&mut meshes);
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         GpuModel { id, model, meshes, shadow_only, rest }
     }
@@ -340,6 +367,7 @@ impl GpuModel {
                 casts: m.casts,
                 slot: m.slot.clone(),
                 volume: Default::default(),
+                bucket: m.bucket,
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -617,9 +617,13 @@ pub(crate) fn time_values(seconds: f32) -> (i32, i32) {
 /// clock counts 60 a second.
 pub(crate) const TIME_FRAMES_PER_SECOND: f64 = 60.0;
 /// `worldtimerTimeOfDay` counts real milliseconds (measured likewise;
-/// whatever the module's minutes an hour). Its origin in the client
-/// follows neither the module's hour nor its day and is not known: the
-/// stock and TDoD shaders use it as a phase or as seconds.
+/// whatever the module's minutes an hour). Its origin in the client is
+/// known (`docs/findings.md`, "The client's clock starts from the
+/// machine's"): 23:59:56 of a day of 5 minutes an hour, in steps of two
+/// hours of the machine's uptime, whatever the module's hour or day, so a
+/// player's machine decides it. Moonglow's starts at 0 by design
+/// ([`time_values`]): the stock and TDoD shaders use it as a phase or as
+/// seconds.
 pub(crate) const TIME_TIMER_PER_SECOND: f64 = 1000.0;
 
 fn put(out: &mut [u8], at: u32, bytes: [u8; 4]) {
@@ -995,6 +999,9 @@ pub(crate) enum GamePass {
     Solid,
     /// The rest of it: blended over everything solid, hiding nothing.
     Fringe,
+    /// A mesh of mesh `alpha` under 1, whole: blended, its depth written,
+    /// in its model's order (as the client draws it).
+    Ordered,
     /// An additive mesh (TXI `blending additive`): added to what is behind,
     /// hiding nothing.
     Additive,
@@ -1019,9 +1026,10 @@ impl GamePass {
         };
         match self {
             GamePass::Opaque | GamePass::Sky | GamePass::Particles(B::PunchThrough) => None,
-            GamePass::Solid | GamePass::Fringe | GamePass::Particles(B::Normal) => {
-                Some(wgpu::BlendState::ALPHA_BLENDING)
-            }
+            GamePass::Solid
+            | GamePass::Fringe
+            | GamePass::Ordered
+            | GamePass::Particles(B::Normal) => Some(wgpu::BlendState::ALPHA_BLENDING),
             // (As Moonglow's own shader adds an additive mesh: by its
             // alpha, as the client does, `reading_additive_blending`.)
             GamePass::Additive => Some(add(wgpu::BlendFactor::SrcAlpha)),
@@ -1057,7 +1065,13 @@ impl GamePass {
     /// Whether the pass writes its depth.
     fn depth_write(self) -> bool {
         use crate::particles::ParticleBlend as B;
-        matches!(self, GamePass::Opaque | GamePass::Solid | GamePass::Particles(B::PunchThrough))
+        matches!(
+            self,
+            GamePass::Opaque
+                | GamePass::Solid
+                | GamePass::Ordered
+                | GamePass::Particles(B::PunchThrough)
+        )
     }
 
     /// Whether its faces are drawn from behind whatever the material says.
@@ -1078,6 +1092,77 @@ pub(crate) struct PipelineKey {
     pub(crate) tangents: bool,
     pub(crate) twosided: bool,
     pub(crate) pass: GamePass,
+}
+
+impl PipelineKey {
+    /// The key as a line of text (`vs fs pass` and its four switches as
+    /// 0 or 1: `NO_DISCARD`, skinned, tangents, two-sided), as a module's
+    /// pipelines are kept between sessions ([`PipelineKey::from_line`]).
+    pub(crate) fn line(&self) -> String {
+        use crate::particles::ParticleBlend as B;
+        let pass = match self.pass {
+            GamePass::Opaque => "opaque",
+            GamePass::Solid => "solid",
+            GamePass::Fringe => "fringe",
+            GamePass::Ordered => "ordered",
+            GamePass::Additive => "additive",
+            GamePass::Sky => "sky",
+            GamePass::Particles(B::Normal) => "particles",
+            GamePass::Particles(B::Lighten) => "particles-lighten",
+            GamePass::Particles(B::PunchThrough) => "particles-punchthrough",
+        };
+        let flag = |b: bool| if b { '1' } else { '0' };
+        format!(
+            "{} {} {pass} {}{}{}{}",
+            self.vs,
+            self.fs,
+            flag(self.no_discard),
+            flag(self.skinned),
+            flag(self.tangents),
+            flag(self.twosided)
+        )
+    }
+
+    /// A key from its [`PipelineKey::line`]; `None` for a line that is no
+    /// key (another release's, or written wrong).
+    pub(crate) fn from_line(line: &str) -> Option<PipelineKey> {
+        use crate::particles::ParticleBlend as B;
+        let mut words = line.split_ascii_whitespace();
+        let (vs, fs, pass, flags) = (words.next()?, words.next()?, words.next()?, words.next()?);
+        if words.next().is_some() || vs.len() > 64 || fs.len() > 64 {
+            return None;
+        }
+        let pass = match pass {
+            "opaque" => GamePass::Opaque,
+            "solid" => GamePass::Solid,
+            "fringe" => GamePass::Fringe,
+            "ordered" => GamePass::Ordered,
+            "additive" => GamePass::Additive,
+            "sky" => GamePass::Sky,
+            "particles" => GamePass::Particles(B::Normal),
+            "particles-lighten" => GamePass::Particles(B::Lighten),
+            "particles-punchthrough" => GamePass::Particles(B::PunchThrough),
+            _ => return None,
+        };
+        let flags: Vec<bool> = flags
+            .chars()
+            .map(|c| match c {
+                '0' => Some(false),
+                '1' => Some(true),
+                _ => None,
+            })
+            .collect::<Option<_>>()?;
+        let [no_discard, skinned, tangents, twosided] = flags[..] else { return None };
+        Some(PipelineKey {
+            vs: vs.to_ascii_lowercase(),
+            fs: fs.to_ascii_lowercase(),
+            no_discard,
+            skinned,
+            tangents,
+            twosided,
+            pass,
+        })
+    }
 }
 
 /// A program pair ready to draw.
@@ -1550,6 +1635,9 @@ fn assembled(
 struct Job {
     era: u64,
     key: PipelineKey,
+    /// Asked for ahead of a draw ([`GameShaders::prepare`]): a failure
+    /// is not reported (the draw that needs it asks again and reports it).
+    quiet: bool,
     vs: Result<mg_shader::Assembled, String>,
     fs: Result<mg_shader::Assembled, String>,
     format: wgpu::TextureFormat,
@@ -1599,6 +1687,7 @@ struct Built {
 struct Done {
     era: u64,
     key: PipelineKey,
+    quiet: bool,
     built: Result<Built, String>,
     stats: ShaderStats,
 }
@@ -1654,7 +1743,8 @@ impl Worker {
             } else {
                 w.stats.failed = 1;
             }
-            let reply = Done { era: job.era, key: job.key, built, stats: w.stats };
+            let reply =
+                Done { era: job.era, key: job.key, quiet: job.quiet, built, stats: w.stats };
             if done.send(reply).is_err() {
                 break;
             }
@@ -2141,6 +2231,7 @@ impl GameShaders {
             let job = Job {
                 era: self.era,
                 key: key.clone(),
+                quiet: false,
                 vs: assembled(assets, &preamble, &key.vs, Stage::Vertex),
                 fs: assembled(assets, &preamble, &key.fs, Stage::Fragment),
                 format,
@@ -2148,28 +2239,9 @@ impl GameShaders {
                 cache: self.cache.clone(),
                 capture: self.capture.clone(),
             };
-            if self.worker.is_none() {
-                let (jobs, inbox) = std::sync::mpsc::channel();
-                let (outbox, done) = std::sync::mpsc::channel();
-                let (gpu, waker) = (gpu.clone(), self.waker.clone());
-                let started = std::thread::Builder::new()
-                    .name("moonglow shaders".into())
-                    .spawn(move || Worker::run(gpu, inbox, outbox, waker));
-                if started.is_err() {
-                    self.fail(&format!("{}/{}", key.vs, key.fs), "no thread to compile in".into());
-                    self.pipelines.insert(key.clone(), None);
-                    return Ready::No;
-                }
-                self.worker = Some(WorkerLink { jobs, done });
-            }
-            let sent = self.worker.as_ref().is_some_and(|w| w.jobs.send(job).is_ok());
-            if !sent {
-                self.worker = None;
-                self.fail(&format!("{}/{}", key.vs, key.fs), "the compiling thread stopped".into());
-                self.pipelines.insert(key.clone(), None);
+            if !self.send(gpu, job) {
                 return Ready::No;
             }
-            self.pending.insert(key.clone());
         }
         if wait {
             while self.pending.contains(key) {
@@ -2188,6 +2260,84 @@ impl GameShaders {
             return self.pipelines.get(key).map_or(Ready::No, ready);
         }
         Ready::Pending
+    }
+
+    /// Gives the worker `job` (started the first time): whether it took it.
+    /// A pipeline that can't be asked for is reported (unless the job is
+    /// quiet) and, but for a quiet one, kept as one that can't be made.
+    fn send(&mut self, gpu: &Gpu, job: Job) -> bool {
+        let (key, quiet) = (job.key.clone(), job.quiet);
+        let failed = |s: &mut Self, why: &str| {
+            if !quiet {
+                s.fail(&format!("{}/{}", key.vs, key.fs), why.into());
+                s.pipelines.insert(key.clone(), None);
+            }
+            false
+        };
+        if self.worker.is_none() {
+            let (jobs, inbox) = std::sync::mpsc::channel();
+            let (outbox, done) = std::sync::mpsc::channel();
+            let (gpu, waker) = (gpu.clone(), self.waker.clone());
+            let started = std::thread::Builder::new()
+                .name("moonglow shaders".into())
+                .spawn(move || Worker::run(gpu, inbox, outbox, waker));
+            if started.is_err() {
+                return failed(self, "no thread to compile in");
+            }
+            self.worker = Some(WorkerLink { jobs, done });
+        }
+        let sent = self.worker.as_ref().is_some_and(|w| w.jobs.send(job).is_ok());
+        if !sent {
+            self.worker = None;
+            return failed(self, "the compiling thread stopped");
+        }
+        self.pending.insert(key);
+        true
+    }
+
+    /// Asks the worker for `key`'s pipeline ahead of any draw (one a
+    /// module's areas drew with in an earlier session), unless it is made
+    /// or asked for already: whether it was asked for. Quietly: a pair
+    /// whose programs the resources haven't (a hak taken away since) is
+    /// not asked for, and one that fails isn't reported nor kept (a draw
+    /// that needs it asks again).
+    pub(crate) fn prepare_pipeline(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn crate::Assets,
+        key: &PipelineKey,
+        format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> bool {
+        if self.pipelines.contains_key(key) || self.pending.contains(key) {
+            return false;
+        }
+        let preamble = Preamble { no_discard: key.no_discard, ..self.preamble.clone() };
+        let vs = assembled(assets, &preamble, &key.vs, Stage::Vertex);
+        let fs = assembled(assets, &preamble, &key.fs, Stage::Fragment);
+        if vs.is_err() || fs.is_err() {
+            return false;
+        }
+        let job = Job {
+            era: self.era,
+            key: key.clone(),
+            quiet: true,
+            vs,
+            fs,
+            format,
+            samples,
+            cache: self.cache.clone(),
+            capture: self.capture.clone(),
+        };
+        self.send(gpu, job)
+    }
+
+    /// The pipelines made, as their keys, the earliest made first.
+    pub(crate) fn made(&self) -> Vec<&PipelineKey> {
+        let mut made: Vec<(u32, &PipelineKey)> =
+            (self.pipelines.iter()).filter_map(|(k, p)| Some((p.as_ref()?.id, k))).collect();
+        made.sort_unstable_by_key(|(id, _)| *id);
+        made.into_iter().map(|(_, k)| k).collect()
     }
 
     /// Takes what the worker has made since: whether anything.
@@ -2228,6 +2378,10 @@ impl GameShaders {
         s.failed += done.stats.failed;
         s.seconds += done.stats.seconds;
         let key = done.key;
+        // (One asked for ahead that failed: neither reported nor kept.)
+        if done.quiet && done.built.is_err() {
+            return false;
+        }
         let p = match done.built {
             Ok(b) => {
                 // Its frame blocks' places, for good; and room for the
@@ -2945,6 +3099,45 @@ mod tests {
         assert_eq!(program_pair(None, hinted), ("vslit_nm".into(), "fslit_nm".into(), false));
     }
 
+    /// A pipeline's key is kept as a line of text and read back the same,
+    /// for every pass; a line that is no key's is none.
+    #[test]
+    fn a_pipeline_s_key_is_kept_as_a_line() {
+        use crate::particles::ParticleBlend as B;
+        let passes = [
+            GamePass::Opaque,
+            GamePass::Solid,
+            GamePass::Fringe,
+            GamePass::Ordered,
+            GamePass::Additive,
+            GamePass::Sky,
+            GamePass::Particles(B::Normal),
+            GamePass::Particles(B::Lighten),
+            GamePass::Particles(B::PunchThrough),
+        ];
+        for (i, pass) in passes.into_iter().enumerate() {
+            let key = PipelineKey {
+                vs: "vslit_nm".into(),
+                fs: "fs_tdod_grass".into(),
+                no_discard: i % 2 == 0,
+                skinned: i % 3 == 0,
+                tangents: i % 4 == 0,
+                twosided: i % 5 == 0,
+                pass,
+            };
+            assert_eq!(PipelineKey::from_line(&key.line()), Some(key.clone()), "{}", key.line());
+        }
+        for bad in [
+            "",
+            "vslit fslit",
+            "vslit fslit opaque 10",
+            "vslit fslit glow 1000",
+            "a b opaque 1000 x",
+        ] {
+            assert_eq!(PipelineKey::from_line(bad), None, "{bad}");
+        }
+    }
+
     /// A pass that doesn't blend leaves the picture's alpha as it was
     /// (opaque): the programs write a cut-out's kept texels' alpha out, below
     /// 1 at its edges. One that blends writes it, and over opaque it stays
@@ -2956,6 +3149,7 @@ mod tests {
             GamePass::Opaque,
             GamePass::Solid,
             GamePass::Fringe,
+            GamePass::Ordered,
             GamePass::Additive,
             GamePass::Sky,
             GamePass::Particles(B::Normal),

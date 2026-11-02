@@ -1462,6 +1462,39 @@ impl Renderer {
         self.game.cache = dir.map(mg_shader::ProgramCache::new);
     }
 
+    /// The pipelines of the game's programs made so far, the earliest
+    /// first, each as a line of text (its program pair, its pass and the
+    /// switches it was made for): what a window keeps of a module's
+    /// areas, to make them again as the module opens in the next session
+    /// ([`Renderer::prepare_game_pipelines`]).
+    pub fn game_pipelines_made(&self) -> Vec<String> {
+        self.game.made().into_iter().map(crate::game::PipelineKey::line).collect()
+    }
+
+    /// Asks for the pipelines `lines` name ([`Renderer::game_pipelines_made`]
+    /// of an earlier session), to be made in the background, so that the
+    /// areas that draw with them draw the game's programs from their first
+    /// frame: how many were asked for. Those made or asked for already are
+    /// passed over, and so are a line that is no pipeline's and a pair
+    /// whose programs `assets` hasn't (a hak taken away since); one that
+    /// fails is neither reported nor kept (a draw that needs it asks again
+    /// and reports it). Nothing is asked for with the game's shaders off.
+    pub fn prepare_game_pipelines(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        lines: &[String],
+    ) -> usize {
+        if !self.game_shaders {
+            return 0;
+        }
+        let (format, samples) = (self.color_format, self.sample_count);
+        (lines.iter())
+            .filter_map(|l| crate::game::PipelineKey::from_line(l))
+            .filter(|key| self.game.prepare_pipeline(gpu, assets, key, format, samples))
+            .count()
+    }
+
     /// Calls `wake` when a pipeline of the game's programs is ready
     /// ([`Renderer::game_background`]), from the thread that made it: a
     /// window asks for a frame.
@@ -2188,6 +2221,10 @@ impl Renderer {
             // (Only where the frame has shadows: else the solid draws keep
             // their order.)
             let receives = shadowing && inst.receives_shadows && !is_sky;
+            // (Where the instance stands from the eye: its meshes of mesh
+            // `alpha` under 1 are put in order by it, in the model's order
+            // among themselves.)
+            let instance_depth = -view.transform_point3(inst.transform.w_axis.truncate()).z;
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             // (A model whose textures are being read is drawn once they are.)
@@ -2197,8 +2234,18 @@ impl Renderer {
             };
             for (j, (mesh, surface)) in inst.model.meshes.iter().zip(surfaces.iter()).enumerate() {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
-                let alpha =
-                    replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
+                // (Static geometry, a tile or a static placeable: its
+                // meshes of the same textures with the first one's alpha,
+                // and so its blending and `NO_DISCARD`, as the client
+                // draws them in one bucket.)
+                let lead = if inst.tile || inst.receives_shadows { mesh.bucket } else { j };
+                let alpha = if lead == j {
+                    replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha)
+                } else {
+                    let first = inst.state.as_ref().and_then(|s| s.meshes.get(lead));
+                    let material = inst.model.meshes.get(lead).map_or(1.0, |m| m.material.alpha);
+                    first.and_then(|r| r.alpha).unwrap_or(material)
+                } * inst.opacity;
                 // (Wholly see-through, or left out (Fade Geometry's): nothing
                 // to draw.)
                 if alpha <= 0.0 || replaced.is_some_and(|r| r.hidden) {
@@ -2293,6 +2340,24 @@ impl Renderer {
                 } else {
                     Pass::Opaque
                 };
+                // A mesh of mesh `alpha` under 1, of an instance drawn
+                // whole (not a cut-out, which is drawn solid), is drawn in
+                // one part, blended and writing its depth, in its model's
+                // order (by its instance's place, the meshes in the order
+                // they come), as the client draws them: a card listed after
+                // another and behind it is hidden where they overlap, and
+                // what is drawn after it (a ribbon, a see-through mesh's
+                // soft part) is hidden behind it (`reading_see_through_crossing`,
+                // `batch6_ribbon_sizes`). Its texture's soft edges are
+                // blended as they are, writing their depth as the client's
+                // do: a see-through texture on a mesh of `alpha` 1 (a
+                // plant's soft edge) is still drawn in two parts, below.
+                let ordered = pass == Pass::Blend
+                    && inst.opacity >= 1.0
+                    && alpha < 1.0
+                    && surface.blending != Blending::Punchthrough;
+                let sort_depth =
+                    if ordered { instance_depth } else { -view.transform_point3(centre).z };
                 // A mesh solid of its own in an instance drawn see-through
                 // (a tile or a blueprint about to be placed): its depth is
                 // laid first, so that the instance's nearer surfaces hide
@@ -2322,6 +2387,7 @@ impl Renderer {
                 // see-through in two parts as Moonglow draws it.
                 let game_pass = match pass {
                     Pass::Opaque => Some(crate::game::GamePass::Opaque),
+                    Pass::Blend if ordered => Some(crate::game::GamePass::Ordered),
                     Pass::Blend => Some(crate::game::GamePass::Solid),
                     Pass::Additive => Some(crate::game::GamePass::Additive),
                     Pass::Sky => Some(crate::game::GamePass::Sky),
@@ -2453,7 +2519,7 @@ impl Renderer {
                                 draws.push(Draw {
                                     pass,
                                     twosided: slots.twosided,
-                                    depth: -view.transform_point3(centre).z,
+                                    depth: sort_depth,
                                     hint: mat.transparency_hint,
                                     uniform: 0,
                                     material: surface.material,
@@ -2475,7 +2541,7 @@ impl Renderer {
                                 let draw = Draw {
                                     pass: Pass::Blend,
                                     twosided: slots.twosided,
-                                    depth: -view.transform_point3(centre).z,
+                                    depth: sort_depth,
                                     hint: mat.transparency_hint,
                                     uniform: 0,
                                     material: surface.material,
@@ -2585,7 +2651,7 @@ impl Renderer {
                 let draw = Draw {
                     pass,
                     twosided: slots.twosided,
-                    depth: -view.transform_point3(centre).z,
+                    depth: sort_depth,
                     hint: mat.transparency_hint,
                     uniform: uniforms.len() as u32,
                     material: surface.material,
@@ -2612,6 +2678,12 @@ impl Renderer {
                     // parts, the second a little towards the eye, so that
                     // this depth laid by another shader doesn't hide it.)
                     if game_drawn {
+                        continue;
+                    }
+                    // (In one part, its depth written: model order.)
+                    if ordered {
+                        uniforms.push(part(0.0));
+                        draws.push(Draw { uniform: uniforms.len() as u32 - 1, ..draw });
                         continue;
                     }
                     let draw = Draw { uniform: uniforms.len() as u32, ..draw };

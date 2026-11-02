@@ -1369,6 +1369,47 @@ fn model_viewer() {
     shoot(&mut h, &dir, "model-viewer");
 }
 
+/// The model viewer's Shadow switch off and on: a golem, a placeable and
+/// a longsword stood up (`MG_SCREEN_MODELS`, comma-separated, to choose
+/// others: a name with a blueprint's extension is the blueprint).
+#[test]
+#[ignore]
+fn model_viewer_shadow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-model");
+    let names = std::env::var("MG_SCREEN_MODELS")
+        .unwrap_or_else(|_| "c_golemerald,plc_a01,nw_wswls001.uti".into());
+    for name in names.split(',') {
+        let key = match name.split_once('.') {
+            Some((n, "uti")) => ResKey::parse(n, ResType::UTI).unwrap(),
+            Some((n, "utc")) => ResKey::parse(n, ResType::UTC).unwrap(),
+            _ => ResKey::parse(name, ResType::MDL).unwrap(),
+        };
+        for on in [false, true] {
+            let rs = egui_kittest::wgpu::create_render_state(
+                mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+                egui_wgpu::RendererOptions::PREDICTABLE,
+            );
+            let mut app = Moonglow::new(
+                Some(GameInstall::new(&root, None, "en")),
+                Box::new(NoDialogs::default()),
+            );
+            app.settings.game_shaders = Some(false);
+            app.settings.model_shadows = Some(on);
+            app.set_render_state(rs.clone());
+            app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
+            let mut h = Harness::builder()
+                .with_size(egui::vec2(900.0, 640.0))
+                .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+                .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+            h.run_steps(6);
+            let shadow = if on { "shadow" } else { "no-shadow" };
+            shoot(&mut h, &dir, &format!("model-{}-{shadow}", name.replace('.', "-")));
+        }
+    }
+}
+
 /// A model in the model view with the game's shaders on and off, to look
 /// at what they draw differently: `MG_SCREEN_MODEL` (the model's name,
 /// `c_golemerald` by default) from the game and `MG_TEST_USER`'s
