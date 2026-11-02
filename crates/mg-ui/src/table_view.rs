@@ -114,7 +114,8 @@ pub struct TableDoc {
     pub renaming: Option<usize>,
     pub taking: Option<Taking>,
     /// Where a row is named, as last asked: the row, and each place.
-    pub references: Option<(usize, Vec<Reference>)>,
+    /// The module's blueprints, areas and scripts that name it.
+    pub references: Option<(usize, Vec<Reference>, Vec<mg_module::rename::Usage>)>,
     /// What went wrong last (a cell refused, a save that failed).
     pub problem: Option<String>,
 }
@@ -897,6 +898,14 @@ pub fn references(app: &Moonglow, name: &str, own: &TwoDa, row: usize) -> Vec<Re
     out
 }
 
+/// Where the module names row `row` of the table `name`: its blueprints',
+/// areas' and placed objects' fields, and its scripts
+/// ([`mg_module::row_uses`]).
+pub fn module_row_uses(app: &Moonglow, name: &str, row: usize) -> Vec<mg_module::rename::Usage> {
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    mg_module::row_uses::row_uses(&ws.module, name, row, app.game.as_deref(), codepage(app))
+}
+
 const CELL: f32 = 116.0;
 pub(crate) const NUMBER: f32 = 54.0;
 /// The narrowest and the widest a column is made.
@@ -1229,8 +1238,8 @@ fn header(
             .on_hover_text(
                 "The selected row taken away. Every row after it is then one number lower, \
                  and what names those rows by number (other tables, blueprints, scripts) is \
-                 not changed to follow: Find References to Row shows the tables that do. To \
-                 keep the numbers, Empty Row",
+                 not changed to follow: Find References to Row shows the tables, blueprints, \
+                 areas and scripts that do. To keep the numbers, Empty Row",
             )
             .clicked()
             && let Some(row) = row
@@ -2187,6 +2196,7 @@ fn inspector(
     };
     let mut set: Option<Option<String>> = None;
     let mut find_references = false;
+    let mut go: Option<mg_module::rename::Usage> = None;
     let mut open_talk = false;
     let mut new_line: Option<String> = None;
     ui.horizontal_wrapped(|ui| {
@@ -2353,17 +2363,20 @@ fn inspector(
             .button(format!("Find References to Row {row}"))
             .on_hover_text(
                 "The cells of other tables (and this one) that name this row, in the columns \
-                 known to name a row of this table",
+                 known to name a row of this table; and the module's blueprints, areas and \
+                 placed objects whose fields hold it, and its scripts that name it (a \
+                 constant of nwscript's that stands for it, a Get2DAString of this table at \
+                 it)",
             )
             .clicked()
         {
             find_references = true;
         }
-        if let Some((of, found)) = &app.tables[at].references
+        if let Some((of, found, uses)) = &app.tables[at].references
             && *of == row
         {
-            if found.is_empty() {
-                ui.weak("No table's known columns name it.");
+            if found.is_empty() && uses.is_empty() {
+                ui.weak("No table's known columns name it, nor the module's fields and scripts.");
             }
             for r in found.iter().take(12) {
                 ui.label(format!("{}.2da row {}, {}", r.table, r.row, r.column));
@@ -2371,9 +2384,19 @@ fn inspector(
             if found.len() > 12 {
                 ui.weak(format!("and {} more", found.len() - 12));
             }
+            // (The module's: a click goes there.)
+            for u in uses.iter().take(24) {
+                if ui.link(&u.place).on_hover_text("Go there").clicked() {
+                    go = Some(u.clone());
+                }
+            }
+            if uses.len() > 24 {
+                ui.weak(format!("and {} more in the module", uses.len() - 24));
+            }
         }
     });
     let found = find_references.then(|| references(app, &name, table, row));
+    let uses = find_references.then(|| module_row_uses(app, &name, row));
     if let Some(text) = new_line {
         let line =
             mg_module::talk::Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
@@ -2398,8 +2421,11 @@ fn inspector(
             Err(e) => doc.problem = Some(e.to_string()),
         }
     }
-    if let Some(found) = found {
-        app.tables[at].references = Some((row, found));
+    if let (Some(found), Some(uses)) = (found, uses) {
+        app.tables[at].references = Some((row, found, uses));
+    }
+    if let Some(u) = go {
+        app.go_to_usage(&u);
     }
     if open_talk {
         app.actions.push(Action::OpenTab(Tab::TalkTable));

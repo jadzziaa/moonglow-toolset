@@ -483,7 +483,7 @@ fn git_kind(list: &str) -> &'static str {
 /// The object a path is in, for people: `keep › creature GUARD › item
 /// SWORD` (a placed object and the items it holds), `sword.uti`, `keep
 /// (area)`, `Module`; a conversation's line as Find References names it.
-fn place(key: ResKey, gff: &Gff, path: &GffPath, cp: Codepage) -> String {
+pub(crate) fn place(key: ResKey, gff: &Gff, path: &GffPath, cp: Codepage) -> String {
     let name = key.resref.to_lowercase().to_string();
     let first = path.first().and_then(Step::item);
     let mut out = match key.restype {

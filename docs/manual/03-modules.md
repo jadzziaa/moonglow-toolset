@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:29:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:38:53Z }
 ---
 
 # Modules
@@ -1613,8 +1613,8 @@ numbers at the left as it scrolls.
   it is then one number lower. A row's number is what other tables,
   blueprints, areas and scripts know it by, and nothing is changed to
   follow: delete a row others come after only in a table whose rows
-  nothing names yet (**Find References to Row** shows the tables that
-  do), and empty it otherwise.
+  nothing names yet (**Find References to Row** shows the tables,
+  blueprints, areas and scripts that do), and empty it otherwise.
 - **A column's width** is set by dragging the edge at the right of its
   name (the pointer turns into a double arrow over it); a double click
   there makes the column as wide as its widest cell of every row (not
@@ -1672,8 +1672,18 @@ the talk table (its own Save, or the module's); until then the cell
 shows it by its text all the same.
 
 **Find References to Row** lists the cells, in every table the game
-reads, of the columns known to name a row of this table: who would be
-left pointing at nothing if the row were emptied.
+reads, of the columns known to name a row of this table, and the
+module's own places that name it: the fields of its blueprints, areas
+and placed objects that hold a row of the table (a creature's
+appearance, classes, feats, spells and skills, an item's base item and
+its properties' subtypes and values, a placeable's or a door's
+appearance, an area's music and load screen), and its scripts' lines
+that do, by a constant of `nwscript` that stands for the row
+(`SPELL_FIREBALL` for row 58 of `spells.2da`, `FEAT_`, `CLASS_TYPE_`,
+`APPEARANCE_TYPE_`, `VFX_`…) or by `Get2DAString` of the table at the
+row (its number written, or a constant). A click on one of the module's
+goes there. That is who would be left pointing at nothing if the row
+were emptied; a script that works a row out as it runs is not found.
 
 **Take Rows…** is for a table that hides another copy of itself (your
 hak's `appearance.2da` over another hak's, or over the game's). It lists

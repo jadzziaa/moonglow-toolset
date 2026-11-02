@@ -1916,6 +1916,51 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
 }
 
+/// Find References to Row lists the module's blueprints, areas and
+/// scripts that name the row, beside the tables' cells, and a click goes
+/// there.
+#[test]
+fn find_references_to_row_finds_the_module_s_blueprints_and_scripts() {
+    let dir = mg_testkit::scratch_dir("ui-table-row-uses");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let table = ResKey::parse("mg_looks", ResType::TWODA).unwrap();
+    let guard = ResKey::parse("mg_guard", ResType::UTC).unwrap();
+    let script = ResKey::parse("mg_look", ResType::NSS).unwrap();
+    let mut utc = mg_gff::Gff::new(*b"UTC ");
+    utc.root.set("Appearance_Type", mg_gff::Value::Word(2));
+    let src = b"void main()\n{\n    string s = Get2DAString(\"mg_looks\", \"Label\", 2);\n}\n";
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table, a creature and a script",
+        vec![
+            mg_edit::Edit::SetResource {
+                key: table,
+                data: Some(b"2DA V2.0\n\n   Label\n0  a\n1  b\n2  c\n".to_vec()),
+            },
+            mg_edit::Edit::SetResource { key: guard, data: Some(utc.to_bytes().unwrap()) },
+            mg_edit::Edit::SetResource { key: script, data: Some(src.to_vec()) },
+        ],
+    )));
+    let mut h = harness(app, 1280.0, 900.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), table).unwrap();
+    h.run_steps(4);
+    // (The creature's appearance is appearance.2da's row, not this one's.)
+    let uses = mg_ui::table_view::module_row_uses(h.state(), "appearance", 2);
+    assert_eq!(uses.len(), 1, "{uses:?}");
+    assert!(uses[0].place.ends_with("Appearance_Type"), "{uses:?}");
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(2, 0);
+    h.run_steps(3);
+    h.get_by_label("Find References to Row 2").click();
+    h.run_steps(3);
+    let line = h.get_by_label_contains("mg_look line 3: Get2DAString");
+    line.click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some(), "the script opened");
+}
+
 /// A talk-table string's cell is chosen from the talk tables by a part of
 /// its text, the module's own and the game's, and given a new line of the
 /// module's talk table, whose number goes in the cell.

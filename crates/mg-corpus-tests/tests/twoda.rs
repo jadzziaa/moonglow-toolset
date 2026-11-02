@@ -104,3 +104,37 @@ fn shipped_2das_parse_and_agree_with_nwn_twoda() {
     eprintln!("checked {} 2DAs (nwn_twoda: {})", files.len(), tool.is_some());
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
+
+/// Find References to Row with the game's data: a constant of `nwscript`
+/// is the row it stands for (`SPELL_FIREBALL`), and an item property's
+/// subtype a row of its property's table (`mg_module::row_uses`).
+#[test]
+fn a_constant_and_a_property_s_subtype_name_rows() {
+    use mg_core::ResRef;
+    use mg_gff::{Gff, Struct, Value};
+    use mg_module::row_uses::row_uses;
+    use mg_resman::{GameInstall, ResKey};
+    let root = corpus!();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let key = |n: &str, t| ResKey::new(ResRef::from_str(n).unwrap(), t);
+    let mut m = mg_module::Module::new();
+    let src = b"void main()\n{\n    ActionCastSpellAtObject(SPELL_FIREBALL, OBJECT_SELF);\n}\n";
+    m.set(key("cast", ResType::NSS), src.to_vec());
+    let spells = game.table("spells").unwrap();
+    let fireball = (0..spells.len()).find(|&r| spells.get(r, "Label") == Some("Fireball")).unwrap();
+    let cp = game.codepage();
+    let found = row_uses(&m, "spells", fireball, Some(&game), cp);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].place.contains("line 3: SPELL_FIREBALL"), "{found:#?}");
+    // An item with a Cast Spell property (itempropdef 15) of subtype 0: a
+    // row of its subtype table.
+    let mut uti = Gff::new(*b"UTI ");
+    let mut p = Struct::new(0);
+    p.set("PropertyName", Value::Word(15));
+    p.set("Subtype", Value::Word(0));
+    uti.root.set("PropertiesList", Value::List(vec![p]));
+    m.set(key("wand", ResType::UTI), uti.to_bytes().unwrap());
+    let table = game.table("itempropdef").unwrap().get(15, "SubTypeResRef").unwrap().to_lowercase();
+    let found = row_uses(&m, &table, 0, Some(&game), cp);
+    assert!(found.iter().any(|u| u.place.ends_with("Subtype")), "{table}: {found:#?}");
+}
