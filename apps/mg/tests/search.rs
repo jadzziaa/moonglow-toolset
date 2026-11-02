@@ -35,6 +35,9 @@ fn module(dir: &std::path::Path) -> std::path::PathBuf {
     let mut class = Struct::new(2);
     class.set("Class", Value::Int(4));
     class.set("ClassLevel", Value::Short(3));
+    let mut known = Struct::new(3);
+    known.set("Spell", Value::Word(107));
+    class.set("KnownList1", Value::List(vec![known]));
     let mut guard = Struct::new(4);
     guard.set("Tag", Value::String(b"GUARD".to_vec()));
     guard.set("ClassList", Value::List(vec![class]));
@@ -188,6 +191,14 @@ fn search_for_any_condition_and_leave_one_out() {
     assert!(found(&["--class", "4", "--var", "nPriestly"]).is_empty(), "all of them");
     let either = ["--any", "--class", "4", "--var", "sDeidad", "--not", "--property", "52"];
     assert_eq!(found(&either), ["keep › creature GUARD"]);
+    // A spell by the class that knows it: the guard's, as a fighter (4).
+    assert_eq!(found(&["--spell", "107", "--spell-class", "4"]), ["keep › creature GUARD"]);
+    assert!(found(&["--spell", "107", "--spell-class", "2"]).is_empty());
+    assert!(!ask(&["--spell-class", "4"]).0, "a spell's class, without a spell");
+    // The haks' and the game's, without the game: the module's, and said.
+    let (ok, json, err) = ask(&["--class", "4", "--haks-and-game"]);
+    assert!(ok && json["found"].as_array().unwrap().len() == 1, "{err}");
+    assert!(json["notes"].to_string().contains("only the module's blueprints"), "{json}");
     // What it can't do.
     let fails = |args: &[&str]| {
         let (ok, json, _) = ask(args);
@@ -229,4 +240,22 @@ fn search_a_campaign_by_the_names_the_game_gives() {
     assert!(fighters.len() > 5, "{}", fighters.len());
     assert!(fighters.iter().all(|f| f["match"].as_str().unwrap().starts_with("Class: Fighter")));
     assert!(fighters.iter().all(|f| f["placed"] == true && f["area"].is_string()));
+    // A spell by the class that has it: a cleric's Heal, known or
+    // memorized as a cleric (not a special ability, nor another class's).
+    let heals = found(&["--spell", "heal", "--spell-class", "cleric"]);
+    let as_cleric = |f: &Json| f["match"].as_str().unwrap().ends_with("spell: Heal (Cleric)");
+    assert!(heals.iter().all(as_cleric), "{heals:#?}");
+    let any = found(&["--spell", "heal"]);
+    assert!(any.len() >= heals.len());
+    // The game's blueprints too, read-only, each with the layer it is read
+    // from, after the module's (which name none).
+    let all = found(&["--class", "Fighter", "--blueprints", "--haks-and-game"]);
+    let module = found(&["--class", "Fighter", "--blueprints"]);
+    let outside: Vec<&Json> = all.iter().filter(|f| f["layer"].is_string()).collect();
+    assert!(!outside.is_empty() && all.len() > module.len());
+    assert!(outside.iter().all(|f| f["type"] == "utc" && f["placed"] == false));
+    let first_outside = all.iter().position(|f| f["layer"].is_string()).unwrap();
+    assert!(all[first_outside..].iter().all(|f| f["layer"].is_string()), "the module's first");
+    let (ok, _, err) = run(&root, &[c, "--class", "Fighter", "--placed", "--haks-and-game"]);
+    assert!(!ok && err.contains("--haks-and-game"), "{err}");
 }

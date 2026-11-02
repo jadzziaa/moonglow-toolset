@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:41:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:14:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -235,28 +235,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Edit Together and Edit Areas Together from its results; conditions
   together, a class by its levels, number ranges and floats; an item
   blueprint followed through bags in bags, and a creature blueprint
-  into the encounters that spawn it, since 2026-10-29):
-  - Changes are a variable, a script or a field: item properties aren't
-    added or removed on the items found, nor list entries (feats,
-    classes, inventory) on the creatures; a field is set only where the
-    object has it (none is added). Edit Together takes blueprints of one
-    type and objects of one kind placed in one area; items held by
-    placed objects, and conversations, open one by one. (S–M; shares
-    its design with editing lists across several blueprints, and is
-    left to be done with that entry, beyond what it is alone: the
-    deferred sprint, 2026-11-01)
-  - No spell by the class that knows it (a spell found is any class's);
-    a conversation's lines and other things on no object drop out of a
-    search with more than one condition (there is no object for the
-    others to be found on). (S each) (`mg search` takes a condition of
-    each kind at once, class levels and number ranges too, any of them
-    or one left out, since 2026-10-30; still one of a kind, two
-    variables not.)
-  - The module only: blueprints in haks and the game's own palettes
-    aren't searched (`Kept::search` walks `Module::keys`; the haks' and
-    palettes' blueprints read as the module's are would be a layer of
-    hits of their own, read-only, and a change offered on none of
-    them). (S–M)
+  into the encounters that spawn it, since 2026-10-29; a spell by the
+  class that knows it, a conversation's lines kept by several
+  conditions, and the haks' and the game's blueprints searched
+  read-only, since 2026-11-02). Changes are a variable, a script or a
+  field: item properties aren't added or removed on the items found,
+  nor list entries (feats, classes, inventory) on the creatures; a
+  field is set only where the object has it (none is added). Edit
+  Together takes blueprints of one type and objects of one kind placed
+  in one area; items held by placed objects, and conversations, open
+  one by one. (S–M; shares its design with editing lists across several
+  blueprints, and is left to be done with that entry, beyond what it is
+  alone: the deferred sprint, 2026-11-01)
 
 ## Palettes
 

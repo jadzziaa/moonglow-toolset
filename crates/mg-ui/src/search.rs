@@ -116,6 +116,9 @@ pub struct Condition {
     pub min_rank: u8,
     /// A class's levels, from and to.
     pub levels: (u8, u8),
+    /// A spell's class: the class it is known or memorized as (none: any
+    /// class's, or a special ability).
+    pub class: Option<usize>,
     pub of: AppearanceOf,
     /// The item property type's parts, for the type they are of.
     pub parts: Option<((usize, Option<usize>), PropertyParts)>,
@@ -138,6 +141,7 @@ impl Default for Condition {
             param: None,
             min_rank: 1,
             levels: (1, TOP_LEVEL),
+            class: None,
             of: AppearanceOf::Creature,
             parts: None,
             not: false,
@@ -175,7 +179,9 @@ impl Condition {
                 max: self.levels.1.into(),
             },
             Kind::Feat => Search::Feat(row("a feat")? as i64),
-            Kind::Spell => Search::Spell(row("a spell")? as i64),
+            Kind::Spell => {
+                Search::Spell { spell: row("a spell")? as i64, class: self.class.map(|c| c as i64) }
+            }
             Kind::Skill => Search::Skill { skill: row("a skill")?, min_rank: self.min_rank },
             Kind::Appearance => {
                 Search::Appearance { of: self.of, row: row("an appearance")? as i64 }
@@ -208,7 +214,7 @@ impl Condition {
             }
             Kind::Class => Search::Class(0),
             Kind::Feat => Search::Feat(0),
-            Kind::Spell => Search::Spell(0),
+            Kind::Spell => Search::Spell { spell: 0, class: None },
             Kind::Skill => Search::Skill { skill: 0, min_rank: 1 },
             Kind::Appearance => Search::Appearance { of: self.of, row: 0 },
             _ => return None,
@@ -340,6 +346,8 @@ pub(crate) struct KeptCondition {
     param: Option<usize>,
     min_rank: u8,
     levels: [u8; 2],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    class: Option<usize>,
     of: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     not: bool,
@@ -361,6 +369,8 @@ pub(crate) struct KeptSearch {
     placed: Option<bool>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     regex: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    haks_and_game: bool,
 }
 
 impl Condition {
@@ -377,6 +387,7 @@ impl Condition {
             param: self.param,
             min_rank: self.min_rank,
             levels: [self.levels.0, self.levels.1],
+            class: self.class,
             of: APPEARANCES.iter().find(|(a, _)| *a == self.of).map_or("", |a| a.1).into(),
             not: self.not,
         }
@@ -400,6 +411,7 @@ impl Condition {
                 [0, 0] => d.levels,
                 [a, b] => (a.clamp(1, TOP_LEVEL), b.clamp(1, TOP_LEVEL)),
             },
+            class: k.class,
             of: APPEARANCES.iter().find(|(_, n)| *n == k.of).map_or(d.of, |a| a.0),
             parts: None,
             not: k.not,
@@ -423,6 +435,8 @@ pub struct AdvancedSearch {
     pub placed: Option<bool>,
     /// Names and texts are regular expressions (not `*` patterns).
     pub regex: bool,
+    /// The haks' and the game's blueprints are searched too (read-only).
+    pub haks_and_game: bool,
     /// What was found, for the query in `searched`.
     pub hits: Vec<Hit>,
     pub searched: Option<Query>,
@@ -444,7 +458,8 @@ impl AdvancedSearch {
             || self.object.is_some()
             || self.placed.is_some()
             || self.any
-            || self.regex;
+            || self.regex
+            || self.haks_and_game;
         asked.then(|| KeptSearch {
             conditions: std::iter::once(&self.first)
                 .chain(&self.and)
@@ -454,6 +469,7 @@ impl AdvancedSearch {
             object: self.object.and_then(|t| t.extension()).map(str::to_string),
             placed: self.placed,
             regex: self.regex,
+            haks_and_game: self.haks_and_game,
         })
     }
 
@@ -468,6 +484,7 @@ impl AdvancedSearch {
         self.object = k.object.as_deref().and_then(ResType::from_extension);
         self.placed = k.placed;
         self.regex = k.regex;
+        self.haks_and_game = k.haks_and_game;
     }
 
     /// The query the window asks, or what it still needs.
@@ -484,14 +501,19 @@ impl AdvancedSearch {
             types: self.object.into_iter().collect(),
             placed: self.placed,
             regex: self.regex,
+            haks_and_game: self.haks_and_game,
         };
         q.check().map_err(|e| format!("Not a regular expression: {e}"))?;
         Ok(q)
     }
 
-    /// The hits ticked.
+    /// The hits ticked (a hak's or the game's blueprint never is: it is
+    /// read-only).
     pub fn chosen(&self) -> Vec<&Hit> {
-        self.hits.iter().zip(&self.ticked).filter(|(_, t)| **t).map(|(h, _)| h).collect()
+        (self.hits.iter().zip(&self.ticked))
+            .filter(|(h, t)| **t && h.layer.is_none())
+            .map(|(h, _)| h)
+            .collect()
     }
 }
 
@@ -509,7 +531,7 @@ impl Moonglow {
         let cp = game.map_or(Codepage::WINDOWS_1252, GameData::codepage);
         // (Asked again, only what changed since is read.)
         draft.hits = self.search_kept.search(&ws.module, &q, game, cp);
-        draft.ticked = vec![true; draft.hits.len()];
+        draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
         draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
         draft.searched = Some(q);
         // (A change's field follows what is looked for.)
@@ -708,6 +730,21 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             let table = c.table().expect("a table");
             row_picker(ui, &id("row"), &choices(game, &table), &mut c.row, None);
             ui.end_row();
+            if c.kind == Kind::Spell {
+                crate::widgets::field_label(ui, "As class").on_hover_text(
+                    "Creatures that know or have memorized it as this class (any: any class's, \
+                     or as a special ability)",
+                );
+                let classes = Search::Class(0).table().expect("the classes' table");
+                row_picker(
+                    ui,
+                    &id("spell-class"),
+                    &choices(game, &classes),
+                    &mut c.class,
+                    Some("Any"),
+                );
+                ui.end_row();
+            }
             if c.kind == Kind::Skill {
                 crate::widgets::field_label(ui, "At least");
                 ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(" rank(s)"));
@@ -761,7 +798,7 @@ fn kind_choice(ui: &mut Ui, c: &mut Condition, id: &str) {
         |k| k.label(),
     );
     if c.kind != was {
-        (c.row, c.subtype, c.cost, c.param) = (None, None, None, None);
+        (c.row, c.subtype, c.cost, c.param, c.class) = (None, None, None, None, None);
     }
 }
 
@@ -855,6 +892,13 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
             "Names and texts (a variable's name and value, a script's name, a field's label \
              and text) are regular expressions, not * patterns: found anywhere unless \
              anchored (^kz_(rent|own)$), letters A to Z in either case",
+        );
+        ui.end_row();
+        ui.label("");
+        ui.checkbox(&mut d.haks_and_game, "The haks' and the game's blueprints too").on_hover_text(
+            "Also the blueprints the module has none of that its haks and the game have (each \
+             as the game reads it), found read-only: opened to look at, never changed or \
+             edited together",
         );
         ui.end_row();
     });
@@ -1021,7 +1065,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let game = app.game.clone();
     ui.weak(
         "The module's blueprints, placed objects (and the items they hold), areas and \
-         conversations, by what they hold.",
+         conversations, by what they hold; and, ticked below, the haks' and the game's \
+         blueprints.",
     );
     if game.is_none() {
         ui.weak("The game's data isn't loaded: choose rows by number.");
@@ -1044,7 +1089,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.separator();
         draft.ticked.resize(draft.hits.len(), true);
         if draft.hits.is_empty() {
-            ui.weak("Nothing in the module holds it.");
+            ui.weak(match draft.searched.as_ref().is_some_and(|q| q.haks_and_game) {
+                true => "Nothing in the module, its haks or the game holds it.",
+                false => "Nothing in the module holds it.",
+            });
         } else {
             let chosen = draft.chosen();
             let n = chosen.len();
@@ -1071,8 +1119,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .collect();
             ui.horizontal(|ui| {
                 ui.label(format!("{} found:", draft.hits.len()));
+                let outside = draft.hits.iter().filter(|h| h.layer.is_some()).count();
+                if outside > 0 {
+                    ui.weak(format!("({outside} of them the haks' or the game's, read-only)"));
+                }
                 if ui.small_button("Tick All").clicked() {
-                    draft.ticked.fill(true);
+                    for (t, h) in draft.ticked.iter_mut().zip(&draft.hits) {
+                        *t = h.layer.is_none();
+                    }
                 }
                 if ui.small_button("Tick None").clicked() {
                     draft.ticked.fill(false);
@@ -1110,10 +1164,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             for (i, h) in draft.hits.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut draft.ticked[i], "");
-                    let hover = format!("{} {}", h.key, h.path);
+                    let mine = h.layer.is_none();
+                    let tick = egui::Checkbox::without_text(&mut draft.ticked[i]);
+                    let tick = ui.add_enabled(mine, tick);
+                    let mut hover = format!("{} {}", h.key, h.path);
+                    if let Some(layer) = &h.layer {
+                        hover = format!("{hover}\nRead from {layer}: read-only");
+                        tick.on_disabled_hover_text("Read-only: the module has no copy of it");
+                    }
                     if ui.link(&places[i]).on_hover_text(hover).clicked() {
                         go = Some(i);
+                    }
+                    if let Some(layer) = &h.layer {
+                        ui.label(egui::RichText::new(format!("({layer})")).italics());
                     }
                     ui.weak(&h.matched);
                 });
@@ -1128,8 +1191,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.change_found(&mut draft);
     }
     if let Some(i) = go {
-        let usage = draft.hits[i].usage();
-        app.go_to_usage(&usage);
+        let h = &draft.hits[i];
+        match &h.layer {
+            // (A hak's or the game's: its copy, to look at.)
+            Some(layer) => {
+                let tab = Tab::ResourceCopy { key: h.key, layer: layer.clone() };
+                app.actions.push(Action::OpenTab(tab));
+            }
+            None => {
+                let usage = h.usage();
+                app.go_to_usage(&usage);
+            }
+        }
     }
     for tab in open {
         app.actions.push(Action::OpenTab(tab));
@@ -1188,5 +1261,28 @@ mod tests {
         again.ask_again(&old);
         assert!(!again.any && !again.first.not);
         assert!(AdvancedSearch { any: true, ..Default::default() }.kept().is_some());
+    }
+
+    /// A spell's class and the haks' and the game's blueprints are asked,
+    /// and a session keeps them.
+    #[test]
+    fn a_spell_s_class_and_the_haks_and_game_are_asked_and_kept() {
+        let d = AdvancedSearch {
+            first: Condition {
+                kind: Kind::Spell,
+                row: Some(107),
+                class: Some(2),
+                ..Default::default()
+            },
+            haks_and_game: true,
+            ..Default::default()
+        };
+        let q = d.query().unwrap();
+        assert_eq!(q.search, Search::Spell { spell: 107, class: Some(2) });
+        assert!(q.haks_and_game);
+        let mut again = AdvancedSearch::default();
+        again.ask_again(&d.kept().unwrap());
+        assert_eq!((again.first.class, again.haks_and_game), (Some(2), true));
+        assert!(AdvancedSearch { haks_and_game: true, ..Default::default() }.kept().is_some());
     }
 }

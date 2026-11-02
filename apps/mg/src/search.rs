@@ -76,6 +76,11 @@ pub(crate) struct Args {
     /// special ability (spells.2da: a row or its name).
     #[arg(long)]
     spell: Option<String>,
+    /// With --spell: only creatures that know or have memorized it as this
+    /// class (classes.2da: a row or its name), e.g. `--spell heal
+    /// --spell-class cleric`.
+    #[arg(long, requires = "spell", value_name = "CLASS")]
+    spell_class: Option<String>,
     /// Creatures with ranks in this skill (skills.2da: a row or its name).
     #[arg(long)]
     skill: Option<String>,
@@ -132,6 +137,11 @@ pub(crate) struct Args {
     /// anchored (`^…$`), letters A to Z in either case; not `*` patterns.
     #[arg(long)]
     regex: bool,
+    /// Also the blueprints of the module's haks and the game's own that
+    /// the module has none of (each as the game reads it): read-only, each
+    /// said with the layer it is read from.
+    #[arg(long, conflicts_with = "placed")]
+    haks_and_game: bool,
 }
 
 /// The options that start each condition, as `what` names them.
@@ -256,8 +266,13 @@ fn what(a: &Args, game: Option<&GameData>) -> Result<Vec<(&'static str, Search)>
         out.push(Search::Feat(row_of(Search::Feat(0), f)? as i64));
     }
     if let Some(s) = &a.spell {
+        let any = Search::Spell { spell: 0, class: None };
+        let class = match &a.spell_class {
+            Some(c) => Some(row_of(Search::Class(0), c)? as i64),
+            None => None,
+        };
         names.push("spell");
-        out.push(Search::Spell(row_of(Search::Spell(0), s)? as i64));
+        out.push(Search::Spell { spell: row_of(any, s)? as i64, class });
     }
     if let Some(s) = &a.skill {
         let skill = row_of(Search::Skill { skill: 0, min_rank: 1 }, s)?;
@@ -324,6 +339,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
             None
         },
         regex: a.regex,
+        haks_and_game: a.haks_and_game,
     };
     q.check().map_err(anyhow::Error::msg)?;
     let cp = crate::module_codepage(cli, &m);
@@ -340,10 +356,16 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
             "index": h.instance().map(|(_, i)| i),
             "carried": h.carried.map(|r| format!("{}.uti", r.to_lowercase())),
             "spawned": h.spawned.map(|r| format!("{}.utc", r.to_lowercase())),
+            "layer": h.layer,
         })).collect::<Vec<_>>(),
     });
     for h in &hits {
-        out.line(format!("{}\t{}\t{} {}", h.place, h.matched, h.key, h.path));
+        // (A hak's or the game's: the layer it is read from, after it.)
+        let from = h.layer.as_ref().map_or(String::new(), |l| format!("\t{l} (read-only)"));
+        out.line(format!("{}\t{}\t{} {}{from}", h.place, h.matched, h.key, h.path));
+    }
+    if a.haks_and_game && game.is_none() {
+        out.note("warning: no game install found: only the module's blueprints were searched");
     }
     if game.is_none() {
         out.note("warning: no game install found: what is found is named by numbers");

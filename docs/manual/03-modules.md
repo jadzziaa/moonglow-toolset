@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:11:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:14:16Z }
 ---
 
 # Modules
@@ -230,7 +230,9 @@ to look for:
 - **Creatures by class, feat, spell or skill:** a class (with the
   level each has; **Levels** keeps it to creatures with so many levels
   in it, 4 to 10), a feat, a spell known, memorized or used as a special
-  ability, a skill with at least so many ranks.
+  ability (**As class** keeps it to those that know or have memorized
+  it as that class: a cleric's Heal, not a druid's; a special ability is
+  no class's), a skill with at least so many ranks.
 - **Appearances:** of creatures, placeables, tileset doors, generic
   doors, waypoints, or items' base types.
 - **Scripts attached:** by name, `*` as in variables: objects' and
@@ -248,8 +250,11 @@ is kept where the same object meets them all, as "Fighters with
 Alertness" (Creatures by class, and Creatures by feat). An object holding
 what a condition finds, or held by it, counts as meeting it too:
 fighters carrying an item with a property, items held by fighters,
-creatures in an area with a variable. What each condition found is told
-after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
+creatures in an area with a variable. What is on no object, a
+conversation's lines, meets them in the same resource: a conversation
+with a script on one line and a text on another. What each condition
+found is told after the first's (`Class: Fighter, level 5 · Feat:
+Alertness`).
 
 With more than one condition, **Find objects** chooses **meeting all of
 the conditions** (as above) or **meeting any of the conditions**: then
@@ -275,6 +280,19 @@ name unless anchored (`^tdod_(rent|own)`, `^Tag$`), the letters A to Z
 in either case. The lists come from the game's 2DAs and the module's haks; with
 no game data loaded, choose rows by number.
 
+**The haks' and the game's blueprints too** searches, beside the
+module's, the blueprints its haks and the game have that the module has
+none of (each as the game reads it: a hak's over the game's of the same
+name), as the standard palette offers them. They are listed after the
+module's, each with the layer it is read from (`(hak:cep2_top_v28)`,
+`(key:nwn_base)`), and are read-only: never ticked, so neither changed
+nor edited together; a click opens the copy to look at. A module's
+blueprint that carries a game's item found, or an encounter that spawns
+a game's creature found, is the module's (`crate.utp › carries
+nw_it_gem001.uti`), and is changed as any other. It costs little (the
+game's 6,500 or so blueprints add some 30 ms to a
+search) but lists much: it is off unless ticked.
+
 What's found is listed by place, as in Find References: `keep ›
 creature GUARD_01 › item OLD_SWORD`, `sword.uti`, `keep (area)`, with
 what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
@@ -288,10 +306,11 @@ placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
 CAMP_01 › spawns boss.utc`); a change made to one of those is made to
 the creature blueprint. The command line has the same, a condition of
 each kind at once, class levels and number ranges too, `--any` and
-`--not`:
+`--not`, a spell's class (`--spell-class`) and the haks' and the
+game's blueprints (`--haks-and-game`):
 `mg search` ([Command-line tools](11-command-line.md)).
 
-Each one found is ticked; untick those to leave out (**Tick All**,
+Each one found in the module is ticked; untick those to leave out (**Tick All**,
 **Tick None**). Then:
 - **Change the N ticked** makes one change to each object, in one step
   that Undo takes back: **Set a variable** (added, or its type and value

@@ -122,6 +122,10 @@ pub fn edits(
 ) -> Result<Outcome, String> {
     let mut r = Reader { module, read: HashMap::new() };
     let mut out = Outcome::default();
+    // (A hak's or the game's blueprint found is read-only: none of its
+    // copy is the module's to change.)
+    let hits: Vec<&Hit> = hits.iter().copied().filter(|h| h.layer.is_none()).collect();
+    let hits = &hits[..];
     match change {
         Change::SetVariable { name, kind, value } => {
             let value = kind.value(value, codepage)?;
