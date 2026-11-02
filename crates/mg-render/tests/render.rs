@@ -4623,6 +4623,7 @@ void main ()
         pos: [x, 0.0, z],
         uv: [0.0, 0.0],
         color: [1.0, 1.0, 1.0, 1.0],
+        softness: 0.0,
     };
     let batch = mg_render::particles::ParticleBatch {
         texture: None,
@@ -4691,6 +4692,96 @@ void main ()
             assert!(foot == 255 && c.iter().all(|&r| r == 255 || r == 0), "no fade: {c:?}");
         }
     }
+}
+
+/// Moonglow's own particle shader (the Shaders switch off) fades a soft
+/// particle where it meets what is behind it, as the game's does: the
+/// white particle standing half under the blue floor shows the floor
+/// through its foot, and is as it was higher up; with `soft_particles`
+/// off, or without the targets' copies, it is solid to its foot.
+#[test]
+fn moonglow_s_own_particles_fade_where_they_meet_the_floor() {
+    let Some(gpu) = gpu() else { return };
+    let assets = clip_space_assets();
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 1.5),
+        target: Vec3::new(0.0, 0.0, 0.3),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let floor = {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("blue".into());
+        }
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+        Instance::new(model, Mat4::from_scale(Vec3::new(10.0, 10.0, 1.0)))
+    };
+    let v = |x: f32, z: f32| mg_render::particles::ParticleVertex {
+        pos: [x, 0.0, z],
+        uv: [0.0, 0.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        softness: 0.0,
+    };
+    let scene = Scene {
+        instances: vec![floor],
+        particles: vec![mg_render::particles::ParticleBatch {
+            texture: None,
+            blend: mg_render::particles::ParticleBlend::Normal,
+            render_order: 0,
+            vertices: [
+                (-1.0, -1.0),
+                (1.0, -1.0),
+                (1.0, 1.0),
+                (-1.0, -1.0),
+                (1.0, 1.0),
+                (-1.0, 1.0),
+            ]
+            .map(|(x, z)| v(x, z))
+            .to_vec(),
+            tint: None,
+            softness: mg_render::particles::softness(2.0, 2.0, "Normal"),
+        }],
+        background: [0.0, 0.0, 0.0],
+        area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+        ..Default::default()
+    };
+    let dir = mg_testkit::scratch_dir("render-own-soft-particles");
+    let shot = |soft: bool, copies: bool| {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.soft_particles = soft;
+        let img = if copies {
+            r.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+        } else {
+            let targets = mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1, 64, 64);
+            r.render(
+                &gpu,
+                &assets,
+                &scene,
+                &camera,
+                targets.render_view(),
+                targets.resolve_view(),
+                &targets.depth,
+                (64, 64),
+            );
+            gpu.read_rgba(&targets.color)
+        };
+        assert_eq!(r.drawn.game, 0);
+        save(&img, &dir.join(format!("soft_{soft}_copies_{copies}.png")));
+        // The particle's middle column's red, bottom to top.
+        (0..64).rev().map(|y| img.pixel(32, y)[0]).collect::<Vec<u8>>()
+    };
+    let (hard, soft) = (shot(false, true), shot(true, true));
+    assert_eq!(shot(true, false), hard, "no copies: no fade");
+    // Where it is white unfaded, faded it shows the floor's blue at its
+    // foot (its red down by more than half), and is white higher up.
+    let white: Vec<usize> = (0..64).filter(|&y| hard[y] == 255).collect();
+    assert!(white.len() > 10, "{hard:?}");
+    let foot = white[0];
+    assert!(soft[foot] < 128, "faded at its foot: {soft:?} against {hard:?}");
+    assert_eq!(soft[*white.last().unwrap()], 255, "white higher up: {soft:?}");
+    assert!((0..64).all(|y| soft[y] <= hard[y]), "{soft:?} against {hard:?}");
 }
 
 /// [`quad`] as a mesh that only casts shadows (`render 0`, `shadow 1`).

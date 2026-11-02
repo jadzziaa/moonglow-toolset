@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:18:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:23:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -673,8 +673,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     emitter's and a lightning bolt's too: read on 2026-10-30,
     `reading_soft_particles_of_lightning_and_linked`, and Moonglow's bolt
     made soft); a Lighten particle's foot fades a little more than the
-    client's (6.2 of 255 away over its last rows). Moonglow's own
-    particle shader (the switch off) doesn't fade. (S)
+    client's (6.2 of 255 away over its last rows). (S)
   - **Particles' size:** a still emitter's square particles are drawn
     upright, as in the client, 28 pixels a side against the client's 30
     in `surfaces_in_the_client` (the fitted camera's error, or the size:

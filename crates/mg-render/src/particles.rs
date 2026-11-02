@@ -65,13 +65,19 @@ pub struct ParticleVertex {
     pub uv: [f32; 2],
     /// Gamma-space colour and alpha.
     pub color: [f32; 4],
+    /// Its draw's softness, where Moonglow's own shader fades it where it
+    /// meets what is behind (the batch's [`ParticleBatch::softness`], set
+    /// by the renderer as it draws; 0: not faded).
+    pub softness: f32,
 }
 
 impl ParticleVertex {
     pub const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<ParticleVertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4],
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x3, 1 => Float32x2, 2 => Float32x4, 3 => Float32
+        ],
     };
 }
 
@@ -639,6 +645,7 @@ impl Particles {
                     pos: p.to_array(),
                     uv: uv.to_array(),
                     color: c,
+                    softness: 0.0,
                 };
                 let (bl, br, tr, tl) = (pos - hx - hy, pos + hx - hy, pos + hx + hy, pos - hx + hy);
                 let quad = [
@@ -741,6 +748,7 @@ fn motion_blur(
         pos: p.to_array(),
         uv: uv.to_array(),
         color: [color.x, color.y, color.z, a],
+        softness: 0.0,
     };
     let (bl, br) = (v(tail - r, uv0, 0.0), v(tail + r, Vec2::new(uv1.x, uv0.y), 0.0));
     let (tr, tl) = (v(head + r, uv1, alpha), v(head - r, Vec2::new(uv0.x, uv1.y), alpha));
@@ -790,6 +798,7 @@ fn strip(
             pos: p.to_array(),
             uv: [u, v],
             color: c,
+            softness: 0.0,
         };
         out.extend([
             v(a - sa, uv0.x, uv0.y, ca),
