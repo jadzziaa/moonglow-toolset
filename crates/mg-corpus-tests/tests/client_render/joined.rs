@@ -179,6 +179,28 @@ fn joined_dm_creator_palette() {
 /// again, the client joins and leaves the server within the second
 /// (`Joined as Player 1`, `Left as a Player` in the server's log), its
 /// own logs saying nothing of why.
+///
+/// The seventh client batch (2026-11-02): why. With the client's network
+/// log on (`client-settings.tml`, put back before each start), its second
+/// start is told less of the server (`BNXR` of 61 bytes, where the first
+/// was 125) and, after the character list's request, leaves; the server
+/// had reloaded its module as its last player left for the download
+/// (`server.reload-when-empty`, on by default), and the module reloaded
+/// is advertised without the NWSync manifest (the client's own server
+/// code: `CServerExoAppInternal::PlayerListChange` loads it again with an
+/// empty `NWSync::Advertisement`), so the client, its haks not in the
+/// game, leaves; and any return to the main menu ends a client started
+/// with `+connect` (`CClientExoAppInternal::ShutDownToMainMenu` calls
+/// `CAutoConnectPanel::Bail`, which sets `g_bExitProgram`): the exit 0
+/// after the download too. With the module kept loaded
+/// (`mg_testkit::joined`'s server settings), the second start is told
+/// the manifest, shows the character list, and Play (clicked with
+/// `MG_NWSYNC_CLICK`) puts the player in the game: the entry script runs
+/// (`MG_ENTERED`), the server's `GetStringByStrRef` reads `MG FEMININE
+/// ZERO` for a woman, and the client's own lookup draws `MG MASCULINE
+/// ZERO` for her, whether the feminine table is published or not
+/// (`MG_NWSYNC_FEMININE=1`: downloaded into the client's `nwsync` beside
+/// the masculine one): as in single player.
 #[test]
 #[ignore]
 fn joined_nwsync_download() {
@@ -199,14 +221,24 @@ void main()
     object pc = GetEnteringObject();
     if (!GetIsPC(pc)) return;
     SetGender(pc, GENDER_FEMALE);
+    WriteTimestampedLogEntry("MG_ENTERED");
     DelayCommand(6.0, FloatingTextStrRefOnCreature(16777216, pc, FALSE));
     DelayCommand(6.5, SendMessageToPC(pc, "MG f: " + GetStringByStrRef(16777216, GENDER_FEMALE)));
     DelayCommand(7.0, SendMessageToPC(pc, "MG m: " + GetStringByStrRef(16777216, GENDER_MALE)));
+    WriteTimestampedLogEntry("MG_SERVER f: " + GetStringByStrRef(16777216, GENDER_FEMALE)
+        + ", m: " + GetStringByStrRef(16777216, GENDER_MALE));
 }
 "#;
     let scripts = scratch_dir("client_joined_nwsync_scripts");
     m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&scripts, "mg_enter", enter));
     let dir = scratch_with("nwsync", &mut m);
+    // (The client's network debug log on, at every start: what it is told
+    // as it joins and leaves. It writes its settings back without it.)
+    let settings = joined_settings().replace(
+        "[graphics]",
+        "[game]\n\t[game.log]\n\t\t[game.log.debug]\n\t\t\tnetwork = true\n[graphics]",
+    );
+    std::fs::write(dir.join("client-settings.tml"), settings).unwrap();
     // (The server reads the hak and the talk tables from its own user
     // directory; so does the publishing.)
     let server = joined::server_dir(&dir);
@@ -226,9 +258,17 @@ void main()
     let m = mg_module::Module::open(&path).unwrap();
     let mut rm = mg_resman::ResMan::for_game(&install).unwrap();
     let _ = m.stack_onto(&mut rm, &install);
-    let (contents, missing) =
+    let (mut contents, missing) =
         mg_module::nwsync::module_contents(&m, &install, &rm, false, None).unwrap();
     assert!(missing.is_empty(), "{missing:?}");
+    // (`MG_NWSYNC_FEMININE=1`: the feminine table published beside it, which
+    // `nwn_nwsync_write` and Moonglow leave out.)
+    if std::env::var_os("MG_NWSYNC_FEMININE").is_some() {
+        contents.push((
+            ResKey::parse("mg_rtlkf", ResType::TLK).unwrap(),
+            mg_module::nwsync::Source::Bytes(table("FEMININE").into()),
+        ));
+    }
     let web = dir.join("web");
     // (`MG_NWSYNC_LEVEL`: the data files' zstd level, 3 by default.)
     let level = std::env::var("MG_NWSYNC_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(0);
@@ -237,13 +277,36 @@ void main()
     let j = joined::start(&dir, "MgJoined", Join::Player, Some(&web), &["-nwsynchash", &w.sha1])
         .unwrap();
     // (`MG_NWSYNC_CLICK`: the NWSync Downloader's Download clicked, at
-    // (435, 596) of the window, 25 s in; else it is clicked by hand.)
+    // (435, 596) of the window, 25 s in; then, the client started again
+    // and joined, Play on its character list (615, 615: the first
+    // pregenerated character), and pictures in the game. Else it is all
+    // clicked by hand.)
     if std::env::var_os("MG_NWSYNC_CLICK").is_some() {
         std::thread::sleep(Duration::from_secs(25));
         let _ = j.winshot("before_download");
         super::nui::click_in_window(435, 596);
+        let start = std::time::Instant::now();
+        let joined_again = || j.server.log().matches("Joined as Player").count() >= 2;
+        while !joined_again() && start.elapsed() < Duration::from_secs(180) {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        assert!(joined_again(), "the client did not join again after the download");
+        std::thread::sleep(Duration::from_secs(5));
+        let _ = j.winshot("character_list");
+        super::nui::click_in_window(615, 615);
+        let entered = j.wait_for("MG_ENTERED", Duration::from_secs(90));
+        std::thread::sleep(Duration::from_secs(10));
+        for i in 0..3 {
+            let _ = j.winshot(&format!("in_game_{i}"));
+            std::thread::sleep(Duration::from_secs(3));
+        }
+        for line in j.server.log().lines().filter(|l| l.contains("MG_") || l.contains("Player")) {
+            eprintln!("{line}");
+        }
+        assert!(entered, "the player did not enter the game after the download");
+    } else {
+        watch(&j, hold(120));
     }
-    watch(&j, hold(120));
     let synced = joined::client_dir(&dir).join("nwsync");
     eprintln!("the client's nwsync folder: {}", synced.display());
     j.stop();

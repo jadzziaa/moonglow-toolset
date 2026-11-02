@@ -98,9 +98,14 @@ pub fn start(
     std::fs::copy(&key, user.join("cdkey.ini"))?;
     let server = server_dir(scratch);
     std::fs::create_dir_all(&server)?;
+    // (And the module kept loaded when the last player leaves: reloaded
+    // then, as by default, the server advertises no NWSync manifest any
+    // more, and a client that has just downloaded one, joining again,
+    // finds the module's haks missing and leaves.)
     std::fs::write(
         server.join("settings.tml"),
-        "[masterserver]\n\t[masterserver.key-authentication]\n\t\tmode = \"if-reachable\"\n",
+        "[masterserver]\n\t[masterserver.key-authentication]\n\t\tmode = \"if-reachable\"\n\
+         [server]\n\treload-when-empty = false\n",
     )?;
     let mut env: Vec<(OsString, OsString)> = vec![
         ("MG_SCRATCH".into(), scratch.into()),
@@ -108,11 +113,19 @@ pub fn start(
         ("NWN_ROOT".into(), root.into()),
         ("DISPLAY".into(), display.into()),
     ];
+    // (`<scratch>/client-settings.tml`, if there is one: the client's
+    // settings put back before each start.)
+    let settings = scratch.join("client-settings.tml");
+    if settings.is_file() {
+        env.push(("MG_CLIENT_SETTINGS".into(), settings.into()));
+    }
     if let Some(web) = web {
         env.push(("MG_WEB".into(), web.into()));
         // (The client ends itself after an NWSync download, and its own
-        // restart doesn't come back in the sandbox: started once more.)
-        env.push(("MG_CLIENT_RUNS".into(), "2".into()));
+        // restart doesn't come back in the sandbox: started once more, or
+        // as many times as `MG_CLIENT_RUNS` says.)
+        let runs = std::env::var("MG_CLIENT_RUNS").unwrap_or_else(|_| "2".into());
+        env.push(("MG_CLIENT_RUNS".into(), runs.into()));
     }
     let server = mg_serve::Server::start(&mg_serve::Options {
         server: repo().join("tools/nwclient/run-server-and-client.sh"),
