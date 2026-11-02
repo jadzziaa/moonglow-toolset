@@ -136,10 +136,17 @@ impl eframe::App for App {
             self.title = title;
         }
         if self.moonglow.quit_requested {
+            // (Each only when there is one: a frame drawn after Close is
+            // asked for finds none, and leaves what the first one left.)
             if let Ok(mut left) = self.again.lock() {
-                left.relaunch = self.moonglow.relaunch.take();
-                let cache = self.moonglow.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
-                left.update = self.moonglow.updates.at_close().map(|staged| (staged, cache));
+                if let Some(again) = self.moonglow.relaunch.take() {
+                    left.relaunch = Some(again);
+                }
+                if let Some(staged) = self.moonglow.updates.at_close() {
+                    let cache =
+                        self.moonglow.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
+                    left.update = Some((staged, cache));
+                }
             }
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -434,6 +441,8 @@ fn relaunch(again: &mg_ui::renderer_check::Relaunch, line: &CommandLine) {
 fn install_at_close(staged: &mg_update::Staged, cache: &std::path::Path, restart: bool) -> bool {
     let what = staged.kind.what();
     match mg_update::install::install(staged, restart, cache) {
+        // (The AppImage replaced already: its run's log said so.)
+        Ok(_) if staged.installed() => true,
         Ok(_) => {
             let said = match staged.kind {
                 mg_update::Kind::WindowsInstaller { .. } => format!(

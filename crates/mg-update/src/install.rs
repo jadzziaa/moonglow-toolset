@@ -139,7 +139,7 @@ pub fn installer_args(dir: &Path, all_users: bool, log: &Path, restart: bool) ->
     l.push(log);
     args.push(l);
     if restart {
-        args.push("/restart=1".into());
+        args.push("/MOONGLOWRESTART=1".into());
     }
     args
 }
@@ -285,7 +285,7 @@ mod tests {
                 "/CURRENTUSER".into(),
                 format!("/DIR={}", dir.display()),
                 format!("/LOG={}", cache.join("install.log").display()),
-                "/restart=1".into(),
+                "/MOONGLOWRESTART=1".into(),
             ]
         );
         // For all users (under Program Files), and installed at the next
@@ -300,7 +300,7 @@ mod tests {
         let (steps, _) = plan(&all, false, &cache).unwrap();
         let Step::Run { args, .. } = &steps[0] else { panic!() };
         assert!(args.contains(&"/ALLUSERS".into()));
-        assert!(!args.contains(&"/restart=1".into()));
+        assert!(!args.contains(&"/MOONGLOWRESTART=1".into()));
     }
 
     #[test]

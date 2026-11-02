@@ -149,12 +149,13 @@ pub fn still(path: &Path, hash: &Hash) -> Result<(), String> {
     }
 }
 
-/// Signing, for tests: a key made by the test, never the owner's.
-#[cfg(any(test, feature = "serve"))]
-pub mod testing {
+/// Signing, for these tests: a key made by the test, never the owner's
+/// (other crates' tests: `mg_testkit::signing`).
+#[cfg(test)]
+pub(crate) mod testing {
     /// A key pair made for a test, and its public half as the app takes it.
-    pub struct TestKey {
-        pub pair: minisign::KeyPair,
+    pub(crate) struct TestKey {
+        pub(crate) pair: minisign::KeyPair,
     }
 
     impl std::fmt::Debug for TestKey {
@@ -164,27 +165,27 @@ pub mod testing {
     }
 
     impl TestKey {
-        pub fn new() -> TestKey {
+        pub(crate) fn new() -> TestKey {
             TestKey { pair: minisign::KeyPair::generate_unencrypted_keypair().unwrap() }
         }
 
-        pub fn public(&self) -> super::PublicKey {
+        pub(crate) fn public(&self) -> super::PublicKey {
             let text = self.pair.pk.to_box().unwrap().into_string();
             super::PublicKey::parse(&text).unwrap()
         }
 
         /// `data` signed with `comment` as its trusted comment, as
         /// `minisign -S -t` writes it.
-        pub fn sign(&self, data: &[u8], comment: &str) -> String {
+        pub(crate) fn sign(&self, data: &[u8], comment: &str) -> String {
             minisign::sign(Some(&self.pair.pk), &self.pair.sk, data, Some(comment), None)
                 .unwrap()
                 .into_string()
         }
     }
 
-    impl Default for TestKey {
-        fn default() -> TestKey {
-            TestKey::new()
+    impl crate::serve::Signer for TestKey {
+        fn sign(&self, data: &[u8], comment: &str) -> String {
+            TestKey::sign(self, data, comment)
         }
     }
 }

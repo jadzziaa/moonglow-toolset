@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 mg-core.workspace = true
-minisign = { workspace = true, optional = true }
 minisign-verify.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -23,9 +22,9 @@ minisign.workspace = true
 # The requests themselves (ureq, rustls): the GUI's, and the UI tests'
 # against a server of their own on this computer (`serve`).
 http = ["dep:ureq"]
-# A server of releases on 127.0.0.1 and a key made there to sign them: the
-# tests' (mg-ui's), never the app's.
-serve = ["dep:minisign"]
+# A server of releases on 127.0.0.1, for the tests (mg-ui's; a key to sign
+# them is mg-testkit's), never the app's.
+serve = []
 
 [lints]
 workspace = true

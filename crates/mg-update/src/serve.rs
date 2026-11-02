@@ -205,13 +205,16 @@ impl Published {
     }
 }
 
+/// What signs a release's `SHA256SUMS` in a test (`mg_testkit::signing`).
+pub trait Signer {
+    /// `data` signed with `comment` as its trusted comment, as `minisign
+    /// -S -t` writes it.
+    fn sign(&self, data: &[u8], comment: &str) -> String;
+}
+
 /// A release's files with their `SHA256SUMS`, signed by `key` for `tag`
 /// (as `packaging/sign-release.sh` signs it).
-pub fn signed(
-    key: &crate::verify::testing::TestKey,
-    tag: &str,
-    packages: &[(&str, &[u8])],
-) -> Vec<(String, Vec<u8>)> {
+pub fn signed(key: &dyn Signer, tag: &str, packages: &[(&str, &[u8])]) -> Vec<(String, Vec<u8>)> {
     let mut sums = String::new();
     let mut files = Vec::new();
     for (name, body) in packages {

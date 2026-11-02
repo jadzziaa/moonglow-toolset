@@ -256,7 +256,7 @@ How each is installed (the steps are `mg_update::install::plan`'s):
   (`updates\`), checked, and run as Moonglow closes:
   `setup.exe /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CLOSEAPPLICATIONS
   /CURRENTUSER|/ALLUSERS /DIR=<folder> /LOG=<cache>\updates\install.log
-  [/restart=1]`. `/restart=1` runs `moonglow.iss`'s second `[Run]` entry,
+  [/MOONGLOWRESTART=1]`. `/MOONGLOWRESTART=1` runs `moonglow.iss`'s second `[Run]` entry,
   which starts Moonglow again.
 - **Windows zip:** unpacked into `.moonglow-update-<version>` beside the
   program, then each of its files moved in, the old one moved into

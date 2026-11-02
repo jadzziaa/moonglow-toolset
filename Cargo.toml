@@ -119,8 +119,8 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 # (An update's verification: the release's SHA256SUMS signed with
-# minisign (ISC, pure Rust), and SHA-256. The signing crate is the tests'
-# alone, with keys they make.)
+# minisign (MIT, pure Rust), and SHA-256. The signing crate is the tests'
+# alone (mg-testkit's), with keys they make.)
 minisign-verify = "0.3"
 minisign = "0.10"
 sha2 = "0.10"

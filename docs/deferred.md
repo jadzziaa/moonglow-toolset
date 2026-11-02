@@ -1005,7 +1005,7 @@ File › Project. What is left:
   - Installing an update on a Mac (the disk image's app copied out with
     `hdiutil attach` and `ditto`, swapped in as Moonglow closes, started
     with `open -n`) and on Windows (the installer run silently with
-    `/restart=1`, which `moonglow.iss`'s second `[Run]` entry answers;
+    `/MOONGLOWRESTART=1`, which `moonglow.iss`'s second `[Run]` entry answers;
     the zip's files moved aside and in while `moonglow.exe` runs). Their
     steps are unit tests here (`mg_update::install`), the AppImage's and
     the zip's swap run on scratch copies; none was run on the system it

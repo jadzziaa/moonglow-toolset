@@ -3158,7 +3158,7 @@ fn update_install() {
     mg_testkit::gpu::hold();
     let dir = mg_testkit::output_dir("screens");
     let scratch = mg_testkit::scratch_dir("screens-update-install");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let notes = "## What's new\n\n- **Updates install from the app**: Help › Check for Updates… \
                  downloads this system's package, verifies its checksum and signature, and \
                  installs it.\n- Options › Updates: *Install updates automatically* and \
@@ -3166,7 +3166,7 @@ fn update_install() {
                  they were.";
     let name = format!("Moonglow-3.3.0-{}.AppImage", std::env::consts::ARCH);
     let body: Vec<u8> = (0..40_000_000u32).map(|i| (i % 251) as u8).collect();
-    let serve = |signer: &mg_update::verify::testing::TestKey| {
+    let serve = |signer: &mg_testkit::signing::TestKey| {
         let server = Server::start();
         let published = Published {
             tag: "v3.3.0".into(),
@@ -3225,7 +3225,7 @@ fn update_install() {
     shoot(&mut h, &dir, "update-restart");
 
     // Signed by another key: refused.
-    let other = mg_update::verify::testing::TestKey::new();
+    let other = mg_testkit::signing::TestKey::new();
     let server = serve(&other);
     let mut h = app_for(&server, Some(key.public()));
     h.run();

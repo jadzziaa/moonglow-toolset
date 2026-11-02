@@ -2963,6 +2963,8 @@ version = "0.0.0"
 dependencies = [
  "mg-resman",
  "mg-serve",
+ "mg-update",
+ "minisign",
  "naga",
  "wgpu-types",
 ]

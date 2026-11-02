@@ -548,11 +548,19 @@ enum Clicked {
     Nothing,
     RestartNow,
     Later,
+    TryAgain,
 }
 
 /// Where the install of `getting` is, with its buttons: in the notice
-/// (`notice`) and in the window, which (`ask`) asks to restart now.
-fn install_state(ui: &mut egui::Ui, getting: &Getting, notice: bool, ask: bool) -> Clicked {
+/// (`notice`) and in the window, which (`ask`) asks to restart now; a
+/// failure offers Try Again (`retry`: unless nothing here installs it).
+fn install_state(
+    ui: &mut egui::Ui,
+    getting: &Getting,
+    notice: bool,
+    ask: bool,
+    retry: bool,
+) -> Clicked {
     let mut clicked = Clicked::Nothing;
     let version = &getting.release.version;
     match &getting.state {
@@ -618,6 +626,14 @@ fn install_state(ui: &mut egui::Ui, getting: &Getting, notice: bool, ask: bool) 
                 ui.visuals().error_fg_color,
                 format!("Moonglow {version} isn't installed: {why}."),
             );
+            if retry
+                && ui
+                    .button("Try Again")
+                    .on_hover_text("Downloads it again from the start, and verifies it again")
+                    .clicked()
+            {
+                clicked = Clicked::TryAgain;
+            }
             ui.hyperlink_to("Release Page", &getting.release.page)
                 .on_hover_text("Download it from the release's page (opens the browser)");
         }
@@ -630,6 +646,8 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(release) = app.updates.notice.clone() else { return };
     let mut close = false;
     let mut action = None;
+    // (Try Again: Install Now's or Later's again.)
+    let mut again = None;
     let installable = app.updates.why_not(&release).is_none();
     egui::Panel::top("update-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -637,8 +655,10 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
             let getting =
                 app.updates.getting.as_ref().filter(|g| g.release.version == release.version);
             if let Some(g) = getting {
-                if install_state(ui, g, true, false) == Clicked::RestartNow {
-                    action = Some(Action::RestartToUpdate);
+                match install_state(ui, g, true, false, installable) {
+                    Clicked::RestartNow => action = Some(Action::RestartToUpdate),
+                    Clicked::TryAgain => again = Some(g.now),
+                    _ => {}
                 }
             } else {
                 ui.label(format!("{} is out (you have {}).", named(&release), Version::current()));
@@ -691,7 +711,9 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     if let Some(a) = action {
         app.actions.push(a);
     }
-    if close {
+    if let Some(now) = again {
+        get(app, release, now);
+    } else if close {
         app.updates.notice = None;
     }
 }
@@ -735,12 +757,15 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
     match (getting, app.updates.why_not(r)) {
         (Some(g), _) => {
             let ask = app.updates.ask_restart && g.ready().is_some();
-            match ui.horizontal_wrapped(|ui| install_state(ui, g, false, ask)).inner {
+            let retry = app.updates.why_not(r).is_none();
+            let now = g.now;
+            match ui.horizontal_wrapped(|ui| install_state(ui, g, false, ask, retry)).inner {
                 Clicked::RestartNow => action = Some(Action::RestartToUpdate),
                 Clicked::Later => {
                     app.updates.ask_restart = false;
                     app.updates.window = false;
                 }
+                Clicked::TryAgain => get(app, r.clone(), now),
                 Clicked::Nothing => {}
             }
         }

@@ -276,7 +276,7 @@ fn the_update_check_asks_on_its_own_thread() {
 /// (as `packaging/sign-release.sh` signs one): its notes, this system's
 /// AppImage and the checksums. `/latest` is it; `/releases` lists it.
 fn serve_release(
-    signer: &mg_update::verify::testing::TestKey,
+    signer: &mg_testkit::signing::TestKey,
     tag: &str,
     prerelease: bool,
     image: &[u8],
@@ -335,7 +335,7 @@ fn update_files(dir: &std::path::Path) -> Vec<String> {
 #[test]
 fn an_update_is_installed_from_the_notice_and_a_restart_asked() {
     let dir = mg_testkit::scratch_dir("ui-update-install");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let server = serve_release(&key, "v99.0.0", false, b"Moonglow 99.0.0's AppImage");
     let (app, image) = app_updating(&dir, &server, Some(key.public()));
     let current = mg_core::release::version();
@@ -389,7 +389,7 @@ fn an_update_is_installed_from_the_notice_and_a_restart_asked() {
 #[test]
 fn restart_now_asks_about_unsaved_work_first() {
     let dir = mg_testkit::scratch_dir("ui-update-unsaved");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let server = serve_release(&key, "v99.0.0", false, b"new");
     let (mut app, _) = app_updating(&dir, &server, Some(key.public()));
     let path = sample_module(&dir);
@@ -420,9 +420,9 @@ fn restart_now_asks_about_unsaved_work_first() {
 #[test]
 fn an_update_with_a_bad_signature_is_refused() {
     let dir = mg_testkit::scratch_dir("ui-update-refused");
-    let signer = mg_update::verify::testing::TestKey::new();
+    let signer = mg_testkit::signing::TestKey::new();
     let server = serve_release(&signer, "v99.0.0", false, b"not ours");
-    let ours = mg_update::verify::testing::TestKey::new();
+    let ours = mg_testkit::signing::TestKey::new();
     let (app, image) = app_updating(&dir, &server, Some(ours.public()));
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
@@ -437,6 +437,20 @@ fn an_update_with_a_bad_signature_is_refused() {
     assert!(update_files(&dir).is_empty(), "{:?}", update_files(&dir));
     assert!(h.query_by_label("Restart Now").is_none());
     assert!(h.state_mut().updates.at_close().is_none(), "nothing to install as it closes");
+    // Signed again with the right key: Try Again downloads it from the
+    // start, and installs it.
+    let name = format!("Moonglow-99.0.0-{}.AppImage", std::env::consts::ARCH);
+    let fixed = mg_update::serve::Published {
+        tag: "v99.0.0".into(),
+        prerelease: false,
+        notes: String::new(),
+        files: mg_update::serve::signed(&ours, "v99.0.0", &[(name.as_str(), b"ours")]),
+    };
+    fixed.put_files(&server);
+    h.get_by_label("Try Again").click();
+    h.run_steps(2);
+    assert_eq!(std::fs::read(&image).unwrap(), b"ours");
+    h.get_by_label("Moonglow 99.0.0 is installed: it runs from the next start.");
 
     // A build without the key: the page link alone, and why.
     let (app, _) = app_updating(&dir, &server, None);
@@ -455,7 +469,7 @@ fn an_update_with_a_bad_signature_is_refused() {
 #[test]
 fn later_installs_the_update_as_moonglow_closes() {
     let dir = mg_testkit::scratch_dir("ui-update-later");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let server = serve_release(&key, "v99.0.0", false, b"Moonglow 99.0.0's AppImage");
     let (app, image) = app_updating(&dir, &server, Some(key.public()));
     let mut h = harness(app, 1280.0, 800.0);
@@ -498,7 +512,7 @@ fn later_installs_the_update_as_moonglow_closes() {
 #[test]
 fn the_download_runs_on_its_own_thread() {
     let dir = mg_testkit::scratch_dir("ui-update-thread");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
     let server = serve_release(&key, "v99.0.0", false, &body);
     let (mut app, image) = app_updating(&dir, &server, Some(key.public()));
@@ -528,7 +542,7 @@ fn the_download_runs_on_its_own_thread() {
 #[test]
 fn a_pre_release_is_offered_only_with_the_option() {
     let dir = mg_testkit::scratch_dir("ui-update-pre");
-    let key = mg_update::verify::testing::TestKey::new();
+    let key = mg_testkit::signing::TestKey::new();
     let server = serve_release(&key, "v99.0.0-rc.1", true, b"rc");
     // (The latest release is this one.)
     let current = mg_core::release::version();

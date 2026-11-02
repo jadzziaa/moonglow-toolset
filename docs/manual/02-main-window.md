@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:47:28Z }
 ---
 
 # The main window
@@ -104,7 +104,7 @@ is built into Moonglow. Moonglow installs a package only when that
 signature verifies, it was made for this release, and the downloaded
 file's checksum is the one signed. Otherwise the window says why (for
 example, "the release's signature doesn't verify") and links the release
-page, and nothing is installed. A download is written beside what it
+page, with **Try Again** (the download started over), and nothing is installed. A download is written beside what it
 replaces, under a name starting `.moonglow-update-`, and renamed only
 once it is checked; a broken or interrupted download is removed, and
 what one leaves behind is removed at the next start.

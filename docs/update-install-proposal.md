@@ -128,7 +128,7 @@ an AppImage that is `$APPIMAGE`, since the running program is inside its
 mount, which goes when it exits. On macOS it is `open -n` of the app, and
 for the zip the new `moonglow.exe`. The Windows installer starts Moonglow
 itself when it is done: its `[Run]` entry runs only when given
-`/restart=1`.
+`/MOONGLOWRESTART=1`.
 
 **The steps at close**, in order:
 
@@ -137,7 +137,7 @@ itself when it is done: its `[Run]` entry runs only when given
 - **Windows installer:** the installer's hash is checked again, then
   `setup.exe /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CLOSEAPPLICATIONS
   /CURRENTUSER|/ALLUSERS /DIR="<folder>" /LOG="<cache>\updates\install.log"
-  [/restart=1]` is started and Moonglow exits. `/ALLUSERS` is used for a
+  [/MOONGLOWRESTART=1]` is started and Moonglow exits. `/ALLUSERS` is used for a
   folder under Program Files, and Windows asks for an administrator
   there.
 - **Windows zip:** each file the zip holds is moved: the old one into
