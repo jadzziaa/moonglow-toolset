@@ -12,7 +12,7 @@
 //!
 //! Needs the game and the off-screen display; run by hand, one client at a
 //! time:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render batch5 -- --ignored --nocapture --test-threads 1`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render batch5 -- --ignored --nocapture --test-threads 1`.
 
 use super::readings::{INVISIBLE, Reading, placeables_with};
 use super::*;

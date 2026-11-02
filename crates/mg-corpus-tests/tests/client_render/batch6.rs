@@ -7,7 +7,7 @@
 //!
 //! Needs the game and the off-screen display; run by hand, one client at a
 //! time:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render batch6 -- --ignored --nocapture --test-threads 1`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render batch6 -- --ignored --nocapture --test-threads 1`.
 
 use super::batch5::{base_game, patched, program, region_means};
 use super::readings::{INVISIBLE, Reading, enter, placeables_with, print_log};

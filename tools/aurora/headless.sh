@@ -49,6 +49,20 @@ EOF
     [[ -s "$H/display" ]] || { echo "headless session did not start; see $H/kwin.log" >&2; exit 1; }
     cat "$H/display"
     ;;
+  check)
+    # Whether DISPLAY (or the display given) is this off-screen session's,
+    # running: the client and Aurora draw on no other (on this machine the
+    # desktop's Xwayland holds :1 as well as :0).
+    want=${2:-${DISPLAY:-}}
+    if [[ -z "$want" ]]; then
+      echo "DISPLAY is not set: give the off-screen display (tools/aurora/headless.sh start)" >&2
+      exit 1
+    fi
+    if ! running || [[ ! -s "$H/display" ]] || [[ "$(cat "$H/display")" != "$want" ]]; then
+      echo "refusing display $want: it is not the running off-screen session's (tools/aurora/headless.sh start)" >&2
+      exit 1
+    fi
+    ;;
   stop)
     if running; then
       # setsid made the session its own process group.

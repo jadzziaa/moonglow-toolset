@@ -27,7 +27,7 @@
 //! the image, and they are compared with what Moonglow uploads.
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
 
 use std::collections::HashMap;
 use std::path::Path;

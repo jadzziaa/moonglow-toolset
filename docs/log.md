@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-02
+* **Fix**: The game client and Aurora start only on the running off-screen session's display (`tools/aurora/headless.sh check`, in `run-client.sh`, `run-server-and-client.sh` and `run-aurora.sh`): with the off-screen display failed to start, a client fell back to `:1`, which on the development machine is the desktop's Xwayland, and drew there (2026-11-02, the sixth client batch). The tests' doc comments say `DISPLAY=$D`.
 * **Fix**: A texture replacement (the Visuals page's, `ReplaceObjectTexture`'s) of a PLT draws the texture picked, as the game draws a creature's head replaced in the client; the page offers Select Texture for PLTs, which it had held the game didn't replace. A creature's replacements leave its helmet, cloak and what it holds alone, as the client does by the field and the script call (`batch6_replaced_textures`). `a_creature_s_replacements_leave_its_items_alone`, `visuals_page_lists_a_creature_s_plt_textures_with_a_gallery`; [Blueprints](manual/05-blueprints.md).
 * **Fix**: Wings or a tail without the animation the creature plays play none of their own, as in the client (`reading_wings_without_bones`: `c_wings2` on a human stands spread, where Moonglow played its `creadyl`, hanging it edge on). `an_animated_part_without_the_animation_plays_none_of_its_own`.
 * **Fix**: An item lying in an area as its own model reflects the area's map, as in the client (`batch6_item_env_map_own_model`: a small shield in `tin01` shows its copper map), not `chrome1`. `what_is_only_worn_lies_in_an_area_as_aurora_shows_it`.

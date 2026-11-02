@@ -6,7 +6,7 @@
 //! was seen is in its comment.
 //!
 //! Needs the game and the off-screen display; run by hand:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render batch2 -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render batch2 -- --ignored --nocapture`.
 
 use super::readings::{INVISIBLE, Reading, enter, placeables_with, print_log};
 use super::*;

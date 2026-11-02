@@ -16,7 +16,7 @@
 //! top-left origin (as Krita writes them).
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_minimap -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --test client_minimap -- --ignored --nocapture`.
 
 use mg_core::{ResRef, ResType};
 use mg_gff::Value;

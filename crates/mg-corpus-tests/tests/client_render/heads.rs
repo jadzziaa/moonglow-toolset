@@ -13,7 +13,7 @@
 //! moves the client's camera.
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render heads -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render heads -- --ignored --nocapture`.
 
 use super::*;
 use mg_module::instances::{Placement, Placing, instance};

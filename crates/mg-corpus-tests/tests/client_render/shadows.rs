@@ -48,7 +48,7 @@
 //! Detail Off (made first, `MG_CREATURE_SHADOWS=0`).
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --release --test client_render shadows -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render shadows -- --ignored --nocapture`.
 //! `MG_CLIENT_CAPTURED=1` reads the client's pictures kept from an earlier
 //! run (`~/.local/share/moonglow-oracle/captures/client/shadows_<tileset>_<lighting>.png`)
 //! instead of running it again; `MG_SHADOW_ONLY` names the lightings to run

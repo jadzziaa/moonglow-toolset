@@ -126,7 +126,9 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   SCRATCH`**, on the off-screen display: a bubblewrap sandbox with a
   read-only system, Steam hidden (no Steam API, presence or cloud sync), no
   network, D-Bus or audio, and only SCRATCH writable (its user directory is
-  SCRATCH/user). It refuses the desktop display :0.
+  SCRATCH/user). It refuses any display but the running off-screen
+  session's (`tools/aurora/headless.sh check`; the desktop holds :0 and :1),
+  as `run-aurora.sh` does.
 - **Test servers stay private.** Run `nwserver` only through
   `mg_serve::Server::start` with its defaults (which
   `mg_testkit::engine::run_server`, `mg serve` and `mg test` do): it passes

@@ -24,7 +24,7 @@
 //!   bytes into the picture, and the area's `Flags` of 0x8109 read back.
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
-//! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render ee_visuals -- --ignored --nocapture`.
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --test client_render ee_visuals -- --ignored --nocapture`.
 
 use super::*;
 use mg_gff::Struct;

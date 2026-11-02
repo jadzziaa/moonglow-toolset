@@ -15,7 +15,7 @@
 //! quick double click, not on its `+`).
 //!
 //! Needs the game and the off-screen display; run by hand:
-//! `DISPLAY=:2 MG_CLIENT_CDKEY=... cargo test -p mg-corpus-tests --release --test client_render joined -- --ignored --nocapture`.
+//! `DISPLAY=$D MG_CLIENT_CDKEY=... cargo test -p mg-corpus-tests --release --test client_render joined -- --ignored --nocapture`.
 
 use super::*;
 use mg_testkit::joined::{self, Join};

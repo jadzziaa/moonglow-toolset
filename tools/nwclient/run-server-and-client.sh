@@ -36,7 +36,8 @@ set -e
 SCRATCH=$(realpath "$MG_SCRATCH")
 NWN=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
 DISP=${DISPLAY:-}
-[ -n "$DISP" ] || { echo "DISPLAY is not set: give the off-screen display (tools/aurora/headless.sh start)" >&2; exit 1; }
+# Only the running off-screen session's display (headless.sh check).
+"$(dirname "$0")/../aurora/headless.sh" check "$DISP"
 [ "$DISP" = ":0" ] && { echo "refusing to run on the desktop display :0" >&2; exit 1; }
 SOCKET=/tmp/.X11-unix/X${DISP#:}
 
