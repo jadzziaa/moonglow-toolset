@@ -434,9 +434,17 @@ struct HighCase {
     /// Two "finheads" stand in it (three fins on one edge: [`finhead`]),
     /// the west one's fins welded on their edge, the east one's not.
     finhead: bool,
+    /// The creature's appearance (appearance.2da row), over its blueprint's.
+    appearance: Option<u16>,
+    /// The sun's direction across (x and y; `suns` are its heights).
+    sun: (f32, f32),
+    /// The tiles of the area's rows from this one north raised a level
+    /// (the tileset's `Transition`, 5 m in ttr01): a cliff along the row's
+    /// south edge.
+    raised_from: Option<usize>,
 }
 
-const HIGH_CASES: [HighCase; 7] = [
+const HIGH_CASES: [HighCase; 9] = [
     // A caster that isn't closed: the wiki's "finhead", three fins on one
     // edge (which tears the game's volumes), welded and not.
     HighCase {
@@ -449,6 +457,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[1.0, 0.45],
         side: 4,
         finhead: true,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     // The owner's in a large area (16×16 tiles), looking out over it:
     // Fast's map stretched over what is seen, 160 m, its texels 8 cm.
@@ -462,6 +473,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[1.0],
         side: 16,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     // The owner's again, looking out over the area: Fast's map stretched
     // to the horizon, its texels large on the fence's shadow.
@@ -475,6 +489,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[1.0],
         side: 4,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     // The owner's close up: the fence's shadow a few metres off, where the
     // map's texels show.
@@ -488,6 +505,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[1.0],
         side: 4,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     // The owner's: a rural fence and a gallows-like frame (the Hangman's
     // Scaffold) on flat ground.
@@ -501,6 +521,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[0.45, 1.0, 2.5],
         side: 4,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     HighCase {
         name: "ogre",
@@ -512,6 +535,9 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[1.0],
         side: 4,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
     },
     // A building: tcn01's house (tile 54), as `reading_low_sun_building`.
     HighCase {
@@ -524,6 +550,44 @@ const HIGH_CASES: [HighCase; 7] = [
         suns: &[0.6],
         side: 4,
         finhead: false,
+        appearance: None,
+        sun: (-1.0, -0.35),
+        raised_from: None,
+    },
+    // The game's own horse (`c_horse1`, appearance 496): a skin
+    // (`HorseBody`) beside `render 0` trimeshes, which High's volumes are
+    // made of where Fast casts the posed skin.
+    HighCase {
+        name: "horse",
+        tileset: "ttr01",
+        placeables: &[],
+        creature: Some("nw_commale"),
+        tile: None,
+        look: (90.0, 8.0, 50.0),
+        suns: &[1.0],
+        side: 4,
+        finhead: false,
+        appearance: Some(496),
+        sun: (-1.0, -0.35),
+        raised_from: None,
+    },
+    // A placeable at a cliff's edge (the gallows-like frame on the north
+    // row of tiles, raised 5 m, at its south edge), the sun low in the
+    // north: where its volume ends (`projectionWorldZClip`), whether the
+    // shadow reaches down the cliff onto the ground below.
+    HighCase {
+        name: "cliff",
+        tileset: "ttr01",
+        placeables: &[(634, 20.0, 30.8, 0.0)],
+        creature: None,
+        tile: None,
+        look: (90.0, 16.0, 45.0),
+        suns: &[0.6],
+        side: 4,
+        finhead: false,
+        appearance: None,
+        sun: (0.0, 1.0),
+        raised_from: Some(3),
     },
 ];
 
@@ -686,7 +750,15 @@ fn high_shadows_beside_the_client() {
                 let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
                     panic!("no AreaProperties")
                 };
-                for (axis, v) in [("X", -1.0f32), ("Y", -0.35), ("Z", z)] {
+                if let Some(from) = case.raised_from {
+                    let width = r.are.root.int("Width").unwrap_or(4) as usize;
+                    for (i, t) in r.are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+                        if i / width >= from {
+                            t.set("Tile_Height", Value::Int(1));
+                        }
+                    }
+                }
+                for (axis, v) in [("X", case.sun.0), ("Y", case.sun.1), ("Z", z)] {
                     props.set(&format!("SunDirection{axis}"), Value::Float(v));
                     props.set(&format!("MoonDirection{axis}"), Value::Float(v));
                 }
@@ -696,6 +768,10 @@ fn high_shadows_beside_the_client() {
                 if let Some(blueprint) = case.creature {
                     let utc = r.game.resman.get_named(blueprint, ResType::UTC).unwrap();
                     let mut c = Gff::read(&utc).unwrap().root;
+                    if let Some(a) = case.appearance {
+                        c.set("Appearance_Type", Value::Word(a));
+                        c.set("Equip_ItemList", Value::List(Vec::new()));
+                    }
                     let scripts: Vec<String> = (c.fields.iter())
                         .map(|f| f.label.to_string_lossy())
                         .filter(|l| l.starts_with("Script"))

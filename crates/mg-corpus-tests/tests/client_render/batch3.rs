@@ -180,7 +180,7 @@ fn reading_lights_on_creatures_and_placeables() {
 /// An entry script's statements writing where every creature and
 /// placeable of the area stands to the log as the player enters
 /// (`MG_AT <tag> x y z`).
-const WHERE: &str = r#"object o = GetFirstObjectInArea(area);
+pub(super) const WHERE: &str = r#"object o = GetFirstObjectInArea(area);
     while (GetIsObjectValid(o))
     {
         vector v = GetPosition(o);
@@ -191,7 +191,7 @@ const WHERE: &str = r#"object o = GetFirstObjectInArea(area);
 
 /// The client's settings with the environment's shadows on and its
 /// Creature Shadow Detail `mode` (0 Off, 2 Best).
-fn shadow_settings(mode: u8) -> String {
+pub(super) fn shadow_settings(mode: u8) -> String {
     SETTINGS
         .replace(
             "[graphics.shadows.creatures]\n\t\t\tmode = 0",
@@ -205,7 +205,7 @@ fn shadow_settings(mode: u8) -> String {
 
 /// How much `best` is darker than `off` in a rectangle (fractions,
 /// top-left origin): 1 less the ratio of their mean brightnesses.
-fn darker(best: &Rgba, off: &Rgba, r: [f32; 4]) -> f32 {
+pub(super) fn darker(best: &Rgba, off: &Rgba, r: [f32; 4]) -> f32 {
     let b = |img: &Rgba| {
         let m = mean(img, r);
         (m[0] + m[1] + m[2]) / 3.0
@@ -246,7 +246,7 @@ fn darker(best: &Rgba, off: &Rgba, r: [f32; 4]) -> f32 {
 fn reading_light_shadows() {
     // (The fifth client batch's cases after the first seven: farther
     // lamps, and the equal pairs with the ogre facing east.)
-    let cases: [LampCase; 13] = [
+    let cases: [LampCase; 19] = [
         ("near_1.5", &[(20.0, 23.5)], 270.0),
         ("near_3", &[(20.0, 25.0)], 270.0),
         ("near_5", &[(20.0, 27.0)], 270.0),
@@ -260,6 +260,13 @@ fn reading_light_shadows() {
         ("equal_we_east", &[(17.5, 22.0), (22.5, 22.0)], 0.0),
         ("equal_ns_east", &[(20.0, 24.5), (20.0, 19.5)], 0.0),
         ("equal_ns_north", &[(20.0, 24.5), (20.0, 19.5)], 90.0),
+        // (The sixth client batch's: the distances between, for the rule.)
+        ("near_2", &[(20.0, 24.0)], 270.0),
+        ("near_4", &[(20.0, 26.0)], 270.0),
+        ("near_6", &[(20.0, 28.0)], 270.0),
+        ("near_8", &[(20.0, 30.0)], 270.0),
+        ("near_10", &[(20.0, 32.0)], 270.0),
+        ("near_11", &[(20.0, 33.0)], 270.0),
     ];
     let only = std::env::var("MG_B3_CASES").ok();
     for (case, lamps, facing) in cases {

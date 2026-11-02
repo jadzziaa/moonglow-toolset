@@ -541,7 +541,7 @@ fn transform(scope: i32, scale: f32, rotate: [f32; 3], translate: [f32; 3]) -> m
 /// (degrees), standing still (no scripts), with `fields` set and wearing,
 /// over what its blueprint gives it, the items `equip` (slot bit, item
 /// blueprint).
-fn put_creature(
+pub(super) fn put_creature(
     r: &mut Reading,
     resref: &str,
     at: [f32; 3],
@@ -688,7 +688,7 @@ fn reading_item_part_scopes() {
 
 /// The Domains of Dread's haks (read only): `MOONGLOW_TDOD_HAKS`, else
 /// `~/Projects/tdod-module/build/hak`.
-fn tdod_haks() -> Option<PathBuf> {
+pub(super) fn tdod_haks() -> Option<PathBuf> {
     let dir = std::env::var_os("MOONGLOW_TDOD_HAKS").map(PathBuf::from).or_else(|| {
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Projects/tdod-module/build/hak"))
     })?;
@@ -696,7 +696,7 @@ fn tdod_haks() -> Option<PathBuf> {
 }
 
 /// The files `names` (`name.ext`) out of the hak `hak` of [`tdod_haks`].
-fn from_hak(hak: &str, names: &[&str]) -> Vec<(String, Vec<u8>)> {
+pub(super) fn from_hak(hak: &str, names: &[&str]) -> Vec<(String, Vec<u8>)> {
     let data = std::fs::read(tdod_haks().expect("the Domains of Dread's haks").join(hak)).unwrap();
     let erf = mg_erf::Erf::read(&data).unwrap();
     names
@@ -851,7 +851,7 @@ fn reading_static_placeable_default_animation() {
 
 /// A sphere a metre across, 1.2 m up, of `texture`, as an ASCII model
 /// `name` of `classification` (its texture's alpha 0: reflecting wholly).
-fn sphere_model(name: &str, classification: &str, texture: &str, centre: f32) -> String {
+pub(super) fn sphere_model(name: &str, classification: &str, texture: &str, centre: f32) -> String {
     let (rings, segments) = (16usize, 24usize);
     let (mut verts, mut tverts, mut faces) = (String::new(), String::new(), String::new());
     for i in 0..=rings {
@@ -886,7 +886,7 @@ fn sphere_model(name: &str, classification: &str, texture: &str, centre: f32) ->
 }
 
 /// A 16×16 gray TGA of alpha `alpha`.
-fn gray_alpha_tga(alpha: u8) -> Vec<u8> {
+pub(super) fn gray_alpha_tga(alpha: u8) -> Vec<u8> {
     let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16, 0, 32, 8];
     for _ in 0..256 {
         t.extend([128, 128, 128, alpha]);
@@ -897,7 +897,7 @@ fn gray_alpha_tga(alpha: u8) -> Vec<u8> {
 /// The game's `inc_standard.shd` painting every environment-mapped
 /// fragment with the map bound to it (`texUnitEnv`), laid out by its
 /// texture coordinates, as `area_env_map_look`'s `MG_ENV_PAINT` does.
-fn env_paint_shader(game: &GameData) -> String {
+pub(super) fn env_paint_shader(game: &GameData) -> String {
     let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
     let from = "\tApplyDebugModeOutput(FragmentColor);\n}";
     let src = String::from_utf8_lossy(&src).replace("\r\n", "\n");

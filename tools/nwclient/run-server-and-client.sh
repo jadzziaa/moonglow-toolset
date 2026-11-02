@@ -26,8 +26,8 @@
 #   started, each after the last ended (after an NWSync download).
 #
 # As run-client.sh: the system read-only, Steam hidden, no D-Bus or audio,
-# the client drawn on $DISPLAY (default :1, the off-screen display), never
-# the desktop's :0. Killing this process (bwrap) ends everything in the
+# the client drawn on $DISPLAY (the off-screen display; none set, nothing
+# runs), never the desktop's :0. Killing this process (bwrap) ends everything in the
 # sandbox: the server and the client are in its own PID namespace.
 #
 # The game install comes from $NWN_ROOT (default: the Steam path).
@@ -35,7 +35,8 @@ set -e
 [ -n "$MG_SCRATCH" ] || { echo "MG_SCRATCH is not set" >&2; exit 1; }
 SCRATCH=$(realpath "$MG_SCRATCH")
 NWN=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
-DISP=${DISPLAY:-:1}
+DISP=${DISPLAY:-}
+[ -n "$DISP" ] || { echo "DISPLAY is not set: give the off-screen display (tools/aurora/headless.sh start)" >&2; exit 1; }
 [ "$DISP" = ":0" ] && { echo "refusing to run on the desktop display :0" >&2; exit 1; }
 SOCKET=/tmp/.X11-unix/X${DISP#:}
 

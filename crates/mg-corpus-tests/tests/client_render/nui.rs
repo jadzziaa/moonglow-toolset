@@ -258,7 +258,7 @@ fn evented() -> Win {
 /// alpha bit: a white band (rows 0 to 7, the bit set), then red level `c`
 /// in columns 8c to 8c + 7 (rows 8 to 35, the bit set), then green level
 /// `c` with the bit clear (rows 36 to 63).
-fn tga16() -> Vec<u8> {
+pub(super) fn tga16() -> Vec<u8> {
     let (w, h) = (256u16, 64u16);
     let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     out.extend(w.to_le_bytes());
