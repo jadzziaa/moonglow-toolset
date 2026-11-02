@@ -579,12 +579,16 @@ mod tests {
                 _ => None,
             })
             .collect();
+        // (The app's path joined as the system joins it: with `\` where the
+        // test runs on Windows.)
+        let app = Path::new("/c/m").join("Moonglow Toolset.app");
         assert_eq!(
             run,
             [
-                "hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /c/m /c/Moonglow-3.3.0-macos.dmg",
-                "ditto /c/m/Moonglow Toolset.app /Applications/.moonglow-update-3.3.0.app",
-                "hdiutil detach /c/m -force",
+                "hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /c/m /c/Moonglow-3.3.0-macos.dmg"
+                    .to_string(),
+                format!("ditto {} /Applications/.moonglow-update-3.3.0.app", app.display()),
+                "hdiutil detach /c/m -force".to_string(),
             ]
         );
         assert_eq!(steps[0], Step::RemoveAll("/Applications/.moonglow-update-3.3.0.app".into()));

@@ -130,11 +130,14 @@ fn heard_of(
         // (Moonglow's own reads are heard too: only a write's end counts.)
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => {}
         EventKind::Access(_) => return Heard::default(),
-        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => {
-            return Heard { changed: true, all: true, ..Heard::default() };
-        }
         _ => {}
     }
+    // (A folder made or removed: all of it is looked at, where it is the
+    // watch's, as a file is; not one in a folder's folder, not deep.)
+    let folder_event = matches!(
+        event.kind,
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
+    );
     // (A folder's own entry modified, not renamed: Windows says so of the
     // folder a file is written in, whose files are said themselves.)
     let touched = matches!(event.kind, EventKind::Modify(k) if !matches!(k, ModifyKind::Name(_)));
@@ -165,7 +168,7 @@ fn heard_of(
             continue;
         }
         heard.changed = true;
-        let folder = dir.unwrap_or_else(|_| path.extension().is_none());
+        let folder = folder_event || dir.unwrap_or_else(|_| path.extension().is_none());
         if folder {
             heard.all = true;
         } else {
@@ -572,9 +575,15 @@ mod tests {
         let watch = Watch::start(paths, false, Duration::from_millis(40), false, None);
         assert!(watch.told);
         assert!(heard(&watch).is_some());
-        std::fs::write(dir.join("override/below/x.2da"), "x").unwrap();
+        // (Late news of the set-up, which macOS's FSEvents can give after
+        // the watch has started, taken first.)
         std::thread::sleep(Duration::from_millis(600));
-        assert!(watch.take().is_none(), "a folder's folder isn't the game's");
+        let _ = watch.take();
+        std::fs::write(dir.join("override/below/x.2da"), "x").unwrap();
+        std::fs::create_dir(dir.join("override/below/deeper")).unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        let late = watch.take();
+        assert!(late.is_none(), "a folder's folder isn't the game's: {late:?}");
         std::fs::write(dir.join("my.hak"), "ERF again").unwrap();
         let hak = heard(&watch).expect("the hak written is said");
         assert_eq!(hak.paths.iter().collect::<Vec<_>>(), [&dir.join("my.hak")]);
