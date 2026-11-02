@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:08:01Z }
 ---
 
 # Plugin API reference
@@ -313,7 +313,7 @@ an empty one:
 
 | | |
 | --- | --- |
-| `twoda:set(row, column, value)` | Sets a cell: text, or a number; nil empties it. The row and the column must be there. |
+| `twoda:set(row, column, value?)` | Sets a cell: text, or a number; nil empties it. The row and the column must be there. |
 | `twoda:add_row(cells?)` | Adds a row at the end and returns its number; `cells` are its values by column (`{ Label = "x", Cost = 5 }`), the others empty. |
 | `twoda:add_column(name)` | Adds a column at the end, its cells empty. |
 | `twoda:write()` | The table as a file's bytes, for `ctx.hak:write`: one read from a file (`ctx.game:table`, `mg.twoda.parse`) as that file is laid out, the file itself where the table is unchanged, its columns at least as wide as there, its line ends (since Moonglow 2.13.0); one made with `mg.twoda.new` as the game's own tables are. |
@@ -377,7 +377,7 @@ another `tlk`.
 | `tlk.language` | Its language's two-letter code (`"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pl"`), as its file says (since Moonglow 2.13.0). |
 | `tlk:set_language(code)` | Makes it a table of another language (since Moonglow 2.13.0). |
 | `tlk:get(line)` | A line as `{ text, sound, sound_length }`; nil for none. |
-| `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` (1 to 16 letters, digits, `_` and `-`, as the talk-table editor takes one; kept in lower case) and `sound_length`; nil empties it. |
+| `tlk:set(line, value?)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` (1 to 16 letters, digits, `_` and `-`, as the talk-table editor takes one; kept in lower case) and `sound_length`; nil empties it. |
 | `tlk:add(value)` | Adds a line at the end and returns its number. |
 | `tlk:write()` | The table as a file's bytes. |
 
@@ -567,7 +567,7 @@ their defaults ([Writing plugins](16-writing-plugins.md#settings)).
 | --- | --- |
 | `ctx.settings.<id>` | A setting's value: text (a `string`, a `choice`, a `path`, a `color` as `"#rrggbb"`), a whole number (an `int`), a number (a `float`), true or false (a `bool`), or a list of texts (a `list`, from 1; a copy). An id the manifest doesn't declare is an error. `float`, `list` and `color` since API 0.5. |
 | `for id, value in ctx.settings` | Each setting and its value, in the manifest's order. |
-| `ctx.settings:set(id, value)` | Sets one: `value` of its kind (a whole number does for a `float`; a table of texts for a `list`), within its limits, among its choices, matching its pattern (else an error), or nil for its default. The job reads it back at once; Moonglow keeps it where its scope says when the job is done, and not if the job fails. A setting of scope `project` or `user-project` can't be set without a project (a module kept in one file has none). Not in a check, nor in the console. |
+| `ctx.settings:set(id, value?)` | Sets one: `value` of its kind (a whole number does for a `float`; a table of texts for a `list`), within its limits, among its choices, matching its pattern (else an error), or nil for its default. The job reads it back at once; Moonglow keeps it where its scope says when the job is done, and not if the job fails. A setting of scope `project` or `user-project` can't be set without a project (a module kept in one file has none). Not in a check, nor in the console. |
 
 `ctx.settings.x = …` is an error: a setting is set with `set`. With `mg
 plugin run`, a setting of scope `user` has the value Moonglow keeps (its

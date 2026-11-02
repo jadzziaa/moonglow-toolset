@@ -429,6 +429,208 @@ fn the_reference_names_the_whole_api() {
     assert!(changes.contains(&format!("## {}", mg_plugin::API)));
 }
 
+/// A function's parameters: each one's name, and whether it may be left
+/// out.
+type Params = Vec<(String, bool)>;
+
+/// A parameter list (`a, b?` or `self: T, a: X, b: Y?`) split at its own
+/// commas (not those in a type's brackets): each parameter's name and
+/// whether it may be left out; `self` left out.
+fn parameters(list: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let (mut depth, mut part) = (0i32, String::new());
+    for c in list.chars().chain([',']) {
+        match c {
+            '(' | '{' | '[' => depth += 1,
+            ')' | '}' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                let p = part.trim();
+                let name = p.split(':').next().unwrap_or_default().trim().trim_end_matches('?');
+                // (A function's type may end in `?`, its result's: not
+                // the parameter's, unless the whole is bracketed.)
+                let ty = p.split_once(':').map_or("", |(_, t)| t.trim());
+                let optional = if ty.contains("->") {
+                    ty.starts_with('(') && ty.ends_with(")?")
+                } else {
+                    p.ends_with('?')
+                };
+                if !p.is_empty() && name != "self" && name != "..." {
+                    out.push((name.to_string(), optional));
+                }
+                part.clear();
+                continue;
+            }
+            _ => {}
+        }
+        part.push(c);
+    }
+    out
+}
+
+/// The text inside the brackets that open at `from` (just after its `(`).
+fn bracketed(text: &str) -> &str {
+    let mut depth = 1;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &text[..i];
+                }
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
+/// What the reference's tables describe: each row's first code span, as a
+/// name (`ctx.module:gff`) and, where it is a call, its parameters.
+fn reference_rows(reference: &str) -> Vec<(String, Option<Params>)> {
+    let mut out = Vec::new();
+    for line in reference.lines() {
+        let Some(rest) = line.strip_prefix("| `") else { continue };
+        let Some(code) = rest.split('`').next() else { continue };
+        let (name, call) = match code.split_once('(') {
+            Some((name, args)) => (name, Some(parameters(bracketed(args)))),
+            None => (code, None),
+        };
+        // (A name of the API: words joined by dots or a colon.)
+        let named = name.contains(['.', ':'])
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.:".contains(c));
+        if named {
+            out.push((name.to_string(), call));
+        }
+    }
+    out
+}
+
+/// A function's parameters as the type file declares it: a member of a
+/// type (`gff: (self: Reader, name: string) -> …`) or one of `mg`'s
+/// (`function mg.image(bytes: string, kind: string?)`, or a table's
+/// member `parse = function(bytes: string)`).
+fn typed_parameters(types: &str, of: Option<&str>, member: &str) -> Option<Vec<(String, bool)>> {
+    let find = |within: &str, pattern: &str| {
+        within.find(pattern).map(|at| parameters(bracketed(&within[at + pattern.len()..])))
+    };
+    match of {
+        Some(of) => {
+            let block = type_block(types, of);
+            // (A member that only some have: `((self: …) -> …)?`.)
+            (find(block, &format!(" {member}: (("))
+                .or_else(|| find(block, &format!(" {member}: ("))))
+            .or_else(|| {
+                (matches!(of, "Game" | "Module"))
+                    .then(|| find(type_block(types, "Reader"), &format!(" {member}: (")))
+                    .flatten()
+            })
+        }
+        None => find(types, &format!("function mg.{member}(")).or_else(|| {
+            find(types, &format!(" {}= function(", member.rsplit('.').next()?.to_string() + " "))
+        }),
+    }
+}
+
+/// The reference, written by hand, held to the code where that can be
+/// done mechanically: every name it describes is one of the API's (as the
+/// code builds it), with its dot or colon; each function's parameters, and
+/// which may be left out, as the type file declares them (the code's own
+/// can't be read from it: Luau functions don't say); the events it lists
+/// are the manifest's, the kinds of setting the manifest takes, and the
+/// kinds of object a selection's `kind` names.
+#[test]
+fn the_reference_says_what_the_code_has() {
+    let reference = std::fs::read_to_string(docs().join("manual/17-plugin-api.md")).unwrap();
+    let types = std::fs::read_to_string(docs().join("plugins/types/moonglow.luau")).unwrap();
+    let names = api_names();
+    let rows = reference_rows(&reference);
+    assert!(rows.len() > 100, "{}", rows.len());
+    // Names: each one the API has. (What `mg.vars.describe` and
+    // `mg.twoda.describe` return, `d.`, is described as a value of theirs.)
+    let unknown: Vec<&String> = (rows.iter().map(|(n, _)| n))
+        .filter(|n| !n.starts_with("d.") && !n.starts_with("d:") && !names.contains(n))
+        .collect();
+    assert!(unknown.is_empty(), "the reference describes what the API hasn't: {unknown:?}");
+    // Parameters: as the type file declares them.
+    let of = |owner: &str| -> Option<&str> {
+        Some(match owner {
+            "ctx.module" => "Module",
+            "ctx.game" => "Game",
+            "ctx.edit" => "Edit",
+            "ctx.log" => "Log",
+            "ctx.ui" => "Ui",
+            "ctx.hak" => "Hak",
+            "ctx.terrain" => "Terrain",
+            "ctx.settings" => "Settings",
+            "ctx.event" => "Event",
+            "area" => "Area",
+            "folder" => "Folder",
+            "image" => "Image",
+            "twoda" => "TwoDa",
+            "tlk" => "Tlk",
+            _ => return None,
+        })
+    };
+    let mut differ = Vec::new();
+    let mut compared = 0;
+    for (name, call) in &rows {
+        let Some(said) = call else { continue };
+        let Some((owner, member)) = name.rsplit_once(['.', ':']) else { continue };
+        let typed = match owner {
+            "mg" | "mg.twoda" | "mg.tlk" | "mg.vars" => {
+                let member = name.strip_prefix("mg.").unwrap_or(name);
+                typed_parameters(&types, None, member)
+            }
+            "ctx" => typed_parameters(&types, Some("Context"), member),
+            owner => of(owner).and_then(|o| typed_parameters(&types, Some(o), member)),
+        };
+        let Some(typed) = typed else { continue };
+        compared += 1;
+        let shape = |p: &[(String, bool)]| p.iter().map(|(_, o)| *o).collect::<Vec<bool>>();
+        if shape(said) != shape(&typed) {
+            differ.push(format!("{name}: the reference {said:?}, the type file {typed:?}"));
+        }
+    }
+    assert!(compared > 60, "only {compared} functions compared");
+    assert!(differ.is_empty(), "parameters that differ:\n{}", differ.join("\n"));
+    // Kinds: the events, as the manifest names them, each a row of the
+    // table of events.
+    for kind in mg_plugin::EventKind::ALL {
+        assert!(
+            reference.contains(&format!("| `{}` ", kind.name())),
+            "the reference's events lack {}",
+            kind.name()
+        );
+    }
+    // The kinds of setting, as the manifest's error lists those it takes.
+    let refused = mg_plugin::Manifest::parse(
+        "[plugin]\nid = \"a.b\"\nname = \"x\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \"MIT\"\n\
+         \n[setting]\nid = \"x\"\ntype = \"nothing\"\n",
+    )
+    .unwrap_err();
+    let list = refused.split("type is ").nth(1).unwrap().split(", not").next().unwrap();
+    let kinds: Vec<&str> = list.split([',', ' ']).filter(|k| !k.is_empty() && *k != "or").collect();
+    assert!(kinds.len() >= 8, "{kinds:?}");
+    let writing = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    let settings_row = reference.lines().find(|l| l.starts_with("| `ctx.settings.<id>`")).unwrap();
+    for k in &kinds {
+        assert!(settings_row.contains(&format!("`{k}`")), "ctx.settings.<id> lacks {k}");
+        assert!(writing.contains(&format!("`\"{k}\"`")), "Writing plugins' [setting] lacks {k}");
+    }
+    // The kinds a selected entry is, as a command's `for` names them.
+    let kind_row = reference.lines().find(|l| l.starts_with("| `selected.kind`")).unwrap();
+    for t in mg_plugin::Target::all() {
+        assert!(
+            kind_row.contains(&format!("`\"{}\"`", t.name())),
+            "selected.kind lacks {}",
+            t.name()
+        );
+    }
+}
+
 /// The block of a type in the type file: from `export type NAME =` to the
 /// brace that closes it.
 fn type_block<'a>(types: &'a str, name: &str) -> &'a str {

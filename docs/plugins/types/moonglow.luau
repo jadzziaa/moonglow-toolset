@@ -41,12 +41,7 @@ export type Form = { title: string?, fields: { FormField } }
 export type Reader = {
     resources: (self: Reader, kind: string?) -> { string },
     has: (self: Reader, name: string) -> boolean,
-    -- (ctx.game's gff, text and bytes take a layer's label after the name:
-    -- that layer's copy.)
-    gff: (self: Reader, name: string, layer: string?) -> Struct,
     raw: (self: Reader, name: string, path: string?) -> Struct,
-    text: (self: Reader, name: string, layer: string?) -> string,
-    bytes: (self: Reader, name: string, layer: string?) -> string,
 }
 
 -- One of the game's 2DA tables. Rows count from 0, as in the file; a cell
@@ -77,10 +72,17 @@ export type Tlk = {
 -- The module: its resources, and a name for a new one as the window
 -- proposes it (the builder's code in the team's pattern, the first free).
 export type Module = Reader & {
+    gff: (self: Module, name: string) -> Struct,
+    text: (self: Module, name: string) -> string,
+    bytes: (self: Module, name: string) -> string,
     new_name: (self: Module, name: string, kind: string) -> string,
 }
 
 export type Game = Reader & {
+    -- (A layer's label after the name: that layer's copy.)
+    gff: (self: Game, name: string, layer: string?) -> Struct,
+    text: (self: Game, name: string, layer: string?) -> string,
+    bytes: (self: Game, name: string, layer: string?) -> string,
     table: (self: Game, name: string) -> TwoDa,
     string: (self: Game, strref: number) -> string?,
 }

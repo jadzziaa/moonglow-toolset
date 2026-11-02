@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:02:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:08:01Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1310,11 +1310,14 @@ contribution itself states as not done or not checked.
     test files; the plugin gets the game's data only where `mg` finds a
     game, so a pipeline without one cannot test what reads `ctx.game`.
     (S each)
-  - **The reference is written by hand.** A test holds it to list every
-    name of the API, not that each description is right. (S)
-  - **The type file was not tried in an editor:** it loads as Luau and a
-    test holds it to have every name, but it was not checked with the
-    Luau language server. (S)
+  - **The type file was not tried in an editor:** it loads as Luau, and
+    tests hold it to have every name and the reference's parameters
+    (`the_type_file_has_the_whole_api`, `the_reference_says_what_the_code_has`),
+    but it was not checked with the Luau language server: neither
+    `luau-lsp` nor `luau-analyze` is on the development machine, and the
+    Luau that mlua builds in has no type checker (no `Analysis`). Waits on
+    a download of `luau-lsp` (or `luau-analyze`), the owner's to allow.
+    (S)
   - **External programs** as plugins (a protocol over standard input and
     output, for Python or Nim): not started. (M)
   - **The window with plugins was run on Linux only:** the application
