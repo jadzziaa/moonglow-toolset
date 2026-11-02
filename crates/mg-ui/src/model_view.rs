@@ -28,9 +28,10 @@ use crate::area_view::{Orbit, Wheel};
 /// Multisampling for 3D views.
 pub(crate) const SAMPLES: u32 = 4;
 
-/// How often a model the game's shaders move by the clock (wind-swayed
-/// grass, flowing water) is drawn again, seconds: as the area view's
-/// animations step.
+/// How often a model that moves (an animation played, particles, dangly
+/// meshes, the game's shaders moving it by the clock: wind-swayed grass,
+/// flowing water) is drawn again, seconds: as the area view's animations
+/// step.
 const CLOCK_STEP: f32 = 0.04;
 
 /// The GPU and renderer the 3D views share, from the window's wgpu state.
@@ -1117,14 +1118,15 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             chunk_instances.push(Instance::new(gm, c.transform));
         }
     }
-    // Keep drawing while something moves: an animation, live particles or
-    // dangly meshes.
+    // Keep drawing while something moves (an animation, live particles or
+    // dangly meshes), a step at a time as the area view's animations step,
+    // not a frame every frame (144 a second here).
     // (Behind another program's window, the picture kept as it is.)
     if (pose.is_some() || live || dangly.moving())
         && view.playing
         && crate::area_view::animates_now(ui, app.settings.animate_unfocused, true, false)
     {
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
     }
 
     // Render into our own texture, shown as an image.

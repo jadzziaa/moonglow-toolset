@@ -327,6 +327,13 @@ fn said_memory(h: &App<'_>, what: &str) {
     if let Some(vp) = h.state().viewport.as_ref() {
         let t = vp.renderer.texture_memory();
         let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        let m = vp.gpu.mesh_memory();
+        println!(
+            "      meshes: {} chunks of {:.1} MiB, {:.1} MiB of them used",
+            m.chunks,
+            mib(m.held),
+            mib(m.used)
+        );
         println!(
             "      textures: {} of {:.1} MiB, {:.1} MiB uncompressed, {:.1} MiB stale, {} let go",
             t.textures,

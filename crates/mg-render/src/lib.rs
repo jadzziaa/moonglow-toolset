@@ -30,6 +30,7 @@ pub use game::ShaderStats;
 pub use game::{Captured, CapturedPipeline};
 pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
 pub use model::{GpuModel, rest_pose};
+pub use pool::MeshMemory;
 pub use reach::{Frustum, box_corners};
 pub use renderer::{
     DEPTH_FORMAT, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, STALE_TEXTURES_KEPT,

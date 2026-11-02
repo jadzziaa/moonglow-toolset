@@ -3,7 +3,7 @@ type: Report
 title: 'Audit: frames and GPU memory after 3.0.0, and on weaker hardware'
 description: A dated record (2026-11-01, develop at 3.1.4) of an audit prompted by reports that performance fell and video memory rose since 3.0.0 - how frames and the GPU's memory were measured (v2.13.3, v3.0.0 and develop side by side; a discrete and an integrated GPU), what was found (no frame or memory regression since 2.13.3; views, textures and memory blocks held for good, an idle window drawing 25 pictures a second, a fill-bound picture on an integrated GPU), what was fixed with numbers before and after, and what is left with its cost.
 tags: [performance, gpu, memory, renderer, area-view, audit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T23:40:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:54:23Z }
 sources:
   - id: owner
     resource: human:august
@@ -171,6 +171,8 @@ say what each costs.
   woods hold 184 + 92 + 46 + … MB of chunks, about 370, for meshes not
   measured; up to half of it may be room. A cap on a chunk's growth, or
   chunks sized to what is read, would give some back (S, renderer, CI).
+  (Done later the same day: a chunk grows to half a million vertices at
+  most; the woods' 368 MiB of chunks became 322, 293.5 of them used.)
 - **A setting for MSAA**: 4× is fixed (`model_view::SAMPLES`). Off saves
   about 10% of an integrated GPU's picture and 107 MB of targets a view at
   3440×1400 (27 MB at 50% resolution), and needs the renderer made anew on
@@ -186,7 +188,8 @@ say what each costs.
   3.0.0 (area092: 112 to 165 ms); not taken apart.
 - **The model viewer playing an animation** asks for a frame at once,
   every frame, while the window has the focus (as the display refreshes:
-  144 a second here); a step as the area view's would do (S).
+  144 a second here); a step as the area view's would do (S). (Done
+  later the same day.)
 - **Thumbnails** keep up to 512 out of sight, 196 KB each (about 100 MB at
   most); bounded already.
 

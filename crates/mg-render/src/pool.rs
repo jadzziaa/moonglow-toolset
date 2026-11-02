@@ -11,10 +11,13 @@
 //! vertices counted from its base.
 //!
 //! A chunk is made when the meshes don't fit those made before, as large
-//! as those together (up to the device's largest buffer): a model viewer's
-//! few meshes take a small one, a large area's millions of vertices a few
-//! (draws of other chunks in a row bind theirs, so few and large is what
-//! counts). A mesh larger than that has a chunk of its own. What a dropped
+//! as those together up to [`MAX_VERTICES`] (and the device's largest
+//! buffer): a model viewer's few meshes take a small one, a large area's
+//! millions of vertices a few of the largest (draws of other chunks in a
+//! row bind theirs, so few and large is what counts). Growing as large as
+//! all before without a cap, the last chunk of a large area was mostly
+//! room (The Domains of Dread's woods held 370 MB of chunks, the last
+//! 184). A mesh larger than that has a chunk of its own. What a dropped
 //! mesh held is free again for the meshes that come after, and a chunk
 //! whose meshes are all dropped is dropped with them.
 //! Skinned meshes lie in chunks of their own, with a third buffer of their
@@ -29,7 +32,8 @@ use crate::model::{SkinVertex, Vertex};
 /// before it together, up to [`MAX_VERTICES`] and the device's largest
 /// buffer.
 const FIRST_VERTICES: u32 = 1 << 14;
-const MAX_VERTICES: u32 = 1 << 22;
+/// The largest chunk's vertices: 38 MiB of them, and 8 MiB of indices.
+const MAX_VERTICES: u32 = 1 << 19;
 /// A chunk's indices for each of its vertices.
 const INDICES_PER_VERTEX: u32 = 4;
 
@@ -114,6 +118,17 @@ pub(crate) struct MeshPool {
     chunks: Mutex<Chunks>,
 }
 
+/// What a device's meshes take of its memory ([`crate::Gpu::mesh_memory`]):
+/// the chunks' buffers, and how much of them the meshes kept use.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeshMemory {
+    pub chunks: usize,
+    /// Bytes the chunks' buffers take (vertices, indices, skins).
+    pub held: u64,
+    /// Bytes of them the meshes use.
+    pub used: u64,
+}
+
 #[derive(Debug, Default)]
 struct Chunks {
     /// Each chunk while any of its meshes is kept.
@@ -131,6 +146,24 @@ fn buffer(gpu: &Gpu, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu:
 }
 
 impl MeshPool {
+    /// What the chunks take, and what of them is used.
+    pub(crate) fn memory(&self) -> MeshMemory {
+        let chunks = self.chunks.lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = MeshMemory::default();
+        for chunk in chunks.live.iter().filter_map(Weak::upgrade) {
+            let free = chunk.free.lock().unwrap_or_else(|e| e.into_inner());
+            let free_of = |f: &Free| f.0.iter().map(|&(_, n)| u64::from(n)).sum::<u64>();
+            let vertex = std::mem::size_of::<Vertex>() as u64
+                + if chunk.skin.is_some() { std::mem::size_of::<SkinVertex>() as u64 } else { 0 };
+            let index_held = chunk.indices.size() / 4;
+            let size = u64::from(chunk.size);
+            m.chunks += 1;
+            m.held += size * vertex + index_held * 4;
+            m.used += (size - free_of(&free.0)) * vertex + (index_held - free_of(&free.1)) * 4;
+        }
+        m
+    }
+
     /// Puts a mesh's vertices and indices (and a skinned one's bones and
     /// weights, one for each vertex) into a chunk with room for them.
     pub(crate) fn put(

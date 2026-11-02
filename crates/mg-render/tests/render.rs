@@ -38,6 +38,41 @@ fn quad() -> Model {
     Model { name: "quad".into(), animation_scale: 1.0, nodes: vec![root, m], ..Default::default() }
 }
 
+/// The meshes' chunks grow as large as all before them together, but no
+/// larger than half a million vertices: what lies unused in them stays
+/// under one chunk of the largest (an area's last chunk held up to 184 MB
+/// of room). And what a dropped model held is given back.
+#[test]
+fn the_meshes_chunks_hold_little_room() {
+    let Some(gpu) = gpu() else { return };
+    let before = gpu.mesh_memory();
+    let mesh = |n: usize| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.vertices = (0..n).map(|i| [i as f32 * 1e-3, 0.0, 0.0]).collect();
+        mesh.normals = vec![[0.0, 0.0, 1.0]; n];
+        mesh.uvs[0] = vec![[0.0, 0.0]; n];
+        mesh.source = (0..n as u32).collect();
+        mesh.faces = (0..n as u32 / 3)
+            .map(|k| Face { vertices: [3 * k, 3 * k + 1, 3 * k + 2], material: 0 })
+            .collect();
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    // Nine of 100,000 vertices: chunks of 100k, 100k, 200k and 400k hold
+    // eight; the ninth's was 800k.
+    let models: Vec<_> = (0..9).map(|_| mesh(99_999)).collect();
+    let m = gpu.mesh_memory();
+    let (held, used) = (m.held - before.held, m.used - before.used);
+    // (A vertex, 76 bytes, and the chunk's four indices for it.)
+    let (vertex, largest) = (76 + 16, (1u64 << 19) * (76 + 16));
+    let room = held - 9 * 99_999 * vertex;
+    assert!(room <= largest, "{m:?}: {} MiB of room", room >> 20);
+    assert!(used >= 9 * 99_999 * 76, "{m:?}");
+    drop(models);
+    let after = gpu.mesh_memory();
+    assert_eq!(after.used, before.used, "given back");
+}
+
 /// The shader's equations for an untextured white surface, one area light
 /// (softened, as at the "High Quality" setting) and a white environment map
 /// (all vectors in view space).
