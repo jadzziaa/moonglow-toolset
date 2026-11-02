@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:10:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -438,16 +438,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
   compiles each program at six settings since 2026-10-29, and keeps what
   compiled, `doctor::settings`)
-  - **Includes nest deeper than 16:** read in the client (2026-11-01,
-    `batch6_include_splicing`): an indented `#include` (spaces or a tab)
-    is spliced, as `mg_shader::assemble` splices it, and a missing
-    include fails the program (the client draws its meshes magenta;
-    Moonglow draws its own shader and reports it); but chains of 17, 18,
-    24 … 250 and 1,000 includes compile and draw in the client, where
-    `MAX_DEPTH` (16) refuses them. The fix (mg-shader, another package's
-    this round): splice without a depth limit, refusing only a loop (an
-    include of a file already being spliced, which would never end), or
-    with a limit far past 1,000. (S)
   - The C++ build: glslang is in every program and test binary that
     links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders
@@ -527,9 +517,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     135), and with Mesa's cache off the area took 319 ms with wgpu's
     cache read against 371 with neither (the programs' cache alone); it
     was not kept. What is left is naga's and wgpu's own part (reading
-    the programs, writing them for the backend): making the pipelines of
-    the programs a module needs when it opens, before its areas are, would
-    shorten it. (S)
+    the programs, writing them for the backend). Making the pipelines of
+    the programs a module needs when it opens, before its areas are, was
+    looked at on 2026-11-02 and left for a decision: a pipeline is keyed
+    by its mesh's traits as well as its programs (skinned, tangents,
+    two-sided, the pass, and `NO_DISCARD`, which the texture's alpha
+    decides), so knowing them means reading every area's models and their
+    textures when the module opens (The Domains of Dread: hundreds of
+    areas), a real cost in memory and time where today an area reads its
+    own when it opens. Two narrower ways, each the owner's to choose:
+    the keys an earlier session made for the module remembered in the
+    shader cache and sent to the worker as the module opens (no models
+    read; a key whose programs a hak no longer has fails silently), or
+    an area's pipelines asked for when its row is hovered in the module
+    tree. (S–M, waits on the choice)
   - A program whose uniforms can't be split falls back to Moonglow's
     shader, reported. Since 2026-11-02 a block a program names besides
     its loose uniforms (`uniform Name { … };`) is split with them; what
@@ -567,24 +568,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     cards as a tile's model in the scratch override, as a tile of the
     area; not made in the sixth client batch, whose time went to the
     others). (S)
-  - **A DDS with a rippling procedure loses its picture** in the
-    client (read on 2026-11-01, `batch6_bioware_dxt1` and
-    `batch6_procedure_on_dds`; [the findings](findings.md), "A DDS with
-    a rippling procedure loses its picture"): BioWare's DXT1 draws whole
-    (the stock `tic01_floor01.dds` and TDoD's `dd_ce3_txburneds.dds` on a
-    card, in the override under another name, under the standard header:
-    all as the TGA), but a texture with TXI `proceduretype arturo` whose
-    file is a DDS draws flat light gray (89, 82, 78 here, the coals' DDS
-    and the floor's alike), where the TXI on a TGA ripples the picture.
-    The zombie's pallor was its glow, `dd_ce3_txhotcoal.dds` with its
-    TXI (additive), washed over the body. The fix (mg-render, another
-    package's this round): a texture rippling by `proceduretype arturo`
-    whose file is a DDS is drawn as a flat color, not its picture (the
-    gray's value is the client's: about 0.35 of white, added for an
-    additive one). (S) Moonglow's own shader in the builders' areas
-    (TDoD's 690 DXT1 textures with transparent texels black, its 21
-    materials naming maps without a render hint) waits on those areas'
-    files (`tdod.mod` here holds three staging areas). (S)
+  - Moonglow's own shader in the builders' areas (TDoD's 690 DXT1
+    textures with transparent texels black, its 21 materials naming maps
+    without a render hint) waits on those areas' files (`tdod.mod` here
+    holds three staging areas). (A DDS with the rippling procedure is
+    drawn flat gray as the client draws it since 2026-11-02:
+    [findings](findings.md), "A DDS with a rippling procedure loses its
+    picture".) (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
@@ -611,9 +601,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     them; but the diffuse's alpha falls with the tufts' distance from
     the camera, batch by batch (about `(32 − d) / 16`: 0.94 at 17 m,
     0.71 at 20, 0.49 at 24; not the player's distance), and Moonglow
-    gives 1. The fix (mg-render, another package's this round): the
-    grass's draws get that alpha by their batch's distance from the
-    camera. (S)
+    gives 1. Not ported (2026-11-02), for a real unintended consequence:
+    the fade is the game's grass ending at its render distance (30 m from
+    its camera by default), and with it the area view, whose camera
+    stands farther off than the game's (often 40 m and more), would show
+    no grass, where it draws grass out to the far edge of the view by the
+    owner's choice (the area grass's learning of 2026-10-23: grass only
+    about the camera's target was seen as a fault). The difference is in
+    the manual's [differences](manual/12-differences.md). Whether the
+    fade moves with the game's Grass Far Render Distance was not read.
+    (S, the owner's call: a fade by the camera's distance only when it is
+    within the game's reach, if wanted)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -644,9 +642,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   particle past the next"): the cell reaches the next particle at
   `gap / (gap + size / 2)` (within 0.01 at a metre's gap; at half a
   metre it reaches 0.85 and 0.67 at 0.3 and 0.6 m, where the rule says
-  0.77 and 0.63), where Moonglow's runs from one particle to the next
-  exactly. The fix (mg-render, another package's this round): a piece's
-  v runs to `gap / (gap + size / 2)` at its newer particle. (S) Among
+  0.77 and 0.63), where Moonglow's ran from one particle to the next
+  exactly. Since 2026-11-02 a piece's v runs to `gap / (gap + size /
+  2)` at its newer particle, as the client's. Left, among
   see-through meshes: a mesh of `alpha 0.5` in front of a ribbon hides
   it entirely in the client, of the ribbon's own model or of another
   (2026-11-01: a placeable's card 0.6 m before another's ribbon), where
@@ -707,17 +705,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   none of a vertex no bone weighs), and since 2026-10-30 as spacing only
   in a list that has all its rows without it. The reporter's "stopped
   animating" (Mindwitness) wasn't seen as such: here it animated, with
-  its skin torn by the shifted weights. Left: a chain of scaled
-  supermodels, read on 2026-11-01 (`batch6_supermodel_chain`; [the
-  findings](findings.md), "An animation played through a chain of
-  supermodels is scaled by each link"): the client scales an animation a
-  supermodel owns by the playing model's `setanimationscale` times each
-  supermodel's between it and the owner (2 on 3 on the owner: 6; the
-  owner's own scale not counted, nor a model's own animation scaled),
-  where Moonglow takes the playing model's alone (2). The fix (mg-render's
-  `anim.rs`, another package's this round): a binding's scale is the
-  product of the scales of the chain from the playing model down to,
-  not including, the model whose animation it is (S). Waiting: the model
+  its skin torn by the shifted weights. An animation through a chain
+  of scaled supermodels plays at each link's scale but the owner's, as
+  the client's (since 2026-11-02; [the findings](findings.md), "An
+  animation played through a chain of supermodels is scaled by each
+  link"). Waiting: the model
   viewer's own check of names over 16 characters (the Moonglow Viewer
   session's); and the Mindwitness's pose, other than in Aurora and the
   game (the builder's model). (S)
@@ -751,24 +743,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     within the budget (a frame's GPU time 0.1 to 1 ms more than Fast's,
     3.3 ms more in area026 seen close, 6.7 ms of 6.9). Making them
     apart, as textures are read, goes beyond what was asked (M);
-  - the lights' shadows take the casting light's share of the floor's
-    light, where Moonglow's darkness is the opacity times the plane's
-    fade alone (0.53 to 0.60 at every distance, `moonglow_light_shadows`):
-    fitted on 2026-11-01 (`reading_light_shadows` at 1.5 to 12 m; [the
-    findings](findings.md), "A light's shadow takes the light's share"),
-    the floor darkens by the lamp's share of the light falling there
-    (its brightness with the lamp, less without, over with), at most
-    about 0.53: 0.50, 0.52, 0.53, 0.47, 0.38, 0.29, 0.21, 0.13, 0.11, 0.08
-    at 1.5, 2, 3 … 10 m against shares 0.58, 0.54, 0.48, 0.40, 0.33,
-    0.27, 0.20, 0.15, 0.11, 0.07; nothing past the light's reach. The fix
-    (mg-render's `shadow.rs`, another package's this round): a light's
-    shadow darkens a receiver by min(that light's contribution there over
-    all the light there, about 0.53 × the shadow opacity) (S–M). Every
-    creature in a lamp's reach casts at once (eight ogres in a row, each
-    its shadow: `batch6_light_shadow_casters`), as Moonglow casts up to
-    16; and a player's own light casts the shadows of the creatures
-    about the player (`batch6_player_light_at_night`), which the toolset,
-    placing no player, has nothing of;
+  - every creature in a lamp's reach casts at once (eight ogres in a
+    row, each its shadow: `batch6_light_shadow_casters`), as Moonglow
+    casts up to 16; and a player's own light casts the shadows of the
+    creatures about the player (`batch6_player_light_at_night`), which
+    the toolset, placing no player, has nothing of. (A light's shadow
+    darkens by the light's share of the light there, as the client's,
+    since 2026-11-02: [the findings](findings.md), "A light's shadow
+    takes the light's share".);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -777,8 +759,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     framebuffer's copy; the client's volumes darken whatever was drawn
     before its plane (M: those drawn later would read the map
     themselves);
-  - with Fade Geometry on, the faded roofs and upper walls cast no
-    shadow, where the game's still do (S);
   - a sun low in the west (a GIT's direction,
     `reading_git_sun_direction`): the client leaves a city street lit
     but for thin spikes, where Moonglow lays the buildings' long shadows
@@ -798,57 +778,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     m darken the ground alike, 0.44 to 0.49, and casters above the camera
     still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
     2026-10-29);
-  - the previews (blueprints, the model viewer) draw none (S).
+  - the previews (blueprints, the model viewer) draw none: they have no
+    ground to lay a shadow on (a creature or a dynamic placeable casts
+    only onto tiles and static placeables in the game), so a shadow there
+    means a ground under the model (or one that only takes shadows), a
+    change to every thumbnail, gallery and hover preview: the owner's
+    call (S, waits on it). (With Fade Geometry on, the faded roofs and
+    upper walls cast their shadows, as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **Where a cut-out is cut:** at alpha 0.2 and solid where it is not
-  cut; that, two-sided faces and decals as the client draws them are in
-  [the findings](findings.md) ("Two-sided faces, cut-outs and decals").
-  A cut-out whose mesh's alpha is under 1 is drawn solid and cut, as the
-  client draws one, and a transparency hint changes nothing in either
-  (2026-10-30, `reading_see_through_cut_out`). Why that disc of mesh
-  `alpha 0.5` is a quarter lighter in the client than the plain one
-  (156, 99, 40 against 126, 79, 31), read on 2026-11-01
-  (`batch6_cut_out_lighter`; [the findings](findings.md), "A
-  see-through cut-out is lit through from behind"): its color before
-  lighting is the plain one's and it is drawn without blending, but the
-  game's lighting passes `1 − alpha` of the light on its back through it
-  (`inc_lighting`'s `LIGHT_TRANSLUCENCE_VALUE`, the alpha the mesh's
-  times the texel's): lit 156 against 126. Moonglow's game path draws it
-  so, to the pixel; Moonglow's own shader lights it as the plain one
-  (126). The fix (mg-render's `shader.wgsl`, another package's this
-  round): a cut-out's translucence takes `1 − mesh alpha × texel alpha`
-  though the fragment is drawn solid. (S)
-  (asked by the Domains of Dread module session; checked in the client,
-  2026-10-09)
-- **A rippling glow (TXI `proceduretype arturo`), how far and how fast it
-  ripples:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive;
-  `channelscale` 0 0 0 0, `channeltranslate` 1 1 1 1, `distort 1`,
-  `arturowidth`/`arturoheight` 32, `distortionamplitude 10`, `speed 16`,
-  no `defaultwidth`) looks as the client's since an additive texture is
-  weighed by its alpha (2026-10-29): read on 2026-10-30
-  (`reading_rippling_glow`, the fourth client batch: two of the zombies
-  from close, the model, textures and appearance.2da out of the haks),
-  the body charred with dim orange veins in both, the client's veins
-  moving from picture to picture. The ripple itself, read on
-  2026-11-01 (`batch6_ripple`: cards of a texture whose red is its u and
-  green its v, painted as sampled, the client's clock along their feet,
-  60 to 80 pictures over 20 s; [the findings](findings.md), "How far and
-  how fast a texture ripples"): the picture is pushed about by 0.82 ×
-  `distortionamplitude` texels of the texture itself (RMS; its 95th
-  percentile 1.25 ×) at 64 and 128 texels alike, `defaultwidth` (16, 64
-  or none) changing nothing, where Moonglow takes the amplitude as a part
-  of `defaultwidth` (64 without one: right for a 64-texel texture, twice
-  too far at 128, four times at `defaultwidth 16`); it changes by about
-  12 texels a second at `speed` 16 and 4.5 at 4, unlike itself after
-  about 4.5 s; `distort 0` draws `c × channelscale + channeltranslate`
-  (white for the zombie's 0 and 1), where Moonglow draws the texture
-  unrippled. Not read: the client binary's code (the owner's to say).
-  Left: the port (mg-render's `shader.wgsl` and `Txi::ripple`, another
-  package's this round: the amplitude as a part of the texture's width,
-  the rate to those numbers, `distort 0`'s channels) (M) (from the
-  Domains of Dread's report on the
-  flickering zombie, 2026-10-22; seen in the client, `creatures_look`)
 
 ## Models and textures
 
@@ -1893,8 +1831,10 @@ is not taken for a new gap.
   dire wolf, `dd_n2e_wolfdire`, in the area view; `creatures_look` with
   the wolf, gone with the translucence defined away; held by
   `a_backlit_cut_out_s_edge_is_lit_through_by_the_game_s_programs`).
-  Moonglow's own shader makes a cut-out solid before it lights it, so it
-  draws no line: it differs from the client there. With The Domains of
+  Moonglow's own shader lights it so too since 2026-11-02 (a cut-out's
+  alpha, the mesh's times the texel's, weighs the light from behind
+  though it is drawn solid: `batch6_cut_out_lighter`'s disc of mesh
+  `alpha 0.5` 156 of 255 as the client's, where it was 126). With The Domains of
   Dread's `inc_lighting` (a wrapped diffuse, N·L never below 0) there is
   no translucence; what shows there is the fur card lit otherwise than
   the normal-mapped body under it, which the client draws too. Also left:

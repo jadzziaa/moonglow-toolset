@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:23:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
 ---
 
 # Areas
@@ -207,8 +207,11 @@ palette's Gallery is 🖼, the Grid ⊞.
   fades them toward the top of the picture (from a camera looking
   straight down, not at all), so they look as dark as in the game from
   the same angle; a light's shadow is lighter than the sun's at the same
-  opacity, as the game's. Grass stays bright in a shadow, and with **Fade
-  Geometry** on the roofs it leaves out cast none. Switched off (or with
+  opacity, as the game's, and darkens the floor only by the light's share
+  of the light falling there: dark near the lamp, fainter farther off and
+  where other lights and the area's light are bright. Grass stays bright
+  in a shadow, and with **Fade Geometry** on the roofs it leaves out
+  still cast their shadows, as in the game. Switched off (or with
   **Lighting** off) there are none; areas opened later open as you left
   them. Changes to the shadow fields in Area Properties show at once.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
