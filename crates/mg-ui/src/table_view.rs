@@ -18,7 +18,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit};
 use mg_module::doctor::{CellFault, ColumnKind, TalkTables};
 use mg_module::table_desc::{Beside, Description, Kind};
-use mg_module::table_edit::{Candidate, Editing, Offered};
+use mg_module::table_edit::{Candidate, Editing, Offered, Whose};
 use mg_resman::ResKey;
 
 use crate::palette_view::{Keys, give_keys, keys_are};
@@ -41,6 +41,11 @@ pub struct Taking {
     /// Which of the other copies (by its layer's name).
     pub from: Option<String>,
     pub chosen: BTreeSet<usize>,
+    /// Cells chosen one by one (a row and this table's column), of rows
+    /// both copies changed: taken where their row is not taken whole.
+    pub cells: BTreeSet<(usize, usize)>,
+    /// The row whose cells are being chosen.
+    pub open_row: Option<usize>,
     /// The copies in the load order, read once as the window opens.
     copies: Option<Arc<Vec<(String, TwoDa)>>>,
     /// The rows offered, worked out for a copy and the table as it was
@@ -1131,7 +1136,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let mut act = None;
     header(app, ui, at, &home, has_copies, faults.len(), &mut act);
     keys(app, ui, at);
-    let below = 96.0;
+    // (More room under the grid while a list to choose a cell's value
+    // from is open there.)
+    let below = if choosing_under(ui, id) { 96.0 + 300.0 } else { 96.0 };
     let grid_height = (ui.available_height() - below).max(120.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
         grid(app, ui, at, &kinds, &faults);
@@ -1145,6 +1152,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Some(Act::SaveAs) => save_as_file(app, id),
         None => {}
     }
+}
+
+/// Whether one of the cell's lists is open under the grid (Choose
+/// Model…, Choose String…, New Line…).
+fn choosing_under(ui: &Ui, id: u32) -> bool {
+    let string = egui::Id::new(("table-string", id));
+    let open = [
+        egui::Id::new(("table-model-find", id)).with("open"),
+        string.with("choose"),
+        string.with("new"),
+    ];
+    open.iter().any(|o| ui.data(|d| d.get_temp::<bool>(*o)).unwrap_or(false))
 }
 
 enum Act {
@@ -2584,12 +2603,15 @@ fn string_choice(
                 }
                 _ => {}
             }
-            let list = egui::ScrollArea::vertical().id_salt(base.with("list")).max_height(240.0);
+            let list = egui::ScrollArea::vertical()
+                .id_salt(base.with("list"))
+                .max_height(240.0)
+                .min_scrolled_height(200.0);
             list.show(ui, |ui| {
                 for (n, text) in names {
                     let now = value.and_then(|v| v.trim().parse::<u32>().ok()) == Some(*n);
                     let line = text.lines().next().unwrap_or_default();
-                    let label = egui::Button::selectable(now, format!("{n}  {line}"));
+                    let label = egui::Button::selectable(now, format!("{n}  {line}")).truncate();
                     if ui.add(label).on_hover_text(text).clicked() {
                         *set = Some(Some(n.to_string()));
                         choosing = false;
@@ -2705,7 +2727,10 @@ fn model_choice(
         if all > names.len() {
             ui.weak(format!("{} of {all}: type more of the name", names.len()));
         }
-        let list = egui::ScrollArea::vertical().id_salt(find_id.with("list")).max_height(240.0);
+        let list = egui::ScrollArea::vertical()
+            .id_salt(find_id.with("list"))
+            .max_height(240.0)
+            .min_scrolled_height(200.0);
         list.show(ui, |ui| {
             for n in names {
                 let now = value.is_some_and(|v| v.eq_ignore_ascii_case(&n));
@@ -2833,6 +2858,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
     if taking.from.as_ref().is_none_or(|f| !others.iter().any(|(l, _)| l == f)) {
         taking.from = others.first().map(|(l, _)| l.clone());
         taking.chosen.clear();
+        taking.cells.clear();
+        taking.open_row = None;
     }
     let from = taking.from.clone();
     let other = from.as_ref().and_then(|f| others.iter().find(|(l, _)| l == f));
@@ -2876,6 +2903,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 if pick != from {
                     taking.from = pick;
                     taking.chosen.clear();
+                    taking.cells.clear();
+                    taking.open_row = None;
                 }
                 let count = |o: Offered| found.iter().filter(|c| c.offered == o).count();
                 ui.weak(match told {
@@ -2922,6 +2951,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 }
                 if ui.button("Clear Selections").clicked() {
                     taking.chosen.clear();
+                    taking.cells.clear();
                 }
             });
             ui.separator();
@@ -2929,7 +2959,10 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 ui.weak("This table has every row of that copy as it has them.");
             }
             let height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-            let room = (ui.available_height() - 40.0).max(120.0);
+            // (Room under the list for the buttons, and for a row's cells
+            // being chosen.)
+            let under = if taking.open_row.is_some() { 150.0 } else { 40.0 };
+            let room = (ui.available_height() - under).max(120.0);
             egui::ScrollArea::vertical().max_height(room).auto_shrink([false, false]).show_rows(
                 ui,
                 height,
@@ -2955,6 +2988,23 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                                 Offered::Conflict => text.color(ui.visuals().warn_fg_color),
                                 _ => text.weak(),
                             });
+                            // (A row both changed: its cells, chosen one by
+                            // one under the list.)
+                            if c.offered == Offered::Conflict {
+                                let open = taking.open_row == Some(c.row);
+                                let some = taking.cells.iter().filter(|(r, _)| *r == c.row).count();
+                                let label = match some {
+                                    0 => "Cells…".to_string(),
+                                    n => format!("Cells… ({n})"),
+                                };
+                                if ui
+                                    .selectable_label(open, label)
+                                    .on_hover_text("Choose the cells of this row to take")
+                                    .clicked()
+                                {
+                                    taking.open_row = if open { None } else { Some(c.row) };
+                                }
+                            }
                             // The cells that differ: here, then there.
                             let cells: Vec<String> = c
                                 .cells
@@ -2979,12 +3029,64 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     }
                 },
             );
+            // The cells of the row both changed, to take one by one.
+            if let Some(c) = taking.open_row.and_then(|r| found.iter().find(|c| c.row == r)) {
+                ui.separator();
+                let whole = taking.chosen.contains(&c.row);
+                ui.label(match whole {
+                    true => format!("Row {}: taken whole (untick it to choose its cells)", c.row),
+                    false => format!("Row {}'s cells: tick those to take from that copy", c.row),
+                });
+                // (A line each, in a list of its own: a row may differ in
+                // many cells.)
+                let cells = egui::ScrollArea::vertical().id_salt("take-cells").max_height(100.0);
+                ui.add_enabled_ui(!whole, |ui| {
+                    cells.auto_shrink([false, true]).show(ui, |ui| {
+                        for (i, (col, mine, theirs)) in c.cells.iter().enumerate() {
+                            let (mine, theirs) = (
+                                mine.as_deref().unwrap_or("****"),
+                                theirs.as_deref().unwrap_or("****"),
+                            );
+                            let mut on = whole || taking.cells.contains(&(c.row, *col));
+                            let line = format!("{}: {mine} \u{2192} {theirs}", columns[*col]);
+                            ui.horizontal(|ui| {
+                                let text = egui::RichText::new(line).monospace();
+                                let r = ui.checkbox(&mut on, text);
+                                let whose = match c.whose.get(i) {
+                                    Some(Whose::Theirs) => "changed there",
+                                    Some(Whose::Ours) => "changed here",
+                                    Some(Whose::Both) => "changed in both",
+                                    _ => "",
+                                };
+                                if !whose.is_empty() {
+                                    ui.weak(whose);
+                                }
+                                if r.changed() {
+                                    match on {
+                                        true => _ = taking.cells.insert((c.row, *col)),
+                                        false => _ = taking.cells.remove(&(c.row, *col)),
+                                    }
+                                }
+                            });
+                        }
+                    });
+                });
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 let n = taking.chosen.len();
+                let m = taking.cells.iter().filter(|(r, _)| !taking.chosen.contains(r)).count();
+                let label = match (n, m) {
+                    (n, 0) => format!("Take {n} Rows"),
+                    (0, m) => format!("Take {m} Cells"),
+                    (n, m) => format!("Take {n} Rows and {m} Cells"),
+                };
                 if ui
-                    .add_enabled(n > 0, egui::Button::new(format!("Take {n} Rows")))
-                    .on_hover_text("Each row whole, as that copy has it; one step to undo")
+                    .add_enabled(n + m > 0, egui::Button::new(label))
+                    .on_hover_text(
+                        "Each row ticked whole, and each cell chosen alone, as that copy has \
+                         them; one step to undo",
+                    )
                     .clicked()
                 {
                     take = true;
@@ -2996,7 +3098,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
         });
     if take && let Some((_, t)) = other {
         let rows: Vec<usize> = taking.chosen.iter().copied().collect();
-        if doc.edit.take_rows(t, &rows) > 0 {
+        let cells: Vec<(usize, usize)> = taking.cells.iter().copied().collect();
+        if doc.edit.take(t, &rows, &cells) != (0, 0) {
             doc.changed();
         }
         doc.taking = None;

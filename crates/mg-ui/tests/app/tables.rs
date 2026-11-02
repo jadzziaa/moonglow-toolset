@@ -1916,6 +1916,58 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
 }
 
+/// Take Rows: a row both copies changed is taken cell by cell, each cell
+/// saying whose change it is against the lowest copy (the game's).
+#[test]
+fn a_row_both_copies_changed_is_taken_cell_by_cell() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-take-cells");
+    let user = user_folder(&dir, &["override"]);
+    let game = game_data(&root);
+    let base = (*game.table("feat").unwrap()).clone();
+    let cell = |t: &mg_2da::TwoDa, c: &str| t.get(3, c).unwrap_or("****").to_string();
+    let set = |t: &mut mg_2da::TwoDa, c: &str, v: &str| {
+        let c = t.column(c).unwrap();
+        t.set(3, c, Some(v.into())).unwrap();
+    };
+    // Theirs (the override's) changed row 3's LABEL and MINDEX; ours its
+    // LABEL and MINSTR.
+    let mut theirs = base.clone();
+    set(&mut theirs, "LABEL", "Theirs");
+    set(&mut theirs, "MINDEX", "15");
+    let cp = mg_core::Codepage::default();
+    std::fs::write(user.join("override/feat.2da"), theirs.to_bytes(cp).unwrap()).unwrap();
+    let mut ours = base.clone();
+    set(&mut ours, "LABEL", "Ours");
+    set(&mut ours, "MINSTR", "13");
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, ours.to_bytes(cp).unwrap()).unwrap();
+    let mut h = harness(game_app(&root, Some(user)), 1280.0, 900.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.get_by_label("Take Rows…").click();
+    h.run_steps(4);
+    h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
+    h.get_by_label("Cells…").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Row 3's cells");
+    // (The row's, in the list, and LABEL's.)
+    assert_eq!(h.get_all_by_label("changed in both").count(), 2);
+    h.get_by_label("changed here");
+    h.get_by_label("changed there");
+    let mindex = format!("MINDEX: {} \u{2192} 15", cell(&base, "MINDEX"));
+    h.get_by_label(&mindex).click();
+    h.run_steps(2);
+    h.get_by_label("Take 1 Cells").click();
+    h.run_steps(3);
+    let now = table_of(&h, id);
+    assert_eq!(now.get(3, "MINDEX"), Some("15"), "taken");
+    assert_eq!((now.get(3, "LABEL"), now.get(3, "MINSTR")), (Some("Ours"), Some("13")), "kept");
+    assert!(h.state().tables[0].taking.is_none(), "the window closed");
+    assert_eq!(h.state().tables[0].edit.undo_label(), Some("Take 1 cells"));
+}
+
 /// Find References to Row lists the module's blueprints, areas and
 /// scripts that name the row, beside the tables' cells, and a click goes
 /// there.

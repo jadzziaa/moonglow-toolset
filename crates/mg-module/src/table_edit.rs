@@ -52,6 +52,19 @@ pub enum Offered {
     Conflict,
 }
 
+/// Whose change a cell that differs is, against the lowest copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Whose {
+    /// The other copy changed it; this table has it as the lowest copy.
+    Theirs,
+    /// This table changed it; the other has it as the lowest copy.
+    Ours,
+    /// Both changed it, differently.
+    Both,
+    /// There is no lowest copy to tell by (or the row is not in it).
+    Untold,
+}
+
 /// A row of another copy that this table lacks or has differently.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
@@ -59,6 +72,8 @@ pub struct Candidate {
     pub offered: Offered,
     /// The cells that differ: this table's column, its value, the other's.
     pub cells: Vec<(usize, Option<String>, Option<String>)>,
+    /// Whose change each of [`cells`](Self::cells) is.
+    pub whose: Vec<Whose>,
 }
 
 /// The other copy's row as this table's columns have it (by name: a
@@ -93,11 +108,18 @@ pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Cand
                 _ => Offered::Changed,
             }
         };
-        let cells = (0..mine.len())
-            .filter(|&c| mine[c] != theirs[c])
-            .map(|c| (c, mine[c].clone(), theirs[c].clone()))
+        let differ: Vec<usize> = (0..mine.len()).filter(|&c| mine[c] != theirs[c]).collect();
+        let cells = differ.iter().map(|&c| (c, mine[c].clone(), theirs[c].clone())).collect();
+        let whose = differ
+            .iter()
+            .map(|&c| match &based {
+                Some(b) if b[c] == mine[c] => Whose::Theirs,
+                Some(b) if b[c] == theirs[c] => Whose::Ours,
+                Some(_) => Whose::Both,
+                None => Whose::Untold,
+            })
             .collect();
-        out.push(Candidate { row, offered, cells });
+        out.push(Candidate { row, offered, cells, whose });
     }
     out
 }
@@ -324,31 +346,60 @@ impl Editing {
     /// empty ones between where the other copy's numbers skip. How many
     /// rows changed.
     pub fn take_rows(&mut self, other: &TwoDa, rows: &[usize]) -> usize {
-        let last = rows.iter().copied().filter(|r| *r < other.len()).max();
-        let Some(last) = last else { return 0 };
+        self.take(other, rows, &[]).0
+    }
+
+    /// Takes whole rows of `other` (as [`take_rows`](Self::take_rows))
+    /// and single cells of it (a row and this table's column: a row both
+    /// copies changed, taken cell by cell), in one step. How many rows and
+    /// how many of the cells alone changed.
+    pub fn take(
+        &mut self,
+        other: &TwoDa,
+        rows: &[usize],
+        cells: &[(usize, usize)],
+    ) -> (usize, usize) {
+        let cells: Vec<(usize, usize)> = cells
+            .iter()
+            .copied()
+            .filter(|(r, c)| *r < other.len() && *c < self.table.columns().len())
+            .filter(|(r, _)| !rows.contains(r))
+            .collect();
+        let rows: Vec<usize> = rows.iter().copied().filter(|r| *r < other.len()).collect();
+        let last = rows.iter().chain(cells.iter().map(|(r, _)| r)).copied().max();
+        let Some(last) = last else { return (0, 0) };
         let added = (last + 1).saturating_sub(self.table.len());
         for _ in 0..added {
             self.table.add_row();
         }
-        let mut cells = Vec::new();
-        for &row in rows.iter().filter(|r| **r < other.len()) {
+        let mut put = Vec::new();
+        for &row in &rows {
             for (c, value) in row_of(&self.table, other, row).into_iter().enumerate() {
-                // (A cell another table's rules cannot hold is left as it is.)
-                if !value.as_ref().is_some_and(|v| v.contains('"')) {
-                    cells.push((row, c, value));
-                }
+                put.push((row, c, value));
             }
         }
-        let changed = self.put(cells).unwrap_or_default();
-        let mut taken: Vec<usize> = changed.iter().map(|c| c.0).collect();
+        for &(row, c) in &cells {
+            let value = other.get(row, &self.table.columns()[c]).map(str::to_string);
+            put.push((row, c, value));
+        }
+        // (A cell another table's rules cannot hold is left as it is.)
+        put.retain(|(_, _, value)| !value.as_ref().is_some_and(|v| v.contains('"')));
+        let changed = self.put(put).unwrap_or_default();
+        let mut taken: Vec<usize> =
+            changed.iter().map(|c| c.0).filter(|r| rows.contains(r)).collect();
         taken.dedup();
-        let label = format!("Take {} rows", taken.len());
+        let one_by_one = changed.iter().filter(|c| !rows.contains(&c.0)).count();
+        let label = match (taken.len(), one_by_one) {
+            (n, 0) => format!("Take {n} rows"),
+            (0, m) => format!("Take {m} cells"),
+            (n, m) => format!("Take {n} rows and {m} cells"),
+        };
         if added > 0 {
             self.done(label, Change::Rows(added, changed));
         } else if !changed.is_empty() {
             self.done(label, Change::Cells(changed));
         }
-        taken.len()
+        (taken.len(), one_by_one)
     }
 
     fn back(&mut self, change: &Change) {
@@ -575,5 +626,35 @@ mod tests {
         assert!(e.undo());
         assert_eq!(e.table(), &ours);
         assert_eq!(e.take_rows(&theirs, &[99]), 0);
+    }
+
+    /// A row both copies changed is taken cell by cell: each cell says
+    /// whose change it is, and the cells chosen alone are taken, with
+    /// whole rows, in one step.
+    #[test]
+    fn a_row_both_changed_is_taken_cell_by_cell() {
+        let base = table("  Label Cost Weight\n0 a 1 5\n1 b 2 6\n");
+        // Row 1: ours changed Cost, theirs Weight, and both Label.
+        let ours = table("  Label Cost Weight\n0 a 1 5\n1 B 20 6\n");
+        let theirs = table("  Label Cost Weight\n0 a 1 50\n1 X 2 60\n");
+        let found = candidates(&ours, &theirs, Some(&base));
+        let row = found.iter().find(|c| c.row == 1).unwrap();
+        assert_eq!(row.offered, Offered::Conflict);
+        let cells: Vec<usize> = row.cells.iter().map(|c| c.0).collect();
+        assert_eq!(cells, [0, 1, 2]);
+        assert_eq!(row.whose, [Whose::Both, Whose::Ours, Whose::Theirs]);
+        assert_eq!(candidates(&ours, &theirs, None)[1].whose, [Whose::Untold; 3]);
+        let mut e = Editing::new(ours.clone());
+        // Row 0 whole, and row 1's Weight alone.
+        assert_eq!(e.take(&theirs, &[0], &[(1, 2)]), (1, 1));
+        assert_eq!(e.undo_label(), Some("Take 1 rows and 1 cells"));
+        let t = e.table();
+        assert_eq!((t.get(0, "Weight"), t.get(1, "Weight")), (Some("50"), Some("60")));
+        assert_eq!((t.get(1, "Label"), t.get(1, "Cost")), (Some("B"), Some("20")), "kept");
+        assert!(e.undo());
+        assert_eq!(e.table(), &ours, "one step");
+        // A cell of a row taken whole is the row's; cells alone, labeled so.
+        assert_eq!(e.take(&theirs, &[], &[(1, 0), (9, 0)]), (0, 1));
+        assert_eq!(e.undo_label(), Some("Take 1 cells"));
     }
 }

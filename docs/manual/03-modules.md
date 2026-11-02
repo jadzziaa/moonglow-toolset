@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:38:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:47:28Z }
 ---
 
 # Modules
@@ -1692,8 +1692,11 @@ differently; against a copy that has one below it, it tells the rows
 only the other changed from those you both changed. Tick rows one by
 one, or all of a kind with the **New** (those yours lacks) and
 **Differ** (those it has differently) boxes; **Clear Selections**
-unticks them all. **Take** brings each ticked row in whole, as one
-step.
+unticks them all. A row you both changed has **Cells…**: under the list,
+each cell that differs, with whose change it is (**changed there**,
+**changed here** or **changed in both**), to tick the ones to take from
+the other copy, leaving the rest as yours has them. **Take** brings each
+ticked row in whole, and each cell ticked alone, as one step.
 
 Saving lays the table out as its file was: columns in line as wide as
 there (wider where a cell needs it), or, with **Compact** ticked, with
