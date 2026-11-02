@@ -181,10 +181,24 @@ fn moonglow_beside(
     client: &Rgba,
     view: &dyn Fn(&mut mg_area::View),
 ) {
+    moonglow_beside_as(dir, game, are, git, client, view, "moonglow");
+}
+
+/// [`moonglow_beside`], its pictures named `name` (`{name}.png` and
+/// `{name}_on.png`); the two pictures (off, on), `None` without a GPU.
+pub(super) fn moonglow_beside_as(
+    dir: &Path,
+    game: &GameData,
+    are: &Gff,
+    git: &Gff,
+    client: &Rgba,
+    view: &dyn Fn(&mut mg_area::View),
+    name: &str,
+) -> Option<(Rgba, Rgba)> {
     mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("Moonglow's side skipped: no GPU");
-        return;
+        return None;
     };
     let tileset = mg_area::tileset(game, are.root.resref("Tileset").unwrap()).ok();
     let model = mg_area::AreaModel::read(game, &are.root, &git.root, tileset.as_ref());
@@ -206,7 +220,7 @@ fn moonglow_beside(
     if std::env::var_os("MG_MAGENTA").is_some() {
         scene.background = [1.0, 0.0, 1.0];
     }
-    off_and_on(&gpu, game, &scene, &camera, size, Some(client), dir, "moonglow");
+    Some(off_and_on(&gpu, game, &scene, &camera, size, Some(client), dir, name))
 }
 
 /// The entry script of [`Reading::shoot_beside`]: the player's place

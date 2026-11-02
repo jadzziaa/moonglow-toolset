@@ -15,6 +15,10 @@
 #   desktop's Xwayland, which holds :1 here, when the off-screen display
 #   failed to start).
 #
+# - MG_CLIENT_PRELOAD (optional): a library preloaded into the client
+#   alone (LD_PRELOAD inside the sandbox; outside /tmp, which it hides),
+#   as tools/nwclient/timeshift.c and execlog.c are.
+#
 # The game install comes from $NWN_ROOT (default: the Steam path).
 set -e
 SCRATCH=$(realpath "$1")
@@ -41,5 +45,6 @@ exec bwrap \
   --setenv HOME "$SCRATCH/home" --setenv DISPLAY "$DISP" --setenv XDG_RUNTIME_DIR "$SCRATCH/run" \
   --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv WAYLAND_DISPLAY \
   --setenv ALSOFT_DRIVERS null --setenv SDL_AUDIODRIVER dummy \
+  ${MG_CLIENT_PRELOAD:+--setenv LD_PRELOAD "$MG_CLIENT_PRELOAD"} \
   --chdir "$NWN/bin/linux-x86" \
   ./nwmain-linux -userdirectory "$SCRATCH/user" "$@"

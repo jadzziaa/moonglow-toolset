@@ -382,6 +382,19 @@ pub(crate) fn client_screenshots(
     shots: usize,
     gap: Duration,
 ) -> Option<Vec<(f64, Rgba)>> {
+    client_screenshots_with(dir, module, shots, gap, &[])
+}
+
+#[allow(dead_code)]
+/// [`client_screenshots`] with `env` in run-client.sh's environment (as
+/// `MG_CLIENT_PRELOAD`, which it hands the client alone).
+pub(crate) fn client_screenshots_with(
+    dir: &Path,
+    module: &str,
+    shots: usize,
+    gap: Duration,
+    env: &[(&str, &str)],
+) -> Option<Vec<(f64, Rgba)>> {
     static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let log = dir.join("user/logs/nwclientLog1.txt");
@@ -389,6 +402,7 @@ pub(crate) fn client_screenshots(
     let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
         .arg(dir)
         .args(["+TestNewModule", module])
+        .envs(env.iter().copied())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

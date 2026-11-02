@@ -22,6 +22,9 @@
 #   (default 8080) inside the sandbox, by Python's http.server: an NWSync
 #   repository, the server given -nwsyncurl http://127.0.0.1:PORT.
 # - MG_CLIENT_ARGS (optional): more of the client's arguments.
+# - MG_CLIENT_SETTINGS (optional, under MG_SCRATCH): the client's
+#   settings.tml, put back before each start (the client writes its own
+#   over it as it ends, without the debug logging asked for).
 # - MG_CLIENT_RUNS (optional, default 1): how many times the client is
 #   started, each after the last ended (after an NWSync download).
 #
@@ -104,6 +107,9 @@ if [ -n "$CLIENT" ]; then
   (
     n=0
     while [ $n -lt "${MG_CLIENT_RUNS:-1}" ]; do
+      if [ -n "$MG_CLIENT_SETTINGS" ]; then
+        cp "$MG_CLIENT_SETTINGS" "$SCRATCH/user/settings.tml"
+      fi
       ./nwmain-linux -userdirectory "$SCRATCH/user" $CLIENT $MG_CLIENT_ARGS \
         >> "$SCRATCH/client.out" 2>&1
       echo "MG_CLIENT_EXIT $?" >> "$SCRATCH/client.out"
@@ -141,4 +147,5 @@ exec bwrap \
   --setenv WEB "$WEB" --setenv WEB_PORT "$WEB_PORT" --setenv NWSYNC "$NWSYNC" \
   --setenv CLIENT "$CLIENT" --setenv MG_CLIENT_ARGS "${MG_CLIENT_ARGS:-}" \
   --setenv MG_CLIENT_RUNS "${MG_CLIENT_RUNS:-1}" \
+  --setenv MG_CLIENT_SETTINGS "${MG_CLIENT_SETTINGS:-}" \
   /bin/sh -c "$INNER" sh "$@"

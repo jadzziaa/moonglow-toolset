@@ -30,7 +30,7 @@
 //! `DISPLAY=$D cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -62,6 +62,8 @@ mod batch4;
 mod batch5;
 #[path = "client_render/batch6.rs"]
 mod batch6;
+#[path = "client_render/batch7.rs"]
+mod batch7;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
@@ -2497,36 +2499,35 @@ fn cutouts_look() {
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
-/// The Domains of Dread's custom shaders in the client beside Moonglow's
-/// drawing (`docs/shaders-proposal.md`, M2): its fountain
-/// (`dd_tap_stron1030`, placeables.2da row 63754 of `tdod_top`; the
-/// falling water by `dd_tap_flow_vs`/`_fs`) north of the player in the
-/// reference room, with its haks (`MOONGLOW_HAKS`, linked into the scratch
-/// user folder's `hak`; `tdod_shaders`' `inc_lighting` with them). Moonglow
-/// draws it with the Shaders switch off and on; each is compared with the
-/// client over the fountain's pixels (where Moonglow's drawing with it
-/// differs from one without it) and over the floor regions: the mean
-/// difference per channel. Pictures in `target/test-output/client_tdod_shaders/`.
-#[test]
-#[ignore]
-fn tdod_custom_shaders_look() {
+/// The Domains of Dread's fountain scene ([`tdod_custom_shaders_look`]),
+/// saved in the scratch directory `name` with `overrides` in its user
+/// directory's `override`: the game with the haks, the area's ARE, its GIT
+/// with the fountain and without. `None` (said) without the haks.
+struct TdodFountain {
+    dir: PathBuf,
+    game: GameData,
+    are: Gff,
+    git: Gff,
+    empty: Gff,
+}
+
+fn tdod_fountain(name: &str, overrides: &[(&str, Vec<u8>)]) -> Option<TdodFountain> {
     use mg_module::instances::{Placement, Placing, instance};
-    let root = corpus!();
-    let _ = oracle_tool!("nwn_script_comp");
+    let (Some(root), Some(_)) = (mg_testkit::nwn_root(), mg_testkit::nwn_tool("nwn_script_comp"))
+    else {
+        eprintln!("skipped: no game (NWN_ROOT) or no nwn_script_comp (NWN_TOOLS_BIN)");
+        return None;
+    };
     let Some(haks) = mg_testkit::builder_hak_dirs()
         .into_iter()
         .find(|d| d.join("tdod_p_tap.hak").is_file() && d.join("tdod_top.hak").is_file())
     else {
         eprintln!("skipped: no tdod_p_tap.hak in MOONGLOW_HAKS");
-        return;
+        return None;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
-    let dir = scratch_dir("client_tdod_shaders");
+    let dir = scratch_dir(name);
     std::fs::create_dir_all(dir.join("user/hak")).unwrap();
+    std::fs::create_dir_all(dir.join("user/override")).unwrap();
     std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
     // (Highest priority first, as the module lists them.)
     let names = ["tdod_shaders", "tdod_p_tap", "tdod_top"];
@@ -2568,6 +2569,37 @@ fn tdod_custom_shaders_look() {
     empty.root.set("Placeable List", Value::List(Vec::new()));
     m.set_gff(git_key, &git).unwrap();
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    // (The overrides for the client alone: the game read for Moonglow was
+    // opened without them.)
+    for (file, data) in overrides {
+        std::fs::write(dir.join("user/override").join(file), data).unwrap();
+    }
+    Some(TdodFountain { dir, game, are, git, empty })
+}
+
+/// The Domains of Dread's custom shaders in the client beside Moonglow's
+/// drawing (`docs/shaders-proposal.md`, M2): its fountain
+/// (`dd_tap_stron1030`, placeables.2da row 63754 of `tdod_top`; the
+/// falling water by `dd_tap_flow_vs`/`_fs`) north of the player in the
+/// reference room, with its haks (`MOONGLOW_HAKS`, linked into the scratch
+/// user folder's `hak`; `tdod_shaders`' `inc_lighting` with them). Moonglow
+/// draws it with the Shaders switch off and on; each is compared with the
+/// client over the fountain's pixels (where Moonglow's drawing with it
+/// differs from one without it) and over the floor regions: the mean
+/// difference per channel. Pictures in `target/test-output/client_tdod_shaders/`.
+#[test]
+#[ignore]
+fn tdod_custom_shaders_look() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let Some(TdodFountain { dir, game, are, git, empty }) =
+        tdod_fountain("client_tdod_shaders", &[])
+    else {
+        return;
+    };
     let client = client_capture(&dir, "MgScene", "tdod_fountain");
     if let Some(c) = &client {
         save_png(c, &dir.join("client.png"));

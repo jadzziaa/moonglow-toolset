@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:21:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:28:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -319,26 +319,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   3.0.0, the owner's word, 2026-10-30: 4th of 9 by complexity.)
   (from builders' reports after 1.19.1)
 
-## Haks in the GUI
-
-- **Not followed by `--usage`** (and What the Module Uses), what is left
-  of it after the sprint followed sounds, icons, visual effect
-  properties, 2DAs and the heads, portraits and voice sets players
-  choose, and after 3.0.0 what scripts name by a number
-  (`mg_preview::usage`): **the body parts players choose** at character
-  creation (tattoos): which part numbers the creation screen offers for
-  a race and phenotype isn't known here (parts_*.2da has no column for
-  it, and every part number would count every armor part as used).
-  The creation screen can be reached in the sandboxed client (Test
-  Module's Choose Character, `+LoadNewModule`, offers New:
-  `reading_choose_character`), but its Appearance step lies behind the
-  gender, race, portrait, class, alignment, abilities and package
-  steps, each a click on a picture whose places are not known; driving
-  it was not done in the sixth client batch, whose time went to the
-  readings that each settle an item. Waits on that: the part lists read
-  off the screen against parts_chest.2da and the others. (S)
-
-
 ## Area visibility
 
 
@@ -444,36 +424,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
   leaves out (the Shaders switch, on by default since M3; Moonglow
   Viewer draws them since its 0.2.0). (from M1, 2026-10-21)
-  - `worldtimerTimeOfDay` counts real milliseconds and
-    `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
-    starts both at 0 when the scene's time does. The client's timer is a
-    count taken within the module's day (24 × its minutes an hour ×
-    60,000 ms), whatever the module's start hour, day or dawn. Its value
-    as the player enters an area (U, before the module's day is taken
-    from it) was 17,697,400 (A) in 16 runs until after 12:09 EDT on
-    2026-10-29 (16:09 UTC), on 2026-10-21 and at 23:10 EDT that day
-    (03:10 UTC on the 30th), and 24,897,600 (B, A plus 7,200,200: two
-    hours) at 13:11 EDT on the 29th (17:11 UTC) and in every run of
-    2026-11-02 from 04:10 to 05:43 UTC (the sixth client batch: TZ=UTC
-    and TZ=Asia/Tokyo the same). Held 30 minutes in one run
-    (`batch6_timer_held`) it runs with the wall clock to within 60 ms,
-    without a jump. So it is not the time of day, the time zone or the
-    module, and within a run it is real time; what sets the start (A or
-    B) is not known. It is the phase of the falling water's flow and the
-    grass's sway, which are not compared with the client frame by frame
-    until it is. (S: more runs spread over a day, recording UTC and the
-    value, `time_uniforms_in_the_client` with `MG_TIME_CASES=13:30:1:6`)
   - The Domains of Dread's fountain is 10.6 of 255 from the client on
     average with the Shaders switch on (the game's `fswater` with the
     framebuffer's copies; 11.7 with Moonglow's own water; 13.7 with
-    Moonglow's own shader). Not the fog: drawn with the area's fog
-    (2026-11-01, `tdod_custom_shaders_look`, `moonglow_on_fog.png`) it is
-    10.6 again (the fountain is within the fog's start). Beside the
-    client the difference is the falling water (`dd_tap_flow_vs`/`_fs`):
-    the client's streams show as lines down into the basin, Moonglow's
-    fainter, and their phase is the timer's (`worldtimerTimeOfDay`,
-    above), so they are compared when the timer's start is known. (S,
-    waits on the timer)
+    Moonglow's own shader), with the area's fog or without. Not the
+    falling water's phase: compared at the client's own clock
+    (2026-11-02, `batch7_fountain_phase`: the debug `inc_standard`
+    showing each picture's `worldtimerTimeOfDay`, Moonglow drawn at it)
+    it is 10.57, 10.54 and 10.57, and 10.57, 10.53 and 10.56 half the
+    flow's 5-second cycle off (Moonglow's own pictures half a cycle
+    apart differ by under 1 there). What differs is the basin's water:
+    11 to 12 of 255 over it, its mean color within 2, the client showing
+    the basin's floor through the water, its pattern and all, where
+    Moonglow's surface is smooth. Not read: what the client's refraction
+    takes there (the copy's detail, what is drawn before the copy). (S–M:
+    `fswater` over a patterned floor, the client's beside Moonglow's)
+
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
@@ -552,22 +518,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The engine's choice of program (M4 of [the shaders
   proposal](shaders-proposal.md)):** what M4 left to read in the
   client. (from M4, 2026-10-21)
-  - **A static placeable's meshes** sharing a texture seemed to share
-    one `NO_DISCARD` in the client (the plain and transparency-hint cards
-    of a static copy were alpha-tested beside an `alpha 0.5` card of the
-    same texture): the game bakes static geometry into buckets (.37).
-    Moonglow decides it per mesh. The cards read as a static and a
-    dynamic placeable (2026-10-29, `program_choice_in_the_client` with
-    and without `MG_STATIC=1`): three of 36 differ, each one whose
-    texture and pair another card shares (`mesh alpha 0.5` and `decal
-    red alpha 0.5` alpha-tested static, blended dynamic; `envmap` the
-    other way, beside `envmap+mesh alpha`); which mesh of a bucket
-    gives its value isn't plain from these (the first of `mgp_plain`'s
-    and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles (the
-    reading: `program_choice_in_the_client`'s marked programs with its
-    cards as a tile's model in the scratch override, as a tile of the
-    area; not made in the sixth client batch, whose time went to the
-    others). (S)
+  - **Static geometry's buckets** (a static placeable's meshes and a
+    tile's; read on 2026-11-02, `batch7_bucket_order`; [the
+    findings](findings.md), "Static geometry is drawn in buckets"): in a
+    static placeable and in a tile alike, the meshes that share a
+    texture are drawn with the first one's (in the model's order)
+    `NO_DISCARD` and opacity. Three pairs of cards (plain, a red decal,
+    an environment map), each an opaque mesh and the same with `alpha
+    0.5`: opaque first, every card `NO_DISCARD` 1 and drawn solid, the
+    `alpha 0.5` one too; see-through first, every card `NO_DISCARD` 0
+    and drawn half see-through, the opaque one too; each card keeps its
+    own program. Moonglow decides each mesh's alone. The fix (mg-render's
+    `game::no_discard` and the blending of `Renderer::slots`, another
+    package's this round): a tile's meshes, and a static placeable's,
+    that name the same textures (their names, case not counted) draw
+    with the first such mesh's alpha (blended below 1, else opaque) and
+    `NO_DISCARD`. Whether a bucket gathers meshes of several models (two
+    static placeables of one texture) wasn't read: each row of cards
+    had textures of its own. (S)
   - Moonglow's own shader in the builders' areas (TDoD's 690 DXT1
     textures with transparent texels black, its 21 materials naming maps
     without a render hint) waits on those areas' files (`tdod.mod` here
@@ -700,22 +668,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2026-10-28); since 2026-10-30 also as the game's own stencil volumes
   (Shadows quality High: [the notes](research/notes_shaders.md) §G.2),
   beside the client in `high_shadows_beside_the_client`. Left:
-  - with High: the game's own horse (`c_horse1`, its `HorseBody` skin
-    beside `render 0` trimeshes) casts its shape in the client, as
-    Moonglow's Fast and High draw it (2026-11-01,
-    `high_shadows_beside_the_client` case `horse`: the shadows' pixels
-    agree 0.57 and 0.62 with the client's). Where the sun's volume of
-    what is not a tile ends (the game's `projectionWorldZClip`;
-    Moonglow's: the lowest receiver seen) was tried on a cliff made by
-    raising the area's north row of ttr01's plain tiles a level (case
-    `cliff`): the client drew no cliff to fall down (the raised plain
-    tiles drew level with the rest), so it waits on a tileset's own
-    cliff tiles placed as a builder places them (S). The wiki's "finhead" (three
-    fins on one edge, which it says tears the volumes) was read on
-    2026-10-30 (`high_shadows_beside_the_client`, case `finhead`, the
-    sun 23 and 43 degrees up): the client draws it welded as it draws
-    it unwelded, the fins' shadow and no spike, as Moonglow's Fast and
-    High do;
   - High's first frame in an area makes its casters' volume meshes in
     the frame: area084's opening's longest frame 22 ms with Fast, 48 to
     51 ms with High (`frame_perf`, 2026-10-30); its frames after are
@@ -738,23 +690,35 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     framebuffer's copy; the client's volumes darken whatever was drawn
     before its plane (M: those drawn later would read the map
     themselves);
-  - a sun low in the west (a GIT's direction,
-    `reading_git_sun_direction`): the client leaves a city street lit
-    but for thin spikes, where Moonglow lays the buildings' long shadows
-    over all of it, light showing through in thin lines
-    (`reading_low_sun_shadow_length` with `MG_TILESET=tcn01`, a sun from
-    the west 14 degrees up; again on 2026-10-30). Not the building
-    tiles themselves: a tcn01 house (tile 54) alone on plain cobbles casts
-    the same long shadow in the client as in Moonglow at 14, 19, 27, 37
-    and 45 degrees, turned any of the four ways, at the view's edge, out
-    to the area's end (`reading_low_sun_building`, 2026-10-30). So what
-    the client leaves out in the city comes from that area's other tiles
-    (their heights, which tiles receive, or casters two tiles off), not
-    read (M: the city area's tiles taken one by one, then the rule;
-    waits on the client: not made in the sixth client batch, whose time
-    went to the readings that each settle an item) (The fade with the height between plane and
-    caster that 8193.31 names is not seen: armoires raised 0, 1.5 and 3
-    m darken the ground alike, 0.44 to 0.49, and casters above the camera
+  - a face casts the sun's shadow from its front only (read on
+    2026-11-02; [the findings](findings.md), "A face casts the sun's
+    shadow from its front only"): why the client leaves a city street lit
+    under a sun low in the west (`reading_low_sun_shadow_length` with
+    `MG_TILESET=tcn01`), where Moonglow lays the buildings' long shadows
+    over it. The area's tiles taken one by one (`batch7_low_sun_city_tiles`),
+    two alone darken Moonglow's street and not the client's, both on the
+    area's west edge, turned to face into it (`tcn01_c02_07` and
+    `c02_08`), their walls single faces with their backs to the sun;
+    turned to face the sun, the first casts its long shadow in the
+    client too. Of two single white walls (`batch7_wall_sides`), the one
+    facing the sun casts, the one with its back to it doesn't, where
+    Moonglow's Fast and High cast both. Sight has nothing to do with it
+    (tcn01's house out of sight casts in both). At a cliff (case `cliff`
+    of `high_shadows_beside_the_client`, now the tileset's own cliff
+    tiles, `raise_north`): a placeable's shadow at the cliff's top
+    reaches down onto the ground below, as Moonglow's (whose volume ends
+    at the lowest receiver seen); the ground at the cliff's foot is lit
+    in the client, where Moonglow darkens it: the rock face, its front
+    to the south, casts nothing (0.62 of the shadows' pixels agree, Fast
+    and High alike). The fix (mg-render's `shadow.rs` and `volume.rs`,
+    another package's this round): the sun's and moon's casters cast
+    from the faces whose front faces the light only: the shadow map
+    drawn with the faces turned from the light culled, and High's
+    volumes without a prism for a face turned from the light (the open
+    mesh's "both sides" dropped; a closed mesh's lit faces cover it as
+    before). (S–M) (The fade with the height between plane and caster
+    that 8193.31 names is not seen: armoires raised 0, 1.5 and 3 m
+    darken the ground alike, 0.44 to 0.49, and casters above the camera
     still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
     2026-10-29);
   - the previews (blueprints, the model viewer) draw none: they have no
@@ -1013,34 +977,6 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-
-## NWSync publishing
-
-- **The feminine talk table** isn't published, as `nwn_nwsync_write`
-  doesn't. Read in single player (2026-10-29,
-  `reading_feminine_talk_table` in `client_render.rs`'s `batch2.rs`: a
-  module's `mg_rtlk` and `mg_rtlkf` with other text, in the module and
-  in the user directory's `tlk`, the player a woman): the client draws a
-  line by StrRef (`FloatingTextStrRefOnCreature`) from the masculine
-  table for her, where the server's `GetStringByStrRef` with
-  `GENDER_FEMALE` reads the feminine one; so the client's own lookups
-  don't use it, and only scripts' would. Whether a client downloading
-  by NWSync is the same isn't read: the download is (2026-10-29,
-  `joined_nwsync_download`), but the client then ends itself ("We
-  disconnected you from the server while NWSync is running", exit 0,
-  its own restart not seen in the sandbox), and started again it joins
-  and leaves the server within the second (2026-10-30: `Joined as Player
-  1`, `Left as a Player` in the server's log, the client's logs saying
-  nothing of why). The client starts no other program as it ends: read
-  on 2026-11-01 (`joined_nwsync_download` with `MG_NWSYNC_CLICK=1`, the
-  Download clicked, under `tools/nwclient/execlog.c` preloaded, which
-  logs every `execve`, `posix_spawn` and `system` of the sandbox's
-  programs): the download stored (5.8 MB), the client ended with 0,
-  having started nothing; the harness's second start (the same
-  arguments) joined and left within the second again. So there are no
-  restart arguments to give it: what makes the second join leave is what
-  is left, not read (the client's logs silent; a third start, or one
-  without `+connect` joining from the server list, untried). (S)
 
 ## Tileset authoring
 
@@ -1323,6 +1259,36 @@ is not taken for a new gap.
   and count are Moonglow's own too (the field's mean color 0.1 of 255
   from the client's). Said in the manual's
   [differences](manual/12-differences.md).
+- **The game client's clock's start** (`worldtimerTimeOfDay`; the
+  shaders proposal's M1): Moonglow's clock starts at 0, by design: the
+  client's starts from the machine it runs on, so no client's value is
+  there to match. Read on 2026-11-02 in the client's code
+  (`CWorldTimer`) and in runs with its clocks moved
+  (`batch7_timer_origin`, `tools/nwclient/timeshift.c`; [the
+  findings](findings.md), "The client's clock starts from the
+  machine's"): its world timer is made as the game's services start (a
+  second or so before the player enters the area) at 23:59:56 of a day
+  of 5 minutes an hour (10,496,000 ms of 7,200,000) against
+  `CLOCK_MONOTONIC`, and the module's minutes an hour, set as the module
+  loads, change the day's length and not that offset: the timer is
+  `(10,496,000 + 7,200,000 × ⌊the boot clock then / 7,200,000⌋ + the
+  milliseconds since) mod the module's day`; the earlier batches' two
+  values two hours apart were steps of the boot clock. A comparison
+  reads the client's from its picture (`batch7_fountain_phase`).
+  (settled in the deferred sprint, 2026-11-02)
+- **The feminine talk table over NWSync** isn't published, as
+  `nwn_nwsync_write` doesn't publish it, by design: the client never
+  reads it for its own lookups. Read in single player (2026-10-29,
+  `reading_feminine_talk_table`) and over NWSync (2026-11-02,
+  `joined_nwsync_download` with `MG_NWSYNC_CLICK=1` and
+  `MG_NWSYNC_FEMININE=1`: the feminine table published and downloaded
+  beside the masculine one, the player a woman in the game): the client
+  draws a line by StrRef from the masculine table for her, while the
+  server's `GetStringByStrRef` with `GENDER_FEMALE` reads the feminine
+  one from its own `tlk`. Getting there needed the server to keep its
+  module loaded when the last player left: [the findings](findings.md),
+  "A module reloaded when empty is advertised without NWSync".
+  (settled in the deferred sprint, 2026-11-02)
 
 - **The 2DA editor puts no row between others** (Delete Row takes any
   row away since 1.22.1), sorts no rows and edits no `DEFAULT:`, by

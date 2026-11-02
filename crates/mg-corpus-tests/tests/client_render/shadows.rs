@@ -572,9 +572,16 @@ const HIGH_CASES: [HighCase; 9] = [
         raised_from: None,
     },
     // A placeable at a cliff's edge (the gallows-like frame on the north
-    // row of tiles, raised 5 m, at its south edge), the sun low in the
-    // north: where its volume ends (`projectionWorldZClip`), whether the
-    // shadow reaches down the cliff onto the ground below.
+    // row of tiles, raised a step with the tileset's own cliff tiles,
+    // `raise_north`), the sun low in the north: where its volume ends
+    // (`projectionWorldZClip`), whether the shadow reaches down the cliff
+    // onto the ground below. Seen (2026-11-02, the seventh client batch):
+    // it does, its post's shadow a line down onto the ground below the
+    // cliff, as Moonglow's (which ends at the lowest receiver seen); the
+    // ground at the cliff's foot is lit in the client, where Moonglow
+    // darkens it: the rock face, its front to the south, casts nothing
+    // there (a face casts from its front only: `batch7_wall_sides`).
+    // Agreeing with the client's shadows 0.62 (Fast and High alike).
     HighCase {
         name: "cliff",
         tileset: "ttr01",
@@ -590,6 +597,42 @@ const HIGH_CASES: [HighCase; 9] = [
         raised_from: Some(3),
     },
 ];
+
+/// The reading's area raised a step from corner row `from` north, as the
+/// toolset's Raise brush (Aurora's) does it with the tileset's own tiles:
+/// the cells of corner rows `from` and up a plateau, the row of cells
+/// below them the tileset's cliff (Tile_Height on plain tiles draws no
+/// cliff in the client: the sixth client batch).
+fn raise_north(r: &mut Reading, from: u32) {
+    let name = r.are.root.resref("Tileset").unwrap().to_string();
+    let set = r.game.resman.get_named(&name, ResType::SET).unwrap();
+    let set = mg_set::Tileset::parse(&set, r.game.language.codepage()).unwrap();
+    let index = mg_tiles::TileIndex::new(&set);
+    let rules = mg_tiles::paint::Rules::new(&index, &set);
+    let (w, h) =
+        (r.are.root.int("Width").unwrap_or(4) as u32, r.are.root.int("Height").unwrap_or(4) as u32);
+    let tiles: Vec<mg_tiles::Placement> = (r.are.root.list("Tile_List").unwrap().iter())
+        .map(|t| mg_tiles::Placement {
+            tile: t.int("Tile_ID").unwrap_or(0) as u32,
+            orientation: t.int("Tile_Orientation").unwrap_or(0) as u8,
+            height: t.int("Tile_Height").unwrap_or(0),
+        })
+        .collect();
+    let mut grid = mg_tiles::paint::Grid::new(&index, w, h, tiles).expect("the area's tiles");
+    let mut rng = fastrand::Rng::with_seed(7);
+    for y in from..=h {
+        for x in 0..=w {
+            let stroke = grid.raise(&index, &rules, x, y, true).expect("a raise the tileset takes");
+            grid.apply(&index, stroke, &mut rng);
+        }
+    }
+    for (i, t) in r.are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        let p = grid.tile(i as u32 % w, i as u32 / w);
+        t.set("Tile_ID", Value::Int(p.tile as i32));
+        t.set("Tile_Orientation", Value::Int(i32::from(p.orientation)));
+        t.set("Tile_Height", Value::Int(p.height));
+    }
+}
 
 /// The wiki's "finhead" (Model Shadows, "Let's Prove It"): three
 /// one-sided fins, 1.5 m, on one upright edge 1.5 to 3.5 m up, white,
@@ -747,17 +790,12 @@ fn high_shadows_beside_the_client() {
                         t.set("Tile_Orientation", Value::Int(0));
                     }
                 }
+                if let Some(from) = case.raised_from {
+                    raise_north(&mut r, from as u32);
+                }
                 let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
                     panic!("no AreaProperties")
                 };
-                if let Some(from) = case.raised_from {
-                    let width = r.are.root.int("Width").unwrap_or(4) as usize;
-                    for (i, t) in r.are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
-                        if i / width >= from {
-                            t.set("Tile_Height", Value::Int(1));
-                        }
-                    }
-                }
                 for (axis, v) in [("X", case.sun.0), ("Y", case.sun.1), ("Z", z)] {
                     props.set(&format!("SunDirection{axis}"), Value::Float(v));
                     props.set(&format!("MoonDirection{axis}"), Value::Float(v));

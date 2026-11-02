@@ -91,6 +91,11 @@ It starts a scratch module with `+TestNewModule` and screenshots the client's
 window. To read what the client actually computes, put a patched copy of the
 game's own shader include in the scratch user directory's `override` (as
 `light_uniforms_match_the_client` does): no tracing tools needed.
+Reading the client's own code (`nm`, `objdump` on the unstripped
+`nwmain-linux`) is a last resort, by the owner's word: only once its
+pictures, patched includes, scripts, shims and runs made to tell the
+causes apart have all failed to settle a question, and what it shows is
+then confirmed by running the client.
 
 ## Documents
 

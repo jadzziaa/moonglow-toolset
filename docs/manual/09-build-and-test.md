@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:35:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:17:57Z }
 ---
 
 # Build, verify and test
@@ -125,6 +125,15 @@ then stay, for the next publish to find). Then the window shows the
 manifest's hash (**Copy** copies it, for `-nwsynchash`). Send the
 folder to the web server: by hand, or with **Upload** (below). `mg
 nwsync` does the same from the command line.
+
+Keep the server's module loaded when nobody is on it: set
+`reload-when-empty = false` under `[server]` in its `settings.tml`
+(Server Options' **Reload Module When Empty** off). The game's server
+(89.8193.37) reloads the module when its last player leaves, and the
+module reloaded is offered without its NWSync manifest: a player who
+leaves to download (the game disconnects for it) and joins again finds
+the haks missing and is turned away, whenever nobody else was on the
+server.
 
 **Remove Unused Data** tidies the folder as neverwinter.nim's
 `nwn_nwsync_prune` does: it takes away the data files that no manifest

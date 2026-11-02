@@ -54,10 +54,12 @@
 //!   game has), each reached from itself, and the tables a 2DA's cells
 //!   name (classes.2da a class's feat table);
 //! - what players choose at character creation: every head of the player
-//!   races, their portraits and the players' voice sets.
+//!   races and the body parts the creation screen offers them (part 1 of
+//!   each, part 2 of those a tattoo covers), for the phenotypes it offers,
+//!   their portraits and the players' voice sets.
 //!
 //! Not followed, and so not judged by it: a row a script works out as it
-//! runs, the body parts players choose, what the game reads by itself
+//! runs, what the game reads by itself
 //! other than its 2DAs (a 2DA of the haks' own nothing names, GUI, fonts,
 //! shaders a material doesn't name, palettes) and a hak's replacements of
 //! the game's own resources other than 2DAs, which the game's own content
@@ -249,6 +251,32 @@ fn text(s: &Struct, label: &str) -> Option<String> {
         _ => None,
     }
 }
+
+/// The body parts the creation screen offers a player (its Tattoo
+/// choices, the same for every race, gender and phenotype; read from the
+/// client's `CCharacterAppearancePanel::PostAttachmentInitialize`, 89.8193.37,
+/// and borne out by the game's pregenerated characters): the parts a
+/// tattoo covers, part 1 or 2 (the chest by the pattern's first bit, the
+/// biceps by its second, the shins by its third, the forearms by its
+/// fourth); the belt, shoulders and robe none; every other part 1.
+/// parts_*.2da is not read.
+const CHARGEN_BODY_PARTS: [(&str, &[i64]); 15] = [
+    ("footr", &[1]),
+    ("footl", &[1]),
+    ("shinr", &[1, 2]),
+    ("shinl", &[1, 2]),
+    ("legl", &[1]),
+    ("legr", &[1]),
+    ("pelvis", &[1]),
+    ("chest", &[1, 2]),
+    ("neck", &[1]),
+    ("forer", &[1, 2]),
+    ("forel", &[1, 2]),
+    ("bicepr", &[1, 2]),
+    ("bicepl", &[1, 2]),
+    ("handr", &[1]),
+    ("handl", &[1]),
+];
 
 fn cell(t: &TwoDa, row: i64, column: &str) -> Option<String> {
     let v = t.get(usize::try_from(row).ok()?, column)?.trim();
@@ -734,11 +762,32 @@ impl<'a> Walk<'a> {
         }
     }
 
+    /// The phenotypes the creation screen's Body offers: the bits of
+    /// ruleset.2da's `CHARGEN_ENABLED_PHENOTYPES` (5, phenotypes 0 and 2,
+    /// where the table has none), as the client's
+    /// `CCharacterAppearancePanel::HandleBodyNextButton` reads them.
+    fn chargen_phenotypes(&mut self) -> Vec<i64> {
+        let bits = self
+            .table("ruleset")
+            .and_then(|t| {
+                (0..t.len()).find_map(|r| {
+                    (cell(&t, r as i64, "Label").as_deref() == Some("chargen_enabled_phenotypes"))
+                        .then(|| cell(&t, r as i64, "Value"))
+                        .flatten()
+                })
+            })
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(5);
+        (0..32).filter(|ph| bits >> ph & 1 == 1).collect()
+    }
+
     /// What players choose at character creation, as their game offers it,
-    /// reached from the table that offers it: every head of the player
-    /// races (racialtypes.2da `PlayerRace`) for each gender and phenotype,
-    /// the portraits of those races (portraits.2da) and the players' sound
-    /// sets (soundset.2da `TYPE` 0).
+    /// reached from the table that offers it: for the player races
+    /// (racialtypes.2da `PlayerRace`), each gender and the phenotypes the
+    /// creation screen offers ([`Walk::chargen_phenotypes`]), every head
+    /// and the body parts of [`CHARGEN_BODY_PARTS`]; the portraits of those
+    /// races (portraits.2da) and the players' sound sets (soundset.2da
+    /// `TYPE` 0).
     pub(crate) fn players_choose(&mut self) {
         let Some(races) = self.table("racialtypes") else { return };
         let player = |r: usize| cell(&races, r as i64, "PlayerRace").as_deref() == Some("1");
@@ -756,19 +805,22 @@ impl<'a> Walk<'a> {
                 }
             }
         }
-        self.find_wearers();
-        let phenotypes = self.wearers.as_ref().map(|w| w.1.clone()).unwrap_or_default();
+        let phenotypes = self.chargen_phenotypes();
+        // (The body parts the creation screen offers, by
+        // `mg_rules::models::BODY_PARTS`' names.)
+        let mut parts: Vec<(&str, i64)> = Vec::new();
+        for (part, offered) in CHARGEN_BODY_PARTS {
+            parts.extend(offered.iter().map(|n| (part, *n)));
+        }
         for letter in &letters {
             for g in ['m', 'f'] {
                 for ph in &phenotypes {
+                    let skeleton =
+                        mg_rules::models::skeleton(&g.to_string(), &letter.to_string(), *ph);
                     // (A creature's head is a byte.)
-                    for n in 1..=255 {
-                        let skeleton = mg_rules::models::skeleton(
-                            &g.to_string(),
-                            &letter.to_string(),
-                            *ph as i64,
-                        );
-                        let name = mg_rules::models::body_part_model(&skeleton, "head", n);
+                    let heads = (1..=255).map(|n| ("head", n));
+                    for (part, n) in heads.chain(parts.iter().copied()) {
+                        let name = mg_rules::models::body_part_model(&skeleton, part, n);
                         if ResKey::parse(&name, ResType::MDL)
                             .is_some_and(|k| self.rm().contains(&k))
                         {
@@ -1129,8 +1181,8 @@ pub fn total_line(haks: &[HakUsage]) -> String {
 
 /// What the walk doesn't follow, said with its results.
 pub const NOT_FOLLOWED: &str = "not followed: a row of a table a script works out as it runs (a \
-    visual effect, spell or appearance in a variable), the body parts players choose, and what the \
-    game reads itself other than its 2DAs (\"not judged\")";
+    visual effect, spell or appearance in a variable), and what the game reads itself other than \
+    its 2DAs (\"not judged\")";
 
 /// The line of what scripts name by a number: how many calls were
 /// followed, and how many weren't, in how many scripts.
@@ -1380,6 +1432,21 @@ mod tests {
         haks.insert(key("pmh0_head007.mdl"), model("pmh0_head007", "pmh0_head007"));
         haks.insert(key("pmh0_head007.tga"), &b"t"[..]);
         haks.insert(key("pfh0_head300.mdl"), model("pfh0_head300", "x"));
+        // Body parts: the creation screen's (part 1 of each, part 2 of a
+        // tattoo's parts), and others: a third chest, a second belt, a
+        // phenotype it doesn't offer.
+        for n in [
+            "pmh0_chest002",
+            "pfh2_shinl002",
+            "pmh0_handl001",
+            "pmh0_chest003",
+            "pmh0_belt002",
+            "pmh0_legr002",
+            "pmh4_chest001",
+            "pmh4_head001",
+        ] {
+            haks.insert(key(&format!("{n}.mdl")), model(n, n));
+        }
         let mut module = MemContainer::new();
         let mut git = Gff::new(*b"GIT ");
         let mut wolf = Struct::new(4);
@@ -1443,6 +1510,55 @@ mod tests {
         for n in ["pfh0_head300.mdl", "po_wolf_h.tga", "vs_npc.ssf"] {
             assert_eq!(reached(&walk, n), None, "{n}");
         }
+        // The creation screen's body parts, for phenotypes 0 and 2 alone
+        // (ruleset.2da's CHARGEN_ENABLED_PHENOTYPES, 5 where there is none).
+        for n in ["pmh0_chest002.mdl", "pfh2_shinl002.mdl", "pmh0_handl001.mdl"] {
+            assert_eq!(reached(&walk, n).as_deref(), Some("racialtypes.2da"), "{n}");
+        }
+        for n in [
+            "pmh0_chest003.mdl",
+            "pmh0_belt002.mdl",
+            "pmh0_legr002.mdl",
+            "pmh4_chest001.mdl",
+            "pmh4_head001.mdl",
+        ] {
+            assert_eq!(reached(&walk, n), None, "{n}");
+        }
+    }
+
+    /// The phenotypes of what players choose follow ruleset.2da's
+    /// `CHARGEN_ENABLED_PHENOTYPES` where a hak changes it: phenotype 4
+    /// offered (bits 0, 2 and 4), its heads and body parts are used.
+    #[test]
+    fn a_hak_s_ruleset_offers_another_phenotype() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(key("appearance.2da"), table("   LABEL MODELTYPE RACE\n0 Human P H\n"));
+        stock.insert(key("racialtypes.2da"), table(" Label Appearance PlayerRace\n0 Human 0 1\n"));
+        stock.insert(
+            key("ruleset.2da"),
+            table(" Label Value\n0 CHARGEN_ENABLED_PHENOTYPES 5\n1 OTHER 1\n"),
+        );
+        let mut haks = MemContainer::new();
+        haks.insert(
+            key("ruleset.2da"),
+            table(" Label Value\n0 OTHER 1\n1 CHARGEN_ENABLED_PHENOTYPES 21\n"),
+        );
+        for n in ["pmh4_chest002", "pmh4_head009", "pmh2_neck001", "pmh1_neck001"] {
+            haks.insert(key(&format!("{n}.mdl")), model(n, n));
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:mine", LayerClass::Erf, haks);
+        rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut walk = Walk::new(&game);
+        walk.players_choose();
+        walk.settle();
+        let reached = |n: &str| walk.from.get(&key(n)).map(|f| f.to_string());
+        for n in ["pmh4_chest002.mdl", "pmh4_head009.mdl", "pmh2_neck001.mdl"] {
+            assert!(reached(n).is_some(), "{n}");
+        }
+        assert_eq!(reached("pmh1_neck001.mdl"), None);
     }
 
     /// A compiled script's rows named by a number, where the number is a
