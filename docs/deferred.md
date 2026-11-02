@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:28:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -459,7 +459,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     once has no frame before. (S–M)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
-  default, leaves over the budget or unchecked. (from M3, 2026-10-21)
+  default, leaves over the budget or unchecked. (from M3, 2026-10-21) (An area's first look: since 2026-11-02 the pipelines a module's
+  areas drew with are kept for the next session and made as the module
+  opens, the owner's choice of the two ways the entry offered; with the
+  programs cached, area092's look changed 28 ms after it showed and The
+  Domains of Dread's woods' 77 ms, and now neither: drawn by the game's
+  programs from the first frame, the area opened at once or a second
+  later. The first session's, and a module never opened before, as
+  before.)
   - **A dense area seen whole is still slower with the switch on.**
     TDoD's synthetic woods (24 by 24 `mst04` tiles, 400 placeables,
     33,000 meshes on screen) zoomed out: 15.8 ms a frame on against 13.1
@@ -471,32 +478,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     swaying program's box grown by a meter joins fewer). `NO_DISCARD` 0
     for every material (notes §M.10) not looked at. ([the frames
     note](research/notes_frames.md), 27 October) (M)
-  - **An area changes its look a moment after it opens**, the first time
-    its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
-    250–277 ms) and, with them cached, while naga reads them and the
-    driver makes the pipelines (28–40 and 123–146 ms): Moonglow's own
-    shader draws until they are ready. Keeping the driver's pipeline
-    cache (wgpu's `PipelineCache`, Vulkan's alone) was tried on
-    2026-11-02 and measured to shorten nothing here: Mesa's own on-disk
-    cache already keeps the driver's part (area092's 21 pipelines 65 ms
-    of the worker's without it, 67 with it; TDoD's woods 129–165 and
-    135), and with Mesa's cache off the area took 319 ms with wgpu's
-    cache read against 371 with neither (the programs' cache alone); it
-    was not kept. What is left is naga's and wgpu's own part (reading
-    the programs, writing them for the backend). Making the pipelines of
-    the programs a module needs when it opens, before its areas are, was
-    looked at on 2026-11-02 and left for a decision: a pipeline is keyed
-    by its mesh's traits as well as its programs (skinned, tangents,
-    two-sided, the pass, and `NO_DISCARD`, which the texture's alpha
-    decides), so knowing them means reading every area's models and their
-    textures when the module opens (The Domains of Dread: hundreds of
-    areas), a real cost in memory and time where today an area reads its
-    own when it opens. Two narrower ways, each the owner's to choose:
-    the keys an earlier session made for the module remembered in the
-    shader cache and sent to the worker as the module opens (no models
-    read; a key whose programs a hak no longer has fails silently), or
-    an area's pipelines asked for when its row is hovered in the module
-    tree. (S–M, waits on the choice)
   - A program whose uniforms can't be split falls back to Moonglow's
     shader, reported. Since 2026-11-02 a block a program names besides
     its loose uniforms (`uniform Name { … };`) is split with them; what
@@ -517,25 +498,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     test draw the game's shaders through the window. (S)
 - **The engine's choice of program (M4 of [the shaders
   proposal](shaders-proposal.md)):** what M4 left to read in the
-  client. (from M4, 2026-10-21)
-  - **Static geometry's buckets** (a static placeable's meshes and a
-    tile's; read on 2026-11-02, `batch7_bucket_order`; [the
-    findings](findings.md), "Static geometry is drawn in buckets"): in a
-    static placeable and in a tile alike, the meshes that share a
-    texture are drawn with the first one's (in the model's order)
-    `NO_DISCARD` and opacity. Three pairs of cards (plain, a red decal,
-    an environment map), each an opaque mesh and the same with `alpha
-    0.5`: opaque first, every card `NO_DISCARD` 1 and drawn solid, the
-    `alpha 0.5` one too; see-through first, every card `NO_DISCARD` 0
-    and drawn half see-through, the opaque one too; each card keeps its
-    own program. Moonglow decides each mesh's alone. The fix (mg-render's
-    `game::no_discard` and the blending of `Renderer::slots`, another
-    package's this round): a tile's meshes, and a static placeable's,
-    that name the same textures (their names, case not counted) draw
-    with the first such mesh's alpha (blended below 1, else opaque) and
-    `NO_DISCARD`. Whether a bucket gathers meshes of several models (two
-    static placeables of one texture) wasn't read: each row of cards
-    had textures of its own. (S)
+  client. (from M4, 2026-10-21) (Static geometry's buckets are drawn as
+  the client's since 2026-11-02: a tile's or a static placeable's meshes
+  naming the same textures take the first one's alpha and `NO_DISCARD`,
+  [the findings](findings.md), "Static geometry is drawn in buckets";
+  a bucket of several models' meshes, two static placeables of one
+  texture, is not read, and Moonglow keeps each model's apart.)
   - Moonglow's own shader in the builders' areas (TDoD's 690 DXT1
     textures with transparent texels black, its 21 materials naming maps
     without a render hint) waits on those areas' files (`tdod.mod` here
@@ -574,32 +542,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the area view (`reading_static_placeable_emitters`, 2026-10-30), so it
   is his content, a setting (Animations off shows none) or his machine;
   asked of him. (?) (from builders' reports after 1.16.2)
-- **A `Linked` ribbon and a flip-book** (a builder's custom fog was
-  drawn as bright streaks): what the client draws is in [the
-  findings](findings.md) ("Particles: kept, flip-books and ribbons"),
-  and the fog shows as an even haze, as in the game. The picture's turn
-  within a piece is Moonglow's (read on 2026-10-30,
-  `reading_particle_turn_and_birth`: the newest piece shows the cell
-  turned half round in both, its pieces drawn newest last). Read on
-  2026-10-30 (`reading_ribbon_pieces_and_order`, the fifth client batch,
-  a texture whose green is its v): a client piece starts its cell at its
-  older particle and stretches it past the next, which starts again; the
-  rule, fitted on 2026-11-01 (`batch6_ribbon_sizes`, sizes 0.15 to 1.2
-  m; [the findings](findings.md), "A `Linked` ribbon's cell runs half a
-  particle past the next"): the cell reaches the next particle at
-  `gap / (gap + size / 2)` (within 0.01 at a metre's gap; at half a
-  metre it reaches 0.85 and 0.67 at 0.3 and 0.6 m, where the rule says
-  0.77 and 0.63), where Moonglow's ran from one particle to the next
-  exactly. Since 2026-11-02 a piece's v runs to `gap / (gap + size /
-  2)` at its newer particle, as the client's. Left, among
-  see-through meshes: a mesh of `alpha 0.5` in front of a ribbon hides
-  it entirely in the client, of the ribbon's own model or of another
-  (2026-11-01: a placeable's card 0.6 m before another's ribbon), where
-  Moonglow draws the ribbon over it whole, its see-through part writing
-  no depth (`alpha 0.5` meshes writing depth is the see-through meshes
-  entry's question too: M). A model with no mesh to draw (this fog) has
-  no bounds of its own to frame a view by. (S) (from builders' reports
-  after 1.19.1)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
@@ -624,22 +566,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in a renderer test; not confirmed on the reporter's area, which isn't
   here; compared with the client on a rural shore, ttr01's tile 7 and
   its water (`reading_shore`, 2026-10-29): no patches in either, the
-  water as the client's with the Shaders switch on.) Two see-through surfaces crossing each other still
-  sort by their middles, where the client draws a model's meshes of
-  mesh `alpha` under 1 in the model's order, each writing its depth: a
-  card listed after another and behind it is hidden where they overlap,
-  and a ribbon behind one is hidden too (read on 2026-10-30,
-  `reading_see_through_crossing` and `reading_ribbon_pieces_and_order`
-  in the fifth client batch; across models not read). Drawing them so
-  (by model order, with depth, and the soft edges of a texture's alpha
-  kept as they are) (M). Each see-through mesh costs two draws. On
-  macOS the solid part's discarded fragments wrote their depth (the
-  plant's edge hid the ground again) until the shader stopped at each
-  discard: seen and mended on the CI's Mac, a virtual one; no real Mac
-  was looked at. The
-  smaller levels made of an uncompressed texture leave transparent
-  pixels' colors out; a compressed DDS's own levels are used as stored.
-  (S–M)
+  water as the client's with the Shaders switch on.) A mesh of mesh
+  `alpha` under 1 (of an instance drawn whole, not a cut-out) is drawn
+  in one part since 2026-11-02, blended and writing its depth, in its
+  model's order, as the client draws them (`reading_see_through_crossing`:
+  a card listed after another and behind it is hidden where they
+  overlap; a ribbon behind one is hidden too); its texture's soft edges
+  blended as they are, writing their depth as the client's do. Two
+  models' such meshes are put in order by their instances' places
+  (where each stands from the eye), the meshes of one in its order:
+  how the client orders two models' was not read. Each see-through mesh
+  of alpha 1 costs two draws. On macOS the solid part's discarded
+  fragments wrote their depth (the plant's edge hid the ground again)
+  until the shader stopped at each discard: seen and mended on the CI's
+  Mac, a virtual one; no real Mac was looked at. Left: the smaller
+  levels made of an uncompressed texture leave transparent pixels'
+  colors out; a compressed DDS's own levels are used as stored. (S)
 - **Custom creatures from the Vault and CEP** (a builder's report,
   [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
   fixed against the content itself but none of it compared with the
@@ -689,45 +631,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     meshes (alpha-blended leaves), shiny water drawn after the
     framebuffer's copy; the client's volumes darken whatever was drawn
     before its plane (M: those drawn later would read the map
-    themselves);
-  - a face casts the sun's shadow from its front only (read on
-    2026-11-02; [the findings](findings.md), "A face casts the sun's
-    shadow from its front only"): why the client leaves a city street lit
-    under a sun low in the west (`reading_low_sun_shadow_length` with
-    `MG_TILESET=tcn01`), where Moonglow lays the buildings' long shadows
-    over it. The area's tiles taken one by one (`batch7_low_sun_city_tiles`),
-    two alone darken Moonglow's street and not the client's, both on the
-    area's west edge, turned to face into it (`tcn01_c02_07` and
-    `c02_08`), their walls single faces with their backs to the sun;
-    turned to face the sun, the first casts its long shadow in the
-    client too. Of two single white walls (`batch7_wall_sides`), the one
-    facing the sun casts, the one with its back to it doesn't, where
-    Moonglow's Fast and High cast both. Sight has nothing to do with it
-    (tcn01's house out of sight casts in both). At a cliff (case `cliff`
-    of `high_shadows_beside_the_client`, now the tileset's own cliff
-    tiles, `raise_north`): a placeable's shadow at the cliff's top
-    reaches down onto the ground below, as Moonglow's (whose volume ends
-    at the lowest receiver seen); the ground at the cliff's foot is lit
-    in the client, where Moonglow darkens it: the rock face, its front
-    to the south, casts nothing (0.62 of the shadows' pixels agree, Fast
-    and High alike). The fix (mg-render's `shadow.rs` and `volume.rs`,
-    another package's this round): the sun's and moon's casters cast
-    from the faces whose front faces the light only: the shadow map
-    drawn with the faces turned from the light culled, and High's
-    volumes without a prism for a face turned from the light (the open
-    mesh's "both sides" dropped; a closed mesh's lit faces cover it as
-    before). (S–M) (The fade with the height between plane and caster
-    that 8193.31 names is not seen: armoires raised 0, 1.5 and 3 m
-    darken the ground alike, 0.44 to 0.49, and casters above the camera
-    still cast, as in Moonglow: `reading_shadows_of_doors_items_and_heights`,
-    2026-10-29);
-  - the previews (blueprints, the model viewer) draw none: they have no
-    ground to lay a shadow on (a creature or a dynamic placeable casts
-    only onto tiles and static placeables in the game), so a shadow there
-    means a ground under the model (or one that only takes shadows), a
-    change to every thumbnail, gallery and hover preview: the owner's
-    call (S, waits on it). (With Fade Geometry on, the faded roofs and
-    upper walls cast their shadows, as the game's, since 2026-11-02.)
+    themselves).
+  (The sun's and moon's casters cast from the faces whose front faces
+  the light only, as the client's, since 2026-11-02: [the
+  findings](findings.md), "A face casts the sun's shadow from its front
+  only"; the city street under a low western sun lit but for its spikes
+  as the client's, the ground at a cliff's foot lit, its shadows' pixels
+  agreeing 0.80 with the client's where they agreed 0.62. The fade with
+  the height between plane and caster that 8193.31 names is not seen:
+  armoires raised 0, 1.5 and 3 m darken the ground alike, 0.44 to 0.49,
+  and casters above the camera still cast, as in Moonglow:
+  `reading_shadows_of_doors_items_and_heights`, 2026-10-29.)
+  (The model viewer's model casts the sun's shadow on a ground under it
+  that takes only shadows, its Shadow switch on, since 2026-11-02; the
+  other previews draw none: settled by the owner's word, below. With
+  Fade Geometry on, the faded roofs and upper walls cast their shadows,
+  as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
 
@@ -1248,6 +1167,15 @@ log.
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
 
+- **The previews' shadows: the model viewer's alone** (the owner's
+  word, 2026-11-02): the model viewer's model casts the sun's shadow on
+  a ground under it that takes only shadows (its Shadow switch, on by
+  default); the pictures of the galleries, the palettes, a hovered
+  row's preview and a tile's variants draw none, as they did (a
+  creature or a dynamic placeable casts only onto tiles and static
+  placeables in the game, and a ground under every picture would change
+  them all). `the_shadow_switch_leaves_the_pictures_as_they_were` holds
+  them pixel for pixel.
 - **The grass is drawn across the whole area view, not faded with the
   camera's distance as in the game** (the owner's word, 2026-11-02): the
   client gives the grass's diffuse an alpha that falls with the tufts'

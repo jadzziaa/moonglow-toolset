@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:25:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1631,8 +1631,30 @@ does.
   `reading_ribbon_pieces_and_order` (2026-10-30) and `batch6.rs`'s
   `batch6_ribbon_sizes` (2026-11-01).
 - **Moonglow:** the cell's run as the client's since 2026-11-02
-  (`particles.rs`'s `reach`); a see-through mesh doesn't hide a ribbon
-  (the deferred list's ribbon entry).
+  (`particles.rs`'s `reach`); a mesh of `alpha` under 1 hides a ribbon
+  behind it since 2026-11-02 (it writes its depth: "A model's meshes of
+  `alpha` under 1 are drawn in its order").
+- **Wiki:** missing.
+
+### A model's meshes of `alpha` under 1 are drawn in its order
+
+The client draws a model's meshes of mesh `alpha` under 1 in the
+model's order, each blended and writing its depth: a card listed after
+another and behind it is hidden where they overlap, the one listed
+first, nearer, showing alone; listed the other way (the far card
+first), both show. What is drawn after them (a ribbon of the model or of
+another) is hidden behind them. A texture of alpha 128 on a mesh of
+`alpha` 1 (no TXI) is opaque.
+
+- **Checked:** game client, `batch5.rs`'s `reading_see_through_crossing`
+  and `reading_ribbon_pieces_and_order` (2026-10-30), `batch6.rs`'s
+  `batch6_ribbon_sizes` (2026-11-01: a card of another model).
+- **Moonglow:** as the client since 2026-11-02: drawn in one part,
+  blended, writing its depth, by its instance's place and then the
+  model's order (`mg-render`'s `renderer.rs`, `GamePass::Ordered`;
+  `meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth`,
+  `a_mesh_of_alpha_under_one_hides_a_particle_behind_it`). Two models'
+  such meshes, as the client orders them, aren't read.
 - **Wiki:** missing.
 
 ### The client's clock starts from the machine's
@@ -1681,8 +1703,12 @@ meshes are each their own.
   order, in two static placeables and a tile's model; `MG_UNMARKED=1`
   for the opacity); `programs.rs`'s `program_choice_in_the_client` with
   and without `MG_STATIC=1` (2026-10-29), which first showed it.
-- **Moonglow:** decides each mesh's alone (`mg-render`'s
-  `game::no_discard`; the deferred list's M4).
+- **Moonglow:** as the client since 2026-11-02, in a tile and a static
+  placeable: a mesh takes the alpha of the first of its model's meshes
+  naming the same textures, case not counted (`mg-render`'s
+  `GpuMesh::bucket`; `static_geometry_s_meshes_of_one_texture_take_the_first_one_s_alpha`).
+  A bucket of several models' meshes isn't read: each model's are kept
+  apart.
 - **Wiki:** missing.
 
 ### A face casts the sun's shadow from its front only
@@ -1705,8 +1731,16 @@ and a placeable's shadow at a cliff's top reaches the ground below it.
   agreeing with the client 0.49 and 0.57) doesn't tell: the fins'
   shadows overlap in one shape, alike in both at that camera, the two
   fins turned from that sun lying 17 and 28 degrees off its light.
-- **Moonglow:** `crates/mg-render/src/shadow.rs` and `volume.rs` cast
-  from both sides (the deferred list's "Shadows").
+- **Moonglow:** as the client since 2026-11-02: the shadow map culls the
+  faces turned from the sun, and High's volumes make no prism of them
+  (`crates/mg-render/src/shadow.rs`, `volume.rs`;
+  `a_face_casts_the_sun_s_shadow_from_its_front_only`). The city's
+  street lit as the client's (`batch7_low_sun_city_tiles` drawn again
+  beside its pictures: the street's brightness 55.9 against the
+  client's 56.7), the wall turned from the sun casting nothing, the
+  cliff's shadows agreeing 0.80 with the client's (0.62 before). A
+  light's volumes of an open mesh are still cast from both sides (not
+  read).
 - **Wiki:** "Model Shadows" says the volumes come of a mesh's faces;
   not that a face casts from its front only.
 
