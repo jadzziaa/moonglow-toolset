@@ -1365,10 +1365,14 @@ the game's script), and what that names in turn:
   game has (classes.2da, spells.2da…) is used, and so is a table a used
   2DA names in a cell (a class's feat and skill tables, an item
   property's subtypes).
-- **What players choose at character creation**: every head of the
-  player races (racialtypes.2da's `PlayerRace`) for each gender and
-  phenotype, those races' portraits and the players' voice sets
-  (soundset.2da's type 0).
+- **What players choose at character creation**: for the player races
+  (racialtypes.2da's `PlayerRace`), each gender and the phenotypes the
+  creation screen offers (ruleset.2da's `CHARGEN_ENABLED_PHENOTYPES`:
+  normal and large, unless a hak changes it), every head and the body
+  parts the screen offers: part 1 of each, and part 2 of the chest,
+  biceps, forearms and shins (its tattoos; the same for every race, and
+  read from no table); those races' portraits and the players' voice
+  sets (soundset.2da's type 0).
 
 Each hak resource is then **used** (reached, and this hak's copy is the
 one the game loads), **shadowed** (a hak higher in the list, or the
@@ -1378,9 +1382,11 @@ module, has it: this copy is never loaded), **not judged** or
 server extension may read; GUI, fonts, shaders a material doesn't
 name, palettes, NUI windows) and a hak's replacements of the game's own
 resources other than 2DAs, which the game's own content may use. Not
-followed at all: a number a script works out as it runs (above), and
-the body parts players choose: a hak of tattoo parts can show as unused
-and still be needed. A script's string that spells a name counts as a use
+followed at all: a number a script works out as it runs (above). A
+hak's body parts past those the creation screen offers (a chest 3, a
+phenotype it doesn't offer) are used only where the module's creatures
+or items wear them: one a script gives (`SetCreatureBodyPart`) shows as
+unused. A script's string that spells a name counts as a use
 of it, whatever the string is for: a release cut keeps too much rather
 than too little. The game is taken as a player has
 it: the user's `override` and `development` folders are left out, the
