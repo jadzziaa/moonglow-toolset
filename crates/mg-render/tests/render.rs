@@ -1916,6 +1916,99 @@ void main ()
     }
 }
 
+/// Where a program of the game's discards, it writes no depth: a cut-out
+/// drawn before a farther mesh (the scene's order) shows that mesh through
+/// its cut half, by the program's own `discard` as by Moonglow's shader.
+/// (On Metal a discarded fragment that runs on writes its depth: Moonglow's
+/// own shader returns at each discard for it; naga writes the game's
+/// `discard` as Metal's `discard_fragment()`, which the CI's Mac runs.)
+#[test]
+fn where_a_game_program_discards_it_hides_nothing_behind() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    // Its west half cut (alpha 0), its east half kept.
+    let mut half = Vec::new();
+    for _ in 0..4 {
+        for x in 0..4 {
+            half.extend_from_slice(&[0, 200, 0, if x < 2 { 0 } else { 255 }]);
+        }
+    }
+    let t = mg_image::Rgba { width: 4, height: 4, data: half }.into_texture(true);
+    assets.textures.insert("half".into(), t);
+    assets.txis.insert("half".into(), mg_image::txi::Txi::parse(b"blending punchthrough\n"));
+    assets.opaque("blue", [0, 0, 255]);
+    authored_lit_pair(&mut assets);
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    vec4 c = texture2D(texUnit0, vUv) * vec4(vWhite + vBlack, 1.0);
+    if (c.a < 0.5)
+    {
+        discard;
+    }
+    gl_FragColor = c;
+}
+"#;
+    assets.shaders.insert("fslit".into(), fs.into());
+    let model = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let standing = |y: f32, size: f32| {
+        Mat4::from_translation(Vec3::new(0.0, y, 1.0))
+            * Mat4::from_rotation_x(90f32.to_radians())
+            * Mat4::from_scale(Vec3::splat(size))
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let area = AreaLight { ambient: Vec3::splat(1.0), diffuse: Vec3::ZERO, ..Default::default() };
+    let mut seen = Vec::new();
+    // (Each order of the two in the scene, each in a renderer of its own:
+    // its pipelines and materials are numbered as they come, so in one the
+    // cut-out is drawn first.)
+    for (game, cut_out_first) in [(false, true), (false, false), (true, true), (true, false)] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game;
+        let mut instances = vec![
+            Instance::new(model("half"), standing(-2.0, 1.0)),
+            Instance::new(model("blue"), standing(2.0, 4.0)),
+        ];
+        if !cut_out_first {
+            instances.reverse();
+        }
+        let scene = Scene { instances, background: [0.0, 0.0, 0.0], area, ..Default::default() };
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        assert_eq!(r.game_shader_failures(), &[]);
+        assert_eq!(r.drawn.game, if game { 2 } else { 0 }, "{:?}", r.drawn);
+        // West of the middle, the cut half: the blue behind; east, green.
+        seen.push((game, cut_out_first, img.pixel(26, 32), img.pixel(38, 32)));
+    }
+    for &(game, _, cut, kept) in &seen {
+        assert!(
+            cut[2] > 200 && cut[0] < 100 && cut[1] < 100,
+            "the cut half (game's programs: {game}): {seen:?}"
+        );
+        assert!(
+            kept[1] > 150 && kept[0] < 100 && kept[2] < 100,
+            "the kept half (game's programs: {game}): {seen:?}"
+        );
+    }
+}
+
 /// A `Punch-Through` particle is cut where its texture's alpha is 0.2 or
 /// less and solid above, as the client draws it (`particles_look` with
 /// `MG_PARTICLES=punch` in `client_render.rs`): of a texture whose alpha
@@ -3328,12 +3421,15 @@ attribute vec2 vTcIn1;
 attribute vec2 vTcIn2;
 attribute vec2 vTcIn3;
 attribute vec3 vTangent;
+attribute vec3 vNormal;
 varying vec2 vUv;
 varying vec3 vT;
+varying vec3 vN;
 void main ()
 {
     vUv = nUvmap == 1 ? vTcIn1 : nUvmap == 2 ? vTcIn2 : nUvmap == 3 ? vTcIn3 : vTcIn;
     vT = vTangent;
+    vN = vNormal;
     gl_Position = m_proj * (m_mv * vPos);
 }
 "#;
@@ -3343,9 +3439,23 @@ uniform sampler2D texUnit0;
 uniform int nShow;
 varying vec2 vUv;
 varying vec3 vT;
+varying vec3 vN;
 void main ()
 {
-    gl_FragColor = nShow == 1 ? vec4(abs(vT), 1.0) : vec4(texture2D(texUnit0, vUv).rgb, 1.0);
+    vec3 c = texture2D(texUnit0, vUv).rgb;
+    if (nShow >= 2)
+    {
+        // (As the stock include lights a normal map's nearly flat texel:
+        // the tangent normalized as it comes, the basis made of it; the
+        // light clamped by max() with 2, not with 3.)
+        vec3 t = normalize(vT);
+        vec3 n = normalize(vN);
+        mat3 basis = mat3(t, cross(n, t), n);
+        vec3 lit = normalize(basis * vec3(c.rg * 0.01, 1.0));
+        float d = dot(lit, n);
+        c *= vec3(0.25) + vec3(0.75) * (nShow == 2 ? max(d, 0.0) : d);
+    }
+    gl_FragColor = nShow == 1 ? vec4(abs(vT), 1.0) : vec4(c, 1.0);
 }
 "#;
     assets.shaders.insert("vs_uvset".into(), vs.into());
@@ -3357,7 +3467,12 @@ void main ()
 /// color: the third and fourth sets were zero for every mesh); a set the
 /// mesh doesn't have is zeros, as the client feeds it. And a mesh with no
 /// tangents of its own has them only with a render hint, as in the client
-/// (`custom_shader_uvs_look` in `mg-corpus-tests`' `client_render.rs`).
+/// (`custom_shader_uvs_look` in `mg-corpus-tests`' `client_render.rs`);
+/// without them, lit through a normal map as the stock include lights one,
+/// the zero tangent normalized is not a number: written to the picture,
+/// black (as the client draws such a mesh on Linux), and `max()` with
+/// zero takes the zero, on every backend (Vulkan here, Direct3D 12 and
+/// Metal on CI).
 #[test]
 fn a_custom_shader_reads_the_texture_coordinate_set_its_mtr_picks() {
     let Some(gpu) = gpu() else { return };
@@ -3439,6 +3554,19 @@ fn a_custom_shader_reads_the_texture_coordinate_set_its_mtr_picks() {
     assert_eq!(tangent("untangent", ""), [0, 0, 0, 255]);
     let made = tangent("tangent", "renderhint NormalAndSpecMapped\n");
     assert!(made[0] > 250 && made[1] < 5 && made[2] < 5, "{made:?}");
+    let mut lit = |name: &str, show: i32, hint: &str| {
+        let mtr = format!("parameter int nShow {show}\nparameter int nUvmap 0\n{hint}");
+        draw(name, &mtr, model(name, 1, Some(vec![middle(3); 4]))).pixel(16, 16)
+    };
+    let hint = "renderhint NormalAndSpecMapped\n";
+    let seen = [
+        lit("litnan", 3, ""),
+        lit("litclamped", 2, ""),
+        lit("litwhite", 3, hint),
+        lit("litclampedwhite", 2, hint),
+    ];
+    let expected = [[0, 0, 0, 255], [64, 64, 64, 255], [255, 255, 255, 255], [255, 255, 255, 255]];
+    assert_eq!(seen, expected, "lit through a normal map without tangents, then with them");
 }
 
 // The special surfaces through the game's programs (`docs/shaders-proposal.md`,
