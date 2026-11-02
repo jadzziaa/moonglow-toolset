@@ -76,6 +76,7 @@ pub mod store_wizard;
 pub mod table_view;
 mod tabs;
 pub mod tag_clash;
+pub mod talk_typed;
 pub mod talk_view;
 pub mod terrain_mode;
 pub mod test_module;
@@ -270,6 +271,13 @@ pub enum Action {
     /// Makes every static placeable of these areas dynamic.
     DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
+    /// Applies a command a field's typing made: its text typed put in the
+    /// module's talk table first, where Options › Language says so
+    /// (`talk_typed`).
+    ApplyTyped(Command),
+    /// [`Action::ApplyTyped`], with what was answered of texts the talk
+    /// table has already.
+    ApplyTypedWith(Command, Vec<(String, talk_typed::Answer)>),
     /// Applies a command that makes something (a wizard's, a paste's),
     /// with the edits the plugins' handlers of what it makes add to it
     /// (`plugin_events`): one command.
@@ -606,6 +614,10 @@ pub struct Moonglow {
     /// The module's talk table, open for editing (Tools › Talk Table).
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
+    /// The talk-table lines typed for the module's fields, kept with the
+    /// steps that set them, and the question asked of a text the table
+    /// has already (`talk_typed`).
+    pub typed: talk_typed::TypedState,
     /// The haks layered into the game data, as the module listed them.
     pub(crate) haks_layered: Vec<String>,
     /// The keys of commands (Options › Keyboard), and the settings they
@@ -1066,6 +1078,7 @@ impl Moonglow {
             viewport: None,
             thumbnails: Default::default(),
             talk: None,
+            typed: Default::default(),
             talk_view: Default::default(),
             haks_layered: Vec::new(),
             keymap: Default::default(),
@@ -1629,6 +1642,7 @@ impl Moonglow {
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
+        talk_typed::window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
@@ -1692,7 +1706,12 @@ impl Moonglow {
                     let noted = blueprint::but_for(&command, &w.kept);
                     blueprint::note_command(self, &w.tab, &w.targets, &noted);
                 }
-                self.actions.push(Action::Apply(command));
+                // (A localized string's text typed: as when its field is
+                // left.)
+                self.actions.push(match held.typed {
+                    true => Action::ApplyTyped(command),
+                    false => Action::Apply(command),
+                });
             }
             self.buffers.remove(&held.id);
         }
@@ -3279,6 +3298,7 @@ impl Moonglow {
         self.properties_changed.clear();
         self.talk = None;
         self.talk_view = Default::default();
+        self.typed.forget();
         // (Its views, kept by name: another module's area, conversation or
         // window of the same name is its own; Jasperre's report.)
         self.let_go_of_view_targets();
@@ -3615,9 +3635,20 @@ impl Moonglow {
                     next.map(|c| blueprint::follow::list_edits(&c.edits)).unwrap_or_default();
                 let followed = blueprint::follow::followed(self, &edits);
                 let Some(ws) = &mut self.ws else { return };
+                // (A step that put text typed into the talk table takes its
+                // line out and back with it.)
+                let depth = ws.undo_depth();
+                if action == Action::Redo
+                    && let Err(e) = talk_typed::may_redo(self, depth)
+                {
+                    self.log.error(e);
+                    return;
+                }
+                let Some(ws) = &mut self.ws else { return };
                 let r = if action == Action::Undo { ws.undo() } else { ws.redo() };
                 match r {
                     Ok(Some(label)) => {
+                        talk_typed::stepped(self, action == Action::Redo, depth);
                         blueprint::follow::retarget(self, followed);
                         self.scripts.clear();
                         self.sync_haks();
@@ -3638,6 +3669,8 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::ApplyTyped(cmd) => talk_typed::apply(self, cmd),
+            Action::ApplyTypedWith(cmd, answers) => talk_typed::apply_with(self, cmd, answers),
             Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
             Action::ApplyFix(line) => self.apply_fix(line),
             Action::NewNui(name) => nui_view::create(self, &name),
@@ -3988,7 +4021,10 @@ impl Moonglow {
         );
         let derived = blueprint::derived_of(&cmd);
         let tagged = (tag_clash::made_by(ws, &cmd.edits), format!("“{}”", cmd.label));
+        // (What no longer goes with a step of the history is let go of.)
+        self.typed.prune(ws.undo_depth(), ws.redo_depth());
         ws.apply(cmd)?;
+        self.typed.applied();
         blueprint::follow::retarget(self, followed);
         blueprint::after_apply(self, derived);
         tag_clash::check(self, &tagged.1, tagged.0, false);
@@ -4075,7 +4111,15 @@ impl Moonglow {
                 ));
             }
         }
-        talk_view::save(self);
+        // (A talk table with lines typed for the module's fields that can't
+        // be saved stops the module's save: its fields would name lines
+        // the table hasn't.)
+        if !talk_view::save(self) && self.talk.as_ref().is_some_and(|t| t.has_typed_unsaved()) {
+            self.log.error(
+                "The module was not saved: its talk table, which has lines typed for its fields,                  could not be (see above)",
+            );
+            return;
+        }
         // (Tables first: one of a hak's is saved into the hak, which is
         // then written; one of the module's is a step saved below.)
         self.save_side_docs();
@@ -5249,6 +5293,12 @@ impl Moonglow {
                     &mut times,
                     cache.as_ref(),
                 );
+                // (The lines typed text takes, held to the table.)
+                findings.extend(mg_module::doctor::talk_range(
+                    &job.module,
+                    game.custom_tlk(),
+                    &skip,
+                ));
                 // (What the plugins would say of themselves goes with them.)
                 let (theirs, said) = if skip.group(Group::Plugins) {
                     (Vec::new(), Vec::new())

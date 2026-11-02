@@ -118,3 +118,36 @@ hide = { text = "Hidden", feminine = "Hidden (she)" }
     let (ok, r) = run(&[]);
     assert!(!ok && r.to_string().contains("feminine is not a text"), "{r}");
 }
+
+/// New keys pass over the lines the project gives text typed in the
+/// window (`[talk]` of the `moonglow.toml` beside the names file or above
+/// it, or `--project`'s): two checkouts never give one line both.
+#[test]
+fn new_keys_pass_over_the_project_s_typed_lines() {
+    let dir = mg_testkit::scratch_dir("mg-tlk-alloc-project");
+    std::fs::create_dir_all(dir.join("tlk")).unwrap();
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "[talk]\nlines = \"0-1\"\n[talk.builders]\nab = \"3-3\"\n",
+    )
+    .unwrap();
+    let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+    std::fs::write(at("tlk/names.toml"), "a = \"A\"\nb = \"B\"\n").unwrap();
+    let (ok, r) = mg(&["tlk-alloc", &at("tdod.tlk"), "--from", &at("tlk/names.toml")]);
+    assert!(ok, "{r}");
+    assert_eq!(r["added"], serde_json::json!([{"key": "a", "line": 2}, {"key": "b", "line": 4}]));
+    assert_eq!(r["typed_lines"], serde_json::json!(["0-1", "3-3"]));
+    // Another project named: its lines, not these.
+    let other = mg_testkit::scratch_dir("mg-tlk-alloc-project-other");
+    std::fs::write(other.join("moonglow.toml"), "[talk]\nlines = \"0-0\"\n").unwrap();
+    std::fs::write(at("tlk/more.toml"), "c = \"C\"\n").unwrap();
+    let (ok, r) = mg(&[
+        "tlk-alloc",
+        &at("other.tlk"),
+        "--from",
+        &at("tlk/more.toml"),
+        "--project",
+        other.to_str().unwrap(),
+    ]);
+    assert!(ok && r["added"][0]["line"] == 1, "{r}");
+}

@@ -100,6 +100,9 @@ pub(crate) struct HeldText {
     pub drawn: u64,
     /// What it would set if left now (`None`: nothing typed).
     pub command: Option<Command>,
+    /// It is a localized string's text: set as text typed is
+    /// (`Action::ApplyTyped`).
+    pub typed: bool,
     /// The window it is in, for its Cancel: set once that is drawn.
     pub window: Option<HeldIn>,
 }
@@ -218,7 +221,7 @@ fn note_changes(
     let asked: Vec<Command> = app.actions[pending.min(app.actions.len())..]
         .iter()
         .filter_map(|a| match a {
-            Action::Apply(cmd) => Some(but_for(cmd, kept)),
+            Action::Apply(cmd) | Action::ApplyTyped(cmd) => Some(but_for(cmd, kept)),
             _ => None,
         })
         .collect();
@@ -817,6 +820,14 @@ impl Form<'_> {
         self.app.actions.push(Action::Apply(command));
     }
 
+    /// Sets a localized string's field to the text typed into it: put in
+    /// the module's talk table first, where Options › Language says so
+    /// (`crate::talk_typed`).
+    pub(crate) fn set_typed(&mut self, what: &str, label: &str, value: Value) {
+        let command = self.setting(what, label, Some(value));
+        self.app.actions.push(Action::ApplyTyped(command));
+    }
+
     /// The command that sets a field, or removes it.
     fn setting(&self, what: &str, label: &str, value: Option<Value>) -> Command {
         let edits = self
@@ -861,7 +872,7 @@ impl Form<'_> {
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
         let drawn = ui.ctx().cumulative_pass_nr();
         // (Its window says which it is once it is drawn: `window_drawn_but`.)
-        self.app.held_text = Some(HeldText { id, drawn, command, window: None });
+        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc });
     }
 
     /// Sets an integer field, keeping its stored type (for a field the
@@ -919,7 +930,7 @@ impl Form<'_> {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
-                self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
+                self.set_typed(what, label, Value::LocString(with_english(current.clone(), &v)));
             }
             let shown = crate::widgets::loc_shown(self.app, &current).0;
             let held = current.clone();
@@ -944,7 +955,7 @@ impl Form<'_> {
         });
         self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
-            self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
+            self.set_typed(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
         self.hold_text(ui, what, label, &shown, true, move |text| {
@@ -1809,7 +1820,7 @@ pub(crate) fn edit_many(
         let mut i = pending;
         while i < app.actions.len() {
             let only_some = match &app.actions[i] {
-                Action::Apply(cmd) => partial(&targets, cmd),
+                Action::Apply(cmd) | Action::ApplyTyped(cmd) => partial(&targets, cmd),
                 _ => false,
             };
             if only_some {
@@ -1844,7 +1855,7 @@ pub(crate) fn look_only(
     let mut tried = false;
     let mut i = pending;
     while i < app.actions.len() {
-        let changing = matches!(&app.actions[i], Action::Apply(cmd)
+        let changing = matches!(&app.actions[i], Action::Apply(cmd) | Action::ApplyTyped(cmd)
             if cmd.edits.iter().any(|e| changes(e.key())));
         if changing {
             app.actions.remove(i);

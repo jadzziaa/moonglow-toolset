@@ -114,6 +114,8 @@ pub struct OptionsDraft {
     pub external_compiler_args: String,
     pub dialog_names: bool,
     pub edit_language: Option<u32>,
+    pub talk_typed: bool,
+    pub talk_reuse: crate::settings::TalkReuse,
     pub area_background: Option<[u8; 3]>,
     pub spawn_markers: bool,
     /// Height and Width, tenths of a metre.
@@ -259,6 +261,8 @@ impl OptionsDraft {
             external_compiler_args: s.external_compiler_args.clone(),
             dialog_names: !s.dialog_hide_names,
             edit_language: s.edit_language,
+            talk_typed: s.talk_typed,
+            talk_reuse: s.talk_reuse,
             area_background: s.area_background,
             spawn_markers: !s.no_spawn_markers,
             spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
@@ -358,6 +362,8 @@ impl OptionsDraft {
             external_compiler_args: self.external_compiler_args.trim().to_string(),
             dialog_hide_names: !self.dialog_names,
             edit_language: self.edit_language,
+            talk_typed: self.talk_typed,
+            talk_reuse: self.talk_reuse,
             area_background: self.area_background,
             no_spawn_markers: !self.spawn_markers,
             spawn_marker_size: (self.spawn_marker_size != crate::area_view::SPAWN_MARKER)
@@ -979,6 +985,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     }
                                 }
                             });
+                            talk_typed(ui, draft);
                         }
                         OptionsPage::ConversationEditor => {
                             ui.checkbox(
@@ -1462,6 +1469,38 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
         ui.label(crate::script_view::highlight(preview, &palette));
     });
+}
+
+/// Options › Language › Talk Table: text typed into a field put in the
+/// module's custom talk table (`crate::talk_typed`), and what is done
+/// where the table has the text already.
+fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft) {
+    use crate::settings::TalkReuse;
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Talk Table");
+    ui.checkbox(&mut draft.talk_typed, "Put text typed into the talk table").on_hover_text(
+        "A name, a description or a conversation line typed becomes a line of the module's \
+         custom talk table, at the next free line of the project's range (Module Properties › \
+         Custom Content), and the field names it by its StrRef. Off: the text is the field's \
+         own, as Aurora writes it. String Edit's Move to Talk Table does one string at a time \
+         either way.",
+    );
+    ui.add_enabled_ui(draft.talk_typed, |ui| {
+        ui.label("When the talk table has the text already:");
+        ui.indent("talk-reuse", |ui| {
+            for (value, label, tip) in [
+                (TalkReuse::Ask, "Ask", "Use that line, add another, or keep the text in the file"),
+                (TalkReuse::Use, "Use that line", "The field names the line the table has"),
+                (TalkReuse::Add, "Add a line", "A new line with the same text"),
+            ] {
+                ui.radio_value(&mut draft.talk_reuse, value, label).on_hover_text(tip);
+            }
+        });
+    });
+    ui.weak(
+        "Text typed in another language than the talk table's stays the field's own; so does \
+         every text where the module has no custom talk table.",
+    );
 }
 
 /// Options › Verify: what Build › Verify Module reports, by group, each

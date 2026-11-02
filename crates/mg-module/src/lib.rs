@@ -54,6 +54,7 @@ pub mod table_edit;
 pub mod table_layers;
 pub mod tags;
 pub mod talk;
+pub mod talk_range;
 pub mod testing;
 pub mod text;
 pub mod tileset;

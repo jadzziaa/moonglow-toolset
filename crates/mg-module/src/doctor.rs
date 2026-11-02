@@ -78,10 +78,11 @@ pub enum Check {
     VarScript,
     ClaimsMerged,
     ClaimsTag,
+    TalkRange,
 }
 
 impl Check {
-    pub const ALL: [Check; 40] = [
+    pub const ALL: [Check; 41] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -122,6 +123,7 @@ impl Check {
         Check::VarScript,
         Check::ClaimsMerged,
         Check::ClaimsTag,
+        Check::TalkRange,
     ];
 
     pub fn id(self) -> &'static str {
@@ -166,6 +168,7 @@ impl Check {
             Check::VarScript => "var-script",
             Check::ClaimsMerged => "claims-merged",
             Check::ClaimsTag => "claims-tag",
+            Check::TalkRange => "talk-range",
         }
     }
 
@@ -278,6 +281,11 @@ impl Check {
                 "a merged area's Tag is the one the claims table records, which keeps players' \
                  positions"
             }
+            Check::TalkRange => {
+                "the custom talk table's lines the project gives typed text (moonglow.toml's \
+                 [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
+                 own that no other shares"
+            }
         }
     }
 
@@ -322,7 +330,8 @@ impl Check {
             | Check::ErfSize
             | Check::NuiSources
             | Check::ClaimsMerged
-            | Check::ClaimsTag => Group::Module,
+            | Check::ClaimsTag
+            | Check::TalkRange => Group::Module,
         }
     }
 }
@@ -1046,6 +1055,105 @@ fn custom_tlk(d: &mut Doctor, module: &Module) {
              the game won't load the module"
         ),
     );
+}
+
+/// The custom talk table's lines the project gives typed text
+/// (`moonglow.toml`'s `[talk]`, [`crate::talk_range`]), held to the
+/// table (`table`: the module's custom table, where it was found): room
+/// left (a tenth of the range or less is a warning, none an error), no
+/// line `mg tlk-alloc`'s map gives inside the range, builders' parts of
+/// their own that no other shares, and a part for this builder where the
+/// others have one. Every tool says the same (Verify, `mg verify`).
+pub fn talk_range(module: &Module, table: Option<&mg_tlk::Tlk>, skip: &Skip) -> Vec<Finding> {
+    use crate::talk_range::{self as range, Allowed};
+    let pf = &module.project_file;
+    let rules = &pf.talk;
+    if !rules.is_set() || skip.check(Check::TalkRange) || skip.source("module") {
+        return Vec::new();
+    }
+    let file = pf
+        .path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let mut out = Vec::new();
+    let mut push = |severity, message: String| {
+        out.push(Finding {
+            severity,
+            check: Cow::Borrowed(Check::TalkRange.id()),
+            source: "module".into(),
+            resource: Module::info_key(),
+            at: format!("{file} [talk]"),
+            message,
+        })
+    };
+    for p in rules.problems() {
+        push(Severity::Warning, p);
+    }
+    let map = match pf.talk_map() {
+        Ok(m) => m,
+        Err(e) => {
+            push(Severity::Warning, e);
+            None
+        }
+    };
+    let map_lines = map.as_ref().map(range::map_lines).unwrap_or_default();
+    for lines in rules.reserved() {
+        let inside: Vec<u32> = map_lines.range(lines.from..=lines.to).copied().collect();
+        if let Some(first) = inside.first() {
+            push(
+                Severity::Warning,
+                format!(
+                    "{} of the lines typed text takes ({lines}) are mg tlk-alloc's ({}, line \
+                     {first} the first): typed text passes over them, and a key given one \
+                     elsewhere would share it; keep the two apart",
+                    inside.len(),
+                    rules.map.as_deref().unwrap_or("the map")
+                ),
+            );
+        }
+    }
+    let code = pf.user.builder_code.as_deref();
+    if !rules.builders.is_empty() && code.is_none_or(|c| !rules.builders.contains_key(c)) {
+        push(
+            Severity::Warning,
+            format!(
+                "the builders {} have lines of their own, and you ({}) have none: the text you \
+                 type takes from the rest of the range, which another builder without a part \
+                 takes from too",
+                rules.builders.keys().cloned().collect::<Vec<_>>().join(", "),
+                code.map_or_else(|| "with no builder code".to_string(), |c| format!("code {c}"))
+            ),
+        );
+    }
+    let allowed = rules.allowed(code);
+    if let (Some(t), Allowed::Range { .. }) = (table, &allowed) {
+        let blank = |l: u32| {
+            t.entries.get(l as usize).is_none_or(|e| {
+                e.flags & (mg_tlk::FLAG_TEXT | mg_tlk::FLAG_SOUND) == 0
+                    || (e.text.is_empty() && e.sound.is_empty())
+            })
+        };
+        let len = t.entries.len() as u32;
+        if let Some((free, total)) = range::free_lines(&allowed, len, blank, &map_lines) {
+            let what = allowed.describe();
+            if free == 0 {
+                push(
+                    Severity::Error,
+                    format!(
+                        "the {what} typed text takes are all used: text typed now stays in the \
+                         file (Module Properties › Custom Content sets other lines)"
+                    ),
+                );
+            } else if u64::from(free) * 10 <= u64::from(total) {
+                push(
+                    Severity::Warning,
+                    format!("{free} of the {total} {what} typed text takes are left"),
+                );
+            }
+        }
+    }
+    out
 }
 
 /// A NUI window's files that a nasher project's include leaves out (one
@@ -4489,6 +4597,40 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         assert!(hak("0 Imp b 30\n").is_empty(), "the game's 30, kept");
         let f = hak("0 Imp b 31\n");
         assert_eq!(checks(&f), [("2da-ref", "row 0, FOOTSTEPTYPE".into())]);
+    }
+
+    /// The lines typed text takes: room left, mg tlk-alloc's lines in the
+    /// range, builders sharing lines, a builder with no part of their own.
+    #[test]
+    fn the_lines_typed_text_takes_are_held_to_the_table() {
+        let mut m = Module::new();
+        let none = talk_range(&m, None, &Skip::default());
+        assert!(none.is_empty(), "no [talk]: nothing said");
+        m.project_file.apply(
+            "moonglow.toml",
+            "[talk]\nlines = \"0-19\"\n[talk.builders]\nab = \"0-9\"\ncd = \"8-15\"\n",
+            false,
+        );
+        m.project_file.user.builder_code = Some("ab".into());
+        let mut t = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+        (0..9).for_each(|i| t.entries.push(mg_tlk::TlkEntry::text(format!("line {i}"))));
+        let f = talk_range(&m, Some(&t), &Skip::default());
+        let said: Vec<(&str, Severity)> =
+            f.iter().map(|f| (f.message.as_str(), f.severity)).collect();
+        assert_eq!(f.len(), 2, "{said:?}");
+        assert!(f[0].message.contains("share lines"), "{said:?}");
+        assert!(f[1].message.contains("1 of the 10 lines 0-9"), "{said:?}");
+        assert_eq!((f[0].check.as_ref(), f[0].at.as_str()), ("talk-range", "moonglow.toml [talk]"));
+        t.entries.push(mg_tlk::TlkEntry::text("line 9"));
+        let full = talk_range(&m, Some(&t), &Skip::default());
+        assert!(
+            full.iter().any(|f| f.severity == Severity::Error && f.message.contains("all used"))
+        );
+        m.project_file.user.builder_code = Some("zz".into());
+        let other = talk_range(&m, Some(&t), &Skip::default());
+        assert!(other.iter().any(|f| f.message.contains("you (code zz) have none")), "{other:?}");
+        let skip = Skip::parse(&["talk-range"]).unwrap();
+        assert!(talk_range(&m, Some(&t), &skip).is_empty());
     }
 
     #[test]

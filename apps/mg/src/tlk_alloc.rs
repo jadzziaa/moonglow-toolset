@@ -19,6 +19,29 @@ pub(crate) struct Args<'a> {
     pub start: u32,
     pub check: bool,
     pub against: Option<&'a PathBuf>,
+    /// The project whose typed text's lines are passed over (`[talk]` of
+    /// its `moonglow.toml`): none, the one beside the names file or in a
+    /// folder above it.
+    pub project: Option<&'a PathBuf>,
+}
+
+/// The project's file whose `[talk]` lines new keys pass over: the one in
+/// `project`, else the first `moonglow.toml` in the names file's folder or
+/// one above it.
+fn project_file(
+    project: Option<&PathBuf>,
+    from: &Path,
+) -> Option<mg_module::project_file::ProjectFile> {
+    use mg_module::project_file::{FILE_NAME, ProjectFile};
+    let root = match project {
+        Some(p) => p.clone(),
+        None => {
+            let from = std::path::absolute(from).ok()?;
+            from.ancestors().skip(1).find(|d| d.join(FILE_NAME).is_file())?.to_path_buf()
+        }
+    };
+    let pf = ProjectFile::read(&root);
+    pf.found.then_some(pf)
 }
 
 /// The strings of a names file, as JSON read them: a text is a string; a
@@ -93,12 +116,16 @@ pub(crate) fn run(a: &Args<'_>) -> Result<Output> {
     }
     let ours: std::collections::BTreeSet<u32> =
         known.lines.values().chain(known.retired.values()).copied().collect();
+    // (The project's lines for text typed in the window are its: two
+    // checkouts never give one line a key and a typed text.)
+    let typed = project_file(a.project, a.from).map(|p| p.talk.reserved()).unwrap_or_default();
     let taken = |line: u32| {
         let row = line as usize;
-        !ours.contains(&line) && row < table.len() && {
-            let l = table.line(row);
-            !l.text.is_empty() || !l.sound.is_empty()
-        }
+        typed.iter().any(|t| t.contains(line))
+            || (!ours.contains(&line) && row < table.len() && {
+                let l = table.line(row);
+                !l.text.is_empty() || !l.sound.is_empty()
+            })
     };
     let plan = tlk_alloc::allocate(&names, &known, a.start, taken).map_err(|e| anyhow!(e))?;
     // The table's lines as they are to be.
@@ -157,6 +184,7 @@ pub(crate) fn run(a: &Args<'_>) -> Result<Output> {
         "retired": plan.retired,
         "restored": plan.restored,
         "lines_changed": lines.len(),
+        "typed_lines": typed.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "moved": moved.iter().map(|(k, a, b)| json!({ "key": k, "from": a, "to": b })).collect::<Vec<_>>(),
     }));
     for (key, from, to) in &moved {

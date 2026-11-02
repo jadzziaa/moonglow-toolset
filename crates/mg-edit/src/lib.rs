@@ -242,6 +242,18 @@ impl Workspace {
         self.changes_since_save != 0
     }
 
+    /// How many commands Undo can take back: a command's place in the
+    /// history, for what is kept beside it (a talk-table line typed with a
+    /// field, undone with it).
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// How many commands Redo can put back.
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
     pub fn can_undo(&self) -> Option<&str> {
         self.undo.last().map(|c| c.label.as_str())
     }
