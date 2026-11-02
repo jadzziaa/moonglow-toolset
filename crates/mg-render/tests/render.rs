@@ -2756,8 +2756,8 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     );
     shiny.env_map = Some("mgenv".into());
     // (The same reflecting a cube map: its level worked out in Moonglow's
-    // shader, as Metal can't be given a cube's gradients. Cube maps are
-    // uploaded with one level, so both read it at 0 for now.)
+    // shader, as Metal can't be given a cube's gradients; cube maps are
+    // uploaded with their smaller levels, which both read.)
     let shiny_cube = Instance { env_map: Some("mgcube".into()), ..shiny.clone() };
     let mut bumpy = sphere("mgchecker", 24, 48);
     if let NodeKind::Mesh(m) = &mut bumpy.nodes[1].kind {

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:23:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:26:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -684,11 +684,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
     17.0). The material colours the engine uploads (`.set`
     [GRASS]'s) are not read through a patched `vsgrass`. (S)
-  - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
-    level Moonglow's shader works out for them (`cube_level`) and the
-    bias the game's programs add come to level 0 either way: a rough
-    surface's cube reflection isn't blurred. The stored levels would be
-    uploaded. (S)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
