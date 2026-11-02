@@ -372,7 +372,7 @@ fn winshot(path: &Path) -> Option<Rgba> {
 
 /// A click at (x, y) of the client's window, the pointer moved there
 /// first (a bare click is not taken).
-fn click_in_window(x: u32, y: u32) {
+pub(super) fn click_in_window(x: u32, y: u32) {
     let xdrive = common::repo().join("tools/aurora/xdrive.py");
     let out = Command::new("python3").arg(&xdrive).arg("windows").output().unwrap();
     let listed = String::from_utf8_lossy(&out.stdout).into_owned();

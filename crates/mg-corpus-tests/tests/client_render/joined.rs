@@ -236,6 +236,13 @@ void main()
     let w = mg_module::nwsync::write(&web, &contents, &o, &mut |_, _| {}).unwrap();
     let j = joined::start(&dir, "MgJoined", Join::Player, Some(&web), &["-nwsynchash", &w.sha1])
         .unwrap();
+    // (`MG_NWSYNC_CLICK`: the NWSync Downloader's Download clicked, at
+    // (435, 596) of the window, 25 s in; else it is clicked by hand.)
+    if std::env::var_os("MG_NWSYNC_CLICK").is_some() {
+        std::thread::sleep(Duration::from_secs(25));
+        let _ = j.winshot("before_download");
+        super::nui::click_in_window(435, 596);
+    }
     watch(&j, hold(120));
     let synced = joined::client_dir(&dir).join("nwsync");
     eprintln!("the client's nwsync folder: {}", synced.display());

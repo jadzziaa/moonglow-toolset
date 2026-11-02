@@ -26,6 +26,11 @@ fn now_utc() -> u64 {
 /// running, a picture every `MG_TIMER_GAP` seconds (180) `MG_TIMER_SHOTS`
 /// times (11): each shot's timer beside the wall clock (UTC) and the
 /// seconds since the first.
+///
+/// Seen (2026-11-01, 89.8193.37): the timer ran with the wall clock to within
+/// 60 ms over 30 minutes (11 pictures 3 minutes apart), from 24,904,369 seven
+/// seconds after entry (the count B of `docs/deferred.md`'s M1 entry): no jump
+/// within a run.
 #[test]
 #[ignore]
 fn batch6_timer_held() {
@@ -163,6 +168,11 @@ fn include_cases() -> Vec<(String, String)> {
 /// area view with the Shaders switch on (`moonglow_on.png`: the same
 /// programs, assembled by `mg_shader`), and its own shader
 /// (`moonglow.png`, the quadrants everywhere: a control).
+///
+/// Seen (2026-11-01, 89.8193.37): all green but `missing`, which the client
+/// drew magenta (its program failed); chains of 15 to 18, 24, 32, 64, 128, 250
+/// and 1,000 (`MG_DEPTHS`) all green. Moonglow drew `missing` and the chains
+/// past 16 with its own shader (the quadrants).
 #[test]
 #[ignore]
 fn batch6_include_splicing() {
@@ -226,6 +236,12 @@ fn batch6_include_splicing() {
 /// (`alpha`). Beside it, Moonglow's area view with the Shaders switch on
 /// (`moonglow_on.png`: the same programs, the texture as `mg-image` reads
 /// it).
+///
+/// Seen (2026-11-01, 89.8193.37): levels `(c << 3) | (c >> 2)` in red and
+/// green (33, 66 … 247), the alpha card white over both bands (no alpha from
+/// the bit). The first run, without the `raw32` and `stock16` controls, drew
+/// the cards as uninitialized texture memory (other textures' scraps and
+/// noise); seen once.
 #[test]
 #[ignore]
 fn batch6_tga16_texture() {
@@ -288,6 +304,12 @@ type ReplaceCase<'a> = (&'a str, bool, &'a [(u32, &'a str)], f32);
 /// with its TGA `c_ogrea` (its appearance 127's `c_ogreA`) replaced by the field (the field taken on a
 /// creature at all). Beside it, Moonglow's area view (which draws the
 /// object's own replacements by the field).
+///
+/// Seen (2026-11-01, 89.8193.37): the head red by the field and by the script;
+/// the helmet and the cloak as they were either way; the ogre as it was (its
+/// texture is `c_ogrea`, appearance 127's `c_ogreA`: the case named `c_ogre`
+/// then, corrected since, not run again). Moonglow drew the field's head and
+/// helmet red before the fix (`Part::item`).
 #[test]
 #[ignore]
 fn batch6_replaced_textures() {
@@ -428,6 +450,11 @@ fn chain_model(name: &str, sup: &str, scale: f32) -> String {
 /// the scale its animation plays at: Moonglow's, the playing model's alone
 /// (0.4, 1.2, 0.8, 0.8, 0.4 m), or each link's together (0.4, 1.2, 2.4,
 /// 0.8, 1.2). Beside it, Moonglow's area view (Animations on).
+///
+/// Seen (2026-11-01, 89.8193.37): the green card above the red by 13, 40, 83,
+/// 26 and 40 pixels in the client (× 1, 3, 6, 2, 3: each link's scale
+/// together), 12, 38, 24, 24 and 12 in Moonglow (the playing model's alone);
+/// the same with `MG_CHAIN_OWNER=0.5`.
 #[test]
 #[ignore]
 fn batch6_supermodel_chain() {
@@ -479,6 +506,11 @@ fn batch6_supermodel_chain() {
 /// up), the fourth behind one of its own model (the fifth batch's case).
 /// `ribbon_profiles.py` in the scratch directory reads the cells off the
 /// pictures.
+///
+/// Seen (2026-11-01, 89.8193.37): the cell's v at the next particle 0.93,
+/// 0.82, 0.69 and 0.63 at 0.15, 0.45, 0.9 and 1.2 m (a metre's gap; the
+/// ribbons twice their particles' size across, overlapping at the larger
+/// sizes); both cards hide the ribbon behind them (red over the wall).
 #[test]
 #[ignore]
 fn batch6_ribbon_sizes() {
@@ -565,6 +597,11 @@ const GRASS_PARTS: [(&str, Option<&str>); 7] = [
 /// [`GRASS_PARTS`] a run (`MG_PARTS` picks). Each run prints the picture's
 /// most common colors (the tufts' among them), the client's and
 /// Moonglow's with the Shaders switch on (the same patch, on its tufts).
+///
+/// Seen (2026-11-01, 89.8193.37): ambient and diffuse (55, 83, 18) in both
+/// (ttr01's colors made linear), emissive 0, the vertex color (16, 24, 5) in
+/// both; the diffuse's alpha 1 in Moonglow, falling with the camera's distance
+/// in the client (`fade`: 0.94 at 17 m to 0.49 at 24).
 #[test]
 #[ignore]
 fn batch6_grass_material() {
@@ -706,6 +743,10 @@ const RIPPLES: [(&str, Option<&str>); 8] = [
 /// stock's does). Seen close (`SetCameraFacing(90, 5, 70)`), `MG_SHOTS`
 /// pictures (24) as fast as they come. `ripple_profiles.py` in the
 /// scratch directory reads them.
+///
+/// Seen (2026-11-01, 89.8193.37): see `docs/findings.md`, "How far and how
+/// fast a texture ripples" (with `MG_SHOTS=80 MG_GAP_MS=150`, and
+/// `MG_RIPPLE_SIDE=128`).
 #[test]
 #[ignore]
 fn batch6_ripple() {
@@ -768,6 +809,10 @@ fn batch6_ripple() {
 /// a gray texture of alpha 0; east, the big mirror (`Reflection`
 /// `default`) made the same sphere. In the client beside Moonglow's area
 /// view, from close.
+///
+/// Seen (2026-11-01, 89.8193.37): the shield's sphere painted with
+/// `tin01__ref01` (copper) in the client, `chrome1` in Moonglow before the
+/// fix; the mirror's `chrome1` in both.
 #[test]
 #[ignore]
 fn batch6_item_env_map_own_model() {
@@ -851,6 +896,11 @@ fn standard_dds(bioware: &[u8]) -> Vec<u8> {
 /// (appearance 28518, its model and the body DDS alone in the override, as
 /// `reading_rippling_glow`'s `dds` case had it). Beside it, Moonglow's area
 /// view.
+///
+/// Seen (2026-11-01, 89.8193.37): the four floor cards alike (the key's, the
+/// override's BioWare DXT1, the standard header's, the TGA), and TDoD's two
+/// charred cards alike; the zombies here pale and one aflame (their glow's
+/// textures left out of the override: not the reading's question).
 #[test]
 #[ignore]
 fn batch6_bioware_dxt1() {
@@ -947,6 +997,9 @@ fn darker_runs(with: &Rgba, without: &Rgba, path: &Path, rows: [f32; 2]) -> Vec<
 /// falling south towards the camera; the client with Creature Shadow
 /// Detail Best and Off, compared: the shadows south of their feet counted
 /// (runs of darker columns), `darker.png` to look at.
+///
+/// Seen (2026-11-01, 89.8193.37): six runs of darker columns for eight ogres
+/// (the server pushed some together), every ogre its own shadow.
 #[test]
 #[ignore]
 fn batch6_light_shadow_casters() {
@@ -983,6 +1036,9 @@ fn batch6_light_shadow_casters() {
 /// Creature Shadow Detail Best and Off, compared (`darker.png`): whether
 /// the player's light casts the ogre's shadow (north, away from the
 /// camera), and the player's own.
+///
+/// Seen (2026-11-01, 89.8193.37): the ogre's shadow north of it, from the
+/// player's light, and the floor south of the player alike (0.05 and −0.01).
 #[test]
 #[ignore]
 fn batch6_player_light_at_night() {
@@ -1028,13 +1084,32 @@ fn batch6_player_light_at_night() {
 /// side (`SetCameraFacing(90, 9, 85)`), `MG_SHOTS` pictures (30) as fast
 /// as they come. Moonglow's side: `mgv render c_mohrg --anim cwalk` (and
 /// `c_blade_m`) from the side, at times through the walk.
+///
+/// Seen (2026-11-01, 89.8193.37): with `MG_WALKER=mohrg` and `blade`: the
+/// mohrg's entrails swing with the walk and the blade's helmet stays upright,
+/// as `mgv render c_mohrg --anim walk` and `c_blade_m` draw them from the
+/// side.
 #[test]
 #[ignore]
 fn batch6_walking() {
     let shots = std::env::var("MG_SHOTS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
     let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
-    let mut r = Reading::new("walking", "ttr01", light, &[]);
-    for (tag, appearance, y) in [("MG_MOHRG", 123u16, 23.0), ("MG_BLADE", 400, 26.0)] {
+    // (`MG_WALKER`: `mohrg` or `blade` alone, walking 1.5 m north of the
+    // player, seen from 4 m.)
+    let walker = std::env::var("MG_WALKER").ok();
+    let mut r = Reading::new(
+        &format!("walking{}", walker.as_deref().map_or(String::new(), |w| format!("_{w}"))),
+        "ttr01",
+        light,
+        &[],
+    );
+    let walkers: Vec<(&str, u16, f32)> = match walker.as_deref() {
+        Some("mohrg") => vec![("MG_MOHRG", 123, 21.5)],
+        Some("blade") => vec![("MG_BLADE", 400, 21.5)],
+        _ => vec![("MG_MOHRG", 123, 23.0), ("MG_BLADE", 400, 26.0)],
+    };
+    let ys: Vec<f32> = walkers.iter().map(|w| w.2).collect();
+    for &(tag, appearance, y) in &walkers {
         let fields = [
             ("Appearance_Type", Value::Word(appearance)),
             ("Tag", Value::String(tag.as_bytes().to_vec())),
@@ -1045,12 +1120,15 @@ fn batch6_walking() {
     let body = format!(
         "{INVISIBLE}\n    int i;\n    for (i = 0; i < 2; i++)\n    {{\n        \
          object c = GetObjectByTag(i == 0 ? \"MG_MOHRG\" : \"MG_BLADE\");\n        \
-         float y = i == 0 ? 23.0 : 26.0;\n        int k;\n        for (k = 0; k < 8; k++)\n        \
+         float y = i == 0 ? {:.1} : {:.1};\n        int k;\n        for (k = 0; k < 8; k++)\n        \
          {{\n            AssignCommand(c, ActionMoveToLocation(Location(area, Vector(24.0, y, 0.0), 0.0)));\n            \
          AssignCommand(c, ActionMoveToLocation(Location(area, Vector(16.0, y, 0.0), 180.0)));\n        \
-         }}\n    }}"
+         }}\n    }}",
+        ys[0],
+        ys.last().copied().unwrap_or(26.0)
     );
-    r.save(&enter(&body, (90.0, 9.0, 85.0)), SETTINGS);
+    let distance = if walker.is_some() { 4.0 } else { 9.0 };
+    r.save(&enter(&body, (90.0, distance, 85.0)), SETTINGS);
     let pictures = common::client_screenshots(&r.dir, "MgScene", shots, Duration::from_millis(0))
         .expect("the client's pictures");
     for (i, (t, img)) in pictures.iter().enumerate() {
@@ -1071,6 +1149,10 @@ fn batch6_walking() {
 /// TXI (`hottga`), the stock `tic01_floor01.dds` with the zombie's TXI
 /// (`floorrip`) and without (`floor`, under another name), and the floor
 /// as a TGA with the TXI (`floortga`). Beside it, Moonglow's area view.
+///
+/// Seen (2026-11-01, 89.8193.37): `hot` and `floorrip` flat light gray (89,
+/// 82, 78 both), `hotbare` the coals' picture, `hottga` the coals rippling,
+/// `floor` the stones, `floortga` the stones rippling, added (pale).
 #[test]
 #[ignore]
 fn batch6_procedure_on_dds() {
@@ -1129,6 +1211,11 @@ fn batch6_procedure_on_dds() {
 /// Moonglow's area view with the Shaders switch on (`moonglow_on.png`,
 /// the same patch). Each run prints the three discs' middles and the
 /// floor between them.
+///
+/// Seen (2026-11-01, 89.8193.37): the discs' color before lighting alike (255,
+/// 91, 11), their lighting 126, 156 and 126, the `alpha 0.5` disc's alpha 0.5
+/// and black with its alpha black (no blending): the same in Moonglow's game
+/// path to the pixel; its own shader lit the three alike (126).
 #[test]
 #[ignore]
 fn batch6_cut_out_lighter() {
