@@ -239,6 +239,45 @@ fn a_plugin_is_packed_and_installed() {
     assert!(!ok);
     assert_eq!(checked["plugins"][0]["faults"], json!(["it is not a zip archive"]));
 
+    // An archive of several plugins: each checked, and each installed in
+    // its own folder, or none (one installed already, without --replace).
+    let bundle = dir.join("bundle.zip");
+    {
+        use std::io::Write;
+        let manifest = std::fs::read_to_string(source.join("plugin.cfg")).unwrap();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        for id in ["example.tag-conventions", "example.other"] {
+            let m = manifest.replace("example.tag-conventions", id);
+            zip.start_file(format!("{id}/plugin.cfg"), options).unwrap();
+            zip.write_all(m.as_bytes()).unwrap();
+            for file in ["main.luau", "rules.luau"] {
+                zip.start_file(format!("{id}/{file}"), options).unwrap();
+                zip.write_all(&std::fs::read(source.join(file)).unwrap()).unwrap();
+            }
+        }
+        std::fs::write(&bundle, zip.finish().unwrap().into_inner()).unwrap();
+    }
+    let both = bundle.to_str().unwrap();
+    let (ok, checked) = mg(&["plugin", "check", both]);
+    assert!(ok, "{checked}");
+    assert_eq!(checked["plugins"].as_array().unwrap().len(), 2);
+    let (ok, refused) = mg(&["plugin", "install", both, to]);
+    assert!(!ok);
+    assert!(refused["error"].as_str().unwrap().contains("is installed already"), "{refused}");
+    assert!(!plugins.join("example.other").exists(), "none of them installed");
+    let (ok, installed) = mg(&["plugin", "install", both, to, "--replace"]);
+    assert!(ok, "{installed}");
+    let ids: Vec<&str> = installed["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["example.other", "example.tag-conventions"]);
+    assert_eq!(installed["plugins"][1]["replaced"], "1.0.0");
+    assert!(plugins.join("example.other/main.luau").is_file());
+
     // Removed by its id: what was installed, not what was copied in.
     let copied = plugins.join("by-hand");
     std::fs::create_dir_all(&copied).unwrap();

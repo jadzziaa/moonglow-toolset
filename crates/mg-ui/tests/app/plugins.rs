@@ -810,6 +810,64 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     assert!(by_hand.join("main.luau").is_file());
 }
 
+/// An archive of several plugins installs each into its own folder: those
+/// new at once, and one installed already after its own question.
+#[test]
+fn an_archive_of_several_plugins_installs_each() {
+    use std::io::Write;
+    let dir = mg_testkit::scratch_dir("ui-plugin-install-several");
+    let plugins = dir.join("plugins");
+    let fixture = plugin_fixtures().join("tag-conventions");
+    let manifest = std::fs::read_to_string(fixture.join("plugin.cfg")).unwrap();
+    let bundle = |version: &str| {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        for (folder, id) in [("tags", "example.tag-conventions"), ("other", "example.other")] {
+            let m = manifest.replace("1.0.0", version).replace("example.tag-conventions", id);
+            zip.start_file(format!("{folder}/plugin.cfg"), options).unwrap();
+            zip.write_all(m.as_bytes()).unwrap();
+            for file in ["main.luau", "rules.luau"] {
+                zip.start_file(format!("{folder}/{file}"), options).unwrap();
+                zip.write_all(&std::fs::read(fixture.join(file)).unwrap()).unwrap();
+            }
+        }
+        let path = dir.join(format!("bundle-{version}.zip"));
+        std::fs::write(&path, zip.finish().unwrap().into_inner()).unwrap();
+        path
+    };
+    let (first, second) = (bundle("1.0.0"), bundle("1.1.0"));
+    let mut app = app_with(vec![first]);
+    app.plugin_dir = Some(plugins.clone());
+    app.load_plugins();
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    h.state_mut().install_plugin();
+    h.run();
+    assert_eq!(h.state().plugins.installed.len(), 2);
+    for id in ["example.tag-conventions", "example.other"] {
+        assert!(plugins.join(id).join("main.luau").is_file(), "{id}");
+    }
+    let note = h.state().plugins.install_note.clone().unwrap().1;
+    assert_eq!(note.lines().count(), 2, "{note}");
+    // Again, a later version of both: each asked about in turn.
+    h.state_mut().install_plugin_from(&second);
+    h.run();
+    h.get_by_label_contains("Replace it with 1.1.0 from bundle-1.1.0.zip?");
+    h.get_by_label("Replace").click();
+    h.run();
+    h.run();
+    h.get_by_label_contains("Replace it with 1.1.0 from bundle-1.1.0.zip?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().plugins.replace.is_none());
+    let versions: Vec<String> = (h.state().plugins.installed.iter())
+        .map(|i| i.plugin.as_ref().unwrap().manifest.version.clone())
+        .collect();
+    let mut sorted = versions.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["1.0.0", "1.1.0"], "one replaced, the other left: {versions:?}");
+}
+
 /// Started with `--no-plugins`: none is loaded, whatever is installed and
 /// was enabled, and Manage Plugins says so.
 #[test]

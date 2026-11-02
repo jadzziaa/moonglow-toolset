@@ -2947,6 +2947,7 @@ dependencies = [
  "skrifa",
  "toml",
  "wgpu",
+ "zip",
 ]
 
 [[package]]

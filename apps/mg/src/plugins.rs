@@ -397,26 +397,31 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
     let mut out = Output::default();
     let mut all = Vec::new();
     for dir in dirs {
-        // A file is a plugin's archive: what the installer checks of it,
-        // then its code, as it is in the archive.
+        // A file is a plugin's archive (or several plugins'): what the
+        // installer checks of it, then each one's code, as it is in the
+        // archive.
         if dir.is_file() {
-            let (name, faults) = match archive(dir) {
-                Ok(package) => {
-                    let host = Rc::new(CliHost::default());
-                    let faults = match package.inspect(host) {
-                        Ok(faults) => faults,
-                        Err(e) => vec![e.to_string()],
-                    };
-                    (package.manifest.id.clone(), faults)
-                }
-                Err(e) => (dir.display().to_string(), vec![e.to_string()]),
+            let checked: Vec<(String, Vec<String>)> = match archives(dir) {
+                Ok(packages) => (packages.iter())
+                    .map(|package| {
+                        let host = Rc::new(CliHost::default());
+                        let faults = match package.inspect(host) {
+                            Ok(faults) => faults,
+                            Err(e) => vec![e.to_string()],
+                        };
+                        (package.manifest.id.clone(), faults)
+                    })
+                    .collect(),
+                Err(e) => vec![(dir.display().to_string(), vec![e.to_string()])],
             };
-            match faults.as_slice() {
-                [] => out.line(format!("{name}\tok")),
-                faults => faults.iter().for_each(|f| out.line(format!("{name}\t{f}"))),
+            for (name, faults) in checked {
+                match faults.as_slice() {
+                    [] => out.line(format!("{name}\tok")),
+                    faults => faults.iter().for_each(|f| out.line(format!("{name}\t{f}"))),
+                }
+                out.failed |= !faults.is_empty();
+                all.push(json!({ "plugin": name, "faults": faults }));
             }
-            out.failed |= !faults.is_empty();
-            all.push(json!({ "plugin": name, "faults": faults }));
             continue;
         }
         let found = plugins_in(dir);
@@ -567,9 +572,10 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
     Ok(out)
 }
 
-/// A plugin's archive read from a file, as the installer reads it.
-fn archive(file: &Path) -> Result<mg_plugin::Package> {
-    mg_plugin::Package::open(file).map_err(|e| anyhow!("{e}"))
+/// The plugins of an archive of one or several, as the installer reads
+/// them.
+fn archives(file: &Path) -> Result<Vec<mg_plugin::Package>> {
+    mg_plugin::Package::open_all(file).map_err(|e| anyhow!("{e}"))
 }
 
 /// `mg plugin remove`: a plugin installed from an archive taken out of a
@@ -595,24 +601,48 @@ pub(crate) fn remove(id: &str, plugins: &Path) -> Result<Output> {
 
 /// `mg plugin install`: a plugin's archive unpacked into a plugins folder
 /// (as Install Plugin from File does: checked, none of it run), in a
-/// folder named by its id.
+/// folder named by its id; each plugin of an archive of several, all of
+/// them or (one installed already without `--replace`, one in the way)
+/// none. The JSON of several is `{ "plugins": [...] }`, one's as one.
 pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Output> {
-    let package = archive(file).map_err(|e| anyhow!("{}: {e}", file.display()))?;
-    let replaced = match package.existing(plugins) {
-        mg_plugin::Existing::Installed { version } if !replace => bail!(
-            "{} {version} is installed already (--replace installs over it)",
-            package.manifest.name
-        ),
-        mg_plugin::Existing::Installed { version } => Some(version),
-        _ => None,
+    let packages = archives(file).map_err(|e| anyhow!("{}: {e}", file.display()))?;
+    // (All of them checked before any is installed.)
+    let mut replaced = Vec::new();
+    for package in &packages {
+        replaced.push(match package.existing(plugins) {
+            mg_plugin::Existing::Installed { version } if !replace => bail!(
+                "{} {version} is installed already (--replace installs over it)",
+                package.manifest.name
+            ),
+            mg_plugin::Existing::Installed { version } => Some(version),
+            mg_plugin::Existing::Foreign { dir } => bail!(
+                "{} is in the plugins folder already, as {}, and was not installed from a \
+                 file: remove that folder first",
+                package.manifest.name,
+                dir.display()
+            ),
+            mg_plugin::Existing::Nothing => None,
+        });
+    }
+    let mut lines = Vec::new();
+    let mut each = Vec::new();
+    for (package, replaced) in packages.iter().zip(replaced) {
+        let plugin = package.install(plugins, replace).map_err(|e| anyhow!("{e}"))?;
+        let m = &plugin.manifest;
+        each.push(json!({
+            "id": m.id, "version": m.version, "folder": plugin.dir.display().to_string(),
+            "replaced": replaced,
+        }));
+        lines.push(format!("{}\t{} {}\t{}", m.id, m.name, m.version, plugin.dir.display()));
+    }
+    let json = match each.len() {
+        1 => each.remove(0),
+        _ => json!({ "plugins": each }),
     };
-    let plugin = package.install(plugins, replace).map_err(|e| anyhow!("{e}"))?;
-    let m = &plugin.manifest;
-    let mut out = Output::new(json!({
-        "id": m.id, "version": m.version, "folder": plugin.dir.display().to_string(),
-        "replaced": replaced,
-    }));
-    out.line(format!("{}\t{} {}\t{}", m.id, m.name, m.version, plugin.dir.display()));
+    let mut out = Output::new(json);
+    for line in lines {
+        out.line(line);
+    }
     Ok(out)
 }
 

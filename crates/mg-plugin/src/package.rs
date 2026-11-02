@@ -29,6 +29,13 @@ const MAX_ENTRIES: usize = 4000;
 /// The biggest archive read, in bytes.
 pub const MAX_ARCHIVE: u64 = 64 << 20;
 
+/// The most plugins one archive may hold.
+pub const MAX_PLUGINS: usize = 50;
+
+/// The most an archive of several plugins may unpack to, all of them
+/// together, in bytes.
+pub const MAX_ALL: u64 = 64 << 20;
+
 /// In a folder an archive was installed to, the file that says so: only a
 /// folder with it is replaced by installing again.
 pub const MARKER: &str = ".moonglow-installed";
@@ -123,11 +130,36 @@ impl Package {
         Package::read(&std::fs::read(path).map_err(io)?)
     }
 
+    /// Reads the archive in the file at `path` ([`Package::read_all`]):
+    /// each plugin it holds.
+    pub fn open_all(path: &std::path::Path) -> Result<Vec<Package>, PluginError> {
+        let io = |e: std::io::Error| PluginError::Package(e.to_string());
+        if std::fs::metadata(path).map_err(io)?.len() > MAX_ARCHIVE {
+            return fault(format!("it is over {} MB", MAX_ARCHIVE >> 20));
+        }
+        Package::read_all(&std::fs::read(path).map_err(io)?)
+    }
+
     /// Reads a plugin's archive: a zip with `plugin.cfg` at its top, or
     /// in the one folder at its top that has one (as zipping a folder, or
     /// a repository's download, makes it). What is outside the plugin's
-    /// folder is ignored.
+    /// folder is ignored. An archive of several plugins is refused:
+    /// [`Package::read_all`] reads those.
     pub fn read(bytes: &[u8]) -> Result<Package, PluginError> {
+        let mut all = Package::read_all(bytes)?;
+        if all.len() > 1 {
+            let ids: Vec<&str> = all.iter().map(|p| p.manifest.id.as_str()).collect();
+            return fault(format!("it holds several plugins ({})", ids.join(", ")));
+        }
+        Ok(all.remove(0))
+    }
+
+    /// Reads an archive of one plugin or of several: `plugin.cfg` at its
+    /// top (one plugin, the whole archive), or in folders at its top (each
+    /// such folder a plugin), or, where its top is one folder alone (a
+    /// repository's download), in folders of that one. Each plugin is held
+    /// to the limits of one archive, and two of one id are refused.
+    pub fn read_all(bytes: &[u8]) -> Result<Vec<Package>, PluginError> {
         if bytes.len() as u64 > MAX_ARCHIVE {
             return fault(format!("it is over {} MB", MAX_ARCHIVE >> 20));
         }
@@ -159,33 +191,61 @@ impl Package {
             }
         }
 
-        // The plugin's folder in it: the top, or the one folder with a
-        // manifest.
+        // The plugins' folders in it: the top, or the folders at its top
+        // with a manifest, or those of the one folder at its top.
         let is_manifest = |p: &[String]| p.last().is_some_and(|n| n == "plugin.cfg");
-        let root: Vec<String> = if entries.iter().any(|(_, p)| p.len() == 1 && is_manifest(p)) {
-            Vec::new()
-        } else {
-            let folders: BTreeSet<&str> = entries
-                .iter()
-                .filter(|(_, p)| p.len() == 2 && is_manifest(p))
-                .map(|(_, p)| p[0].as_str())
-                .collect();
-            match folders.len() {
-                0 => return fault("it has no plugin.cfg at its top, or in a folder at its top"),
-                1 => vec![folders.into_iter().next().unwrap_or_default().to_string()],
-                _ => {
-                    return fault(format!(
-                        "it holds several plugins ({}): install each from an archive of its own",
-                        folders.into_iter().collect::<Vec<_>>().join(", ")
-                    ));
-                }
-            }
+        let at_depth = |depth: usize| -> BTreeSet<Vec<String>> {
+            (entries.iter())
+                .filter(|(_, p)| p.len() == depth && is_manifest(p))
+                .map(|(_, p)| p[..depth - 1].to_vec())
+                .collect()
         };
-        let inside: Vec<(usize, String)> = entries
-            .into_iter()
-            .filter(|(_, p)| p.len() > root.len() && p[..root.len()] == root[..])
-            .map(|(i, p)| (i, p[root.len()..].join("/")))
-            .collect();
+        let tops: BTreeSet<&str> = entries.iter().map(|(_, p)| p[0].as_str()).collect();
+        let roots: Vec<Vec<String>> = if !at_depth(1).is_empty() {
+            vec![Vec::new()]
+        } else if !at_depth(2).is_empty() {
+            at_depth(2).into_iter().collect()
+        } else if tops.len() == 1 && !at_depth(3).is_empty() {
+            at_depth(3).into_iter().collect()
+        } else {
+            return fault("it has no plugin.cfg at its top, or in a folder at its top");
+        };
+        if roots.len() > MAX_PLUGINS {
+            return fault(format!("it holds over {MAX_PLUGINS} plugins"));
+        }
+        let mut out: Vec<Package> = Vec::new();
+        let mut all_left = MAX_ALL;
+        for root in &roots {
+            let inside: Vec<(usize, String)> = (entries.iter())
+                .filter(|(_, p)| p.len() > root.len() && p[..root.len()] == root[..])
+                .map(|(i, p)| (*i, p[root.len()..].join("/")))
+                .collect();
+            let package =
+                Package::unpack(&mut zip, inside, &mut all_left).map_err(|e| match e {
+                    // (Which of them, where there are several.)
+                    PluginError::Package(m) if roots.len() > 1 => {
+                        PluginError::Package(format!("{}: {m}", root.join("/")))
+                    }
+                    e => e,
+                })?;
+            if let Some(twin) = out.iter().find(|p| p.manifest.id == package.manifest.id) {
+                return fault(format!(
+                    "it holds the plugin {} twice ({} and {})",
+                    package.manifest.id, twin.manifest.version, package.manifest.version
+                ));
+            }
+            out.push(package);
+        }
+        Ok(out)
+    }
+
+    /// One plugin's files of the archive (each entry's index, and its
+    /// path in the plugin's folder) read and its manifest checked.
+    fn unpack(
+        zip: &mut ZipArchive<Cursor<&[u8]>>,
+        inside: Vec<(usize, String)>,
+        all_left: &mut u64,
+    ) -> Result<Package, PluginError> {
         if inside.len() > MAX_FILES {
             return fault(format!("it has over {MAX_FILES} files"));
         }
@@ -209,7 +269,8 @@ impl Package {
 
         // Its data, to the limit: by what is read, not by what it says.
         let mut files = Vec::new();
-        let mut left = MAX_BYTES;
+        let mut left = MAX_BYTES.min(*all_left);
+        let limit = if left < MAX_BYTES { MAX_ALL } else { MAX_BYTES };
         for (i, path) in inside {
             let entry = match zip.by_index(i) {
                 Ok(entry) => entry,
@@ -220,9 +281,10 @@ impl Package {
                 return fault(format!("{path:?} does not unpack: {e}"));
             }
             if data.len() as u64 > left {
-                return fault(format!("it unpacks to over {} MB", MAX_BYTES >> 20));
+                return fault(format!("it unpacks to over {} MB", limit >> 20));
             }
             left -= data.len() as u64;
+            *all_left -= data.len() as u64;
             files.push((path, data));
         }
         files.sort();

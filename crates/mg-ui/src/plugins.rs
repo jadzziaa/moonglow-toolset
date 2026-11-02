@@ -67,8 +67,10 @@ pub struct Plugins {
     /// The form being filled: the question it belongs to, and its values.
     form: Option<(Question, Vec<serde_json::Value>)>,
     /// An archive chosen to install whose plugin is installed already:
-    /// asked before it is replaced.
+    /// asked before it is replaced; and, of an archive of several, those
+    /// to ask about after it.
     pub replace: Option<Replace>,
+    pub replace_next: VecDeque<Replace>,
     /// What the last install or removal came to, shown in the window.
     pub install_note: Option<(Level, String)>,
     /// A plugin chosen to remove: asked before its folder is deleted.
@@ -920,22 +922,44 @@ impl Moonglow {
         self.install_plugin_from(&path);
     }
 
-    /// Installs a plugin from its archive into the plugins folder. None
-    /// of its code runs, and nothing is enabled. One installed from an
-    /// archive before is replaced only after a yes ([`Plugins::replace`]).
+    /// Installs a plugin from its archive into the plugins folder (each
+    /// plugin of an archive of several). None of its code runs, and
+    /// nothing is enabled. One installed from an archive before is
+    /// replaced only after a yes ([`Plugins::replace`]), asked of each.
     pub fn install_plugin_from(&mut self, path: &Path) {
         let Some(dir) = self.plugin_dir.clone() else { return };
         self.plugins.window = true;
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let read = || Package::open(path).map_err(|e| e.to_string());
-        match read() {
-            Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
-            Ok(package) => match package.existing(&dir) {
+        let read = || Package::open_all(path).map_err(|e| e.to_string());
+        let packages = match read() {
+            Err(e) => {
+                self.install_said(Level::Error, format!("{file} was not installed: {e}"));
+                return;
+            }
+            Ok(packages) => packages,
+        };
+        let mut said = Vec::new();
+        for package in packages {
+            match package.existing(&dir) {
                 Existing::Installed { version } => {
-                    self.plugins.replace = Some(Replace { package, file, installed: version });
+                    let r = Replace { package, file: file.clone(), installed: version };
+                    match self.plugins.replace {
+                        None => self.plugins.replace = Some(r),
+                        Some(_) => self.plugins.replace_next.push_back(r),
+                    }
                 }
-                _ => self.install_package(&package, &file, false),
-            },
+                _ => {
+                    self.install_package(&package, &file, false);
+                    said.extend(self.plugins.install_note.clone());
+                }
+            }
+        }
+        // (Of several, what became of each.)
+        if said.len() > 1 {
+            let worst =
+                said.iter().map(|(l, _)| *l).max_by_key(|l| *l as u8).unwrap_or(Level::Info);
+            let text: Vec<String> = said.into_iter().map(|(_, t)| t).collect();
+            self.plugins.install_note = Some((worst, text.join("\n")));
         }
     }
 
@@ -2006,6 +2030,10 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     } else if no || modal.should_close() {
         app.plugins.replace = None;
+    }
+    // (Of an archive of several, the next one installed already.)
+    if app.plugins.replace.is_none() {
+        app.plugins.replace = app.plugins.replace_next.pop_front();
     }
 }
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
 ---
 
 # Writing plugins
@@ -1137,9 +1137,15 @@ looks for:
 
 - `plugin.cfg` at the archive's top, or in the one folder at its top
   (what zipping the folder gives, and a repository's download when the
-  plugin is at the repository's top). One plugin to an archive.
-- At most 500 files and 16 MB unpacked: a plugin is scripts and a little
-  data.
+  plugin is at the repository's top).
+- Several plugins in one archive (since Moonglow 3.3.0): each in a
+  folder at the archive's top (`tags/plugin.cfg`, `names/plugin.cfg`),
+  or in the folders of the one folder at its top (a repository's
+  download of `plugins/tags`, `plugins/names`), each of its own id. Each
+  is installed into its own folder; one at fault refuses the archive. At
+  most 50 plugins, 64 MB unpacked in all.
+- At most 500 files and 16 MB unpacked a plugin: a plugin is scripts and
+  a little data.
 - File names every system can have: no `:`, `*`, `?`, `"`, `<`, `>` or
   `|`, none that end in a dot or a space, none of Windows's device names
   (`aux.luau`), and no two that differ only in case.

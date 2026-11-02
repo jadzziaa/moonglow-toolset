@@ -46,7 +46,8 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_rules::ObjectKind;
 pub use package::{
-    Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
+    Existing, MARKER, MAX_ALL, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, MAX_PLUGINS, Package,
+    from_archive, pack, remove,
 };
 pub use runtime::EVENT_NAMES;
 pub use settings::{SettingWrite, Settings};

@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:24:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
 ---
 
 # Plugins
@@ -83,12 +83,17 @@ A plugin comes as an archive (a `.zip` file) or as a folder.
 plugin into Moonglow's plugins folder. Nothing of the plugin runs, and it
 is off until you enable it.
 
-- The archive is checked before anything is written: it must hold one
-  plugin whose manifest reads and that was written for this Moonglow's
-  plugin API. One that isn't a plugin, or whose files would land outside
-  the plugin's own folder, is refused, with the reason.
-- If the plugin is installed already, Moonglow asks before replacing it
-  (a newer version, say). Whether it is enabled stays as it was.
+- The archive is checked before anything is written: each plugin it
+  holds must have a manifest that reads and was written for this
+  Moonglow's plugin API. One that isn't a plugin, or whose files would
+  land outside the plugin's own folder, is refused, with the reason.
+- An archive may hold several plugins, each in a folder of its own at
+  its top (or in the one folder at its top, as a repository's download
+  has them): each is installed into a folder of its own, and each is off
+  until you enable it.
+- If a plugin is installed already, Moonglow asks before replacing it
+  (a newer version, say), one question for each such plugin of the
+  archive. Whether it is enabled stays as it was.
 - A plugin's folder that was copied in by hand is never replaced by an
   install: remove that folder first.
 
@@ -342,9 +347,9 @@ by hand (`mg plugin run --event`).
   line. Nothing was changed.
 - **A plugin is not listed.** Its folder needs `plugin.cfg` directly in
   it (not a folder deeper); press **Reload**.
-- **An archive is not installed.** The log and Manage Plugins say why.
-  "It holds several plugins" means the archive is a collection: unpack
-  it and install each plugin's folder by copying.
+- **An archive is not installed.** The log and Manage Plugins say why;
+  of an archive of several plugins, which one is at fault, and none of
+  them is installed.
 - **Moonglow misbehaves with a plugin enabled.** Start it with
   `--no-plugins`: no plugin is loaded, and Manage Plugins says so.
   A crash report names the enabled plugins; when you report a problem,

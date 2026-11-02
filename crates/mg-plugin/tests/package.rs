@@ -63,6 +63,49 @@ impl Host for Quiet {
     }
 }
 
+/// The fixture's manifest with another id.
+fn manifest_of(id: &str) -> Vec<u8> {
+    String::from_utf8(fixture("plugin.cfg"))
+        .unwrap()
+        .replace("example.tag-conventions", id)
+        .into_bytes()
+}
+
+/// An archive of several plugins: each folder at its top with a manifest
+/// (or each of the one folder at its top, as a repository's download has
+/// them), read as one plugin each and installed each into its own
+/// folder; what one plugin's archive takes ([`Package::read`]) refuses it,
+/// and one of them refused refuses the whole archive, saying which.
+#[test]
+fn an_archive_of_several_plugins_is_read_and_installed() {
+    let mut files = plugin_under("tags/", &manifest_of("example.tags"));
+    files.extend(plugin_under("names/", &manifest_of("example.names")));
+    files.push(("README.md".into(), b"Two plugins".to_vec()));
+    let all = Package::read_all(&zipped(&files)).unwrap();
+    let ids: Vec<&str> = all.iter().map(|p| p.manifest.id.as_str()).collect();
+    assert_eq!(ids, ["example.names", "example.tags"]);
+    assert_eq!(all[0].files().collect::<Vec<_>>(), ["main.luau", "plugin.cfg", "rules.luau"]);
+    assert_eq!(refusal(&zipped(&files)), "it holds several plugins (example.names, example.tags)");
+    // A repository's download: its one folder at the top holds them.
+    let mut deeper = plugin_under("repo-main/tags/", &manifest_of("example.tags"));
+    deeper.extend(plugin_under("repo-main/names/", &manifest_of("example.names")));
+    assert_eq!(Package::read_all(&zipped(&deeper)).unwrap().len(), 2);
+    // Installed, each in its own folder.
+    let dir = std::env::temp_dir().join(format!("mg-plugin-several-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for p in &all {
+        p.install(&dir, false).unwrap();
+    }
+    let found: Vec<String> = discover(&dir).into_iter().map(|p| p.unwrap().manifest.id).collect();
+    assert_eq!(found, ["example.names", "example.tags"]);
+    let _ = std::fs::remove_dir_all(&dir);
+    // One of them at fault: the whole archive, by the folder at fault.
+    let mut broken = plugin_under("tags/", &manifest_of("example.tags"));
+    broken.push(("names/plugin.cfg".into(), manifest_of("example.names")));
+    let e = Package::read_all(&zipped(&broken)).unwrap_err().to_string();
+    assert_eq!(e, "names: its entry main.luau is not in it");
+}
+
 /// Everything under `dir`, as paths from it, sorted.
 fn tree(dir: &Path) -> Vec<String> {
     fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
@@ -204,12 +247,12 @@ fn what_is_no_plugin_or_not_safe_is_refused() {
     assert_eq!(with("Main.luau", b"x"), "it has \"Main.luau\" twice");
     assert_eq!(with("rules.luau/more.luau", b"x"), "\"rules.luau\" is a file and a folder in it");
 
-    // Several plugins, a manifest for another API, one that is not text.
+    // One plugin twice, a manifest for another API, one that is not text.
     let mut two = plugin_under("one/", &fixture("plugin.cfg"));
     two.extend(plugin_under("two/", &fixture("plugin.cfg")));
     assert_eq!(
         refusal(&zipped(&two)),
-        "it holds several plugins (one, two): install each from an archive of its own"
+        "it holds the plugin example.tag-conventions twice (1.0.0 and 1.0.0)"
     );
     let other = String::from_utf8(fixture("plugin.cfg")).unwrap().replace("\"0.4\"", "\"7.0\"");
     let e = refusal(&zipped(&plugin_under("", other.as_bytes())));

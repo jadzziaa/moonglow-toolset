@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:38:10Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1206,8 +1206,6 @@ contribution itself states as not done or not checked.
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)
-  - **Archives of several plugins** are refused: one plugin to an
-    archive. (S)
   - **A project's own plugins** (API 0.4, the Domains of Dread's
     builder proposal A2: `plugins/` of a project, or `[plugins] folder`,
     run once the builder allows each, asked when the project is opened,
