@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: The main window
-description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
+description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
 ---
 
 # The main window
@@ -61,19 +61,67 @@ Project). Any command can be given a key in Tools › Options › Keyboard.
 
 **Help › Check for Updates…** (also a button in Help › About) asks
 GitHub for Moonglow's latest release and says either that yours is the
-newest or that a newer one is out, with a link to its release page in
-your browser; drafts and pre-releases never count. Nothing is
-downloaded or installed: you update as you installed. Offline, or when
-GitHub refuses (it limits how often it is asked), the window says why.
-What is sent is that one request and nothing else (no identifier, path
-or anything about your modules). Once a day at most Moonglow also asks
-by itself, in the background, unless Tools › Options › Updates says not
-to; when a newer release is out, a line under the toolbar says so, with
-the release page, **Don't remind me about this version** (a later
-version is told again) and **×** to close it until the next check.
-Where Flatpak, Scoop or Nix installed Moonglow, it doesn't ask by
-itself, and the window says how that copy is updated
-([Options](10-options.md#updates)).
+newest or that a newer one is out, with its notes (what is new in it)
+and a link to its release page in your browser; drafts never count, and
+pre-releases only with Tools › Options › Updates › Include pre-releases.
+Offline, or when GitHub refuses (it limits how often it is asked), the
+window says why. What is sent is that one request and nothing else (no
+identifier, path or anything about your modules). Once a day at most
+Moonglow also asks by itself, in the background, unless Tools › Options
+› Updates says not to; when a newer release is out, a line under the
+toolbar says so, with **What's New…** (the window, with the notes),
+**Install Now**, **Later**, **Don't remind me about this version** (a
+later version is told again) and **×** to close it until the next check.
+
+### Installing an update
+
+Where Moonglow updates itself, it installs the new release from the
+window or the notice:
+
+- **Install Now** downloads the package for your copy, verifies it, and
+  installs it: the AppImage is replaced where it is (the file keeps its
+  name and place, so a link to it, such as `~/.local/bin/moonglow` or
+  `mg`, still works); the Windows installer, the Windows zip's files and
+  the macOS app are installed as Moonglow closes. The window then asks
+  **Restart Moonglow now?**: **Restart Now** asks about unsaved work
+  first, as Exit does, then closes Moonglow, installs the update and
+  starts it again with the module that was open. **Later** leaves it for
+  the next start.
+- **Later** downloads and verifies the package now and installs it when
+  Moonglow closes, so the next start is the new version. If Moonglow
+  doesn't close normally (it crashes, or the computer is turned off),
+  nothing is installed, and the notice offers the update again.
+- The progress shows in the notice and the window. The Windows installer
+  runs by itself as Moonglow closes (into the same folder, for the same
+  users; under Program Files Windows asks for an administrator) and
+  starts Moonglow again when it is done. The zip's files replace those
+  of the folder you unpacked it into, and nothing else there is touched.
+
+**What is checked.** Each release publishes the SHA-256 checksums of its
+packages in a file, `SHA256SUMS`, signed by the project with a
+[minisign](https://jedisct1.github.io/minisign/) key whose public half
+is built into Moonglow. Moonglow installs a package only when that
+signature verifies, it was made for this release, and the downloaded
+file's checksum is the one signed. Otherwise the window says why (for
+example, "the release's signature doesn't verify") and links the release
+page, and nothing is installed. A download is written beside what it
+replaces, under a name starting `.moonglow-update-`, and renamed only
+once it is checked; a broken or interrupted download is removed, and
+what one leaves behind is removed at the next start.
+
+**When Moonglow doesn't install it**, the window says why and links the
+release page:
+
+- Flatpak, Scoop or Nix installed it: the package manager updates it
+  (`flatpak update io.github.moonglow_toolset.Moonglow`, `scoop update
+  moonglow`), and Moonglow doesn't ask by itself
+  ([Options](10-options.md#updates)).
+- A copy built from source, or installed by a distribution's package.
+- A folder Moonglow can't write to (an AppImage in `/opt`, the app in
+  `/Applications` for a user who isn't an administrator): it says so
+  before downloading anything. Update it as you installed it.
+- A build without the project's key (one built before the key was
+  made): it doesn't install updates.
 
 ## Keyboard shortcuts
 

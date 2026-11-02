@@ -31,7 +31,11 @@ which sets it as it starts (`mg_core::release`). A release:
    `<releases>` in `linux/io.github.moonglow_toolset.Moonglow.metainfo.xml`.
 4. Is committed ("Version 2.9.0") and tagged `v2.9.0`; the tag builds the
    packages and drafts the GitHub release.
-5. Once the release is published, the Scoop manifest follows ([Scoop](#scoop)).
+5. Is signed, on the owner's machine, before it is published:
+   `packaging/sign-release.sh v2.9.0` ([Signing a release](#signing-a-release)).
+   A release published unsigned is offered by the app with its page
+   only: nothing installs it.
+6. Once the release is published, the Scoop manifest follows ([Scoop](#scoop)).
 
 | Folder | What |
 | --- | --- |
@@ -40,6 +44,7 @@ which sets it as it starts (`mg_core::release`). A release:
 | `flatpak/` | The Flatpak manifest, `cargo_sources.py` and `build-flatpak.sh`. |
 | `windows/` | The Inno Setup script, `build-installer.ps1`, and `dxc.ps1` with `dxc/` (the pinned DirectX Shader Compiler: [DXC](#dxc-direct3d-12s-shader-compiler)). The executable's icon and version information come from `apps/moonglow/build.rs`. |
 | `macos/` | `Info.plist` and `build-app.sh`. |
+| `sign-release.sh` | Signs a release's packages' checksums with the owner's minisign key and uploads them ([Signing a release](#signing-a-release)); `minisign.pub` beside it, once made, is the public key built into the app. |
 | `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its license, and the license texts (on Windows, DXC's too: `--dxc`). |
 
 The application ID is `io.github.moonglow_toolset.Moonglow`
@@ -49,6 +54,51 @@ and the Wayland app ID (`APP_ID` in `apps/moonglow/src/main.rs`); change
 them together. The ID is provisional until the project has a public home, as
 is the AppStream metadata's missing homepage (`appstreamcli validate` warns
 about it).
+
+## Signing a release
+
+Moonglow installs an update only when the release's `SHA256SUMS` (the
+packages' SHA-256 checksums, `sha256sum`'s lines) is signed with the
+project's [minisign](https://jedisct1.github.io/minisign/) key, its
+trusted comment names the release's tag (`Moonglow Toolset v2.9.0`), and
+the downloaded package's checksum is the one in it
+(`docs/update-install-proposal.md`; `crates/mg-update`). The public key
+is built into the app from `packaging/minisign.pub`
+(`apps/moonglow/build.rs`); a build without that file carries no key and
+installs nothing, linking the release page as before. The secret key is
+the owner's, kept off GitHub and out of the repository (`.gitignore`
+refuses `packaging/*.key` and `minisign.key`), and used only on the
+owner's machine.
+
+Once, to make the key (minisign asks for a password, which protects the
+secret key; keep both the key file and the password backed up: a lost
+key means a new public key, and copies built with the old one can't
+install updates signed with the new):
+
+```sh
+minisign -G -p packaging/minisign.pub -s ~/.minisign/moonglow.key
+git add packaging/minisign.pub
+git commit -m "The update key"
+```
+
+For each release, after the tag's workflow has drafted it and before it
+is published:
+
+```sh
+packaging/sign-release.sh v2.9.0
+```
+
+It downloads the draft's packages (`Moonglow-*`) with `gh` into a
+scratch folder, writes `SHA256SUMS`, signs it (`minisign -S -s
+~/.minisign/moonglow.key -m SHA256SUMS -t "Moonglow Toolset v2.9.0"`,
+asking for the password), verifies the signature against
+`packaging/minisign.pub`, and uploads `SHA256SUMS` and
+`SHA256SUMS.minisig` to the release (`gh release upload --clobber`).
+Then publish the release. A package added or rebuilt after signing
+needs the script run again. `MOONGLOW_MINISIGN_KEY` names another
+secret key file. `crates/mg-update/tests/sign_release.rs` runs the
+script with `gh` and `minisign` stood in for, so the file it writes is
+held to what the app reads.
 
 ## Linux: AppImage
 
@@ -183,15 +233,43 @@ manifest is committed, Scoop users stay on the release before.
 ### Updates in package-managed installs
 
 The GUI asks GitHub for the latest release once a day at most (Options ›
-Updates; nothing is downloaded). Where a package manager installed it, it
-doesn't: the Flatpak (`FLATPAK_ID` set or `/.flatpak-info` there), Scoop
-(the program under a `scoop\apps\` folder) and Nix (under `/nix/store`)
-are told apart at start (`mg_ui::updates::Installer`), and Help › Check
-for Updates… says to update through them. The AppImage, the installer
-and zip, and the macOS app check. The Flatpak isn't given the network
-(`finish-args`), and its Check for Updates… asks nothing: it says to
-update with `flatpak update`. A new way of installing that updates Moonglow itself
-belongs in that list.
+Updates) and installs it from the app where it updates itself
+([Signing a release](#signing-a-release); the manual's main-window
+chapter). Where a package manager installed it, it doesn't: the Flatpak
+(`FLATPAK_ID` set or `/.flatpak-info` there), Scoop (the program under a
+`scoop\apps\` folder) and Nix (under `/nix/store`) are told apart at
+start (`mg_update::Kind`), Help › Check for Updates… says to update
+through them, and their files are never written. The AppImage (by
+`$APPIMAGE`), the installer (its `unins000.exe` beside `moonglow.exe`),
+the zip (no uninstaller) and the macOS app (the program inside
+`*.app/Contents/MacOS/`) check and install. The Flatpak isn't given the
+network (`finish-args`), and its Check for Updates… asks nothing: it
+says to update with `flatpak update`. A new way of installing that
+updates Moonglow itself belongs in that list.
+
+How each is installed (the steps are `mg_update::install::plan`'s):
+
+- **AppImage:** downloaded beside the image, checked, given its
+  permissions and renamed over `$APPIMAGE` (at once with Install Now, as
+  Moonglow closes with Later). Moonglow restarts as `$APPIMAGE`.
+- **Windows installer:** downloaded to Moonglow's cache folder
+  (`updates\`), checked, and run as Moonglow closes:
+  `setup.exe /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CLOSEAPPLICATIONS
+  /CURRENTUSER|/ALLUSERS /DIR=<folder> /LOG=<cache>\updates\install.log
+  [/restart=1]`. `/restart=1` runs `moonglow.iss`'s second `[Run]` entry,
+  which starts Moonglow again.
+- **Windows zip:** unpacked into `.moonglow-update-<version>` beside the
+  program, then each of its files moved in, the old one moved into
+  `.moonglow-update-old` (removed at the next start), undone if a move
+  fails.
+- **macOS:** the disk image's app copied out (`hdiutil attach -nobrowse
+  -readonly`, `ditto`, `hdiutil detach`) to `.moonglow-update-<version>.app`
+  beside the app, which is moved aside and replaced as Moonglow closes,
+  then started with `open -n`.
+
+The Windows installer and zip, and the macOS swap, are unit tests of
+their steps here; they wait to be tried on Windows and a Mac
+(`docs/deferred.md`).
 
 ## macOS: app and disk image
 

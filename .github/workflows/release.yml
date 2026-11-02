@@ -3,6 +3,10 @@ name: Release
 # Builds the packages (packaging/README.md): the AppImage, the Windows
 # installer and the macOS disk image. A tag v* also drafts a GitHub
 # release with them; run by hand, the packages are the run's artifacts.
+# The draft is signed on the owner's machine before it is published
+# (packaging/sign-release.sh: SHA256SUMS and its minisign signature,
+# which the app checks before installing an update); the secret key is
+# never given to this workflow.
 on:
   push:
     tags: ["v*"]

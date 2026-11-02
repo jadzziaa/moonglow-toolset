@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -155,6 +155,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-render` | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles |
 | `mg-preview` | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors (the renderer's half, `compose`, is the default feature `render`: without it, no mg-render); what a module uses of its haks, the walk from its resources (`usage`, the feature `usage`: it reads modules, with mg-module and mg-ssf; `mg` and the window turn it on, the viewer leaves it off) |
 | `mg-area` | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area; picking, arranging, reshaping and the walkmesh |
+| `mg-update` | the app updating itself: the releases GitHub lists, the package each install takes, its checks against the release's `SHA256SUMS` signed with minisign, the download beside what it replaces, and the install's steps; the requests themselves (ureq) are the feature `http`, the GUI's alone ([the design](update-install-proposal.md)) |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` | the command line: 44 commands (`mg --help`; the manual's `11-command-line.md`), each able to answer in JSON; `mg nui render` and `mg nui layout` (mg-ui, wgpu) are the default feature `nui-preview`, and the rest builds without the GPU stack |
 | `apps/moonglow` | the GUI application |
