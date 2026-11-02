@@ -332,35 +332,85 @@ pub(crate) fn tlk(args: &Args<'_>, cp: Codepage) -> Result<Output> {
     Ok(out)
 }
 
-/// `mg 2da-check`: tables held to their descriptions.
+/// A talk table's count of strings, from its file: a `.tlk`, or a
+/// nasher project's `.tlk.json`.
+fn talk_table_count(path: &Path, cp: Codepage) -> Result<usize> {
+    let data = std::fs::read(path).with_context(|| path.display().to_string())?;
+    let name = path.to_string_lossy().to_ascii_lowercase();
+    let tlk = match name.ends_with(".json") {
+        true => mg_tlk::json::from_json(&data, cp).map_err(|e| anyhow::anyhow!(e)),
+        false => mg_tlk::Tlk::read(&data).map_err(|e| anyhow::anyhow!(e.to_string())),
+    };
+    Ok(tlk.with_context(|| path.display().to_string())?.entries.len())
+}
+
+/// `mg 2da-check`: tables held to their descriptions. A custom string
+/// (16777216 and on) is held to `talk` (a talk table's file), else to the
+/// one talk table of the folder walked, if it has one; with neither, it
+/// is not looked up (and said so).
 pub(crate) fn check(
     paths: &[PathBuf],
     beside: Option<&Path>,
+    talk: Option<&Path>,
     game: Option<&mg_rules::GameData>,
     cp: Codepage,
 ) -> Result<Output> {
     use mg_module::doctor::TalkTables;
-    use mg_module::table_desc::{Beside, Description, path_beside};
-    let tlk = TalkTables {
-        base: game.map_or(0, |g| g.tlk().entries.len()),
-        custom: game.and_then(|g| g.custom_tlk().map(|t| t.entries.len())),
+    use mg_module::table_desc::{Beside, Description, find_for, game_description, path_beside};
+    let base = game.map_or(0, |g| g.tlk().entries.len());
+    let custom = match talk {
+        Some(path) => Some(talk_table_count(path, cp)?),
+        None => game.and_then(|g| g.custom_tlk().map(|t| t.entries.len())),
     };
     let mut tables = Vec::new();
     let (mut wrong, mut unread) = (0, 0);
     let mut out = Output::new(Value::Null);
     for path in paths {
-        // A folder: its described tables; a table: its own description,
-        // which it must have.
+        // A folder: its described tables; a table: its own description (or
+        // its family's), else Moonglow's of the game's table of its name.
         let (root, found) = if path.is_dir() {
             (path.clone(), Beside::of(path).described())
         } else {
-            let description = path_beside(path);
-            if !description.is_file() {
-                bail!("{} has no description ({})", path.display(), description.display());
-            }
+            let name = path.file_stem().map(|n| n.to_string_lossy().into_owned());
+            let description = find_for(path)
+                .or_else(|| game_description(name.as_deref()?).map(|_| PathBuf::new()));
+            let Some(description) = description else {
+                bail!(
+                    "{} has no description ({}, or a family's in its folder)",
+                    path.display(),
+                    path_beside(path).display()
+                );
+            };
             (Beside::root_of(path), vec![(path.clone(), description)])
         };
         let files = Beside::of(beside.unwrap_or(&root));
+        // The talk table its custom strings are held to: the one asked
+        // for, the game's module's, else the folder's own if it has one.
+        let custom = custom.or_else(|| {
+            let tables: Vec<&PathBuf> = files
+                .files()
+                .iter()
+                .filter(|p| {
+                    let n = p.to_string_lossy().to_ascii_lowercase();
+                    n.ends_with(".tlk") || n.ends_with(".tlk.json")
+                })
+                .collect();
+            let [one] = tables[..] else { return None };
+            let count = talk_table_count(one, cp).ok()?;
+            out.note(format!("custom strings are held to {} ({count} strings)", one.display()));
+            Some(count)
+        });
+        let tlk = TalkTables {
+            base,
+            // (None known: a custom string is not looked up.)
+            custom: Some(custom.unwrap_or(TalkTables::UNCOUNTED)),
+        };
+        if custom.is_none() {
+            out.note(
+                "no talk table: custom strings (16777216 and on) are not looked up (--tlk FILE \
+                 names one)",
+            );
+        }
         let script = |name: &str| {
             let key = ResKey::from_filename(&format!("{name}.nss"))?;
             files.script(name).or_else(|| Some(game?.resman.get(&key).ok()?.into_owned()))
@@ -371,8 +421,23 @@ pub(crate) fn check(
         for (table_path, description_path) in found {
             let name = table_path.display().to_string();
             let t = table(&table_path, cp)?;
-            let source = std::fs::read_to_string(&description_path)
-                .with_context(|| description_path.display().to_string())?;
+            // (No file: Moonglow's description of the game's table.)
+            let ours = description_path.as_os_str().is_empty();
+            let stem = table_path.file_stem().map(|n| n.to_string_lossy().into_owned());
+            let source = match ours {
+                true => game_description(stem.as_deref().unwrap_or_default())
+                    .unwrap_or_default()
+                    .to_string(),
+                false => std::fs::read_to_string(&description_path)
+                    .with_context(|| description_path.display().to_string())?,
+            };
+            let description_path = match ours {
+                true => PathBuf::from(format!(
+                    "Moonglow's description of the game's {}.2da",
+                    stem.as_deref().unwrap_or_default()
+                )),
+                false => description_path,
+            };
             let d = match Description::parse(&source, &script) {
                 Ok(d) => d,
                 Err(e) => {
@@ -386,7 +451,15 @@ pub(crate) fn check(
                     continue;
                 }
             };
-            let faults = d.faults(&t, &rows_of, tlk);
+            let mut faults = d.faults(&t, &rows_of, tlk);
+            // (Moonglow's description of a game's table: a cell as the
+            // game's own copy has it is the game's, not the builder's.)
+            if ours && let Some(base) = stem.as_deref().and_then(|n| game?.table(n).ok()) {
+                faults.retain(|f| {
+                    let column = &t.columns()[f.column];
+                    base.get(f.row, column) != t.cell(f.row, f.column)
+                });
+            }
             let missing = d.missing_columns(&t);
             wrong += faults.len();
             out.line(match faults.len() {

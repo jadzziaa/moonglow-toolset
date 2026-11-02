@@ -1,0 +1,150 @@
+# The game's spells.2da, described by Moonglow (from nwn.wiki's page on
+# it, and nwscript.nss's constants written out: it needs no game install):
+# a copy of the table with no description of the builder's is held to
+# this, and its lists and flags are shown by name.
+
+[columns.Name]
+kind = "strref"
+
+[columns.SpellDesc]
+kind = "strref"
+
+[columns.AltMessage]
+kind = "strref"
+
+[columns.School]
+kind = "list"
+values = { Abjuration = "A", Conjuration = "C", Divination = "D", Enchantment = "E", Evocation = "V", Illusion = "I", Necromancy = "N", Transmutation = "T" }
+note = "The spell's school: the engine knows these letters alone"
+
+[columns.Range]
+kind = "list"
+values = { Personal = "P", Touch = "T", Short = "S", Medium = "M", Long = "L" }
+note = "The engine knows these letters alone; their lengths are ranges.2da's"
+
+[columns.VS]
+kind = "list"
+values = { "Verbal and somatic" = "vs", Verbal = "v", Somatic = "s", Neither = "-" }
+
+[columns.MetaMagic]
+kind = "flags"
+values = { Empower = "0x01", Extend = "0x02", Maximize = "0x04", Quicken = "0x08", Silent = "0x10", Still = "0x20" }
+
+[columns.TargetType]
+kind = "flags"
+values = { Self = "0x01", Creature = "0x02", "Area or ground" = "0x04", Item = "0x08", Door = "0x10", Placeable = "0x20", Trigger = "0x40" }
+
+[columns.ImpactScript]
+kind = "script"
+
+[columns.Bard]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Cleric]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Druid]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Paladin]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Ranger]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Wiz_Sorc]
+kind = "int"
+min = 0
+max = 10
+
+[columns.Innate]
+kind = "int"
+min = 0
+max = 10
+note = "The spell's level where no class's says (10: epic)"
+
+[columns.ConjAnim]
+kind = "list"
+values = { Hand = "hand", Head = "head" }
+
+[columns.CastAnim]
+kind = "list"
+values = { Area = "area", Attack = "attack", Out = "out", Self = "self", Touch = "touch", Point = "point", Up = "up", Creature = "creature" }
+
+[columns.Category]
+kind = "list"
+values = { TALENT_CATEGORY_HARMFUL_AREAEFFECT_DISCRIMINANT = 1, TALENT_CATEGORY_HARMFUL_RANGED = 2, TALENT_CATEGORY_HARMFUL_TOUCH = 3, TALENT_CATEGORY_BENEFICIAL_HEALING_AREAEFFECT = 4, TALENT_CATEGORY_BENEFICIAL_HEALING_TOUCH = 5, TALENT_CATEGORY_BENEFICIAL_CONDITIONAL_AREAEFFECT = 6, TALENT_CATEGORY_BENEFICIAL_CONDITIONAL_SINGLE = 7, TALENT_CATEGORY_BENEFICIAL_ENHANCEMENT_AREAEFFECT = 8, TALENT_CATEGORY_BENEFICIAL_ENHANCEMENT_SINGLE = 9, TALENT_CATEGORY_BENEFICIAL_ENHANCEMENT_SELF = 10, TALENT_CATEGORY_HARMFUL_AREAEFFECT_INDISCRIMINANT = 11, TALENT_CATEGORY_BENEFICIAL_PROTECTION_SELF = 12, TALENT_CATEGORY_BENEFICIAL_PROTECTION_SINGLE = 13, TALENT_CATEGORY_BENEFICIAL_PROTECTION_AREAEFFECT = 14, TALENT_CATEGORY_BENEFICIAL_OBTAIN_ALLIES = 15, TALENT_CATEGORY_PERSISTENT_AREA_OF_EFFECT = 16, TALENT_CATEGORY_BENEFICIAL_HEALING_POTION = 17, TALENT_CATEGORY_BENEFICIAL_CONDITIONAL_POTION = 18, TALENT_CATEGORY_DRAGONS_BREATH = 19, TALENT_CATEGORY_BENEFICIAL_PROTECTION_POTION = 20, TALENT_CATEGORY_BENEFICIAL_ENHANCEMENT_POTION = 21, TALENT_CATEGORY_HARMFUL_MELEE = 22 }
+other = true
+note = "What the talent functions (the game's AI) take it for"
+
+[columns.Master]
+kind = "row"
+table = "spells"
+
+[columns.SubRadSpell1]
+kind = "row"
+table = "spells"
+
+[columns.SubRadSpell2]
+kind = "row"
+table = "spells"
+
+[columns.SubRadSpell3]
+kind = "row"
+table = "spells"
+
+[columns.SubRadSpell4]
+kind = "row"
+table = "spells"
+
+[columns.SubRadSpell5]
+kind = "row"
+table = "spells"
+
+[columns.Counter1]
+kind = "row"
+table = "spells"
+
+[columns.Counter2]
+kind = "row"
+table = "spells"
+
+[columns.UserType]
+kind = "list"
+values = { Spell = 1, "Creature power" = 2, Feat = 3, "Item power" = 4 }
+
+[columns.UseConcentration]
+kind = "list"
+values = { No = 0, Yes = 1 }
+other = true
+
+[columns.SpontaneouslyCast]
+kind = "list"
+values = { No = 0, Yes = 1 }
+
+[columns.HostileSetting]
+kind = "list"
+values = { No = 0, Yes = 1 }
+
+[columns.HasProjectile]
+kind = "list"
+values = { No = 0, Yes = 1 }
+
+[columns.TargetShape]
+kind = "list"
+values = { Sphere = "sphere", Cone = "cone", Rectangle = "rectangle", "Half sphere" = "hsphere" }
+other = true
+
+[columns.TargetFlags]
+kind = "flags"
+values = { SPELL_TARGETING_FLAGS_HARMS_ENEMIES = 1, SPELL_TARGETING_FLAGS_HARMS_ALLIES = 2, SPELL_TARGETING_FLAGS_HELPS_ALLIES = 4, SPELL_TARGETING_FLAGS_IGNORES_SELF = 8, SPELL_TARGETING_FLAGS_ORIGIN_ON_SELF = 16, SPELL_TARGETING_FLAGS_SUPPRESS_WITH_TARGET = 32 }

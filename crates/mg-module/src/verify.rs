@@ -400,12 +400,13 @@ pub fn table_scripts_in(rm: &ResMan) -> Vec<Reference> {
 /// of a script's constants read the module's script, else the one `rm`
 /// finds (the game's `nwscript`).
 pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference> {
-    use crate::table_desc::{Description, Kind, path_in_module};
+    use crate::table_desc::{Description, Kind, description_in_module};
     let mut out = Vec::new();
     let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
     keys.sort();
     for key in keys {
-        let Some(text) = path_in_module(module, &key).and_then(|p| std::fs::read_to_string(p).ok())
+        let Some(text) =
+            description_in_module(module, &key).and_then(|p| std::fs::read_to_string(p).ok())
         else {
             continue;
         };

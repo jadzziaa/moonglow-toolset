@@ -138,3 +138,35 @@ fn a_constant_and_a_property_s_subtype_name_rows() {
     let found = row_uses(&m, &table, 0, Some(&game), cp);
     assert!(found.iter().any(|u| u.place.ends_with("Subtype")), "{table}: {found:#?}");
 }
+
+/// Moonglow's descriptions of the game's own tables hold the game's
+/// tables (`mg_module::table_desc::game_description`): a cell the game's
+/// copy has is one the description allows, but for those listed here,
+/// which the game's data has wrong.
+#[test]
+fn moonglow_s_descriptions_of_the_game_s_tables_hold_them() {
+    use mg_module::doctor::TalkTables;
+    use mg_module::table_desc::{Description, game_description};
+    use mg_resman::GameInstall;
+    // (Bigby's Crushing Hand's MetaMagic is 0xff, bits no metamagic has.)
+    const THE_GAME_S: [(&str, usize, &str); 1] = [("spells", 463, "MetaMagic")];
+    let root = corpus!();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    for name in ["spells", "baseitems"] {
+        let d = Description::parse(game_description(name).unwrap(), &|_| None).unwrap();
+        assert!(d.notes.is_empty(), "{name}: {:?}", d.notes);
+        let t = game.table(name).unwrap();
+        assert!(d.missing_columns(&t).is_empty(), "{name}: {:?}", d.missing_columns(&t));
+        let rows_of = |n: &str| game.table(n).ok().map(|t| t.len());
+        let tlk = TalkTables { base: game.tlk().entries.len(), custom: None };
+        let said: Vec<String> = d
+            .faults(&t, &rows_of, tlk)
+            .iter()
+            .filter(|f| !THE_GAME_S.contains(&(name, f.row, t.columns()[f.column].as_str())))
+            // (A lone `*`, the game's padding rows' mark.)
+            .filter(|f| t.cell(f.row, f.column) != Some("*"))
+            .map(|f| format!("row {} {}: {}", f.row, t.columns()[f.column], f.message))
+            .collect();
+        assert!(said.is_empty(), "{name}: {said:#?}");
+    }
+}

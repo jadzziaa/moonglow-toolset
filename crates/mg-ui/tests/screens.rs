@@ -14,6 +14,18 @@ use mg_resman::{GameInstall, ResKey};
 use mg_ui::script_wizard::{ScriptWizard, Step};
 use mg_ui::{Moonglow, NoDialogs};
 
+/// Waits for the tables' descriptions' folders, walked on threads of
+/// their own.
+fn described(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..500 {
+        h.run_steps(1);
+        if !h.state().tables.iter().any(mg_ui::table_view::TableDoc::walking) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
     // Steps rather than runs: animated views keep repainting.
     h.run_steps(3);
@@ -875,6 +887,7 @@ fn described_table() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    described(&mut h);
     h.run_steps(6);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, 2);
     h.run_steps(4);
@@ -922,6 +935,7 @@ fn table_row_list_opened() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    described(&mut h);
     h.run_steps(6);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(4);

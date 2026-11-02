@@ -643,6 +643,8 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -689,6 +691,8 @@ fn a_flags_list_is_ticked_by_the_keys() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -1174,6 +1178,8 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     .unwrap();
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
     assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
     h.get_by_label("mystore.2da");
@@ -1321,6 +1327,8 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
         .unwrap();
     let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
     h.run_steps(3);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the hak");
     {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
@@ -1985,6 +1993,56 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     );
 }
 
+/// A hak built from a folder: its table's description is the family's in
+/// that folder (`tables = "loot_*"`), not looked for beside the hak's
+/// file; and a copy of the game's spells.2da with no description of its
+/// own is held to Moonglow's, the cells the game's copy has as they are
+/// not said.
+#[test]
+fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-families");
+    let content = dir.join("content");
+    std::fs::create_dir_all(&content).unwrap();
+    std::fs::write(content.join("loot_a.2da"), "2DA V2.0\n\n   Label Chance\n0  a     500\n")
+        .unwrap();
+    std::fs::write(
+        content.join("loot.2da.toml"),
+        "tables = \"loot_*\"\n\n[columns.Chance]\nkind = \"int\"\nmax = 100\n",
+    )
+    .unwrap();
+    let dialogs = NoDialogs { folders: vec![content.clone()], ..Default::default() };
+    let mut h = harness(game_app_with(&root, None, dialogs), 1280.0, 800.0);
+    h.run_steps(3);
+    mg_ui::hak_view::build_from_folder(h.state_mut());
+    h.run_steps(3);
+    let hak = h.state().haks[0].id;
+    let key = ResKey::parse("loot_a", ResType::TWODA).unwrap();
+    mg_ui::table_view::open_in_hak(h.state_mut(), hak, key).unwrap();
+    h.run_steps(3);
+    settle(&mut h);
+    h.get_by_label_contains("Described by loot.2da.toml");
+    h.get_by_label("1 cell is wrong");
+    // The game's spells.2da, a school changed to one the engine lacks.
+    let game = game_data(&root);
+    let mut t = (*game.table("spells").unwrap()).clone();
+    let school = t.column("School").unwrap();
+    t.set(1, school, Some("X".into())).unwrap();
+    let file = dir.join("spells.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    settle(&mut h);
+    h.get_by_label_contains("Described by Moonglow (the game's spells.2da)");
+    // (Bigby's Crushing Hand's MetaMagic of 0xff, the game's, is not
+    // said: one cell in each table open, the hak's and this.)
+    assert_eq!(h.get_all_by_label("1 cell is wrong").count(), 2);
+    let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
+    let description = doc.description().unwrap();
+    let school = &description.column("School").unwrap().kind;
+    assert_eq!(school.named("V").as_deref(), Some("Evocation"));
+}
+
 /// Take Rows: a row both copies changed is taken cell by cell, each cell
 /// saying whose change it is against the lowest copy (the game's).
 #[test]
@@ -2120,6 +2178,8 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
+    // (The description's folder is walked on a thread of its own.)
+    settle(&mut h);
     let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
         h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
         h.run_steps(4);

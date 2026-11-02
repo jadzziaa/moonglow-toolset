@@ -398,7 +398,9 @@ impl Described {
                 None => c.problem = Some(format!("the script {script} was not found")),
                 Some(source) => {
                     let text = self.var_type == Some(VarType::String);
-                    let (found, _) = crate::table_desc::constants(&source, prefix, text);
+                    let script = |name: &str| lookup.script(name);
+                    let (found, _) =
+                        crate::table_desc::constants_in(&source, prefix, text, &script);
                     for e in found {
                         let crate::table_desc::Entry { name, value } = e;
                         if !c.list.iter().any(|x| x.value == value) {

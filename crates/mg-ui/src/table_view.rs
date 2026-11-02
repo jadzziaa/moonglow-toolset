@@ -99,6 +99,10 @@ pub struct TableDoc {
     pub value_names: bool,
     /// The table's description, where a file beside it gives one.
     described: Option<Described>,
+    /// The folder a description names scripts and tables from, being
+    /// walked on a thread of its own (a repository may have a hundred
+    /// thousand files): the description, its file's time, and the walk.
+    walking: Option<(PathBuf, Option<std::time::SystemTime>, std::thread::JoinHandle<Beside>)>,
     /// When the description's file was last looked at (the time egui
     /// gives): it is read again when it changes.
     described_at: f64,
@@ -112,7 +116,10 @@ pub struct TableDoc {
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
     shown: Option<((u64, usize, u64, String, bool), Arc<Vec<usize>>)>,
-    faults: Option<(u64, Arc<Vec<CellFault>>)>,
+    /// The cells that are wrong, for the table's revision and the other
+    /// open tables' changes (a table the description names may be one).
+    #[allow(clippy::type_complexity)]
+    faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -129,10 +136,12 @@ pub struct TableDoc {
 }
 
 /// A table's description as read from its file (`name.2da.toml` beside
-/// the table: [`mg_module::table_desc`]).
+/// the table, or a family's: [`mg_module::table_desc`]), or Moonglow's of
+/// the game's table of its name.
 #[derive(Debug, Clone)]
 struct Described {
-    path: PathBuf,
+    /// Its file; `None`: Moonglow's description of the game's table.
+    path: Option<PathBuf>,
     modified: Option<std::time::SystemTime>,
     /// The description, or why it could not be read.
     read: Result<Arc<Description>, String>,
@@ -176,6 +185,7 @@ impl TableDoc {
             hidden: Default::default(),
             value_names: true,
             described: None,
+            walking: None,
             described_at: f64::NEG_INFINITY,
             revision: 0,
             within: None,
@@ -226,6 +236,12 @@ impl TableDoc {
     /// The table's description, where it has one that reads.
     pub fn description(&self) -> Option<Arc<Description>> {
         self.described.as_ref().and_then(|d| d.read.clone().ok())
+    }
+
+    /// Whether its description's folder is being walked (a UI test waits
+    /// for it: [`crate::Moonglow::under_way`]).
+    pub fn walking(&self) -> bool {
+        self.walking.is_some()
     }
 
     pub fn title(&self) -> String {
@@ -654,16 +670,16 @@ fn save_as_file(app: &mut Moonglow, id: u32) {
     save(app, id);
 }
 
-/// Where a table's description would be: beside its file (a file's own,
-/// the module's table's in a project or a module folder), beside the
-/// module's file for a module kept in one, and for a hak's table in the
-/// folder the hak is built from (beside the table's file there), else
-/// beside the hak's file.
+/// Where a table's description is: beside its file (a file's own, the
+/// module's table's in a project or a module folder), beside the module's
+/// file for a module kept in one, and for a hak's table in the folder the
+/// hak is built from (beside the table's file there), else beside the
+/// hak's file; or a family's in that folder (`tables = ["loot_*"]`).
 fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
-    use mg_module::table_desc::{path_beside, path_in_module};
+    use mg_module::table_desc::{description_in_module, find_for};
     match &doc.home {
-        Home::File(path) => Some(path_beside(path)),
-        Home::Module => path_in_module(&app.ws.as_ref()?.module, &doc.key),
+        Home::File(path) => find_for(path),
+        Home::Module => description_in_module(&app.ws.as_ref()?.module, &doc.key),
         Home::Hak(id) => {
             let hak = app.haks.iter().find(|d| d.id == *id)?;
             let name = doc.key.to_string();
@@ -673,7 +689,7 @@ fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
                 })
             });
             let table = in_folder.or_else(|| Some(hak.hak.path.as_ref()?.with_file_name(&name)))?;
-            Some(path_beside(&table))
+            find_for(&table)
         }
     }
 }
@@ -728,8 +744,23 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
 }
 
 /// Reads the table's description where there is one, and again when its
-/// file changes (looked at once a second).
+/// file changes (looked at once a second); with none of the builder's,
+/// Moonglow's of the game's table of its name, if it has one. The folder
+/// the description names scripts and tables from is walked on a thread
+/// of its own first, the window going on meanwhile.
 fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    use mg_module::table_desc::game_description;
+    // (A walk under way is looked at every frame.)
+    if let Some((_, _, walk)) = &app.tables[at].walking {
+        if !walk.is_finished() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            return;
+        }
+        let (path, modified, walk) = app.tables[at].walking.take().expect("walking");
+        let files = Arc::new(walk.join().unwrap_or_default());
+        read_description(app, at, Some(path), modified, files);
+        return;
+    }
     let now = ctx.input(|i| i.time);
     if now - app.tables[at].described_at < 1.0 {
         return;
@@ -737,29 +768,85 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     app.tables[at].described_at = now;
     let path = description_path(app, &app.tables[at]).filter(|p| p.is_file());
     let Some(path) = path else {
-        if app.tables[at].described.take().is_some() {
-            app.tables[at].changed();
+        // Moonglow's, of the game's table of the name.
+        let had = app.tables[at].described.as_ref().map(|d| d.path.is_none());
+        match game_description(&app.tables[at].name()) {
+            Some(_) if had == Some(true) => {}
+            Some(_) => read_description(app, at, None, None, Arc::default()),
+            None if had.is_some() => {
+                app.tables[at].described = None;
+                app.tables[at].changed();
+            }
+            None => {}
         }
         return;
     };
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    if app.tables[at].described.as_ref().is_some_and(|d| d.path == path && d.modified == modified) {
+    let doc = &mut app.tables[at];
+    if doc
+        .described
+        .as_ref()
+        .is_some_and(|d| d.path.as_ref() == Some(&path) && d.modified == modified)
+    {
         return;
     }
-    let table_file = path.with_extension("");
-    let files = Arc::new(Beside::of(&Beside::root_of(&table_file)));
+    // (The description's folder: a repository's or project's, which may be
+    // large.)
+    let root = Beside::root_of(&path.with_extension(""));
+    let walk = std::thread::spawn(move || Beside::of(&root));
+    doc.walking = Some((path, modified, walk));
+    ctx.request_repaint();
+}
+
+/// Reads a description (`path`'s file; `None`: Moonglow's of the game's
+/// table), its lists from the scripts of `files` or the game's.
+fn read_description(
+    app: &mut Moonglow,
+    at: usize,
+    path: Option<PathBuf>,
+    modified: Option<std::time::SystemTime>,
+    files: Arc<Beside>,
+) {
     let game = app.game.clone();
     let script = |name: &str| {
         let key = ResKey::from_filename(&format!("{name}.nss"))?;
         files.script(name).or_else(|| Some(game.as_deref()?.resman.get(&key).ok()?.into_owned()))
     };
-    let read = std::fs::read_to_string(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|text| Description::parse(&text, &script))
-        .map(Arc::new);
+    let text = match &path {
+        Some(path) => std::fs::read_to_string(path).map_err(|e| e.to_string()),
+        None => mg_module::table_desc::game_description(&app.tables[at].name())
+            .map(str::to_string)
+            .ok_or_else(|| "no description".to_string()),
+    };
+    let read = text.and_then(|text| Description::parse(&text, &script)).map(Arc::new);
     let doc = &mut app.tables[at];
     doc.described = Some(Described { path, modified, read, files, tables: Default::default() });
     doc.changed();
+}
+
+/// A table a description names, of its project: as it is open in the
+/// editor (a file's, or the module's from that file), else as its file is
+/// read (once, until the description is read again).
+fn project_table(app: &Moonglow, d: &Described, name: &str) -> Option<Arc<TwoDa>> {
+    let file = d.files.table_file(name)?;
+    // (The same file however its path is written: `a/../b`.)
+    let same = |p: &std::path::Path| {
+        p == file || p.canonicalize().is_ok_and(|p| file.canonicalize().is_ok_and(|f| f == p))
+    };
+    let named = |t: &&TableDoc| t.name().eq_ignore_ascii_case(name);
+    let open = app.tables.iter().filter(named).find(|t| match &t.home {
+        Home::File(p) => same(p),
+        Home::Module => app.ws.as_ref().and_then(|ws| ws.module.file_of(&t.key)).is_some_and(same),
+        Home::Hak(_) => false,
+    });
+    if let Some(t) = open {
+        return Some(Arc::new(t.edit.table().clone()));
+    }
+    let mut read = d.tables.borrow_mut();
+    let cp = codepage(app);
+    read.entry(name.to_ascii_lowercase())
+        .or_insert_with(|| d.files.table(name, cp).map(Arc::new))
+        .clone()
 }
 
 /// What the table's columns hold, where the checks know.
@@ -777,9 +864,14 @@ fn talk_tables(app: &Moonglow) -> TalkTables {
 
 /// The cells that are wrong, kept until the table changes.
 fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
+    // (Another open table's change may be one a description names.)
+    let others: u64 = (app.tables.iter().enumerate())
+        .filter(|(i, _)| *i != at)
+        .map(|(_, t)| t.revision.wrapping_add(t.edit.changes()))
+        .fold(0, u64::wrapping_add);
     let doc = &app.tables[at];
-    if let Some((revision, found)) = &doc.faults
-        && *revision == doc.revision
+    if let Some((mark, found)) = &doc.faults
+        && *mark == (doc.revision, others)
     {
         return found.clone();
     }
@@ -829,13 +921,22 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     if let Some(d) = &doc.described
         && let Ok(description) = &d.read
     {
-        let cp = codepage(app);
         let rows_of = |n: &str| match n.eq_ignore_ascii_case(&name) {
             true => Some(doc.edit.table().len()),
-            false => d.files.rows_of(n, cp).or_else(|| rows_of(n)),
+            false => project_table(app, d, n).map(|t| t.len()).or_else(|| rows_of(n)),
         };
-        for f in description.faults(doc.edit.table(), &rows_of, talk_tables(app)) {
-            if !found.iter().any(|x| (x.row, x.column) == (f.row, f.column)) {
+        // (Moonglow's description of the game's table: a cell as the
+        // game's own copy has it is the game's, not the builder's.)
+        let base = match d.path {
+            None => game.and_then(|g| mg_module::doctor::game_copy(&g.resman, &name)),
+            Some(_) => None,
+        };
+        let table = doc.edit.table();
+        for f in description.faults(table, &rows_of, talk_tables(app)) {
+            let column = &table.columns()[f.column];
+            let the_game_s =
+                base.as_ref().is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
+            if !the_game_s && !found.iter().any(|x| (x.row, x.column) == (f.row, f.column)) {
                 found.push(f);
             }
         }
@@ -843,7 +944,7 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     }
     let found = Arc::new(found);
     let doc = &mut app.tables[at];
-    doc.faults = Some((doc.revision, found.clone()));
+    doc.faults = Some(((doc.revision, others), found.clone()));
     found
 }
 
@@ -1333,17 +1434,30 @@ fn header(
             );
         }
     });
+    if doc.walking.is_some() {
+        ui.weak("Reading the folder the table's description names scripts and tables from…");
+    }
     if let Some(d) = &doc.described {
-        let file = d.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = match &d.path {
+            Some(path) => {
+                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            }
+            None => format!("Moonglow (the game's {}.2da)", doc.name()),
+        };
         ui.horizontal_wrapped(|ui| match &d.read {
             Ok(description) => {
                 let columns = description.columns.len();
                 let said = ui.weak(format!("Described by {file}: {columns} columns"));
-                said.on_hover_text(format!(
-                    "{}\nWhat each column holds, and the lists to choose from. It is read \
-                     again when the file changes.",
-                    d.path.display()
-                ));
+                said.on_hover_text(match &d.path {
+                    Some(path) => format!(
+                        "{}\nWhat each column holds, and the lists to choose from. It is read \
+                         again when the file changes.",
+                        path.display()
+                    ),
+                    None => "What each column of the game's table holds, as Moonglow knows it: \
+                             a description of yours beside the table comes before it"
+                        .to_string(),
+                });
                 if let Some(table) = &description.rows {
                     ui.weak(format!("its rows are {table}.2da's"));
                 }
@@ -2412,14 +2526,8 @@ fn inspector(
     let id = app.tables[at].id;
     // A table the description names: the project's own, else the game's.
     let files = app.tables[at].described.as_ref();
-    let cp = codepage(app);
     let named_table = |n: &str| -> Option<Arc<TwoDa>> {
-        let own = files.and_then(|d| {
-            let mut read = d.tables.borrow_mut();
-            read.entry(n.to_ascii_lowercase())
-                .or_insert_with(|| d.files.table(n, cp).map(Arc::new))
-                .clone()
-        });
+        let own = files.and_then(|d| project_table(app, d, n));
         own.or_else(|| game.as_deref().and_then(|g| g.table(n).ok()))
     };
     let mut set: Option<Option<String>> = None;

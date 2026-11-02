@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:47:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:19:59Z }
 ---
 
 # Modules
@@ -1784,19 +1784,41 @@ require = "Cures"               # ...where another says so
   `"0x0010"`), or read from a script: `constants` names the script and
   `prefix` what the names begin with. The script is one of your project's
   (any folder of it) or the game's; its constants are read when the
-  table is opened, so the list is never behind the script. A constant
-  made of others of its script (`A | B`, `1 << 3`) is worked out; one
-  that cannot be (a function's result) is left out, and said. Both may
-  be given: the written values come first. A cell with several flags
-  shows each by its name, and not a name for them all together too.
+  table is opened, so the list is never behind the script. The scripts
+  it includes (`#include`) are read too: their constants are listed with
+  its own. A constant made of others, of its script or of one it
+  includes (`A | B`, `1 << 3`), is worked out; a global given by a
+  function as the script runs (`int X = GetX();`: no `const` can be, the
+  compiler refuses it) is left out, and said. Both may be given: the
+  written values come first. A cell with several flags shows each by its
+  name, and not a name for them all together too.
 - **`rows`** says the table's rows are another table's, row for row (the
   AI's facts about each spell beside `spells.2da`): the other table's
   row is shown with the cell, and a row past the other's last is wrong.
 - **A rule** wants one cell filled where another holds a value (its name
   or the value itself).
 - A table the description names is your project's own if it has one of
-  that name, else the game's. The project is the folder above the table
-  that has a `nasher.cfg` or a `.git`; else the table's own folder.
+  that name (as it is open in the 2DA editor, if it is, else as its file
+  has it), else the game's. The project is the folder above the table
+  that has a `nasher.cfg` or a `.git`; else the table's own folder. The
+  editor reads the project's folders on a thread of its own when the
+  description is read, saying so over the table, and goes on meanwhile:
+  a repository may have a hundred thousand files.
+- **`tables`** makes one description a family's: `tables = ["loot_*"]`
+  in a description file of the folder (`loot.2da.toml`, or any
+  `*.2da.toml`) describes every table there whose name is so (`*` any
+  run of letters, `?` one) and that has no description of its own; of
+  two families, the one that names it more closely (`loot_gold*` before
+  `loot_*`).
+- **The game's own tables**: Moonglow brings descriptions of
+  `spells.2da` (its schools, ranges, metamagic and target types, the
+  talent categories, the rows its master and sub-radial spells name…)
+  and `baseitems.2da` (the slots an item is worn in, its model type,
+  how it is wielded, its damage type and size, the store panel, the
+  feats it needs…), from nwn.wiki's pages on them. A copy of it with no description of
+  yours (one you edit in the module, a hak or a file) is held to it, and
+  its lists and flags are shown by name; a cell as the game's own copy
+  has it is the game's, and not said wrong.
 
 In the 2DA editor, a described table says so under its buttons, and:
 
@@ -1822,8 +1844,14 @@ Where the description is looked for:
 | A hak's, in a hak built from a folder | beside the table's file in that folder |
 | A hak's, otherwise | beside the hak's file |
 
-**Verify Module** (and `mg verify`) holds the module's own described
-tables to their descriptions, as the check `2da-described`. From a
+In each of those folders, a family's description (`tables`) stands for
+a table that has none of its own.
+
+**Verify Module** (and `mg verify`) holds the module's described tables
+to their descriptions, as the check `2da-described`, and its haks' too
+(the copy the game reads): a hak's table's description is beside the
+hak's file, else beside the one table of that name in the module's
+project (the folder the hak is built from) that has one. From a
 terminal, `mg 2da-check` does it for every described table of a folder,
 a hak's sources too ([Command-line tools](11-command-line.md)); a
 plugin reads a description with `mg.twoda.describe`

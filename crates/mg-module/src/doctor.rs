@@ -2389,23 +2389,70 @@ pub fn game_copy(rm: &ResMan, name: &str) -> Option<TwoDa> {
     TwoDa::parse(&data, Codepage::default()).ok()
 }
 
-/// The module's own tables that have a description beside them
-/// ([`crate::table_desc`]): each cell that is not what its column is said
-/// to hold, and a description that cannot be read.
+/// The module's own tables that have a description (beside them, or a
+/// family's in their folder: [`crate::table_desc`]), and its haks' (the
+/// copy the game reads), whose description is beside the hak's file, or
+/// beside the one table of the name in the module's project that has one
+/// (the folder a hak is built from): each cell that is not what its
+/// column is said to hold, and a description that cannot be read.
 fn described_tables(d: &mut Doctor, module: &Module) {
-    use crate::table_desc::{Beside, Description, path_in_module};
+    use crate::table_desc::{Beside, Description, description_in_module, find_for};
     let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
     keys.sort();
+    // Each table with its source (its layer's label), its description and
+    // its bytes: the module's, then the haks'.
+    let mut tables: Vec<(String, ResKey, std::path::PathBuf, Vec<u8>)> = Vec::new();
+    for key in keys {
+        let Some(path) = description_in_module(module, &key) else { continue };
+        let Some(data) = module.get(&key) else { continue };
+        tables.push(("module".to_string(), key, path, data.to_vec()));
+    }
+    // (The module's project, walked once, for a hak's table's sources.)
+    let project = match &module.location {
+        Some(crate::ModuleLocation::Archive(path)) => Some(Beside::root_of(path)),
+        Some(crate::ModuleLocation::Folder(dir)) => Some(Beside::root_of(&dir.join("module.ifo"))),
+        Some(crate::ModuleLocation::Project { root, .. }) => Some(root.clone()),
+        None => None,
+    };
+    let mut sources: Option<Beside> = None;
+    let layers = d.rm.layers();
+    for (i, layer) in layers.iter().enumerate() {
+        let Some(hak) = layer.container.watched().filter(|_| is_custom(layer)) else { continue };
+        if !hak.extension().is_some_and(|e| e.eq_ignore_ascii_case("hak")) {
+            continue;
+        }
+        let mut keys: Vec<ResKey> =
+            layer.container.keys().filter(|k| k.restype == ResType::TWODA).collect();
+        keys.sort();
+        for key in keys {
+            // (The copy the game reads alone, as Verify takes a hak's.)
+            if d.rm.find(&key) != Some(i) || module.contains(&key) {
+                continue;
+            }
+            let beside = find_for(&hak.with_file_name(key.to_string()));
+            let path = beside.or_else(|| {
+                let root = project.as_ref()?;
+                let files = sources.get_or_insert_with(|| Beside::of(root));
+                let mut found = files.described().into_iter().filter(|(t, _)| {
+                    t.file_name()
+                        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&key.to_string()))
+                });
+                // (One of the name: two would be a guess.)
+                match (found.next(), found.next()) {
+                    (Some((_, description)), None) => Some(description),
+                    _ => None,
+                }
+            });
+            let (Some(path), Ok(data)) = (path, layer.container.read(&key)) else { continue };
+            tables.push((layer.label.clone(), key, path, data.into_owned()));
+        }
+    }
     // (The folders are walked once for the tables of one.)
     let mut walked: Option<(std::path::PathBuf, Beside)> = None;
-    for key in keys {
-        let Some(path) = path_in_module(module, &key).filter(|p| p.is_file()) else { continue };
+    for (source, key, path, data) in tables {
+        let source = source.as_str();
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let Some(table) =
-            module.get(&key).and_then(|data| TwoDa::parse(data, Codepage::default()).ok())
-        else {
-            continue;
-        };
+        let Ok(table) = TwoDa::parse(&data, Codepage::default()) else { continue };
         let root = Beside::root_of(&path.with_extension(""));
         if walked.as_ref().is_none_or(|(r, _)| *r != root) {
             walked = Some((root.clone(), Beside::of(&root)));
@@ -2427,19 +2474,19 @@ fn described_tables(d: &mut Doctor, module: &Module) {
             Ok(text) => text,
             Err(e) => {
                 let message = format!("its description ({file}) can't be read: {e}");
-                d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, "", message);
+                d.push(Severity::Warning, Check::TwoDaDescribed, source, key, "", message);
                 continue;
             }
         };
         match Description::parse(&text, &script) {
             Err(e) => {
                 let message = format!("its description ({file}) can't be read: {e}");
-                d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, "", message);
+                d.push(Severity::Warning, Check::TwoDaDescribed, source, key, "", message);
             }
             Ok(description) => {
                 for f in description.faults(&table, &rows_of, d.tlk) {
                     let at = format!("row {}, {}", f.row, table.columns()[f.column]);
-                    d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, at, f.message);
+                    d.push(Severity::Warning, Check::TwoDaDescribed, source, key, at, f.message);
                 }
             }
         }
@@ -3716,6 +3763,55 @@ endmodelgeom fx\ndonemodel fx\n";
         let f = examine(&m, &resman(&[]), TalkTables::default());
         assert_eq!(checks(&f), [("2da-described", String::new())]);
         assert!(f[0].message.contains("loot.2da.toml") && f[0].message.contains("no kind"));
+    }
+
+    /// A hak's tables are held to their descriptions too: one beside the
+    /// hak's file, and one beside the table's source in the module's
+    /// project (the folder the hak is built from), found as the only
+    /// table of its name there that has one; a family's description
+    /// (`tables = ["loot_*"]`) is a description of each table it names.
+    #[test]
+    fn a_hak_s_described_tables_are_held_to_their_descriptions() {
+        use mg_resman::ErfContainer;
+        let dir = mg_testkit::scratch_dir("doctor-described-haks");
+        let project = dir.join("project");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(project.join("src/hak")).unwrap();
+        std::fs::create_dir_all(dir.join("hak")).unwrap();
+        let table = b"2DA V2.0\n\n  Label Chance\n0 a 50\n1 b 500\n";
+        let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+        for name in ["loot", "spawn", "loot_gold", "plain"] {
+            hak.add(ResRef::from_str(name).unwrap(), ResType::TWODA, table.to_vec()).unwrap();
+        }
+        let hak_path = dir.join("hak/my.hak");
+        std::fs::write(&hak_path, hak.to_bytes().unwrap()).unwrap();
+        let int = "[columns.Chance]\nkind = \"int\"\nmax = 100\n";
+        std::fs::write(dir.join("hak/loot.2da.toml"), int).unwrap();
+        std::fs::write(dir.join("hak/family.2da.toml"), format!("tables = \"loot_*\"\n{int}"))
+            .unwrap();
+        std::fs::write(project.join("src/hak/spawn.2da"), table).unwrap();
+        std::fs::write(project.join("src/hak/spawn.2da.toml"), int).unwrap();
+        let mut m = Module::new();
+        m.save_as(&crate::ModuleLocation::Archive(project.join("my.mod"))).unwrap();
+        let m = Module::open(&project.join("my.mod")).unwrap();
+        let mut rm = ResMan::new();
+        let erf = ErfContainer::open(&hak_path).unwrap();
+        rm.add(priority::HAK_USER, "hak:my", LayerClass::Erf, erf);
+        let f = examine(&m, &rm, TalkTables::default());
+        let described: Vec<(String, String, &str)> = f
+            .iter()
+            .filter(|f| f.check == "2da-described")
+            .map(|f| (f.resource.to_string(), f.at.clone(), f.source.as_str()))
+            .collect();
+        assert_eq!(
+            described,
+            [
+                ("loot.2da".to_string(), "row 1, Chance".to_string(), "hak:my"),
+                ("loot_gold.2da".into(), "row 1, Chance".into(), "hak:my"),
+                ("spawn.2da".into(), "row 1, Chance".into(), "hak:my"),
+            ],
+            "{f:#?}"
+        );
     }
 
     /// A tag the project's moonglow.toml wants unique, on two objects: a

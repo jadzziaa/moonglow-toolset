@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:19:59Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -275,26 +275,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
       after 1.22.1 from a builder's workbook,
       [the proposal](2da-editor-proposal.md#columns-that-say-what-they-hold-a-builders-spreadsheet-read)).
       Not done:
-      - One description for a family of tables (`loot_*`); the game's
-        own tables described the same way. (M)
-      - Verify Module reads the descriptions of the module's own
-        tables, not those of its haks' (`mg 2da-check` on the hak's
-        sources does). (S)
-      - A constant whose value is a function's result is left out of a
-        list, and said; one made of constants of another script it
-        includes is too. (S)
-      - A description's folder is walked when it is read (once, and
-        again when the file changes; the folders a build fills are
-        passed over): a second and a half for a repository of 144,000
-        files in a build made for testing, during which the window
-        waits. A table of the project that a description names is read
-        from its file once, not as it is open in the editor. (S)
-      - Without a game install, `mg 2da-check` knows no talk table: a
-        `strref` column's custom string is said not to exist; a
-        plugin's `faults` does not look strings up at all. (S)
-      - A hak's table's description (beside its file in the hak's
-        folder) was tried beside the hak's file, not in a folder a hak
-        is built from. (S)
+      - A plugin's `faults` (`mg.twoda.describe`'s) does not look
+        strings up: its talk tables would come from the plugin host,
+        `crates/mg-plugin`, which another package owned in the deferred
+        sprint of 2026-11-02 (left for that reason, not begun). (S)
     - **A class's spell tables checked against `spells.2da`** (each
       spell a class's table names is one the class can learn): Verify
       Module holds the lists a class names to rows that exist, not to
