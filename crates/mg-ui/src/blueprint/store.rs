@@ -232,6 +232,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             selected: &[],
             equip: false,
             copied,
+            palette: &names,
         };
         let mut out = inventory::item_list(ui, key, &path, &items, look);
         // Pasted, dragged from the palette, or dragged out of another

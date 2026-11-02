@@ -200,6 +200,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
             selected: &[],
             equip: false,
             copied,
+            palette: &names,
         };
         let mut out = inventory::item_list(ui, key, &base, &items, look);
         // Pasted, dragged from the palette, or dragged out of another
