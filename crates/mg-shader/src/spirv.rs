@@ -816,9 +816,9 @@ fn block_size(id: u32, types: &HashMap<u32, Inst>, consts: &HashMap<u32, u32>, d
 pub(crate) const SPARE_BLOCKS: [&str; 2] = ["mg_frame", "mg_bones"];
 
 /// Declares [`SPARE_BLOCKS`] beside the program's uniform block (glslang's
-/// `gl_DefaultUniformBlock`, the one `Uniform` variable of a `Block`
-/// struct): variables of its type, bound as it is. A program without one
-/// block of loose uniforms is left as it is.
+/// `gl_DefaultUniformBlock`, or the one `Uniform` variable of a `Block`
+/// struct): variables of its type, bound as it is. A program without such
+/// a block is left as it is.
 pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
     let blocks: HashSet<u32> = m
@@ -840,7 +840,25 @@ pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
         .filter(|i| i.op == OP_VARIABLE && i.args.first().is_some_and(|t| pointers.contains(t)))
         .map(|i| Ok((i.arg(0)?, i.arg(1)?)))
         .collect::<Result<_, ShaderError>>()?;
-    let [(ptr, var)] = vars[..] else { return Ok(words.to_vec()) };
+    // (glslang's block of loose uniforms where a program names blocks of
+    // its own besides, `uniform Name { … };`: the parts take every
+    // block's members alike, `Program::split_uniforms`.)
+    let default = vars.iter().copied().find(|&(ptr, _)| {
+        let pointee =
+            m.insts.iter().find(|i| i.op == OP_TYPE_POINTER && i.args.first() == Some(&ptr));
+        let ty = pointee.and_then(|i| i.args.get(2).copied());
+        m.insts.iter().any(|i| {
+            i.op == OP_NAME
+                && i.args.first() == ty.as_ref()
+                && string_at(&i.args, 1) == "gl_DefaultUniformBlock"
+        })
+    });
+    let Some((ptr, var)) = default.or(match vars[..] {
+        [one] => Some(one),
+        _ => None,
+    }) else {
+        return Ok(words.to_vec());
+    };
     let spares = [m.new_id(), m.new_id()];
     let mut out = Vec::with_capacity(m.insts.len() + 8);
     let mut named = false;

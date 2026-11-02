@@ -3215,6 +3215,43 @@ fn a_program_in_the_screen_s_pixels_counts_from_the_bottom() {
     }
 }
 
+/// A program that names a uniform block of its own beside its loose
+/// uniforms (`uniform Tint { … };`) is drawn by its programs, the block's
+/// members filled by name as the loose ones are (an MTR's parameter), where
+/// it fell back to Moonglow's own shader (its uniforms not split).
+#[test]
+fn a_program_with_a_named_uniform_block_draws() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    let fs = "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nuniform float fScale;\n\
+        uniform Tint { vec4 vTint; };\nvarying vec2 vUv;\nvoid main ()\n{\n    \
+        gl_FragColor = vec4(vTint.rgb * fScale, 1.0) + texture2D(texUnit0, vUv) * 0.0;\n}\n";
+    assets.shaders.insert("fs_named".into(), fs.into());
+    assets.opaque("named", [255, 0, 0]);
+    let mtr = "customshadervs vs_sway\ncustomshaderfs fs_named\n\
+        parameter float vTint 0.0 1.0 0.0 1.0\nparameter float fScale 1.0\n";
+    assets.materials.insert("named".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "named", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 1, "{:?}", r.drawn);
+    assert_eq!(img.pixel(32, 32), [0, 255, 0, 255], "the block's member, the MTR's green");
+}
+
 /// A see-through mesh whose vertex program lifts it by an MTR's offset
 /// (`…Offset…`, meters: The Domains of Dread's grass by
 /// `fTilesetMeshOffsetZ`) is blended in its place among the others where

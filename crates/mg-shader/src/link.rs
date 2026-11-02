@@ -706,25 +706,38 @@ fn split_module(
         .filter(|(h, g)| g.space == AddressSpace::Uniform && *h != frame && *h != bones)
         .map(|(h, _)| h)
         .collect();
-    let [block] = blocks[..] else { return Ok(None) };
+    // (glslang's block of the loose uniforms, and any block a program
+    // names, `uniform Name { … };`: their members all go to the parts.)
+    let Some(&block) = blocks.first() else { return Ok(None) };
+    let mut members = Vec::new();
+    // Each block's first member's place among them all.
+    let mut first = Vec::with_capacity(blocks.len());
+    for &b in &blocks {
+        let TypeInner::Struct { members: list, .. } =
+            &module.types[module.global_variables[b].ty].inner
+        else {
+            return Ok(None);
+        };
+        first.push(members.len());
+        members.extend(list.iter().cloned());
+    }
     let ty = module.global_variables[block].ty;
-    let TypeInner::Struct { members, .. } = module.types[ty].inner.clone() else {
-        return Ok(None);
-    };
     let block_name = module.types[ty].name.clone().unwrap_or_default();
-    // Every use of the block is a member's access (as glslang writes them).
+    // The block of an expression of a function, and its first member's
+    // place: where it is one of the blocks' variables.
+    let of = |e: &Expression| match e {
+        Expression::GlobalVariable(g) => blocks.iter().position(|b| b == g).map(|k| first[k]),
+        _ => None,
+    };
+    // Every use of a block is a member's access (as glslang writes them).
     for f in module
         .functions
         .iter()
         .map(|(_, f)| f)
         .chain(module.entry_points.iter().map(|e| &e.function))
     {
-        let mine: Vec<_> = f
-            .expressions
-            .iter()
-            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(g) if *g == block))
-            .map(|(h, _)| h)
-            .collect();
+        let mine: Vec<_> =
+            f.expressions.iter().filter(|(_, e)| of(e).is_some()).map(|(h, _)| h).collect();
         let other = f.expressions.iter().any(|(_, e)| match e {
             Expression::Load { pointer } => mine.contains(pointer),
             Expression::Access { base, .. } => mine.contains(base),
@@ -743,16 +756,10 @@ fn split_module(
         .map(|(_, f)| f)
         .chain(module.entry_points.iter().map(|e| &e.function))
     {
-        let mine: Vec<_> = f
-            .expressions
-            .iter()
-            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(g) if *g == block))
-            .map(|(h, _)| h)
-            .collect();
         for (_, e) in f.expressions.iter() {
             if let Expression::AccessIndex { base, index } = e
-                && mine.contains(base)
-                && let Some(r) = read.get_mut(*index as usize)
+                && let Some(at) = of(&f.expressions[*base])
+                && let Some(r) = read.get_mut(at + *index as usize)
             {
                 *r = true;
             }
@@ -868,7 +875,9 @@ fn split_module(
         },
         Span::UNDEFINED,
     );
-    module.global_variables[block].ty = pad;
+    for &b in &blocks {
+        module.global_variables[b].ty = pad;
+    }
     // Each access to a member goes to its part's block.
     let fns = module
         .functions
@@ -882,12 +891,9 @@ fn split_module(
                 .find(|(_, e)| matches!(e, Expression::GlobalVariable(x) if *x == g))
                 .map(|(h, _)| h)
         };
-        let olds: Vec<Handle<Expression>> = f
-            .expressions
-            .iter()
-            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(x) if *x == block))
-            .map(|(h, _)| h)
-            .collect();
+        // (Each block's variable here, and its first member's place.)
+        let olds: Vec<(Handle<Expression>, usize)> =
+            f.expressions.iter().filter_map(|(h, e)| of(e).map(|at| (h, at))).collect();
         if olds.is_empty() {
             continue;
         }
@@ -915,10 +921,10 @@ fn split_module(
         let bases = [de, fe, be, le];
         for (_, e) in f.expressions.iter_mut() {
             if let Expression::AccessIndex { base, index } = e
-                && olds.contains(base)
+                && let Some(&(_, at)) = olds.iter().find(|(h, _)| h == base)
             {
                 let &(k, j) = moved
-                    .get(*index as usize)
+                    .get(at + *index as usize)
                     .and_then(Option::as_ref)
                     .ok_or_else(|| naga_err("an access past the block's members"))?;
                 (*base, *index) = (bases[k], j);
@@ -1399,6 +1405,28 @@ void main ()
         assert!(!wgsl.contains("textureDimensions"), "{wgsl}");
         assert!(screen.split_uniforms(part).unwrap());
         assert!(screen.reflection.uniform("screenParams").is_some());
+    }
+
+    /// A named uniform block beside the loose uniforms is split with them:
+    /// its members go to the parts by what each is, as the loose ones do.
+    #[test]
+    fn a_named_uniform_block_beside_the_loose_ones_is_split_with_them() {
+        let src: BTreeMap<String, String> = [(
+            "fs_named".to_string(),
+            "#define SHADER_TYPE 2\nuniform vec4 loose;\nuniform Glow { vec4 glow; };\n\
+             void main () { gl_FragColor = loose + glow; }\n"
+                .to_string(),
+        )]
+        .into();
+        let mut p = compile("fs_named", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let part = |m: &crate::Member| if m.name == "glow" { Part::Frame } else { Part::Draw };
+        assert!(p.split_uniforms(part).unwrap());
+        let (draw, loose) = p.reflection.uniform("loose").unwrap();
+        let (frame, glow) = p.reflection.uniform("glow").unwrap();
+        assert_eq!((draw.part, frame.part), (Part::Draw, Part::Frame));
+        assert_eq!((loose.offset, glow.offset), (0, 0));
+        naga::back::wgsl::write_string(&p.module, &p.info, naga::back::wgsl::WriterFlags::empty())
+            .unwrap();
     }
 
     #[test]
