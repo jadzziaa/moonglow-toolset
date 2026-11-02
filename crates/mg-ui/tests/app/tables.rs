@@ -1876,3 +1876,42 @@ fn a_file_s_table_keeps_its_layout_and_is_read_again_when_changed() {
     assert_eq!(table_of(&h, id).get(0, "Cost"), Some("8"));
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("4"));
 }
+
+/// A model's cell chosen says whether the game has the model (and where
+/// it reads it from), and Choose Model… lists the models the game reads,
+/// found by a part of the name: one chosen is put in the cell.
+#[test]
+fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-models");
+    let file = dir.join("placeables.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\n\n   Label   ModelName\n0  Chest   plc_c01\n1  Nothing mg_none\n",
+    )
+    .unwrap();
+    let mut h = harness(game_app(&root, None), 1280.0, 1300.0);
+    // (Tall: the list of models opens under the cell's panel.)
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
+        h.run_steps(4);
+    };
+    choose(&mut h, 0);
+    h.get_by_label_contains("a model, read from");
+    choose(&mut h, 1);
+    h.get_by_label("no model of this name in the game, its haks or the module");
+    h.get_by_label("Choose Model…").click();
+    h.run_steps(3);
+    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    click_pos(&h, field);
+    h.run_steps(2);
+    h.event(egui::Event::Text("plc_c0".into()));
+    h.run_steps(4);
+    let at = h.get_by_label("plc_c02").rect().center();
+    click_pos(&h, at);
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
+}

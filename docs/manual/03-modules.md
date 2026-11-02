@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:01:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:11:04Z }
 ---
 
 # Modules
@@ -1637,7 +1637,13 @@ and is not: seven appearances name footstep 30 of 18); the count above the grid 
 the grid, the selected cell is shown by what its column holds: a
 talk-table string as its text (**Strings as text** shows them so in the
 grid too), a row of another table as that row's name, with a list to
-choose another from.
+choose another from, and a model (an appearance's `RACE`, a
+placeable's `ModelName`, a door's) as whether the game has it and
+which layer it is read from, or that there is no model of the name in
+the game, its haks or the module; **Choose Model…** lists the models the
+game reads, found by a part of the name, and one clicked goes in the
+cell. (A model is checked for the cell chosen, not for every row: the
+game's own tables name models it never shipped.)
 
 **Find References to Row** lists the cells, in every table the game
 reads, of the columns known to name a row of this table: who would be

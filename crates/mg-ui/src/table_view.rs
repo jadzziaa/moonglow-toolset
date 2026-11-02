@@ -2314,7 +2314,7 @@ fn inspector(
                 }
             }
             Some(ColumnKind::Model) => {
-                ui.weak("a model's name");
+                model_choice(ui, id, game.as_deref(), value.as_deref(), &mut set);
             }
             Some(k @ (ColumnKind::Row(_) | ColumnKind::RowBy { .. })) => {
                 // (Of a requirement, the table its kind names, if any.)
@@ -2389,6 +2389,91 @@ fn inspector(
 
 /// A row of the table `target` to choose (the table itself as it is now,
 /// for a row of its own; else `other`, as read), with the one named now.
+/// The models the game reads (its own, the haks', the module's) whose
+/// names hold `find`, by name, at most `most`.
+pub(crate) fn models_named(
+    game: &mg_rules::GameData,
+    find: &str,
+    most: usize,
+) -> (Vec<String>, usize) {
+    let find = find.trim().to_ascii_lowercase();
+    let mut names: Vec<String> = (game.resman.layers().iter())
+        .flat_map(|l| l.container.keys().filter(|k| k.restype == ResType::MDL).map(|k| k.resref))
+        .map(|r| r.to_string())
+        .filter(|n| n.contains(&find))
+        .collect();
+    names.sort();
+    names.dedup();
+    let all = names.len();
+    names.truncate(most);
+    (names, all)
+}
+
+/// A model's cell, chosen: whether the game has the model it names (and
+/// where: the layer the game reads it from), checked for the cell chosen
+/// (not for every row, which the game's own tables would fail: they name
+/// models the game never shipped), and **Choose Model…**, a list of the
+/// models the game reads, found by a part of the name.
+fn model_choice(
+    ui: &mut Ui,
+    id: u32,
+    game: Option<&mg_rules::GameData>,
+    value: Option<&str>,
+    set: &mut Option<Option<String>>,
+) {
+    let Some(game) = game else {
+        ui.weak("a model's name");
+        return;
+    };
+    let key = value.and_then(|v| ResRef::from_str(v).ok()).map(|r| ResKey::new(r, ResType::MDL));
+    match key.map(|k| (k, game.resman.copies(&k))) {
+        None => _ = ui.weak("a model's name"),
+        Some((_, copies)) if copies.is_empty() => {
+            let warn = ui.visuals().warn_fg_color;
+            ui.colored_label(warn, "no model of this name in the game, its haks or the module")
+                .on_hover_text("Used, the row shows nothing (or the game's stand-in)");
+        }
+        Some((_, copies)) => {
+            let layer = &game.resman.layers()[copies[0]].label;
+            ui.weak(format!("a model, read from {layer}"));
+        }
+    }
+    let find_id = egui::Id::new(("table-model-find", id));
+    let open_id = find_id.with("open");
+    let mut open: bool = ui.data(|d| d.get_temp(open_id)).unwrap_or(false);
+    if ui.selectable_label(open, "Choose Model…").clicked() {
+        open = !open;
+    }
+    ui.data_mut(|d| d.insert_temp(open_id, open));
+    if !open {
+        return;
+    }
+    // (On a line of its own under the cell's: the panel's row wraps.)
+    ui.end_row();
+    ui.vertical(|ui| {
+        ui.set_width(ui.available_width().clamp(200.0, 360.0));
+        let mut find: String = ui.data(|d| d.get_temp(find_id)).unwrap_or_default();
+        let _ = crate::widgets::SearchField::new(find_id.with("field"), &mut find)
+            .hint("Part of a model's name")
+            .show(ui);
+        ui.data_mut(|d| d.insert_temp(find_id, find.clone()));
+        let (names, all) = models_named(game, &find, 200);
+        if all > names.len() {
+            ui.weak(format!("{} of {all}: type more of the name", names.len()));
+        }
+        let list = egui::ScrollArea::vertical().id_salt(find_id.with("list")).max_height(240.0);
+        list.show(ui, |ui| {
+            for n in names {
+                let now = value.is_some_and(|v| v.eq_ignore_ascii_case(&n));
+                if ui.selectable_label(now, &n).clicked() {
+                    *set = Some(Some(n));
+                    ui.data_mut(|d| d.insert_temp(open_id, false));
+                }
+            }
+        });
+    });
+}
+
 fn row_choice(
     ui: &mut Ui,
     id: u32,

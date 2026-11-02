@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:01:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:11:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -246,9 +246,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
   after 1.21.3: a table's cells in the module, a hak or a file, checked
   as typed, with rows taken from another copy). Not done:
-  - A model's cell has no list to choose from and is not checked by the
-    row; a talk-table string's cell offers the talk table, not a new
-    line in it. (S each)
+  - A talk-table string's cell offers the talk table, not a new line
+    in it. (S; not reached in the deferred sprint of 2026-11-01, which
+    did the model's cell: its list and its check, on the cell chosen)
   - Find References to Row looks in the tables' known columns, not in
     blueprints, areas or scripts. (M)
   - A row both copies changed is taken whole or left: its cells are not
