@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-11-02
+* **Fix**: Particles from a `Billboard_to_Local_Z` emitter now lie flat in the emitter's local XY plane, facing along its Z axis, as they do in the game. Before, Moonglow stood them upright and turned them to face the camera, so particles meant to lie flat appeared standing (reported by a builder). The client's code treats this mode like `Billboard_to_World_Z`: both lay particles along a fixed axis, and neither uses soft particles ([the framebuffer proposal](framebuffer-proposal.md)). Checked before and after in the area view with `look_placeable_appearance`, which now accepts `MG_AT` to set the camera position. Tests: `a_local_z_particle_lies_in_its_emitter_s_plane`, `world_z_particles_stand_or_lie`. Checked by eye against the game on Windows.
+
 ## 2026-11-01
 * **Update**: Options › Area › **Keep animating behind other windows** (off by default): the area views and the model viewer go on animating while another program has the focus, where the audit had made them hold still there with no way to keep them going (the owner's ask). `an_area_s_animations_wait_while_the_window_has_not_the_focus`, `the_texture_limit_is_none_until_chosen_and_kept`; [Options](manual/10-options.md) says so.
 * **Update**: With the Tile Border on, past it is the area's fog color, as the client clears to it where an area has no skybox (whatever the fog's amount, read in the client's pictures: its sky the scratch area's fog color exactly), where Moonglow's background was black unless Fog was on; the skybox is drawn as before. `the_tile_border_is_drawn_past_the_edge_when_asked_for`; [Areas](manual/04-areas.md) and the [research note](research/notes_tile_border.md) say so.
