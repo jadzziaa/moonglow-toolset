@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:25:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -464,8 +464,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   opens, the owner's choice of the two ways the entry offered; with the
   programs cached, area092's look changed 28 ms after it showed and The
   Domains of Dread's woods' 77 ms, and now neither: drawn by the game's
-  programs from the first frame, the area opened at once or a second
-  later. The first session's, and a module never opened before, as
+  programs from the first frame they show (asked for with the module's
+  first frame), the area opened as the module opens or a second later. The first session's, and a module never opened before, as
   before.)
   - **A dense area seen whole is still slower with the switch on.**
     TDoD's synthetic woods (24 by 24 `mst04` tiles, 400 placeables,
