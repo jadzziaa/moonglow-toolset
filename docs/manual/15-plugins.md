@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T19:23:52Z }
 ---
 
 # Plugins
@@ -15,9 +15,9 @@ plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.4) may change in a later release as the people who
+plugin API (version 0.6) may change in a later release as the people who
 write plugins try it. A plugin written for an earlier version of the API still
-runs (0.2, 0.3 and 0.4 only added to it); one written for a version this
+runs (0.2 to 0.6 only added to it); one written for a version this
 Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
 or the plugin, needs an update. What you build with plugins, and what
 you miss, is welcome on the

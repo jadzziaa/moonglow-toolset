@@ -1582,12 +1582,11 @@ fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
         assert!(h.query_all_by_label(label).next().is_some(), "{label}");
     }
     h.get_by_label("2 values kept are not as the plugin declares them.");
-    // A folder chosen for the folder's path. (Hovered first, a frame run:
-    // a click on a button the window's layout moves a frame later misses,
-    // as it did twice on CI's Windows.)
-    h.get_by_label("Choose…").hover();
-    h.run();
-    h.get_by_label("Choose…").click();
+    // A folder chosen for the folder's path. (The form's buttons clicked by
+    // their action, as search.rs clicks its: the window is centered, and a
+    // pointer's click where a button was a frame before missed it on CI's
+    // Windows, even hovered first.)
+    h.get_by_label("Choose…").click_accesskit();
     h.run();
     {
         let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
@@ -1608,7 +1607,7 @@ fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
     h.run();
     h.get_by_label_contains("does not match its pattern");
     // Tidy Up: the wrong ones out of the team's file.
-    h.get_by_label("Tidy Up").click();
+    h.get_by_label("Tidy Up").click_accesskit();
     h.run();
     let now = std::fs::read_to_string(&team).unwrap();
     assert!(!now.contains("most = 40") && !now.contains("lost"), "{now}");
@@ -1622,7 +1621,7 @@ fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
         );
     }
     h.run();
-    h.get_by_label("Save").click();
+    h.get_by_label("Save").click_accesskit();
     h.run();
     // Kept in the file shared with mg, the list's empty lines left out.
     let kept: serde_json::Value =

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T19:23:52Z }
 ---
 
 # Writing plugins
@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.5): it may change in a
+The plugin API is **experimental** (version 0.6): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
