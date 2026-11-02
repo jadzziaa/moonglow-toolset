@@ -439,6 +439,7 @@ fn plain_text(tab: &Tab) -> Option<String> {
         }
         Tab::Instances { area, paths } => format!("instances:{area}:{}", list(paths, path_text)),
         Tab::Tile { tileset, tile } => format!("tile:{tileset}:{tile}"),
+        Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
         | Tab::NoArea
         | Tab::Palette
@@ -468,6 +469,10 @@ fn parse_tab(text: &str) -> Option<Want> {
         "advanced-search" => Tab::AdvancedSearch,
         "options" => Tab::Options,
         "placeable-gallery" => Tab::PlaceableGallery,
+        "plugin-panel" => {
+            let (plugin, panel) = rest.split_once('/')?;
+            Tab::PluginPanel { plugin: plugin.to_string(), panel: panel.to_string() }
+        }
         "script" => Tab::Script(parse_key(rest)?),
         "nui" => Tab::Nui(parse_key(rest)?),
         "gff" => Tab::Gff(parse_key(rest)?),
@@ -767,6 +772,10 @@ impl Moonglow {
             }
             Tab::Blueprints(keys) => keys.iter().all(|k| module.contains(k)),
             Tab::AreasProperties(areas) => areas.iter().all(area),
+            // (A plugin's panel, while its plugin runs.)
+            Tab::PluginPanel { plugin, panel } => self.enabled_plugins().iter().any(|p| {
+                p.manifest.id == *plugin && p.manifest.panels.iter().any(|d| d.id == *panel)
+            }),
             // (Found again when the record is read: `read_open_tabs`.)
             Tab::Instance { area: a, .. }
             | Tab::InstanceModel { area: a, .. }

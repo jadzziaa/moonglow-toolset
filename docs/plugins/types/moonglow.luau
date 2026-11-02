@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.5, for editors that check
+-- The types of Moonglow's plugin API, version 0.6, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -295,9 +295,63 @@ export type Context = {
     fix: ((label: string, asks: { command: string, on: { resource: string, path: string? }? }?) -> Fix)?,
 }
 
+-- Where an exporter writes (API 0.6): the file or the folder the user
+-- chose, its name; `write` is the whole file (to a file), or a file of the
+-- folder by name (to a folder).
+export type Out = {
+    name: string,
+    write: ((self: Out, bytes: string) -> ()) & ((self: Out, name: string, bytes: string) -> ()),
+}
+
+-- A wizard's answers so far: every page's values, by field id.
+export type Answers = { [string]: any }
+
+-- A wizard's page (API 0.6): a form's fields, what it says above them,
+-- and a check of what was given (text: what is wrong, and the page stays).
+export type Page = {
+    id: string?,
+    title: string?,
+    text: string?,
+    fields: { FormField }?,
+    check: ((ctx: Context, answers: Answers) -> string?)?,
+}
+
+export type Wizard = {
+    -- Each a page, or a function that makes one from the answers so far
+    -- (nil: the page is skipped).
+    pages: { Page | (ctx: Context, answers: Answers) -> Page? },
+    finish: (ctx: Context, answers: Answers) -> ...any,
+}
+
+-- An entry a panel's button or item names: as ctx.selection's, or its text
+-- ("tavern.are", "tavern.git/Creature List[0]").
+export type Entry = string | { resource: string, path: string? }
+
+export type PanelItem = string | {
+    text: string,
+    hint: string?,
+    open: Entry?,
+    command: string?,
+    on: (Entry | { Entry })?,
+}
+
+-- What a panel shows (API 0.6): each element a table with its type, or
+-- text alone.
+export type Element = string | {
+    type: "heading" | "text" | "value" | "separator" | "button" | "list",
+    text: string?,
+    weak: boolean?,
+    color: ("warning" | "error")?,
+    label: string?,
+    hint: string?,
+    command: string?,
+    on: (Entry | { Entry })?,
+    items: { PanelItem }?,
+}
+
 local mg = {}
 
-mg.api = "0.5"
+mg.api = "0.6"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.
@@ -310,6 +364,17 @@ function mg.check(id: string, handler: (ctx: Context) -> { Finding }?) end
 -- "resource-saving", "resource-saved", "object-placed", "object-pasted"
 -- or "resource-created"): ctx.event says what happened.
 function mg.on(id: string, handler: (ctx: Context) -> ...any) end
+
+-- An exporter (API 0.6): it reads, and writes only with out:write, where
+-- the user chose. What it returns, as text, goes to the log.
+function mg.exporter(id: string, handler: (ctx: Context, out: Out) -> ...any) end
+-- An importer (API 0.6): source is the file, or the folder, the user chose.
+-- It may return what Undo calls the change.
+function mg.importer(id: string, handler: (ctx: Context, source: File | Folder) -> ...any) end
+-- A wizard (API 0.6): its pages, asked in turn, and what its Finish does.
+function mg.wizard(id: string, wizard: Wizard) end
+-- A panel (API 0.6): what it shows, drawn by Moonglow; it only reads.
+function mg.panel(id: string, handler: (ctx: Context) -> { Element }?) end
 
 local function typed(type: string, value: any): Value
     return { type = type, value = value }

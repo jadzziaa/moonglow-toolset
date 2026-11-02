@@ -146,6 +146,17 @@ pub trait Dialogs {
     fn open_files(&mut self, kind: FileKind, start: Option<&Path>) -> Vec<PathBuf> {
         self.open_file(kind, start).into_iter().collect()
     }
+    /// Asks where to save a file of `extension` (empty: any), under
+    /// `title`: where a plugin's exporter writes. `suggested` is the
+    /// proposed file.
+    fn save_file_of(
+        &mut self,
+        _title: &str,
+        _extension: &str,
+        suggested: Option<&Path>,
+    ) -> Option<PathBuf> {
+        self.save_file(FileKind::Any, suggested)
+    }
 }
 
 /// Dialogs that answer from a script (for tests), or cancel: each call takes

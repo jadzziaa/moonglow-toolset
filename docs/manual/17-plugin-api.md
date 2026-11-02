@@ -1,14 +1,14 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels, ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:46:22Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.5. The API is
+Everything a plugin's code can use, for plugin API 0.6. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,10 +29,14 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.5"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.6"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
+| `mg.exporter(id, handler)` | Registers the exporter the manifest declares as `id` (`[exporter]`; since API 0.6). `handler(ctx, out)` writes with `out` (below), and only reads the module. It may return text, which the log says. |
+| `mg.importer(id, handler)` | Registers the importer the manifest declares as `id` (`[importer]`; since API 0.6). `handler(ctx, source)` reads `source`, the `file` or the `folder` the user chose (as `ctx.ui:open_file` and `ctx.ui:open_folder` give them), and edits with `ctx.edit`. It may return what Undo calls the change; else that is "Import" and its title. |
+| `mg.wizard(id, wizard)` | Registers the wizard the manifest declares as `id` (`[wizard]`; since API 0.6): `wizard` is `{ pages = { … }, finish = function(ctx, answers) … end }` (below). `finish` makes the edits, and may return what Undo calls them; else that is the wizard's title. |
+| `mg.panel(id, handler)` | Registers the panel the manifest declares as `id` (`[panel]`; since API 0.6). `handler(ctx)` returns what the panel shows, a list of elements (below), and only reads. |
 | `mg.image(bytes, kind?)` | A picture decoded, as an `image` (below): a PNG, a TGA or a DDS, told apart by how the bytes start, or by `kind` (`"png"`, `"tga"`, `"dds"`). |
 | `mg.twoda` | 2DAs made, read and written: `parse(bytes)`, `new(columns)` and `kinds(name)` (below). |
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
@@ -132,6 +136,90 @@ typed value is written (a list's item, a whole GFF). Each returns
 - There is none for a struct, a list or a `void` (bytes): write those
   as tables, `{ type = "list", value = { … } }`,
   `{ type = "struct", value = { … }, __struct_id = 0 }`.
+
+## Exporters, importers, wizards and panels
+
+What a plugin may add besides commands, checks and events (since API
+0.6); [Writing plugins](16-writing-plugins.md#exporters-and-importers)
+shows each in an example. Each handler gets `ctx` as a command's does,
+with what is selected and open.
+
+An **exporter** runs when its entry of File › Export is chosen, after
+the user has chosen where it writes in the save dialog (or, for one
+whose manifest says `to = "folder"`, the folder dialog): that choice is
+their leave, and nothing more is asked of it. Its `out`:
+
+| | |
+| --- | --- |
+| `out.name` | The name of the file, or the folder, the user chose. |
+| `out:write(bytes)` | To a file: the whole file (a second call replaces what the first gave). To a folder, `out:write(name, bytes)`: a file of it, by name (a name alone, not a path; not one that begins with a dot), in place of one of that name there. |
+
+What it wrote is written when the handler has returned, and not if it
+fails. An exporter only reads: one that edits the module, writes a hak
+or writes into another folder fails. Undo has nothing to take back: the
+module is not changed, and the files are not the module's. An exporter
+whose manifest says what it is `for` exports what is selected
+(`ctx.selection`), and is offered only when what is selected is all of
+those kinds.
+
+An **importer** runs when its entry of File › Import is chosen, after
+the user has chosen what it reads: a file of the `extensions` its
+manifest names (a file of another kind is refused before its code runs),
+or with `from = "folder"` a folder. Its edits are one step of Undo, and
+a hak it writes (`ctx.hak`, `folder:to_hak`) goes with them, as a
+command's.
+
+A **wizard**'s `pages` are asked one at a time, in the window of its
+job: each with **Back** (not on the first), **Next** (on the last,
+**Finish**) and **Cancel**. A page is a table, or a function `(ctx,
+answers) -> page?` that makes one from what was answered so far; one
+that returns nil is skipped (where every page after the one shown is
+skipped, its Next finishes). A page:
+
+| Field | |
+| --- | --- |
+| `id` | Its name, for the errors. |
+| `title` | What it is called, above it (else the wizard's title). |
+| `text` | What it says above its fields. |
+| `fields` | Its fields, as a form's (`ctx.ui:form`). |
+| `check` | `function(ctx, answers)`, called on Next: text, what is wrong, keeps the page with that text shown; nil lets it go on. |
+
+`answers` is one table of every page's values by field id, so each
+field's id is its own across the pages (one on two pages is an error).
+Back keeps what was typed: a page shown again starts with what was given
+on it. The pages, their functions and their checks only read (one that
+edits fails); `finish(ctx, answers)` edits, as a command, all of it one
+step of Undo. Cancel, or closing the window, makes nothing.
+
+A **panel** is a pane of its own (Plugins › Panels), which shows what
+its handler returns: a list of elements, each a table with its `type`,
+or text alone (a `text`). Moonglow draws them; the panel never draws.
+
+| Element | Fields |
+| --- | --- |
+| `heading` | `text` |
+| `text` | `text`; `weak` (true: of less weight) or `color` (`"warning"`, `"error"`) |
+| `value` | `label` and `text`, shown side by side (`Areas` `12`) |
+| `separator` | none |
+| `button` | `text`, `hint`, `command` (one of the plugin's commands, by its id) and `on` (an entry, or a list of them; left out, what is selected when it is clicked) |
+| `list` | `items`: each text, or a table with `text`, `hint`, `open` (an entry: a click opens it, an object in its area, a resource in its editor) and `command` and `on` (a click runs the command) |
+
+An entry is as `ctx.selection` has one (`{ resource = "tavern.git",
+path = "/Creature List[0]" }`), or its text (`"tavern.git/Creature
+List[0]"`, `"guard.utc"`). The handler runs when the panel opens, by its
+**Refresh**, after a job of its plugin's ends (a command, an import, a
+wizard), and as its manifest's `refresh` says: after each change of the
+module (`"edits"`: an edit, Undo, Redo) and when what is selected
+changes (`"selection"`). It runs beside the window, not in a frame: the
+panel shows what it returned last until the next is done, one render at
+a time. A panel only reads: nothing is asked (`ctx.ui:confirm` is false,
+a form nil, no file is given), it can't set a setting or write outside
+the module, and what it logs goes nowhere; its buttons run commands,
+which ask and edit as commands do. It has 250 milliseconds, past which
+it is stopped and says so; it shows at most 2,000 elements (a list's
+items counted each) and 1,000 characters a text, the rest cut, saying
+so. A panel is not in `mg`, which has no window to show it in; a
+plugin's own tests hold what it shows (`shows`).
 
 ## `ctx.selection`, `ctx.open`
 
@@ -551,6 +639,12 @@ An `image`, from `mg.image`:
 | `image.width`, `image.height` | Its size in pixels. |
 | `image:pixel(x, y)` | A pixel's red, green, blue and alpha, each 0 to 255: four values. Pixels count from 0, from the top left. A gray picture has the same red, green and blue; 16 bits a channel are rounded to the nearest of 8 bits, as a NUI window's picture is read. |
 
+With `mg` an exporter writes where `mg plugin export` says, an importer
+reads what `mg plugin import` names, and a wizard's pages take their
+defaults and `--answers` (a JSON file of values by field id) and
+`--answer`s: its pages go on in turn, and a page's check that objects is
+an error, with what it said ([Writing plugins](16-writing-plugins.md#exporters-and-importers)).
+
 Where there is nobody to ask (a check; `mg plugin run`): a message is
 logged, `confirm` is false (true with `--yes`), and a form is nil in a
 check and takes its defaults and `--answer`s with `mg`. A file or a
@@ -621,9 +715,11 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 
 ## What the API doesn't have yet
 
-Plugins can't yet react to the selection changed, an area opened or a
-field typed into, warn of a paste or refuse one, add
-panels or their own editors, draw in the area view, change what is
+Plugins can't yet react to the selection changed (but a panel's
+`refresh`), an area opened or a field typed into, warn of a paste or
+refuse one, add their own editors, draw in the area view or a panel,
+take text in a panel, be offered in File › Open by a file's type, change
+what is
 selected, write files other than haks and those of a folder the user
 chose, or read a file a setting's path names. These are planned for later versions of the API; what
 you'd use them for is welcome on the

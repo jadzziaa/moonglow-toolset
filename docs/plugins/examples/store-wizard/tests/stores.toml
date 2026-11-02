@@ -1,0 +1,47 @@
+# The plugin's own tests: `mg plugin test docs/plugins/examples/store-wizard`.
+# A wizard's pages are answered from `answers`, by field id (the other
+# fields take their defaults), each page going on to the next.
+module = "module"
+
+[[test]]
+name = "a smith's store, page by page, buys only what it sells"
+wizard = "new-store"
+answers = { name = "Iron Hand", kind = "Smith" }
+resources = ["ironhand.utm"]
+log = ["ironhand.utm: Iron Hand, selling at 150%"]
+[[test.field]]
+resource = "ironhand.utm"
+field = "MarkUp"
+value = 150
+[[test.field]]
+resource = "ironhand.utm"
+field = "Tag"
+value = "IRON_HAND"
+[[test.field]]
+resource = "ironhand.utm"
+field = "WillOnlyBuy[4]"
+
+[[test]]
+name = "a general store has no page of what it buys"
+wizard = "new-store"
+answers = { name = "Sundries", markup = 110 }
+[[test.field]]
+resource = "sundries.utm"
+field = "MarkUp"
+value = 110
+[[test.field]]
+resource = "sundries.utm"
+field = "WillOnlyBuy[0]"
+absent = true
+
+[[test]]
+name = "a store with no name is refused on its page"
+wizard = "new-store"
+answers = { name = "  " }
+error = "A store needs a name."
+
+[[test]]
+name = "prices that buy for more than they sell are refused"
+wizard = "new-store"
+answers = { name = "Pawn", markup = 50, markdown = 60 }
+error = "It would buy for more than it sells."

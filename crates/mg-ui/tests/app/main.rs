@@ -20,6 +20,7 @@ mod looks;
 mod modules;
 mod options_and_keys;
 mod palettes;
+mod plugin_kinds;
 mod plugins;
 mod projects;
 mod renderer_check;
