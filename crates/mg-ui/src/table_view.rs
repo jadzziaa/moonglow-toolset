@@ -105,10 +105,13 @@ pub struct TableDoc {
     /// Bumped at every change: what is worked out from the table is kept
     /// until then.
     revision: u64,
+    /// The rows it is narrowed to besides a Find's (the resource
+    /// browser's Rows from: those a layer last changed).
+    pub(crate) within: Option<Arc<Vec<usize>>>,
     /// The rows shown, for the table and the Find they were worked out
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, u64, String, bool), Arc<Vec<usize>>)>,
+    shown: Option<((u64, usize, u64, String, bool), Arc<Vec<usize>>)>,
     faults: Option<(u64, Arc<Vec<CellFault>>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
@@ -175,6 +178,7 @@ impl TableDoc {
             described: None,
             described_at: f64::NEG_INFINITY,
             revision: 0,
+            within: None,
             shown: None,
             faults: None,
             add_count: 1,
@@ -188,6 +192,13 @@ impl TableDoc {
 
     pub fn name(&self) -> String {
         self.key.resref.to_string()
+    }
+
+    /// A table to look at, not to edit: the resource browser's view of a
+    /// table the game reads (its own id, of those counted down from the
+    /// highest).
+    pub(crate) fn read_only(id: u32, key: ResKey, table: TwoDa) -> TableDoc {
+        TableDoc::new(id, key, Home::Module, Editing::new(table))
     }
 
     /// What its columns' widths are kept by ([`column_widths`]): the
@@ -752,7 +763,7 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
 }
 
 /// What the table's columns hold, where the checks know.
-fn kinds(app: &Moonglow, name: &str) -> Vec<(&'static str, ColumnKind)> {
+pub(crate) fn kinds(app: &Moonglow, name: &str) -> Vec<(&'static str, ColumnKind)> {
     let read = |n: &str| app.game.as_deref().and_then(|g| g.table(n).ok());
     mg_module::doctor::column_kinds_as_named(name, &read)
 }
@@ -1402,7 +1413,8 @@ fn header(
 /// every cell was looked through at each frame), and again when either
 /// changes.
 fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
-    let key = (doc.revision, doc.edit.changes(), doc.filter.clone(), doc.value_names);
+    let within = doc.within.as_ref().map_or(0, |w| Arc::as_ptr(w) as usize);
+    let key = (doc.revision, within, doc.edit.changes(), doc.filter.clone(), doc.value_names);
     if let Some((k, rows)) = &doc.shown
         && *k == key
     {
@@ -1416,15 +1428,19 @@ fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
 fn rows_found(doc: &TableDoc) -> Vec<usize> {
     let t = doc.edit.table();
     let needle = mg_core::text::Needle::new(&doc.filter);
+    let all: Vec<usize> = match &doc.within {
+        Some(within) => within.iter().copied().filter(|r| *r < t.len()).collect(),
+        None => (0..t.len()).collect(),
+    };
     if needle.is_empty() {
-        return (0..t.len()).collect();
+        return all;
     }
     // (And by the names shown for the values of a list or of flags.)
     let description = doc.description().filter(|_| doc.value_names);
     let kinds: Vec<Option<&Kind>> =
         t.columns().iter().map(|c| Some(&description.as_deref()?.column(c)?.kind)).collect();
     // (Every word in one of the row's cells, or their names.)
-    (0..t.len())
+    all.into_iter()
         .filter(|&r| {
             let mut fields = Vec::new();
             for (c, kind) in kinds.iter().enumerate() {
@@ -1457,6 +1473,17 @@ fn keys_table(ctx: &egui::Context) -> Option<u32> {
 /// Keyboard) are the table's while the keys are in its grid.
 fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let doc = &mut app.tables[at];
+    // Undo and Redo are the table's while the keys are in its grid (the
+    // keymap's, through `Moonglow::local_undo`).
+    if keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id) {
+        app.undo_keys = Some(Tab::Table(doc.id));
+    }
+    keys_in(doc, ui, false);
+}
+
+/// [`keys`] in a table's grid; `read_only` (the resource browser's view):
+/// the keys that move and Ctrl+C alone, while its grid has them.
+pub(crate) fn keys_in(doc: &mut TableDoc, ui: &mut Ui, read_only: bool) {
     // "Go to the next wrong cell", from the header's button.
     if doc.go_to == "!" {
         doc.go_to.clear();
@@ -1474,12 +1501,11 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
             take_keys(ui.ctx(), doc.id);
         }
     }
-    // Undo and Redo are the table's while the keys are in its grid (the
-    // keymap's, through `Moonglow::local_undo`).
-    if keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id) {
-        app.undo_keys = Some(Tab::Table(doc.id));
-    }
     if !keys_are(ui.ctx(), Keys::Table) || doc.typing.is_some() {
+        return;
+    }
+    // (A view's keys are its own grid's alone: another's are its.)
+    if read_only && keys_table(ui.ctx()) != Some(doc.id) {
         return;
     }
     if ui.ctx().egui_wants_keyboard_input() {
@@ -1542,6 +1568,16 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let chosen: Vec<usize> =
         rows.iter().copied().filter(|r| (first..=last_row).contains(r)).collect();
     let several = chosen.len() > 1 || right > left;
+    if pressed(ui, none, Key::Escape) {
+        give_keys(ui.ctx(), Keys::Area);
+    }
+    if read_only {
+        let (copy, _, _) = crate::widgets::copy_cut_paste(ui);
+        if copy {
+            ui.ctx().copy_text(copied(doc.edit.table(), &chosen, left, right));
+        }
+        return;
+    }
     if pressed(ui, none, Key::Enter) || pressed(ui, none, Key::F2) {
         let now = doc.edit.table().cell(row, column).unwrap_or_default().to_string();
         doc.typing = Some(now);
@@ -1558,23 +1594,9 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     if pressed(ui, none, Key::Delete) && doc.edit.clear_cells(&chosen, left, right) > 0 {
         doc.changed();
     }
-    if pressed(ui, none, Key::Escape) {
-        give_keys(ui.ctx(), Keys::Area);
-    }
     let (copy, cut, paste) = crate::widgets::copy_cut_paste(ui);
     if copy || cut {
-        // A line a row, tabs between the cells, as a spreadsheet copies
-        // them (and as Paste reads them).
-        let t = doc.edit.table();
-        let lines: Vec<String> = chosen
-            .iter()
-            .map(|&r| {
-                let cells: Vec<&str> =
-                    (left..=right).map(|c| t.cell(r, c).unwrap_or("****")).collect();
-                cells.join("\t")
-            })
-            .collect();
-        ui.ctx().copy_text(lines.join("\n"));
+        ui.ctx().copy_text(copied(doc.edit.table(), &chosen, left, right));
         if cut && doc.edit.clear_cells(&chosen, left, right) > 0 {
             doc.changed();
         }
@@ -1601,6 +1623,64 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     }
 }
 
+/// Over a read-only view's grid (the resource browser's): Find, Go to
+/// and Show Hidden Columns, as the editor has them.
+pub(crate) fn view_header(ui: &mut Ui, doc: &mut TableDoc) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Find");
+        let field = ui.id().with(("table-filter", doc.id));
+        crate::widgets::SearchField::new(field, &mut doc.filter)
+            .hint("text in any cell")
+            .width(170.0)
+            .find_over()
+            .show(ui);
+        ui.label("Go to");
+        let go =
+            ui.add(egui::TextEdit::singleline(&mut doc.go_to).desired_width(70.0).hint_text("row"));
+        if go.lost_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            && let Ok(row) = doc.go_to.trim().parse::<usize>()
+            && row < doc.edit.table().len()
+        {
+            doc.filter.clear();
+            doc.anchor = None;
+            doc.selected = Some((row, doc.selected.map_or(0, |s| s.1)));
+            doc.reveal = true;
+            take_keys(ui.ctx(), doc.id);
+        }
+        if !doc.hidden.is_empty() {
+            let names: Vec<&str> = doc.hidden.iter().map(String::as_str).collect();
+            if ui
+                .button(format!("Show Hidden Columns ({})", doc.hidden.len()))
+                .on_hover_text(format!("Hidden from view: {}", names.join(", ")))
+                .clicked()
+            {
+                doc.hidden.clear();
+            }
+        }
+        if let Some((row, column)) = doc.selected
+            && let Some(name) = doc.edit.table().columns().get(column)
+        {
+            // (The whole value, which its cell may cut short.)
+            let value = doc.edit.table().cell(row, column).unwrap_or("****");
+            ui.weak(format!("Row {row}, {name}: {value}"));
+        }
+    });
+}
+
+/// The cells `chosen` (rows) from `left` to `right`, as a spreadsheet
+/// copies them (and Paste reads them): a line a row, tabs between cells.
+fn copied(t: &TwoDa, chosen: &[usize], left: usize, right: usize) -> String {
+    let lines: Vec<String> = chosen
+        .iter()
+        .map(|&r| {
+            let cells: Vec<&str> = (left..=right).map(|c| t.cell(r, c).unwrap_or("****")).collect();
+            cells.join("\t")
+        })
+        .collect();
+    lines.join("\n")
+}
+
 fn grid(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1611,13 +1691,54 @@ fn grid(
     let game = app.game.clone();
     let table_name = app.tables[at].widths_key(app);
     let talk = app.talk.as_ref().filter(|_| !app.talk_view.outside);
-    let settings = &mut app.settings;
     let doc = &mut app.tables[at];
+    let settings = &mut app.settings;
+    let of = GridOf { settings, table_name: &table_name, talk, game: game.as_deref() };
+    grid_in(ui, doc, of, kinds, faults, None);
+}
+
+/// What a grid is drawn with besides its table.
+pub(crate) struct GridOf<'a> {
+    pub settings: &'a mut crate::settings::Settings,
+    /// What its columns' widths are kept by ([`TableDoc::widths_key`]).
+    pub table_name: &'a str,
+    /// The module's talk table, open for editing (its lines not yet saved
+    /// shown too).
+    pub talk: Option<&'a mg_module::talk::Table>,
+    pub game: Option<&'a mg_rules::GameData>,
+}
+
+/// The name a view's column of layers ("From") keeps its width by: no
+/// table's column is named so.
+pub(crate) const FROM: &str = "<from>";
+
+/// A table's grid: the editor's, or (`layers` given) the resource
+/// browser's read-only view of a table the game reads, each row's layer
+/// beside it and the cells a layer changed marked; there a cell is
+/// selected, the keys move, Find narrows and Ctrl+C copies, and nothing
+/// is changed (a column hidden or its width aside).
+pub(crate) fn grid_in(
+    ui: &mut Ui,
+    doc: &mut TableDoc,
+    of: GridOf<'_>,
+    kinds: &[(&'static str, ColumnKind)],
+    faults: &[CellFault],
+    layers: Option<&mg_module::table_layers::Layered>,
+) {
+    let GridOf { settings, table_name, talk, game } = of;
+    let read_only = layers.is_some();
+    // (The layer each row comes from, where the table has several.)
+    let layered = layers.filter(|l| l.copies.len() > 1);
+    let from_width = match layered {
+        Some(_) => column_widths(settings, table_name, &[FROM.to_string()], 110.0)[0],
+        None => 0.0,
+    };
+    let lead = if layered.is_some() { from_width + ui.spacing().item_spacing.x } else { 0.0 };
     let rows = shown_rows(doc);
     let columns: Vec<String> = doc.edit.table().columns().to_vec();
     // (A column hidden from view is drawn in no room: its cells are kept
     // and saved, and the keys pass over it.)
-    let widths: Vec<f32> = column_widths(settings, &table_name, &columns, CELL)
+    let widths: Vec<f32> = column_widths(settings, table_name, &columns, CELL)
         .into_iter()
         .zip(&columns)
         .map(|(w, c)| if doc.hidden.contains(&c.to_ascii_lowercase()) { 0.0 } else { w })
@@ -1625,7 +1746,7 @@ fn grid(
     // Where each column begins, from the first's left.
     let lefts: Vec<f32> = widths
         .iter()
-        .scan(0.0, |x, w| {
+        .scan(lead, |x, w| {
             let left = *x;
             if *w > 0.0 {
                 *x += w + ui.spacing().item_spacing.x;
@@ -1633,16 +1754,21 @@ fn grid(
             Some(left)
         })
         .collect();
-    // The edge of a column's name dragged or double-clicked.
+    // The edge of a column's name dragged or double-clicked (or of From).
     let mut edge = None;
+    let mut from_edge = None;
     let description = doc.description();
     let described = |c: &str| description.as_deref().and_then(|d| d.column(c));
     let kind_of = |c: &str| {
         let known = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(c)).map(|(_, k)| *k);
         known.or_else(|| matches!(described(c)?.kind, Kind::StrRef).then_some(ColumnKind::StrRef))
     };
-    let strref: Vec<bool> =
-        columns.iter().map(|c| doc.strref_text && kind_of(c) == Some(ColumnKind::StrRef)).collect();
+    // (A view takes a column by its name too: Name, Description…)
+    let is_strref = |c: &str| {
+        kind_of(c) == Some(ColumnKind::StrRef)
+            || (read_only && mg_module::table_layers::is_strref_column(c))
+    };
+    let strref: Vec<bool> = columns.iter().map(|c| doc.strref_text && is_strref(c)).collect();
     // The columns whose values are shown by name.
     let value_names = doc.value_names;
     let named: Vec<Option<&Kind>> = columns
@@ -1678,6 +1804,7 @@ fn grid(
     let released = doc.moving.is_some() && moving.is_none();
     let mut over_column = None;
     let wrong = ui.visuals().error_fg_color;
+    let changed = ui.visuals().warn_fg_color;
     // The column names stay in sight over the rows, and the rows' numbers
     // beside them: each goes with the rows' own scroll, a frame behind.
     let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
@@ -1694,15 +1821,33 @@ fn grid(
             .horizontal_scroll_offset(scroll_x)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    if layered.is_some() {
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(from_width, row_height),
+                            egui::Sense::hover(),
+                        );
+                        let text = egui::RichText::new("From").strong();
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        let inner = rect.shrink2(egui::vec2(4.0, 0.0));
+                        ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
+                            .add(egui::Label::new(text).truncate().selectable(false))
+                            .on_hover_text("The layer each row comes from");
+                        let edge_id = egui::Id::new(("table-from-edge", id));
+                        if let Some(act) = column_edge(ui, edge_id, rect, "From") {
+                            from_edge = Some(act);
+                        }
+                    }
                     for (index, c) in columns.iter().enumerate() {
                         if widths[index] == 0.0 {
                             continue;
                         }
                         let text = egui::RichText::new(c).strong();
-                        let (rect, r) = ui.allocate_exact_size(
-                            egui::vec2(widths[index], row_height),
-                            egui::Sense::click_and_drag(),
-                        );
+                        let sense = match read_only {
+                            true => egui::Sense::click(),
+                            false => egui::Sense::click_and_drag(),
+                        };
+                        let (rect, r) =
+                            ui.allocate_exact_size(egui::vec2(widths[index], row_height), sense);
                         // Dragged by its name to another column's place.
                         if r.drag_started() {
                             doc.moving = Some(index);
@@ -1718,6 +1863,21 @@ fn grid(
                             }
                         }
                         r.context_menu(|ui| {
+                            if read_only {
+                                if ui.button("Hide Column").clicked() {
+                                    column_view = Some(ColumnView::Hide(index));
+                                    ui.close();
+                                }
+                                if ui.button("Reset Width").clicked() {
+                                    column_view = Some(ColumnView::Reset(Some(index)));
+                                    ui.close();
+                                }
+                                if ui.button("Reset All Widths").clicked() {
+                                    column_view = Some(ColumnView::Reset(None));
+                                    ui.close();
+                                }
+                                return;
+                            }
                             if ui.button("Rename Column…").clicked() {
                                 column_act = Some((index, false));
                                 ui.close();
@@ -1802,12 +1962,19 @@ fn grid(
                             }
                             (None, None) => c.clone(),
                         };
-                        r.on_hover_text(
-                            about
-                                + "\nDrag: move the column. Drag its right edge: its width \
-                                   (double click there: as wide as its widest cell). \
-                                   Right-click: rename, move or remove it",
-                        );
+                        r.on_hover_text(match read_only {
+                            true => {
+                                about
+                                    + "\nDrag its right edge: its width (double click there: \
+                                       as wide as its widest cell). Right-click: hide it"
+                            }
+                            false => {
+                                about
+                                    + "\nDrag: move the column. Drag its right edge: its \
+                                       width (double click there: as wide as its widest \
+                                       cell). Right-click: rename, move or remove it"
+                            }
+                        });
                         // (On top of the name: its right end is the edge's.)
                         let edge_id = egui::Id::new(("table-edge", id, index));
                         if doc.moving.is_none()
@@ -1822,16 +1989,24 @@ fn grid(
             });
     });
     match edge {
-        Some((c, Edge::Width(w))) => set_column_width(settings, &table_name, &columns[c], w),
+        Some((c, Edge::Width(w))) => set_column_width(settings, table_name, &columns[c], w),
         Some((c, Edge::Fit)) => {
             // (To every row's cell, as shown: not those of a Find alone.)
             let t = doc.edit.table();
-            let cells = (0..t.len())
-                .map(|r| cell_shows(t.cell(r, c), strref[c], named[c], (talk, game.as_deref())).0);
+            let cells =
+                (0..t.len()).map(|r| cell_shows(t.cell(r, c), strref[c], named[c], (talk, game)).0);
             let w = fit_width(ui, &columns[c], cells);
-            set_column_width(settings, &table_name, &columns[c], w);
+            set_column_width(settings, table_name, &columns[c], w);
         }
         None => {}
+    }
+    match (from_edge, layered) {
+        (Some(Edge::Width(w)), _) => set_column_width(settings, table_name, FROM, w),
+        (Some(Edge::Fit), Some(l)) => {
+            let w = fit_width(ui, "From", l.copies.iter().map(|c| c.0.clone()));
+            set_column_width(settings, table_name, FROM, w);
+        }
+        _ => {}
     }
     match column_view {
         Some(ColumnView::Hide(c)) => {
@@ -1842,7 +2017,7 @@ fn grid(
             }
         }
         Some(ColumnView::Reset(c)) => {
-            reset_column_width(settings, &table_name, c.map(|c| columns[c].as_str()));
+            reset_column_width(settings, table_name, c.map(|c| columns[c].as_str()));
         }
         None => {}
     }
@@ -1910,7 +2085,7 @@ fn grid(
         let left = lefts.get(column).copied().unwrap_or_default();
         let step = widths.get(column).copied().unwrap_or(CELL) + ui.spacing().item_spacing.x;
         let width = ui.available_width() - NUMBER;
-        if left < scroll_x || left + step > scroll_x + width {
+        if left - lead < scroll_x || left + step > scroll_x + width {
             list = list.horizontal_scroll_offset((left - width / 2.0).max(0.0));
         }
     }
@@ -1939,6 +2114,21 @@ fn grid(
                 list.show_rows(ui, row_height, rows.len(), |ui, range| {
                     for &r in &rows[range] {
                         ui.horizontal(|ui| {
+                            // (The layer the row comes from, in a view.)
+                            if let Some(l) = layered {
+                                let origin = l.row_origin(r);
+                                let text = egui::RichText::new(&l.copies[origin].0);
+                                let text =
+                                    if origin + 1 < l.copies.len() { text } else { text.weak() };
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(from_width, row_height),
+                                    egui::Sense::hover(),
+                                );
+                                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                                let inner = rect.shrink2(egui::vec2(4.0, 0.0));
+                                ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
+                                    .add(egui::Label::new(text).truncate().selectable(false));
+                            }
                             for (c, is_strref) in strref.iter().copied().enumerate() {
                                 let width = widths[c];
                                 if width == 0.0 {
@@ -1976,13 +2166,28 @@ fn grid(
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = faults.iter().find(|f| f.row == r && f.column == c);
                                 let (label, text, was_named) =
-                                    cell_shows(raw, is_strref, named[c], (talk, game.as_deref()));
+                                    cell_shows(raw, is_strref, named[c], (talk, game));
                                 let mut rich = egui::RichText::new(label).monospace();
                                 if raw.is_none() {
                                     rich = rich.weak();
                                 }
                                 if fault.is_some() {
                                     rich = rich.color(wrong);
+                                }
+                                // (A cell a layer changed, not added: the
+                                // row is in the copy below.)
+                                let was = layered.and_then(|l| {
+                                    let origin = l.cell_origin(r, c);
+                                    let below = l.copies.get(origin + 1)?;
+                                    (r < below.1.len()).then(|| l.before(r, c)).flatten().map(
+                                        |(below, value)| {
+                                            let by = l.copies[origin].0.clone();
+                                            (by, below.to_string(), value.map(str::to_string))
+                                        },
+                                    )
+                                });
+                                if was.is_some() {
+                                    rich = rich.color(changed);
                                 }
                                 let (rect, cell) = ui.allocate_exact_size(
                                     egui::vec2(width, row_height),
@@ -2037,6 +2242,10 @@ fn grid(
                                 if let Some(f) = fault {
                                     tip.push(f.message.clone());
                                 }
+                                if let Some((by, below, value)) = &was {
+                                    let value = value.as_deref().unwrap_or("****");
+                                    tip.push(format!("Set by {by}; {value} in {below}"));
+                                }
                                 let cell = match tip.is_empty() {
                                     true => cell,
                                     false => cell.on_hover_text(tip.join("\n")),
@@ -2045,7 +2254,7 @@ fn grid(
                                     reach = Some((r, c));
                                 } else if cell.clicked() || cell.double_clicked() {
                                     clicked = Some((r, c));
-                                    begin = cell.double_clicked();
+                                    begin = cell.double_clicked() && !read_only;
                                 }
                             }
                         });

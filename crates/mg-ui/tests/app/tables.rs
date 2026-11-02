@@ -1916,6 +1916,75 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
 }
 
+/// The resource browser's read-only view of a table is the editor's grid
+/// with the editing left out: a cell selected by a click and the arrows,
+/// Ctrl+C copies, Find narrows the rows, Go to goes to one, a column is
+/// hidden; Delete, typing and a double click change nothing.
+#[test]
+fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
+    let root = mg_testkit::corpus!();
+    let mut h = harness(game_app(&root, None), 1280.0, 800.0);
+    h.run_steps(3);
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(5);
+    let before = h.state().game.as_deref().unwrap().table("spells").unwrap();
+    let label = |r: usize| before.get(r, "Label").unwrap().to_string();
+    h.get_by_label(&label(0)).click();
+    h.run_steps(2);
+    h.get_by_label_contains(&format!("Row 0, Label: {}", label(0)));
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.get_by_label_contains(&format!("Row 2, Label: {}", label(2)));
+    h.event(egui::Event::Copy);
+    h.step();
+    let copied = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(copied, Some(format!("{}\n{}", label(1), label(2))));
+    // Nothing is typed into or emptied.
+    let fields =
+        |h: &Harness<'_, Moonglow>| h.get_all_by_role(egui::accesskit::Role::TextInput).count();
+    let typing = fields(&h);
+    h.key_press(egui::Key::Delete);
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("x".into()));
+    h.run_steps(2);
+    let fifth = h.get_by_label(&label(5)).rect().center();
+    double_click(&mut h, fifth);
+    h.run_steps(2);
+    assert_eq!(fields(&h), typing, "no cell is typed in");
+    assert!(h.query_all_by_label(&label(1)).count() > 0, "not emptied");
+    // Find narrows the rows; Escape clears it.
+    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    click_pos(&h, find.rect().center());
+    h.run_steps(2);
+    h.event(egui::Event::Text("fireball".into()));
+    h.run_steps(3);
+    assert!(h.query_all_by_label("Fireball").count() > 0);
+    assert!(h.query_by_label(&label(0)).is_none(), "narrowed");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label(&label(0));
+    // A column hidden, from its name's menu, and shown again.
+    h.get_by_label("IconResRef").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Hide Column").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("IconResRef").is_none());
+    h.get_by_label("Show Hidden Columns (1)").click();
+    h.run_steps(2);
+    h.get_by_label("IconResRef");
+    assert_eq!(
+        h.state().game.as_deref().unwrap().table("spells").unwrap().get(1, "Label"),
+        Some(label(1).as_str()),
+        "the game's table as it was"
+    );
+}
+
 /// Take Rows: a row both copies changed is taken cell by cell, each cell
 /// saying whose change it is against the lowest copy (the game's).
 #[test]

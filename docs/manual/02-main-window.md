@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:57:17Z }
 ---
 
 # The main window
@@ -573,12 +573,19 @@ Down is the field's.
 
 A 2DA shows the copy the game reads, read-only, with its StrRef columns
 (Name, Description, StrRef and the like) as their text; **StrRefs as
-numbers** shows the numbers. Its rows scroll as the 2DA editor's do, with
-scroll bars at the right and the bottom, the column names staying at the
-top and the rows' numbers at the left; a column's width is set by
-dragging the edge at the right of its name (a double click there: as
-wide as its widest cell), and is the 2DA editor's for that table too.
-**Edit…** opens the table in the 2DA editor (see
+numbers** shows the numbers. It is the 2DA editor's grid with the
+editing left out: its rows scroll with scroll bars at the right and the
+bottom, the column names staying at the top and the rows' numbers at the
+left; a click selects a cell (its whole value is shown over the grid),
+the arrow keys, Tab, Page Up and Down, Home and End move (Shift held,
+the selection grows), and **Ctrl+C** copies the cells selected as a
+spreadsheet copies them; **Find** narrows the rows to those with the
+text in a cell, **Go to** takes a row's number; a column's width is set
+by dragging the edge at the right of its name (a double click there: as
+wide as its widest cell), and is the 2DA editor's for that table too,
+and the menu a right click on its name opens hides it (**Show Hidden
+Columns** brings it back) or resets the widths. Nothing typed, pasted or
+deleted changes it. **Edit…** opens the table in the 2DA editor (see
 [the 2DA editor](03-modules.md#the-2da-editor)). When several layers have the table (a hak's copy over
 the game's), the view adds:
 - a **From** column with the layer each row comes from: the lowest one

@@ -746,6 +746,34 @@ fn table_read_only_and_column_widths() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
     h.run_steps(5);
     shoot(&mut h, &dir, "2da-read-only");
+    // A cell selected and the arrows (the editor's grid, read-only), and
+    // Find narrowing the rows.
+    h.get_by_label("Acid_Fog").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "2da-read-only-selected");
+    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let field = field.rect().center();
+    h.hover_at(field);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: field,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.event(egui::Event::Text("fire".into()));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "2da-read-only-found");
+    // (Escape clears what is typed, and again leaves the field.)
+    for _ in 0..2 {
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+    }
     // The wheel over the rows: down, and sideways.
     let at = h.get_by_label("Acid_Fog").rect().center();
     h.hover_at(at);
