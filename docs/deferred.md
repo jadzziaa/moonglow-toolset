@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:09:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T05:18:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -595,11 +595,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
     250–277 ms) and, with them cached, while naga reads them and the
     driver makes the pipelines (28–40 and 123–146 ms): Moonglow's own
-    shader draws until they are ready. Making the pipelines of the
-    programs a module needs when it opens, or keeping the drivers'
-    pipeline caches (wgpu's `PipelineCache`), would shorten it. (S)
-  - `mg` and `mgv`'s previews compile the programs each run: no shader
-    cache is set outside the window (`Renderer::set_shader_cache`). (S)
+    shader draws until they are ready. Keeping the driver's pipeline
+    cache (wgpu's `PipelineCache`, Vulkan's alone) was tried on
+    2026-11-02 and measured to shorten nothing here: Mesa's own on-disk
+    cache already keeps the driver's part (area092's 21 pipelines 65 ms
+    of the worker's without it, 67 with it; TDoD's woods 129–165 and
+    135), and with Mesa's cache off the area took 319 ms with wgpu's
+    cache read against 371 with neither (the programs' cache alone); it
+    was not kept. What is left is naga's and wgpu's own part (reading
+    the programs, writing them for the backend): making the pipelines of
+    the programs a module needs when it opens, before its areas are, would
+    shorten it. (S)
   - A program whose uniforms can't be split (its block used otherwise
     than member by member: none of the 102 seen) falls back to
     Moonglow's shader, reported, rather than drawing with one block. (S)

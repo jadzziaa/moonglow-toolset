@@ -29,6 +29,12 @@ pub fn cache_dir() -> Option<PathBuf> {
     mg_module::build::cache_dir()
 }
 
+/// Where the game's shaders, compiled, are kept
+/// ([`mg_module::build::shader_cache_dir`]).
+pub fn shader_cache_dir() -> Option<PathBuf> {
+    mg_module::build::shader_cache_dir()
+}
+
 /// A recovery copy's note.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {
