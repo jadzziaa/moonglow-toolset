@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:17:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:49:07Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -761,7 +761,13 @@ contribution itself states as not done or not checked.
     to draw in or brush to take input from, and baking textures in
     Luau would be slow. Sculpted terrain inside Moonglow would be a
     feature of its own. (L) (After 3.0.0, the owner's word, 2026-10-30:
-    9th of 9 by complexity.)
+    9th of 9 by complexity.) Designed on 2026-11-02, the owner's word
+    being design first, then build: [the terrain
+    proposal](terrain-proposal.md) (a mode of the area view, a tileset
+    of the area's own, layers blended in the game by a shader Moonglow
+    writes, six milestones, the readings to take in the engine and
+    client, eleven questions). Nothing is built. Waits on the owner's
+    verdict on its questions.
   - **Not tried in the application on a desktop:** the folder and the
     hak question were driven through the UI harness and `mg`, not with
     the real file dialogs (the file dialog of `open_file` filters by
