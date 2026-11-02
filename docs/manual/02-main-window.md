@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
 ---
 
 # The main window
@@ -601,7 +601,15 @@ scroll moves it left and right, as in the area view), and play its
 animations, including those from its supermodels. An item modeled lying
 (a sword, an axe) is stood on its end, its broad side to you: a blade
 shows its flat, not its edge. **Lights**
-lights it with its own light nodes. **Shaders** draws it with the game's
+lights it with its own light nodes. **Shadow** (on unless you turn it
+off, and remembered) has the model cast the sun's shadow on a ground
+under it, as an area's ground takes a creature's shadow: the ground
+itself isn't drawn, so the model looks as it did, with its shadow on the
+background (the sun high over your shoulder as the viewer opens; a
+model reaching below its feet stands on the ground at its lowest
+point). The pictures
+of the galleries, the palettes and a hovered row's preview have no
+shadow. **Shaders** draws it with the game's
 own shaders, a material's custom ones among them (wind-swayed leaves move
 while the viewer plays): the same switch as the area view's toolbar
 (Areas › The toolbar).

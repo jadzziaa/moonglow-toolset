@@ -32,6 +32,55 @@ fn model_viewer_plays_animations() {
     assert!(img.width() > 0);
 }
 
+/// The model viewer's Shadow switch (on unless turned off, kept in the
+/// settings): the model casts the sun's shadow on a ground under it that
+/// is otherwise unseen, so the picture with it on differs from the one
+/// with it off only where the shadow darkens the background, below the
+/// model; the switch in the toolbar turns it off, and the settings keep
+/// that.
+#[test]
+fn the_model_viewer_s_model_casts_its_shadow_on_an_unseen_ground() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    assert!(app.settings.model_shadows(), "on by default");
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    h.run_steps(3);
+    let rect = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&Tab::Model(key)))
+        .map(|(_, l)| l.viewport)
+        .unwrap();
+    let ppp = h.ctx.pixels_per_point();
+    let picture = |h: &mut Harness<'_, Moonglow>| {
+        let img = h.render().expect("render");
+        let (x0, y0) = ((rect.min.x * ppp) as u32 + 4, (rect.min.y * ppp) as u32 + 60);
+        let (x1, y1) = ((rect.max.x * ppp) as u32 - 4, (rect.max.y * ppp) as u32 - 4);
+        (y0..y1)
+            .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let p = img.get_pixel(x, y).0;
+                (y, u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]))
+            })
+            .collect::<Vec<_>>()
+    };
+    let shadowed = picture(&mut h);
+    h.get_by_label("Shadow").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.model_shadows, Some(false), "kept in the settings");
+    let plain = picture(&mut h);
+    let darker = shadowed.iter().zip(&plain).filter(|((_, s), (_, p))| s + 24 < *p).count();
+    let lighter = shadowed.iter().zip(&plain).filter(|((_, s), (_, p))| *s > p + 6).count();
+    assert!(darker > 400, "the shadow: {darker} pixels darker");
+    assert_eq!(lighter, 0, "nothing lighter with the shadow");
+}
+
 /// The model viewer's wheel is the area view's: the wheel zooms, Shift
 /// and Ctrl with it zoom finer, a pinch zooms, and a sideways scroll pans
 /// (it had the wheel alone, and Shift or Ctrl with it did nothing).

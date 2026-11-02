@@ -46,6 +46,8 @@ pub struct Viewport3d {
     /// renderer takes it ([`mg_render::Renderer::read_textures_apart`]):
     /// until the game data is to be changed ([`Viewport3d::release_game_data`]).
     textures_from: Option<Arc<GameAssets>>,
+    /// The model viewer's ground ([`ground_model`]), made once.
+    ground: Option<Arc<GpuModel>>,
 }
 
 /// The game data as a source of textures read apart.
@@ -92,7 +94,14 @@ impl Viewport3d {
         if render_state.adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu {
             renderer.set_stale_textures_kept(mg_render::STALE_TEXTURES_KEPT_INTEGRATED);
         }
-        Viewport3d { render_state, gpu, renderer, configured: false, textures_from: None }
+        Viewport3d {
+            render_state,
+            gpu,
+            renderer,
+            configured: false,
+            textures_from: None,
+            ground: None,
+        }
     }
 
     /// `game` as the renderer reads textures apart from it: the same while
@@ -233,6 +242,10 @@ pub struct ModelView {
     /// Whether armor was shown on a woman when it was read (Options ›
     /// General): another choice reads it again.
     female: bool,
+    /// The box around what it shows at rest, as it is stood: where the
+    /// ground that takes its shadow lies ([`ground`]); made when first
+    /// drawn with the Shadow switch on.
+    rest_box: Option<(Vec3, Vec3)>,
 }
 
 /// What the viewer shows: a model or blueprint (from the module or the
@@ -768,6 +781,7 @@ impl ModelView {
             self.animation = composed.as_ref().and_then(|c| c.idle.clone());
         }
         self.composed = composed;
+        self.rest_box = None;
         self.preview = Some(preview);
         self.supermodels = RefCell::new(HashMap::new());
         (self.particles, self.dangly) = (None, None);
@@ -816,6 +830,7 @@ impl ModelView {
             preview: preview.ok(),
             revision: app.ws.as_ref().map(Workspace::revision),
             female: app.settings.armor_on_woman,
+            rest_box: None,
         };
         view.frame();
         view
@@ -859,6 +874,82 @@ impl ModelView {
 
     fn camera(&self) -> Camera {
         self.orbit.camera()
+    }
+
+    /// The box around what it shows at rest, as it is stood
+    /// ([`ModelView::rest_box`]).
+    fn rest_box(&mut self) -> Option<(Vec3, Vec3)> {
+        if self.rest_box.is_none() {
+            let c = self.composed.as_ref()?;
+            let (low, high) = c.bounds_in(None, 0.0);
+            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for p in mg_render::box_corners(low, high) {
+                let w = self.stand.transform_point3(p);
+                (min, max) = (min.min(w), max.max(w));
+            }
+            self.rest_box = Some((min, max));
+        }
+        self.rest_box
+    }
+}
+
+/// The viewer's background, gamma space.
+const BACKGROUND: [f32; 3] = [0.16, 0.18, 0.21];
+
+/// How dark the model's shadow is on the viewer's ground (an area's
+/// Shadow Opacity, of 1): the lighting schemes' 0.35 reads faintly on
+/// the viewer's dark background, so more.
+const GROUND_SHADOW_OPACITY: f32 = 0.6;
+
+/// The ground the model viewer's model casts its shadow on (the Shadow
+/// switch): a square, unlit, of the viewer's background color, so that it
+/// is unseen but for the shadow on it; facing up alone (seen from below,
+/// the model shows whole). A 2 m square about the origin, at height 0.
+fn ground_model() -> Model {
+    use mg_mdl::{Face, Mesh, Node, NodeKind};
+    let mesh = Mesh {
+        diffuse: BACKGROUND,
+        ambient: BACKGROUND,
+        render: true,
+        vertices: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 4],
+        uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
+        faces: vec![
+            Face { vertices: [0, 1, 2], material: 0 },
+            Face { vertices: [0, 2, 3], material: 0 },
+        ],
+        source: vec![0, 1, 2, 3],
+        shadow: false,
+        ..Default::default()
+    };
+    let mut root = Node::new("mg_ground", NodeKind::Dummy);
+    root.children = vec![1];
+    let mut m = Node::new("ground", NodeKind::Mesh(Box::new(mesh)));
+    m.parent = Some(0);
+    Model {
+        name: "mg_ground".into(),
+        animation_scale: 1.0,
+        nodes: vec![root, m],
+        ..Default::default()
+    }
+}
+
+/// The ground under a model whose box at rest (as it is stood) is `box_`:
+/// at the box's foot, or at the origin's height where the box is above it
+/// (a model hung or floating casts down to where it stands), a centimeter
+/// below so that a flat base on it doesn't meet it, wide enough for the
+/// shadow of the viewer's sun (high in the north-east, behind the camera
+/// as the viewer opens: a shadow about as long as the model is tall), of `model` ([`ground_model`]).
+fn ground(model: Arc<GpuModel>, (min, max): (Vec3, Vec3)) -> Instance {
+    let size = max - min;
+    let half = size.x.max(size.y).max(size.z) * 1.5 + 0.5;
+    let middle = (min + max) * 0.5;
+    let at = Vec3::new(middle.x, middle.y, min.z.min(0.0) - 0.01);
+    Instance {
+        unlit: true,
+        receives_shadows: true,
+        casts_shadows: false,
+        ..Instance::new(model, Mat4::from_translation(at) * Mat4::from_scale(Vec3::splat(half)))
     }
 }
 
@@ -1009,6 +1100,12 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         }
         let tip = "Light the model with its own light nodes";
         tools.checkbox_word(ui, &mut view.model_lights, glyph::LIGHTS, "Lights", tip);
+        let mut shadow = app.settings.model_shadows();
+        let tip = "The model casts the sun's shadow on a ground under it, the ground itself \
+                   unseen (as an area's ground takes a creature's shadow)";
+        if tools.checkbox_word(ui, &mut shadow, crate::icons::SHADOWS, "Shadow", tip).changed() {
+            app.settings.model_shadows = Some(shadow);
+        }
         let mut shaders = app.game_shaders();
         if tools
             .checkbox_word(
@@ -1133,6 +1230,8 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
     }
 
+    // (Where the ground under it is, with the Shadow switch on.)
+    let shadow = app.settings.model_shadows().then(|| view.rest_box()).flatten();
     // Render into our own texture, shown as an image.
     vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
@@ -1153,12 +1252,25 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         // has them.)
         lights.extend(c.row_lights(Mat4::IDENTITY));
     }
+    // (The ground that takes its shadow, with the Shadow switch on.)
+    if let Some(rest) = shadow {
+        let model = vp
+            .ground
+            .get_or_insert_with(|| Arc::new(GpuModel::new(&vp.gpu, Arc::new(ground_model()))));
+        instances.push(ground(model.clone(), rest));
+    }
     let scene = Scene {
         instances,
         lights,
         particles: batches,
         area: AreaLight::default(),
-        background: [0.16, 0.18, 0.21],
+        background: BACKGROUND,
+        // (Laid as the area view lays the sun's, with no fog: the game's
+        // shadow plane's fade up the screen as far as it goes.)
+        shadows: shadow.map(|_| mg_render::SunShadows {
+            opacity: GROUND_SHADOW_OPACITY,
+            fade_limit: 10_000.0,
+        }),
         // (The game's shaders' clock: wind sways while the view plays.)
         time: view.time,
         ..Default::default()
@@ -2189,7 +2301,11 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        // (Read back by a test: the pictures the same whatever the model
+        // viewer's switches.)
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let view = picture.create_view(&Default::default());
@@ -2374,6 +2490,52 @@ mod tests {
             let programs = r.game_programs.as_deref().unwrap_or_default();
             let fs: Vec<&str> = programs.iter().map(|p| p.fs.as_str()).collect();
             assert!(fs.contains(&"fswater"), "{model}: its water by fswater, not {fs:?}");
+        }
+    }
+
+    /// The model viewer's Shadow switch is the viewer's alone (the owner's
+    /// word, 2026-11-02): the pictures of the galleries, the palettes and
+    /// a hovered row's preview are drawn as they were, pixel for pixel,
+    /// with it on as with it off (a creature, a placeable, an item and a
+    /// tile).
+    #[test]
+    fn the_shadow_switch_leaves_the_pictures_as_they_were() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        mg_testkit::gpu::hold();
+        if mg_render::Gpu::headless().is_none() {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        }
+        let rs = egui_kittest::wgpu::create_render_state(
+            crate::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(crate::NoDialogs::default()));
+        app.set_render_state(rs);
+        app.set_game_shaders(false);
+        let pictures = [
+            (ResKey::parse("nw_bandit001", ResType::UTC).unwrap(), false),
+            (ResKey::parse("plc_a01", ResType::MDL).unwrap(), false),
+            (ResKey::parse("nw_wswls001", ResType::UTI).unwrap(), false),
+            (ResKey::parse("ttr01_a01_01", ResType::MDL).unwrap(), true),
+        ];
+        for (key, tile) in pictures {
+            let source = Source::Resource(key);
+            let preview = preview_of(&app, &source).unwrap();
+            let pictured = if tile { Pictured::Tile(key, 0) } else { Pictured::Resource(key) };
+            let mut drawn = Vec::new();
+            for on in [false, true] {
+                app.settings.model_shadows = Some(on);
+                let (texture, _) = draw_thumbnail(&mut app, pictured, &source, &preview)
+                    .unwrap_or_else(|| panic!("{key}: drawn"));
+                drawn.push(app.viewport.as_ref().unwrap().gpu.read_rgba(&texture).data);
+            }
+            assert!(drawn[0].iter().any(|&b| b > 0), "{key}: a picture");
+            assert!(drawn[0] == drawn[1], "{key}: the same with the Shadow switch on");
         }
     }
 }
