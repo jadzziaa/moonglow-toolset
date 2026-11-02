@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:27:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
 ---
 
 # Plugin API reference
@@ -483,6 +483,7 @@ from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
 | `area:cross(crosser, path)` | A crosser drawn through cells, as the crosser brush dragged through them: `path` is a list of cells, each beside the one before (`{ { 1, 5 }, { 1, 6 }, { 2, 6 } }`), and the crosser goes on the edges between them. False when a cell on the way has no tile for it. |
 | `area:erase(x, y)` | The Eraser on a cell: its crossers go, and a group or a feature that has a tile there goes whole. False when refused. |
 | `area:set_tile(x, y, id, orientation?, height?)` | Puts one tile into a cell as it is given, whether it fits its neighbors or not. |
+| `area:batch(f)` | Calls `f()` with the area's strokes held (since API 0.5): its tiles are read once, each stroke made on them as `f` goes (`corner` and `tile` read what they left; `ctx.module` reads the area as it was until `f` returns), and the tiles that changed go in when it returns, as one edit of its tile list. If `f` fails, none of them go in. A `set_tile` in it puts in the strokes before it first. Returns what `f` returns. |
 
 Tiles are chosen at random among those that fit, as in the area editor:
 two runs paint the same ground with different tiles. New tiles get

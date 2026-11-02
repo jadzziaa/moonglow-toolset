@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:27:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
 ---
 
 # Plugin API changes
@@ -20,6 +20,12 @@ In Moonglow 3.3.0. Only additions: a plugin written for 0.4 or before
 runs as it is. A plugin that uses what is new says `api = "0.5"`; a
 manifest that declares what 0.5 added and says an earlier API is
 refused, with the reason.
+
+- `area:batch(f)`: an area's strokes made at once. Its tiles are read
+  once, `f`'s strokes made on them (what it reads back is what they
+  left), and the tiles that changed go in when it returns, as one edit
+  of the area's tile list; if it fails, none of them. A stroke that
+  changes many tiles outside a batch is one edit of the list too.
 
 ## 0.4
 

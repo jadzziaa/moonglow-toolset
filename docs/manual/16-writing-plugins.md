@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:27:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:31:08Z }
 ---
 
 # Writing plugins
@@ -692,6 +692,23 @@ refuse the brush: no tile of the tileset fits there. Heights are whole
 steps (`area.step` metres each), and neighbors are never more than a
 step apart, so raising one corner by two lifts the corners around it by
 one.
+
+Each stroke reads the area's tiles and puts the ones it chose in. A
+plugin that paints much of an area does it in a batch (since API 0.5),
+which reads the tiles once and puts in those that changed when its
+function returns, as a handful of edits, not thousands:
+
+```lua
+area:batch(function()
+    for y = 0, area.height do
+        for x = 0, area.width do
+            area:paint(x, y, ground(x, y))  -- what it reads back is what the strokes left
+        end
+    end
+end)
+```
+
+If the function fails, none of its strokes go in.
 
 A tileset the job is putting into a hak can be used at once, before the
 hak exists: `tileset-import` in the examples takes a folder of tileset

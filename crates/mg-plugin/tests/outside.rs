@@ -344,6 +344,85 @@ fn an_area_is_made_and_painted() {
     assert!(tiles.iter().any(|t| t.integer("Tile_Height") == Some(1)));
 }
 
+/// Every corner of a 32 × 32 area painted in a batch (`area:batch`): the
+/// area's tiles read once, what the function reads back is what its
+/// strokes left, and the tiles go in as a handful of edits, where one
+/// stroke at a time makes thousands; a batch that fails puts in none of
+/// its strokes.
+#[test]
+fn a_batch_of_strokes_goes_in_at_once() {
+    let Some(game) = game() else { return };
+    let paint = |batched: bool| {
+        let code = format!(
+            r#"
+            local resref = ctx.terrain:new_area({{ name = "Big", tileset = "ttr01", width = 32, height = 32 }})
+            local area = ctx.terrain:open(resref)
+            local function all()
+                local painted = 0
+                for y = 0, 32 do
+                    for x = 0, 32 do
+                        local t = ((x + y) % 7 == 0) and "Water" or "Grass"
+                        if area:paint(x, y, t) then painted += 1 end
+                    end
+                end
+                -- What it reads back is what the strokes left.
+                assert((area:corner(0, 0)) == "Water")
+                return painted
+            end
+            local painted = 0
+            if {batched} then
+                painted = area:batch(all)
+                -- A batch that fails puts nothing in.
+                local ok = pcall(area.batch, area, function()
+                    area:paint(16, 16, "Water")
+                    error("no")
+                end)
+                assert(not ok)
+            else
+                painted = all()
+            end
+            return painted
+            "#
+        );
+        let h = host([]);
+        let outcome = run_console(&code, Input::new(bare(), Some(game.clone())), h.clone())
+            .unwrap_or_else(|e| panic!("{e}"));
+        let painted: usize = h.log.borrow()[0].parse().unwrap();
+        (outcome, painted)
+    };
+    let (one_by_one, painted) = paint(false);
+    assert!(painted > 100, "{painted}");
+    let (batched, painted_too) = paint(true);
+    assert!(painted_too > 100, "{painted_too}");
+    // (The area's own files, then the tiles: past a few, as one list.)
+    let made =
+        |o: &Outcome| o.edits.iter().filter(|e| e.key().restype == mg_core::ResType::ARE).count();
+    assert!(made(&one_by_one) > 1000, "{} edits one by one", made(&one_by_one));
+    assert!(made(&batched) <= 3, "{} edits in a batch", made(&batched));
+    // What went in is what the plugin read: water on corner (0, 0)'s tile.
+    let module = applied(&batched);
+    let are = module.gff(&ResKey::from_filename("big.are").unwrap()).unwrap().unwrap();
+    assert_eq!(are.root.list("Tile_List").unwrap().len(), 32 * 32);
+    // (A tile set as it is given, in a batch: the strokes before it go in
+    // first, and it is read back.)
+    let check = r#"
+        local area = ctx.terrain:open("big")
+        area:batch(function()
+            area:paint(24, 24, "Water")
+            area:set_tile(30, 30, 0)
+            assert(area:tile(30, 30).id == 0 and (area:corner(24, 24)) == "Water")
+        end)
+        return (area:corner(0, 0)), (area:corner(16, 16))
+    "#;
+    let h = host([]);
+    run_console(check, Input::new(module, Some(game)), h.clone()).unwrap();
+    assert_eq!(
+        h.log.borrow().as_slice(),
+        ["\"Water\"", "\"Grass\""],
+        "the failed batch left nothing"
+    );
+}
+
 /// The example that imports a tileset's folder: its files go into a hak,
 /// and an area is made of a group, the tileset read from the hak that is
 /// not written yet.

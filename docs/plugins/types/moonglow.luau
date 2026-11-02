@@ -176,6 +176,8 @@ export type Area = {
     cross: (self: Area, crosser: string, path: { { number } }) -> boolean,
     erase: (self: Area, x: number, y: number) -> boolean,
     set_tile: (self: Area, x: number, y: number, id: number, orientation: number?, height: number?) -> (),
+    -- Its strokes made at once (API 0.5): the tiles read once, put in when f returns.
+    batch: (self: Area, f: () -> ...any) -> ...any,
 }
 
 export type Terrain = {

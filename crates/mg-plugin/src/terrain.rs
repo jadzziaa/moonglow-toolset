@@ -6,22 +6,25 @@
 //! (x, y) has corners (x, y) to (x + 1, y + 1), so an area `width` cells
 //! across has corners 0 to `width`.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use mg_core::{ResRef, ResType};
 use mg_edit::terrain::{door_edits, grid, tile_edits, typed_hooks};
-use mg_gff::{Gff, Struct};
+use mg_edit::{Edit, GffPath};
+use mg_gff::{Gff, Struct, Value};
 use mg_module::new::{AreaSpec, Scheme};
 use mg_resman::ResKey;
 use mg_set::Tileset;
 use mg_tiles::paint::{Grid, Rules, Stroke};
 use mg_tiles::{Placement, TileIndex};
-use mlua::{Lua, Table};
+use mlua::{Function, Lua, MultiValue, Table};
 
 use crate::runtime::{CODEPAGE, Shared, This, fail};
 
 /// The names of what an area's terrain has, as the reference writes them.
-pub(crate) const NAMES: [&str; 17] = [
+pub(crate) const NAMES: [&str; 18] = [
     "area.resref",
     "area.tileset",
     "area.width",
@@ -39,6 +42,7 @@ pub(crate) const NAMES: [&str; 17] = [
     "area:set_tile",
     "area:cross",
     "area:erase",
+    "area:batch",
 ];
 
 /// The most steps one call raises or lowers a corner.
@@ -53,7 +57,22 @@ struct Area {
     rules: Rules,
     /// The lights its new tiles get, from its lighting scheme.
     scheme: Option<Scheme>,
+    /// The strokes of `area:batch` under way, held until it ends.
+    batch: RefCell<Option<Batch>>,
 }
+
+/// What `area:batch` holds while its function runs: the area's tiles as
+/// they were when it began, as the strokes leave them, and each cell's
+/// new tile.
+struct Batch {
+    before: Grid,
+    now: Grid,
+    changed: BTreeMap<(u32, u32), Placement>,
+}
+
+/// More cells than this changed at once and the area's whole tile list is
+/// written as one edit, not each tile's fields.
+const WHOLE_LIST: usize = 16;
 
 fn resref(name: &str) -> mlua::Result<ResRef> {
     ResRef::from_str(name).or_else(|e| fail(format!("{name:?} is not a resource's name: {e}")))
@@ -81,11 +100,21 @@ impl Area {
             let row = root.integer("LightingScheme")?.max(0) as usize;
             Scheme::read(game, row).ok()
         });
-        Ok(Area { are, git: ResKey::new(name, ResType::GIT), set, index, rules, scheme })
+        let git = ResKey::new(name, ResType::GIT);
+        Ok(Area { are, git, set, index, rules, scheme, batch: RefCell::new(None) })
     }
 
-    /// The area's tiles as they are now, the job's edits included.
+    /// The area's tiles as they are now, the job's edits included (and,
+    /// in a batch, its strokes so far).
     fn grid(&self, sh: &Shared) -> mlua::Result<Grid> {
+        if let Some(b) = &*self.batch.borrow() {
+            return Ok(b.now.clone());
+        }
+        self.read(sh)
+    }
+
+    /// The area's tiles as its ARE has them.
+    fn read(&self, sh: &Shared) -> mlua::Result<Grid> {
         let mut ws = sh.ws.borrow_mut();
         let doc = ws.doc(&self.are).or_else(fail)?;
         match grid(&doc.root, &self.index) {
@@ -128,11 +157,55 @@ impl Area {
         Ok((x as u32, y as u32))
     }
 
-    /// A stroke made: the tiles chosen and put into the area.
+    /// A stroke made: the tiles chosen and put into the area (in a
+    /// batch, held until it ends).
     fn stroke(&self, sh: &Shared, before: &Grid, stroke: Stroke) -> mlua::Result<()> {
+        if let Some(b) = &mut *self.batch.borrow_mut() {
+            let changes = b.now.apply(&self.index, stroke, &mut sh.rng.borrow_mut());
+            b.changed.extend(changes);
+            return Ok(());
+        }
         let mut after = before.clone();
         let changes = after.apply(&self.index, stroke, &mut sh.rng.borrow_mut());
         self.put(sh, before, &changes)
+    }
+
+    /// Runs `f` as one batch of strokes: the area's tiles read once, the
+    /// strokes made on them as `f` goes (what it reads of the area is what
+    /// they left), and the tiles that changed put into the area when it
+    /// returns, all at once; if it fails, none. Within another batch, part
+    /// of that one.
+    fn batch(&self, sh: &Shared, f: Function) -> mlua::Result<MultiValue> {
+        if self.batch.borrow().is_some() {
+            return f.call(());
+        }
+        let before = self.read(sh)?;
+        let now = before.clone();
+        *self.batch.borrow_mut() = Some(Batch { before, now, changed: BTreeMap::new() });
+        let ran = f.call::<MultiValue>(());
+        let Some(b) = self.batch.borrow_mut().take() else { return ran };
+        let out = ran?;
+        // (A cell painted back to the tile it had is no change.)
+        let changes: Vec<((u32, u32), Placement)> = (b.changed.into_iter())
+            .filter(|&((x, y), p)| b.before.get_tile(x, y) != Some(p))
+            .collect();
+        self.put(sh, &b.before, &changes)?;
+        Ok(out)
+    }
+
+    /// Ends a batch under way here and now, its strokes put into the area,
+    /// and begins it again from the tiles as they are then (for what
+    /// can't be held, a tile set as it is given).
+    fn settle(&self, sh: &Shared) -> mlua::Result<()> {
+        let Some(b) = self.batch.borrow_mut().take() else { return Ok(()) };
+        let changes: Vec<((u32, u32), Placement)> = (b.changed.into_iter())
+            .filter(|&((x, y), p)| b.before.get_tile(x, y) != Some(p))
+            .collect();
+        self.put(sh, &b.before, &changes)?;
+        let before = self.read(sh)?;
+        let now = before.clone();
+        *self.batch.borrow_mut() = Some(Batch { before, now, changed: BTreeMap::new() });
+        Ok(())
     }
 
     /// Tiles put into the area: the ARE's, with lights as the area editor
@@ -143,10 +216,19 @@ impl Area {
         before: &Grid,
         changes: &[((u32, u32), Placement)],
     ) -> mlua::Result<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
         let root = sh.ws.borrow_mut().doc(&self.are).or_else(fail)?.root.clone();
         let mut lights =
             || self.scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut sh.rng.borrow_mut()));
         let mut edits = tile_edits(self.are, &root, &self.set, changes, &mut lights);
+        // (Many tiles: the list as one edit, not each tile's fields.)
+        if changes.len() > WHOLE_LIST
+            && let Some(list) = whole_list(&root, &edits)
+        {
+            edits = vec![list];
+        }
         // (The area's objects are only read where a tile has a door.)
         let step = self.set.general.transition;
         let doors = changes.iter().any(|&(cell, p)| {
@@ -179,6 +261,29 @@ impl Area {
             None => Ok(false),
         }
     }
+}
+
+/// The edits of an area's tiles (`tile_edits`, each a field of an item of
+/// its ARE's `Tile_List`) made into one: the whole list set as they leave
+/// it. None if one of them is not such an edit.
+fn whole_list(root: &Struct, edits: &[Edit]) -> Option<Edit> {
+    let mut list = root.list("Tile_List")?.to_vec();
+    let mut key = None;
+    for e in edits {
+        let Edit::SetField { key: k, path, label, value: Some(value) } = e else { return None };
+        key = Some(*k);
+        let [mg_edit::Step::Item(name, i)] = path.0.as_slice() else { return None };
+        if name != "Tile_List" {
+            return None;
+        }
+        list.get_mut(*i)?.set(label.as_str(), value.clone());
+    }
+    Some(Edit::SetField {
+        key: key?,
+        path: GffPath::root(),
+        label: "Tile_List".into(),
+        value: Some(Value::List(list)),
+    })
 }
 
 /// What `ctx.terrain:open` hands out.
@@ -347,6 +452,8 @@ fn handle(lua: &Lua, sh: &Rc<Shared>, area: Area) -> mlua::Result<Table> {
             }
         })?,
     )?;
+    let (a, s) = (area.clone(), sh.clone());
+    t.set("batch", lua.create_function(move |_, (_, f): (This, Function)| a.batch(&s, f))?)?;
     let (a, s) = (area, sh.clone());
     t.set(
         "set_tile",
@@ -360,7 +467,10 @@ fn handle(lua: &Lua, sh: &Rc<Shared>, area: Area) -> mlua::Result<Table> {
                 Option<u8>,
                 Option<i32>,
             )| {
-                let before = a.grid(&s)?;
+                // (In a batch, what its strokes did goes in first: a tile
+                // set as it is given is not a stroke's.)
+                a.settle(&s)?;
+                let before = a.read(&s)?;
                 let cell = a.cell(&before, x, y)?;
                 if id as usize >= a.set.tiles.len() {
                     return fail(format!(
@@ -373,7 +483,8 @@ fn handle(lua: &Lua, sh: &Rc<Shared>, area: Area) -> mlua::Result<Table> {
                     orientation: orientation.unwrap_or(0) % 4,
                     height: height.unwrap_or(0),
                 };
-                a.put(&s, &before, &[(cell, p)])
+                a.put(&s, &before, &[(cell, p)])?;
+                a.settle(&s)
             },
         )?,
     )?;
