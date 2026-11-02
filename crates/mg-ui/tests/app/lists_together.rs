@@ -69,6 +69,8 @@ fn row_of(h: &Harness<'_, Moonglow>, table: &str, column: &str, label: &str) -> 
 
 fn undo(h: &mut Harness<'_, Moonglow>) {
     h.state_mut().actions.push(mg_ui::Action::Undo);
+    // (A grid's widths settle in a few frames as a column comes or goes.)
+    h.run_steps(4);
     h.run();
 }
 
@@ -115,6 +117,161 @@ fn a_skill_rank_is_set_on_each_creature() {
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, rank), before, "one step");
     assert_eq!(field(&mut h, &keys[2]).list("SkillList").unwrap().len(), 2);
+}
+
+/// Special abilities: an ability (Fireball at caster level 5) two of the
+/// creatures have, in two and three uses, is marked "≠ 2 of 3" and its
+/// uses ≠; uses typed are set on the two, Give to All gives the third the
+/// first one's two uses, Remove takes it from all, and a spell clicked
+/// adds a use to each. Each one step.
+#[test]
+fn a_special_ability_is_set_on_those_that_have_it() {
+    let fireball = 58u16;
+    let ability = || {
+        let mut s = Struct::new(4);
+        s.set("Spell", Value::Word(fireball));
+        s.set("SpellCasterLevel", Value::Byte(5));
+        s.set("SpellFlags", Value::Byte(1));
+        s
+    };
+    let tweak = move |i: usize, c: &mut Struct, _: &mg_rules::GameData| {
+        let uses = [2, 3, 0][i];
+        c.set("SpecAbilityList", Value::List(vec![ability(); uses]));
+    };
+    let Some((mut h, keys)) = together("nw_bandit001", ResType::UTC, 3, "Special Abilities", tweak)
+    else {
+        return;
+    };
+    let uses = |s: &Struct| {
+        let list = s.list("SpecAbilityList").unwrap_or(&[]);
+        list.iter().filter(|e| e.integer("Spell") == Some(i64::from(fireball))).count()
+    };
+    assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
+    assert!(h.query_by_label("≠ 2 of 3").is_some());
+    assert!(h.query_all_by_value("≠").count() >= 1, "the uses differ");
+    let name = name_of(&h, "spells", "Name", fireball as usize);
+    // The ability's row is the right-hand one.
+    let right = |h: &Harness<'_, Moonglow>| {
+        let mut all: Vec<_> = h.get_all_by_label(&name).map(|n| n.rect()).collect();
+        all.sort_by(|a, b| a.min.x.total_cmp(&b.min.x));
+        (all[0], *all.last().unwrap())
+    };
+    let row = right(&h).1;
+    let field_node = h
+        .get_all_by_role(egui::accesskit::Role::SpinButton)
+        .filter(|s| (s.rect().center().y - row.center().y).abs() < 10.0)
+        .min_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x))
+        .expect("its uses");
+    set_number(&h, &field_node, 4.0);
+    h.run();
+    assert_eq!(each(&mut h, &keys, uses), [4, 4, 0]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Uses"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
+    h.get_by_label("Give to All").click();
+    // (The grid's widths settle as its last column goes.)
+    h.run_steps(6);
+    assert_eq!(each(&mut h, &keys, uses), [2, 3, 2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add special ability"));
+    undo(&mut h);
+    h.get_by_label("Remove").click();
+    h.run();
+    assert_eq!(each(&mut h, &keys, uses), [0, 0, 0]);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
+    // A spell clicked on the left: a use more on each, at its own level.
+    type_into_hint(&mut h, "Find", &name);
+    let left = right(&h).0;
+    h.get_all_by_label(&name).find(|n| n.rect() == left).unwrap().click();
+    h.run();
+    assert_eq!(each(&mut h, &keys, uses), [3, 4, 1]);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
+}
+
+/// An encounter's creatures: a bandit only the second spawns is marked
+/// "≠ 1 of 3", Give to All adds it to the others, Remove Creature takes it
+/// from all, Unique is set on each that spawns it; each one step.
+#[test]
+fn an_encounter_s_creature_is_added_to_those_that_lack_it() {
+    let bandit = ResRef::from_str("nw_bandit001").unwrap();
+    let tweak = move |i: usize, e: &mut Struct, _: &mg_rules::GameData| {
+        let mut list = e.list("CreatureList").unwrap_or(&[]).to_vec();
+        match i {
+            1 => {
+                let mut c = Struct::new(0);
+                c.set("Appearance", Value::Int(4));
+                c.set("CR", Value::Float(1.0));
+                c.set("ResRef", Value::resref(bandit));
+                c.set("SingleSpawn", Value::Byte(0));
+                list.push(c);
+            }
+            2 => list.clear(),
+            _ => {}
+        }
+        e.set("CreatureList", Value::List(list));
+    };
+    let Some((mut h, keys)) = together("nw_verminbeet", ResType::UTE, 3, "Creature List", tweak)
+    else {
+        return;
+    };
+    let spawns = |s: &Struct| -> Vec<String> {
+        let list = s.list("CreatureList").unwrap_or(&[]);
+        list.iter().filter_map(|c| c.resref("ResRef")).map(|r| r.to_string()).collect()
+    };
+    let before = each(&mut h, &keys, spawns);
+    assert!(!before[0].is_empty());
+    assert!(h.query_by_label("≠ 1 of 3").is_some(), "the bandit");
+    assert_eq!(h.query_all_by_label("≠ 2 of 3").count(), before[0].len(), "the beetles");
+    // Give to All, the bandit chosen.
+    let name = {
+        let game = h.state().game.clone().unwrap();
+        let utc = Gff::read(&game.resman.get_named("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+        mg_module::palette::blueprint_name(
+            mg_module::palette::BlueprintKind::Creature,
+            &utc.root,
+            &game,
+        )
+    };
+    let choose = |h: &mut Harness<'_, Moonglow>| {
+        let row = h.get_by_label("nw_bandit001").rect();
+        h.get_all_by_label(&name)
+            .find(|n| (n.rect().center().y - row.center().y).abs() < 6.0)
+            .expect("the bandit's row")
+            .click();
+        h.run();
+    };
+    choose(&mut h);
+    h.get_by_label("Give to All").click();
+    h.run_steps(4);
+    let given = each(&mut h, &keys, spawns);
+    for s in &given {
+        assert_eq!(s.iter().filter(|r| *r == "nw_bandit001").count(), 1, "{s:?}");
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add creature"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, spawns), before);
+    // Unique, on the bandit's row: set on the one that spawns it.
+    let unique = |s: &Struct| -> Vec<i64> {
+        let list = s.list("CreatureList").unwrap_or(&[]);
+        list.iter().filter_map(|c| c.integer("SingleSpawn")).collect()
+    };
+    let was = each(&mut h, &keys, unique);
+    h.get_all_by_role(egui::accesskit::Role::CheckBox).last().unwrap().click();
+    h.run();
+    let now = each(&mut h, &keys, unique);
+    assert_eq!(now[0], was[0]);
+    assert_eq!(now[1].last(), Some(&1));
+    undo(&mut h);
+    // Remove Creature, the bandit chosen.
+    choose(&mut h);
+    h.get_by_label("Remove Creature").click();
+    h.run_steps(4);
+    let taken = each(&mut h, &keys, spawns);
+    assert!(taken.iter().all(|s| !s.contains(&"nw_bandit001".to_string())));
+    assert_eq!(taken[0], before[0]);
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, spawns), before);
 }
 
 /// The feats of each, as rows of feat.2da.
@@ -199,9 +356,19 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Remove feat"));
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, feat_rows), before);
-    // Give to All, beside one some have.
-    h.get_all_by_label("Give to All").next().unwrap().click();
+    // Give to All, beside the first feat, which the third lacks.
+    let row = h
+        .get_all_by_label(&first_name)
+        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::CheckBox)
+        .unwrap()
+        .rect();
+    h.get_all_by_label("Give to All")
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 6.0)
+        .expect("its Give to All")
+        .click();
     h.run();
     let given = each(&mut h, &keys, feat_rows);
-    assert!(given.iter().all(|f| f.contains(&first)) || given.iter().all(|f| f.contains(&0)));
+    assert!(given.iter().all(|f| f.contains(&first)), "{given:?}");
+    assert_eq!(given[0], before[0]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add feat"));
 }

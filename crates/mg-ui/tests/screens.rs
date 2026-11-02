@@ -2919,6 +2919,108 @@ fn mixed_marks() {
     }
 }
 
+/// A change made to three copies of a blueprint of the game's, the copy's
+/// place given.
+type Tweak = fn(usize, &mut mg_gff::Struct);
+
+/// The list pages of three blueprints edited together
+/// (`docs/lists-together-proposal.md`): entries some have marked "≠ n
+/// of 3", values that differ marked ≠.
+#[test]
+#[ignore]
+fn lists_together() {
+    use mg_gff::{Struct, Value};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let feats: Tweak = |i, c| {
+        let mut list = c.list("FeatList").unwrap_or(&[]).to_vec();
+        match i {
+            1 => {
+                let mut f = Struct::new(1);
+                f.set("Feat", Value::Word(0));
+                list.push(f);
+            }
+            2 => {
+                list.remove(0);
+            }
+            _ => {}
+        }
+        c.set("FeatList", Value::List(list));
+    };
+    let skills: Tweak = |i, c| {
+        let mut list = c.list("SkillList").unwrap_or(&[]).to_vec();
+        if i == 1 {
+            list[5].set("Rank", Value::Byte(9));
+        } else if i == 2 {
+            list.truncate(2);
+        }
+        c.set("SkillList", Value::List(list));
+    };
+    let abilities: Tweak = |i, c| {
+        let mut a = Struct::new(4);
+        a.set("Spell", Value::Word(58));
+        a.set("SpellCasterLevel", Value::Byte(5));
+        a.set("SpellFlags", Value::Byte(1));
+        let mut b = a.clone();
+        b.set("Spell", Value::Word(25));
+        let list = match i {
+            0 => vec![a.clone(), a, b],
+            1 => vec![a.clone(), a.clone(), a],
+            _ => vec![b],
+        };
+        c.set("SpecAbilityList", Value::List(list));
+    };
+    let creatures: Tweak = |i, e| {
+        let mut list = e.list("CreatureList").unwrap_or(&[]).to_vec();
+        match i {
+            1 => {
+                let mut c = Struct::new(0);
+                c.set("Appearance", Value::Int(4));
+                c.set("CR", Value::Float(1.0));
+                c.set("ResRef", Value::resref(mg_core::ResRef::from_str("nw_bandit001").unwrap()));
+                c.set("SingleSpawn", Value::Byte(1));
+                list.push(c);
+            }
+            2 => list.truncate(2),
+            _ => {}
+        }
+        e.set("CreatureList", Value::List(list));
+    };
+    let cases: [(&str, ResType, &str, Tweak); 4] = [
+        ("nw_bandit001", ResType::UTC, "Skills", skills),
+        ("nw_bandit001", ResType::UTC, "Feats", feats),
+        ("nw_bandit001", ResType::UTC, "Special Abilities", abilities),
+        ("nw_verminbeet", ResType::UTE, "Creature List", creatures),
+    ];
+    for (name, t, page, tweak) in cases {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let game = app.game.as_deref().unwrap();
+        let base = mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+        let keys: Vec<ResKey> =
+            ["mg_a", "mg_b", "mg_c"].iter().map(|n| ResKey::parse(n, t).unwrap()).collect();
+        let mut m = mg_module::Module::new();
+        for (i, k) in keys.iter().enumerate() {
+            let mut g = base.clone();
+            tweak(i, &mut g.root);
+            m.set(*k, g.to_bytes().unwrap());
+        }
+        let slug = page.to_lowercase().replace(' ', "-");
+        let path = mg_testkit::scratch_dir("screens-lists-together").join(format!("{slug}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        app.open_palette = false;
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
+        app.blueprint_pages.insert((keys[0], GffPath::root()), page);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 800.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        shoot(&mut h, &dir, &format!("together-{slug}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

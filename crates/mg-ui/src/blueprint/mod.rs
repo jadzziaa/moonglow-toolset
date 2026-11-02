@@ -2018,15 +2018,7 @@ pub(crate) fn read_only_look(ui: &mut Ui) {
 
 /// The pages that edit lists of their own (the first object's only), left
 /// out when editing several blueprints or placed objects.
-const LIST_PAGES: [&str; 7] = [
-    "Inventory",
-    "Classes",
-    "Spells",
-    "Special Abilities",
-    "Properties",
-    "Creature List",
-    "Restrictions",
-];
+const LIST_PAGES: [&str; 5] = ["Inventory", "Classes", "Spells", "Properties", "Restrictions"];
 
 #[cfg(test)]
 mod tests {

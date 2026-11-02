@@ -3,7 +3,7 @@
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit};
+use mg_edit::{Command, Edit, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::Choice;
@@ -129,6 +129,10 @@ pub(crate) fn creature_entry(app: &mut crate::Moonglow, resref: ResRef) -> Struc
 }
 
 fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        creatures_together(f, ui);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     let list: Vec<Struct> = f.root.list("CreatureList").unwrap_or(&[]).to_vec();
@@ -215,6 +219,118 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
                 value: Some(Value::Byte(u8::from(v))),
             }],
         )));
+    }
+}
+
+/// The creature blueprint an encounter's entry spawns.
+fn spawned(e: &Struct) -> Option<ResRef> {
+    e.resref("ResRef").filter(|r| !r.is_empty())
+}
+
+/// The Creature List of several encounters edited together: every
+/// creature any of them spawns, ≠ with how many where some do. A creature
+/// added is added to those that lack it, one removed is taken from those
+/// that have it, and Unique is set on each that has it.
+fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
+    let key = f.key;
+    let targets = f.list_targets();
+    let total = targets.len();
+    let merged = lists::merged(&targets, "CreatureList", spawned);
+    let names = f.blueprint_names(BlueprintKind::Creature);
+    let tags: Vec<String> = merged
+        .iter()
+        .map(|m| {
+            f.kept_blueprint(BlueprintKind::Creature, m.key)
+                .and_then(|u| u.string("Tag").map(crate::text::decode))
+                .unwrap_or_default()
+        })
+        .collect();
+    let mut add = None;
+    let mut change: Option<(&str, lists::Outcome, &str)> = None;
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(280.0);
+            add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
+        });
+        ui.separator();
+        let sel_id = egui::Id::new(("ute-selected-together", key));
+        let mut selected: Option<ResRef> =
+            ui.data(|d| d.get_temp(sel_id)).filter(|r: &ResRef| merged.iter().any(|m| m.key == *r));
+        ui.vertical(|ui| {
+            egui::Grid::new(("ute-list", key)).num_columns(5).striped(true).show(ui, |ui| {
+                for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
+                    ui.strong(h);
+                }
+                ui.end_row();
+                for (m, tag) in merged.iter().zip(&tags) {
+                    let resref = m.key;
+                    let is = move |e: &Struct| spawned(e) == Some(resref);
+                    let name = names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
+                    ui.label(format!("{}", m.entry.float("CR").unwrap_or(0.0)));
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(selected == Some(resref), name).clicked() {
+                            selected = Some(resref);
+                        }
+                        super::entry_mark(ui, m.having.len(), total);
+                    });
+                    ui.label(tag);
+                    ui.label(resref.to_string());
+                    let single = |e: &Struct| e.integer("SingleSpawn").unwrap_or(0) != 0;
+                    let differs = lists::differs(&targets, "CreatureList", is, single);
+                    f.mark_if(ui, &format!("SingleSpawn#{resref}"), differs);
+                    let mut on = single(&m.entry);
+                    if ui.checkbox(&mut on, "").changed() {
+                        let out =
+                            lists::set(&targets, "CreatureList", is, &["SingleSpawn"], |e, l| {
+                                Some(lists::like(e.get(l), i64::from(on), Value::Byte(0)))
+                            });
+                        change = Some(("Unique creature", out, "Set on"));
+                    }
+                    ui.end_row();
+                }
+            });
+            // (Under the list, for the creature chosen: beside each row,
+            // they left a narrow window's edge.)
+            let chosen = selected.and_then(|r| merged.iter().find(|m| m.key == r));
+            ui.horizontal(|ui| {
+                if ui.add_enabled(chosen.is_some(), egui::Button::new("Remove Creature")).clicked()
+                    && let Some(r) = selected.take()
+                {
+                    let is = |e: &Struct| spawned(e) == Some(r);
+                    let out = lists::remove(&targets, "CreatureList", is, |_| None);
+                    change = Some(("Remove creature", out, "Taken from"));
+                }
+                let some = chosen.filter(|m| m.having.len() < total);
+                let give = ui
+                    .add_enabled(some.is_some(), egui::Button::new("Give to All"))
+                    .on_hover_text(super::creature_lists::GIVE_TIP)
+                    .on_disabled_hover_text("Choose a creature some of them lack");
+                if give.clicked()
+                    && let Some(m) = some
+                {
+                    let r = m.key;
+                    let entry = m.entry.clone();
+                    let is = |e: &Struct| spawned(e) == Some(r);
+                    let out = lists::add(&targets, "CreatureList", is, |_| Ok(entry.clone()));
+                    change = Some(("Add creature", out, "Added to"));
+                }
+            });
+        });
+        ui.data_mut(|d| match selected {
+            Some(r) => {
+                d.insert_temp(sel_id, r);
+            }
+            None => d.remove::<ResRef>(sel_id),
+        });
+    });
+    if let Some(r) = add {
+        let entry = creature_entry(f.app, r);
+        let out =
+            lists::add(&targets, "CreatureList", |e| spawned(e) == Some(r), |_| Ok(entry.clone()));
+        change = Some(("Add creature", out, "Added to"));
+    }
+    if let Some((what, out, done)) = change {
+        f.apply_each(what, out, done);
     }
 }
 
