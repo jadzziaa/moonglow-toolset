@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:14:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:29:21Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -268,9 +268,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
   after 1.21.3: a table's cells in the module, a hak or a file, checked
   as typed, with rows taken from another copy). Not done:
-  - A talk-table string's cell offers the talk table, not a new line
-    in it. (S; not reached in the deferred sprint of 2026-11-01, which
-    did the model's cell: its list and its check, on the cell chosen)
   - Find References to Row looks in the tables' known columns, not in
     blueprints, areas or scripts. (M)
   - A row both copies changed is taken whole or left: its cells are not
@@ -308,8 +305,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
       - A hak's table's description (beside its file in the hak's
         folder) was tried beside the hak's file, not in a folder a hak
         is built from. (S)
-    - **A talk-table string chosen from the talk table** in the cell,
-      not gone to. (S; with "a new line in it" above)
     - **A class's spell tables checked against `spells.2da`** (each
       spell a class's table names is one the class can learn): Verify
       Module holds the lists a class names to rows that exist, not to

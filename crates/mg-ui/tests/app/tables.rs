@@ -1915,3 +1915,88 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     h.run_steps(4);
     assert_eq!(table_of(&h, id).get(1, "ModelName"), Some("plc_c02"));
 }
+
+/// A talk-table string's cell is chosen from the talk tables by a part of
+/// its text, the module's own and the game's, and given a new line of the
+/// module's talk table, whose number goes in the cell.
+#[test]
+fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
+    use mg_module::talk::Line;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-strings");
+    let user = user_folder(&dir, &[]);
+    let path = sample_module(&dir);
+    let tlk_key = ResKey::parse("mg_strs", ResType::TLK).unwrap();
+    let key = ResKey::parse("mg_strs", ResType::TWODA).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("mg_strs"));
+    m.set_info(&info).unwrap();
+    let mut t = mg_module::talk::Table::create("mg_strs", &dir, Language::ENGLISH, false);
+    let line = |text: &str| Line {
+        text: text.into(),
+        feminine: None,
+        sound: String::new(),
+        sound_length: 0.0,
+    };
+    t.add_line(&line("Old words of the module")).unwrap();
+    m.set(tlk_key, t.tlk.to_bytes().unwrap());
+    m.set(key, b"2DA V2.0\n\n   Label Name\n0  a     ****\n1  b     ****\n".to_vec());
+    m.save().unwrap();
+    // (The column is a string's by the table's description.)
+    std::fs::write(path.with_file_name("mg_strs.2da.toml"), "[columns.Name]\nkind = \"strref\"\n")
+        .unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1280.0, 1300.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
+        h.run_steps(4);
+    };
+    let type_in_last = |h: &mut Harness<'_, Moonglow>, role, text: &str| {
+        let field = h.get_all_by_role(role).last().unwrap().rect().center();
+        click_pos(h, field);
+        h.run_steps(2);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(4);
+    };
+    // The module's string, found by a part of its text.
+    choose(&mut h, 0);
+    h.get_by_label("Choose String…").click();
+    h.run_steps(3);
+    type_in_last(&mut h, egui::accesskit::Role::TextInput, "old words");
+    h.get_by_label("16777216  Old words of the module").click();
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(0, "Name"), Some("16777216"));
+    h.get_by_label("\u{201c}Old words of the module\u{201d}");
+    // The game's, as well.
+    let (n, text) = {
+        let game = h.state().game.as_deref().unwrap();
+        let tlk = game.tlk();
+        (100..tlk.entries.len() as u32)
+            .find_map(|n| {
+                let t = tlk.text_in(mg_core::StrRef(n), game.codepage())?;
+                (t.len() > 30 && t.len() < 60 && !t.contains('\n')).then_some((n, t))
+            })
+            .unwrap()
+    };
+    let found = mg_ui::table_view::strings_found(None, h.state().game.as_deref(), &text);
+    assert!(found.0.iter().any(|(m, _)| *m == n), "{n} {text:?} in {found:?}");
+    // A new line of the module's talk table, its number put in the cell.
+    choose(&mut h, 1);
+    h.get_by_label("New Line…").click();
+    h.run_steps(3);
+    type_in_last(&mut h, egui::accesskit::Role::MultilineTextInput, "Brand new words");
+    h.get_by_label("Add to Talk Table").click();
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(1, "Name"), Some("16777217"));
+    let talk = h.state().talk.as_ref().expect("the module's talk table");
+    assert_eq!((talk.line(1).text.as_str(), talk.is_dirty()), ("Brand new words", true));
+    // (Shown by its text before the talk table is saved.)
+    h.get_by_label("\u{201c}Brand new words\u{201d}");
+}

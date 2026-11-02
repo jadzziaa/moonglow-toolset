@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:14:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:29:21Z }
 ---
 
 # Modules
@@ -1662,7 +1662,14 @@ which layer it is read from, or that there is no model of the name in
 the game, its haks or the module; **Choose Model…** lists the models the
 game reads, found by a part of the name, and one clicked goes in the
 cell. (A model is checked for the cell chosen, not for every row: the
-game's own tables name models it never shipped.)
+game's own tables name models it never shipped.) A talk-table string's
+cell has **Choose String…**, the strings of the module's talk table and
+the game's `dialog.tlk` found by a part of their text (the module's
+first; one clicked goes in the cell), and **New Line…**, which adds the
+text typed as a new line at the end of the module's own talk table and
+puts its number (16777216 and on) in the cell. The line is saved with
+the talk table (its own Save, or the module's); until then the cell
+shows it by its text all the same.
 
 **Find References to Row** lists the cells, in every table the game
 reads, of the columns known to name a row of this table: who would be

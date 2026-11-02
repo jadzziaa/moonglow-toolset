@@ -1075,12 +1075,12 @@ fn cell_shows(
     raw: Option<&str>,
     strref: bool,
     named: Option<&Kind>,
-    game: Option<&mg_rules::GameData>,
+    (talk, game): (Option<&mg_module::talk::Table>, Option<&mg_rules::GameData>),
 ) -> (String, Option<String>, bool) {
     let text = raw
         .filter(|_| strref)
         .and_then(|v| v.parse::<u32>().ok())
-        .and_then(|n| game?.string(mg_core::StrRef(n)));
+        .and_then(|n| talk_string(talk, game, n));
     // (A value by its name, where the description gives it one.)
     let name = raw.zip(named).and_then(|(v, k)| k.named(v));
     let was_named = name.is_some();
@@ -1582,6 +1582,7 @@ fn grid(
 ) {
     let game = app.game.clone();
     let table_name = app.tables[at].widths_key(app);
+    let talk = app.talk.as_ref().filter(|_| !app.talk_view.outside);
     let settings = &mut app.settings;
     let doc = &mut app.tables[at];
     let rows = shown_rows(doc);
@@ -1798,7 +1799,7 @@ fn grid(
             // (To every row's cell, as shown: not those of a Find alone.)
             let t = doc.edit.table();
             let cells = (0..t.len())
-                .map(|r| cell_shows(t.cell(r, c), strref[c], named[c], game.as_deref()).0);
+                .map(|r| cell_shows(t.cell(r, c), strref[c], named[c], (talk, game.as_deref())).0);
             let w = fit_width(ui, &columns[c], cells);
             set_column_width(settings, &table_name, &columns[c], w);
         }
@@ -1947,7 +1948,7 @@ fn grid(
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = faults.iter().find(|f| f.row == r && f.column == c);
                                 let (label, text, was_named) =
-                                    cell_shows(raw, is_strref, named[c], game.as_deref());
+                                    cell_shows(raw, is_strref, named[c], (talk, game.as_deref()));
                                 let mut rich = egui::RichText::new(label).monospace();
                                 if raw.is_none() {
                                     rich = rich.weak();
@@ -2159,18 +2160,18 @@ fn inspector(
         );
         return;
     };
-    let table: &TwoDa = app.tables[at].edit.table();
-    let Some(column_name) = table.columns().get(column).cloned() else { return };
-    let value = table.cell(row, column).map(str::to_string);
-    let kind = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(&column_name)).map(|(_, k)| *k);
-    // What the table's own description says of the column comes first.
-    let description = app.tables[at].description();
-    let described = description.as_deref().and_then(|d| d.column(&column_name));
-    let kind = match described.map(|d| &d.kind) {
-        Some(Kind::StrRef) => Some(ColumnKind::StrRef),
-        Some(Kind::Text) | None => kind,
-        Some(_) => None,
+    let Some(column_name) = app.tables[at].edit.table().columns().get(column).cloned() else {
+        return;
     };
+    let description = app.tables[at].description();
+    let kind = column_kind(kinds, description.as_deref(), &column_name);
+    // (A talk-table string's cell offers a new line in the module's table,
+    // where it has one to add to: looked at for such a cell alone.)
+    let addable = kind == Some(ColumnKind::StrRef) && crate::talk_view::can_add(app).is_some();
+    let talk = app.talk.as_ref().filter(|_| !app.talk_view.outside);
+    let table: &TwoDa = app.tables[at].edit.table();
+    let value = table.cell(row, column).map(str::to_string);
+    let described = description.as_deref().and_then(|d| d.column(&column_name));
     let id = app.tables[at].id;
     // A table the description names: the project's own, else the game's.
     let files = app.tables[at].described.as_ref();
@@ -2186,7 +2187,8 @@ fn inspector(
     };
     let mut set: Option<Option<String>> = None;
     let mut find_references = false;
-    let mut talk = false;
+    let mut open_talk = false;
+    let mut new_line: Option<String> = None;
     ui.horizontal_wrapped(|ui| {
         ui.strong(format!("Row {row}, {column_name}"));
         ui.monospace(value.as_deref().unwrap_or("****"));
@@ -2304,14 +2306,16 @@ fn inspector(
                 let text = value
                     .as_deref()
                     .and_then(|v| v.parse::<u32>().ok())
-                    .and_then(|n| game.as_deref()?.string(mg_core::StrRef(n)));
+                    .and_then(|n| talk_string(talk, game.as_deref(), n));
                 match text {
                     Some(text) => ui.label(format!("\u{201c}{text}\u{201d}")),
                     None => ui.weak("a talk-table string's number"),
                 };
                 if ui.button("Talk Table").on_hover_text("Open the talk table editor").clicked() {
-                    talk = true;
+                    open_talk = true;
                 }
+                let strings = (talk, game.as_deref());
+                string_choice(ui, id, strings, value.as_deref(), addable, &mut set, &mut new_line);
             }
             Some(ColumnKind::Model) => {
                 model_choice(ui, id, game.as_deref(), value.as_deref(), &mut set);
@@ -2370,6 +2374,21 @@ fn inspector(
         }
     });
     let found = find_references.then(|| references(app, &name, table, row));
+    if let Some(text) = new_line {
+        let line =
+            mg_module::talk::Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
+        match crate::talk_view::add_line(app, &line) {
+            Ok(strref) => {
+                set = Some(Some(strref.0.to_string()));
+                app.log.info(format!(
+                    "Added talk-table line {} for {name}.2da row {row}, {column_name}: saved with \
+                     the talk table (its own Save, or the module's)",
+                    strref.0
+                ));
+            }
+            Err(e) => app.tables[at].problem = Some(format!("New Line: {e}")),
+        }
+    }
     if let Some(value) = set {
         let doc = &mut app.tables[at];
         doc.typing = None;
@@ -2382,9 +2401,208 @@ fn inspector(
     if let Some(found) = found {
         app.tables[at].references = Some((row, found));
     }
-    if talk {
+    if open_talk {
         app.actions.push(Action::OpenTab(Tab::TalkTable));
     }
+}
+
+/// What a column holds, where the checks know: the table's own
+/// description first (a `strref` column of it is a talk-table string's
+/// cell; one of another kind is the description's alone), else the kinds
+/// the checks know of the game's tables.
+fn column_kind(
+    kinds: &[(&'static str, ColumnKind)],
+    description: Option<&Description>,
+    column: &str,
+) -> Option<ColumnKind> {
+    let known = kinds.iter().find(|(k, _)| k.eq_ignore_ascii_case(column)).map(|(_, k)| *k);
+    match description.and_then(|d| d.column(column)).map(|d| &d.kind) {
+        Some(Kind::StrRef) => Some(ColumnKind::StrRef),
+        Some(Kind::Text) | None => known,
+        Some(_) => None,
+    }
+}
+
+/// A talk-table string's text: a custom one (16777216 and on) as the
+/// module's talk table open for editing has it (a line added and not yet
+/// saved too), else as the game reads it.
+pub fn talk_string(
+    talk: Option<&mg_module::talk::Table>,
+    game: Option<&mg_rules::GameData>,
+    n: u32,
+) -> Option<String> {
+    let strref = mg_core::StrRef(n);
+    if strref.is_custom()
+        && let Some(t) = talk
+    {
+        let row = strref.index() as usize;
+        return (row < t.len()).then(|| t.line(row).text).filter(|t| !t.is_empty());
+    }
+    game?.string(strref)
+}
+
+/// How many strings a list of them shows at most.
+const STRINGS_SHOWN: usize = 200;
+
+/// The talk tables' strings whose text holds `find` (as Find reads it):
+/// the module's own table's first (as it is being edited, else as the
+/// game reads it), then the game's `dialog.tlk`'s, which is looked
+/// through only for something typed. Each string's number and text, at
+/// most [`STRINGS_SHOWN`], and how many there are in all.
+pub fn strings_found(
+    talk: Option<&mg_module::talk::Table>,
+    game: Option<&mg_rules::GameData>,
+    find: &str,
+) -> (Vec<(u32, String)>, usize) {
+    let needle = mg_core::text::Needle::new(find.trim());
+    let mut found = Vec::new();
+    let mut all = 0;
+    let mut offer = |n: u32, text: String| {
+        if !text.is_empty() && needle.finds(&text) {
+            all += 1;
+            if found.len() < STRINGS_SHOWN {
+                found.push((n, text));
+            }
+        }
+    };
+    match (talk, game.and_then(|g| g.custom_tlk())) {
+        (Some(t), _) => (0..t.len())
+            .for_each(|row| offer(mg_module::talk::Table::strref(row).0, t.line(row).text)),
+        (None, Some(tlk)) => {
+            let cp = game.map(|g| g.codepage()).unwrap_or_default();
+            for row in 0..tlk.entries.len() {
+                let strref = mg_core::StrRef(mg_core::StrRef::CUSTOM_FLAG | row as u32);
+                offer(strref.0, tlk.text_in(strref, cp).unwrap_or_default());
+            }
+        }
+        (None, None) => {}
+    }
+    if let Some(g) = game
+        && !needle.is_empty()
+    {
+        let (tlk, cp) = (g.tlk(), g.codepage());
+        for row in 0..tlk.entries.len() as u32 {
+            offer(row, tlk.text_in(mg_core::StrRef(row), cp).unwrap_or_default());
+        }
+    }
+    (found, all)
+}
+
+/// A talk-table string's cell, chosen: **Choose String…**, the strings
+/// found by a part of their text, one clicked going in the cell; and
+/// **New Line…**, a line of text added to the module's own talk table,
+/// whose number goes in the cell (`addable`: the module has a table to
+/// add to; the line is then `new_line`'s, added by the caller).
+fn string_choice(
+    ui: &mut Ui,
+    id: u32,
+    (talk, game): (Option<&mg_module::talk::Table>, Option<&mg_rules::GameData>),
+    value: Option<&str>,
+    addable: bool,
+    set: &mut Option<Option<String>>,
+    new_line: &mut Option<String>,
+) {
+    let base = egui::Id::new(("table-string", id));
+    let (choose_id, new_id) = (base.with("choose"), base.with("new"));
+    let mut choosing: bool = ui.data(|d| d.get_temp(choose_id)).unwrap_or(false);
+    let mut adding: bool = ui.data(|d| d.get_temp(new_id)).unwrap_or(false);
+    let choose = ui
+        .selectable_label(choosing, "Choose String…")
+        .on_hover_text("The strings of the module's talk table and the game's, by their text");
+    if choose.clicked() {
+        choosing = !choosing;
+        adding = false;
+    }
+    let new = ui
+        .add_enabled(addable, egui::Button::selectable(adding, "New Line…"))
+        .on_hover_text("Adds a line to the module's talk table and puts its number in the cell")
+        .on_disabled_hover_text(
+            "Needs the module's own talk table, open for editing (Module Properties › Custom \
+             Content names it)",
+        );
+    if new.clicked() {
+        adding = !adding;
+        choosing = false;
+    }
+    if choosing {
+        // (On a line of its own under the cell's: the panel's row wraps.)
+        ui.end_row();
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width().clamp(260.0, 560.0));
+            let field_id = base.with("find");
+            let mut find: String = ui.data(|d| d.get_temp(field_id)).unwrap_or_default();
+            let _ = crate::widgets::SearchField::new(field_id.with("field"), &mut find)
+                .hint("Part of a string's text")
+                .show(ui);
+            ui.data_mut(|d| d.insert_temp(field_id, find.clone()));
+            // (Looked through again when what is typed, or the module's
+            // table, changes: the game's has a hundred thousand strings.)
+            let mark = (find.clone(), talk.map(|t| (t.len(), t.steps())));
+            let kept_id = base.with("found");
+            type Kept = (String, Option<(usize, (usize, usize))>, Arc<(Vec<(u32, String)>, usize)>);
+            let kept: Option<Kept> = ui.data(|d| d.get_temp(kept_id));
+            let found = match kept.filter(|(f, t, _)| (f, t) == (&mark.0, &mark.1)) {
+                Some((_, _, found)) => found,
+                None => {
+                    let found = Arc::new(strings_found(talk, game, &find));
+                    ui.data_mut(|d| d.insert_temp(kept_id, (mark.0, mark.1, found.clone())));
+                    found
+                }
+            };
+            let (names, all) = (&found.0, found.1);
+            match (all, find.trim().is_empty()) {
+                (0, true) => _ = ui.weak("Type a part of a string's text"),
+                (0, false) => _ = ui.weak("No string has it"),
+                (n, _) if n > names.len() => {
+                    ui.weak(format!("{} of {n}: type more of the text", names.len()));
+                }
+                _ => {}
+            }
+            let list = egui::ScrollArea::vertical().id_salt(base.with("list")).max_height(240.0);
+            list.show(ui, |ui| {
+                for (n, text) in names {
+                    let now = value.and_then(|v| v.trim().parse::<u32>().ok()) == Some(*n);
+                    let line = text.lines().next().unwrap_or_default();
+                    let label = egui::Button::selectable(now, format!("{n}  {line}"));
+                    if ui.add(label).on_hover_text(text).clicked() {
+                        *set = Some(Some(n.to_string()));
+                        choosing = false;
+                    }
+                }
+            });
+        });
+    }
+    if adding && addable {
+        ui.end_row();
+        ui.vertical(|ui| {
+            let text_id = base.with("text");
+            let mut text: String = ui.data(|d| d.get_temp(text_id)).unwrap_or_default();
+            ui.label("The new line's text");
+            let field =
+                ui.add(egui::TextEdit::multiline(&mut text).desired_rows(2).desired_width(420.0));
+            crate::widgets::autofocus(ui, &field);
+            let typed = !text.trim().is_empty();
+            ui.horizontal(|ui| {
+                let add = ui
+                    .add_enabled(typed, egui::Button::new("Add to Talk Table"))
+                    .on_hover_text("A new line at the talk table's end; the cell takes its number");
+                if add.clicked() {
+                    *new_line = Some(text.trim().to_string());
+                    text.clear();
+                    adding = false;
+                }
+                if crate::widgets::cancel(ui) {
+                    text.clear();
+                    adding = false;
+                }
+            });
+            ui.data_mut(|d| d.insert_temp(text_id, text));
+        });
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(choose_id, choosing);
+        d.insert_temp(new_id, adding);
+    });
 }
 
 /// A row of the table `target` to choose (the table itself as it is now,
