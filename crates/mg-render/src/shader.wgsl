@@ -212,6 +212,12 @@ fn unturn(t: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(turn.x * t.x + turn.y * t.y, -turn.y * t.x + turn.x * t.y);
 }
 
+// A direction in the texture turned as the texture was (`mat2(m_texture)`).
+fn turn(t: vec2<f32>) -> vec2<f32> {
+    let turn = draws[this_draw].uv_turn.xy;
+    return vec2<f32>(turn.x * t.x - turn.y * t.y, turn.y * t.x + turn.x * t.y);
+}
+
 // The environment map's 2D ("sphere") coordinates, view space.
 fn env_coords(n: vec3<f32>, pos_view: vec3<f32>) -> vec2<f32> {
     let e = n.xy / (1.0 + abs(n.z)) + 0.5 * pos_view.xy / (-pos_view.z + 0.2);
@@ -300,10 +306,13 @@ fn height_at(uv: vec2<f32>, duv1: vec2<f32>, duv2: vec2<f32>) -> f32 {
 }
 
 // Parallax: the game's iterative search (inc_displacement), height read as
-// depth 1 - h. `v` points towards the eye.
+// depth 1 - h. `v` points towards the eye. With the model's own tangents
+// (`own`), the direction is turned as the texture was (`mat2(m_texture)`,
+// as the normal map's is turned back): they turned with the tile.
 fn displace(
     uv0: vec2<f32>,
     tsb: mat3x3<f32>,
+    own: bool,
     v: vec3<f32>,
     surface_n: vec3<f32>,
     pos_view: vec3<f32>,
@@ -321,7 +330,10 @@ fn displace(
     if (iterations <= 0.5) {
         return uv0;
     }
-    let vd = transpose(tsb) * v;
+    var vd = transpose(tsb) * v;
+    if (own) {
+        vd = vec3<f32>(turn(vd.xy), vd.z);
+    }
     iterations = floor(iterations + 0.5);
     var segment = 1.0 / iterations;
     let h = 0.5 * vd.z + 0.5;
@@ -371,27 +383,6 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
         tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
     }
-    // The environment map's coordinates' derivatives, here too: the game
-    // samples the map with the roughness as a bias over the level they
-    // give (`inc_envmap`'s `texture2D(texUnitEnv, uv, bias)`), so a
-    // magnified map stays sharp however rough. Taken from the normal the
-    // normal map makes (the game's coordinates are the fragment normal's),
-    // before anything is discarded.
-    var n_env = surface_n;
-    if (normal_mapped) {
-        let s = textureSampleGrad(tex_normal, samp0, in.uv, duv1, duv2).rg * 2.0 - 1.0;
-        let t = select(s, unturn(s), own);
-        n_env = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
-    }
-    let env_uv = env_coords(n_env, in.pos_view);
-    let denv1 = dpdx(env_uv);
-    let denv2 = dpdy(env_uv);
-    let view_to_world =
-        transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
-    let env_dir = view_to_world * reflect(-v, n_env);
-    let ddir1 = dpdx(env_dir);
-    let ddir2 = dpdy(env_dir);
-
     // Tangent frame and parallax.
     var uv = in.uv;
     // Water: the picture pushed about by two slow waves each way (an
@@ -423,8 +414,36 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         uv = uv + way * (draws[this_draw].effect.y * frame.time.x);
     }
     if (height_mapped) {
-        uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
+        uv = displace(uv, tsb, own, v, surface_n, in.pos_view, duv1, duv2);
     }
+
+    // The normal map: RG only, Z rebuilt.
+    var n = surface_n;
+    if (normal_mapped) {
+        let s = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        let t = select(s, unturn(s), own);
+        n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
+    }
+    // The environment map's coordinates' derivatives, here too: the game
+    // samples the map with the roughness as a bias over the level they
+    // give (`inc_envmap`'s `texture2D(texUnitEnv, uv, bias)`), so a
+    // magnified map stays sharp however rough. Taken from the normal it
+    // reflects by, as the game's are: the normal map's at the coordinates
+    // the parallax moved, a normal facing away bent towards the eye (as
+    // below); before anything is discarded.
+    var n_env = n;
+    let nv_env = dot(n_env, v);
+    if (nv_env < 0.0) {
+        n_env = normalize(n_env - nv_env * v);
+    }
+    let env_uv = env_coords(n_env, in.pos_view);
+    let denv1 = dpdx(env_uv);
+    let denv2 = dpdy(env_uv);
+    let view_to_world =
+        transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
+    let env_dir = view_to_world * reflect(-v, n_env);
+    let ddir1 = dpdx(env_dir);
+    let ddir2 = dpdy(env_dir);
 
     // Every `discard` here is followed by a `return`: a discarded fragment
     // that went on running (as WGSL has it, and as Metal's
@@ -516,14 +535,6 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // Unlit (TXI decal).
     if (draws[this_draw].params.w > 0.5) {
         return vec4<f32>(color_clamp(gam(color.rgb)), color.a);
-    }
-
-    // The normal map: RG only, Z rebuilt.
-    var n = surface_n;
-    if (normal_mapped) {
-        let s = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
-        let t = select(s, unturn(s), own);
-        n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
     }
 
     // Water: small waves crossing it tip its surface this way and that, so

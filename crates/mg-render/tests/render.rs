@@ -2647,6 +2647,30 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     // A decal: the checker, its TXI `decal 1`.
     own.textures.insert("mgdecal".into(), own.textures["mgchecker"].clone());
     own.txis.insert("mgdecal".into(), mg_image::txi::Txi::parse(b"decal 1\n"));
+    // A tile's ground turned a quarter with its texture, normal- and
+    // height-mapped (`fslit_nm`) with tangents of its own: the parallax's
+    // direction turned as the texture is (`inc_displacement`'s
+    // `mat2(m_texture)`). Its height map rises and falls along u alone.
+    let ridges: Vec<u8> = (0..w * h)
+        .flat_map(|i| {
+            let x = (i % w) as f32 / w as f32 * std::f32::consts::TAU * 3.0;
+            let v = ((0.5 + 0.5 * x.sin()) * 255.0) as u8;
+            [v, v, v, 255]
+        })
+        .collect();
+    let flat: Vec<u8> = [128u8, 128, 255, 255].repeat((w * h) as usize);
+    own.textures.insert(
+        "mgheight".into(),
+        mg_image::Rgba { width: w, height: h, data: ridges }.into_texture(false),
+    );
+    own.textures.insert(
+        "mgflat".into(),
+        mg_image::Rgba { width: w, height: h, data: flat }.into_texture(false),
+    );
+    let mtr = "renderhint NormalAndSpecMapped\ntexture0 mgchecker\ntexture1 mgflat\n\
+        texture4 mgheight\n";
+    own.materials.insert("mgturnedh".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    own.textures.insert("mgturnedh".into(), own.textures["mgchecker"].clone());
     let assets = WithGameShaders { own, game: &rm };
 
     let ball = Arc::new(GpuModel::new(&gpu, Arc::new(sphere("mgchecker", 24, 48))));
@@ -2757,6 +2781,25 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
             ),
         )
     };
+    let mut raised = quad();
+    if let NodeKind::Mesh(mesh) = &mut raised.nodes[1].kind {
+        mesh.textures[0] = Some("mgturnedh".into());
+        mesh.uvs[0] = vec![[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]];
+        mesh.rotate_texture = true;
+        mesh.tangents = vec![[1.0, 0.0, 0.0, 1.0]; 4];
+    }
+    let raised = Instance {
+        tile: true,
+        ..Instance::new(
+            Arc::new(GpuModel::new(&gpu, Arc::new(raised))),
+            Mat4::from_rotation_translation(
+                glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+                Vec3::new(0.0, 0.0, 1.0),
+            ),
+        )
+    };
+    let slant =
+        Camera::orbit(Vec3::new(0.0, 0.0, 1.0), 2.5, -40f32.to_radians(), 35f32.to_radians());
     let mut scenes = vec![
         ("sphere", sphere_scene, camera),
         ("reflecting", Scene { instances: vec![shiny], ..base.clone() }, close),
@@ -2765,6 +2808,7 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         ("decal", Scene { instances: vec![decal], ..base.clone() }, close),
         ("no_uvs", Scene { instances: vec![bare], ..base.clone() }, close),
         ("tile_turned", Scene { instances: vec![turned], ..base.clone() }, close),
+        ("tile_turned_height_mapped", Scene { instances: vec![raised], ..base.clone() }, slant),
     ];
     for name in ["tcn01_a01_01", "plc_a01", "c_wolf"] {
         let data = rm.get_named(name, mg_core::ResType::MDL).unwrap();
@@ -2830,11 +2874,14 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         // `texture2D(texUnitEnv, uv, bias)` samples it, the roughness a
         // bias over the level the derivatives give (M4: before, at the
         // roughness's level outright, `_sm` differed by 0.73 / 99% 15 and
-        // `_nm` by 1.11 / 11 of 255; after, 0.00 / 0 and 0.08 / 2). `_nm`
-        // takes those derivatives from the normal map's normal before the
-        // parallax and the bend of a normal facing away, which the game
-        // takes after: 2 in 255 at the 99th percentile.
-        let (mean, p99) = if name.contains("normal") { (0.5, 3) } else { (0.5, 1) };
+        // `_nm` by 1.11 / 11 of 255; after, 0.00 / 0 and 0.08 / 2; with the
+        // derivatives taken from the normal after the parallax and the bend
+        // of a normal facing away, as the game's are, 0.04 / 1). The
+        // parallax (`displace`) differs by 0.26 / 3 on a tile's ground
+        // unturned; turned with its texture, by 17.84 / 90 before its
+        // direction was turned as `inc_displacement` turns it, 0.33 / 4
+        // after.
+        let (mean, p99) = if name.contains("height") { (0.6, 4) } else { (0.5, 1) };
         if d.mean > mean || d.p99 > p99 {
             failures.push(format!("{name}: mean {:.2}, 99% {}, max {}", d.mean, d.p99, d.max));
         }
