@@ -407,6 +407,10 @@ fn spell_entry(spell: usize, metamagic: u8) -> Struct {
 /// class to choose from (by level, name and category) beside those it
 /// knows or has prepared, by level, with how many it may have of each.
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
+    if f.several() {
+        spells_together(f, ui);
+        return;
+    }
     let base = f.path.clone();
     let key = f.key;
     let Some(game) = f.app.game.clone() else { return };
@@ -791,6 +795,453 @@ fn set_count(
     } else {
         // From the last, so the entries before keep their places.
         entries[count..].iter().rev().map(|&i| remove(key, base.clone(), list, i)).collect()
+    }
+}
+
+/// One of several creatures edited together that has the class the
+/// Spells page shows: the creature, its class's entry as the target of
+/// that class's lists, and what it may have.
+struct Caster {
+    creature: lists::Target,
+    class: lists::Target,
+    slots: mg_rules::SpellSlots,
+}
+
+/// The [`SpellKey`] of an entry of a class's spell list: its spell and
+/// metamagic.
+type SpellKey = (i64, u8);
+
+fn spell_key(s: &Struct) -> SpellKey {
+    let metamagic = s.integer("SpellMetaMagic").unwrap_or(0).clamp(0, 255) as u8;
+    (s.integer("Spell").unwrap_or(0), metamagic)
+}
+
+/// The Spells page of several creatures edited together: the spellcasting
+/// classes any of them has (≠ with how many where some do), and for the
+/// one chosen, its lists on each creature that has it, merged: a spell
+/// known by some is half-ticked, a count of a prepared spell is the
+/// first's (≠ where they differ). A spell given, a count typed, a spell
+/// taken, Clear and Load Class Spell List are made on each that has the
+/// class.
+fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
+    let key = f.key;
+    let Some(game) = f.app.game.clone() else { return };
+    let game = game.as_ref();
+    let Ok(classes) = game.table("classes") else { return };
+    let targets = f.list_targets();
+    // The spellcasting classes any of them has, in the first one's order,
+    // then the others', with how many have each.
+    let mut caster_classes: Vec<(i64, usize)> = Vec::new();
+    for t in &targets {
+        for c in t.list("ClassList") {
+            let Some(row) = lists::class(c) else { continue };
+            if game.spell_slots(&t.at, c).is_none() {
+                continue;
+            }
+            match caster_classes.iter_mut().find(|(r, _)| *r == row) {
+                Some((_, n)) => *n += 1,
+                None => caster_classes.push((row, 1)),
+            }
+        }
+    }
+    if caster_classes.is_empty() {
+        ui.weak("None of the creatures' classes casts spells.");
+        return;
+    }
+    let class_name = |row: i64| {
+        let r = row.max(0) as usize;
+        classes
+            .get_int(r, "Name")
+            .and_then(|s| game.string(mg_core::StrRef(s as u32)))
+            .unwrap_or_else(|| classes.get(r, "Label").unwrap_or_default().to_string())
+    };
+    // Each creature's spell warnings, named.
+    if !f.app.settings.no_spell_warning {
+        let color = ui.visuals().warn_fg_color;
+        let mut any = false;
+        for t in &targets {
+            for w in game.spell_warnings(&t.at) {
+                let text = statement(&game.spell_warning_text(&w)).to_string();
+                ui.colored_label(color, format!("{}: {text}", t.name));
+                any = true;
+            }
+        }
+        if any
+            && ui
+                .small_button("Never warn again")
+                .on_hover_text("Options › General: Show invalid creature spell assignment warning")
+                .clicked()
+        {
+            f.app.settings.no_spell_warning = true;
+        }
+    }
+    let total = targets.len();
+    let id = egui::Id::new(("utc-spells", key));
+    let (mut which, mut level): (usize, Option<usize>) =
+        ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    which = which.min(caster_classes.len() - 1);
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Class");
+        for (n, (row, having)) in caster_classes.iter().enumerate() {
+            ui.radio_value(&mut which, n, class_name(*row));
+            super::entry_mark(ui, *having, total);
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Spell Level");
+        ui.selectable_value(&mut level, None, "All");
+        for l in 0..=9 {
+            ui.selectable_value(&mut level, Some(l), l.to_string());
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, (which, level)));
+    let class = caster_classes[which].0;
+    // Those that have the class, each with its lists.
+    let casters: Vec<Caster> = targets
+        .iter()
+        .filter_map(|t| {
+            let (i, c) = t
+                .list("ClassList")
+                .iter()
+                .enumerate()
+                .find(|(_, c)| lists::class(c) == Some(class))?;
+            let slots = game.spell_slots(&t.at, c)?;
+            let target = lists::Target {
+                key: t.key,
+                path: t.path.clone().item("ClassList", i),
+                at: c.clone(),
+                name: t.name.clone(),
+            };
+            Some(Caster { creature: t.clone(), class: target, slots })
+        })
+        .collect();
+    let class_targets: Vec<lists::Target> = casters.iter().map(|c| c.class.clone()).collect();
+    let n = casters.len();
+    let prepares = casters[0].slots.prepares;
+    // Meta-Magic: the metamagic feats every one of them has.
+    let metamagics: Vec<u8> = std::iter::once(0)
+        .chain(
+            METAMAGIC
+                .iter()
+                .filter(|m| {
+                    casters.iter().all(|c| {
+                        let feats = c.creature.list("FeatList");
+                        feats.iter().any(|s| s.integer("Feat") == Some(m.1 as i64))
+                    })
+                })
+                .map(|m| m.0),
+        )
+        .collect();
+    let mut metamagic: u8 = ui.data(|d| d.get_temp(id.with("metamagic"))).unwrap_or(0);
+    if !metamagics.contains(&metamagic) || !prepares {
+        metamagic = 0;
+    }
+    let meta_name = |m: &u8| if *m == 0 { "None".to_string() } else { metamagic_name(game, *m) };
+    ui.add_enabled_ui(prepares, |ui| {
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Meta-Magic");
+            crate::widgets::dropdown(id.with("metamagic-list"))
+                .selected_text(meta_name(&metamagic))
+                .width(160.0)
+                .show(ui, &mut metamagic, &metamagics, meta_name)
+                .on_hover_text("The metamagic feats all of them have: spells are prepared with it");
+        });
+    });
+    ui.data_mut(|d| d.insert_temp(id.with("metamagic"), metamagic));
+    let raised = mg_module::script_set::metamagic_levels(metamagic) as usize;
+    let (mut clear, mut load) = (false, false);
+    ui.horizontal_wrapped(|ui| {
+        clear = ui.button("Clear Class Spell List").clicked();
+        ui.add_enabled(false, egui::Button::new("Save Class Spell List"))
+            .on_disabled_hover_text("It saves one creature's list: open one to save it");
+        load = ui.button("Load Class Spell List").clicked();
+    });
+    let spells = class_spells(game, class.max(0) as usize);
+    let innate = game.table("spells").ok();
+    let names = game
+        .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
+        .map(mg_rules::by_name)
+        .unwrap_or_default();
+    let categories = spell_categories(game);
+    let (needle, category) = ui
+        .horizontal_wrapped(|ui| {
+            let t = filter(ui, id.with("find"));
+            (t, category_filter(ui, id.with("category"), &categories))
+        })
+        .inner;
+    let in_category = |row: usize| {
+        category.is_none_or(|c| innate.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c))
+    };
+    let list_of = |l: usize| casters[0].slots.list(l);
+    // How many entries of `k` a creature's list of level `l` has.
+    let count = |c: &lists::Target, l: usize, k: SpellKey| {
+        c.list(&list_of(l)).iter().filter(|e| spell_key(e) == k).count()
+    };
+    let mut change: Option<(&str, lists::Outcome, &str)> = None;
+    ui.columns(2, |columns| {
+        let ui = &mut columns[0];
+        egui::ScrollArea::vertical()
+            .id_salt(("utc-spell-list", key, which))
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let cols = if raised > 0 { 3 } else { 2 };
+                egui::Grid::new(("utc-spell-grid", key, which))
+                    .num_columns(cols)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong(if prepares { "Spell" } else { "Known Spell" });
+                        ui.strong("Level");
+                        if raised > 0 {
+                            ui.strong("Casting");
+                        }
+                        ui.end_row();
+                        for (row, name, l) in &spells {
+                            if level.is_some_and(|x| x != *l)
+                                || !needle.finds(name)
+                                || !in_category(*row)
+                            {
+                                continue;
+                            }
+                            let cast = if prepares { l + raised } else { *l };
+                            let k = (*row as i64, if prepares { metamagic } else { 0 });
+                            let counts: Vec<usize> =
+                                class_targets.iter().map(|c| count(c, cast.min(9), k)).collect();
+                            let having = counts.iter().filter(|c| **c > 0).count();
+                            let r = if prepares {
+                                let text = match counts[0] {
+                                    0 => name.clone(),
+                                    c => format!("{name}  ×{c}"),
+                                };
+                                let r = ui
+                                    .add_enabled(
+                                        cast <= 9,
+                                        egui::Button::selectable(having > 0, text),
+                                    )
+                                    .on_hover_text("Prepare one more, on each")
+                                    .on_disabled_hover_text("Cast above level 9");
+                                if r.clicked() {
+                                    let mut out = lists::Outcome::default();
+                                    for c in &class_targets {
+                                        let list = list_of(cast);
+                                        let at = c.list(&list).len();
+                                        let item = spell_entry(*row, metamagic);
+                                        out.edits.push(insert(
+                                            c.key,
+                                            c.path.clone(),
+                                            &list,
+                                            at,
+                                            item,
+                                        ));
+                                        out.changed += 1;
+                                    }
+                                    change = Some(("Prepare spell", out, "Prepared on"));
+                                }
+                                r
+                            } else {
+                                let mut known = having == n;
+                                let some = having > 0 && having < n;
+                                let r = ui
+                                    .add(egui::Checkbox::new(&mut known, name).indeterminate(some));
+                                if r.changed() {
+                                    let list = list_of(*l);
+                                    let is = move |e: &Struct| spell_key(e).0 == k.0;
+                                    change = Some(if known || some {
+                                        let out = lists::add(&class_targets, &list, is, |_| {
+                                            Ok(spell_entry(*row, 0))
+                                        });
+                                        ("Add known spell", out, "Added to")
+                                    } else {
+                                        let out =
+                                            lists::remove(&class_targets, &list, is, |_| None);
+                                        ("Remove known spell", out, "Taken from")
+                                    });
+                                }
+                                r
+                            };
+                            described(r, Some(game), "spells", "SpellDesc", *row);
+                            ui.label(l.to_string());
+                            if raised > 0 {
+                                ui.label(cast.to_string());
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        let ui = &mut columns[1];
+        ui.strong(if prepares { "Prepared" } else { "Known" });
+        egui::ScrollArea::vertical()
+            .id_salt(("utc-spell-assigned", key, which))
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let warn = ui.visuals().warn_fg_color;
+                for l in 0..=9 {
+                    let list = list_of(l);
+                    let lens: Vec<usize> =
+                        class_targets.iter().map(|c| c.list(&list).len()).collect();
+                    let first = &casters[0].slots;
+                    if lens.iter().all(|x| *x == 0) && casters.iter().all(|c| l >= c.slots.levels) {
+                        continue;
+                    }
+                    let text = if l < first.levels {
+                        format!("Level {l}: {} of {}", lens[0], first.max[l])
+                    } else {
+                        format!("Level {l}: {}, a level the class doesn't cast yet", lens[0])
+                    };
+                    let over = casters
+                        .iter()
+                        .zip(&lens)
+                        .any(|(c, len)| l >= c.slots.levels || *len > c.slots.max[l]);
+                    let differ = lens.iter().any(|x| *x != lens[0])
+                        || casters.iter().any(|c| c.slots.max[l] != first.max[l]);
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if over {
+                            ui.colored_label(warn, egui::RichText::new(text).strong());
+                        } else {
+                            ui.label(egui::RichText::new(text).strong());
+                        }
+                        if differ {
+                            ui.colored_label(warn, super::MIXED).on_hover_text(
+                                "The creatures edited together have other counts here: this \
+                                 shows the first one's",
+                            );
+                        }
+                    });
+                    let merged = lists::merged(&class_targets, &list, |e| Some(spell_key(e)));
+                    let mut rows: Vec<(String, &lists::Merged<SpellKey>)> = merged
+                        .iter()
+                        .map(|m| {
+                            let name = mg_rules::choice_text(&names, m.key.0);
+                            (with_metamagic(game, &name, m.key.1), m)
+                        })
+                        .collect();
+                    rows.sort_by_key(|(name, _)| name.to_lowercase());
+                    for (name, m) in rows {
+                        let k = m.key;
+                        let is = move |e: &Struct| spell_key(e) == k;
+                        ui.horizontal(|ui| {
+                            let tip = if prepares {
+                                "Prepare none of it, on each"
+                            } else {
+                                "Forget it, on each"
+                            };
+                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                                let out = lists::remove(&class_targets, &list, is, |_| None);
+                                change = Some(("Remove spell", out, "Taken from"));
+                            }
+                            if prepares {
+                                let counts: Vec<usize> =
+                                    class_targets.iter().map(|c| count(c, l, k)).collect();
+                                let shown = counts[m.having[0]] as i64;
+                                if counts.iter().any(|c| *c as i64 != shown) {
+                                    ui.colored_label(warn, super::MIXED).on_hover_text(
+                                        "They prepare it so many times each: this shows the first \
+                                         one's that has it, and a count typed is set on each",
+                                    );
+                                }
+                                if let Some(v) = spin_number(ui, shown, 1..=99) {
+                                    let entry = m.entry.clone();
+                                    let out = lists::set_count(
+                                        &class_targets,
+                                        &list,
+                                        is,
+                                        v as usize,
+                                        |_| entry.clone(),
+                                    );
+                                    change = Some(("Prepared spells", out, "Set on"));
+                                }
+                            }
+                            let row = usize::try_from(k.0).unwrap_or(usize::MAX);
+                            let r = ui.label(name);
+                            described(r, Some(game), "spells", "SpellDesc", row);
+                            super::entry_mark(ui, m.having.len(), n);
+                            if m.having.len() < n
+                                && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
+                            {
+                                let entry = m.entry.clone();
+                                let out =
+                                    lists::add(&class_targets, &list, is, |_| Ok(entry.clone()));
+                                change = Some(("Add spell", out, "Added to"));
+                            }
+                        });
+                    }
+                }
+            });
+    });
+    // Each one's class's lists emptied.
+    let cleared = |out: &mut lists::Outcome| {
+        for c in &class_targets {
+            for l in 0..=9 {
+                let list = list_of(l);
+                let len = c.list(&list).len();
+                for i in (0..len).rev() {
+                    out.edits.push(remove(c.key, c.path.clone(), &list, i));
+                }
+            }
+        }
+    };
+    if clear {
+        let mut out = lists::Outcome { changed: class_targets.len(), ..Default::default() };
+        cleared(&mut out);
+        change = Some(("Clear class spell list", out, "Cleared on"));
+    }
+    if load {
+        let start = f.app.install.as_ref().map(|i| i.root.join("data").join("scr"));
+        if let Some(file) = f.app.dialogs.open_file(FileKind::SpellList, start.as_deref()) {
+            let listed = std::fs::read(&file).map_err(|e| e.to_string()).map(|b| {
+                mg_module::script_set::read_spells(&crate::text::decode(&b), class as u32)
+            });
+            match listed {
+                Err(e) => f.app.log.error(format!("{}: {e}", file.display())),
+                Ok(None) => {
+                    f.app.log.warn(format!("{}: no spell list for this class", file.display()))
+                }
+                Ok(Some(listed)) => {
+                    // Each one's lists replaced by the file's, each spell at
+                    // its level for the class (raised by its metamagic).
+                    let mut out =
+                        lists::Outcome { changed: class_targets.len(), ..Default::default() };
+                    cleared(&mut out);
+                    for c in &class_targets {
+                        let mut counts = [0usize; 10];
+                        for s in &listed {
+                            let base = spells
+                                .iter()
+                                .find(|(row, _, _)| *row == usize::from(s.spell))
+                                .map(|x| x.2);
+                            let base = base.or_else(|| {
+                                let t = innate.as_ref()?;
+                                t.get_int(usize::from(s.spell), "Innate")
+                                    .map(|l| l.clamp(0, 9) as usize)
+                            });
+                            let Some(base) = base else { continue };
+                            let extra = if prepares {
+                                mg_module::script_set::metamagic_levels(s.metamagic)
+                            } else {
+                                0
+                            };
+                            let l = (base + extra as usize).min(9);
+                            let mut item = Struct::new(SPELL_ID);
+                            item.set("Spell", Value::Word(s.spell));
+                            item.set("SpellFlags", Value::Byte(s.flags));
+                            item.set("SpellMetaMagic", Value::Byte(s.metamagic));
+                            out.edits.push(insert(
+                                c.key,
+                                c.path.clone(),
+                                &list_of(l),
+                                counts[l],
+                                item,
+                            ));
+                            counts[l] += 1;
+                        }
+                    }
+                    change = Some(("Load class spell list", out, "Loaded on"));
+                }
+            }
+        }
+    }
+    if let Some((what, out, done)) = change {
+        f.apply_each(what, out, done);
     }
 }
 

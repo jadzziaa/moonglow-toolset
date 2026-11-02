@@ -274,6 +274,222 @@ fn an_encounter_s_creature_is_added_to_those_that_lack_it() {
     assert_eq!(each(&mut h, &keys, spawns), before);
 }
 
+/// A store's restrictions: stores in different modes are marked ≠; the
+/// first one's list is shown merged; a base item added goes to each in
+/// that mode that lacks it (not to one in the other mode, which is said),
+/// Remove takes it from each, and a mode clicked moves the others' items
+/// to it. Each one step.
+#[test]
+fn a_store_s_restrictions_are_set_on_each() {
+    let (torch, longsword) = (15i32, 1i32);
+    let tweak = move |i: usize, s: &mut Struct, _: &mg_rules::GameData| {
+        let entry = |row: i32| {
+            let mut e = Struct::new(97869);
+            e.set("BaseItem", Value::Int(row));
+            e
+        };
+        let (not, only) = match i {
+            0 => (vec![entry(torch)], vec![]),
+            1 => (vec![entry(torch), entry(longsword)], vec![]),
+            _ => (vec![], vec![entry(longsword)]),
+        };
+        s.set("WillNotBuy", Value::List(not));
+        s.set("WillOnlyBuy", Value::List(only));
+    };
+    let Some((mut h, keys)) = together("nw_storebar01", ResType::UTM, 3, "Restrictions", tweak)
+    else {
+        return;
+    };
+    let bases = |s: &Struct| -> (Vec<i64>, Vec<i64>) {
+        let of = |l: &str| s.list(l).unwrap_or(&[]).iter().filter_map(|i| i.integer("BaseItem"));
+        (of("WillNotBuy").collect(), of("WillOnlyBuy").collect())
+    };
+    let before = each(&mut h, &keys, bases);
+    assert!(h.query_all_by_value("≠").count() >= 1, "the modes differ");
+    assert!(h.query_by_label("≠ 2 of 3").is_some(), "the torch");
+    assert!(h.query_by_label("≠ 1 of 3").is_some(), "the longsword");
+    // The longsword, added: to the first; the third, which will only buy
+    // its own, is left.
+    type_into_hint(&mut h, "Find", "Longsword");
+    h.get_all_by_label("Longsword").next().unwrap().click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    let added = each(&mut h, &keys, bases);
+    assert_eq!(added[0].0, [i64::from(torch), i64::from(longsword)]);
+    assert_eq!(added[1], before[1]);
+    assert_eq!(added[2], before[2]);
+    assert!(h.query_by_label_contains("mg_c: it will only buy its list").is_some());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add restricted item"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, bases), before);
+    // The torch, removed from the two that have it.
+    h.get_all_by_label("Torch").last().unwrap().click();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    let taken = each(&mut h, &keys, bases);
+    assert!(taken.iter().all(|(not, _)| !not.contains(&i64::from(torch))), "{taken:?}");
+    undo(&mut h);
+    // Will Only Buy: the first two's items moved; the third's as it was.
+    h.get_by_label("Store will ONLY buy the following items").click();
+    h.run();
+    let moved = each(&mut h, &keys, bases);
+    assert_eq!(moved[0], (vec![], before[0].0.clone()));
+    assert_eq!(moved[1], (vec![], before[1].0.clone()));
+    assert_eq!(moved[2], before[2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Restriction mode"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, bases), before);
+}
+
+/// Classes: Fighter (levels 3 and 5) and Rogue, each of which two of the
+/// three have, are marked ≠ 2 of 3 and the levels ≠. A level is set on
+/// each that has the class; Remove takes the class from each but the one
+/// it is the only class of; Give to All gives the Rogue to the first at
+/// the second's level. Each one step.
+#[test]
+fn a_class_is_set_on_those_that_have_it_within_the_rules() {
+    let (fighter, rogue) = (4i32, 8i32);
+    let tweak = move |i: usize, c: &mut Struct, _: &mg_rules::GameData| {
+        let class = |row: i32, level: i16| {
+            let mut e = Struct::new(2);
+            e.set("Class", Value::Int(row));
+            e.set("ClassLevel", Value::Short(level));
+            e
+        };
+        let list = match i {
+            0 => vec![class(fighter, 3)],
+            1 => vec![class(fighter, 5), class(rogue, 2)],
+            _ => vec![class(rogue, 1)],
+        };
+        c.set("ClassList", Value::List(list));
+    };
+    let Some((mut h, keys)) = together("nw_bandit001", ResType::UTC, 3, "Classes", tweak) else {
+        return;
+    };
+    let classes = |s: &Struct| -> Vec<(i64, i64)> {
+        let list = s.list("ClassList").unwrap_or(&[]);
+        list.iter()
+            .map(|c| (c.integer("Class").unwrap(), c.integer("ClassLevel").unwrap()))
+            .collect()
+    };
+    let before = each(&mut h, &keys, classes);
+    assert_eq!(h.query_all_by_label("≠ 2 of 3").count(), 2);
+    assert!(h.query_all_by_value("≠").count() >= 1, "the Fighter's levels differ");
+    assert!(h.get_by_label("Levelup Wizard").accesskit_node().is_disabled());
+    let level = number_beside(&h, "Class 1", 0);
+    set_number(&h, &level, 7.0);
+    h.run();
+    let set = each(&mut h, &keys, classes);
+    assert_eq!(set[0], [(4, 7)]);
+    assert_eq!(set[1], [(4, 7), (8, 2)]);
+    assert_eq!(set[2], before[2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Class level"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, classes), before);
+    // Remove, on the Fighter's row: the first keeps it, its only class.
+    let row = h.get_by_label("Class 1").rect();
+    h.get_all_by_label("Remove")
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 10.0)
+        .unwrap()
+        .click();
+    h.run();
+    let taken = each(&mut h, &keys, classes);
+    assert_eq!(taken[0], before[0]);
+    assert_eq!(taken[1], [(8, 2)]);
+    assert!(h.query_by_label_contains("mg_a: its only class").is_some());
+    undo(&mut h);
+    // Give to All, on the Rogue's row: the first gains it at level 2.
+    let row = h.get_by_label("Class 2").rect();
+    h.get_all_by_label("Give to All")
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 10.0)
+        .unwrap()
+        .click();
+    h.run_steps(4);
+    let given = each(&mut h, &keys, classes);
+    assert_eq!(given[0], [(4, 3), (8, 2)]);
+    assert_eq!(given[2], before[2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add class"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, classes), before);
+}
+
+/// Spells: of three creatures, two are sorcerers (the class ≠ 2 of 3),
+/// the second not knowing the first's first cantrip, half-ticked: ticked,
+/// it is added to the second only (the third has no Sorcerer class); its
+/// × takes it from both; Clear empties both lists; each one step.
+#[test]
+fn a_known_spell_is_added_to_each_creature_of_the_class() {
+    let sorcerer = 9i64;
+    let tweak = move |i: usize, c: &mut Struct, _: &mg_rules::GameData| {
+        let mut list = c.list("ClassList").unwrap().to_vec();
+        let at = list.iter().position(|e| e.integer("Class") == Some(sorcerer)).unwrap();
+        match i {
+            1 => {
+                let mut known = list[at].list("KnownList0").unwrap().to_vec();
+                known.remove(0);
+                list[at].set("KnownList0", Value::List(known));
+            }
+            2 => list[at].set("Class", Value::Int(4)),
+            _ => {}
+        }
+        c.set("ClassList", Value::List(list));
+    };
+    let Some((mut h, keys)) = together("db_tanarukk_do", ResType::UTC, 3, "Spells", tweak) else {
+        return;
+    };
+    let known = |s: &Struct| -> Vec<i64> {
+        let classes = s.list("ClassList").unwrap();
+        let Some(c) = classes.iter().find(|c| c.integer("Class") == Some(sorcerer)) else {
+            return Vec::new();
+        };
+        c.list("KnownList0").unwrap_or(&[]).iter().filter_map(|s| s.integer("Spell")).collect()
+    };
+    let before = each(&mut h, &keys, known);
+    let cantrip = before[0][0];
+    assert!(!before[1].contains(&cantrip));
+    assert!(h.query_by_label("≠ 2 of 3").is_some(), "the Sorcerer class");
+    let name = name_of(&h, "spells", "Name", cantrip as usize);
+    type_into_hint(&mut h, "Find", &name);
+    let boxes: Vec<_> = h
+        .get_all_by_label(&name)
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::CheckBox)
+        .collect();
+    boxes[0].click();
+    h.run();
+    let added = each(&mut h, &keys, known);
+    assert_eq!(added[0], before[0]);
+    assert_eq!(added[1].iter().filter(|s| **s == cantrip).count(), 1);
+    assert_eq!(added[2], before[2]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add known spell"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, known), before);
+    // × beside the second cantrip, which both know: forgotten by both.
+    let other = before[0][1];
+    let other_name = name_of(&h, "spells", "Name", other as usize);
+    let shown = h
+        .get_all_by_label(&other_name)
+        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::CheckBox)
+        .unwrap()
+        .rect();
+    h.get_all_by_label("×")
+        .find(|n| (n.rect().center().y - shown.center().y).abs() < 6.0)
+        .expect("its ×")
+        .click();
+    h.run();
+    assert!(each(&mut h, &keys, known).iter().all(|k| !k.contains(&other)));
+    undo(&mut h);
+    h.get_by_label("Clear Class Spell List").click();
+    h.run_steps(4);
+    let cleared = each(&mut h, &keys, known);
+    assert!(cleared[0].is_empty() && cleared[1].is_empty());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Clear class spell list"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, known), before);
+    assert!(h.get_by_label("Save Class Spell List").accesskit_node().is_disabled());
+}
+
 /// The feats of each, as rows of feat.2da.
 fn feat_rows(s: &Struct) -> Vec<i64> {
     s.list("FeatList").unwrap_or(&[]).iter().filter_map(|f| f.integer("Feat")).collect()

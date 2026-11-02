@@ -2988,11 +2988,56 @@ fn lists_together() {
         }
         e.set("CreatureList", Value::List(list));
     };
-    let cases: [(&str, ResType, &str, Tweak); 4] = [
+    let restrictions: Tweak = |i, s| {
+        let entry = |row: i32| {
+            let mut e = Struct::new(97869);
+            e.set("BaseItem", Value::Int(row));
+            e
+        };
+        let (not, only) = match i {
+            0 => (vec![entry(15), entry(16)], vec![]),
+            1 => (vec![entry(15), entry(1)], vec![]),
+            _ => (vec![], vec![entry(1)]),
+        };
+        s.set("WillNotBuy", Value::List(not));
+        s.set("WillOnlyBuy", Value::List(only));
+    };
+    let classes: Tweak = |i, c| {
+        let class = |row: i32, level: i16| {
+            let mut e = Struct::new(2);
+            e.set("Class", Value::Int(row));
+            e.set("ClassLevel", Value::Short(level));
+            e
+        };
+        let list = match i {
+            0 => vec![class(4, 3), class(2, 2)],
+            1 => vec![class(4, 5), class(8, 2)],
+            _ => vec![class(8, 1), class(2, 2)],
+        };
+        c.set("ClassList", Value::List(list));
+    };
+    let spells: Tweak = |i, c| {
+        let mut list = c.list("ClassList").unwrap().to_vec();
+        let at = list.iter().position(|e| e.integer("Class") == Some(9)).unwrap();
+        match i {
+            1 => {
+                let mut known = list[at].list("KnownList0").unwrap().to_vec();
+                known.remove(0);
+                list[at].set("KnownList0", Value::List(known));
+            }
+            2 => list[at].set("Class", Value::Int(4)),
+            _ => {}
+        }
+        c.set("ClassList", Value::List(list));
+    };
+    let cases: [(&str, ResType, &str, Tweak); 7] = [
         ("nw_bandit001", ResType::UTC, "Skills", skills),
         ("nw_bandit001", ResType::UTC, "Feats", feats),
         ("nw_bandit001", ResType::UTC, "Special Abilities", abilities),
         ("nw_verminbeet", ResType::UTE, "Creature List", creatures),
+        ("nw_storebar01", ResType::UTM, "Restrictions", restrictions),
+        ("nw_bandit001", ResType::UTC, "Classes", classes),
+        ("db_tanarukk_do", ResType::UTC, "Spells", spells),
     ];
     for (name, t, page, tweak) in cases {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));

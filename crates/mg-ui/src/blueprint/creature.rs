@@ -593,13 +593,48 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         f.number(ui, "Lawful-chaotic", "LawfulChaotic", 0..=100);
     });
     ui.separator();
+    if f.several() {
+        classes_together(f, ui, &all, &domains, &schools, &class_int);
+    } else {
+        class_list(f, ui, &list, &all, &domains, &schools, &class_int);
+    }
+    if ui
+        .add_enabled(!f.several(), egui::Button::new("Levelup Wizard"))
+        .on_hover_text("Level the creature up by its classes' packages")
+        .on_disabled_hover_text("It levels one creature up at a time")
+        .clicked()
+    {
+        crate::levelup_view::open(f.app, key, base.clone());
+    }
+    ui.separator();
+    associates(f, ui, &list, &class_int);
+    ui.separator();
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Default Package for Autolevelup");
+        f.choice(ui, "Package", "StartingPackage", &packages, FieldType::Byte);
+    });
+}
+
+/// One creature's classes: each with its level, a cleric's domains, a
+/// wizard's school; Add Class.
+fn class_list(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    list: &[Struct],
+    all: &[Choice],
+    domains: &[Choice],
+    schools: &[Choice],
+    class_int: &dyn Fn(i64, &str) -> Option<i64>,
+) {
+    let base = f.path.clone();
+    let key = f.key;
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
             let class = c.integer("Class").unwrap_or(0);
-            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), &all, class) {
+            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
                 edits.push(("Class", vec![set(key, &path, "Class", Value::Int(v as i32))]));
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
@@ -625,7 +660,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
                         let name = format!("class{i}-domain{n}");
-                        if let Some(v) = optional_pick(ui, key, &name, &domains, c.integer(label)) {
+                        if let Some(v) = optional_pick(ui, key, &name, domains, c.integer(label)) {
                             edits.push((
                                 "Domain",
                                 vec![set(key, &path, label, Value::Byte(v as u8))],
@@ -638,7 +673,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.label("School");
                 let current = c.integer("School");
                 if let Some(v) =
-                    optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
+                    optional_pick(ui, key, &format!("class{i}-school"), schools, current)
                 {
                     edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
                 }
@@ -658,22 +693,107 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             vec![Edit::insert_item(key, base.clone(), "ClassList", list.len(), s)],
         ));
     }
-    if ui
-        .button("Levelup Wizard")
-        .on_hover_text("Level the creature up by its classes' packages")
-        .clicked()
-    {
-        crate::levelup_view::open(f.app, key, base.clone());
-    }
-    ui.separator();
-    associates(f, ui, &list, &class_int);
-    ui.separator();
-    ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Default Package for Autolevelup");
-        f.choice(ui, "Package", "StartingPackage", &packages, FieldType::Byte);
-    });
     for (what, e) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, e)));
+    }
+}
+
+/// The classes of several creatures edited together: every class any of
+/// them has, ≠ with how many where some do. A level, domain or school is
+/// set on each that has the class; the class changed is changed on each
+/// (not where it has the new one already); Remove takes it from each
+/// (but a creature's only class); Add Class and Give to All add it where
+/// it lacks and there is room.
+fn classes_together(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    all: &[Choice],
+    domains: &[Choice],
+    schools: &[Choice],
+    class_int: &dyn Fn(i64, &str) -> Option<i64>,
+) {
+    let key = f.key;
+    let targets = f.list_targets();
+    let total = targets.len();
+    let merged = lists::merged(&targets, "ClassList", lists::class);
+    let mut change: Option<(&str, lists::Outcome, &str)> = None;
+    egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+        for (i, m) in merged.iter().enumerate() {
+            let class = m.key;
+            let is = move |e: &Struct| lists::class(e) == Some(class);
+            let c = &m.entry;
+            ui.label(format!("Class {}", i + 1));
+            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
+                change = Some(("Class", lists::change_class(&targets, class, v as i32), "Set on"));
+            }
+            let level = c.integer("ClassLevel").unwrap_or(1);
+            let level_of = |e: &Struct| e.integer("ClassLevel");
+            let differs = lists::differs(&targets, "ClassList", is, level_of);
+            ui.horizontal(|ui| {
+                f.mark_if(ui, &format!("ClassLevel#{class}"), differs);
+                if let Some(v) = spin_number(ui, level, 1..=60) {
+                    let out = lists::set(&targets, "ClassList", is, &["ClassLevel"], |e, l| {
+                        Some(lists::like(e.get(l), v, Value::Short(0)))
+                    });
+                    change = Some(("Class level", out, "Set on"));
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.small_button("Remove").clicked() {
+                    change = Some((
+                        "Remove class",
+                        lists::remove_class(&targets, class as i32),
+                        "Taken from",
+                    ));
+                }
+                super::entry_mark(ui, m.having.len(), total);
+                if !m.all(total)
+                    && ui
+                        .small_button("Give to All")
+                        .on_hover_text(super::creature_lists::GIVE_TIP)
+                        .clicked()
+                {
+                    let out = lists::add_class(&targets, class as i32, level as i16);
+                    change = Some(("Add class", out, "Added to"));
+                }
+            });
+            ui.end_row();
+            // A cleric's domains, a wizard's school, set on each that has
+            // the class.
+            let mut picked = |ui: &mut Ui, name: &str, label: &str, choices: &[Choice]| {
+                let differs = lists::differs(&targets, "ClassList", is, |e| e.integer(label));
+                f.mark_if(ui, &format!("{label}#{class}"), differs);
+                if let Some(v) = optional_pick(ui, key, name, choices, c.integer(label)) {
+                    let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
+                        Some(Value::Byte(v as u8))
+                    });
+                    change =
+                        Some((if label == "School" { "School" } else { "Domain" }, out, "Set on"));
+                }
+            };
+            if class_int(class, "PickDomains") == Some(1) {
+                ui.label("Domains");
+                ui.horizontal(|ui| {
+                    for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
+                        picked(ui, &format!("class{i}-domain{n}"), label, domains);
+                    }
+                });
+                ui.end_row();
+            } else if class_int(class, "PickSchool") == Some(1) {
+                ui.label("School");
+                picked(ui, &format!("class{i}-school"), "School", schools);
+                ui.end_row();
+            }
+        }
+    });
+    // A class none of them has, added to each with room.
+    if ui.button("Add Class").clicked() {
+        let class = all.iter().map(|c| c.row as i64).find(|r| !merged.iter().any(|m| m.key == *r));
+        let out = lists::add_class(&targets, class.unwrap_or(0) as i32, 1);
+        change = Some(("Add class", out, "Added to"));
+    }
+    if let Some((what, out, done)) = change {
+        f.apply_each(what, out, done);
     }
 }
 
