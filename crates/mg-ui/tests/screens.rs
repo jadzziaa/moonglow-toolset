@@ -3122,7 +3122,7 @@ fn update_notice_and_options() {
     };
     let newer = answer("v2.5.0");
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    app.updates.fetch = Some(Arc::new(move || Ok(newer.clone())));
+    app.updates.http = Some(mg_update::http::from_fn(move |_| Ok(newer.clone().into_bytes())));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .wgpu()
@@ -3131,18 +3131,113 @@ fn update_notice_and_options() {
     shoot(&mut h, &dir, "update-notice");
     mg_ui::updates::check_now(h.state_mut());
     shoot(&mut h, &dir, "update-check-newer");
-    h.state_mut().updates.installer = Some(mg_ui::updates::Installer::Scoop);
+    h.state_mut().updates.kind = mg_update::Kind::Managed(mg_update::Installer::Scoop);
     h.get_by_label("Check Again").click();
     shoot(&mut h, &dir, "update-check-scoop");
     h.state_mut().updates.window = false;
     h.state_mut().settings.update_skipped = Some("2.4.9".into());
-    h.state_mut().updates.installer = None;
+    h.state_mut().updates.kind = mg_update::Kind::Other;
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("Updates").click();
     shoot(&mut h, &dir, "options-updates");
-    h.state_mut().updates.installer = Some(mg_ui::updates::Installer::Flatpak);
+    h.state_mut().updates.kind = mg_update::Kind::Managed(mg_update::Installer::Flatpak);
     shoot(&mut h, &dir, "options-updates-flatpak");
+}
+
+/// Installing an update from the app: the notice with Install Now and
+/// Later, the window with the release's notes, a download under way, the
+/// restart asked once it is installed, a refusal (another key signed it)
+/// and Options › Updates' switches. The release is served on 127.0.0.1 and
+/// the AppImage replaced is a scratch copy: no network, nothing of the
+/// owner's install.
+#[test]
+#[ignore]
+fn update_install() {
+    use mg_update::serve::{Published, Reply, Server, signed};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-update-install");
+    let key = mg_update::verify::testing::TestKey::new();
+    let notes = "## What's new\n\n- **Updates install from the app**: Help › Check for Updates… \
+                 downloads this system's package, verifies its checksum and signature, and \
+                 installs it.\n- Options › Updates: *Install updates automatically* and \
+                 *Include pre-releases*.\n\n## Fixes\n\n- A module's tabs open again where \
+                 they were.";
+    let name = format!("Moonglow-3.3.0-{}.AppImage", std::env::consts::ARCH);
+    let body: Vec<u8> = (0..40_000_000u32).map(|i| (i % 251) as u8).collect();
+    let serve = |signer: &mg_update::verify::testing::TestKey| {
+        let server = Server::start();
+        let published = Published {
+            tag: "v3.3.0".into(),
+            prerelease: false,
+            notes: notes.into(),
+            files: signed(signer, "v3.3.0", &[(name.as_str(), &body)]),
+        };
+        published.put_files(&server);
+        server.put("/latest", Reply::Body(published.json(&server).to_string().into_bytes()));
+        server
+    };
+    let app_for = |server: &Server, key: Option<mg_update::PublicKey>| {
+        let image = scratch.join("Moonglow-3.2.0-x86_64.AppImage");
+        std::fs::write(&image, b"old").unwrap();
+        let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+        app.updates.http = Some(Arc::new(mg_update::http::Client::plain_http_for_tests()));
+        app.updates.api = mg_update::Api::at(&server.base);
+        app.updates.key = key;
+        app.updates.kind = mg_update::Kind::AppImage { image, arch: std::env::consts::ARCH.into() };
+        app.updates.cache = Some(scratch.join("cache"));
+        Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+    };
+    let server = serve(&key);
+    let mut h = app_for(&server, Some(key.public()));
+    h.run();
+    shoot(&mut h, &dir, "update-notice-install");
+    h.get_by_label("What's New…").click();
+    shoot(&mut h, &dir, "update-whats-new");
+    // Half way (the server holds the rest back for a while).
+    let stored = format!("/files/v3.3.0/{name}");
+    server.put(
+        &stored,
+        Reply::Stall {
+            body: body.clone(),
+            sent: 17_000_000,
+            wait: std::time::Duration::from_secs(3),
+        },
+    );
+    h.state_mut().background_jobs = true;
+    h.get_all_by_label("Install Now").last().unwrap().click();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.state().updates.getting.as_ref().is_none_or(|g| g.progress().0 < 17_000_000) {
+        assert!(std::time::Instant::now() < deadline, "no progress");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "update-downloading");
+    while h.state().updates.getting.as_ref().is_some_and(|g| g.ready().is_none()) {
+        assert!(std::time::Instant::now() < deadline, "not downloaded");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "update-restart");
+
+    // Signed by another key: refused.
+    let other = mg_update::verify::testing::TestKey::new();
+    let server = serve(&other);
+    let mut h = app_for(&server, Some(key.public()));
+    h.run();
+    h.get_by_label("What's New…").click();
+    h.run_steps(2);
+    h.get_all_by_label("Install Now").last().unwrap().click();
+    shoot(&mut h, &dir, "update-refused");
+    h.state_mut().updates.window = false;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Updates").click();
+    shoot(&mut h, &dir, "options-updates-install");
 }
 
 #[test]

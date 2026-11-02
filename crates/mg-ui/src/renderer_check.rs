@@ -214,12 +214,14 @@ pub struct Trouble {
 
 /// Moonglow to be started again once this run has ended
 /// ([`Moonglow::relaunch`]): with the module that was open, through
-/// `backend` (`environment`: as `WGPU_BACKEND`, which named this run's).
+/// `backend` (`environment`: as `WGPU_BACKEND`, which named this run's),
+/// and (`start`, after an update) as the update says it is started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relaunch {
     pub module: Option<PathBuf>,
     pub backend: wgpu::Backend,
     pub environment: bool,
+    pub start: Option<mg_update::Restart>,
 }
 
 impl RendererCheck {
@@ -341,8 +343,12 @@ pub(crate) fn restart(app: &mut Moonglow, backend: wgpu::Backend) {
         "graphics: restart with {}",
         mg_render::backend::backend_name(backend)
     ));
-    app.relaunch =
-        Some(Relaunch { module: app.module_path(), backend, environment: check.from_environment });
+    app.relaunch = Some(Relaunch {
+        module: app.module_path(),
+        backend,
+        environment: check.from_environment,
+        start: None,
+    });
 }
 
 #[cfg(test)]

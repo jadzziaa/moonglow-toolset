@@ -746,6 +746,13 @@ pub struct Settings {
     pub no_update_check: bool,
     /// When the automatic check last asked GitHub, UNIX seconds.
     pub update_checked: Option<u64>,
+    /// Options › Updates: Install updates automatically (off): a newer
+    /// release the automatic check finds is downloaded, verified and
+    /// installed as Moonglow closes.
+    pub update_auto_install: bool,
+    /// Options › Updates: Include pre-releases (off): the check offers a
+    /// newer pre-release too.
+    pub update_prereleases: bool,
     /// The version the update notice is not to tell of again (Don't remind
     /// me about this version); a later one is told.
     pub update_skipped: Option<String>,

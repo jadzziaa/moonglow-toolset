@@ -62,3 +62,13 @@ Root: HKA; Subkey: "Software\Classes\MoonglowToolset.Module\shell\open\command";
 
 [Run]
 Filename: "{app}\moonglow.exe"; Description: "{cm:LaunchProgram,Moonglow Toolset}"; Flags: nowait postinstall skipifsilent
+; Moonglow's own update (Restart Now) runs this installer silently with
+; /restart=1 (mg_update::install::installer_args): Moonglow is started
+; again once it is installed, as the user who started the update.
+Filename: "{app}\moonglow.exe"; Flags: nowait skipifnotsilent runasoriginaluser; Check: RestartAsked
+
+[Code]
+function RestartAsked: Boolean;
+begin
+  Result := ExpandConstant('{param:restart|0}') = '1';
+end;

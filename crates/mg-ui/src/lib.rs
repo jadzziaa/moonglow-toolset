@@ -407,6 +407,10 @@ pub enum Action {
     /// start again with the module, through this backend
     /// ([`renderer_check::restart`]).
     RestartGraphics(wgpu::Backend),
+    /// The update notice's and window's Restart Now: Quit (unsaved work
+    /// asked about first), install the update that is ready, and start
+    /// again with the module ([`updates::restart`]).
+    RestartToUpdate,
 }
 
 /// Where a window is: where it was last put, where its panes were when
@@ -3485,6 +3489,7 @@ impl Moonglow {
                     | Action::Close
                     | Action::Quit
                     | Action::RestartGraphics(_)
+                    | Action::RestartToUpdate
                     | Action::ProjectCommand(_)
             ),
         };
@@ -3986,6 +3991,10 @@ impl Moonglow {
             Action::CloseWindow => self.closing = true,
             Action::RestartGraphics(backend) => {
                 renderer_check::restart(self, backend);
+                self.run_now(Action::Quit);
+            }
+            Action::RestartToUpdate => {
+                updates::restart(self);
                 self.run_now(Action::Quit);
             }
             Action::Quit => {
