@@ -2128,6 +2128,94 @@ fn weapon_parts() {
     }
 }
 
+/// A small item's Appearance page whose icon is only a DDS (in the
+/// module: four colored quarters), and one whose icon is a DDS and a TGA
+/// (GitHub issue 41): the game draws the first as missing, its base item's
+/// red cross, and the second from its DDS, its first stored row at the
+/// bottom (`client_render`'s `reading_icon_rows`).
+#[test]
+#[ignore]
+fn dds_only_icon() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let base = game
+        .resman
+        .list(ResType::UTI)
+        .into_iter()
+        .find_map(|r| {
+            let d = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+            let g = mg_gff::Gff::read(&d).ok()?;
+            (g.root.integer("BaseItem") == Some(24)).then_some(g)
+        })
+        .unwrap();
+    // Quarters: the first stored rows red and green, the last blue and
+    // yellow; a BioWare DDS (DXT1, its largest level) and a TGA.
+    let color = |x: u32, y: u32| match (y >= 16, x >= 16) {
+        (false, false) => [255u8, 0, 0],
+        (false, true) => [0, 255, 0],
+        (true, false) => [0, 0, 255],
+        (true, true) => [255, 255, 0],
+    };
+    let mut dds = Vec::new();
+    for v in [32u32, 32, 3, 512] {
+        dds.extend(v.to_le_bytes());
+    }
+    dds.extend(1.0f32.to_le_bytes());
+    for by in 0..8 {
+        for bx in 0..8 {
+            let [r, g, b] = color(bx * 4, by * 4).map(u16::from);
+            let c = (r >> 3) << 11 | (g >> 2) << 5 | b >> 3;
+            dds.extend(c.to_le_bytes());
+            dds.extend(c.to_le_bytes());
+            dds.extend([0u8; 4]);
+        }
+    }
+    let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 32, 0, 24, 0];
+    for y in 0..32 {
+        for x in 0..32 {
+            let [r, g, b] = color(x, y);
+            tga.extend([b, g, r]);
+        }
+    }
+    let mut m = mg_module::Module::new();
+    for (n, with_tga) in [(240u8, false), (241, true)] {
+        let mut item = base.clone();
+        item.root.set("ModelPart1", mg_gff::Value::Byte(n));
+        let name = format!("mg_icon_{n}");
+        m.set_gff(ResKey::parse(&name, ResType::UTI).unwrap(), &item).unwrap();
+        m.set(ResKey::parse(&format!("iit_smlmisc_{n}"), ResType::DDS).unwrap(), dds.clone());
+        if with_tga {
+            m.set(ResKey::parse(&format!("iit_smlmisc_{n}"), ResType::TGA).unwrap(), tga.clone());
+        }
+    }
+    let path = dir.join("dds-only-icon.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    for n in [240, 241] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&path);
+        app.open_palette = false;
+        let key = ResKey::parse(&format!("mg_icon_{n}"), ResType::UTI).unwrap();
+        app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 640.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(8);
+        shoot(&mut h, &dir, &format!("dds-only-icon-{n}"));
+    }
+}
+
 /// Export Resources: the module kind by kind.
 #[test]
 #[ignore]

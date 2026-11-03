@@ -70,6 +70,8 @@ mod ee_visuals;
 mod heads;
 #[path = "client_render/heed.rs"]
 mod heed;
+#[path = "client_render/icons.rs"]
+mod icons;
 #[path = "client_render/joined.rs"]
 mod joined;
 #[path = "client_render/nui.rs"]

@@ -246,6 +246,28 @@ impl Loader<'_> {
         found.map(|(t, d)| (t, Arc::from(&*d)))
     }
 
+    /// Whether the module being edited (its unsaved changes too) or the
+    /// game has the resource `key`, in any layer.
+    fn exists(&self, key: &ResKey) -> bool {
+        self.ws.is_some_and(|ws| ws.module.get(key).is_some()) || self.game.resman.contains(key)
+    }
+
+    /// An item icon's picture (a layer that is not a PLT) as the game's
+    /// inventory and examine window draw it: only where there is a TGA of
+    /// its name, in any layer; then the texture the game finds for the
+    /// name, a DDS over the TGA where there is one ([`Loader::texture`]).
+    /// An icon that is only a DDS the game draws as missing, with its base
+    /// item's `DefaultIcon` (the red cross), as when there is no picture
+    /// at all (seen in the client, 89.8193.37: `client_render`'s
+    /// `reading_icon_rows`).
+    pub(crate) fn icon_picture(&mut self, ctx: &egui::Context, name: &str) -> Option<Picture> {
+        let tga = ResKey::parse(name, ResType::TGA)?;
+        if !self.exists(&tga) {
+            return None;
+        }
+        self.picture(ctx, name)
+    }
+
     fn keep(
         &mut self,
         ctx: &egui::Context,
@@ -409,7 +431,7 @@ impl Loader<'_> {
         let parts = if is_armor(self.game, item) { armor_icon_parts(item) } else { Vec::new() };
         let colors_of = |i: usize| parts.get(i).map_or(colors, |&p| part_colors(item, p));
         let one = |l: &mut Self, n: &str, colors| {
-            l.plt_picture(ctx, n, colors).or_else(|| l.picture(ctx, n))
+            l.plt_picture(ctx, n, colors).or_else(|| l.icon_picture(ctx, n))
         };
         let mut layers: Vec<Picture> = names
             .iter()
@@ -444,7 +466,7 @@ impl Loader<'_> {
         let row = usize::try_from(item.integer("BaseItem").unwrap_or(-1)).ok()?;
         let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
         let name = format!("i{class}_{letter}_{:03}", part(item, label));
-        self.plt_picture(ctx, &name, item_colors(item)).or_else(|| self.picture(ctx, &name))
+        self.plt_picture(ctx, &name, item_colors(item)).or_else(|| self.icon_picture(ctx, &name))
     }
 }
 
@@ -759,6 +781,73 @@ mod tests {
         };
         assert_eq!(level("po_bothm"), 10);
         assert_eq!(level("po_modm"), 40);
+    }
+
+    /// An item icon is drawn only where a TGA of its name is there, in any
+    /// layer or the module being edited; then from the DDS where there is
+    /// one. An icon that is only a DDS is drawn as missing, with the base
+    /// item's `DefaultIcon` (seen in the client: `reading_icon_rows`).
+    /// The pictures are told apart by size: a DDS 8 across, a TGA 4, the
+    /// default icon 2.
+    #[test]
+    fn an_item_icon_that_is_only_a_dds_is_drawn_as_missing() {
+        let tga = |side: u8| {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, side, 0, side, 0, 32, 8];
+            t.extend(
+                std::iter::repeat_n([9, 9, 9, 255], usize::from(side) * usize::from(side))
+                    .flatten(),
+            );
+            t
+        };
+        // A BioWare DDS, DXT1, 8 across: its largest level alone.
+        let dds = || {
+            let mut d = Vec::new();
+            for v in [8u32, 8, 3, 32] {
+                d.extend(v.to_le_bytes());
+            }
+            d.extend(1.0f32.to_le_bytes());
+            d.extend([0u8; 32]);
+            d
+        };
+        let key = |n: &str, t| ResKey::parse(n, t).unwrap();
+        let mut base = mg_resman::MemContainer::new();
+        base.insert(
+            key("baseitems", ResType::TWODA),
+            b"2DA V2.0\n\n  label ItemClass ModelType GenderSpecific DefaultIcon\n\
+              0 miscsmall it_smlmisc 0 0 iinvalid_1x1\n"
+                .to_vec(),
+        );
+        base.insert(key("iinvalid_1x1", ResType::TGA), tga(2));
+        base.insert(key("iit_smlmisc_002", ResType::TGA), tga(4));
+        let mut over = mg_resman::MemContainer::new();
+        over.insert(key("iit_smlmisc_001", ResType::DDS), dds());
+        over.insert(key("iit_smlmisc_002", ResType::DDS), dds());
+        over.insert(key("iit_smlmisc_003", ResType::DDS), dds());
+        over.insert(key("iit_smlmisc_004", ResType::DDS), dds());
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::OVERRIDE, "override", mg_resman::LayerClass::Directory, over);
+        rm.add(mg_resman::priority::KEY, "key:base", mg_resman::LayerClass::Key, base);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        // The module being edited has 004's TGA (unsaved).
+        let mut m = mg_module::Module::new();
+        m.set(key("iit_smlmisc_004", ResType::TGA), tga(4));
+        let ws = Workspace::new(m);
+        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let mut loader =
+            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+        let ctx = egui::Context::default();
+        let mut drawn = |n: u8| {
+            let mut item = Struct::new(0);
+            item.set("BaseItem", Value::Int(0));
+            item.set("ModelPart1", Value::Byte(n));
+            let layers = loader.item_icon_on(&ctx, &item, false);
+            layers.iter().map(|p| p.size.x as u32).collect::<Vec<_>>()
+        };
+        assert_eq!(drawn(1), [2], "a DDS alone: the default icon");
+        assert_eq!(drawn(2), [8], "a DDS and a TGA: the DDS");
+        assert_eq!(drawn(3), [2]);
+        assert_eq!(drawn(4), [8], "the TGA the module's, the DDS the game's");
+        assert_eq!(drawn(5), [2], "no picture at all: the default icon");
     }
 
     #[test]

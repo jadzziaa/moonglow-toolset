@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-11-03
+* **Fix**: [Blueprints](manual/05-blueprints.md): an item icon that is only a DDS, with no TGA of its name anywhere, is shown as the red cross the game shows for it (the base item's default icon), on the Appearance page, in its icon grid and in inventories; with a TGA beside it the DDS is drawn, as before. Read in the game client for GitHub issue 41 (`client_render`'s `reading_icon_rows`, one run per case, the inventory and the examine window): the game draws a DDS icon of either kind with its first stored row at the bottom, as Moonglow does, and picks the DDS or the TGA as Moonglow does in all ten arrangements tried, so neither the rows nor the choice changed; the [model and texture notes](research/notes_models.md) §E.4 have the reading. `an_item_icon_that_is_only_a_dds_is_drawn_as_missing` holds it; `screens`' `dds_only_icon` draws the page. Portraits differ and stay as they were: a portrait that is only DDS is drawn by the game (`reading_portrait_dds`).
+
 ## 2026-11-02
 * **Fix**: The model linter (`mg_mdl::lint`, Moonglow Viewer's `mgv lint` and its notes) no longer notes a `setfillumcolor` whose node also has `selfillumcolor`, the pair Moonglow's decompiler writes (for nwnmdlcomp and for the game): every decompiled model with self-illumination opened with a column of notes on the decompiler's own text (Moonglow Viewer's report). A lone `setfillumcolor` is still noted; `lint::tests::keywords_the_game_does_not_read` lints a decompiled model.
 * **Update**: [Palettes grouped more than one way](palette-groupings-proposal.md): the owner's answers (A; under every group; rules and a generated list; Other shown; nested by default; every blueprint type) and the project file's keys as settled.
