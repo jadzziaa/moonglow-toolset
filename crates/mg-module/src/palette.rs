@@ -528,6 +528,36 @@ fn category_of(kind: BlueprintKind, s: &Struct) -> Option<u8> {
     s.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok()).filter(|id| *id != 255)
 }
 
+/// The module's own blueprints of `kind` as palette entries, without the
+/// game: those in a category (not 255, which hides one), each named as its
+/// name field has it (the text in the language it has first, English
+/// first; else its talk-table string). What a palette pane shows of the
+/// module's blueprints where it has no custom palette file (there it is
+/// [`rebuild_custom_palette`]'s, which also lists the haks' blueprints,
+/// which their standard palettes list as well): Verify, which runs
+/// without the game, holds the palette groupings to these.
+pub fn own_entries(module: &Module, kind: BlueprintKind) -> Vec<(ResRef, PaletteName)> {
+    let english = mg_core::LocStringKey::new(mg_core::Language::ENGLISH, mg_core::Gender::Male);
+    module
+        .keys_of(kind.restype())
+        .filter_map(|k| {
+            let g = module.gff(k)?.ok()?;
+            category_of(kind, &g.root)?;
+            let l = g.root.locstring(kind.name_field());
+            let text = l.as_ref().and_then(|l| {
+                let first = l.strings.iter().find(|(key, _)| *key == english);
+                first.or(l.strings.first()).map(|(_, t)| t.clone()).filter(|t| !t.is_empty())
+            });
+            let name = match (text, l) {
+                (Some(t), _) => PaletteName::Text(t),
+                (None, Some(l)) => PaletteName::StrRef(l.strref.0),
+                (None, None) => PaletteName::Text(Vec::new()),
+            };
+            Some((k.resref, name))
+        })
+        .collect()
+}
+
 /// The blueprints of `kind` in the module's haks, as the game reads them
 /// (the highest hak that has one), but those the module has itself.
 fn hak_blueprints(module: &Module, game: &GameData, kind: BlueprintKind) -> Vec<(ResRef, Gff)> {

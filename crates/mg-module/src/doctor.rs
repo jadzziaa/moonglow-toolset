@@ -1250,6 +1250,12 @@ pub fn palette_groups(
             let p = Palette::read(g);
             all.extend(entries(&p).into_iter().map(|(_, b)| (b.resref, name(&b.name))));
         }
+        // (No custom palette file: the module's own blueprints, as the
+        // pane's Custom shows them then.)
+        if custom.is_none() {
+            let own = crate::palette::own_entries(module, kind);
+            all.extend(own.into_iter().map(|(r, n)| (r, name(&n))));
+        }
         all
     };
     for g in &groupings.list {
@@ -5243,6 +5249,27 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
             ),
             "{empty:?}"
         );
+        // A module with no custom palette file: its own blueprints are what
+        // the pane's Custom shows (TDoD's tdod_* blueprints, 2026-11-03),
+        // those hidden from the palette (255) aside.
+        m.remove(&key("placeablepalcus", ResType::ITP));
+        let blueprint = |name: &str, palette_id: u8| {
+            let mut g = Gff::new(*b"UTP ");
+            let text = mg_core::LocString::from_text(
+                mg_core::Language::ENGLISH,
+                mg_core::Gender::Male,
+                name,
+            );
+            g.root.set("LocName", Value::LocString(text));
+            g.root.set("PaletteID", Value::Byte(palette_id));
+            g.to_bytes().unwrap()
+        };
+        m.set(key("my_stool", ResType::UTP), blueprint("Stool", 1));
+        m.set(key("my_bed", ResType::UTP), blueprint("Bed", 255));
+        let f = palette_groups(&m, &rm, &name, &skip);
+        let empty: Vec<&str> = f.iter().map(|f| f.message.as_str()).collect();
+        assert!(!empty.iter().any(|e| e.contains("\"Seats\"")), "the module's stool: {empty:?}");
+        assert!(empty.iter().any(|e| e.contains("\"Beds\"")), "a hidden bed: {empty:?}");
     }
 
     #[test]

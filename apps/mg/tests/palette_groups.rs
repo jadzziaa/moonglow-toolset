@@ -93,6 +93,21 @@ fn find_lists_a_palette_group_s_blueprints() {
         crate::mg_on(&root, None).arg("find").arg(&dir).args(["--palette-group", "x/y"]).output();
     let said = String::from_utf8_lossy(&out.unwrap().stderr).into_owned();
     assert!(said.contains("the project's are kind (Kind), role (Role)"), "{said}");
+    // A module with no custom palette file: its own blueprints are listed
+    // from the custom palette the pane shows then, as Build's Palettes
+    // would make it (TDoD's tdod_* blueprints, 2026-11-03).
+    let chest = crate::mg_on(&root, None).args(["cat", "plc_chest1.utp"]).output().unwrap();
+    assert!(chest.status.success());
+    std::fs::write(dir.join("my_old_chest.utp"), &chest.stdout).unwrap();
+    let _ = std::fs::remove_file(dir.join("placeablepalcus.itp"));
+    let (ok, json) = find("kind/Containers", &["--resref", "my_*"]);
+    assert!(ok, "{json}");
+    let found = json["found"].as_array().unwrap();
+    assert_eq!(found.len(), 1, "{json}");
+    assert_eq!(
+        (found[0]["resref"].as_str(), found[0]["palette"].as_str()),
+        (Some("my_old_chest"), Some("custom"))
+    );
 }
 
 #[test]

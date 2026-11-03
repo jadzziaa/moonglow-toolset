@@ -4598,7 +4598,13 @@ fn palette_group_found(
         let standard =
             (game.resman.get_named(&format!("{}palstd", kind.name()), ResType::ITP).ok())
                 .and_then(|d| Gff::read(&d).ok());
-        let custom = m.gff(&kind.custom_key()).and_then(Result::ok);
+        // (The custom palette as the pane's Custom shows it: the module's
+        // file, or, where it has none, the one Build's Palettes would make
+        // of its and its haks' blueprints.)
+        let custom = match mg_module::palette::update_custom_palette(m, m, game, kind) {
+            Ok(Some(made)) => Some(made),
+            _ => m.gff(&kind.custom_key()).and_then(Result::ok),
+        };
         for (source, palette) in [("standard", standard), ("custom", custom)] {
             let Some(palette) = palette else { continue };
             for b in members(&Palette::read(&palette), kind, g, at, &text) {
