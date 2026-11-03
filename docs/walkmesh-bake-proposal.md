@@ -3,14 +3,14 @@ type: Proposal
 title: 'A placed object that blocks as it is drawn: a design'
 description: How Moonglow could give one placed placeable a walkmesh that follows its visual transform (a large stone scaled down to sit on a desk blocks as a small one), which the game never does by itself - the engine's rule (settled), what the bake makes (a copy of the model under a new name, its walkmesh transformed as the game draws the model, a placeables.2da row), why it must go in a hak, how its rows meet a project's own table (TDoD's library build writes placeables.2da), reuse, undoing it, readings to make in the engine, milestones and the owner's questions.
 tags: [proposal, walkmesh, visual-transform, placeables, custom-content, haks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:40:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:45:54Z }
 sources:
   - id: owner
     resource: human:august
     title: 'The owner, 2026-11-03: rebaking walkmeshes to the transform would be niche but useful (a large stone downsized as decoration on a desk); not the default, since builders may expect the walkmeshes unchanged; wanted as an option if it can be done cheaply'
   - id: answers
     resource: human:august
-    title: 'The owner''s answers, 2026-11-03: the walkmesh only; the rows by a rows file (a); TDoD''s range 40000-40999 and hak tdod_baked, told to the TDoD Module session; placeables first, doors later; Tidy Baked Models offered on save'
+    title: 'The owner''s answers, 2026-11-03: the walkmesh only; the rows by a rows file (a); TDoD''s hak tdod_baked, its range told to the TDoD Module session (40000-40999 at first, found taken; rows end at 65535); placeables first, doors later; Tidy Baked Models offered on save'
   - id: finding
     resource: findings.md
     title: '"A visual transform doesn''t move a walkmesh" (engine_placeable_walkmesh.rs, walkmeshes_by_visual_transforms, 2026-11-03)'
@@ -96,7 +96,7 @@ lines:
 
 ```toml
 [bake]
-rows = "40000-40999"          # placeables.2da rows baked models take (outside the library's blocks)
+rows = "19000-19999"          # placeables.2da rows baked models take (an example; at most 65535)
 hak = "tdod_baked"            # the hak the models go in (and, with (b), the table)
 names = "mgbk_"               # baked models' names begin so: mgbk_0001
 rows_file = "baked_rows.toml" # (a): the rows, for the project's build
@@ -153,8 +153,15 @@ the client once and the engine once.
 2. **The rows go by a rows file (a)**, for the project's build to add. (b) and (c) aren't built.
    A project whose build doesn't read the file yet sees Verify's `bake-row-pending` for each row
    the table in its haks lacks, and the game draws the original walkmesh until then.
-3. **TDoD: rows 40000-40999, the hak `tdod_baked`.** The TDoD Module session is told what its
-   build has to do (below).
+3. **TDoD: the hak `tdod_baked`, its rows still to be chosen.** 40000-40999, which the owner
+   first agreed, turned out to hold the library's blocks (they run without a gap from 20000 to
+   68999). And a `placeables.2da` row can't pass 65535: the engine and the network carry it as a
+   word. The TDoD Module session measured that on its server (65536 reads as 0, 65537 as 1), and
+   nwn.wiki's 2DA page says the same. Rows 16500-19999 belong to neither the game nor the library,
+   so the owner picks a range there once the library's rows past the ceiling are settled. Moonglow
+   refuses a `[bake] rows` range past 65535 and never takes a row the table already has. Verify
+   notes a range that overlaps the table, and any placeable whose `Appearance` is past 65535 (the
+   game silently shows another model).
 4. **Placeables first,** doors later.
 5. **Tidy Baked Models is offered on save:** where a save finds baked models no object of the
    module uses any longer, it asks (Tidy Up, Keep Them) and takes nothing out unasked. Another
@@ -165,7 +172,7 @@ the client once and the engine once.
 
 ```toml
 [bake]
-rows = "40000-40999"          # the placeables.2da rows baked models take
+rows = "19000-19999"          # the placeables.2da rows baked models take (an example; at most 65535)
 hak = "tdod_baked"            # the hak the baked models (.mdl, .pwk) go in, in the module's hak list
 names = "mgbk_"               # baked models' names begin so: mgbk_0001 (at most 16 characters)
 rows_file = "baked_rows.toml" # the rows, beside moonglow.toml, for the project's build
@@ -175,7 +182,7 @@ rows_file = "baked_rows.toml" # the rows, beside moonglow.toml, for the project'
 # baked_rows.toml: written by Moonglow Toolset (Bake Walkmesh to Transform); the project's
 # build adds each row to the placeables.2da it writes. Edit it in Moonglow, not by hand.
 [[row]]
-row = 40000                   # the row it is, in the range
+row = 19000                   # the row it is, in the range
 copy_of = 1234                # the placeables.2da row it copies: every column of it, but
 model = "mgbk_0001"           # ModelName, which is this
 label = "Baked: Boulder 03 at 0.25"   # its Label (spaces kept quoted, as 2DAs quote them)
@@ -191,7 +198,7 @@ its model.
    unchanged, the transform kept).
 2. **Where the rows go:** (a) a rows file for the project's build, (b) the whole table in
    Moonglow's hak, or (c) the project's own 2DA file? Recommended: (a) for TDoD, (b) otherwise.
-3. **The range and the hak** for TDoD: rows 40000-40999 and a hak `tdod_baked`, or others?
+3. **The range and the hak** for TDoD: a range of rows and a hak `tdod_baked`, or others?
 4. **Placeables only at first,** doors later?
 5. **Tidy Baked Models:** by hand only (recommended), or offered on save?
 
