@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.5.0" date="2026-11-03">
+      <description>
+        <p>The palettes can be grouped more than one way: by their
+        categories, and by groupings a project defines in its project
+        file, such as what each blueprint is, with every blueprint type,
+        the search and the Gallery. mg find lists a group, and Verify
+        checks the groupings. An item icon that is only a DDS shows as the
+        game shows it.</p>
+      </description>
+    </release>
     <release version="3.4.0" date="2026-11-02">
       <description>
         <p>Page Up and Page Down move the selected objects to the next
