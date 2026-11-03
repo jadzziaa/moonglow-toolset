@@ -3,8 +3,7 @@ type: Proposal
 title: 'Palettes grouped more than one way: a design'
 description: How the palette pane could show the same blueprints grouped by something other than their palette category (TDoD's placeables by theme, and also by what each one is - tables, seats, food, containers) without copying a blueprint or listing it twice in a palette file - what holds today (one PaletteID per blueprint, standard palettes written by a builder's tool), three ways to get it (groupings of Moonglow's own from rules in the project file; a second branch in a standard palette; names and the search), measurements on TDoD's 13,212 placeables, a recommendation, milestones and the owner's questions.
 tags: [proposal, palettes, blueprints, project-file, tdod]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T00:24:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T00:28:49Z }
 sources:
   - id: owner
     resource: human:august
@@ -159,7 +158,52 @@ oracles show that Aurora and the DM Creator take a blueprint listed twice.
 3. **M3, the rest**: `mg find --palette-group`, Verify's two notes, the manual (Blueprints, and
    the project file's keys), the plugin API (`ctx.palette`: maybe later, not in M3).
 
-## Questions for the owner
+## The owner's answers (2026-11-03)
+
+**A**, built; B and C aren't.[^answers] What the answers settle:
+
+1. **A blueprint shows under every group it falls in**, by a rule or by the list.
+2. **Kinds come from rules in `moonglow.toml` and from a generated list** (`from`), together. The
+   Comment isn't read.
+3. **Other is shown**, last, with the blueprints no group takes.
+4. **Nested by default:** grouped by a grouping, each group holds the palette's categories
+   (Tables › Tavern); **Then by Category** turned off lists a group's blueprints flat.
+5. **Every blueprint type from the start:** creatures, doors, encounters, items, placeables,
+   sounds, stores, triggers and waypoints.
+
+### The keys, as settled
+
+```toml
+[palette.kind]                 # a grouping, its key the id ("kind"), any number of them
+title = "Kind"                 # shown in Group by
+types = ["utp", "uti"]         # the palettes it is offered in; left out, every one
+words_of = '^.*?:\s*(.*?)\s*(\(|$)'   # optional: the part of a name its words come from
+                               # (the first capture group; left out, the whole name)
+from = "palette_kinds.toml"    # optional: lists a tool writes, beside moonglow.toml
+
+[[palette.kind.group]]         # in the order shown
+name = "Tables"
+types = ["utp"]                # optional: only in these of the grouping's palettes
+names = ["table", "desk", "counter"]   # whole words, case and accents ignored; "dining table"
+                                       # (two words) matches them in that order
+resrefs = ["dd_*_tbl*"]        # ResRef patterns, `*` any run, case ignored
+```
+
+The `from` file holds groups by name, each a list of ResRefs:
+
+```toml
+# palette_kinds.toml: written by TDoD's library build; edit the rules, not this file
+"Tables" = ["dd_n2e_table2", "dd_vil_tbl01"]   # a ResRef: that blueprint in every palette
+                                              # the group is offered in
+"Food" = ["dd_din_fruitpapa.utp"]             # with its type: that one only
+```
+
+A group the file names that `moonglow.toml` doesn't is a group too, after those
+`moonglow.toml` names, in the file's order. Blueprints are matched by name in the language the
+palette shows them in. A name from the talk table is matched as shown. A missing `from` file,
+or a bad key, is said in the log and in Verify, and the grouping works without it.
+
+## Questions for the owner (answered above)
 
 1. **A, B or both?** The recommendation is A, and B only for the DM Creator.
 2. **A blueprint in several groups:** under each one (the default here), or only under the first
@@ -172,6 +216,7 @@ oracles show that Aurora and the DM Creator take a blueprint listed twice.
    placeables first?
 
 [^owner]: The owner, 2026-11-02, in the session that wrote this proposal.
+[^answers]: The owner, 2026-11-03, in the same session.
 [^code]: `crates/mg-module/src/palette.rs`: `updated` looks after a changed blueprint's first entry; `rebuild_custom_palette` writes one entry per blueprint, by `PaletteID`.
 [^manual]: [Blueprints](manual/05-blueprints.md), "The custom palettes change only where you change a blueprint" and Refresh Palette.
 [^tdod-pal]: `placeablepalstd.itp` and `placeables.2da` in TDoD's built haks, read 2026-11-02.
