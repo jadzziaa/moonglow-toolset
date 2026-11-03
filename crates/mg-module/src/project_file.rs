@@ -653,6 +653,12 @@ pub struct ProjectFile {
     /// `[talk]`: the custom talk table's lines text typed takes
     /// ([`crate::talk_range`]).
     pub talk: crate::talk_range::TalkRules,
+    /// `[bake]`: where Bake Walkmesh to Transform puts its models and rows
+    /// ([`crate::bake`]).
+    pub bake: crate::bake::BakeRules,
+    /// The bake's rows file as read (none without `[bake]`; empty where
+    /// the file isn't there yet), or why it can't be read.
+    pub baked: Option<Result<crate::bake::RowsFile, String>>,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
     /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
@@ -980,6 +986,11 @@ impl ProjectFile {
         let dir = path.parent().unwrap_or(root).to_path_buf();
         p.stamps.extend(p.palette.from_paths(&dir).iter().map(|f| stamp(f)));
         std::sync::Arc::make_mut(&mut p.palette).read_lists(&dir, &mut p.warnings);
+        // The bake's rows file, beside the team's (its stamp last).
+        if let Some(rows) = p.bake.rows_path(&dir) {
+            p.stamps.push(stamp(&rows));
+            p.baked = Some(crate::bake::RowsFile::read(&rows).map(Option::unwrap_or_default));
+        }
         // The team's described variables, a file of their own.
         match std::fs::read(&described) {
             Ok(bytes) => {
@@ -1268,6 +1279,7 @@ impl ProjectFile {
                 }
                 ("claims", false) => self.read_claim_rules(&mut r, entry),
                 ("talk", false) => self.read_talk_rules(&mut r, entry),
+                ("bake", false) => self.read_bake_rules(&mut r, entry),
                 ("palette", false) => {
                     std::sync::Arc::make_mut(&mut self.palette).read(&mut r, entry)
                 }
@@ -1334,7 +1346,7 @@ impl ProjectFile {
                 }
                 (
                     "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands"
-                    | "pack" | "talk" | "palette",
+                    | "pack" | "talk" | "palette" | "bake",
                     true,
                 ) => r.warn(
                     key.span().start,
@@ -1408,6 +1420,81 @@ impl ProjectFile {
             r.warn(entry.0.span().start, format!("[talk]: {problem}"));
         }
         self.talk = rules;
+    }
+
+    /// Reads `[bake]`: `rows`, `hak`, `names` and `rows_file`. What is
+    /// wrong is a warning and one of the rules' problems, which keep the
+    /// command from being offered.
+    fn read_bake_rules(&mut self, r: &mut Reader, entry: Entry) {
+        use crate::bake::{BakeRules, Rows};
+        let mut rules = BakeRules { given: true, ..Default::default() };
+        // (Every warning said of the section is a problem of the rules.)
+        let before = r.warnings.len();
+        let mut seen = Vec::new();
+        for e in r.section(entry) {
+            let at = e.1.span().start;
+            seen.push(e.0.get_ref().to_string());
+            match e.0.get_ref().as_ref() {
+                "rows" => {
+                    let text = match e.1.get_ref() {
+                        DeValue::String(s) => Some(s.to_string()),
+                        DeValue::Integer(i) => Some(i.as_str().to_string()),
+                        _ => None,
+                    };
+                    match text.map(|t| Rows::parse(&t)) {
+                        Some(Ok(rows)) => rules.rows = Some(rows),
+                        Some(Err(problem)) => r.warn(at, format!("rows: {problem}")),
+                        None => r.warn(at, "rows is to be rows in quotes: \"16500-16999\""),
+                    }
+                }
+                "hak" => match r.text(e).map(|t| t.trim().trim_end_matches(".hak").to_string()) {
+                    Some(h) if !h.is_empty() && h.len() <= 16 => rules.hak = Some(h),
+                    Some(h) => {
+                        r.warn(at, format!("hak \"{h}\": a hak's name is 1 to 16 characters"))
+                    }
+                    None => {}
+                },
+                "names" => {
+                    if let Some(n) = r.text(e).map(|t| t.trim().to_ascii_lowercase()) {
+                        match BakeRules::names_problem(&n) {
+                            Some(problem) => r.warn(at, problem),
+                            None => rules.names = Some(n),
+                        }
+                    }
+                }
+                "rows_file" => match r.text(e).map(|t| t.trim().to_string()) {
+                    Some(f) if !f.is_empty() => rules.rows_file = Some(f),
+                    Some(_) => r.warn(at, "rows_file is empty"),
+                    None => {}
+                },
+                _ => r.unknown("bake", e),
+            }
+        }
+        // (A key given but not right is said once, as it is.)
+        for missing in rules.missing() {
+            if !seen.iter().any(|k| missing.starts_with(&format!("[bake] has no {k}:"))) {
+                r.warn(entry.0.span().start, &missing);
+            }
+        }
+        rules.problems = r.warnings[before..].to_vec();
+        self.bake = rules;
+    }
+
+    /// The bake's rows file, where the project has `[bake]`: beside the
+    /// team's file.
+    pub fn bake_rows_path(&self) -> Option<PathBuf> {
+        let dir = self.path.as_deref()?.parent()?;
+        self.bake.rows_path(dir)
+    }
+
+    /// The bake's rows file as read: empty where it isn't there yet (or
+    /// the project has no `[bake]`), the error where it can't be read.
+    pub fn baked_rows(&self) -> Result<crate::bake::RowsFile, String> {
+        match &self.baked {
+            Some(Ok(rows)) => Ok(rows.clone()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Ok(Default::default()),
+        }
     }
 
     /// Reads `[claims]`.
@@ -1572,6 +1659,7 @@ impl ProjectFile {
         let team = place.team();
         let dir = team.parent().unwrap_or(&place.root);
         now.extend(self.palette.from_paths(dir).iter().map(|f| stamp(f)));
+        now.extend(self.bake.rows_path(dir).map(|f| stamp(&f)));
         now != self.stamps
     }
 
@@ -1857,6 +1945,70 @@ keeper_variable = "tdod_store"
                 "moonglow.toml:4: \"colour\" is not a key of [lights]",
             ]
         );
+    }
+
+    /// `[bake]`: its keys read; what is wrong (a range past row 65535,
+    /// which the game can't carry) a warning and a problem of the rules,
+    /// which keep the bake from being offered.
+    #[test]
+    fn bake_rules_are_read_and_their_problems_kept() {
+        use crate::bake::Rows;
+        let p = read(
+            "[bake]\nrows = \"50000-50999\"\nhak = \"mybaked.hak\"\nnames = \"Bk_\"\n\
+             rows_file = \"tables/baked.toml\"\n",
+        );
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.bake.rows, Some(Rows { from: 50000, to: 50999 }));
+        assert_eq!(p.bake.hak.as_deref(), Some("mybaked"));
+        assert_eq!(p.bake.names.as_deref(), Some("bk_"));
+        assert_eq!(p.bake.rows_file.as_deref(), Some("tables/baked.toml"));
+        assert!(p.bake.ready().is_ok());
+        assert!(!read("").bake.given && read("").bake.ready().is_err());
+        let past = read("[bake]\nrows = \"65500-65600\"\nhak = \"b\"\n");
+        assert_eq!(past.warnings.len(), 1, "{:?}", past.warnings);
+        assert!(
+            past.warnings[0].starts_with("moonglow.toml:2: rows: \"65500-65600\" reaches past")
+        );
+        assert_eq!(past.bake.problems, past.warnings);
+        assert!(past.bake.ready().unwrap_err().contains("65535"));
+        let bad = read("[bake]\nrows = 5\nnames = \"a-b\"\ncolour = 1\nrows_file = \"\"\n");
+        assert_eq!(
+            bad.warnings,
+            [
+                "moonglow.toml:3: names \"a-b\": \"-\": a model's name is letters, digits and _",
+                "moonglow.toml:4: \"colour\" is not a key of [bake]",
+                "moonglow.toml:5: rows_file is empty",
+                "moonglow.toml:1: [bake] has no hak: the hak baked models go in",
+            ]
+        );
+        assert_eq!(bad.bake.rows, Some(Rows { from: 5, to: 5 }));
+        assert_eq!(bad.bake.problems.len(), 4);
+        let mut own = ProjectFile::default();
+        own.apply("user.toml", "[bake]\nhak = \"x\"\n", true);
+        assert_eq!(own.warnings, ["user.toml:1: [bake] is the team's: it goes in moonglow.toml"]);
+    }
+
+    /// The rows file is read beside the team's file, and read again when
+    /// it changes, as the claims table is.
+    #[test]
+    fn the_bake_rows_file_is_read_and_its_changes_seen() {
+        let dir = mg_testkit::scratch_dir("project-bake-rows");
+        std::fs::write(dir.join(FILE_NAME), "[bake]\nrows = \"100-199\"\nhak = \"b\"\n").unwrap();
+        let p = ProjectFile::read(&dir);
+        assert_eq!(p.bake_rows_path(), Some(dir.join("baked_rows.toml")));
+        assert_eq!(p.baked_rows(), Ok(Default::default()), "not there yet");
+        assert!(!p.changed());
+        let rows = "[[row]]\nrow = 100\ncopy_of = 3\nmodel = \"mgbk_0001\"\nlabel = \"x\"\n";
+        std::fs::write(dir.join("baked_rows.toml"), rows).unwrap();
+        assert!(p.changed());
+        let p = ProjectFile::read(&dir);
+        assert_eq!(p.baked_rows().unwrap().row(100).map(|r| r.copy_of), Some(3));
+        std::fs::write(dir.join("baked_rows.toml"), "[[row]]\nrow = 100\n").unwrap();
+        assert!(p.changed());
+        let p = ProjectFile::read(&dir);
+        assert!(p.baked_rows().unwrap_err().contains("baked_rows.toml: row 1: no copy_of"));
+        let none = ProjectFile::read(&mg_testkit::scratch_dir("project-bake-none"));
+        assert_eq!((none.bake_rows_path(), none.baked.is_none()), (None, true));
     }
 
     #[test]

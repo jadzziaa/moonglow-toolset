@@ -10,6 +10,7 @@
 pub mod archive_file;
 pub mod areas;
 pub mod attach;
+pub mod bake;
 pub mod blueprints;
 pub mod build;
 pub mod claims;
