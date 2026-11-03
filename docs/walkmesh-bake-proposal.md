@@ -3,23 +3,25 @@ type: Proposal
 title: 'A placed object that blocks as it is drawn: a design'
 description: How Moonglow could give one placed placeable a walkmesh that follows its visual transform (a large stone scaled down to sit on a desk blocks as a small one), which the game never does by itself - the engine's rule (settled), what the bake makes (a copy of the model under a new name, its walkmesh transformed as the game draws the model, a placeables.2da row), why it must go in a hak, how its rows meet a project's own table (TDoD's library build writes placeables.2da), reuse, undoing it, readings to make in the engine, milestones and the owner's questions.
 tags: [proposal, walkmesh, visual-transform, placeables, custom-content, haks]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:40:32Z }
 sources:
   - id: owner
     resource: human:august
-    title: "The owner, 2026-11-03: rebaking walkmeshes to the transform would be niche but useful (a large stone downsized as decoration on a desk); not the default, since builders may expect the walkmeshes unchanged; wanted as an option if it can be done cheaply"
+    title: 'The owner, 2026-11-03: rebaking walkmeshes to the transform would be niche but useful (a large stone downsized as decoration on a desk); not the default, since builders may expect the walkmeshes unchanged; wanted as an option if it can be done cheaply'
+  - id: answers
+    resource: human:august
+    title: 'The owner''s answers, 2026-11-03: the walkmesh only; the rows by a rows file (a); TDoD''s range 40000-40999 and hak tdod_baked, told to the TDoD Module session; placeables first, doors later; Tidy Baked Models offered on save'
   - id: finding
     resource: findings.md
     title: '"A visual transform doesn''t move a walkmesh" (engine_placeable_walkmesh.rs, walkmeshes_by_visual_transforms, 2026-11-03)'
   - id: models
     resource: research/notes_models.md
-    title: "Placeables: the model named by placeables.2da ModelName; .pwk and .dwk walkmeshes"
+    title: 'Placeables: the model named by placeables.2da ModelName; .pwk and .dwk walkmeshes'
   - id: code
     resource: crates/mg-area/src/walk.rs (ObjectWalkmeshes), crates/mg-area/src/lib.rs (VisualTransform::matrix), crates/mg-mdl (read, compile), crates/mg-plugin and crates/mg-ui (haks written with Undo) (read 2026-11-03, at 3.5.0 + develop)
   - id: tdod-build
     resource: ~/Projects/tdod-modulework/docs/assets/library-build.md
-    title: "TDoD's library build: tdod_top.hak's placeables.2da (the game's table plus its rows), row blocks of 500 from 20000"
+    title: 'TDoD''s library build: tdod_top.hak''s placeables.2da (the game''s table plus its rows), row blocks of 500 from 20000'
 ---
 
 # A placed object that blocks as it is drawn: a design
@@ -144,7 +146,46 @@ the client once and the engine once.
 4. **M4, TDoD's side** (its session): its library build reads `baked_rows.toml`, and a row range
    outside its blocks.
 
-## Questions for the owner
+## The owner's answers (2026-11-03)
+
+1. **The walkmesh only** is baked: the model copied unchanged under a new name, its visual
+   transform kept.[^answers]
+2. **The rows go by a rows file (a)**, for the project's build to add. (b) and (c) aren't built.
+   A project whose build doesn't read the file yet sees Verify's `bake-row-pending` for each row
+   the table in its haks lacks, and the game draws the original walkmesh until then.
+3. **TDoD: rows 40000-40999, the hak `tdod_baked`.** The TDoD Module session is told what its
+   build has to do (below).
+4. **Placeables first,** doors later.
+5. **Tidy Baked Models is offered on save:** where a save finds baked models no object of the
+   module uses any longer, it asks (Tidy Up, Keep Them) and takes nothing out unasked. Another
+   module, or a hak's blueprint, may still use one, so the question says it checked this module
+   alone.
+
+### The keys and the rows file, as settled
+
+```toml
+[bake]
+rows = "40000-40999"          # the placeables.2da rows baked models take
+hak = "tdod_baked"            # the hak the baked models (.mdl, .pwk) go in, in the module's hak list
+names = "mgbk_"               # baked models' names begin so: mgbk_0001 (at most 16 characters)
+rows_file = "baked_rows.toml" # the rows, beside moonglow.toml, for the project's build
+```
+
+```toml
+# baked_rows.toml: written by Moonglow Toolset (Bake Walkmesh to Transform); the project's
+# build adds each row to the placeables.2da it writes. Edit it in Moonglow, not by hand.
+[[row]]
+row = 40000                   # the row it is, in the range
+copy_of = 1234                # the placeables.2da row it copies: every column of it, but
+model = "mgbk_0001"           # ModelName, which is this
+label = "Baked: Boulder 03 at 0.25"   # its Label (spaces kept quoted, as 2DAs quote them)
+```
+
+The first bake adds the hak to the module's hak list where it isn't, one step of Undo with the
+rest. A row no object uses any longer stays in the file until Tidy Baked Models takes it, with
+its model.
+
+## Questions for the owner (answered above)
 
 1. **Walkmesh only, or everything baked?** Recommended: walkmesh only (the model copied
    unchanged, the transform kept).
@@ -155,6 +196,7 @@ the client once and the engine once.
 5. **Tidy Baked Models:** by hand only (recommended), or offered on save?
 
 [^owner]: The owner, 2026-11-03, in the session that wrote this proposal.
+[^answers]: The owner, 2026-11-03, in the same session.
 [^finding]: [A visual transform doesn't move a walkmesh](findings.md), measured in the headless server on 2026-11-03.
 [^models]: [Model notes](research/notes_models.md): placeables named by `ModelName`; the `.pwk`.
 [^tdod-build]: TDoD's `docs/assets/library-build.md`: `tdod_top.hak`, row blocks.
