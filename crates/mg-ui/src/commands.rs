@@ -23,6 +23,10 @@ pub enum Id {
     SaveAs,
     SaveAsProject,
     Import,
+    /// File › Import Files…: loose files' resources.
+    ImportFiles,
+    /// File › Import Folder…: a folder's files' resources.
+    ImportFolder,
     Export,
     ImportConversation,
     Close,
@@ -166,6 +170,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Item::Project,
             Separator,
             Item::WithPlugins(Id::Import, crate::plugin_kinds::Added::Importer),
+            Do(Id::ImportFiles),
+            Do(Id::ImportFolder),
             Item::WithPlugins(Id::Export, crate::plugin_kinds::Added::Exporter),
             Do(Id::ImportConversation),
             Separator,
@@ -363,6 +369,17 @@ impl Id {
                 "Keep the module as text files for version control",
             ),
             Id::Import => ("import", "Import…", ""),
+            Id::ImportFiles => (
+                "import-files",
+                "Import Files…",
+                "Scripts, blueprints, conversations, areas… as loose files (name.ext), as Export \
+                 as Files writes them",
+            ),
+            Id::ImportFolder => (
+                "import-folder",
+                "Import Folder…",
+                "The files of a folder and of the folders in it, as Import Files takes them",
+            ),
             Id::Export => ("export", "Export…", ""),
             Id::ImportConversation => (
                 "import-conversation",
@@ -703,6 +720,8 @@ impl Id {
             | Id::SaveAs
             | Id::SaveAsProject
             | Id::Import
+            | Id::ImportFiles
+            | Id::ImportFolder
             | Id::Export
             | Id::ImportConversation
             | Id::Close
@@ -743,6 +762,8 @@ impl Id {
             Id::SaveAs => Action::SaveAsDialog,
             Id::SaveAsProject => Action::SaveAsProjectDialog,
             Id::Import => Action::ImportDialog,
+            Id::ImportFiles => Action::ImportFilesDialog,
+            Id::ImportFolder => Action::ImportFolderDialog,
             Id::Export => Action::ExportDialog(Vec::new()),
             Id::Close => Action::Close,
             Id::Exit => Action::Quit,

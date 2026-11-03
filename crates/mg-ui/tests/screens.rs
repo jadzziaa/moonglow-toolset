@@ -2327,6 +2327,54 @@ fn export_resources() {
     shoot(&mut h, &dir, "export-resources");
 }
 
+/// Import Resources of loose files (File › Import Files…): one the module
+/// has to overwrite, a script to compile, an area without its `.git`, the
+/// files refused and why; and files dragged over the window, what
+/// dropping them does.
+#[test]
+#[ignore]
+fn import_files() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-import-files");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.set(ResKey::parse("on_enter", ResType::NSS).unwrap(), b"void main() {}".to_vec());
+    let path = dir.join("e.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let files = dir.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    let gff = |t: &[u8; 4]| mg_gff::Gff::new(*t).to_bytes().unwrap();
+    let mut paths = Vec::new();
+    for (name, bytes) in [
+        ("on_enter.nss", b"void main() { }".to_vec()),
+        ("guard.utc", gff(b"UTC ")),
+        ("market.are", gff(b"ARE ")),
+        ("broken.uti", b"not a GFF".to_vec()),
+        ("module.ifo", gff(b"IFO ")),
+        ("a script.nss", Vec::new()),
+    ] {
+        std::fs::write(files.join(name), bytes).unwrap();
+        paths.push(files.join(name));
+    }
+    let dialogs = NoDialogs { open_many: vec![paths.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.auto_compile = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::ImportFilesDialog);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "import-files");
+    h.state_mut().import = None;
+    h.input_mut().hovered_files =
+        vec![egui::HoveredFile { path: Some(paths[1].clone()), ..Default::default() }];
+    h.run_steps(3);
+    shoot(&mut h, &dir, "import-files-dragged");
+}
+
 /// A blueprint's window with the game's data and a GPU (pictures are
 /// drawn), on its page `page`, `size` large.
 fn pictured_blueprint(

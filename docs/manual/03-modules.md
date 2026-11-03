@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:20Z }
 ---
 
 # Modules
@@ -2221,6 +2221,66 @@ plugin reads a description with `mg.twoda.describe`
   **other work**, or from a commit the checkout doesn't have; and it says
   when the archive was made with changes not committed. `mg import` says
   the same.
+- **File › Import Files…** and **File › Import Folder…** bring loose
+  files into the module: scripts, blueprints, conversations, areas, the
+  journal, 2DAs, whatever a module holds, each a resource by its name and
+  extension (`guard.utc`), as **Export as Files** writes them (asked for
+  by a builder: change a few files elsewhere, in nasher, another toolset
+  or a text editor, and bring them back without packing the module
+  anew). Import Folder takes the files of the folder and of the folders
+  in it (what file managers leave there, such as `Thumbs.db` and files
+  whose names begin with a dot, passed over). Both open the window
+  Import… opens: those the module has already are listed to tick (none
+  until ticked; **Select All**, **Select None**), what the files refer to
+  that neither the module nor the game has is listed, the new areas join
+  the module's area list, and the import is one step to undo. A name in
+  capitals is the same resource as in lower case, as the game finds
+  either: one the module has is replaced under the module's spelling.
+  The file dialogs start in the folder Export as Files last wrote to.
+- **Files dropped onto the window** from the desktop's file manager are
+  imported as Import Files takes them, into the module open; while they
+  are dragged over the window, it says what dropping them does. An
+  `.erf` dropped on its own is imported as Import… imports it; a `.mod`
+  dropped on its own opens as the module (asking first about unsaved
+  work), and a hak opens in the hak editor. With no module open, nothing
+  is imported, and the log says so. (On Linux under Wayland, the windowing
+  library Moonglow is built on, winit, isn't handed dropped files yet: run
+  Moonglow as `WAYLAND_DISPLAY= moonglow` for its X11 window, which is.)
+- **What isn't imported is listed with the reason**, and the rest comes
+  in: a name that is no ResRef (more than 16 characters, a space, a dot,
+  a letter outside ASCII), an extension of no type the game reads, a
+  GFF file that doesn't read or whose header gives it another type than
+  its extension (a `.uti` that holds a creature: an archive's are checked
+  so too), a file that doesn't read, both files of a resource given twice
+  (a folder and its copy: which is meant is yours to say), archives
+  (`.erf`, `.hak`, `.mod`: Import… takes an `.erf`), backups (`.bak`), a
+  talk table, and `module.ifo`. That last is the module itself, its
+  areas, haks, talk table and start, edited in Module Properties: every
+  module folder has one, and a folder imported whole would lay another
+  module's over yours.
+- **A script that comes without its compiled script** (`.ncs`) is
+  compiled as it is imported, with the module's scripts that include it
+  (theirs are older now), as a script saved here is, into the same step
+  to undo; the window says which, and the log names any that didn't
+  compile (the game runs the compiled script the module had). That
+  follows **Automatically Compile Scripts on Save** (Tools › Options ›
+  Script Editor): off, they aren't compiled, and the window and the log
+  say so (Build › Compile All Scripts compiles them). More than two dozen
+  at once are compiled in the background after the import. A script that
+  comes with its `.ncs` keeps the one it brings, as an archive's does.
+- **An area's files that come without the others** are said: an `.are`
+  without its `.git` (neither among the files nor in the module) comes in
+  with nothing placed in it, and a `.git` or `.gic` without the area's
+  `.are` belongs to no area.
+- **An editor with unsaved changes**: a blueprint's, an area's or a
+  conversation's changes are the module's already, and the import
+  replaces them as its one step, which Undo takes back. A script's or a
+  2DA's editor keeps its unsaved text apart: the window marks such a
+  resource "(open, with unsaved changes)" and, ticked, warns that the
+  editor keeps your changes and saving them writes over what was
+  imported (the log says it again). This goes for Import… too.
+- `mg import MODULE PATH…` does the same from a terminal: an `.erf`
+  alone, or files and folders ([Command-line tools](11-command-line.md)).
 
 ## Areas
 

@@ -24,6 +24,8 @@ mod encoding;
 mod export_files;
 #[path = "../haks.rs"]
 mod haks;
+#[path = "../import_files.rs"]
+mod import_files;
 #[path = "../json.rs"]
 mod json;
 #[path = "../lsp.rs"]

@@ -210,6 +210,10 @@ pub enum Action {
     },
     Export(ExportDraft),
     ImportDialog,
+    /// File › Import Files…: files picked, into Import Resources.
+    ImportFilesDialog,
+    /// File › Import Folder…: a folder picked, into Import Resources.
+    ImportFolderDialog,
     Import(ImportDraft),
     /// Reports the module's haks' conflicts.
     HakReport,
@@ -3635,6 +3639,8 @@ impl Moonglow {
             Action::ExportAreaFiles(area) => model_view::export_area_files(self, area),
             Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),
+            Action::ImportFilesDialog => self.open_import_files(false),
+            Action::ImportFolderDialog => self.open_import_files(true),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {

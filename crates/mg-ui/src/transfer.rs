@@ -1,5 +1,6 @@
 //! File > Export and File > Import: resources to and from `.erf` archives,
-//! with what they depend on.
+//! with what they depend on; File > Import Files and Import Folder: loose
+//! files' resources, into the same window as an archive's.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::ResType;
-use mg_module::transfer::{ImportPlan, plan_export, plan_import};
+use mg_module::transfer::{ImportPlan, Incoming, import_incoming, plan_export, plan_import_of};
 use mg_resman::{ResKey, ResMan};
 
 use crate::{Action, FileKind, Moonglow};
@@ -57,11 +58,16 @@ pub enum ExportAnswer {
     Cancel,
 }
 
-/// An archive being imported and what to overwrite.
+/// Resources being imported (an archive's, or loose files') and what to
+/// overwrite.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportDraft {
-    pub path: PathBuf,
-    pub data: Vec<u8>,
+    /// What they come from: the archive's file name, the folder's (with a
+    /// `/`), the file's or how many files.
+    pub name: String,
+    /// From an archive (which says what it was made from, or not), not
+    /// files.
+    pub archive: bool,
     pub resources: Vec<ResKey>,
     /// Resources the module already has, and whether to overwrite each.
     pub overwrites: Vec<(ResKey, bool)>,
@@ -72,7 +78,34 @@ pub struct ImportDraft {
     pub stamp: Option<String>,
     /// Why the module may have moved on since (another commit now).
     pub base_warning: Option<String>,
+    /// What is not imported, and why ("file: why").
+    pub refused: Vec<String>,
+    /// An area's files without the others.
+    pub warnings: Vec<String>,
+    /// The scripts that come without their compiled scripts (compiled as
+    /// they are imported).
+    pub compile: Vec<String>,
+    /// Those of the overwrites whose editors hold unsaved changes.
+    pub unsaved: Vec<ResKey>,
+    /// What is imported.
+    pub incoming: Incoming,
 }
+
+/// What [`Moonglow::compile_imported`] did.
+enum Compiling {
+    /// Nothing to compile, or nothing can be.
+    Not,
+    /// Compiled into the import: those whose compiled scripts changed,
+    /// those that failed, and every compiled script made (to note).
+    Done { compiled: Vec<String>, failed: Vec<String>, made: Vec<(ResKey, Vec<u8>)> },
+    /// Too many for the window's thread: a job, after the import.
+    Later(Vec<ResKey>),
+}
+
+/// What the import window says of a resource it would replace whose
+/// editor holds unsaved changes.
+const UNSAVED: &str = "the import replaces it in the module, but its editor keeps your changes, \
+                       and saving them writes over what was imported";
 
 /// What To Scratch's hover says: where it copies `what`, or that it asks.
 pub(crate) fn scratch_tip(scratch: Option<&std::path::Path>, what: &str) -> String {
@@ -179,42 +212,159 @@ impl Moonglow {
         })
     }
 
+    /// File › Import…: an archive's resources.
     pub(crate) fn open_import(&mut self) {
-        let Some(ws) = &mut self.ws else { return };
+        if self.ws.is_none() {
+            return;
+        }
         let Some(path) = self.dialogs.open_file(FileKind::Erf, None) else { return };
-        let data = match std::fs::read(&path) {
+        self.import_archive(&path);
+    }
+
+    /// Import Resources for the archive at `path`.
+    fn import_archive(&mut self, path: &Path) {
+        let data = match std::fs::read(path) {
             Ok(d) => d,
             Err(e) => {
                 self.log.error(format!("Could not read {}: {e}", path.display()));
                 return;
             }
         };
+        let incoming = match Incoming::archive(&data) {
+            Ok(i) => i,
+            Err(e) => {
+                self.log.error(format!("Could not read {}: {e}", path.display()));
+                return;
+            }
+        };
+        let stamp = mg_module::transfer::archive_stamp(&data);
+        self.plan_import(named(&[path.to_path_buf()]), Some(stamp), incoming);
+    }
+
+    /// File › Import Files… (`folder`: Import Folder…): loose files'
+    /// resources, as Export as Files writes them (a script with its
+    /// compiled script, an area with its `.git` and `.gic`), into the
+    /// same window as an archive's. The dialog starts where Export as
+    /// Files last wrote.
+    pub(crate) fn open_import_files(&mut self, folder: bool) {
+        if self.ws.is_none() {
+            return;
+        }
+        let start = (self.export_dir.clone())
+            .or_else(|| self.module_path().and_then(|p| p.parent().map(Path::to_path_buf)));
+        let paths = if folder {
+            let Some(dir) = self.dialogs.pick_folder("Import Folder", start.as_deref()) else {
+                return;
+            };
+            vec![dir]
+        } else {
+            self.dialogs.open_files(FileKind::ResourceFiles, start.as_deref())
+        };
+        if !paths.is_empty() {
+            self.import_files(paths);
+        }
+    }
+
+    /// Import Resources for loose files and folders.
+    fn import_files(&mut self, paths: Vec<PathBuf>) {
+        let name = named(&paths);
+        let mut incoming = Incoming::files(&paths);
+        // (Named from the folder given, or the files' own: the window has
+        // no room for whole paths.)
+        let base = match paths.as_slice() {
+            [one] if one.is_dir() => Some(one.clone()),
+            [first, rest @ ..] => {
+                let parent = first.parent();
+                let same = rest.iter().all(|p| p.parent() == parent);
+                parent.filter(|_| same).map(Path::to_path_buf)
+            }
+            [] => None,
+        };
+        if let Some(base) = base {
+            let at = format!("{}{}", base.display(), std::path::MAIN_SEPARATOR);
+            for r in &mut incoming.refused {
+                r.what = r.what.replace(&at, "");
+                r.why = r.why.replace(&at, "");
+            }
+        }
+        if incoming.resources.is_empty() && incoming.refused.is_empty() {
+            self.log.warn(format!("Import: {name} has no files"));
+            return;
+        }
+        self.plan_import(name, None, incoming);
+    }
+
+    /// Files and folders dropped onto the window (from the desktop's file
+    /// manager), as [`dropped_to`] says what becomes of them.
+    pub(crate) fn take_dropped(&mut self, paths: Vec<PathBuf>) {
+        match dropped_to(&paths, self.ws.is_some()) {
+            Dropped::Module(p) => self.actions.push(Action::OpenModule(p)),
+            Dropped::Hak(p) => _ = crate::hak_view::open_at(self, &p),
+            Dropped::Archive(p) => self.import_archive(&p),
+            Dropped::Files => self.import_files(paths),
+            Dropped::NoModule => self.log.warn(format!(
+                "Nothing imported from {}: dropped files are imported into the open module, and \
+                 none is open (a module's .mod dropped alone opens it)",
+                named(&paths)
+            )),
+        }
+    }
+
+    /// The Import Resources window for what `incoming` brings (`stamp`: an
+    /// archive's, `Some(None)` for one without a stamp; `None`: files).
+    fn plan_import(
+        &mut self,
+        name: String,
+        stamp: Option<Option<mg_module::stamp::Stamp>>,
+        incoming: Incoming,
+    ) {
+        let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
             return;
         }
         let empty = ResMan::new();
         let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
-        match plan_import(&ws.module, &data, resman) {
-            Ok(ImportPlan { resources, overwrites, missing }) => {
-                let stamp = mg_module::transfer::archive_stamp(&data);
-                let base_warning =
-                    stamp.as_ref().and_then(|s| mg_module::stamp::compare(s, &ws.module));
-                self.import = Some(ImportDraft {
-                    path,
-                    data,
-                    resources,
-                    overwrites: overwrites.into_iter().map(|k| (k, false)).collect(),
-                    missing: missing
-                        .iter()
-                        .map(|r| format!("{} → {:?} {}", r.from, r.kind, r.target))
-                        .collect(),
-                    stamp: stamp.map(|s| s.summary()),
-                    base_warning,
-                })
-            }
-            Err(e) => self.log.error(format!("Could not read {}: {e}", path.display())),
-        }
+        let plan = plan_import_of(&ws.module, &incoming, resman);
+        let ImportPlan { resources, overwrites, missing, refused, compile, warnings } = plan;
+        let base_warning = (stamp.as_ref())
+            .and_then(Option::as_ref)
+            .and_then(|s| mg_module::stamp::compare(s, &ws.module));
+        let unsaved = self.unsaved_editors(&overwrites);
+        let compile = compile.iter().map(|k| k.resref.to_string()).collect();
+        self.import = Some(ImportDraft {
+            name,
+            archive: stamp.is_some(),
+            resources,
+            overwrites: overwrites.into_iter().map(|k| (k, false)).collect(),
+            missing: missing
+                .iter()
+                .map(|r| format!("{} → {:?} {}", r.from, r.kind, r.target))
+                .collect(),
+            stamp: stamp.flatten().map(|s| s.summary()),
+            base_warning,
+            refused: refused.iter().map(|r| format!("{}: {}", r.what, r.why)).collect(),
+            warnings,
+            compile,
+            unsaved,
+            incoming,
+        })
+    }
+
+    /// Those of `keys` whose editors hold changes not yet in the module (a
+    /// script's typing, a 2DA's): an import that replaces them leaves the
+    /// editors as they are, and saving one then writes over what was
+    /// imported. (A blueprint's, an area's or a conversation's changes
+    /// are the module's already: the import replaces them as one step,
+    /// which Undo takes back.)
+    fn unsaved_editors(&self, keys: &[ResKey]) -> Vec<ResKey> {
+        let table = |k: &ResKey| {
+            self.tables.iter().any(|t| {
+                t.home == crate::table_view::Home::Module && t.key == *k && t.has_unsaved()
+            })
+        };
+        let script = |k: &ResKey| self.scripts.get(k).is_some_and(|b| b.is_dirty());
+        keys.iter().filter(|k| script(k) || table(k)).copied().collect()
     }
 
     pub(crate) fn run_import(&mut self, draft: ImportDraft) {
@@ -226,18 +376,23 @@ impl Moonglow {
         let mut staged = ws.module.clone();
         let overwrite: BTreeSet<ResKey> =
             draft.overwrites.iter().filter(|(_, o)| *o).map(|(k, _)| *k).collect();
-        let summary = match mg_module::transfer::import_erf(&mut staged, &draft.data, |k| {
-            overwrite.contains(k)
-        }) {
+        let summary = match import_incoming(&mut staged, &draft.incoming, |k| overwrite.contains(k))
+        {
             Ok(s) => s,
             Err(e) => {
                 self.log.error(format!("Import failed: {e}"));
                 return;
             }
         };
+        let name = draft.name.clone();
+        // Scripts that came without their compiled scripts, and those that
+        // include them, compiled as one saved here is (Options › Script
+        // Editor › Automatically Compile Scripts on Save), into the import:
+        // its one step to undo takes them back too. Many are left to a
+        // job, after it.
+        let compiling = self.compile_imported(&mut staged, &summary.to_compile);
+        let Some(ws) = &mut self.ws else { return };
         let edits = ws.edits_to(&staged);
-        let name =
-            draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(w) = &draft.base_warning {
             self.log.warn(format!("{name}: {w}"));
         }
@@ -257,7 +412,112 @@ impl Moonglow {
             summary.replaced.len(),
             summary.skipped.len()
         ));
+        if !draft.refused.is_empty() {
+            self.log.warn(format!("Not imported: {}", listed(&draft.refused)));
+        }
+        let unsaved: Vec<String> = (summary.replaced.iter())
+            .filter(|k| draft.unsaved.contains(k))
+            .map(ToString::to_string)
+            .collect();
+        if !unsaved.is_empty() {
+            self.log.warn(format!(
+                "Replaced while open with unsaved changes (its editor keeps them; saving it \
+                 writes over what was imported): {}",
+                listed(&unsaved)
+            ));
+        }
+        match compiling {
+            Compiling::Done { compiled, failed, made } => {
+                self.note_compiled(&made);
+                if !compiled.is_empty() {
+                    self.log.info(format!("Compiled as imported: {}", listed(&compiled)));
+                }
+                if !failed.is_empty() {
+                    self.log.error(format!(
+                        "Did not compile (the game runs the compiled script the module had, if \
+                         any; Compile in the script's editor says why): {}",
+                        listed(&failed)
+                    ));
+                }
+            }
+            Compiling::Later(all) => self.compile_job(Some(all)),
+            Compiling::Not => {}
+        }
         self.refresh_module_layer();
+    }
+
+    /// Compiles `scripts` into `staged` (an import, before it is put in
+    /// the module), or says why not: no game data, compiling on save off
+    /// (the Compiler tab says they weren't), or more than are compiled on
+    /// the window's thread (a job compiles them after).
+    fn compile_imported(
+        &mut self,
+        staged: &mut mg_module::Module,
+        scripts: &[ResKey],
+    ) -> Compiling {
+        if scripts.is_empty() {
+            return Compiling::Not;
+        }
+        let names: Vec<String> = scripts.iter().map(|k| k.resref.to_string()).collect();
+        if self.game.is_none() {
+            self.log.warn(format!(
+                "No game data to compile with: imported without compiled scripts, or including \
+                 one that was: {}",
+                listed(&names)
+            ));
+            return Compiling::Not;
+        }
+        if !self.settings.auto_compile {
+            scripts.iter().for_each(|k| self.script_tools.saved_not_compiled(*k));
+            self.log.warn(format!(
+                "Not compiled (Options › Script Editor › Automatically Compile Scripts on Save \
+                 is off; Compile All Scripts compiles them): {}",
+                listed(&names)
+            ));
+            return Compiling::Not;
+        }
+        let external = self.external_compiler();
+        let slow = external.is_some() && scripts.len() > 1;
+        if scripts.len() > crate::script_view::COMPILED_AT_ONCE || slow {
+            self.log.info(format!(
+                "{} scripts (those imported without compiled scripts and those that include \
+                 them) are compiled in the background",
+                scripts.len()
+            ));
+            return Compiling::Later(scripts.to_vec());
+        }
+        let Some(game) = self.game.as_deref() else { return Compiling::Not };
+        let before: Vec<Option<Vec<u8>>> = (scripts.iter())
+            .map(|k| staged.get(&ResKey::new(k.resref, ResType::NCS)).map(<[u8]>::to_vec))
+            .collect();
+        let debug = self.settings.debug_info;
+        let results = mg_module::build::compile_named_with(
+            staged,
+            &game.resman,
+            scripts,
+            external.as_ref(),
+            debug,
+        );
+        let (mut compiled, mut failed, mut made) = (Vec::new(), Vec::new(), Vec::new());
+        for r in &results {
+            let at = scripts.iter().position(|k| *k == r.script);
+            let ncs = staged.get(&ResKey::new(r.script.resref, ResType::NCS)).map(<[u8]>::to_vec);
+            match &r.result {
+                Ok(()) => {
+                    if let Some(ncs) = ncs {
+                        if at.is_some_and(|i| before[i].as_ref() != Some(&ncs)) {
+                            compiled.push(r.script.resref.to_string());
+                        }
+                        made.push((r.script, ncs));
+                    }
+                }
+                Err(_) => failed.push(r.script.resref.to_string()),
+            }
+            for w in &r.warnings {
+                self.log.warn(format!("{}: {}", r.script, w.message));
+            }
+        }
+        Compiling::Done { compiled, failed, made }
     }
 
     /// Writes `keys` as loose files, each with what goes with it (a
@@ -596,8 +856,111 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// What an import is called, in its window and the log: the file's name,
+/// the folder's (with a `/`), or how many.
+fn named(paths: &[PathBuf]) -> String {
+    let name = |p: &Path| {
+        p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())
+    };
+    match paths {
+        [one] if one.is_dir() => format!("{}/", name(one)),
+        [one] => name(one),
+        many if many.iter().any(|p| p.is_dir()) => format!("{} files and folders", many.len()),
+        many => format!("{} files", many.len()),
+    }
+}
+
+/// What files dropped onto the window become ([`dropped_to`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Dropped {
+    /// A module's `.mod` (or `.nwm`) alone: opened, as File › Open Module
+    /// opens it (asking first about unsaved work).
+    Module(PathBuf),
+    /// A hak alone: opened in the hak editor, as Tools › Open Hak opens it.
+    Hak(PathBuf),
+    /// An `.erf` alone: its resources imported, as File › Import… does.
+    Archive(PathBuf),
+    /// Files and folders: imported, as File › Import Files… does (an
+    /// archive among others is refused, and said why).
+    Files,
+    /// Files to import, and no module to import them into.
+    NoModule,
+}
+
+/// What files dropped onto the window become, with a module open or not.
+pub(crate) fn dropped_to(paths: &[PathBuf], module_open: bool) -> Dropped {
+    if let [one] = paths
+        && !one.is_dir()
+    {
+        let ext = one.extension().and_then(|e| e.to_str()).and_then(ResType::from_extension);
+        match ext {
+            Some(ResType::MOD | ResType::NWM) => return Dropped::Module(one.clone()),
+            Some(ResType::HAK) => return Dropped::Hak(one.clone()),
+            Some(ResType::ERF) if module_open => return Dropped::Archive(one.clone()),
+            _ => {}
+        }
+    }
+    if module_open { Dropped::Files } else { Dropped::NoModule }
+}
+
+/// Files dragged over the window: what dropping them does, said over it;
+/// and dropped, taken ([`Moonglow::take_dropped`]).
+fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
+    let (hovered, dropped) = ctx.input(|i| {
+        let hovered: Vec<Option<PathBuf>> =
+            i.raw.hovered_files.iter().map(|f| f.path.clone()).collect();
+        let dropped: Vec<PathBuf> = (i.raw.dropped_files.iter())
+            .map(|f| f.path().to_path_buf())
+            .filter(|p| !p.as_os_str().is_empty())
+            .collect();
+        (hovered, dropped)
+    });
+    if !dropped.is_empty() {
+        app.take_dropped(dropped);
+        return;
+    }
+    if hovered.is_empty() {
+        return;
+    }
+    // (Where the system doesn't say which files they are yet: as files.)
+    let paths: Vec<PathBuf> = hovered.iter().flatten().cloned().collect();
+    let module = app.ws.as_ref().map(|ws| {
+        let path = ws.module.location.as_ref().map(|l| l.path().to_path_buf());
+        path.and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "the module".to_string())
+    });
+    let said = match dropped_to(&paths, module.is_some()) {
+        Dropped::Module(p) => format!("Drop to open the module {}", named(&[p])),
+        Dropped::Hak(p) => format!("Drop to open {} in the hak editor", named(&[p])),
+        Dropped::Archive(p) => {
+            format!(
+                "Drop to import {}'s resources into {}",
+                named(&[p]),
+                module.unwrap_or_default()
+            )
+        }
+        Dropped::Files => format!(
+            "Drop to import into {} (the import window lists them first)",
+            module.unwrap_or_default()
+        ),
+        Dropped::NoModule => "Open a module first: dropped files are imported into it".into(),
+    };
+    let painter =
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drop-files")));
+    let room = ctx.content_rect();
+    let visuals = ctx.global_style().visuals.clone();
+    painter.rect_filled(room, 0.0, egui::Color32::from_black_alpha(150));
+    let font = egui::FontId::proportional(20.0);
+    let text = painter.layout_no_wrap(said, font, visuals.strong_text_color());
+    let plate = egui::Rect::from_center_size(room.center(), text.size() + egui::vec2(48.0, 32.0));
+    painter.rect_filled(plate, 8.0, visuals.window_fill);
+    painter.rect_stroke(plate, 8.0, visuals.selection.stroke, egui::StrokeKind::Inside);
+    painter.galley(plate.center() - text.size() / 2.0, text, visuals.strong_text_color());
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    drop_ui(app, &ctx);
     ask_ui(app, &ctx);
     if let (Some(draft), Some(ws)) = (&mut app.export, &app.ws) {
         let mut close = false;
@@ -783,8 +1146,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(draft) = &mut app.import {
         let mut close = false;
-        let name =
-            draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = draft.name.clone();
+        let auto_compile = app.settings.auto_compile;
         // Resized as a builder likes (GitHub issue 40: an archive of
         // hundreds of resources), the list of those the module has taking
         // the room.
@@ -792,10 +1155,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(440.0, 480.0))
             .min_size([320.0, 200.0]);
         window.show(&ctx, |ui| {
-            ui.label(format!("{name}: {} resources", draft.resources.len()));
+            let new = draft.resources.len() - draft.overwrites.len();
+            ui.label(format!("{name}: {} resources, {new} new", draft.resources.len()));
             match &draft.stamp {
-                Some(s) => ui.label(format!("Made from {s}")),
-                None => ui.weak("It doesn't say what it was made from."),
+                Some(s) => _ = ui.label(format!("Made from {s}")),
+                None if draft.archive => _ = ui.weak("It doesn't say what it was made from."),
+                None => {}
             };
             if let Some(w) = &draft.base_warning {
                 ui.colored_label(ui.visuals().warn_fg_color, format!("Careful: {w}."));
@@ -816,7 +1181,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     .max_height(height)
                     .show_rows(ui, row, draft.overwrites.len(), |ui, range| {
                         for (k, on) in &mut draft.overwrites[range] {
-                            ui.checkbox(on, k.to_string());
+                            let open = draft.unsaved.contains(k);
+                            let text = match open {
+                                true => format!("{k} (open, with unsaved changes)"),
+                                false => k.to_string(),
+                            };
+                            let r = ui.checkbox(on, text);
+                            if open {
+                                r.on_hover_text(format!("Open with unsaved changes: {UNSAVED}"));
+                            }
                         }
                     });
                 under_from = Some(ui.min_rect().bottom());
@@ -844,6 +1217,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.weak(format!("{n} of {} to overwrite", draft.overwrites.len()));
                 });
             }
+            if draft.unsaved.iter().any(|k| draft.overwrites.contains(&(*k, true))) {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!("Careful: one ticked is open with unsaved changes; {UNSAVED}."),
+                );
+            }
+            if !draft.compile.is_empty() {
+                ui.add_space(6.0);
+                let names = listed(&draft.compile);
+                if auto_compile {
+                    ui.label(format!(
+                        "Compiled as they are imported, with the scripts that include them (no \
+                         .ncs comes with them): {names}"
+                    ));
+                } else {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "Not compiled (no .ncs comes with them, and Options › Script Editor \
+                             › Automatically Compile Scripts on Save is off): {names}"
+                        ),
+                    );
+                }
+            }
+            for w in &draft.warnings {
+                ui.colored_label(ui.visuals().warn_fg_color, w);
+            }
+            if !draft.refused.is_empty() {
+                ui.add_space(6.0);
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!("Not imported ({}):", draft.refused.len()),
+                );
+                egui::ScrollArea::vertical().id_salt("refused").max_height(120.0).show(ui, |ui| {
+                    for r in &draft.refused {
+                        ui.label(r);
+                    }
+                });
+            }
             if !draft.missing.is_empty() {
                 ui.add_space(6.0);
                 ui.colored_label(ui.visuals().warn_fg_color, "Used but found nowhere:");
@@ -855,7 +1267,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button("Import").clicked() || crate::widgets::enter(ui) {
+                let any = !draft.resources.is_empty();
+                if ui.add_enabled(any, egui::Button::new("Import")).clicked()
+                    || (any && crate::widgets::enter(ui))
+                {
                     app.actions.push(Action::Import(draft.clone()));
                     close = true;
                 }
