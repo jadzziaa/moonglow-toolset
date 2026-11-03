@@ -119,6 +119,12 @@ struct Node {
     period: Option<(usize, f32)>,
     /// In an animation: its `animverts` (true) and `animtverts` lines.
     frames: Vec<(usize, bool)>,
+    /// Keywords the game does not read, with their lines and the one it
+    /// reads instead ([`keywords::NOT_READ`]): said at the node's end,
+    /// unless the node has that one too.
+    not_read: Vec<(usize, String, &'static str)>,
+    /// The keywords the game reads in place of others, that the node has.
+    read_instead: Vec<&'static str>,
 }
 
 struct Lint {
@@ -192,6 +198,7 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
                     if !in_anim {
                         check_node(&mut l, &n);
                     }
+                    not_read(&mut l, &n);
                     // The game divides an animated mesh's frames by the
                     // animation node's own `verts` and `tverts`: without
                     // them it crashes (nwn-mdl-spec E54).
@@ -474,7 +481,7 @@ fn node_line(
     }
     if in_anim {
         if !keywords::ANIM_NODE.contains(&key) {
-            unknown(l, at, &n.ty, w[0], key);
+            unknown(l, n, at, w[0], key);
         }
         return next;
     }
@@ -534,23 +541,23 @@ fn node_line(
         ),
         _ => {}
     }
-    unknown(l, at, &n.ty, w[0], key);
+    unknown(l, n, at, w[0], key);
     next
 }
 
 /// Reports a keyword the node's type does not use: a warning if no node
 /// uses it (a typo, most likely), a note if another type does (the game's
-/// own models carry dangly settings on skins, for one).
-fn unknown(l: &mut Lint, at: usize, ty: &str, word: &str, key: &str) {
+/// own models carry dangly settings on skins, for one). One the game
+/// doesn't read is noted at the node's end ([`not_read`]).
+fn unknown(l: &mut Lint, n: &mut Node, at: usize, word: &str, key: &str) {
     if let Some((_, instead)) = keywords::NOT_READ.iter().find(|(k, _)| *k == key) {
-        let message = if instead.is_empty() {
-            format!("{word}: the game does not read it")
-        } else {
-            format!("{word}: the game does not read it; it reads {instead}")
-        };
-        l.push(at, Severity::Info, message);
+        n.not_read.push((at, word.to_string(), instead));
         return;
     }
+    if let Some((_, instead)) = keywords::NOT_READ.iter().find(|(_, i)| *i == key) {
+        n.read_instead.push(instead);
+    }
+    let ty = n.ty.as_str();
     if keywords::known_in_node(ty, key) {
         return;
     }
@@ -558,6 +565,26 @@ fn unknown(l: &mut Lint, at: usize, ty: &str, word: &str, key: &str) {
         l.push(at, Severity::Info, format!("{word} does nothing on a {ty} node"));
     } else {
         l.push(at, Severity::Warning, format!("unknown keyword {word}: the game skips it"));
+    }
+}
+
+/// Notes the keywords of a finished node that the game doesn't read: not
+/// one whose keyword the game reads in its place the node has as well, as
+/// Moonglow's decompiler writes `setfillumcolor` (for nwnmdlcomp) and then
+/// `selfillumcolor` (Moonglow Viewer's report: every decompiled model with
+/// self-illumination opened with a column of notes on the decompiler's
+/// own text).
+fn not_read(l: &mut Lint, n: &Node) {
+    for (at, word, instead) in &n.not_read {
+        if instead.is_empty() {
+            l.push(*at, Severity::Info, format!("{word}: the game does not read it"));
+        } else if !n.read_instead.contains(instead) {
+            l.push(
+                *at,
+                Severity::Info,
+                format!("{word}: the game does not read it; it reads {instead}"),
+            );
+        }
     }
 }
 
@@ -764,6 +791,30 @@ donemodel box\n";
         assert_eq!(said("it reads selfillumcolor"), Some((7, Severity::Info)), "{found:?}");
         assert_eq!(said("it reads ambientonly"), Some((11, Severity::Info)), "{found:?}");
         assert_eq!(said("lower case only"), Some((10, Severity::Warning)), "{found:?}");
+        // With the keyword the game reads beside it in the node (before or
+        // after), as the decompiler writes the pair: nothing to say.
+        for pair in [
+            "setfillumcolor 1 1 1\n  selfillumcolor 1 1 1",
+            "selfillumcolor 1 1 1\n  setfillumcolor 1 1 1",
+        ] {
+            let text = text.replace("setfillumcolor 1 1 1", pair);
+            let found = messages(&text);
+            assert!(!found.iter().any(|(_, _, m)| m.contains("selfillumcolor")), "{found:?}");
+            assert!(found.iter().any(|(_, _, m)| m.contains("it reads ambientonly")), "{found:?}");
+        }
+        // Moonglow's decompiler writes the pair (for nwnmdlcomp and for the
+        // game), at rest and in an animation: its own text draws no note.
+        let model = crate::Model::read(
+            GOOD.replace("  bitmap tex", "  bitmap tex\n  selfillumcolor 0.5 0.5 0.5").as_bytes(),
+        )
+        .unwrap();
+        let decompiled = crate::ascii_write::to_ascii(&model, &Default::default());
+        assert!(decompiled.contains("setfillumcolor") && decompiled.contains("selfillumcolor"));
+        let found = messages(&decompiled);
+        assert!(!found.iter().any(|(_, _, m)| m.contains("does not read")), "{found:?}");
+        // The pair in another node is no excuse.
+        let apart = text.replace("  ambient_only 1", "  ambient_only 1\n  selfillumcolor 1 1 1");
+        assert!(messages(&apart).iter().any(|(_, _, m)| m.contains("it reads selfillumcolor")));
     }
 
     #[test]

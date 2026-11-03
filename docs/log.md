@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-02
+* **Fix**: The model linter (`mg_mdl::lint`, Moonglow Viewer's `mgv lint` and its notes) no longer notes a `setfillumcolor` whose node also has `selfillumcolor`, the pair Moonglow's decompiler writes (for nwnmdlcomp and for the game): every decompiled model with self-illumination opened with a column of notes on the decompiler's own text (Moonglow Viewer's report). A lone `setfillumcolor` is still noted; `lint::tests::keywords_the_game_does_not_read` lints a decompiled model.
 * **Update**: [Palettes grouped more than one way](palette-groupings-proposal.md): the owner's answers (A; under every group; rules and a generated list; Other shown; nested by default; every blueprint type) and the project file's keys as settled.
 * **Creation**: [Palettes grouped more than one way](palette-groupings-proposal.md), a design for the owner's ask (TDoD's placeables by theme and also by what each one is, nothing copied): Moonglow's own groupings from rules in the project file (recommended), a second branch in a standard palette, or names and the search; measured on TDoD's 13,212 placeables (ten word rules sort 44%); six questions for the owner. Nothing built.
 * **Update**: [Areas](manual/04-areas.md): Page Up and Page Down (Position › Up to the Next Surface, Down to the Next Surface; Options › Keyboard) move the selection to the next flat surface above or below the first object selected, other placeables' and doors' tops by their models too (a builder's ask: fruit onto a food stand's counter); the others selected move with it.
