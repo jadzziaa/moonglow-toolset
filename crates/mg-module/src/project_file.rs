@@ -33,6 +33,15 @@
 //! map = "tlk/strings.strrefs.json"    # mg tlk-alloc's map: its lines are never taken
 //! [talk.builders]                     # a builder's own part, by their code
 //! ab = "100000-109999"
+//!
+//! [palette.kind]                      # a grouping of the palettes: Group by's "Kind"
+//! types = ["utp"]                     # the palettes it is offered in (left out: all)
+//! words_of = '^.*?:\s*(.*?)\s*(\(|$)' # the part of a name its words come from
+//! from = "palette_kinds.toml"         # lists a tool writes ("Tables" = ["dd_tbl01"])
+//! [[palette.kind.group]]
+//! name = "Tables"
+//! names = ["table", "desk"]           # whole words of a name, case and accents ignored
+//! resrefs = ["dd_*_tbl*"]             # or ResRef patterns
 //! ```
 //!
 //! And in `.moonglow/user.toml`, the builder's own:
@@ -420,7 +429,7 @@ pub struct UploadCommand {
 
 /// A command's name in the menu, from its name in the file:
 /// `run_tests` is Run Tests.
-fn label_of(name: &str) -> String {
+pub(crate) fn label_of(name: &str) -> String {
     let words = name.replace(['_', '-'], " ");
     let mut c = words.chars();
     c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
@@ -670,6 +679,9 @@ pub struct ProjectFile {
     /// plugins, their settings' values and what the builder allowed
     /// ([`crate::project_plugins`]).
     pub plugins: crate::project_plugins::PluginRules,
+    /// `[palette.*]`: the palettes' groupings of Moonglow's own, with
+    /// their `from` files' lists ([`crate::palette_groups`]).
+    pub palette: std::sync::Arc<crate::palette_groups::Groupings>,
     /// What was not understood, which leaves the rest as it reads:
     /// `moonglow.toml:12: "colour" is not a key of [store]`.
     pub warnings: Vec<String>,
@@ -763,7 +775,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn patterns(&mut self, (key, value): Entry) -> Option<Patterns> {
+    pub(crate) fn patterns(&mut self, (key, value): Entry) -> Option<Patterns> {
         let DeValue::Array(items) = value.get_ref() else {
             let message = format!("{} is to be a list of names: [\"A_*\", \"B\"]", key.get_ref());
             self.warn(value.span().start, message);
@@ -963,6 +975,11 @@ impl ProjectFile {
             p.stamps[3] = stamp(&table);
             p.read_claims(root, &table);
         }
+        // The palettes' groupings' lists, each a file of its own beside
+        // the team's (their stamps after the others').
+        let dir = path.parent().unwrap_or(root).to_path_buf();
+        p.stamps.extend(p.palette.from_paths(&dir).iter().map(|f| stamp(f)));
+        std::sync::Arc::make_mut(&mut p.palette).read_lists(&dir, &mut p.warnings);
         // The team's described variables, a file of their own.
         match std::fs::read(&described) {
             Ok(bytes) => {
@@ -1251,6 +1268,9 @@ impl ProjectFile {
                 }
                 ("claims", false) => self.read_claim_rules(&mut r, entry),
                 ("talk", false) => self.read_talk_rules(&mut r, entry),
+                ("palette", false) => {
+                    std::sync::Arc::make_mut(&mut self.palette).read(&mut r, entry)
+                }
                 ("commands", false) => {
                     for e in r.section(entry) {
                         if let Some(c) = r.command(e) {
@@ -1314,7 +1334,7 @@ impl ProjectFile {
                 }
                 (
                     "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands"
-                    | "pack" | "talk",
+                    | "pack" | "talk" | "palette",
                     true,
                 ) => r.warn(
                     key.span().start,
@@ -1543,12 +1563,15 @@ impl ProjectFile {
     /// were read.
     pub fn changed(&self) -> bool {
         let Some(place) = &self.place else { return false };
-        let now = vec![
+        let mut now = vec![
             stamp(&place.team()),
             place.user().as_deref().and_then(stamp),
             stamp(&place.variables()),
             self.claims.path_in(&place.root).and_then(|t| stamp(&t)),
         ];
+        let team = place.team();
+        let dir = team.parent().unwrap_or(&place.root);
+        now.extend(self.palette.from_paths(dir).iter().map(|f| stamp(f)));
         now != self.stamps
     }
 

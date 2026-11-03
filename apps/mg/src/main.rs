@@ -991,6 +991,14 @@ enum Cmd {
         /// for any value; repeatable.
         #[arg(long = "where")]
         fields: Vec<String>,
+        /// The blueprints of a palette grouping's group (the project
+        /// file's `[palette.*]`): `kind/Tables`, `kind/Other` for those no
+        /// group takes; the grouping by its id or its title. Those of the
+        /// standard palettes (the game's and the haks') and the module's
+        /// custom ones it is offered in; --type, --name and --resref narrow
+        /// them.
+        #[arg(long = "palette-group", conflicts_with_all = ["tag", "area", "placed", "fields"])]
+        palette_group: Option<String>,
     },
     /// Find a module's blueprints, placed objects, areas and the rest by
     /// what they hold: variables, item properties, classes, feats, spells,
@@ -4063,7 +4071,26 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("{}×{} pixels", image.width, image.height));
             out
         }
-        Cmd::Find { module, types, tag, name, resref, area, placed, blueprints, fields } => {
+        Cmd::Find { module, types, name, resref, palette_group: Some(spec), .. } => {
+            let m = crate::open_module(module)?;
+            let types = parse_types(
+                types,
+                |t| mg_rules::ObjectKind::from_restype(t).is_some(),
+                "a blueprint type (utc, utp, …)",
+            )?;
+            let mut notes = Output::default();
+            let game = game_data_if_any(cli, &m, &mut notes).context(
+                "a palette group's blueprints are read from the palettes, with the game's data",
+            )?;
+            let mut out =
+                palette_group_found(&m, &game, spec, &types, name.as_deref(), resref.as_deref())?;
+            out.notes.splice(0..0, notes.notes);
+            project_file_notes(&m, &mut out);
+            out
+        }
+        Cmd::Find {
+            module, types, tag, name, resref, area, placed, blueprints, fields, ..
+        } => {
             let m = crate::open_module(module)?;
             let types = parse_types(
                 types,
@@ -4508,6 +4535,108 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
     })
 }
 
+/// `mg find --palette-group GROUPING/GROUP`: the group's blueprints in
+/// the standard palettes (the game's and the haks') and the module's
+/// custom ones the grouping is offered in, as the palette pane's Group by
+/// shows them, each with its palette, Tag, name and category.
+fn palette_group_found(
+    m: &Module,
+    game: &mg_rules::GameData,
+    spec: &str,
+    types: &[ResType],
+    name: Option<&str>,
+    resref: Option<&str>,
+) -> Result<Output> {
+    use mg_module::palette::{BlueprintKind, Palette, PaletteName};
+    use mg_module::palette_groups::{OTHER, members};
+    let groupings = &m.project_file.palette;
+    let all = || -> String {
+        let all: Vec<String> =
+            groupings.list.iter().map(|g| format!("{} ({})", g.id, g.title)).collect();
+        match all.is_empty() {
+            true => "the project file has none ([palette.*] in moonglow.toml)".into(),
+            false => format!("the project's are {}", all.join(", ")),
+        }
+    };
+    let (which, group) = spec.split_once('/').with_context(|| {
+        format!("--palette-group {spec}: a grouping and one of its groups, kind/Tables")
+    })?;
+    let Some(g) = groupings.find(which) else {
+        bail!("--palette-group {spec}: there is no grouping {which:?}: {}", all());
+    };
+    let at = match group.trim() {
+        o if o.eq_ignore_ascii_case(OTHER) => None,
+        named => Some(g.group(named).with_context(|| {
+            let names: Vec<&str> = g.groups.iter().map(|x| x.name.as_str()).collect();
+            format!(
+                "--palette-group {spec}: {} has no group {named:?}: its groups are {}, and {OTHER}",
+                g.title,
+                names.join(", ")
+            )
+        })?),
+    };
+    let text = |n: &PaletteName| n.text(game);
+    let tag = |key: &ResKey| -> String {
+        let data =
+            m.get(key).map(<[u8]>::to_vec).or_else(|| game.resman.get(key).ok().map(Into::into));
+        data.and_then(|d| Gff::read(&d).ok())
+            .and_then(|g| {
+                g.root.string("Tag").map(|t| mg_module::palette::text_of(t, game.codepage()))
+            })
+            .unwrap_or_default()
+    };
+    let mut json = Vec::new();
+    let mut out = Output::default();
+    for kind in BlueprintKind::ALL {
+        let ext = kind.restype().extension().unwrap_or_default();
+        if !g.offered(kind) || (!types.is_empty() && !types.contains(&kind.restype())) {
+            continue;
+        }
+        if at.is_some_and(|i| !g.group_offered(&g.groups[i], kind)) {
+            continue;
+        }
+        let standard =
+            (game.resman.get_named(&format!("{}palstd", kind.name()), ResType::ITP).ok())
+                .and_then(|d| Gff::read(&d).ok());
+        let custom = m.gff(&kind.custom_key()).and_then(Result::ok);
+        for (source, palette) in [("standard", standard), ("custom", custom)] {
+            let Some(palette) = palette else { continue };
+            for b in members(&Palette::read(&palette), kind, g, at, &text) {
+                let folded = mg_core::text::fold(&b.name);
+                let named = name.is_none_or(|n| {
+                    n.split_whitespace().all(|w| folded.contains(&mg_core::text::fold(w)))
+                });
+                let refd = resref.is_none_or(|r| mg_module::query::glob(r, &b.resref.to_string()));
+                if !named || !refd {
+                    continue;
+                }
+                let key = ResKey::new(b.resref, kind.restype());
+                let t = tag(&key);
+                let r = b.resref.to_lowercase().to_string();
+                out.line(format!("{source}\t{ext}\t{r}\t{t}\t{}\t{}", b.name, b.category));
+                json.push(serde_json::json!({
+                    "kind": "blueprint",
+                    "type": ext,
+                    "resref": r,
+                    "tag": t,
+                    "name": b.name,
+                    "palette": source,
+                    "category": b.category,
+                }));
+            }
+        }
+    }
+    let group_name = at.map_or(OTHER, |i| g.groups[i].name.as_str());
+    out.note(format!("{} found in {} › {group_name}", json.len(), g.title));
+    out.json = serde_json::json!({
+        "grouping": g.id,
+        "title": g.title,
+        "group": group_name,
+        "found": json,
+    });
+    Ok(out)
+}
+
 /// The game's data for a module ([`Module::game_data`]: the game, the
 /// module's haks and the module, its custom talk table), what it lacks
 /// said as warnings. Stops where the game, the module's hak list or one of
@@ -4756,9 +4885,9 @@ fn verify(
     } else {
         times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
     };
-    let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
-    let (base, custom_table) = times.time("the talk tables", || {
-        let base = std::fs::read(gi.talk_table()).ok().and_then(count).unwrap_or(0);
+    let read_tlk = |data: Vec<u8>| mg_tlk::Tlk::read(&data).ok();
+    let (base_table, custom_table) = times.time("the talk tables", || {
+        let base = std::fs::read(gi.talk_table()).ok().and_then(read_tlk);
         let language = mg_core::Language::from_short_code(&gi.language);
         let custom = match mg_module::talk::of_module(&m, &rm, &gi.tlk_dirs(), language) {
             mg_module::talk::Custom::Found { found, .. } => found.tlk().ok(),
@@ -4767,6 +4896,7 @@ fn verify(
         (base, custom)
     });
     let custom = custom_table.as_ref().map(|t| t.entries.len());
+    let base = base_table.as_ref().map_or(0, |t| t.entries.len());
     let tlk = mg_module::doctor::TalkTables { base, custom };
     // (The shader programs that compiled, and what was found of the haks'
     // models, kept for the next run, where the window keeps its own.)
@@ -4774,6 +4904,20 @@ fn verify(
     let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // (The lines typed text takes, held to the table.)
     findings.extend(mg_module::doctor::talk_range(&m, custom_table.as_ref(), skip));
+    // (The palettes' groupings, held to the palettes: their names as the
+    // palettes show them, in the game's letters.)
+    let game_codepage = mg_rules::text_codepage(&rm, game_language(gi));
+    let palette_name = |n: &mg_module::palette::PaletteName| match n {
+        mg_module::palette::PaletteName::StrRef(r) => {
+            let r = mg_core::StrRef(*r);
+            let table = if r.is_custom() { custom_table.as_ref() } else { base_table.as_ref() };
+            table.and_then(|t| t.text_in(r, game_codepage)).unwrap_or_default()
+        }
+        mg_module::palette::PaletteName::Text(t) => mg_module::palette::text_of(t, game_codepage),
+    };
+    findings.extend(times.time("palette groupings", || {
+        mg_module::doctor::palette_groups(&m, &rm, &palette_name, skip)
+    }));
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
     let mut declared = Vec::new();
