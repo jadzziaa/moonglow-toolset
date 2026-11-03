@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:38:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:45:35Z }
 ---
 
 # Conversations
@@ -138,6 +138,31 @@ replies whose conditions pass, numbered.
   Wizard…** writes one from a few choices.
 - **Actions Taken**: the script that runs when the line is spoken, with
   its parameters; also from the Script Wizard.
+- **Parameter sets**, on both of those tabs beside **Parameters**, save
+  typing where the same scripts are used with the same parameters time
+  and again. **Save Set…** keeps the script and its parameters under a
+  name (typed in place; Enter saves it); **Save to File…** saves them as
+  a set file (`.params.json`) wherever you choose, to share or to keep
+  beside a module. **Add Set** adds a set to the line (or link) shown: a
+  saved one, chosen by its name (with the pointer resting on it, its
+  script and parameters), or a file's (**Add from File…**, one or
+  several at once). Its parameters are added to those there: one of the
+  same name takes the set's value, and the others stay. A set saved
+  with a script puts it in the Script field; one saved without leaves
+  the field as it is. One **Undo** takes back the whole set, script and
+  parameters. **Manage Sets…** and **Open Sets Folder** are as the
+  [Variables window's](05-blueprints.md)
+  are: in the Parameter Sets window a saved set is renamed or deleted
+  (**Undo Delete** puts the last one back). Saved sets are small JSON
+  files, `NAME.params.json`, in the `parameter-sets` folder of
+  Moonglow's data folder (see [where Moonglow keeps its
+  files](13-troubleshooting.md#where-moonglow-keeps-its-files)), to copy
+  in, share or write by hand: `{ "script": "ttc_c_skillcheck",
+  "parameters": [ { "name": "CHECK", "value": "12" }, { "name": "DC",
+  "value": "1" } ] }`. `script` may be left out; values are text, as
+  the game's parameters are (a number written without quotes is read as
+  its text). A file there that isn't a set is listed as "NAME (not a
+  set)", with what is wrong with it as the pointer rests on it.
 - **Other Actions**: the animation the speaker plays, the sound it says
   (**Play** to hear it), and the journal entry it sets (a quest and an
   entry).
