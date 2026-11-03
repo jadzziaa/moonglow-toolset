@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T22:05:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
 ---
 
 # Areas
@@ -235,7 +235,10 @@ palette's Gallery is 🖼, the Grid ⊞.
   for the two to choose from: **Ground Walkmesh** and **Object
   Walkmeshes**, where placeables (their `.pwk`, orange) and doors (their
   `.dwk`, blue, for the state they're placed in: closed or open) keep
-  creatures out. The selection's are brighter.
+  creatures out. The selection's are brighter. They stand where the
+  object stands, turned by its Bearing, and not by its visual
+  transform: the game doesn't scale, turn, tilt or move a walkmesh with
+  its model (see Adjust Location below).
 - **Select Tiles** (F10): select tiles rather than objects (Aurora's
   Select Terrain); the Tiles palette has it too, at the top of its tools.
   Without the toolbar: a double click on the ground selects its tile
@@ -353,7 +356,8 @@ shows in degrees, and **Turn** snaps it. This is the rotation of EE's
 visual transform (the one **Adjust Location…** has as numbers): the red
 ring sets its **Y Rotation** and the green one its **Z Rotation**, which
 is how the game reads them (see Adjust Location below). It is the
-model that tilts, not the object: what it blocks stays as it was.
+model that tilts, not the object: what it blocks (its walkmesh) stays
+as it was.
 Creatures, items, doors and placeables that aren't **Static** have the
 rings; the game draws a static placeable without its visual transform,
 and its right-click menu has **Make Dynamic** to clear Static. A dynamic one's
@@ -374,7 +378,8 @@ from its feet, so it stays on the ground, and every way alike, as the
 game draws it: the game scales a model by one number (`ScaleX`), the
 same every way, whatever its file's `ScaleY` and `ScaleZ` say, and
 Adjust Location's Scale is that number. Like the
-tilt, it is the model that changes, for the objects a tilt works on;
+tilt, it is the model that changes, not what it blocks, for the objects
+a tilt works on;
 several selected objects each scale about their own feet. Escape drops
 the drag.
 
@@ -506,7 +511,13 @@ Aurora):
   set by hand or by another tool, keeps them until Scale is changed,
   and the window says so), and the offsets move it along the
   object's own axes, turned by its Bearing but not by the rotations.
-  The area view draws all of this as the game client does. A static
+  The area view draws all of this as the game client does. None of it
+  changes what the object blocks: the game keeps a placeable's or a
+  door's walkmesh where the object's position and Bearing put it, at
+  its own size, whatever the visual transform (a static placeable's,
+  and one a script sets, alike), and **Object Walkmeshes** draws it
+  there. A placeable scaled up blocks no more than it did; for one that
+  blocks more, its model needs a larger walkmesh. A static
   placeable is offered none, as in Aurora: the game draws a static
   placeable without its visual transform, whatever its file has (the
   server keeps it, but players don't see it). The window says so;

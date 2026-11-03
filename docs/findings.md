@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:15:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1980,6 +1980,31 @@ JSON, packed by neverwinter.nim's `nwn_gff`), the fields are the same.
 - **Wiki:** "Placeables and the Toolset" says transforms are for "a
   usable placeable or a creature"; the engine applies them to placeables
   that aren't Useable as well, and to doors and items.
+- **Wiki:** missing.
+
+### A visual transform doesn't move a walkmesh
+
+A placeable's walkmesh (`.pwk`) and a door's (`.dwk`) block creatures
+where the object's position and Bearing put them, at their own size,
+whatever the object's visual transform: the model grows, turns, tilts
+and moves, and what it blocks stays. In the server, creatures' paths
+(each walks a lane straight across, and goes round a walkmesh on it)
+went straight over where a 4 m square scaled 3 times would be, on a
+dynamic placeable, a static one and one a script scaled
+(`SetObjectVisualTransform`), and round a 12 m square of the same size
+unscaled; over the model's spot with TranslateX 4 and round the square
+at the placeable; and round a square whose node is 6 m north, where it
+was, with X Rotation 90 (about the upright axis) and Y Rotation 90 (a
+tilt), over where a turned one would be. A walker meeting a locked door
+stops at its face; one 0.95 m inside a Scale 3 door's scaled end walks
+on. The server has every one of the transforms (`GetObjectVisualTransform`
+returns what the file or the script gave). So a placeable scaled up to
+block more needs a model with a larger walkmesh.
+
+- **Checked:** engine, `engine_placeable_walkmesh.rs`
+  (`walkmeshes_by_visual_transforms`).
+- **Moonglow:** `crates/mg-area/src/walk.rs` (`ObjectWalkmeshes::faces`:
+  the area view's Object Walkmeshes).
 - **Wiki:** missing.
 
 ### EE "x" twin part fields
