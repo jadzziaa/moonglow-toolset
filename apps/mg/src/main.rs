@@ -676,13 +676,30 @@ enum Cmd {
         #[arg(long)]
         strings: bool,
     },
-    /// Write a conversation as plain text, CSV, Twine (Twee) or Ink, by the
-    /// output's extension (.txt, .csv, .twee, .ink).
+    /// Write conversations as plain text, CSV, Twine (Twee) or Ink: one to
+    /// a file, by its extension (.txt, .csv, .twee, .ink: `mg
+    /// dialog-export MODULE greet.dlg greet.ink`); or several into a folder
+    /// with --to, each as NAME.ink (or .twee, .txt, .csv) after its name
+    /// (`mg dialog-export MODULE greet.dlg guard.dlg --to stories --format
+    /// ink`; --all for every one), as the window's Export writes them.
     DialogExport {
         module: PathBuf,
-        /// The conversation, `name.dlg`.
-        dialog: String,
-        output: PathBuf,
+        /// The conversations, `name.dlg`. Without --to: one, then the file
+        /// to write it to.
+        #[arg(value_name = "NAME.dlg")]
+        names: Vec<String>,
+        /// The folder to write each conversation into (made if missing).
+        #[arg(long, value_name = "FOLDER")]
+        to: Option<PathBuf>,
+        /// With --to: what to write them as (ink, twine, text, csv).
+        #[arg(long, requires = "to", value_parser = ["ink", "twine", "text", "csv"])]
+        format: Option<String>,
+        /// With --to: every conversation of the module.
+        #[arg(long, requires = "to")]
+        all: bool,
+        /// With --to: write over files of the same names in the folder.
+        #[arg(long, requires = "to")]
+        force: bool,
         /// A CSV's column for a language to translate into (`fr`, `de`,
         /// `it`, `es`, `pl`), though no line has text in it yet; more than
         /// once for several. The languages lines have text in have theirs.
@@ -3235,21 +3252,44 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::DialogExport { module, dialog, output, languages } => {
+        Cmd::DialogExport { module, names, to, format, all, force, languages } => {
             use mg_module::dialog_io::Format;
-            let m = crate::open_module(module)?;
-            let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
-            let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
-            let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
             let languages = (languages.iter())
                 .map(|c| {
                     mg_core::Language::from_short_code(c)
                         .with_context(|| format!("{c:?} isn't a language (fr, de, it, es, pl)"))
                 })
                 .collect::<Result<Vec<_>>>()?;
-            if !languages.is_empty() && f != Format::Csv {
-                bail!("--language is for a CSV: Twine and Ink carry the English text");
+            let csv_only = |f: Format| {
+                if !languages.is_empty() && f != Format::Csv {
+                    bail!("--language is for a CSV: Twine and Ink carry the English text");
+                }
+                Ok(())
+            };
+            if let Some(dir) = to {
+                let f = match format.as_deref() {
+                    Some("ink") => Format::Ink,
+                    Some("twine") => Format::Twine,
+                    Some("text") => Format::Text,
+                    Some("csv") => Format::Csv,
+                    _ => bail!("--to needs --format: ink, twine, text or csv"),
+                };
+                csv_only(f)?;
+                let m = crate::open_module(module)?;
+                return dialog_export_into(cli, &m, names, *all, dir, f, *force, &languages);
             }
+            let [dialog, output] = names.as_slice() else {
+                bail!(
+                    "give one conversation and the file to write (name.dlg OUT.ink), or \
+                     conversations and --to FOLDER --format FORMAT"
+                );
+            };
+            let output = Path::new(output);
+            let m = crate::open_module(module)?;
+            let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
+            let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
+            let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
+            csv_only(f)?;
             // (Its lines as the module's own table reads them, if any.)
             let title = key.resref.to_string();
             let text = f.write_in(&g, &title, module_codepage(cli, &m), &languages);
@@ -5233,6 +5273,95 @@ fn model_files(
     if !missing.is_empty() {
         out.note(format!("found nowhere (the game draws it without them): {}", missing.join(", ")));
     }
+    Ok(out)
+}
+
+/// `mg dialog-export --to`: each conversation named (every one, with
+/// `all`) written into `dir` as `NAME.ext` in `format`, as the window's
+/// Export as Ink… and the rest write them. Files of those names in the
+/// folder are written over only with `force`; one that can't be written
+/// (not in the module, not readable) is named with why, the rest are
+/// written, and the command fails.
+#[allow(clippy::too_many_arguments)]
+fn dialog_export_into(
+    cli: &Cli,
+    m: &Module,
+    names: &[String],
+    all: bool,
+    dir: &Path,
+    format: mg_module::dialog_io::Format,
+    force: bool,
+    languages: &[mg_core::Language],
+) -> Result<Output> {
+    let mut keys: Vec<ResKey> = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
+    if all {
+        keys.extend(m.keys_of(ResType::DLG).copied());
+        keys.sort();
+    }
+    for name in names {
+        match ResKey::from_filename(name).filter(|k| k.restype == ResType::DLG) {
+            Some(k) if !keys.contains(&k) => keys.push(k),
+            Some(_) => {}
+            None => failed.push((name.clone(), "give a conversation as name.dlg".into())),
+        }
+    }
+    if keys.is_empty() && failed.is_empty() {
+        bail!("name the conversations (name.dlg), or pass --all for every one");
+    }
+    let file = |k: &ResKey| format!("{}.{}", k.resref, format.extensions()[0]);
+    let existing: Vec<String> =
+        keys.iter().map(file).filter(|name| dir.join(name).exists()).collect();
+    if !existing.is_empty() && !force {
+        bail!(
+            "{} has {} of these files already ({}): --force writes over them",
+            dir.display(),
+            existing.len(),
+            existing.join(", ")
+        );
+    }
+    std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
+    let codepage = module_codepage(cli, m);
+    let mut out = Output::default();
+    let mut written = Vec::new();
+    for key in &keys {
+        let g = match m.gff(key) {
+            None => Err(format!("{key} is not in the module")),
+            Some(Err(e)) => Err(e.to_string()),
+            Some(Ok(g)) => Ok(g),
+        };
+        let path = dir.join(file(key));
+        let wrote = g.and_then(|g| {
+            let text = format.write_in(&g, &key.resref.to_string(), codepage, languages);
+            std::fs::write(&path, text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))
+        });
+        match wrote {
+            Ok(()) => {
+                out.line(format!("{key}\t{}", path_text(&path)));
+                written.push(serde_json::json!({ "conversation": key.to_string(), "file": path_text(&path) }));
+            }
+            Err(e) => failed.push((key.to_string(), e)),
+        }
+    }
+    for (what, why) in &failed {
+        out.note(format!("error: {what}: {why}"));
+    }
+    out.note(format!(
+        "{} conversations written as {} to {}",
+        written.len(),
+        format.name(),
+        dir.display()
+    ));
+    out.failed = !failed.is_empty();
+    out.json = serde_json::json!({
+        "folder": path_text(dir),
+        "format": format.name(),
+        "written": written,
+        "failed": failed
+            .iter()
+            .map(|(what, why)| serde_json::json!({ "conversation": what, "error": why }))
+            .collect::<Vec<_>>(),
+    });
     Ok(out)
 }
 

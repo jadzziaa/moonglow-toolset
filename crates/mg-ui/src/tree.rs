@@ -797,6 +797,7 @@ pub(crate) fn listed(app: &Moonglow, key: &ResKey) -> bool {
 /// as the one in front (Aurora marks it so, and its tree follows nothing
 /// else).
 pub(crate) fn reveal_tab(app: &mut Moonglow, tab: &Tab) {
+    app.tree_went = Some(tab.clone());
     // Module Properties: its row, at the top.
     if *tab == Tab::ModuleProperties {
         if !app.settings.tree_stays {
@@ -832,7 +833,11 @@ pub(crate) fn module_row() -> ResKey {
 /// (opened, or reached by the keys). One come to the front because a tab
 /// was closed was not chosen: the tree stays where it is (it went to the
 /// top, to Module Properties' row, as an area or a Properties window
-/// opened from it closed: a builder's report).
+/// opened from it closed: a builder's report). Nor was the pane given the
+/// focus whose tab the tree went to last: a tab opened comes to the front
+/// without the focus, and the first click in it chose nothing new (it
+/// set the rows chosen in the tree since, several to delete together,
+/// back to the tab's one).
 pub(crate) fn follow_front_tab(app: &mut Moonglow) {
     let front = |leaf: &egui_dock::LeafNode<Tab>| leaf.tabs.get(leaf.active.0).cloned();
     let fronts: Vec<Tab> = (app.dock.iter_leaves())
@@ -847,7 +852,7 @@ pub(crate) fn follow_front_tab(app: &mut Moonglow) {
     let (was_focused, was, were_open) = std::mem::take(&mut app.tree_front);
     let chosen = if open < were_open {
         None
-    } else if focused.is_some() && focused != was_focused {
+    } else if focused.is_some() && focused != was_focused && focused != app.tree_went {
         focused.clone()
     } else {
         fronts.iter().find(|t| !was.contains(t)).cloned()
@@ -1524,6 +1529,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     scratch: true,
                                 });
                             }
+                            story_items(ui, &[k], &mut app.actions);
                         });
                         // The plugins' commands for it (an area, a
                         // blueprint), before an area's Properties.
@@ -2007,12 +2013,6 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     }
 }
 
-/// The right-click menu of a row among several resources chosen in the
-/// module tree (`keys`): what is done to them together. Edit Together for
-/// blueprints of one kind or for areas (Properties of several), Export…,
-/// Export as Files…, Copy to Scratch Folder; for areas, Make Placeables
-/// Static and Dynamic; the plugins' commands for them all (the one chosen
-/// returned).
 /// The Delete key on a resource's row: Delete… of those chosen, when it is
 /// one of several chosen, else of it alone.
 fn delete_asked(selected: &std::collections::BTreeSet<ResKey>, k: ResKey) -> Action {
@@ -2022,6 +2022,37 @@ fn delete_asked(selected: &std::collections::BTreeSet<ResKey>, k: ResKey) -> Act
     }
 }
 
+/// The Export menu's items for conversations (`keys`, one or several
+/// chosen, when each is one): Export as Ink…, Twine…, Text… and CSV…, each
+/// a file of its own in a folder asked for, as the conversation editor's
+/// Export writes one (`dialog_export`).
+fn story_items(ui: &mut Ui, keys: &[ResKey], actions: &mut Vec<Action>) {
+    if !crate::dialog_export::all_conversations(keys) {
+        return;
+    }
+    ui.separator();
+    let each = if keys.len() == 1 { "It" } else { "Each" };
+    for (format, word) in crate::dialog_export::FORMATS {
+        let ext = format.extensions()[0];
+        let tip = format!(
+            "{each} as {} into a folder, as the conversation editor's Export writes it \
+             (NAME.{ext})",
+            format.name()
+        );
+        if ui.button(format!("Export as {word}…")).on_hover_text(tip).clicked() {
+            actions.push(Action::ExportConversations { keys: keys.to_vec(), format });
+            ui.close();
+        }
+    }
+}
+
+/// The right-click menu of a row among several resources chosen in the
+/// module tree (`keys`): what is done to them together. Edit Together for
+/// blueprints of one kind or for areas (Properties of several); Export…,
+/// Export as Files…, Copy to Scratch Folder (and, for conversations,
+/// Export as Ink…, Twine…, Text… and CSV…); Delete…; for areas, Make
+/// Placeables Static and Dynamic; the plugins' commands for them all (the
+/// one chosen returned).
 fn several_menu(
     ui: &mut Ui,
     keys: &[ResKey],
@@ -2067,6 +2098,7 @@ fn several_menu(
             actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
             ui.close();
         }
+        story_items(ui, keys, actions);
     });
     let delete = "Delete them from the module, as one step (asked first, with what names them)";
     if ui.button("Delete…").on_hover_text(delete).clicked() {

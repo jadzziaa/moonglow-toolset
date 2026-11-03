@@ -25,6 +25,7 @@ pub mod color_button;
 pub mod commands;
 pub mod copy_as;
 pub mod creature_wizard;
+pub mod dialog_export;
 pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
@@ -197,6 +198,13 @@ pub enum Action {
         keys: Vec<ResKey>,
         dependencies: bool,
         scratch: bool,
+    },
+    /// Writes conversations into a folder asked for, each as a file of its
+    /// own in `format` (`NAME.ink`), as the conversation editor's Export
+    /// writes one: the module tree's Export as Ink… and the rest.
+    ExportConversations {
+        keys: Vec<ResKey>,
+        format: mg_module::dialog_io::Format,
     },
     /// Export Model Files… of an area: what the game draws it with, into a
     /// folder asked for (`model_view::export_area_files`).
@@ -605,6 +613,9 @@ pub struct Moonglow {
     pub export: Option<ExportDraft>,
     /// An Export to an archive that is there, asking whether to append.
     pub export_ask: Option<transfer::ExportAsk>,
+    /// Conversations exported from the module tree into a folder that has
+    /// files of their names, asking whether to overwrite them.
+    pub dialog_export_ask: Option<dialog_export::Ask>,
     pub browser: Browser,
     pub loc_edit: Option<widgets::LocStringEdit>,
     pub module_page: module_props::Page,
@@ -884,6 +895,9 @@ pub struct Moonglow {
     /// The tab in front when the module tree last looked
     /// (`tree::follow_front_tab`), and how many tabs were open.
     pub(crate) tree_front: (Option<Tab>, Vec<Tab>, usize),
+    /// The tab the module tree last went to (`tree::reveal_tab`): the
+    /// focus given to its pane after is no tab chosen.
+    pub(crate) tree_went: Option<Tab>,
     /// The one object selected in the area in front, as the module tree
     /// shows it (its row marked): its area, kind and place in its list;
     /// and whether the tree has still to go to it.
@@ -1100,6 +1114,7 @@ impl Moonglow {
             options: None,
             export: None,
             export_ask: None,
+            dialog_export_ask: None,
             browser: Browser::new(),
             loc_edit: None,
             module_page: module_props::Page::default(),
@@ -1222,6 +1237,7 @@ impl Moonglow {
             tree_area: None,
             tree_marked: None,
             tree_front: Default::default(),
+            tree_went: None,
             tree_object: None,
             tree_object_pending: false,
             tree_selected: Default::default(),
@@ -1660,6 +1676,7 @@ impl Moonglow {
         wizards::ui(self, ui);
         blueprint_wizard::ui(self, ui);
         transfer::ui(self, ui);
+        dialog_export::ask_window(self, ui.ctx());
         widgets::ui(self, ui);
         script_view::windows(self, ui);
         nui_view::windows(self, ui);
@@ -3405,6 +3422,7 @@ impl Moonglow {
         self.tree_object = None;
         self.tree_selected.clear();
         self.tree_anchor = None;
+        self.tree_went = None;
         self.tree_kept = None;
         self.tree_objects = None;
         self.tree_objects_anchor = None;
@@ -3632,6 +3650,7 @@ impl Moonglow {
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);
             }
+            Action::ExportConversations { keys, format } => self.export_conversations(keys, format),
             Action::ExportAreaFiles(area) => model_view::export_area_files(self, area),
             Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),

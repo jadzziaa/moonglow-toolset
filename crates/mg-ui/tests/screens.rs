@@ -8140,6 +8140,105 @@ fn module_tree_follows_the_tab_chosen() {
     }
 }
 
+/// The module tree's menu of several conversations chosen with Ctrl and
+/// Shift (El Grillo's report: Delete… for them all), its Export submenu
+/// with Export as Ink…, Twine…, Text… and CSV… (dansen9191's request),
+/// the question about files there already, and the menu of a
+/// conversation and a script together (Delete… and Export, no stories).
+#[test]
+#[ignore]
+fn module_tree_several_conversations() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let out = dir.join("tree-stories");
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    for name in ["ferry_man", "gate_guard", "innkeeper", "old_woman", "well_spirit"] {
+        let mut g = mg_module::dialog::new_dialog();
+        mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello.");
+        m.set(ResKey::parse(name, ResType::DLG).unwrap(), g.to_bytes().unwrap());
+    }
+    m.set(ResKey::parse("on_enter", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    let path = dir.join("tree-stories.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    std::fs::write(out.join("gate_guard.ink"), "").unwrap();
+    std::fs::write(out.join("innkeeper.ink"), "").unwrap();
+    let dialogs = NoDialogs { folders: vec![out.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let right_click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).hover();
+        h.run_steps(1);
+        h.get_by_label(label).click_secondary();
+        h.run_steps(3);
+    };
+    let submenu = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Export ⏵").hover();
+        h.run_steps(1);
+        h.get_by_label("Export ⏵").click();
+        h.run_steps(3);
+    };
+    h.get_by_label_contains("Conversations (").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Scripts (").click();
+    h.run_steps(2);
+    h.get_by_label("gate_guard").click();
+    h.run_steps(2);
+    h.get_by_label("old_woman").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    h.get_by_label("ferry_man").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    right_click(&mut h, "innkeeper");
+    shoot(&mut h, &dir, "tree-several-conversations");
+    submenu(&mut h);
+    shoot(&mut h, &dir, "tree-several-conversations-export");
+    h.get_by_label("Export as Ink…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "tree-several-conversations-overwrite");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    h.get_by_label("on_enter").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    right_click(&mut h, "on_enter");
+    submenu(&mut h);
+    shoot(&mut h, &dir, "tree-several-mixed-export");
+    // A conversation's editor opened, two others chosen in the tree, then
+    // the first click in the editor: the two stay chosen, and their menu
+    // is the menu of several (it was the one's, the editor's row alone
+    // chosen).
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let ferry = ResKey::parse("ferry_man", ResType::DLG).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenResource(ferry));
+    h.run_steps(6);
+    h.get_by_label("innkeeper").click();
+    h.run_steps(2);
+    h.get_by_label("well_spirit").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    let tab = mg_ui::Tab::Dialog(ferry);
+    let at = (h.state().dock.find_tab(&tab))
+        .and_then(|p| h.state().dock.leaf(p.node_path()).ok().map(|l| l.rect.center()))
+        .expect("the editor's pane");
+    h.hover_at(at);
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Primary;
+        let modifiers = egui::Modifiers::NONE;
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    h.run_steps(4);
+    right_click(&mut h, "well_spirit");
+    shoot(&mut h, &dir, "tree-several-after-an-editor-click");
+}
+
 /// The module tree with names longer than its pane (Chapter 1's areas by
 /// name, their ResRefs beside them): a builder's report that only
 /// widening the pane showed them whole. Then scrolled to their ends, and

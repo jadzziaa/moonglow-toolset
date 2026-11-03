@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:45:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:44Z }
 ---
 
 # Conversations
@@ -204,6 +204,15 @@ conversation's line naming it; Undo takes both. See [Text typed into the
 talk table](03-modules.md#text-typed-into-the-talk-table).
 - **Twine** (Twee 3, for Twine 2 or Tweego) and **Ink** (for Inky): the
   conversation as a branching story.
+
+Several at once: choose the conversations in the module tree (Ctrl or
+Shift and a click) and right-click one of them: **Export › Export as
+Ink…** (or **Twine…**, **Text…**, **CSV…**) writes each into a folder
+you choose as a file named after it (`gate.ink`), as this Export writes
+it, a conversation open here as it is in the editor (see [the module
+tree](02-main-window.md#the-module-tree)). `mg dialog-export MODULE
+A.dlg B.dlg --to FOLDER --format ink` (or `--all`) does it from the
+[command line](11-command-line.md).
 
 **File › Import Conversation…** reads a Twine (`.twee`) or Ink (`.ink`)
 story as a new conversation named after the file, so dialogue can be

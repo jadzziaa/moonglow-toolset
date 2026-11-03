@@ -79,3 +79,85 @@ fn a_csv_export_is_translated_and_read_back() {
     let out = run(&["dialog-export", p, "greet.dlg", c, "--language", "xx"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("\"xx\" isn't a language"));
 }
+
+/// Several conversations into a folder (`--to`, `--format`), each as
+/// NAME.ink after its name, as the one-file form writes it; `--all` for
+/// every one; files there already only with `--force`; a name the module
+/// hasn't is said, the rest are written, and the command fails; `--json`
+/// lists what was written.
+#[test]
+fn several_conversations_go_into_a_folder() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("mg-dialog-export-several");
+    let path = dir.join("town.mod");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    for (name, line) in [("gate", "Halt!"), ("inn", "A room?"), ("well", "Splash.")] {
+        let mut g = new_dialog();
+        add_node(&mut g, Parent::Root, line);
+        m.set_gff(ResKey::parse(name, ResType::DLG).unwrap(), &g).unwrap();
+    }
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let p = path.to_str().unwrap();
+    let run = |args: &[&str]| crate::mg_alone().args(args).output().unwrap();
+    let ok = |out: &std::process::Output| {
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    // The one-file form, as it was.
+    let single = dir.join("inn.ink");
+    ok(&run(&["dialog-export", p, "inn.dlg", single.to_str().unwrap()]));
+    let stories = dir.join("stories");
+    let _ = std::fs::remove_dir_all(&stories);
+    let s = stories.to_str().unwrap();
+    let (done, json) = crate::json_out(crate::mg_alone().args([
+        "--json",
+        "dialog-export",
+        p,
+        "gate.dlg",
+        "inn.dlg",
+        "--to",
+        s,
+        "--format",
+        "ink",
+    ]));
+    assert!(done, "{json}");
+    let written: Vec<&str> = json["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["conversation"].as_str().unwrap())
+        .collect();
+    assert_eq!(written, ["gate.dlg", "inn.dlg"]);
+    assert_eq!(json["format"], "Ink");
+    assert!(json["failed"].as_array().unwrap().is_empty());
+    assert_eq!(std::fs::read(stories.join("inn.ink")).unwrap(), std::fs::read(&single).unwrap());
+    assert!(!stories.join("well.ink").exists());
+    // There already: refused, naming them, without --force.
+    let out = run(&["dialog-export", p, "--all", "--to", s, "--format", "ink"]);
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("gate.ink, inn.ink") && said.contains("--force"), "{said}");
+    assert!(!stories.join("well.ink").exists(), "nothing written");
+    ok(&run(&["dialog-export", p, "--all", "--to", s, "--format", "ink", "--force"]));
+    assert!(stories.join("well.ink").exists());
+    // Each format by its extension; one named the module hasn't.
+    for (format, ext) in [("twine", "twee"), ("text", "txt"), ("csv", "csv")] {
+        let out =
+            run(&["dialog-export", p, "inn.dlg", "nobody.dlg", "--to", s, "--format", format]);
+        assert!(!out.status.success(), "{format}: nobody.dlg isn't in the module");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("nobody.dlg is not in the module"), "{said}");
+        let one = dir.join(format!("inn.{ext}"));
+        ok(&run(&["dialog-export", p, "inn.dlg", one.to_str().unwrap()]));
+        let several = stories.join(format!("inn.{ext}"));
+        assert_eq!(std::fs::read(several).unwrap(), std::fs::read(&one).unwrap(), "{format}");
+    }
+    // What is asked for wrongly.
+    let out = run(&["dialog-export", p, "inn.dlg", "--to", s]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--to needs --format"));
+    let out = run(&["dialog-export", p, "gate.dlg", "inn.dlg", "x.ink"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--to FOLDER"));
+    let out = run(&["dialog-export", p, "--to", s, "--format", "ink"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--all for every one"));
+}
