@@ -846,7 +846,9 @@ mod tests {
         let town = incoming.resources.iter().find(|(k, _)| k.restype == ResType::ARE).unwrap();
         assert_eq!(town.0.resref.as_bytes(), b"Town");
         let refused = |file: &str| -> String {
-            let path = dir.join(file).display().to_string();
+            // (A file in a folder by its parts: Windows shows `\`.)
+            let path = file.split('/').fold(dir.clone(), |p, part| p.join(part));
+            let path = path.display().to_string();
             let r = incoming.refused.iter().find(|r| r.what == path);
             r.unwrap_or_else(|| panic!("{file} refused: {:?}", incoming.refused)).why.clone()
         };
@@ -860,7 +862,7 @@ mod tests {
         assert!(refused("guard.utc.bak").contains("backup"));
         assert!(refused("other.erf").contains("File › Import…"));
         // A resource given twice: both refused, each naming the other.
-        let copy = dir.join("copy/TWICE.nss").display().to_string();
+        let copy = dir.join("copy").join("TWICE.nss").display().to_string();
         assert!(refused("twice.nss").contains(&copy), "{}", refused("twice.nss"));
         assert!(refused("copy/TWICE.nss").contains("twice.nss is among the files twice"));
         // What file managers leave is passed over, not refused.

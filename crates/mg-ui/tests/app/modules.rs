@@ -2187,11 +2187,21 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     let name = format!("mgtest{}", std::process::id());
     let file = user.join(format!("modules/{name}.mod"));
     std::fs::copy(&path, &file).unwrap();
+    // (Waited for until its command line is the game's: spawned, it is this
+    // process's copy until it execs, which a busy machine can be slow to.)
     let game = |module: &str| {
-        std::process::Command::new(&running)
+        let child = std::process::Command::new(&running)
             .args(["-c", "sleep 30; true", "nwmain-linux", "+TestNewModule", module])
             .spawn()
-            .unwrap()
+            .unwrap();
+        let cmdline = format!("/proc/{}/cmdline", child.id());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !std::fs::read(&cmdline).is_ok_and(|c| c.windows(14).any(|w| w == b"+TestNewModule"))
+        {
+            assert!(std::time::Instant::now() < deadline, "the stand-in game never started");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        child
     };
     let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
     app.settings.no_last_area = true;
