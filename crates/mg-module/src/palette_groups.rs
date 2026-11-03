@@ -68,8 +68,22 @@ pub struct Grouping {
     /// The file of lists a tool writes (`from`), beside the project file.
     pub from: Option<String>,
     /// Its groups, in the order shown: the project file's, then those
-    /// only its `from` file names.
+    /// only its `from` file names; with `order = "name"`, by name.
     pub groups: Vec<Group>,
+    /// `order = "name"`: its groups sorted by name, declared and listed
+    /// alike, as palettes sort names (case and accents aside); else
+    /// (`"file"`) as the project file and its list give them.
+    pub by_name: bool,
+}
+
+impl Grouping {
+    /// Puts the groups in the order shown ([`Grouping::by_name`]): a
+    /// stable sort, so groups of one name keep the order they came in.
+    fn put_in_order(&mut self) {
+        if self.by_name {
+            self.groups.sort_by_cached_key(|g| crate::new::word_sort_key(&g.name));
+        }
+    }
 }
 
 /// `words_of`: an expression whose first capture group is the part of a
@@ -310,6 +324,7 @@ impl Groupings {
                 words_of: None,
                 from: None,
                 groups: Vec::new(),
+                by_name: false,
             };
             let section = format!("palette.{id}");
             for k in in_order(t) {
@@ -349,9 +364,23 @@ impl Groupings {
                         g.from = r.text(k).map(|f| f.trim().to_string()).filter(|f| !f.is_empty())
                     }
                     "group" => read_groups(r, k, &mut g),
+                    "order" => match r.text(k).as_deref().map(str::trim) {
+                        Some("name") => g.by_name = true,
+                        Some("file") => g.by_name = false,
+                        Some(other) => r.warn(
+                            k.1.span().start,
+                            format!(
+                                "{section} order \"{other}\" is neither \"file\" (the groups as \
+                                 the project file and its list give them) nor \"name\" (by \
+                                 name): they are as the file gives them"
+                            ),
+                        ),
+                        None => {}
+                    },
                     _ => r.unknown(&section, k),
                 }
             }
+            g.put_in_order();
             self.list.push(g);
         }
         self.problems.extend(r.warnings[start..].iter().cloned());
@@ -630,6 +659,7 @@ pub fn read_list(name: &str, source: &str, g: &mut Grouping, warnings: &mut Vec<
             }
         }
     }
+    g.put_in_order();
     warnings.append(&mut r.warnings);
 }
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:14:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:39:46Z }
 ---
 
 # Blueprints
@@ -64,8 +64,9 @@ list: **Category** (the palette as it is) or a grouping, by its title.
 Grouped:
 
 - **Each group** is a branch of the list, in the order the project file
-  gives them, with every blueprint that falls in it: a blueprint in two
-  groups shows under both. **Other**, last, has those no group takes.
+  gives them (or by name, where the grouping says `order = "name"`),
+  with every blueprint that falls in it: a blueprint in two groups shows
+  under both. **Other**, last, has those no group takes.
   A group with no blueprint of the palette shown isn't drawn (a group
   of creatures and placeables shows among the creatures only where it
   has creatures); Verify says which groups are empty everywhere.

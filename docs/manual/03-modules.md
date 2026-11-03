@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:30:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:39:39Z }
 ---
 
 # Modules
@@ -855,6 +855,7 @@ names = ["cheese", "bread", "ham"]
 title = "Role"
 types = ["uti"]
 from = "palette_roles.toml"
+order = "name"                 # its groups by name
 ```
 
 | Key | What it does | Without it |
@@ -863,6 +864,7 @@ from = "palette_roles.toml"
 | `types` | the blueprint types (extensions) whose palettes offer it; one it leaves out shows its categories alone | every type |
 | `words_of` | a regular expression whose first group in brackets is the part of a name its words are taken from: with names like `Tavern: Table 2 (N2E)`, the part after the colon, before the brackets (so that "after HAM", the pack a fern was made after, isn't a ham). A name it doesn't match gives its words whole | the whole name |
 | `from` | a file beside `moonglow.toml` of lists a tool writes (below), read with it and again when it changes | none |
+| `order` | `"name"`: the groups by name, those of the rules and those of the list alike, case and accents aside, as the palettes sort names (Other still last) | `"file"`: the groups `moonglow.toml` gives first, in its order, then those only the list names, in its |
 | `group` `name` | the group's name (not `Other`, which holds the blueprints no group takes) | (a group needs one) |
 | `group` `types` | the grouping's palettes the group is offered in, narrower than the grouping's | all of the grouping's |
 | `group` `names` | whole words of a blueprint's name, case and accents ignored, as the palette shows the name (a talk-table name as the talk table has it); several words match in that order, side by side (`"dining table"`) | none |

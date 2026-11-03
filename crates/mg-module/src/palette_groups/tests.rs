@@ -428,3 +428,63 @@ fn a_group_of_several_types_shows_where_it_has_blueprints() {
     // (dd_cat.utp is a placeable's: a creature of that ResRef is Other's.)
     assert_eq!(shown(BlueprintKind::Creature, &[("dd_cat", "Cat")]), ["Other"]);
 }
+
+/// `order = "name"`: a grouping's groups by name, the project file's and
+/// those its list alone names together, case and accents aside (TDoD's
+/// ask: rules for a few kinds put them before the alphabetical rest). As
+/// the file gives them without it; a value it doesn't know is said, and
+/// the file's order kept. A list changed is put in order again.
+#[test]
+fn a_grouping_s_groups_are_ordered_by_name_when_asked() {
+    let dir = mg_testkit::scratch_dir("palette-groups-by-name");
+    let mut m = crate::Module::new();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let rules = |order: &str| {
+        format!(
+            "[palette.kind]\n{order}from = \"kinds.toml\"\n\
+             [[palette.kind.group]]\nname = \"Tables\"\nnames = [\"table\"]\n\
+             [[palette.kind.group]]\nname = \"beds\"\nnames = [\"bed\"]\n"
+        )
+    };
+    std::fs::write(
+        dir.join("kinds.toml"),
+        "\"Seats\" = [\"dd_s\"]\n\"Échelles\" = [\"dd_l\"]\n\"Animals\" = [\"dd_a\"]\n",
+    )
+    .unwrap();
+    let names = |m: &crate::Module| -> Vec<String> {
+        m.project_file.palette.list[0].groups.iter().map(|g| g.name.clone()).collect()
+    };
+    std::fs::write(dir.join(FILE_NAME), rules("")).unwrap();
+    let m = crate::Module::open(&dir).unwrap();
+    assert_eq!(
+        names(&m),
+        ["Tables", "beds", "Seats", "Échelles", "Animals"],
+        "as the files give them"
+    );
+    std::fs::write(dir.join(FILE_NAME), rules("order = \"name\"\n")).unwrap();
+    let mut m = crate::Module::open(&dir).unwrap();
+    assert_eq!(m.project_file.warnings, Vec::<String>::new());
+    assert_eq!(names(&m), ["Animals", "beds", "Échelles", "Seats", "Tables"]);
+    // What each holds goes with it.
+    let kind = &m.project_file.palette.list[0];
+    let entries = [("dd_a", "A rat"), ("dd_x", "A table"), ("dd_l", "Ladder")];
+    let s = sorted_names(kind, BlueprintKind::Placeable, &entries);
+    assert_eq!(
+        (s[0].clone(), s[2].clone(), s[4].clone()),
+        (vec!["dd_a".to_string()], vec!["dd_l".to_string()], vec!["dd_x".to_string()])
+    );
+    // A list changed: in order again.
+    std::fs::write(dir.join("kinds.toml"), "\"Dishes\" = [\"dd_d\"]\n\"Animals\" = [\"dd_a\"]\n")
+        .unwrap();
+    assert!(m.reread_project_file());
+    assert_eq!(names(&m), ["Animals", "beds", "Dishes", "Tables"]);
+    // A value it doesn't know: said, and the file's order kept.
+    std::fs::write(dir.join(FILE_NAME), rules("order = \"size\"\n")).unwrap();
+    let m = crate::Module::open(&dir).unwrap();
+    assert!(
+        m.project_file.warnings.iter().any(|w| w.contains("order \"size\" is neither")),
+        "{:?}",
+        m.project_file.warnings
+    );
+    assert_eq!(names(&m), ["Tables", "beds", "Dishes", "Animals"]);
+}
