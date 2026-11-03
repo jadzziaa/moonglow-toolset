@@ -511,6 +511,10 @@ pub struct AreaView {
     /// How far Q and E have turned the blueprint about to be placed
     /// (radians, anticlockwise); it is placed so.
     ghost_turn: f32,
+    /// How many flat surfaces Page Up (up) and Page Down (down) have moved
+    /// the blueprint about to be placed from where the pointer puts it
+    /// down ([`AreaView::placed_at`]); it is placed so.
+    ghost_step: i32,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
     /// The tile the area's menu was opened on, with no object there.
@@ -1014,6 +1018,7 @@ impl AreaView {
             ghost: None,
             ghost_shown: None,
             ghost_turn: 0.0,
+            ghost_step: 0,
             menu_at: None,
             menu_tile: None,
             snap: (None, None),
@@ -1382,6 +1387,40 @@ impl AreaView {
         let from = xy.extend(floor + ONTO_REACH);
         let z = self.surface_below(from, &|_| false).unwrap_or(floor);
         Some(xy.extend(z))
+    }
+
+    /// Where the blueprint about to be placed goes with the pointer at
+    /// `pos` (before its own lift): where [`AreaView::put_down_at`] puts
+    /// it, moved up or down by Page Up and Page Down's steps.
+    pub(crate) fn placed_at(&self, pos: Pos2) -> Option<Vec3> {
+        let at = self.put_down_at(pos)?;
+        Some(self.stepped(at, self.ghost_step).0)
+    }
+
+    /// `at` moved `steps` flat surfaces up (down, below 0) from its height,
+    /// as [`AreaView::surfaces_at`] finds them there: as far as there are
+    /// (the last there is where there are fewer), with how many it was.
+    fn stepped(&self, at: Vec3, steps: i32) -> (Vec3, i32) {
+        if steps == 0 {
+            return (at, 0);
+        }
+        let surfaces = self.surfaces_at(at.truncate(), &|_| false);
+        let ways: Vec<f32> = match steps > 0 {
+            true => surfaces.into_iter().filter(|s| *s > at.z + ON_SURFACE).collect(),
+            false => surfaces.into_iter().rev().filter(|s| *s < at.z - ON_SURFACE).collect(),
+        };
+        // (Surfaces within ON_SURFACE of each other count once.)
+        let mut apart: Vec<f32> = Vec::with_capacity(ways.len());
+        for z in ways {
+            if apart.last().is_none_or(|l| (z - l).abs() > ON_SURFACE) {
+                apart.push(z);
+            }
+        }
+        let n = (steps.unsigned_abs() as usize).min(apart.len());
+        match n {
+            0 => (at, 0),
+            n => (at.truncate().extend(apart[n - 1]), n as i32 * steps.signum()),
+        }
     }
 
     /// Whether object `j` of `model` is one a thing can be set on: a
@@ -2960,7 +2999,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 "click its corners, double click to close (after the first, press Alt: the next \
                  click makes a rectangle to there); right click or Escape: stop"
             }
-            _ => "click to place (Shift + click: place more); right click or Escape: stop",
+            Some(ObjectKind::Door) => {
+                "click to place (Shift + click: place more); right click or Escape: stop"
+            }
+            _ => {
+                "click to place (Shift + click: place more); Page Up, Page Down: onto the next \
+                 surface up or down; right click or Escape: stop"
+            }
         };
         format!("Placing {}: {what}", key.resref)
     } else if let Some(visual) = view.wheel_scale.as_ref().and(view.scaled().first()) {
@@ -4678,6 +4723,18 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.ghost_turn += by;
             }
         }
+        // Page Up and Page Down: up or down to the next flat surface, as
+        // they move a selection (not the brush's, which paints many).
+        use crate::keys::Cmd;
+        let up = ui.input(|i| app.keymap.pressed(i, Cmd::SurfaceAbove));
+        let down = ui.input(|i| app.keymap.pressed(i, Cmd::SurfaceBelow));
+        let pointer = response.hover_pos().or_else(|| ui.input(|i| i.pointer.latest_pos()));
+        if (up || down)
+            && view.ghost_shown.is_some()
+            && let Some(at) = pointer.and_then(|pos| view.put_down_at(pos))
+        {
+            step_ghost(app, view, at, up);
+        }
     }
     // B, the toolbar's Paint: the placeable brush on or off.
     let typing = ui.ctx().memory(|m| m.focused().is_some());
@@ -4895,7 +4952,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     }
                     None => app.log.warn("Doors go on door hooks: click near one"),
                 }
-            } else if let Some(at) = view.put_down_at(pos) {
+            } else if let Some(at) = view.placed_at(pos) {
                 place(app, view, key, at, view.ghost_turn, &[]);
                 if !shift {
                     app.palette.selected = None;
@@ -5523,7 +5580,7 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
             Some(h) => place(app, view, key, h.position, h.bearing, &[]),
             None => app.log.warn("Doors go on door hooks: drop it near one"),
         }
-    } else if let Some(at) = pointer.and_then(|pos| view.put_down_at(pos)) {
+    } else if let Some(at) = pointer.and_then(|pos| view.placed_at(pos)) {
         place(app, view, key, at, view.ghost_turn, &[]);
     }
     // Placed, as a click places it: the palette's choice is let go (with
@@ -5564,8 +5621,8 @@ fn drop_appearance(
 ) {
     use mg_module::instances::Placement;
     let pointer = response.ctx.input(|i| i.pointer.latest_pos());
-    let Some(at) = pointer.and_then(|pos| view.ground_at(pos, 0.0)) else { return };
-    let at = view.snapped(at);
+    // (Where its ghost showed it: onto objects, stepped by Page Up and Down.)
+    let Some(at) = pointer.and_then(|pos| view.placed_at(pos)) else { return };
     let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
     let Some(item) = appearance_item(app, dragged, placement) else { return };
     let what = format!("Place {}", dragged.name);
@@ -5766,7 +5823,7 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
         let hook = view.model.as_ref()?.hook_near(view.ground_at(pos, 0.0)?, DOOR_REACH)?;
         (hook.position, Some(hook.bearing))
     } else {
-        (view.put_down_at(pos)?, None)
+        (view.placed_at(pos)?, None)
     };
     // (Read again after the module changes too: the blueprint edited while
     // it is the brush looks as it does now.)
@@ -5783,9 +5840,11 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
             Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
         });
         view.ghost = Some((key, revision, object));
-        // A blueprint chosen anew starts unturned.
+        // A blueprint chosen anew starts unturned, where the pointer puts
+        // it down.
         if !same {
             view.ghost_turn = 0.0;
+            view.ghost_step = 0;
         }
     }
     let mut o = view.ghost.as_ref()?.2.clone()?;
@@ -6362,6 +6421,23 @@ fn step_to_surface(app: &mut Moonglow, view: &AreaView, up: bool) {
         .collect();
     let label = if up { "Raise to Surface" } else { "Lower to Surface" };
     commit_moves(app, view, &moved, label);
+}
+
+/// Page Up and Page Down while placing: the blueprint about to be placed
+/// (put down at `at` by the pointer) one flat surface up (`up`) or down
+/// from where it is shown, as [`step_to_surface`] moves a selection; it
+/// stays as many surfaces from where the pointer puts it as the pointer
+/// moves, and is placed so.
+fn step_ghost(app: &mut Moonglow, view: &mut AreaView, at: Vec3, up: bool) {
+    let (_, now) = view.stepped(at, view.ghost_step);
+    let want = now + if up { 1 } else { -1 };
+    let (_, got) = view.stepped(at, want);
+    if got == want {
+        view.ghost_step = want;
+    } else {
+        view.ghost_step = now;
+        app.log.info(if up { "No surface above it" } else { "No surface below it" });
+    }
 }
 
 /// Arranges the selection (lined up, spaced out, facing alike, mirrored),

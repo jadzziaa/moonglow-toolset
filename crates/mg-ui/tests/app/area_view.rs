@@ -6143,3 +6143,89 @@ fn page_up_and_down_move_the_selection_to_the_next_surface() {
     h.run_steps(4);
     assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), before);
 }
+
+/// The builder again: Page Up and Page Down move a blueprint about to be
+/// placed too, its ghost before it is laid. With a chest chosen in the
+/// palette and the pointer at a table's middle, its ghost is on the
+/// ground; Page Up puts it on the tabletop (nothing is higher), Page Down
+/// back on the ground, and a click places it where the ghost shows it.
+#[test]
+fn page_up_and_down_move_the_ghost_before_it_is_placed() {
+    use glam::Vec3;
+    // A table (Table, placeables.2da row 97).
+    let placed = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let mut table = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        table.set("Appearance", mg_gff::Value::Dword(97));
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![table]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("ghost-steps", "ttr01", None, 4, None, &placed)
+    else {
+        return;
+    };
+    let ground = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").unwrap()[0].float("Z").unwrap()
+    };
+    let edits = h.state().ws.as_ref().unwrap().undo_depth();
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_chest1", ResType::UTP).unwrap());
+    let over = screen(&h, area, Vec3::new(12.0, 20.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(3);
+    let ghost_z = |h: &Harness<'_, Moonglow>| {
+        let ghost = h.state().area_views[&area].ghost_shown.clone().expect("a ghost");
+        assert!(
+            (ghost.position.truncate() - glam::Vec2::new(12.0, 20.0)).length() < 0.3,
+            "at the table's middle: {}",
+            ghost.position
+        );
+        ghost.position.z
+    };
+    assert!((ghost_z(&h) - ground).abs() < 0.02, "on the ground first: {}", ghost_z(&h));
+    let key = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        h.run_steps(3);
+    };
+    key(&mut h, egui::Key::PageUp);
+    let top = ghost_z(&h);
+    assert!((0.8..0.9).contains(&(top - ground)), "on the table's top: {top}");
+    // (A look from beside the table, low: the ghost on it.)
+    let dir = mg_testkit::scratch_dir("ui-ghost-steps");
+    let orbit = h.state().area_views[&area].orbit;
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut() {
+        (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(12.0, 20.0, 0.8), 4.0, -1.57, 0.25);
+    }
+    h.hover_at(screen(&h, area, Vec3::new(12.0, 20.0, 0.0)));
+    h.run_steps(10);
+    h.render().expect("render").save(dir.join("ghost-on-the-table.png")).unwrap();
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = orbit;
+    h.hover_at(over);
+    h.run_steps(3);
+    assert!((ghost_z(&h) - top).abs() < 1e-3, "still on it: {}", ghost_z(&h));
+    // Nothing higher; nothing is edited by the steps.
+    key(&mut h, egui::Key::PageUp);
+    assert!((ghost_z(&h) - top).abs() < 1e-3);
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "No surface above it"));
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), edits);
+    key(&mut h, egui::Key::PageDown);
+    assert!((ghost_z(&h) - ground).abs() < 0.02, "back on the ground: {}", ghost_z(&h));
+    key(&mut h, egui::Key::PageUp);
+    // Placed where it shows.
+    click_at(&mut h, over);
+    h.run_steps(4);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let list = git.root.list("Placeable List").unwrap();
+    assert_eq!(list.len(), 2, "{:?}", h.state().log.entries);
+    let z = list[1].float("Z").unwrap();
+    assert!((z - top).abs() < 1e-3, "placed on the table: {z} ({top})");
+}

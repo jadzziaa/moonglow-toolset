@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:27:16Z }
 ---
 
 # Areas
@@ -317,7 +317,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
 | Shift+G | drop them onto the placeable below |
-| Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground |
+| Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground (also a blueprint about to be placed) |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
@@ -563,7 +563,13 @@ Aurora):
     themselves don't. The others selected move with the first, by as
     much. Creatures, triggers and encounters stay, as the game stands creatures on
     the ground: with one of them selected first, the log says so. With
-    nothing higher or lower there, the log says that too.
+    nothing higher or lower there, the log says that too. They move a
+    blueprint about to be placed as well, before it is laid (chosen in
+    the palette, or dragged from it or from the Placeable Gallery): its
+    ghost goes up or down a surface from where the pointer puts it, keeps
+    to that as the pointer moves (two up stays two up), and is placed
+    where it shows. A blueprint chosen anew starts where the pointer puts
+    it.
   - **Position › Random Facing**: turns each selected object to face a
     way of its own, at random (by the snap angle, if one is set): for
     trees and rocks placed in numbers.
