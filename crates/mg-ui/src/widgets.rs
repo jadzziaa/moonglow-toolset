@@ -700,37 +700,184 @@ const VAR_FOOT: f32 = 96.0;
 /// The most notes of the project's descriptions shown under the list.
 const VAR_NOTES: usize = 4;
 
-/// The variable sets saved in `dir`, each read ([`crate::var_sets::read_all`],
-/// the files read again only when they change, kept in `ctx`'s memory).
-fn read_sets(
-    ctx: &egui::Context,
-    dir: Option<&std::path::Path>,
-) -> Vec<(String, Result<Vec<VarRow>, String>)> {
-    let id = egui::Id::new("variable-sets-read");
-    let mut kept: crate::var_sets::Read = ctx.data_mut(|d| d.remove_temp(id)).unwrap_or_default();
-    let read = crate::var_sets::read_all(dir, &mut kept);
-    ctx.data_mut(|d| d.insert_temp(id, kept));
-    read
+/// A kind of set kept in Moonglow's data folder as its Add Set menu and
+/// its window show it: variable sets (the Variables window) and
+/// parameter sets (a conversation script's parameters).
+pub(crate) struct SetKind<T: 'static> {
+    pub shelf: crate::saved::Shelf,
+    /// Its window's title (Add Set › Manage Sets…).
+    pub title: &'static str,
+    /// What the window says while none is saved.
+    pub none_yet: &'static str,
+    /// The tip of the menu's Add from File….
+    pub from_file_tip: &'static str,
+    /// A set read from its folder by its name.
+    pub load: fn(&std::path::Path, &str) -> Result<T, String>,
+    /// What a set holds, as its tip says it.
+    pub describe: fn(&T) -> String,
 }
 
-/// A set's name as the menu and the Variable Sets window list it: one
-/// whose file isn't a set marked so, why in its tip.
+pub(crate) const VARIABLE_SETS: SetKind<Vec<VarRow>> = SetKind {
+    shelf: crate::var_sets::SHELF,
+    title: "Variable Sets",
+    none_yet: "No variable sets saved yet: Save Set… in the Variables window keeps one.",
+    from_file_tip: "Add the variables of set files (.vars.json) anywhere, one or several",
+    load: crate::var_sets::load,
+    describe: |rows| crate::var_sets::describe(rows),
+};
+
+pub(crate) const PARAMETER_SETS: SetKind<crate::param_sets::ParamSet> = SetKind {
+    shelf: crate::param_sets::SHELF,
+    title: "Parameter Sets",
+    none_yet: "No parameter sets saved yet: Save Set… beside a script's parameters keeps one.",
+    from_file_tip: "Add the script and parameters of set files (.params.json) anywhere, one or \
+                    several",
+    load: crate::param_sets::load,
+    describe: crate::param_sets::describe,
+};
+
+impl<T: Clone + Send + Sync + 'static> SetKind<T> {
+    /// What one is called at the beginning of a message ("Variable set").
+    fn what(&self) -> String {
+        let what = self.shelf.what;
+        what[..1].to_uppercase() + &what[1..]
+    }
+
+    /// The sets saved in `dir`, each read ([`crate::saved::Shelf::read_all`],
+    /// the files read again only when they change, kept in `ctx`'s memory).
+    fn read(
+        &self,
+        ctx: &egui::Context,
+        dir: Option<&std::path::Path>,
+    ) -> Vec<(String, Result<T, String>)> {
+        let id = egui::Id::new((self.shelf.folder, "read"));
+        let mut kept: crate::saved::Read<T> =
+            ctx.data_mut(|d| d.remove_temp(id)).unwrap_or_default();
+        let read = self.shelf.read_all(dir, &mut kept, self.load);
+        ctx.data_mut(|d| d.insert_temp(id, kept));
+        read
+    }
+}
+
+/// What was chosen in an Add Set menu ([`sets_menu`]).
+pub(crate) enum SetChoice<T> {
+    /// A saved set, to add.
+    Add(T),
+    /// Add from File….
+    FromFile,
+    /// Manage Sets….
+    Manage,
+}
+
+/// An Add Set menu's items: the sets saved in `dir` (what each holds its
+/// tip; one whose file isn't a set marked, and not to be chosen, why in
+/// its tip), then Add from File…, Manage Sets… and Open Sets Folder
+/// (which it opens itself).
+pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
+    ui: &mut Ui,
+    log: &mut crate::Log,
+    kind: &SetKind<T>,
+    dir: Option<&std::path::Path>,
+) -> Option<SetChoice<T>> {
+    let mut chosen = None;
+    // (Read as the menu is drawn: what each holds is its tip, and a file
+    // that isn't a set is said so.)
+    let read = kind.read(ui.ctx(), dir);
+    if dir.is_none() {
+        ui.weak("Moonglow has no data folder to keep sets in");
+    } else if read.is_empty() {
+        ui.weak(format!("No {}s saved yet", kind.shelf.what));
+    }
+    for (n, set) in read {
+        match set {
+            Ok(set) => {
+                let tip = (kind.describe)(&set);
+                if ui.button(n).on_hover_text(tip).clicked() {
+                    chosen = Some(SetChoice::Add(set));
+                    ui.close();
+                }
+            }
+            Err(e) => {
+                let b = egui::Button::new(not_a_set(ui, &n));
+                ui.add_enabled(false, b).on_disabled_hover_text(e);
+            }
+        }
+    }
+    ui.separator();
+    if ui.button("Add from File…").on_hover_text(kind.from_file_tip).clicked() {
+        chosen = Some(SetChoice::FromFile);
+        ui.close();
+    }
+    if ui
+        .add_enabled(dir.is_some(), egui::Button::new("Manage Sets…"))
+        .on_hover_text("Rename or delete the saved sets")
+        .clicked()
+    {
+        chosen = Some(SetChoice::Manage);
+        ui.close();
+    }
+    if let Some(dir) = dir
+        && ui
+            .button("Open Sets Folder")
+            .on_hover_text(
+                "Open the folder the sets are kept in, to copy them in or out or edit them by \
+                 hand",
+            )
+            .clicked()
+    {
+        open_folder(ui.ctx(), dir, log);
+        ui.close();
+    }
+    chosen
+}
+
+/// Save Set's name, typed in place: whether it is to be saved (Save, or
+/// Enter in the name) and whether Cancel was pressed.
+pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
+    let mut save = false;
+    let mut cancel = false;
+    ui.horizontal(|ui| {
+        ui.label("Set name");
+        let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+        autofocus(ui, &r);
+        let ok = crate::saved::valid_name(name);
+        // (Enter in the name is the name's, not the window's OK.)
+        let entered = r.lost_focus()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        save = ui.add_enabled(ok, egui::Button::new("Save")).clicked() || (ok && entered);
+        cancel = ui.button("Cancel").clicked();
+    });
+    (save, cancel)
+}
+
+/// A set's name as the menu and the sets' window list it: one whose file
+/// isn't a set marked so, why in its tip.
 fn not_a_set(ui: &Ui, name: &str) -> egui::RichText {
     egui::RichText::new(format!("{name} (not a set)")).color(ui.visuals().warn_fg_color)
 }
 
-/// The Variable Sets window: the saved sets, each renamed or deleted (the
-/// one deleted last put back), and their folder opened.
-fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWindow>) {
-    let (Some(w), Some(dir)) = (sets.as_mut(), app.var_set_dir.clone()) else {
+/// A kind's sets' window (Add Set › Manage Sets…: the Variable Sets
+/// window, the Parameter Sets window): the sets saved in `dir`, each
+/// renamed or deleted (the one deleted last put back), and their folder
+/// opened.
+pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    sets: &mut Option<SetsWindow>,
+    kind: &SetKind<T>,
+    dir: Option<std::path::PathBuf>,
+) {
+    let (Some(w), Some(dir)) = (sets.as_mut(), dir) else {
         *sets = None;
         return;
     };
-    let read = read_sets(ctx, Some(&dir));
+    let read = kind.read(ctx, Some(&dir));
     let names: Vec<String> = read.iter().map(|(n, _)| n.clone()).collect();
+    let what = kind.what();
+    let shelf = kind.shelf;
     let mut open = true;
     let mut close = false;
-    let window = dialog(ctx, "Variable Sets", &mut open).collapsible(false).resizable(false);
+    let window = dialog(ctx, kind.title, &mut open).collapsible(false).resizable(false);
     // (As wide as a long folder's path needs, no wider: the path is cut.)
     window.max_width(460.0).show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -740,10 +887,11 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
         });
         if ui
             .button("Open Folder")
-            .on_hover_text(
+            .on_hover_text(format!(
                 "Open the folder in the file manager (it is made if it is not there): sets \
-                 are JSON files, NAME.vars.json, to copy in or out or edit by hand",
-            )
+                 are JSON files, NAME{}, to copy in or out or edit by hand",
+                shelf.suffix
+            ))
             .clicked()
         {
             open_folder(ui.ctx(), &dir, &mut app.log);
@@ -754,8 +902,8 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Set '{name}' deleted."));
                 if ui.button("Undo Delete").on_hover_text("Put the set back").clicked() {
-                    match crate::var_sets::restore(&dir, &name, &text) {
-                        Ok(()) => app.log.info(format!("Variable set '{name}' put back")),
+                    match shelf.restore(Some(&dir), &name, &text) {
+                        Ok(()) => app.log.info(format!("{what} '{name}' put back")),
                         Err(e) => app.log.error(format!("Undo Delete: {e}")),
                     }
                     keep = false;
@@ -778,15 +926,15 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
                 autofocus(ui, &r);
                 let taken = names.iter().any(|n| n != name && n.eq_ignore_ascii_case(to.trim()));
                 let ok = crate::saved::valid_name(to) && !taken;
-                // (Enter in the name is the name's, not the Variables window's OK.)
+                // (Enter in the name is the name's, not the window's OK.)
                 let entered = r.lost_focus()
                     && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
                 if ui.add_enabled(ok, egui::Button::new("Rename")).clicked() || (ok && entered) {
                     if to.trim() != name {
-                        match crate::var_sets::rename(&dir, name, to) {
-                            Ok(()) => app
-                                .log
-                                .info(format!("Variable set '{name}' renamed to '{}'", to.trim())),
+                        match shelf.rename(Some(&dir), name, to) {
+                            Ok(()) => {
+                                app.log.info(format!("{what} '{name}' renamed to '{}'", to.trim()))
+                            }
                             Err(e) => app.log.error(format!("Rename set: {e}")),
                         }
                     }
@@ -811,14 +959,14 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
             w.renaming = None;
         }
         if names.is_empty() {
-            ui.weak("No variable sets saved yet: Save Set… in the Variables window keeps one.");
+            ui.weak(kind.none_yet);
         }
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-            egui::Grid::new("variable-sets").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            egui::Grid::new(shelf.folder).num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
                 for (name, set) in &read {
                     // (What it holds in its tip; one that isn't a set, why.)
                     match set {
-                        Ok(rows) => ui.label(name).on_hover_text(crate::var_sets::describe(rows)),
+                        Ok(set) => ui.label(name).on_hover_text((kind.describe)(set)),
                         Err(e) => ui.label(not_a_set(ui, name)).on_hover_text(e),
                     };
                     if ui.small_button("Rename…").clicked() {
@@ -829,9 +977,9 @@ fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWi
                         .on_hover_text("Delete the set's file (Undo Delete, above, puts it back)")
                         .clicked()
                     {
-                        match crate::var_sets::delete(&dir, name) {
+                        match shelf.delete(Some(&dir), name) {
                             Ok(text) => {
-                                app.log.info(format!("Variable set '{name}' deleted"));
+                                app.log.info(format!("{what} '{name}' deleted"));
                                 w.deleted = Some((name.clone(), text));
                             }
                             Err(e) => app.log.error(format!("Delete set: {e}")),
@@ -1213,60 +1361,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // files anywhere.
                     let dir = app.var_set_dir.clone();
                     ui.menu_button("Add Set", |ui| {
-                        // (Read as the menu is drawn: what each holds is its
-                        // tip, and a file that isn't a set is said so.)
-                        let read = read_sets(ui.ctx(), dir.as_deref());
-                        if dir.is_none() {
-                            ui.weak("Moonglow has no data folder to keep sets in");
-                        } else if read.is_empty() {
-                            ui.weak("No variable sets saved yet");
-                        }
-                        for (n, set) in read {
-                            match set {
-                                Ok(rows) => {
-                                    let tip = crate::var_sets::describe(&rows);
-                                    if ui.button(n).on_hover_text(tip).clicked() {
-                                        crate::var_sets::merge(&mut edit.rows, rows);
-                                        ui.close();
-                                    }
-                                }
-                                Err(e) => {
-                                    let b = egui::Button::new(not_a_set(ui, &n));
-                                    ui.add_enabled(false, b).on_disabled_hover_text(e);
-                                }
+                        match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
+                            Some(SetChoice::Add(rows)) => {
+                                crate::var_sets::merge(&mut edit.rows, rows)
                             }
-                        }
-                        ui.separator();
-                        if ui
-                            .button("Add from File…")
-                            .on_hover_text(
-                                "Add the variables of set files (.vars.json) anywhere, one or \
-                                 several",
-                            )
-                            .clicked()
-                        {
-                            add_file = true;
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(dir.is_some(), egui::Button::new("Manage Sets…"))
-                            .on_hover_text("Rename or delete the saved sets")
-                            .clicked()
-                        {
-                            edit.sets.get_or_insert_default();
-                            ui.close();
-                        }
-                        if let Some(dir) = &dir
-                            && ui
-                                .button("Open Sets Folder")
-                                .on_hover_text(
-                                    "Open the folder the sets are kept in, to copy them in or out \
-                                     or edit them by hand",
-                                )
-                                .clicked()
-                        {
-                            open_folder(ui.ctx(), dir, &mut app.log);
-                            ui.close();
+                            Some(SetChoice::FromFile) => add_file = true,
+                            Some(SetChoice::Manage) => {
+                                edit.sets.get_or_insert_default();
+                            }
+                            None => {}
                         }
                     })
                     .response
@@ -1312,22 +1415,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
                 if let Some(name) = edit.set_name.as_mut() {
-                    let mut save = false;
-                    let mut cancel = false;
-                    ui.horizontal(|ui| {
-                        ui.label("Set name");
-                        let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
-                        crate::widgets::autofocus(ui, &r);
-                        let ok = crate::saved::valid_name(name);
-                        // (Enter in the name is the name's, not the window's OK.)
-                        let entered = r.lost_focus()
-                            && ui.input_mut(|i| {
-                                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
-                            });
-                        save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
-                            || (ok && entered);
-                        cancel = ui.button("Cancel").clicked();
-                    });
+                    let (save, cancel) = set_name_row(ui, name);
                     if save && let Some(dir) = app.var_set_dir.clone() {
                         match crate::var_sets::save(&dir, name, &edit.rows) {
                             Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
@@ -1376,7 +1464,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             });
-        sets_window(app, &ctx, &mut edit.sets);
+        let dir = app.var_set_dir.clone();
+        sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
         edit.described = Some(help);
         app.var_edit = if close { None } else { Some(edit) };
     }

@@ -1,5 +1,5 @@
 //! What Moonglow keeps under a name in its data folder, for any module:
-//! variable sets, prefabs and lighting. Each kind is a folder of small
+//! variable sets, parameter sets, prefabs and lighting. Each kind is a folder of small
 //! JSON files, one a name; this is where they are listed, read and
 //! written (each kind's own module says what a file holds).
 
@@ -94,6 +94,47 @@ impl Shelf {
             return Err(format!("there is a {} named '{to}' already", self.what));
         }
         std::fs::rename(&old, &new).map_err(|e| format!("{}: {e}", old.display()))
+    }
+
+    /// The ones kept in `dir`, by name, each read by `load` (from `dir`
+    /// and its name): what it holds, or why its file isn't one (bad JSON,
+    /// an unknown type), which a menu or window says beside its name. A
+    /// file is read again when its size or modified time changes
+    /// (`kept`, from the last call: a window lists them every frame).
+    pub fn read_all<T: Clone>(
+        &self,
+        dir: Option<&Path>,
+        kept: &mut Read<T>,
+        load: impl Fn(&Path, &str) -> Result<T, String>,
+    ) -> Vec<(String, Result<T, String>)> {
+        let names = self.list(dir);
+        let mut out = Vec::with_capacity(names.len());
+        let mut now = Read::default();
+        for name in names {
+            let Ok(path) = self.file(dir, &name) else { continue };
+            let stamp = std::fs::metadata(&path).ok().map(|m| (m.len(), m.modified().ok()));
+            let read = match kept.0.remove(&path) {
+                Some((was, read)) if was == stamp => read,
+                _ => load(dir.expect("listed"), &name),
+            };
+            now.0.insert(path, (stamp, read.clone()));
+            out.push((name, read));
+        }
+        *kept = now;
+        out
+    }
+}
+
+/// A file's size and modified time, as [`Shelf::read_all`] saw them.
+type Stamp = Option<(u64, Option<std::time::SystemTime>)>;
+
+/// What [`Shelf::read_all`] last read, by file.
+#[derive(Debug, Clone)]
+pub struct Read<T>(pub(crate) std::collections::HashMap<PathBuf, (Stamp, Result<T, String>)>);
+
+impl<T> Default for Read<T> {
+    fn default() -> Self {
+        Read(Default::default())
     }
 }
 

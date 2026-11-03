@@ -1020,6 +1020,82 @@ fn dialog_script_parameters() {
     shoot(&mut h, &dir, "dialog-font-20-menu");
 }
 
+/// Parameter sets beside a conversation script's parameters: Text
+/// Appears When… with the Add Set menu open (a builder's skill check
+/// saved, one that isn't a set), the tip of what a set holds, Save Set…'s
+/// name typed in place, and the Parameter Sets window.
+#[test]
+#[ignore]
+fn dialog_parameter_sets() {
+    use mg_module::dialog::{Parent, add_node, new_dialog, params_value};
+    use mg_ui::param_sets::{ParamSet, save};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-dialog-param-sets");
+    let sets = scratch.join("parameter-sets");
+    let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+        list.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect()
+    };
+    let check = pairs(&[("CHECK", "12"), ("DC", "1"), ("FEEDBACK", "1"), ("SHOW_DC", "1")]);
+    let skill = mg_core::ResRef::from_str("ttc_c_skillcheck").unwrap();
+    save(&sets, "Skill check", &ParamSet { script: Some(skill), parameters: check.clone() })
+        .unwrap();
+    let gold = pairs(&[("GOLD", "50")]);
+    save(&sets, "Gold", &ParamSet { script: None, parameters: gold }).unwrap();
+    std::fs::write(
+        sets.join("Hand made.params.json"),
+        "{ \"parameters\": [ { \"name\": \"DC\" } ] }",
+    )
+    .unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "You look strong. Lift this.");
+    {
+        let link = &mut g.root.list_mut("StartingList").unwrap()[0];
+        link.set("Active", mg_gff::Value::resref(skill));
+        link.set("ConditionParams", params_value(&check));
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("strong", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    let path = scratch.join("d.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.param_set_dir = Some(sets.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
+    h.run_steps(4);
+    h.get_by_label_contains("You look strong.").click();
+    h.run_steps(4);
+    h.get_by_label("Add Set").click();
+    shoot(&mut h, &dir, "dialog-parameter-sets-menu");
+    h.get_by_label("Skill check").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "dialog-parameter-sets-tip");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label("Save Set…").click();
+    h.run_steps(3);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Strength check");
+    shoot(&mut h, &dir, "dialog-parameter-sets-save");
+    // (The name's Cancel, in its row: the editor has one too.)
+    let row = h.get_by_label("Set name").rect().center().y;
+    let cancel = h.get_all_by_label("Cancel").find(|n| (n.rect().center().y - row).abs() < 4.0);
+    cancel.expect("the name's Cancel").click();
+    h.run_steps(3);
+    h.get_by_label("Add Set").click();
+    h.run_steps(3);
+    h.get_by_label("Manage Sets…").click();
+    shoot(&mut h, &dir, "dialog-parameter-sets-window");
+}
+
 /// A talk-table line whose text has CRLF line ends (Jasperre's report),
 /// with End pressed on its first line and an X typed. With the `\r` in the
 /// field, End went past it and the X came after it, a space's width from

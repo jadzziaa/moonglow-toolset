@@ -66,6 +66,11 @@ pub struct DialogView {
     /// What a line's right-click menu asked for, done on the next frame
     /// as the toolbar's button of that name does it.
     pub menu: Option<Asked>,
+    /// Save Set's name beside a script's parameters, while it is being
+    /// typed: where (the tab and the line or link) and the name so far.
+    pub param_set_name: Option<(String, String)>,
+    /// The Parameter Sets window (Add Set › Manage Sets…), while it's open.
+    pub param_sets: Option<crate::widgets::SetsWindow>,
     /// The selected row is to be scrolled to as it is drawn ([`go_to_line`]).
     pub reveal: bool,
     /// The selected row is to be scrolled just into sight as it is drawn
@@ -1308,6 +1313,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                                     link_path(r),
                                     true,
                                     &link,
+                                    &mut view,
                                     &mut actions,
                                 ),
                                 DataTab::Action => script_with_params(
@@ -1317,6 +1323,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                                     node_path(kind, index),
                                     false,
                                     &n,
+                                    &mut view,
                                     &mut actions,
                                 ),
                                 DataTab::Other => {
@@ -1504,6 +1511,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if ui.ui_contains_pointer() && ui.input(|i| i.pointer.any_pressed()) {
         take_keys(ui.ctx(), key);
     }
+    // (Add Set › Manage Sets…, beside a script's parameters.)
+    let dir = app.param_set_dir.clone();
+    let sets = crate::widgets::PARAMETER_SETS;
+    crate::widgets::sets_window(app, ui.ctx(), &mut view.param_sets, &sets, dir);
     view.was_typing = ui.ctx().text_edit_focused();
     view.selected_line = view.selected.and_then(|r| {
         links(&g, r.parent).get(r.pos).map(|l| (r.parent.child_kind(), link_index(l)))
@@ -1916,7 +1927,10 @@ fn text_panel(
 
 /// A script field with its parameters and a preview of its source: a
 /// link's condition (`Active`, `ConditionParams`), else a line's action
-/// (`Script`, `ActionParams`).
+/// (`Script`, `ActionParams`). Beside the parameters, parameter sets
+/// (`param_sets`): added (script and parameters as one step), saved, and
+/// saved to and added from files.
+#[allow(clippy::too_many_arguments)]
 fn script_with_params(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1924,13 +1938,19 @@ fn script_with_params(
     path: GffPath,
     condition: bool,
     s: &Struct,
+    view: &mut DialogView,
     actions: &mut Vec<Action>,
 ) {
+    use crate::FileKind;
+    use crate::param_sets::{self, ParamSet};
+    use crate::widgets::{PARAMETER_SETS, SetChoice};
     let (label, list, salt) = match condition {
         true => ("Active", "ConditionParams", "cond"),
         false => ("Script", "ActionParams", "act"),
     };
     let current = s.resref(label).unwrap_or(ResRef::EMPTY);
+    // The script as it is this frame (one typed is set as the frame ends).
+    let mut script_now = current;
     ui.horizontal(|ui| {
         ui.label("Script");
         let id = egui::Id::new(("dlg-script", key, salt, path.to_string()));
@@ -1938,6 +1958,7 @@ fn script_with_params(
             resref_field(app, ui, id, current, "Select a script", &[ResType::NSS, ResType::NCS])
         {
             actions.push(set(key, "Script", path.clone(), label, Value::resref(v)));
+            script_now = v;
         }
         if let Some(name) = crate::widgets::edit_script_button(app, ui, id, current) {
             actions.push(Action::EditScript { name, condition });
@@ -1960,7 +1981,74 @@ fn script_with_params(
     let buf_id = egui::Id::new(("dlg-params-buf", key, salt, path.to_string()));
     let mut pairs: Vec<(String, String)> =
         ui.ctx().data_mut(|d| d.get_temp(buf_id)).unwrap_or_else(|| stored.clone());
-    ui.label("Parameters");
+    // Parameter sets, kept in Moonglow's data folder, and in files anywhere:
+    // the sets chosen this frame, added after the rows (to what was typed
+    // in them this frame too).
+    let dir = app.param_set_dir.clone();
+    let place = format!("{salt} {path}");
+    let mut chosen: Vec<ParamSet> = Vec::new();
+    let mut from_file = false;
+    let mut to_file = false;
+    let named = |pairs: &[(String, String)]| pairs.iter().any(|(n, _)| !n.trim().is_empty());
+    let something = named(&pairs) || !script_now.is_empty();
+    let set_of = |pairs: &[(String, String)], script: ResRef| ParamSet {
+        script: Some(script).filter(|s| !s.is_empty()),
+        parameters: pairs.iter().filter(|(n, _)| !n.trim().is_empty()).cloned().collect(),
+    };
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Parameters");
+        ui.separator();
+        ui.menu_button("Add Set", |ui| {
+            match crate::widgets::sets_menu(ui, &mut app.log, &PARAMETER_SETS, dir.as_deref()) {
+                Some(SetChoice::Add(set)) => chosen.push(set),
+                Some(SetChoice::FromFile) => from_file = true,
+                Some(SetChoice::Manage) => {
+                    view.param_sets.get_or_insert_default();
+                }
+                None => {}
+            }
+        })
+        .response
+        .on_hover_text(
+            "Add a saved set's parameters (same names take its values), and its script if it \
+             names one",
+        );
+        let naming = view.param_set_name.as_ref().is_some_and(|(p, _)| *p == place);
+        if !naming
+            && ui
+                .add_enabled(dir.is_some() && something, egui::Button::new("Save Set…"))
+                .on_hover_text(
+                    "Keep the script and these parameters under a name, to add to other lines",
+                )
+                .clicked()
+        {
+            view.param_set_name = Some((place.clone(), String::new()));
+        }
+        to_file = ui
+            .add_enabled(something, egui::Button::new("Save to File…"))
+            .on_hover_text(
+                "Save the script and these parameters as a set file (.params.json) where you \
+                 choose: to share, or to keep with a module",
+            )
+            .clicked();
+    });
+    // Save Set's name, typed in place (that of another tab or line is
+    // forgotten).
+    if view.param_set_name.as_ref().is_some_and(|(p, _)| *p != place) {
+        view.param_set_name = None;
+    }
+    if let Some((_, name)) = view.param_set_name.as_mut() {
+        let (save, cancel) = crate::widgets::set_name_row(ui, name);
+        if save && let Some(dir) = &dir {
+            match param_sets::save(dir, name, &set_of(&pairs, script_now)) {
+                Ok(p) => app.log.info(format!("Parameter set saved: {}", p.display())),
+                Err(e) => app.log.error(format!("Save Set: {e}")),
+            }
+        }
+        if save || cancel {
+            view.param_set_name = None;
+        }
+    }
     let mut commit = false;
     let mut focused = false;
     let mut remove_at = None;
@@ -2001,7 +2089,62 @@ fn script_with_params(
         pairs.push((String::new(), String::new()));
         commit = true;
     }
-    if commit {
+    // (Several files at once, in the order chosen: a later file's
+    // parameter of a name an earlier one has takes its value.)
+    if from_file {
+        for file in app.dialogs.open_files(FileKind::ParameterSet, None) {
+            match param_sets::load_file(&file) {
+                Ok(set) => chosen.push(set),
+                Err(e) => app.log.error(format!("Add from File: {e}")),
+            }
+        }
+    }
+    if to_file {
+        let suggested = match script_now.is_empty() {
+            true => "parameters".to_string(),
+            false => script_now.to_string(),
+        };
+        let suggested = std::path::PathBuf::from(param_sets::file_name(&suggested));
+        if let Some(file) = app.dialogs.save_file(FileKind::ParameterSet, Some(&suggested)) {
+            match param_sets::save_file(&file, &set_of(&pairs, script_now)) {
+                Ok(p) => app.log.info(format!("Parameter set saved: {}", p.display())),
+                Err(e) => app.log.error(format!("Save to File: {e}")),
+            }
+        }
+    }
+    if !chosen.is_empty() {
+        // The sets added: their parameters merged into those shown (with
+        // what was typed in them), the last set's script in the Script
+        // field, as one step of Undo. The buffer goes: what was typed is
+        // in the step, and the step is what shows.
+        let mut merged = pairs.clone();
+        let mut script = None;
+        for set in &chosen {
+            param_sets::merge(&mut merged, &set.parameters);
+            script = set.script.filter(|s| !s.is_empty()).or(script);
+        }
+        let mut edits = Vec::new();
+        if let Some(script) = script.filter(|s| *s != script_now) {
+            edits.push(Edit::SetField {
+                key,
+                path: path.clone(),
+                label: label.into(),
+                value: Some(Value::resref(script)),
+            });
+        }
+        if merged != stored {
+            edits.push(Edit::SetField {
+                key,
+                path: path.clone(),
+                label: list.into(),
+                value: Some(params_value(&merged)),
+            });
+        }
+        if !edits.is_empty() {
+            actions.push(Action::Apply(Command::new("Add parameter set", edits)));
+        }
+        ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
+    } else if commit {
         ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
         if pairs != stored {
             actions.push(set(key, "Script parameters", path.clone(), list, params_value(&pairs)));
