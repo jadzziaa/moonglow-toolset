@@ -66,6 +66,7 @@ pub enum Check {
     ObjectRow,
     PcFaction,
     StaticTransform,
+    AppearanceRange,
     AreaVariables,
     TileReplace,
     TagUnique,
@@ -83,10 +84,13 @@ pub enum Check {
     PaletteRules,
     PaletteGroupEmpty,
     PaletteListMissing,
+    BakeRules,
+    BakeRowPending,
+    BakeUnused,
 }
 
 impl Check {
-    pub const ALL: [Check; 45] = [
+    pub const ALL: [Check; 49] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -115,6 +119,7 @@ impl Check {
         Check::ObjectRow,
         Check::PcFaction,
         Check::StaticTransform,
+        Check::AppearanceRange,
         Check::AreaVariables,
         Check::TileReplace,
         Check::TagUnique,
@@ -132,6 +137,9 @@ impl Check {
         Check::PaletteRules,
         Check::PaletteGroupEmpty,
         Check::PaletteListMissing,
+        Check::BakeRules,
+        Check::BakeRowPending,
+        Check::BakeUnused,
     ];
 
     pub fn id(self) -> &'static str {
@@ -164,6 +172,7 @@ impl Check {
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
             Check::StaticTransform => "static-transform",
+            Check::AppearanceRange => "appearance-range",
             Check::AreaVariables => "area-variables",
             Check::TileReplace => "tile-replace",
             Check::TagUnique => "tag-unique",
@@ -181,6 +190,9 @@ impl Check {
             Check::PaletteRules => "palette-rules",
             Check::PaletteGroupEmpty => "palette-group-empty",
             Check::PaletteListMissing => "palette-list-missing",
+            Check::BakeRules => "bake-rules",
+            Check::BakeRowPending => "bake-row-pending",
+            Check::BakeUnused => "bake-unused",
         }
     }
 
@@ -249,6 +261,11 @@ impl Check {
             Check::StaticTransform => {
                 "a static placeable has no visual transform: the game draws it without one"
             }
+            Check::AppearanceRange => {
+                "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
+                 (it carries the row as a 16-bit number and draws a placeable of row 65536 as \
+                 row 0's: another model, silently)"
+            }
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
             Check::TileReplace => {
                 "a tile whose model has a replace_tex texture names a replacetexture.2da row \
@@ -316,6 +333,21 @@ impl Check {
                 "a blueprint a palette grouping's from file lists is in the module, its haks or \
                  the game, of a type the group is offered in"
             }
+            Check::BakeRules => {
+                "the project's [bake] (moonglow.toml) and its rows file read without a fault, \
+                 its rows end by 65535 (the last the game carries), and they are rows the game's \
+                 placeables.2da doesn't hold already (a bake never takes one)"
+            }
+            Check::BakeRowPending => {
+                "each row of the bake's rows file is in the placeables.2da the module's haks give \
+                 the game, with its baked model: until the project's build adds it, the game has \
+                 no such row (Moonglow draws it as the build will make it)"
+            }
+            Check::BakeUnused => {
+                "every row of the bake's rows file, and every baked model in its hak, is used by \
+                 a placeable of this module (placed or a blueprint); another module or a hak's \
+                 blueprint may still use one, so none is taken out unasked"
+            }
         }
     }
 
@@ -347,6 +379,7 @@ impl Check {
             Check::ObjectRow
             | Check::PcFaction
             | Check::StaticTransform
+            | Check::AppearanceRange
             | Check::AreaVariables
             | Check::TileReplace
             | Check::TagUnique
@@ -365,7 +398,10 @@ impl Check {
             | Check::TalkRange
             | Check::PaletteRules
             | Check::PaletteGroupEmpty
-            | Check::PaletteListMissing => Group::Module,
+            | Check::PaletteListMissing
+            | Check::BakeRules
+            | Check::BakeRowPending
+            | Check::BakeUnused => Group::Module,
         }
     }
 }
@@ -1012,6 +1048,9 @@ pub fn examine_groups(
     }
     if runs(&[StaticTransform]) {
         timings.time("static placeables' transforms", || static_transforms(&mut d, module));
+    }
+    if runs(&[AppearanceRange]) {
+        timings.time("placeables' rows past 65535", || appearance_range(&mut d, module));
     }
     if runs(&[AreaVariables]) {
         timings.time("areas' variables", || area_variables(&mut d, module));
@@ -3076,6 +3115,149 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// Placeables, placed and blueprints, whose `Appearance` is past row
+/// 65535: the engine and the network carry the row as a 16-bit number, so
+/// the game draws row 65536 as row 0 and 65537 as row 1 (measured by The
+/// Domains of Dread on its server; nwn.wiki's 2DA limits say the same).
+fn appearance_range(d: &mut Doctor, module: &Module) {
+    let past = |s: &Struct| {
+        s.integer("Appearance").filter(|&a| a > i64::from(crate::bake::LAST_ROW) || a < 0)
+    };
+    let said = |a: i64| {
+        let wraps = a.rem_euclid(65536);
+        format!(
+            "its Appearance, row {a} of placeables.2da, is past 65535, the last row the game can \
+             carry: it draws row {wraps}'s model instead"
+        )
+    };
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
+        .copied()
+        .collect();
+    keys.sort();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        if key.restype == ResType::UTP {
+            if let Some(a) = past(&gff.root) {
+                let at = "Appearance".to_string();
+                d.push(Severity::Error, Check::AppearanceRange, "module", key, at, said(a));
+            }
+            continue;
+        }
+        let list = gff.root.list("Placeable List").unwrap_or(&[]);
+        for (i, s) in list.iter().enumerate() {
+            let Some(a) = past(s) else { continue };
+            let at = GffPath::root().item("Placeable List", i).field("Appearance");
+            let place = crate::rename::describe(key, Some(&gff), &at);
+            d.push(Severity::Error, Check::AppearanceRange, "module", key, place, said(a));
+        }
+    }
+}
+
+/// The project's walkmesh bake (`[bake]`, [`crate::bake`]): what is
+/// wrong with its rules and rows file, which rows its haks' placeables.2da
+/// lacks yet, and which rows and baked models no placeable of the module
+/// uses. `rm` is the game data with the module's haks (the table is read
+/// under the module's own and the rows Moonglow draws as pending).
+pub fn bake(module: &Module, rm: &ResMan, codepage: Codepage, skip: &Skip) -> Vec<Finding> {
+    use crate::bake::{self as b, RowState};
+    let pf = &module.project_file;
+    if !pf.bake.given || skip.source("module") {
+        return Vec::new();
+    }
+    let file = pf
+        .path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let rows_name = pf.bake.rows_file.clone().unwrap_or_else(|| b::DEFAULT_ROWS_FILE.into());
+    let mut out = Vec::new();
+    let mut push = |check: Check, severity, at: String, message: String| {
+        if !skip.check(check) {
+            out.push(Finding {
+                severity,
+                check: Cow::Borrowed(check.id()),
+                source: "module".into(),
+                resource: Module::info_key(),
+                at,
+                message,
+            });
+        }
+    };
+    for p in &pf.bake.problems {
+        push(Check::BakeRules, Severity::Warning, format!("{file} [bake]"), p.clone());
+    }
+    let rows = match pf.baked_rows() {
+        Ok(rows) => rows,
+        Err(e) => {
+            let message = format!("{e}: nothing is baked until it reads");
+            push(Check::BakeRules, Severity::Error, rows_name.clone(), message);
+            return out;
+        }
+    };
+    let Ok((table, from)) = b::table_under(rm, codepage) else { return out };
+    if let Some(range) = pf.bake.rows {
+        let held = b::rows_held(&range, &table, &rows);
+        if let (Some(first), Some(last)) = (held.first(), held.last()) {
+            let which = match held.len() {
+                1 => format!("row {first} is one placeables.2da has"),
+                n => format!("{n} rows ({first} to {last}) are ones placeables.2da has"),
+            };
+            push(
+                Check::BakeRules,
+                Severity::Warning,
+                format!("{file} [bake]"),
+                format!(
+                    "of the rows baked models take ({range}), {which} already (from {from}): a \
+                     bake passes over them, so fewer are free than the range says; give [bake] \
+                     rows the table doesn't use"
+                ),
+            );
+        }
+    }
+    for r in &rows.rows {
+        let at = format!("{rows_name}, row {}", r.row);
+        let message = match b::row_state(&table, r) {
+            RowState::Added => continue,
+            RowState::Pending => format!(
+                "placeables.2da (from {from}) has no row {}: the project's build hasn't added \
+                 it yet, so the game has no such row and draws nothing for a placeable of it \
+                 (Moonglow draws it as the build will make it, {} as row {})",
+                r.row, r.model, r.copy_of
+            ),
+            RowState::Other(model) => format!(
+                "placeables.2da (from {from}) has row {} with another model ({}), not {}: the \
+                 game draws that one",
+                r.row,
+                model.as_deref().unwrap_or("none"),
+                r.model
+            ),
+        };
+        push(Check::BakeRowPending, Severity::Warning, at, message);
+    }
+    let hak = pf.bake.hak.clone().unwrap_or_default();
+    let names = pf.bake.names.clone().unwrap_or_else(|| b::DEFAULT_NAMES.into());
+    let unused = b::unused(module, &rows, &names, &b::hak_models(rm, &hak));
+    for r in &unused.rows {
+        let message = format!(
+            "no placeable of this module uses row {} ({}): Tidy Up takes it and its model out \
+             when you save, if another module doesn't use it",
+            r.row, r.model
+        );
+        push(Check::BakeUnused, Severity::Warning, format!("{rows_name}, row {}", r.row), message);
+    }
+    let in_rows: Vec<&str> = unused.rows.iter().map(|r| r.model.as_str()).collect();
+    for m in unused.models.iter().filter(|m| !in_rows.iter().any(|r| r.eq_ignore_ascii_case(m))) {
+        let message = format!(
+            "{m}.mdl in {hak}.hak is a baked model no row of {rows_name} names any longer: no \
+             placeable can use it"
+        );
+        push(Check::BakeUnused, Severity::Warning, format!("{hak}.hak"), message);
+    }
+    out
+}
+
 /// Areas with variables in their ARE: the game reads an area's from its
 /// GIT's root and none from the ARE (`engine_area_variables`), where
 /// Moonglow wrote them before 1.34.3, so a script read 0 for them.
@@ -4753,6 +4935,112 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         assert!(found[0].message.contains("Tile_ReplaceTex is 0"), "{}", found[0].message);
         assert!(found[1].message.contains("past replacetexture.2da's 2 rows"));
         assert_eq!(Group::of(found[0]), Group::Objects);
+    }
+
+    /// A placeable whose Appearance is past 65535, placed or a blueprint:
+    /// the game draws the row less 65536.
+    #[test]
+    fn a_placeable_past_row_65535_is_found() {
+        let mut m = Module::new();
+        for (name, row) in [("ok_box", 65535u32), ("far_box", 65537)] {
+            let mut bp = mg_gff::Gff::new(*b"UTP ");
+            bp.root.set("Appearance", Value::Dword(row));
+            m.set_gff(key(name, ResType::UTP), &bp).unwrap();
+        }
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        let mut placed = Struct::new(9);
+        placed.set("Appearance", Value::Dword(70000));
+        git.root.set("Placeable List", Value::List(vec![Struct::new(9), placed]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<(&str, String, String)> = f
+            .iter()
+            .filter(|x| x.check == "appearance-range")
+            .map(|x| (&*x.check, x.resource.to_string(), x.message.clone()))
+            .collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].1, "area.git");
+        assert!(found[0].2.contains("row 70000") && found[0].2.contains("row 4464's model"));
+        assert_eq!(found[1].1, "far_box.utp");
+        assert!(found[1].2.contains("draws row 1's model instead"), "{}", found[1].2);
+        assert_eq!(Check::AppearanceRange.group(), Group::Objects);
+    }
+
+    /// The walkmesh bake's checks: [bake]'s problems and a range over rows
+    /// the table holds (bake-rules), rows the haks' table lacks or has
+    /// with another model (bake-row-pending), and rows and baked models
+    /// no placeable uses (bake-unused).
+    #[test]
+    fn the_bake_s_rules_rows_and_leftovers_are_checked() {
+        let dir = mg_testkit::scratch_dir("doctor-bake");
+        let mut m = Module::new();
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        let mut placed = Struct::new(9);
+        placed.set("Appearance", Value::Dword(3));
+        git.root.set("Placeable List", Value::List(vec![placed]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        // Without [bake]: nothing. (The hak's layer named as the game data
+        // names a module's hak.)
+        let mut rm = resman(&[]);
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("placeables", ResType::TWODA),
+            b"2DA V2.0\n\n   Label ModelName\n0 Chair plc_chair\n1 **** ****\n2 Lamp plc_lamp\n\
+              3 Bk mgbk_0001\n"
+                .to_vec(),
+        );
+        for m in ["mgbk_0001", "mgbk_0002", "mgbk_0007"] {
+            hak.insert(key(m, ResType::MDL), b"x".to_vec());
+        }
+        rm.add(priority::HAK_USER, "hak:my", LayerClass::Erf, hak);
+        let m0 = Module::open(&dir).unwrap();
+        assert!(bake(&m0, &rm, Codepage::default(), &Skip::NONE).is_empty());
+        std::fs::write(
+            dir.join("moonglow.toml"),
+            "[bake]\nrows = \"1-5\"\nhak = \"my\"\nnames = \"mgbk_\"\n",
+        )
+        .unwrap();
+        let row = |r: u32, model: &str| {
+            format!("[[row]]\nrow = {r}\ncopy_of = 0\nmodel = \"{model}\"\nlabel = \"x\"\n")
+        };
+        let rows = [row(3, "mgbk_0001"), row(4, "mgbk_0002"), row(2, "mgbk_0003")].concat();
+        std::fs::write(dir.join("baked_rows.toml"), rows).unwrap();
+        let m1 = Module::open(&dir).unwrap();
+        let f = bake(&m1, &rm, Codepage::default(), &Skip::NONE);
+        let found: Vec<(&str, &str)> = f.iter().map(|x| (&*x.check, &*x.at)).collect();
+        assert_eq!(
+            found,
+            [
+                ("bake-rules", "moonglow.toml [bake]"),
+                ("bake-row-pending", "baked_rows.toml, row 2"),
+                ("bake-row-pending", "baked_rows.toml, row 4"),
+                ("bake-unused", "baked_rows.toml, row 2"),
+                ("bake-unused", "baked_rows.toml, row 4"),
+                ("bake-unused", "my.hak"),
+            ],
+            "{f:#?}"
+        );
+        assert!(
+            f[0].message.contains("(1-5), row 2 is one placeables.2da has"),
+            "{}",
+            f[0].message
+        );
+        assert!(f[1].message.contains("another model (plc_lamp)"), "{}", f[1].message);
+        assert!(f[2].message.contains("has no row 4"), "{}", f[2].message);
+        assert!(f[5].message.contains("mgbk_0007.mdl"), "{}", f[5].message);
+        // Skipped by its id; a range past 65535 and a broken rows file said.
+        let skip = Skip::parse(&["bake-unused"]).unwrap();
+        assert_eq!(bake(&m1, &rm, Codepage::default(), &skip).len(), 3);
+        std::fs::write(dir.join("moonglow.toml"), "[bake]\nrows = \"65000-70000\"\nhak = \"my\"\n")
+            .unwrap();
+        std::fs::write(dir.join("baked_rows.toml"), "[[row]]\nrow = 3\n").unwrap();
+        let m2 = Module::open(&dir).unwrap();
+        let f = bake(&m2, &rm, Codepage::default(), &Skip::NONE);
+        let found: Vec<(&str, Severity)> = f.iter().map(|x| (&*x.check, x.severity)).collect();
+        assert_eq!(found, [("bake-rules", Severity::Warning), ("bake-rules", Severity::Error)]);
+        assert!(f[0].message.contains("past row 65535"), "{}", f[0].message);
+        assert!(f[1].message.contains("no copy_of"), "{}", f[1].message);
     }
 
     /// The Domains of Dread's builder proposal, C7: a merged area keeps its

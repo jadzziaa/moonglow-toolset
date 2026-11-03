@@ -607,6 +607,237 @@ fn walkmeshes_by_visual_transforms() {
     assert!(walks_over("door3", closed(l, 3.0)), "door3: the walkmesh was scaled");
 }
 
+/// Lanes for [`baked_walkmeshes_block_as_drawn`]: its name, the
+/// placeable's x (every one at y 25, Bearing 0) and the lane's x.
+const BAKED_LANES: [(&str, f32, f32); 6] = [
+    // The 12 m square at Scale 0.25 (3 m drawn), baked: walked beside, 4 m
+    // east (inside the unbaked square, clear of the baked one), and across.
+    ("small_beside", 8.0, 12.0),
+    ("small_across", 28.0, 28.0),
+    // The square 6 m north at Scale 0.5, X Rotation 90, baked: the 2 m
+    // square 3 m west (`VisualTransform::matrix`). Walked across where
+    // it is, and across where the unbaked one is (6 m north).
+    ("turned_across", 47.0, 44.0),
+    ("turned_was", 60.0, 60.0),
+    // The 12 m square with no transform, unbaked: its control.
+    ("control", 72.0, 76.0),
+    // A row only the module's own placeables.2da has (row 0's model).
+    ("module_row", 92.0, 92.0),
+];
+
+/// Readings 2 and 3 of the walkmesh bake proposal: a baked walkmesh
+/// blocks as the model is drawn, and whether a module can carry its own
+/// placeables.2da. Two squares of the module's own (placeables.2da rows
+/// 1 and 2's models' walkmeshes replaced, as above: one 4 m across with
+/// its node 6 m north, one 12 m across) are baked by
+/// `mg_module::bake::plan` at Scale 0.25 and at Scale 0.5 with X Rotation
+/// 90, and the copies and a placeables.2da with their rows put in the
+/// scratch user folder's `override`; the objects keep their transforms.
+/// The module itself carries a placeables.2da too: the override's with
+/// one more row, row 0's model (a 4 m square).
+///
+/// Read 2026-11-03: the walkers go straight beside the small one, 4 m
+/// east, where the 12 m square would turn them, and round it when they
+/// walk across it; round the turned one where the bake put it, 3 m west,
+/// and straight over where the square was; and round the unbaked 12 m
+/// square at 4 m (the control). The module's own row is not used: its
+/// walker goes straight over the spot, so the engine reads no
+/// placeables.2da of a module (a hak or the override is needed; the
+/// module's file is under its haks and over the override, and the server
+/// reads it at none of them).
+#[test]
+fn baked_walkmeshes_block_as_drawn() {
+    use mg_module::bake;
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_baked_walkmeshes");
+    let user = dir.join("user");
+    let over = user.join("override");
+    std::fs::create_dir_all(&over).unwrap();
+    let mut game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(9);
+    let mut m = new_module(&game, "Baked Walkmeshes", &mut rng).unwrap();
+    let spec = AreaSpec { name: "Lanes".into(), tileset: r("ttr01"), width: 25, height: 6 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    open_ground(&mut m, &game, area);
+    let table = game.table("placeables").unwrap();
+    let model = |row: usize| table.get(row, "ModelName").unwrap().to_ascii_lowercase();
+    for (row, (at, half)) in MESHES.into_iter().enumerate() {
+        m.set(ResKey::new(r(&model(row)), ResType::PWK), square_of(&model(row), at, half));
+    }
+    // The bake reads the module's walkmeshes, as the window does: the
+    // module over the game.
+    game.resman.add(
+        mg_resman::priority::MODULE,
+        mg_resman::MODULE_LABEL,
+        mg_resman::LayerClass::Erf,
+        m.container(),
+    );
+    let vt = |scale: f32, turn: f32| VisualTransform {
+        scale: Vec3::splat(scale),
+        rotate: Vec3::new(turn, 0.0, 0.0),
+        translate: Vec3::ZERO,
+    };
+    let (small, turned) = (vt(0.25, 0.0), vt(0.5, 90.0));
+    let request = |row: u32, v: VisualTransform| bake::Request {
+        appearance: row,
+        transform: mg_module::placement::Transform {
+            scale: v.scale.into(),
+            rotate: v.rotate.into(),
+            translate: v.translate.into(),
+        },
+        matrix: v.matrix().to_cols_array_2d(),
+    };
+    let rules = bake::Ready {
+        rows: bake::Rows::parse("30000-30009").unwrap(),
+        hak: "mg_baked".into(),
+        names: "mgbk_".into(),
+        rows_file: "baked_rows.toml".into(),
+    };
+    let codepage = game.codepage();
+    let plan = bake::plan(
+        &rules,
+        &Default::default(),
+        &game.resman,
+        codepage,
+        &[request(BIG as u32, small), request(NORTH as u32, turned)],
+    )
+    .unwrap();
+    eprintln!("{}", plan.describe());
+    let bakes: Vec<&bake::Bake> = plan.bakes().collect();
+    assert_eq!(bakes.len(), 2, "{:?}", plan.each);
+    for (key, data) in &plan.files {
+        std::fs::write(over.join(key.to_string()), data).unwrap();
+    }
+    // Where the baked squares are, as the bake drew them: the small one
+    // 3 m across at the origin, the turned one 2 m across 3 m west.
+    let bounds = |faces: &[[[f32; 3]; 3]]| {
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for p in faces.iter().flatten() {
+            for k in 0..2 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        [lo[0], hi[0], lo[1], hi[1]]
+    };
+    let near = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+    assert!(near(bounds(&bakes[0].after), [-1.5, 1.5, -1.5, 1.5]), "{:?}", bounds(&bakes[0].after));
+    assert!(
+        near(bounds(&bakes[1].after), [-4.0, -2.0, -1.0, 1.0]),
+        "{:?}",
+        bounds(&bakes[1].after)
+    );
+    // The override's table: the game's with the rows the build would add.
+    let (under, _) = bake::table_under(&game.resman, codepage).unwrap();
+    let with_rows = bake::pending_table(&under, &plan.rows).unwrap();
+    let bytes = |t: &mg_2da::TwoDa| t.to_bytes_as(codepage, mg_2da::Layout::Aligned).unwrap();
+    std::fs::write(over.join("placeables.2da"), bytes(&with_rows)).unwrap();
+    // The module's own: one row more, row 0's model.
+    let mut own = with_rows.clone();
+    let module_row = own.add_row();
+    for c in 0..own.columns().len() {
+        let _ = own.set(module_row, c, with_rows.cell(CENTERED, c).map(str::to_string));
+    }
+    m.set(ResKey::new(r("placeables"), ResType::TWODA), bytes(&own));
+
+    let barrel = Gff::read(&game.resman.get(&ResKey::new(r("plc_barrel"), ResType::UTP)).unwrap())
+        .unwrap()
+        .root;
+    let items = |_: ResRef| -> Option<Struct> { None };
+    let placing = Placing { game: &game, item: &items };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let (list, _) = git_list(ResType::UTP).unwrap();
+    let mut objects = git.root.list(list).unwrap_or(&[]).to_vec();
+    let placed: [(u32, Option<VisualTransform>); 6] = [
+        (bakes[0].row, Some(small)),
+        (bakes[0].row, Some(small)),
+        (bakes[1].row, Some(turned)),
+        (bakes[1].row, Some(turned)),
+        (BIG as u32, None),
+        (module_row as u32, None),
+    ];
+    let lanes: Vec<VtLane> = BAKED_LANES
+        .iter()
+        .zip(placed)
+        .map(|(&(name, at, lane), (_, vt))| VtLane {
+            name,
+            mesh: 0,
+            at,
+            is_static: false,
+            vt,
+            scripted: false,
+            lane,
+        })
+        .collect();
+    for (i, (row, vt)) in placed.into_iter().enumerate() {
+        let mut s = barrel.clone();
+        s.set("Tag", Value::String(format!("MG_{i}").into_bytes()));
+        s.set("Appearance", Value::Dword(row));
+        s.set("Static", Value::Byte(0));
+        s.set("Useable", Value::Byte(0));
+        s.set("Plot", Value::Byte(1));
+        let at = Placement { position: [BAKED_LANES[i].1, 25.0, 0.0], rotation: 0.0 };
+        let mut p = instance(&placing, ResType::UTP, &s, at, &[]).unwrap();
+        if let Some(v) = vt {
+            p.set("VisTransformList", mg_area::edit::visual_transform_list(v));
+        }
+        objects.push(p);
+    }
+    git.root.set(list, Value::List(objects));
+    m.set_gff(git_key, &git).unwrap();
+    m.set_gff(ResKey::new(r("mg_walker"), ResType::UTC), &walker(&game)).unwrap();
+    let probe = compile(&dir, "mg_probe", &vt_probe(&lanes));
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_MOD_LOAD, r("mg_probe"));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::new(r("mg_probe"), ResType::NCS), probe);
+    m.save_as(&ModuleLocation::Archive(user.join("modules/mg_baked.mod"))).unwrap();
+    let run = run_server(&root, &user, "mg_baked", "MG_DONE", Duration::from_secs(240)).unwrap();
+    assert!(run.finished, "the server did not finish:\n{}", run.log);
+
+    let lane = |name: &str| *BAKED_LANES.iter().find(|l| l.0 == name).unwrap();
+    let walks_over = |name: &str, rect: [f32; 4]| {
+        let over = path(&run, name).windows(2).any(|s| crosses(s[0], s[1], rect));
+        eprintln!("{name}: over {rect:?}: {over}");
+        over
+    };
+    let square = |cx: f32, cy: f32, half: f32| [cx - half, cx + half, cy - half, cy + half];
+    for (name, _, x) in BAKED_LANES {
+        walked(&run, name, x, VT_TO);
+    }
+    // Beside the small one, where the 12 m square would be: walked over.
+    let (_, at, _) = lane("small_beside");
+    assert!(walks_over("small_beside", square(at, 25.0, 6.0)), "small_beside: not baked");
+    // Across it: gone round, never over the baked 3 m square.
+    let (_, at, _) = lane("small_across");
+    assert!(!walks_over("small_across", square(at, 25.0, 1.5)), "small_across: walked over");
+    // The turned one: gone round where the bake put it (3 m west), and the
+    // spot the unbaked one has (6 m north) walked over.
+    let (_, at, _) = lane("turned_across");
+    assert!(!walks_over("turned_across", square(at - 3.0, 25.0, 1.0)), "turned: walked over");
+    let (_, at, _) = lane("turned_was");
+    assert!(walks_over("turned_was", square(at, 31.0, 2.0)), "turned_was: not baked");
+    // The control: the 12 m square, gone round at 4 m.
+    let (_, at, _) = lane("control");
+    assert!(!walks_over("control", square(at, 25.0, 6.0)), "control: walked over");
+    // The module's own row: read 2026-11-03, walked over (the engine reads
+    // no placeables.2da of a module's).
+    // (The placeable is there, its row the module's alone.)
+    let vt = run.values("MG_VT");
+    let valid = vt.iter().find(|v| v.starts_with("module_row|")).expect("module_row's MG_VT");
+    assert!(valid.starts_with("module_row|1|"), "module_row: no placeable: {valid}");
+    let (_, at, _) = lane("module_row");
+    let read = !walks_over("module_row", square(at, 25.0, 2.0));
+    eprintln!("a module's own placeables.2da read by the engine: {read}");
+    assert!(!read, "the engine now reads a module's own placeables.2da");
+}
+
 /// Whether the segment from `a` to `b` passes through the rectangle
 /// `[x0, x1, y0, y1]` (clipped against its slabs).
 fn crosses(a: (f32, f32), b: (f32, f32), [x0, x1, y0, y1]: [f32; 4]) -> bool {

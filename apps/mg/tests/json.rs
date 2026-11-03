@@ -153,6 +153,10 @@ fn every_command_answers_in_json() {
         serde_json::json!(["module.ifo"])
     );
     assert!(ok(&["update-instances", c])["updated"].is_number());
+    // (Chess has no project file: nothing baked, and why, as JSON.)
+    let (baked, json) =
+        run(&root, &user, &["bake-walkmesh", c, "--area", "chess", "--object", "0"]);
+    assert!(!baked && json["error"].as_str().unwrap().contains("[bake]"), "{json}");
     let init = ok(&["init", c, &at("project")]);
     assert_eq!(init["target"], "default");
     let built = ok(&["build", &at("project"), "-o", &at("built.mod")]);

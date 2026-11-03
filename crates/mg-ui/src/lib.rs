@@ -13,6 +13,7 @@ pub mod area_sets;
 pub mod area_tools;
 pub mod area_view;
 pub mod audio;
+pub mod bake_view;
 pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
@@ -712,6 +713,9 @@ pub struct Moonglow {
     pub adjust: Option<area_tools::AdjustLocation>,
     /// Custom Light… (`light_maker`), while it is open.
     pub light_draft: Option<light_maker::LightDraft>,
+    /// Bake Walkmesh to Transform (`bake_view`): its window, its steps'
+    /// rows files, the save's question.
+    pub bake: bake_view::BakeState,
     /// The settings Custom Light was last written with, offered next.
     pub last_light: mg_module::lights::LightSpec,
     /// The Find Instance window.
@@ -1144,6 +1148,7 @@ impl Moonglow {
             area_views: HashMap::new(),
             adjust: None,
             light_draft: None,
+            bake: Default::default(),
             last_light: Default::default(),
             find_instance: None,
             area_focus: None,
@@ -1659,6 +1664,8 @@ impl Moonglow {
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
         light_maker::window(self, ui);
+        bake_view::window(self, ui);
+        bake_view::save_window(self, ui.ctx());
         area_tools::preview_window(self, ui);
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());
@@ -3559,6 +3566,10 @@ impl Moonglow {
                 if plugin_events::hold_save(self, Action::SaveThen(next.clone())) {
                     return;
                 }
+                // (And baked models no placeable uses any longer.)
+                if bake_view::hold_save(self, Action::SaveThen(next.clone())) {
+                    return;
+                }
                 self.save(None);
                 if !self.has_unsaved_work() {
                     self.run_now(*next);
@@ -3653,6 +3664,7 @@ impl Moonglow {
             Action::Save => {
                 if !claims::hold_save(self, Action::Save)
                     && !plugin_events::hold_save(self, Action::Save)
+                    && !bake_view::hold_save(self, Action::Save)
                 {
                     self.save(None)
                 }
@@ -3733,6 +3745,7 @@ impl Moonglow {
                         // module's haks are layered again; Verify's fixes
                         // made as it.)
                         self.plugin_haks_follow(step, redo);
+                        bake_view::follow(self, step, redo);
                         self.fixes_follow(step, redo);
                         self.sync_haks();
                         self.log.info(format!(
@@ -5166,6 +5179,7 @@ impl Moonglow {
         if listed == self.haks_layered {
             return;
         }
+        let baked = self.ws.as_ref().and_then(|ws| ws.module.project_file.baked_rows().ok());
         self.release_game_data();
         let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
         let old: Vec<String> = game
@@ -5186,10 +5200,32 @@ impl Moonglow {
             }
             Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
         }
+        // (The bake's pending rows, over the haks' table as it is now.)
+        mg_module::bake::layer_pending(&mut game.resman, Default::default(), baked.as_ref());
         self.haks_layered = listed;
         self.game_data_changed();
         self.reload_custom_tlk();
         self.log.info("The haks changed: the game data now has them as listed");
+    }
+
+    /// Lays the walkmesh bake's rows the haks' placeables.2da lacks yet
+    /// over the game data again (`mg_module::bake::layer_pending`), from
+    /// the rows file as the project file last read it: after it changed.
+    pub(crate) fn sync_bake_rows(&mut self) {
+        let baked = self.ws.as_ref().and_then(|ws| ws.module.project_file.baked_rows().ok());
+        let Some(game) = self.game.as_deref() else { return };
+        // (Nothing pending, before or now: the game data stays as it is.)
+        let had = game.resman.layers().iter().any(|l| l.label == mg_module::bake::PENDING_LABEL);
+        let now = baked
+            .as_ref()
+            .and_then(|r| mg_module::bake::pending_layer(&game.resman, Default::default(), r));
+        if !had && now.is_none() {
+            return;
+        }
+        self.release_game_data();
+        let Some(game) = exclusive(&mut self.game) else { return };
+        mg_module::bake::layer_pending(&mut game.resman, Default::default(), baked.as_ref());
+        self.game_data_changed();
     }
 
     /// Every few seconds, with Options › General's reloading on: the haks
@@ -5461,6 +5497,13 @@ impl Moonglow {
                 findings.extend(mg_module::doctor::talk_range(
                     &job.module,
                     game.custom_tlk(),
+                    &skip,
+                ));
+                // (The walkmesh bake's rules, rows and leftovers.)
+                findings.extend(mg_module::doctor::bake(
+                    &job.module,
+                    &game.resman,
+                    game.codepage(),
                     &skip,
                 ));
                 // (The palettes' groupings, held to the palettes.)

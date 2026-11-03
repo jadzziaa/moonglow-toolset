@@ -51,6 +51,7 @@ default = ["nui-preview"]
 nui-preview = ["dep:mg-ui", "dep:mg-render"]
 
 [dev-dependencies]
+fastrand.workspace = true
 mg-testkit.workspace = true
 
 [lints]

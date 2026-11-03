@@ -3,7 +3,7 @@ type: Proposal
 title: 'A placed object that blocks as it is drawn: a design'
 description: How Moonglow could give one placed placeable a walkmesh that follows its visual transform (a large stone scaled down to sit on a desk blocks as a small one), which the game never does by itself - the engine's rule (settled), what the bake makes (a copy of the model under a new name, its walkmesh transformed as the game draws the model, a placeables.2da row), why it must go in a hak, how its rows meet a project's own table (TDoD's library build writes placeables.2da), reuse, undoing it, readings to make in the engine, milestones and the owner's questions.
 tags: [proposal, walkmesh, visual-transform, placeables, custom-content, haks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:47:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:52:02Z }
 sources:
   - id: owner
     resource: human:august
@@ -30,7 +30,7 @@ A builder scales a large stone down to sit on a desk. The model shrinks. Its wal
 so the stone still blocks a doorway's width of floor around the desk. The owner would like an
 option, never the default, that makes such an object block as it is drawn.[^owner] This
 proposal sets out what the game allows, what the option would make, and where that has to go.
-Nothing is built until the owner chooses.
+The owner chose (below), and it is built: see "As built".
 
 ## What the game does (settled)
 
@@ -136,15 +136,65 @@ the client once and the engine once.
 
 ## Milestones
 
-1. **M1, the readings:** 1 and 2 above (3 if cheap). If the client draws the copy differently,
-   stop and report.
-2. **M2, the bake** (`mg-module`): the copy, its walkmesh, the row, reuse, `[bake]`, the rows
-   file (a) and the whole table (b), Unbake. Unit tests, plus an engine test of a baked object's
-   lanes.
-3. **M3, the window and `mg`:** the command and its window, the walkmesh shown before and after,
-   Verify's `bake-unused` and `bake-table-stale`, `mg bake-walkmesh`, the manual.
+1. **M1, the readings** (done, 2026-11-03; below): 1, 2 and 3. If the client draws the copy
+   differently, stop and report.
+2. **M2, the bake** (`mg-module`; done): the copy, its walkmesh, the row, reuse, `[bake]`, the
+   rows file (a) (the whole table (b) not wanted), Unbake. Unit tests, plus an engine test of a
+   baked object's lanes.
+3. **M3, the window and `mg`** (done): the command and its window, the walkmesh shown before and
+   after, Verify's `bake-unused` and `bake-row-pending` (`bake-table-stale` was (b)'s), `mg
+   bake-walkmesh`, the manual.
 4. **M4, TDoD's side** (its session): its library build reads `baked_rows.toml`, and a row range
    outside its blocks.
+
+## As built (2026-11-03)
+
+**The readings.**[^built]
+
+1. The client draws a baked copy as the original (`reading_baked_copy_drawn_as_the_original` in
+   `client_render/readings.rs`): the armoire and its copy opened alike by its own `open`; a model
+   whose animations are all its supermodel's (the armoire without its own, the armoire its
+   supermodel) and its copy opened alike, the copy finding the supermodel's nodes by the part
+   numbers it keeps (asserted); the game's one placeable with a supermodel, kelp, drawn alike, and
+   still in the original as in the copy (the client doesn't sway it).
+2. A baked walkmesh blocks as the model is drawn (`baked_walkmeshes_block_as_drawn` in
+   `engine_placeable_walkmesh.rs`, kept as the engine test): a 12 m square at Scale 0.25 is walked
+   beside where the unbaked one would turn walkers, and gone round where the baked 3 m one is; a
+   square at Scale 0.5 turned 90 is gone round where the bake put it, 3 m west, and its old place
+   walked over.
+3. **A module can't carry its own `placeables.2da`:** a row only the module's copy has gives the
+   placeable no walkmesh in the engine (the placeable is there). The rows reach the game through a
+   hak or the override alone.
+
+**What differs from the design, and why:**
+
+- **Rows end at 65535,** the last row the game carries (the engine and the network carry an
+  object's row as a 16-bit number: TDoD measured 65536 as row 0). A `[bake] rows` reaching past
+  it is a problem of the project file, said in the log and by Verify, and the bake isn't offered;
+  and a placeable whose `Appearance` is past it, placed or a blueprint, is Verify's
+  `appearance-range`, with or without a bake.
+- **A bake never takes a row the game's table holds** (the haks' `placeables.2da`, or the game's;
+  a row of `****` alone, a padded table's, is free), not only the rows file's; Verify's `bake-rules`
+  says how many rows of the range the table holds.
+- **The rows file is the settled four keys,** so a bake is found again by its walkmesh: the same
+  original row, and every corner of the walkmesh within a millimeter, and a tenth of a degree at
+  its reach, of the one in the hak.
+- **The rows the table lacks are drawn as the build will add them**: a layer over the haks
+  (`bake:rows`) holds the table with them, so that a baked object shows its copy, and its walkmesh,
+  in the area view before the build has run. Verify reads the table under that layer.
+- **The keys and names in the examples** are only examples; TDoD's range is the owner's to choose.
+- **Tidy Up** keeps the hak beside itself as `.bak`; it is not a step of Undo (it runs as a save
+  begins). `[bake]` is read beside a `.mod` too, its rows file beside `NAME.moonglow.toml`.
+
+**For TDoD's build (M4):** read `[[row]]` entries of `baked_rows.toml` (beside `moonglow.toml`):
+`row`, `copy_of`, `model`, `label`; for each, the row `row` of the `placeables.2da` it writes is
+row `copy_of`'s, its `ModelName` `model` and its `Label` `label` (quoted: it has spaces). Rows are
+at most 65535. The baked models are in `[bake] hak`, which the module lists. Verify's
+`bake-row-pending` names each row the built table lacks.
+
+[^built]: Built on branch `worktree-agent-aecc87e823c69c32d`, 2026-11-03: `mg_module::bake`, `mg-ui`'s
+`bake_view`, `mg bake-walkmesh`, Verify's four checks; the manual's Areas, Modules, Build and Test
+and Command Line chapters.
 
 ## The owner's answers (2026-11-03)
 

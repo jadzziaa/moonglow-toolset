@@ -3842,12 +3842,14 @@ fn sound_circle(centre: Vec3, radius: f32, points: usize) -> Vec<Vec3> {
 }
 
 /// Placeables' and doors' walkmeshes over the view: placeables orange,
-/// doors blue, the selection's brighter.
+/// doors blue, the selection's brighter; and while Bake Walkmesh to
+/// Transform is open on this area, the selection's as baked, green.
 fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     if !view.object_walkmesh {
         return;
     }
     let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) else { return };
+    let baked = crate::bake_view::after_faces(app, model, view.area);
     if view.object_faces.is_none() {
         view.object_faces = Some(view.object_walks.faces(game, model));
     }
@@ -3877,6 +3879,24 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             mesh.add_triangle(first, first + k, first + k + 1);
         }
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
+    }
+    let green = crate::bake_view::after_color();
+    for corners in &baked {
+        // (A little above the walkmesh as it is, to be seen over it.)
+        let lifted = corners.map(|c| c + Vec3::Z * 0.08);
+        let points = view.screen_polygon(&lifted, None);
+        if points.len() < 3 {
+            continue;
+        }
+        let [r, g, b, _] = green.to_array();
+        let first = mesh.vertices.len() as u32;
+        for p in &points {
+            mesh.colored_vertex(*p, egui::Color32::from_rgba_unmultiplied(r, g, b, 140));
+        }
+        for k in 1..points.len() as u32 - 1 {
+            mesh.add_triangle(first, first + k, first + k + 1);
+        }
+        edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 230)));
     }
     let painter = ui.painter_at(view.rect);
     painter.add(egui::Shape::mesh(mesh));
@@ -6547,6 +6567,8 @@ fn editing_items(
                 random_facing(app, view);
                 ui.close();
             }
+            // (Placeables alone: Bake Walkmesh to Transform…, Unbake.)
+            crate::bake_view::menu_items(app, view, ui);
         })
         .response
         .on_hover_text("Drop to Ground, Drop onto Object, Random Facing");

@@ -113,7 +113,7 @@ pub struct Held {
 pub struct SaveState {
     pub held: Option<Held>,
     /// Save Anyway: the next save is not held again.
-    cleared: bool,
+    pub(crate) cleared: bool,
 }
 
 /// A host for a handler that runs at once: nobody is asked (a question is

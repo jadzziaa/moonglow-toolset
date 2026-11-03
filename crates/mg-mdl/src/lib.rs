@@ -108,6 +108,29 @@ impl Model {
         self.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(name))
     }
 
+    /// The model under another name: its own name, and its root node's,
+    /// its animations' roots and their nodes that go by the old name (any
+    /// case). The rest, its supermodel among them, stays as it is.
+    pub fn renamed(&self, to: &str) -> Model {
+        let mut m = self.clone();
+        let from = std::mem::replace(&mut m.name, to.to_string());
+        let rename = |n: &mut String| {
+            if n.eq_ignore_ascii_case(&from) {
+                *n = to.to_string();
+            }
+        };
+        for n in &mut m.nodes {
+            rename(&mut n.name);
+        }
+        for a in &mut m.animations {
+            rename(&mut a.animroot);
+            for n in &mut a.nodes {
+                rename(&mut n.name);
+            }
+        }
+        m
+    }
+
     /// An animation by name (case-insensitive).
     pub fn animation(&self, name: &str) -> Option<&Animation> {
         self.animations.iter().find(|a| a.name.eq_ignore_ascii_case(name))

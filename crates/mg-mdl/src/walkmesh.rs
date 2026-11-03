@@ -172,6 +172,103 @@ impl Walkmesh {
         uses.sort_by_key(|(n, _)| *n);
         uses.into_iter().map(|(_, p)| p).collect()
     }
+
+    /// The faces of its surfaces (of a door state: [`surfaces_for`]), in
+    /// the object's space (each node placed by its rest pose): corners and
+    /// surface material.
+    ///
+    /// [`surfaces_for`]: Walkmesh::surfaces_for
+    pub fn object_faces(&self, state: Option<DoorState>) -> Vec<([Vec3; 3], u32)> {
+        let mut out = Vec::new();
+        for s in self.surfaces_for(state) {
+            let Some(mesh) = self.model.nodes.get(s.node).and_then(|n| n.mesh()) else { continue };
+            for f in &mesh.faces {
+                let corner = |k: usize| {
+                    let v = mesh.vertices.get(f.vertices[k] as usize)?;
+                    Some(to_model_space(&self.model, s.node, *v))
+                };
+                if let (Some(a), Some(b), Some(c)) = (corner(0), corner(1), corner(2)) {
+                    out.push(([a, b, c], f.material));
+                }
+            }
+        }
+        out
+    }
+
+    /// A placeable's walkmesh as the text of a `.pwk` named `name`: its
+    /// faces and points in the object's space moved by `to` (a matrix,
+    /// column by column, as glam's `to_cols_array_2d`), its nodes under
+    /// `<name>_pwk` with no position or turn of their own: one mesh
+    /// (`<name>_wg`) of every surface's faces, each with its material, and
+    /// its points (`…_use01`), by their names with the old model's name
+    /// changed to `name`. A matrix that mirrors winds the faces back the
+    /// way they were. Each line of `banner` is a comment at its top.
+    pub fn moved_text(&self, name: &str, to: [[f32; 4]; 4], banner: &str) -> String {
+        use std::fmt::Write as _;
+        let num = crate::ascii_write::num;
+        let apply = |p: Vec3| -> Vec3 {
+            std::array::from_fn(|r| to[0][r] * p[0] + to[1][r] * p[1] + to[2][r] * p[2] + to[3][r])
+        };
+        let det = {
+            let m = |c: usize, r: usize| to[c][r];
+            m(0, 0) * (m(1, 1) * m(2, 2) - m(2, 1) * m(1, 2))
+                - m(1, 0) * (m(0, 1) * m(2, 2) - m(2, 1) * m(0, 2))
+                + m(2, 0) * (m(0, 1) * m(1, 2) - m(1, 1) * m(0, 2))
+        };
+        let root = format!("{name}_pwk");
+        let mut out = String::new();
+        for line in banner.lines() {
+            let _ = writeln!(out, "# {line}");
+        }
+        let faces = self.object_faces(None);
+        if !faces.is_empty() {
+            let _ = writeln!(out, "node trimesh {name}_wg\n  parent {root}");
+            out.push_str("  position 0 0 0\n  orientation 0 0 0 0\n  bitmap NULL\n");
+            let _ = writeln!(out, "  verts {}", faces.len() * 3);
+            for (corners, _) in &faces {
+                for p in corners.map(apply) {
+                    let _ = writeln!(out, "    {} {} {}", num(p[0]), num(p[1]), num(p[2]));
+                }
+            }
+            let _ = writeln!(out, "  faces {}", faces.len());
+            for (i, (_, material)) in faces.iter().enumerate() {
+                let k = 3 * i;
+                let (b, c) = if det < 0.0 { (k + 2, k + 1) } else { (k + 1, k + 2) };
+                let _ = writeln!(out, "    {k} {b} {c}  1  0 0 0  {material}");
+            }
+            out.push_str("endnode\n");
+        }
+        let old = self.model.nodes.first().map(|n| n.name.as_str()).unwrap_or("");
+        let old = old.strip_suffix("_pwk").or(old.strip_suffix("_PWK")).unwrap_or(old);
+        for p in &self.points {
+            let own = &self.model.nodes[p.node].name;
+            let node = match own.to_ascii_lowercase().find(&old.to_ascii_lowercase()) {
+                Some(at) if !old.is_empty() => {
+                    format!("{}{name}{}", &own[..at], &own[at + old.len()..])
+                }
+                _ => own.clone(),
+            };
+            let at = apply(p.position);
+            let _ = writeln!(out, "node dummy {node}\n  parent {root}");
+            let _ = writeln!(out, "  position {} {} {}", num(at[0]), num(at[1]), num(at[2]));
+            out.push_str("  orientation 0 0 0 0\nendnode\n");
+        }
+        out
+    }
+}
+
+/// A point of node `node`'s own space in the model's (rest pose): moved
+/// by the node and each of its parents.
+pub fn to_model_space(model: &Model, node: usize, v: Vec3) -> Vec3 {
+    let mut p = v;
+    let mut at = Some(node);
+    while let Some(i) = at {
+        let n = &model.nodes[i];
+        let r = rotate(n.orientation, p.map(|c| c * n.scale));
+        p = [r[0] + n.position[0], r[1] + n.position[1], r[2] + n.position[2]];
+        at = n.parent.filter(|&parent| parent < i);
+    }
+    p
 }
 
 fn rotate(q: Quat, v: Vec3) -> Vec3 {
@@ -189,15 +286,7 @@ fn rotate(q: Quat, v: Vec3) -> Vec3 {
 
 /// A node's origin in the model's space (rest pose).
 pub(crate) fn object_position(model: &Model, node: usize) -> Vec3 {
-    let mut p = [0.0f32; 3];
-    let mut at = Some(node);
-    while let Some(i) = at {
-        let n = &model.nodes[i];
-        let r = rotate(n.orientation, p.map(|c| c * n.scale));
-        p = [r[0] + n.position[0], r[1] + n.position[1], r[2] + n.position[2]];
-        at = n.parent.filter(|&parent| parent < i);
-    }
-    p
+    to_model_space(model, node, [0.0; 3])
 }
 
 #[cfg(test)]
@@ -237,6 +326,50 @@ endnode
         // Not offset by the walk mesh's position, as they would be under it.
         assert_eq!(w.use_points(), [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]]);
         assert_eq!(w.model.nodes[1].mesh().unwrap().faces[0].material, 7);
+    }
+
+    /// A walkmesh moved by a matrix reads back as its faces and points so
+    /// moved, under the new name, its nodes' own offsets taken in; a
+    /// mirroring matrix keeps the faces' winding.
+    #[test]
+    fn a_moved_walkmesh_reads_back_moved() {
+        let w = Walkmesh::read(PWK.as_bytes(), WalkmeshKind::Placeable).unwrap();
+        // Half size, turned a quarter anticlockwise, 2 m east.
+        let to = [
+            [0.0, 0.5, 0.0, 0.0],
+            [-0.5, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.5, 0.0],
+            [2.0, 0.0, 0.0, 1.0],
+        ];
+        let text = w.moved_text("mgbk_0001", to, "Baked\nfrom box");
+        assert!(text.starts_with("# Baked\n# from box\n"), "{text}");
+        let back = Walkmesh::read(text.as_bytes(), WalkmeshKind::Placeable).unwrap();
+        assert_eq!(back.model.nodes[0].name, "mgbk_0001_pwk");
+        assert_eq!(back.model.nodes[1].name, "mgbk_0001_wg");
+        // The face's corners: (0,-0.5), (1,-0.5), (0,0.5) in the object.
+        let faces = back.object_faces(None);
+        let want = [[2.25, 0.0, 0.0], [2.25, 0.5, 0.0], [1.75, 0.0, 0.0]];
+        for (got, want) in faces[0].0.iter().zip(want) {
+            assert!((0..3).all(|k| (got[k] - want[k]).abs() < 1e-6), "{faces:?}");
+        }
+        assert_eq!(faces[0].1, 7);
+        assert_eq!(back.use_points(), [[2.5, 0.0, 0.0], [1.5, 0.0, 0.0]]);
+        let names: Vec<&str> =
+            back.points.iter().map(|p| &*back.model.nodes[p.node].name).collect();
+        assert_eq!(names, ["mgbk_0001_pwk_use01", "mgbk_0001_pwk_use02"]);
+        // Mirrored in X: the face is wound back (its normal still up).
+        let mirror = [
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let up = |w: &Walkmesh| {
+            let [a, b, c] = w.object_faces(None)[0].0;
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        };
+        let mirrored = Walkmesh::read(w.moved_text("m", mirror, "").as_bytes(), w.kind).unwrap();
+        assert_eq!(up(&mirrored).signum(), up(&w).signum());
     }
 
     /// Every prefix of a walkmesh reads as one or is an error: never a

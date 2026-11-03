@@ -692,6 +692,22 @@ pub fn write_into(path: &Path, resources: Vec<(ResKey, Source)>) -> Result<Added
     Ok(added)
 }
 
+/// Takes `keys` out of the hak at `path` (kept beside itself as `.bak`
+/// first, as [`write_into`] keeps it): how many it had. A hak that has
+/// none of them isn't written.
+pub fn remove_from(path: &Path, keys: &[ResKey]) -> Result<usize, String> {
+    let mut hak = Hak::open(path)?;
+    let had = keys.iter().filter(|k| hak.places.contains_key(k)).count();
+    if had == 0 {
+        return Ok(0);
+    }
+    let bak = crate::sibling(path, ".bak");
+    crate::keep_previous(path).map_err(|e| format!("{}: {e}", bak.display()))?;
+    hak.remove(keys);
+    hak.save(Some(path))?;
+    Ok(had)
+}
+
 /// A hak's resources as they were when taken ([`Hak::contents`]).
 #[derive(Debug, Clone)]
 pub struct Contents {

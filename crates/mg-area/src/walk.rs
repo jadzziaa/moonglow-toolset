@@ -321,6 +321,51 @@ impl Ground {
 mod tests {
     use super::*;
 
+    /// A baked walkmesh (`mg_module::bake`, by `VisualTransform::matrix`),
+    /// placed as Object Walkmeshes place every walkmesh (the object's
+    /// position and Bearing), is where the original's faces are when they
+    /// are drawn with the model ([`AreaObject::model_transform`]): it
+    /// blocks as the model is drawn, tilted, turned, scaled and moved.
+    #[test]
+    fn a_baked_walkmesh_lies_where_the_model_is_drawn() {
+        let pwk = "node trimesh box_wg\n  parent box_pwk\n  position 0.5 1 0\n  verts 3\n    \
+                   0 0 0\n    2 0 0.5\n    0 1 0\n  faces 1\n    0 1 2  1  0 0 0  7\nendnode\n";
+        let w = mg_mdl::walkmesh::Walkmesh::read(
+            pwk.as_bytes(),
+            mg_mdl::walkmesh::WalkmeshKind::Placeable,
+        )
+        .unwrap();
+        let mut o =
+            crate::AreaObject::placed(crate::ObjectKind::Placeable, 0, &mg_gff::Struct::new(9));
+        o.position = Vec3::new(20.0, 30.0, 1.0);
+        o.rotation = 0.7;
+        let v = crate::VisualTransform {
+            scale: Vec3::splat(0.4),
+            rotate: Vec3::new(35.0, 20.0, -10.0),
+            translate: Vec3::new(1.0, -0.5, 0.25),
+        };
+        o.visual = Some(v);
+        let faces = w.object_faces(None);
+        let baked = mg_module::bake::moved(&faces, v.matrix().to_cols_array_2d());
+        for (b, (f, _)) in baked.iter().zip(&faces) {
+            for (got, of) in b.iter().zip(f) {
+                let got = o.transform().transform_point3(Vec3::from(*got));
+                let drawn = o.model_transform().transform_point3(Vec3::from(*of));
+                assert!((got - drawn).length() < 1e-4, "{got} {drawn}");
+            }
+        }
+        // And the walkmesh file written so reads back as those faces.
+        let text = w.moved_text("mgbk_0001", v.matrix().to_cols_array_2d(), "");
+        let back = mg_mdl::walkmesh::Walkmesh::read(
+            text.as_bytes(),
+            mg_mdl::walkmesh::WalkmeshKind::Placeable,
+        )
+        .unwrap();
+        let read =
+            mg_module::bake::moved(&back.object_faces(None), Mat4::IDENTITY.to_cols_array_2d());
+        assert!(mg_module::bake::same_bake(&read, &baked));
+    }
+
     /// A 10 m square tile: a ramp from 0 (west) to 5 (east).
     fn ramp() -> Walkmesh {
         let (a, b, c, d) = (
