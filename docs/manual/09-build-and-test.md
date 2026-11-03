@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:09:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
 ---
 
 # Build, verify and test
@@ -316,12 +316,14 @@ crash Aurora with an access violation that names nothing:
 | A waypoint whose Appearance is a `waypoint.2da` row with no flag model (a warning) | the area view draws no flag for it; the game draws no waypoint |
 | A creature, placeable, door or encounter of the PC faction, or a creature, placeable or door with no faction, which the game reads as the PC faction (a warning; not a trigger, which Aurora gives faction 0 when its blueprint has none) | the PC faction is the players' alone: the game puts such a creature in Hostile, and creatures regard the others as they regard players |
 | A static placeable whose file has a visual transform (a warning) | the game client draws a static placeable without it, merged into the area's tiles: untick Static to have it scaled, tilted or moved |
+| A placeable, placed or a blueprint, whose Appearance is past row 65535 (an error, `appearance-range`) | the game carries an object's placeables.2da row as a 16-bit number: it draws row 65536 as row 0, 65537 as row 1, another model, without a word |
 | An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them, as does its fix |
 | A tile whose model draws a `replace_tex` texture and whose `Tile_ReplaceTex` is 0 or past `replacetexture.2da` (an error, `tile-replace`) | the game crashes as it loads the area: choose a row in Tile Properties' Replacement Texture |
 | A tag the [project file](03-modules.md#the-project-file-moonglowtoml) says must be unique (`[tags] unique`) on more than one area or placed object, or one it says must be unique in each area (`unique_in_area`) on more than one of an area (a warning, `tag-unique`) | `GetObjectByTag` finds only one of them: a start waypoint copied and left behind keeps new characters there. Its fix gives the others tags of their own (`TAG_2`, `TAG_3`…; an area keeps its tag); what the scripts look for is yours to check |
 | An area the project's [claims table](03-modules.md#protected-areas) says is merged that the module no longer has (`claims-merged`), or whose Tag is not the one the table records (`claims-tag`); errors | the game keeps players' first visits by an area's ResRef and their positions by its Tag: those who were there lose them |
 | The project's [lines for typed text](03-modules.md#text-typed-into-the-talk-table) (`[talk]`) with a tenth or less left (a warning; none left, an error), lines of `mg tlk-alloc`'s map inside them, two builders' parts that share lines, or you without a part where other builders have one (`talk-range`) | text typed stays in the file once they are used; a key and a typed text, or two builders' texts, given one line |
 | The project's [palette groupings](03-modules.md#palette-groupings) (`[palette.*]`): a key, a `from` file or an entry not understood (`palette-rules`), a group no blueprint of the standard or custom palettes it is offered in falls in (`palette-group-empty`), blueprints a `from` file lists that are nowhere (`palette-list-missing`); warnings | the grouping works without what isn't understood; an empty group isn't shown in the palette, and a blueprint listed under another ResRef isn't in its group |
+| The project's [walkmesh bake](03-modules.md#baked-walkmeshes) (`[bake]`): its rules or rows file not right, or rows of its range the game's table holds already (`bake-rules`); a row of the rows file the module's haks' `placeables.2da` lacks, or has with another model (`bake-row-pending`); a row or a baked model no placeable of the module uses any longer (`bake-unused`); warnings, and an error for a rows file that can't be read | until the project's build adds a row, the game has no such row and draws nothing for a placeable of it (Moonglow draws it as the build will); rows no one uses are offered to be tidied when you save |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
 | A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
 

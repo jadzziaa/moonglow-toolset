@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
 ---
 
 # Areas
@@ -517,7 +517,8 @@ Aurora):
   its own size, whatever the visual transform (a static placeable's,
   and one a script sets, alike), and **Object Walkmeshes** draws it
   there. A placeable scaled up blocks no more than it did; for one that
-  blocks more, its model needs a larger walkmesh. A static
+  blocks more, its model needs a larger walkmesh, which **Position ›
+  Bake Walkmesh to Transform…** makes (below). A static
   placeable is offered none, as in Aurora: the game draws a static
   placeable without its visual transform, whatever its file has (the
   server keeps it, but players don't see it). The window says so;
@@ -566,6 +567,52 @@ Aurora):
   - **Position › Random Facing**: turns each selected object to face a
     way of its own, at random (by the snap angle, if one is set): for
     trees and rocks placed in numbers.
+  - **Position › Bake Walkmesh to Transform…** (placeables): makes a
+    placeable block as it is drawn. The game never moves a walkmesh by
+    a visual transform, so a large stone scaled down to sit on a desk
+    still blocks the floor around the desk. A bake gives the object a
+    copy of its model under a new name (`mgbk_0001`): the same model,
+    animations and textures, only its own name changed, compiled again;
+    its walkmesh (`.pwk`) is the original's moved as the game draws the
+    model (scaled, turned, tilted and moved by the visual transform),
+    and a `placeables.2da` row that copies the object's row with that
+    model. The object's **Appearance** becomes that row; its visual
+    transform stays, so it looks as before. The models go into the
+    project's hak, which the module lists (the first bake adds it), and
+    the rows into the project's rows file, for the project's own build
+    to add to the `placeables.2da` it writes: the project file's
+    `[bake]` says which hak, which rows and which file (see [The project
+    file](03-modules.md#the-project-file)). Without `[bake]`, or on a
+    static placeable or one with no visual transform, the item is
+    grayed out and its tip says why. The window says what it will make
+    before anything is written (the name, the row, the hak, the rows
+    file, or an earlier bake taken again) and turns on **Object
+    Walkmeshes**, which draw the selection's walkmesh as it is (orange)
+    and as baked (green). **Bake** makes it: one step to undo, which
+    takes the hak and the rows file back too. Two placeables of one
+    model and one transform (within a millimeter and a tenth of a
+    degree) share one bake, so baking five stones the same way makes
+    one model; several selected are baked together. A model with no
+    walkmesh has nothing to bake, and the window says so. Until the
+    project's build adds a row, the game has no such row, and Verify
+    says so (`bake-row-pending`); Moonglow draws the object as the
+    build will make it meanwhile. Rows are never ones the game's table
+    (the haks', the game's) holds already, and never past 65535, the
+    last row the game can carry. A module can't carry its own
+    `placeables.2da` (the engine reads none of a module's, measured), so
+    the rows reach the game only through a hak.
+  - **Position › Unbake Walkmesh** (on baked placeables): sets each
+    back to the row its bake copies: the walkmesh is the model's own
+    again, the visual transform as it is. The baked model stays in the
+    hak until a save tidies it (below).
+
+  When you save, Moonglow looks for baked models and rows no placeable
+  of the module (placed, or a blueprint) uses any longer, and asks:
+  **Tidy Up** takes them out of the rows file and the hak (kept beside
+  itself as `.bak`), **Keep Them** leaves them (and isn't asked of the
+  same ones again). It checked this module alone: another module, or a
+  blueprint in a hak, may still use one, so nothing is taken out unasked.
+  `mg bake-walkmesh` does the same from the command line.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.

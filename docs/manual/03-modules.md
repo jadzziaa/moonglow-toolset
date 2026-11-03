@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:39:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
 ---
 
 # Modules
@@ -712,6 +712,12 @@ generated = true                    # on for the team (off unless said)
 hak = "tdod_lights"                 # the hak offered first
 first_row = 20000                   # the least placeables.2da row a light takes
 
+[bake]                              # Bake Walkmesh to Transform (below)
+rows = "50000-50999"                # the placeables.2da rows baked models take
+hak = "mybaked"                     # the hak the baked models go in
+names = "mgbk_"                     # baked models' names begin so: mgbk_0001
+rows_file = "baked_rows.toml"       # the rows, for the project's build
+
 [talk]                              # text typed into the custom talk table
 typed = true                        # on for everyone (off unless said: each builder's Options)
 lines = "100000-149999"             # the lines it takes (0 is StrRef 16777216)
@@ -772,6 +778,10 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
 | `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later | the end of the table |
+| `[bake] rows` | the placeables.2da rows [Bake Walkmesh to Transform](#baked-walkmeshes) takes (`"16500-16999"`), at most 65535 (the last row the game can carry); a bake never takes a row the game's table holds already | the command isn't offered |
+| `[bake] hak` | the hak (its name; `.hak` may be left out) the baked models (`.mdl`, `.pwk`) go into, in your user folder's `hak`; the first bake puts it at the top of the module's hak list | the command isn't offered |
+| `[bake] names` | what baked models' names begin with (letters, digits and `_`, at most 12: four digits follow) | `"mgbk_"` |
+| `[bake] rows_file` | the rows file, beside the project file, which the project's build reads | `"baked_rows.toml"` |
 | `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Options › Language (off by default) |
 | `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
 | `[talk] map` | `mg tlk-alloc`'s map, from the project's root: the lines it gives keys (in use or retired) are never taken | none |
@@ -821,6 +831,46 @@ you answer is kept in Moonglow's own folder
 ([A project's own plugins](15-plugins.md#a-projects-own-plugins)); a
 `[project_plugins]` section in either file is said in the log, and
 nothing in it allows anything. No setting allows anything either.
+
+### Baked walkmeshes
+
+[Bake Walkmesh to Transform](04-areas.md#selecting-and-arranging-objects)
+(an area's Position menu, and `mg bake-walkmesh`) gives a placed
+placeable a walkmesh that follows its visual transform, by a copy of its
+model in the project's hak and a `placeables.2da` row. `placeables.2da`
+is one table, and the highest hak that has one wins, so Moonglow doesn't
+write it: the rows go into the project's **rows file**, and the
+project's own build adds them to the table it writes (a team's library
+build, as it adds its palette lists). Moonglow writes the file; edit it
+in Moonglow, not by hand:
+
+```toml
+# baked_rows.toml: written by Moonglow Toolset (Bake Walkmesh to Transform); the project's
+# build adds each row to the placeables.2da it writes. Edit it in Moonglow, not by hand.
+
+[[row]]
+row = 50000
+copy_of = 1234
+model = "mgbk_0001"
+label = "Baked: Boulder 03 at 0.25"
+```
+
+Each `[[row]]` is a row to add: `row` its number, `copy_of` the row it
+copies (every column of it), `model` its `ModelName` and `label` its
+`Label` (spaces kept, quoted as 2DAs quote them). A file Moonglow can't
+read whole is said by line, and nothing is baked until it reads. Until
+the build has added a row, the game has no such row: Moonglow draws a
+placeable of it as the build will make it, and Verify says so. A module
+can't carry the table itself: the engine reads no `placeables.2da` of a
+module's own (only a hak's, or the override's).
+
+**Verify Module** (and `mg verify`) holds the bake to the game's table:
+
+| Check | Finds | |
+| --- | --- | --- |
+| `bake-rules` | what is wrong with `[bake]` (a range past row 65535, a key missing) or its rows file; and rows of the range the game's `placeables.2da` holds already, which a bake passes over | warnings; a rows file that can't be read, an error |
+| `bake-row-pending` | a row of the rows file the `placeables.2da` of the module's haks lacks (the build hasn't added it yet), or has with another model | a warning |
+| `bake-unused` | a row of the rows file no placeable of the module (placed, or a blueprint) uses any longer, and a baked model in the hak no row names | a warning (a save offers to tidy them) |
 
 ### Palette groupings
 

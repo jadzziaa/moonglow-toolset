@@ -21,7 +21,7 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     let git = ResKey::new(ResRef::from_str("chess").unwrap(), ResType::GIT);
     let mut g = m.gff(&git).unwrap().unwrap();
     let mut p = Struct::new(9);
-    p.set("Appearance", Value::Dword(99_999));
+    p.set("Appearance", Value::Dword(60_000));
     p.set("Tag", Value::String(b"BROKEN".to_vec()));
     g.root.set("Placeable List", Value::List(vec![p]));
     m.set_gff(git, &g).unwrap();

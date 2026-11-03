@@ -2582,6 +2582,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ctrlc",
+ "fastrand",
  "mg-2da",
  "mg-core",
  "mg-edit",
