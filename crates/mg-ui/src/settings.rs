@@ -484,6 +484,13 @@ pub struct Settings {
     /// extension, `custom` or `standard`, and the category's place in its
     /// palette (`utc/standard/2.0`). They open so at the next start.
     pub palette_open: Vec<String>,
+    /// Each palette type's Group by, by its extension (`utp`): the id of
+    /// one of the project's groupings (`[palette.<id>]` in moonglow.toml).
+    /// None, or one the project doesn't offer there: by Category.
+    pub palette_group_by: std::collections::BTreeMap<String, String>,
+    /// The palette types (extensions) whose groups list their blueprints
+    /// in one list, Then by Category off (on unless said).
+    pub palette_flat: Vec<String>,
     /// How large the galleries' pictures are, points (their slider's;
     /// `None`: the usual size).
     pub gallery_tile: Option<u16>,

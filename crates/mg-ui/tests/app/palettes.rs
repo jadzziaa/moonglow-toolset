@@ -2438,3 +2438,178 @@ fn the_tiles_palette_s_search_cleared_leaves_its_headings_as_they_were() {
     settle(&mut h);
     assert_eq!(palette_labels(&h, hint), before, "every heading as it was before the search");
 }
+
+/// Two groupings, as TDoD's project has them: `kind` among placeables
+/// and waypoints (a group of its own for each, by its `types`), with a
+/// list beside the project file; `role` among the items alone.
+const GROUPINGS: &str = r#"
+[palette.kind]
+types = ["utp", "utw"]
+from = "palette_kinds.toml"
+[[palette.kind.group]]
+name = "Chests"
+types = ["utp"]
+names = ["chest"]
+[[palette.kind.group]]
+name = "Gates"
+types = ["utw"]
+names = ["gate"]
+[palette.role]
+title = "Role"
+types = ["uti"]
+"#;
+
+/// The palette's headers whose labels begin with `start`, top down.
+fn headers(h: &Harness<'_, Moonglow>, start: &str) -> Vec<(String, f32)> {
+    let mut found: Vec<(String, f32)> = h
+        .query_all_by_label_contains(start)
+        .filter_map(|n| Some((n.accesskit_node().label()?, n.rect().top())))
+        .filter(|(l, _)| l.starts_with(start))
+        .collect();
+    found.sort_by(|a, b| a.1.total_cmp(&b.1));
+    found
+}
+
+/// Group by (the project's `[palette.*]`): a grouping shows a palette's
+/// blueprints under its groups, each with the categories in it (Then by
+/// Category) or in a list, Other last; a blueprint in two groups shows
+/// under both, and its rows are keyed by their place (the click and the
+/// arrow keys go from the row clicked); the search is within the
+/// grouping; each grouping keeps its groups open; Group by is each
+/// palette type's, shown only where the project offers a grouping; the
+/// Custom palette as the Standard.
+#[test]
+fn the_palette_groups_blueprints_by_the_project_s_groupings() {
+    use mg_edit::{Command, Edit};
+    use mg_module::palette::BlueprintKind;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-groupings");
+    let path = sample_module(&dir);
+    std::fs::write(dir.join("sample.moonglow.toml"), GROUPINGS).unwrap();
+    std::fs::write(dir.join("palette_kinds.toml"), "\"Treasure\" = [\"plc_chest1\"]\n").unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    assert!(app.ws.as_ref().unwrap().module.project_file.warnings.is_empty());
+    // Two gates of the module's.
+    let game = app.game.as_deref().unwrap();
+    let base = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let edits = ["mg_gate_a", "mg_gate_b"]
+        .iter()
+        .map(|n| {
+            let key = ResKey::parse(n, ResType::UTW).unwrap();
+            let mut g = base.clone();
+            g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+            let name = format!("Gate {}", n.chars().last().unwrap().to_ascii_uppercase());
+            let ls = LocString::from_text(Language::ENGLISH, Gender::Male, name.as_str());
+            g.root.set("LocalizedName", mg_gff::Value::LocString(ls));
+            Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }
+        })
+        .collect();
+    app.ws.as_mut().unwrap().apply(Command::new("gates", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = BlueprintKind::Placeable;
+    (app.palette.tiles, app.palette.custom) = (false, false);
+    app.palette.filter.clear();
+    app.settings.name_resrefs = true;
+    let mut h = harness(app, 900.0, 1000.0);
+    settle(&mut h);
+
+    // By Category, until Group by is chosen: Kind and nothing else among
+    // the placeables (Role is the items').
+    h.get_by_label("Group by");
+    assert!(headers(&h, "Chests (").is_empty());
+    let line = h.get_by_label("Group by").rect().center().y;
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = (h.query_all(combo).map(|n| n.rect().center()))
+        .find(|c| (c.y - line).abs() < 8.0)
+        .expect("Group by's box");
+    click_pos(&h, at);
+    settle(&mut h);
+    assert!(h.query_by_label("Role").is_none(), "not offered among the placeables");
+    h.get_by_label("Kind").click();
+    settle(&mut h);
+    assert_eq!(h.state().settings.palette_group_by.get("utp").map(String::as_str), Some("kind"));
+    let tops: Vec<String> = ["Chests (", "Treasure (", "Other ("]
+        .iter()
+        .map(|s| headers(&h, s).first().map(|x| x.0.clone()).unwrap_or_default())
+        .collect();
+    assert_eq!(tops[1], "Treasure (1)", "the list's group: {tops:?}");
+    let place = |s: &str| headers(&h, s)[0].1;
+    assert!(place("Chests (") < place("Treasure (") && place("Treasure (") < place("Other ("));
+    assert!(headers(&h, "Gates").is_empty(), "the waypoints' group");
+
+    // Searched within the grouping: plc_chest1 under both its groups,
+    // Other gone.
+    h.state_mut().palette.filter = "plc_chest1".into();
+    settle(&mut h);
+    assert!(headers(&h, "Other (").is_empty());
+    let rows: Vec<egui::Rect> =
+        h.query_all_by_label("Chest (plc_chest1)").map(|n| n.rect()).collect();
+    assert_eq!(rows.len(), 2, "under Chests and Treasure");
+    assert!(h.query_all_by_label_contains("Containers & Switches").next().is_some(), "nested");
+    // The second clicked: it is selected, the cursor at its row (in
+    // Treasure, the second group); the keys go on from there.
+    let lower = rows.iter().max_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
+    click_pos(&h, lower.center());
+    settle(&mut h);
+    let selected = h.state().palette.selected.unwrap();
+    assert_eq!(selected.resref.to_string(), "plc_chest1");
+    let in_group = |h: &Harness<'_, Moonglow>| {
+        let row = h.state().palette.cursor_row();
+        row.map_or((None, false), |(p, b)| (p.first().copied(), b.is_some()))
+    };
+    assert_eq!(in_group(&h), (Some(1), true));
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    assert_eq!(in_group(&h), (Some(1), false), "up to its category's row, in Treasure");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(in_group(&h), (Some(1), true), "and back to the row in Treasure");
+    assert_eq!(h.state().palette.selected, Some(selected));
+
+    // Then by Category off: a group's blueprints in a list.
+    h.get_by_label("Then by Category").click();
+    settle(&mut h);
+    assert_eq!(h.state().settings.palette_flat, ["utp"]);
+    assert!(h.query_all_by_label_contains("Containers & Switches").next().is_none(), "flat");
+    assert_eq!(h.query_all_by_label("Chest (plc_chest1)").count(), 2);
+
+    // The search cleared, a group opened is kept open: the grouping's.
+    h.state_mut().palette.filter.clear();
+    settle(&mut h);
+    let open = |h: &Harness<'_, Moonglow>| h.state().settings.palette_open.clone();
+    if !open(&h).iter().any(|k| k == "utp/standard/@kind/Treasure") {
+        h.get_by_label("Treasure (1)").click();
+        settle(&mut h);
+    }
+    assert!(open(&h).iter().any(|k| k == "utp/standard/@kind/Treasure"), "{:?}", open(&h));
+    assert!(!open(&h).iter().any(|k| k.starts_with("utp/standard/0")), "no category's");
+
+    // Each palette type its own: the doors have no grouping (no Group
+    // by); the waypoints are by Category until asked.
+    h.state_mut().palette.kind = BlueprintKind::Door;
+    settle(&mut h);
+    assert!(h.query_by_label("Group by").is_none(), "no grouping among the doors");
+    h.state_mut().palette.kind = BlueprintKind::Waypoint;
+    h.state_mut().palette.custom = true;
+    settle(&mut h);
+    h.get_by_label("Group by");
+    assert!(headers(&h, "Gates (").is_empty(), "by Category");
+    h.state_mut().settings.palette_group_by.insert("utw".into(), "kind".into());
+    settle(&mut h);
+    // The Custom palette's gates, under Gates, a row of each that is
+    // edited as any.
+    let gates = headers(&h, "Gates (");
+    assert_eq!(gates.first().map(|g| g.0.as_str()), Some("Gates (2)"), "{gates:?}");
+    // (Expand All: the palette's, under its search.)
+    let search = search_rect(&h, "🔍 Search name, tag, resref");
+    let below = |n: &egui_kittest::Node<'_>| (n.rect().top() - search.bottom()).abs();
+    let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
+    expand.expect("Expand All").click();
+    settle(&mut h);
+    let menus = h.query_all_by_label("Edit").count();
+    h.get_by_label("Gate A (mg_gate_a)").click_secondary();
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Edit").count(), menus + 1, "its menu has Edit");
+    h.query_all_by_label("Edit Copy…").next().expect("and Edit Copy");
+}
