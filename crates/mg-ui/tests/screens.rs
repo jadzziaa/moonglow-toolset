@@ -9409,3 +9409,92 @@ fn script_editor_large() {
     shoot(&mut h, &dir, "script-editor-middle");
     eprintln!("{}", dir.display());
 }
+
+/// The placeables palette grouped by what each one is
+/// (`target/test-output/screens-palette-groups/`): a grouping of the
+/// project's (`[palette.kind]`, the groupings proposal's rules) on TDoD's
+/// 14,665 placeables where `MOONGLOW_HAKS` has `tdod_blueprints.hak`, else
+/// on the game's: Group by, the groups closed (`palette-grouped`), a
+/// search within them, each group with its categories
+/// (`palette-grouped-search`), and in a list, Then by Category off
+/// (`palette-grouped-flat`).
+#[test]
+#[ignore]
+fn palette_grouped_by_kind() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-palette-groups");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let tdod = (mg_testkit::builder_hak_dirs().into_iter())
+        .map(|d| d.join("tdod_blueprints.hak"))
+        .find(|h| h.is_file());
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    if let Some(hak) = &tdod {
+        let to = user.join("hak/tdod_blueprints.hak");
+        let _ = std::fs::remove_file(&to);
+        mg_testkit::link_or_copy(hak, &to).unwrap();
+        let mut item = ifo::MOD_HAK_LIST.new_item();
+        item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from("tdod_blueprints"));
+        info.root.set(ifo::MOD_HAK_LIST.label, mg_gff::Value::List(vec![item]));
+    }
+    m.set_info(&info).unwrap();
+    let path = dir.join("kinds.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    std::fs::write(
+        dir.join("kinds.moonglow.toml"),
+        r#"[palette.kind]
+types = ["utp"]
+words_of = '^.*?:\s*(.*?)\s*(?:,\s*after\b.*?)?\s*(?:\(|\[|$)'
+[[palette.kind.group]]
+name = "Plants"
+names = ["plant", "bush", "fern", "flower", "flowers", "ivy", "tree", "grass", "shrub", "weed"]
+[[palette.kind.group]]
+name = "Containers"
+names = ["chest", "barrel", "barrels", "crate", "crates", "box", "sack", "basket", "urn"]
+[[palette.kind.group]]
+name = "Food"
+names = ["food", "bread", "cheese", "meat", "fish", "fruit", "apple", "ham", "pie"]
+[[palette.kind.group]]
+name = "Lights"
+names = ["lamp", "lantern", "candle", "candles", "torch", "brazier", "chandelier"]
+[[palette.kind.group]]
+name = "Seats"
+names = ["chair", "chairs", "stool", "bench", "throne"]
+[[palette.kind.group]]
+name = "Tables"
+names = ["table", "tables", "desk", "counter"]
+[[palette.kind.group]]
+name = "Beds"
+names = ["bed", "beds", "cot", "bedroll"]
+"#,
+    )
+    .unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = true;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    (app.palette.tiles, app.palette.custom) = (false, false);
+    app.palette.filter.clear();
+    app.settings.palette_gallery = false;
+    app.settings.palette_group_by.insert("utp".into(), "kind".into());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 1000.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(8);
+    shoot(&mut h, &dir, "palette-grouped");
+    h.state_mut().palette.filter = "table".into();
+    h.run_steps(6);
+    shoot(&mut h, &dir, "palette-grouped-search");
+    h.state_mut().settings.palette_flat = vec!["utp".into()];
+    h.run_steps(6);
+    shoot(&mut h, &dir, "palette-grouped-flat");
+    eprintln!("{} (TDoD's: {})", dir.display(), tdod.is_some());
+}

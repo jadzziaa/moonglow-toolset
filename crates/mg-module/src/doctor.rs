@@ -80,10 +80,13 @@ pub enum Check {
     ClaimsMerged,
     ClaimsTag,
     TalkRange,
+    PaletteRules,
+    PaletteGroupEmpty,
+    PaletteListMissing,
 }
 
 impl Check {
-    pub const ALL: [Check; 42] = [
+    pub const ALL: [Check; 45] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -126,6 +129,9 @@ impl Check {
         Check::ClaimsMerged,
         Check::ClaimsTag,
         Check::TalkRange,
+        Check::PaletteRules,
+        Check::PaletteGroupEmpty,
+        Check::PaletteListMissing,
     ];
 
     pub fn id(self) -> &'static str {
@@ -172,6 +178,9 @@ impl Check {
             Check::ClaimsMerged => "claims-merged",
             Check::ClaimsTag => "claims-tag",
             Check::TalkRange => "talk-range",
+            Check::PaletteRules => "palette-rules",
+            Check::PaletteGroupEmpty => "palette-group-empty",
+            Check::PaletteListMissing => "palette-list-missing",
         }
     }
 
@@ -294,6 +303,19 @@ impl Check {
                  [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
                  own that no other shares"
             }
+            Check::PaletteRules => {
+                "the project's palette groupings (moonglow.toml's [palette.*]) and the lists \
+                 their from files hold read without a fault (a grouping works without what \
+                 isn't understood)"
+            }
+            Check::PaletteGroupEmpty => {
+                "every group of a palette grouping has a blueprint in it, in the standard or the \
+                 custom palettes it is offered in (by its words, its ResRef patterns or its list)"
+            }
+            Check::PaletteListMissing => {
+                "a blueprint a palette grouping's from file lists is in the module, its haks or \
+                 the game, of a type the group is offered in"
+            }
         }
     }
 
@@ -340,7 +362,10 @@ impl Check {
             | Check::NuiSources
             | Check::ClaimsMerged
             | Check::ClaimsTag
-            | Check::TalkRange => Group::Module,
+            | Check::TalkRange
+            | Check::PaletteRules
+            | Check::PaletteGroupEmpty
+            | Check::PaletteListMissing => Group::Module,
         }
     }
 }
@@ -1164,6 +1189,130 @@ pub fn talk_range(module: &Module, table: Option<&mg_tlk::Tlk>, skip: &Skip) -> 
                     format!("{free} of the {total} {what} typed text takes are left"),
                 );
             }
+        }
+    }
+    out
+}
+
+/// The project's palette groupings (`[palette.*]`,
+/// [`crate::palette_groups`]), held to the palettes they are offered in:
+/// what of their rules and lists wasn't understood (`palette-rules`), a
+/// group no blueprint of the standard or custom palettes falls in
+/// (`palette-group-empty`), and blueprints a `from` file lists that are
+/// nowhere (`palette-list-missing`). `name`: a palette name as the
+/// palette shows it (a talk-table string looked up). Every tool says the
+/// same (Verify, `mg verify`).
+pub fn palette_groups(
+    module: &Module,
+    resman: &ResMan,
+    name: &dyn Fn(&crate::palette::PaletteName) -> String,
+    skip: &Skip,
+) -> Vec<Finding> {
+    use crate::palette::{BlueprintKind, Palette};
+    use crate::palette_groups::entries;
+    let pf = &module.project_file;
+    let groupings = &pf.palette;
+    let mut out = Vec::new();
+    if (groupings.list.is_empty() && groupings.problems.is_empty()) || skip.source("module") {
+        return out;
+    }
+    let file = pf
+        .path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let mut push = |check: Check, at: String, message: String| {
+        if !skip.check(check) {
+            out.push(Finding {
+                severity: Severity::Warning,
+                check: Cow::Borrowed(check.id()),
+                source: "module".into(),
+                resource: Module::info_key(),
+                at,
+                message,
+            });
+        }
+    };
+    for p in &groupings.problems {
+        push(Check::PaletteRules, format!("{file} [palette]"), p.clone());
+    }
+    // Each kind's palettes, the standard and the custom, read once: their
+    // blueprints and names.
+    let mut palettes: HashMap<BlueprintKind, Vec<(ResRef, String)>> = HashMap::new();
+    let read = |kind: BlueprintKind| -> Vec<(ResRef, String)> {
+        let standard = resman
+            .get_named(&format!("{}palstd", kind.name()), ResType::ITP)
+            .ok()
+            .and_then(|d| mg_gff::Gff::read(&d).ok());
+        let custom = module.gff(&kind.custom_key()).and_then(Result::ok);
+        let mut all = Vec::new();
+        for g in standard.iter().chain(custom.iter()) {
+            let p = Palette::read(g);
+            all.extend(entries(&p).into_iter().map(|(_, b)| (b.resref, name(&b.name))));
+        }
+        all
+    };
+    for g in &groupings.list {
+        let empty = !skip.check(Check::PaletteGroupEmpty);
+        let mut filled = vec![false; g.groups.len()];
+        for kind in BlueprintKind::ALL.into_iter().filter(|k| empty && g.offered(*k)) {
+            let listed = palettes.entry(kind).or_insert_with(|| read(kind));
+            let keyed: Vec<(ResRef, &str)> = listed.iter().map(|(r, n)| (*r, n.as_str())).collect();
+            for (i, members) in g.sort(kind, &keyed).groups.iter().enumerate() {
+                filled[i] |= !members.is_empty();
+            }
+        }
+        for (group, _) in g.groups.iter().zip(&filled).filter(|(_, f)| empty && !**f) {
+            let kinds: Vec<&str> = g.kinds_of(group).iter().map(|k| k.name()).collect();
+            let r#where = if kinds.is_empty() {
+                "it is offered in no palette (its types are none of its grouping's)".to_string()
+            } else {
+                format!("no blueprint of the {} palettes falls in it", kinds.join(", "))
+            };
+            push(
+                Check::PaletteGroupEmpty,
+                format!("{file} [palette.{}]", g.id),
+                format!("the group {:?} of {} is empty: {where}", group.name, g.title),
+            );
+        }
+        // The lists' blueprints, where they are.
+        let Some(from) = g.from.as_deref() else { continue };
+        for group in &g.groups {
+            let nowhere: Vec<String> = group
+                .listed
+                .iter()
+                .filter(|(r, k)| {
+                    let kinds = k.map_or_else(|| g.kinds_of(group), |k| vec![k]);
+                    !kinds.iter().any(|k| {
+                        let key = ResKey::new(*r, k.restype());
+                        module.contains(&key) || resman.find(&key).is_some()
+                    })
+                })
+                .map(|(r, k)| match k {
+                    Some(k) => format!("{r}.{}", k.restype().extension().unwrap_or_default()),
+                    None => r.to_string(),
+                })
+                .collect();
+            if nowhere.is_empty() {
+                continue;
+            }
+            let shown = nowhere.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+            let more = match nowhere.len() {
+                n if n > 10 => format!(" and {} more", n - 10),
+                _ => String::new(),
+            };
+            push(
+                Check::PaletteListMissing,
+                format!("{from} {:?}", group.name),
+                format!(
+                    "{} blueprint{} the list of {:?} names {} nowhere (the module, its haks, the \
+                     game): {shown}{more}",
+                    nowhere.len(),
+                    if nowhere.len() == 1 { "" } else { "s" },
+                    group.name,
+                    if nowhere.len() == 1 { "is" } else { "are" },
+                ),
+            );
         }
     }
     out
@@ -4981,6 +5130,119 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         assert!(other.iter().any(|f| f.message.contains("you (code zz) have none")), "{other:?}");
         let skip = Skip::parse(&["talk-range"]).unwrap();
         assert!(talk_range(&m, Some(&t), &skip).is_empty());
+    }
+
+    /// A palette grouping's rules not understood, a group no blueprint of
+    /// its palettes falls in, and blueprints its list names that are
+    /// nowhere: each said, by its check.
+    #[test]
+    fn palette_groupings_are_held_to_the_palettes() {
+        use crate::palette::PaletteName;
+        use mg_gff::{Gff, Struct, Value};
+        let itp = |entries: &[(&str, &str)]| {
+            let mut g = Gff::new(*b"ITP ");
+            let mut category = Struct::new(1);
+            category.set("NAME", Value::String(b"Tavern".to_vec()));
+            category.set("ID", Value::Byte(1));
+            let leaves = entries
+                .iter()
+                .map(|(r, n)| {
+                    let mut leaf = Struct::new(0);
+                    leaf.set("RESREF", Value::resref(ResRef::from_str(r).unwrap()));
+                    leaf.set("NAME", Value::String(n.as_bytes().to_vec()));
+                    leaf
+                })
+                .collect();
+            category.set("LIST", Value::List(leaves));
+            g.root.set("MAIN", Value::List(vec![category]));
+            g.to_bytes().unwrap()
+        };
+        let mut game = MemContainer::new();
+        game.insert(key("placeablepalstd", ResType::ITP), itp(&[("dd_tbl", "Tavern: Table")]));
+        game.insert(key("dd_tbl", ResType::UTP), vec![0]);
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        let mut m = Module::new();
+        m.set(key("placeablepalcus", ResType::ITP), itp(&[("my_stool", "Stool")]));
+        m.set(key("my_stool", ResType::UTP), vec![0]);
+        let name = |n: &PaletteName| match n {
+            PaletteName::Text(t) => String::from_utf8_lossy(t).into_owned(),
+            PaletteName::StrRef(_) => String::new(),
+        };
+        assert!(palette_groups(&m, &rm, &name, &Skip::default()).is_empty(), "no groupings");
+        m.project_file.apply(
+            "moonglow.toml",
+            "[palette.kind]\ntypes = [\"utp\"]\nfrom = \"k.toml\"\ncolour = 1\n\
+             [[palette.kind.group]]\nname = \"Tables\"\nnames = [\"table\"]\n\
+             [[palette.kind.group]]\nname = \"Seats\"\nnames = [\"stool\"]\n\
+             [[palette.kind.group]]\nname = \"Beds\"\nnames = [\"bed\"]\n",
+            false,
+        );
+        let mut warnings = Vec::new();
+        crate::palette_groups::read_list(
+            "k.toml",
+            "\"Tables\" = [\"dd_tbl\", \"dd_gone\", \"my_stool.uti\"]\n\"Rugs\" = [\"dd_rug\"]\n",
+            &mut std::sync::Arc::make_mut(&mut m.project_file.palette).list[0],
+            &mut warnings,
+        );
+        let f = palette_groups(&m, &rm, &name, &Skip::default());
+        let said: Vec<(&str, &str, &str)> =
+            f.iter().map(|f| (f.check.as_ref(), f.at.as_str(), f.message.as_str())).collect();
+        assert_eq!(f.len(), 5, "{said:#?}");
+        assert_eq!(said[0].0, "palette-rules");
+        assert!(said[0].2.contains("\"colour\" is not a key of [palette.kind]"), "{said:?}");
+        // Tables (the game's) and Seats (the module's) have theirs: Beds
+        // and Rugs (the list's, of a blueprint that's nowhere) none.
+        assert_eq!(
+            (said[1].0, said[1].1, said[1].2),
+            (
+                "palette-group-empty",
+                "moonglow.toml [palette.kind]",
+                "the group \"Beds\" of Kind is empty: no blueprint of the placeable palettes \
+                 falls in it"
+            )
+        );
+        assert!(said[2].2.starts_with("the group \"Rugs\""), "{said:?}");
+        assert_eq!(
+            (said[3].0, said[3].1, said[3].2),
+            (
+                "palette-list-missing",
+                "k.toml \"Tables\"",
+                "2 blueprints the list of \"Tables\" names are nowhere (the module, its haks, \
+                 the game): dd_gone, my_stool.uti"
+            )
+        );
+        assert!(said[4].2.starts_with("1 blueprint the list of \"Rugs\" names is nowhere"));
+        // Each left out by its id.
+        let skip = Skip::parse(&["palette-group-empty", "palette-rules"]).unwrap();
+        let f = palette_groups(&m, &rm, &name, &skip);
+        assert!(f.iter().all(|f| f.check == "palette-list-missing") && f.len() == 2);
+        // A group of several types (TDoD's Animals: placeables and
+        // creatures) is empty only where it is empty in every palette it
+        // is offered in: here the placeables' have its blueprint, the
+        // creatures' none.
+        m.project_file.apply(
+            "moonglow.toml",
+            "[palette.mixed]\ntypes = [\"utp\", \"utc\"]\nfrom = \"m.toml\"\n",
+            false,
+        );
+        crate::palette_groups::read_list(
+            "m.toml",
+            "\"Animals\" = [\"dd_tbl.utp\", \"nw_wolf.utc\"]\n\"Bats\" = [\"nw_bat.utc\"]\n",
+            &mut std::sync::Arc::make_mut(&mut m.project_file.palette).list[1],
+            &mut warnings,
+        );
+        let skip = Skip::parse(&["palette-list-missing", "palette-rules"]).unwrap();
+        let f = palette_groups(&m, &rm, &name, &skip);
+        let empty: Vec<&str> = f.iter().map(|f| f.message.as_str()).collect();
+        assert!(!empty.iter().any(|e| e.contains("\"Animals\"")), "{empty:?}");
+        assert!(
+            empty.contains(
+                &"the group \"Bats\" of Mixed is empty: no blueprint of the creature, placeable \
+                  palettes falls in it"
+            ),
+            "{empty:?}"
+        );
     }
 
     #[test]

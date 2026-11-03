@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:09:38Z }
 ---
 
 # Modules
@@ -737,6 +737,17 @@ folder = "plugins"                  # the project's own plugins (as without it)
 
 [plugins."tdod.rules"]              # a plugin's settings the team shares
 claims = "data/claims.toml"
+
+[palette.kind]                      # a palette grouping (below)
+title = "Kind"
+types = ["utc", "uti", "utp"]
+words_of = '^.*?:\s*(.*?)\s*(\(|$)'
+from = "palette_kinds.toml"
+[[palette.kind.group]]
+name = "Tables"
+types = ["utp"]
+names = ["table", "desk", "dining table"]
+resrefs = ["dd_*_tbl*"]
 ```
 
 Names are matched by globs, whatever their case: `*` any characters,
@@ -773,6 +784,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
 | `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
+| `[palette.<id>]` | a [palette grouping](#palette-groupings): another way the palettes show their blueprints (Group by), any number of them | the palettes by category alone |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
 [Duplicate tags](04-areas.md#duplicate-tags), [Setup
@@ -809,6 +821,77 @@ you answer is kept in Moonglow's own folder
 ([A project's own plugins](15-plugins.md#a-projects-own-plugins)); a
 `[project_plugins]` section in either file is said in the log, and
 nothing in it allows anything. No setting allows anything either.
+
+### Palette groupings
+
+A **grouping** shows a palette's blueprints under groups of the team's
+own, beside their categories: TDoD's placeables by what each one is
+(Tables, Seats, Food) as well as by theme. The palette pane's
+[Group by](05-blueprints.md#grouped-another-way-group-by) offers each
+grouping in the palettes it is for. Nothing is copied and no palette
+file changes: the game, the DM's Creator and Aurora show the categories
+as before. Each grouping is a table `[palette.<id>]` (its id the key),
+its groups `[[palette.<id>.group]]` in the order they are shown, any
+number of each:
+
+```toml
+[palette.kind]                 # every type but the doors
+title = "Kind"
+types = ["utc", "ute", "uti", "utp", "uts", "utm", "utt", "utw"]
+words_of = '^.*?:\s*(.*?)\s*(\(|$)'
+from = "palette_kinds.toml"
+
+[[palette.kind.group]]
+name = "Tables"
+types = ["utp"]
+names = ["table", "desk", "counter", "dining table"]
+resrefs = ["dd_*_tbl*"]
+
+[[palette.kind.group]]
+name = "Food"
+names = ["cheese", "bread", "ham"]
+
+[palette.role]                 # the items alone, by a list only
+title = "Role"
+types = ["uti"]
+from = "palette_roles.toml"
+```
+
+| Key | What it does | Without it |
+| --- | --- | --- |
+| `title` | the grouping's name in Group by | its id, as a title (`kind`: Kind) |
+| `types` | the blueprint types (extensions) whose palettes offer it; one it leaves out shows its categories alone | every type |
+| `words_of` | a regular expression whose first group in brackets is the part of a name its words are taken from: with names like `Tavern: Table 2 (N2E)`, the part after the colon, before the brackets (so that "after HAM", the pack a fern was made after, isn't a ham). A name it doesn't match gives its words whole | the whole name |
+| `from` | a file beside `moonglow.toml` of lists a tool writes (below), read with it and again when it changes | none |
+| `group` `name` | the group's name (not `Other`, which holds the blueprints no group takes) | (a group needs one) |
+| `group` `types` | the grouping's palettes the group is offered in, narrower than the grouping's | all of the grouping's |
+| `group` `names` | whole words of a blueprint's name, case and accents ignored, as the palette shows the name (a talk-table name as the talk table has it); several words match in that order, side by side (`"dining table"`) | none |
+| `group` `resrefs` | ResRef patterns (`*` any run, case ignored) | none |
+
+The `from` file holds groups by name, each a list of ResRefs: one alone
+is that blueprint in every palette the group is offered in, one with its
+type (`dd_x.uti`) in that one only. A group the file names that
+`moonglow.toml` doesn't is a group too, after those `moonglow.toml`
+names, in the file's order; one it names is given its list beside its
+rules. A group may hold blueprints of several types.
+
+```toml
+# palette_kinds.toml: written by the library build; edit its rules, not this file
+"Tables" = ["dd_n2e_table2", "dd_vil_tbl01"]
+"Animals" = ["dd_cat01.utp", "dd_wolf01.utc"]
+```
+
+A blueprint goes under every group whose words, patterns or list take
+it, and under **Other** where none does. What isn't understood (a key,
+a type, an expression that isn't one, a `from` file missing or no TOML,
+an entry that is no ResRef) is said in the log by file and line and by
+Verify (`palette-rules`), and the grouping works without it. Verify
+also notes a group no blueprint of its palettes falls in, the standard
+or the custom (`palette-group-empty`), and blueprints a `from` file
+lists that are nowhere, in the module, its haks or the game
+(`palette-list-missing`). `mg find MODULE --palette-group Kind/Tables`
+lists a group's blueprints (`Kind/Other` those of no group), with the
+palette and category each is in.
 
 ### Your builder code
 

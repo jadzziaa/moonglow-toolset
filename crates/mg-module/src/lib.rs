@@ -36,6 +36,7 @@ pub mod nwsync;
 pub mod outside;
 pub mod palette;
 pub mod palette_add;
+pub mod palette_groups;
 pub mod placement;
 mod process;
 pub mod project_file;

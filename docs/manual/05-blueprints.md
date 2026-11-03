@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T00:53:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:14:23Z }
 ---
 
 # Blueprints
@@ -37,6 +37,8 @@ the top:
   **Gallery**, **New…** makes a blueprint, and **More** has
   **Categories…**, **Refresh Palette** and, for placeables, **All
   Appearances…**.
+- **Group by** and **Then by Category**, under the toolbar, where the
+  project groups the palette another way (below).
 
 - **Standard**: the game's blueprints (and those of the module's haks),
   in the game's categories.
@@ -46,6 +48,48 @@ the top:
   every other entry the file has, a hak's blueprint, the override
   folder's or one there is no more. Those are viewed, not edited (Edit
   Copy makes one the module's).
+
+### Grouped another way (Group by)
+
+A blueprint is in one category: its palette file says so, and that is
+what the game, the DM's Creator and Aurora show. A project can have
+Moonglow show the same blueprints grouped another way as well, by what
+each one is (Tables, Seats, Food) beside the themes its categories are,
+without copying a blueprint or changing a palette file: a **grouping**,
+whose rules are in the [project file](03-modules.md#palette-groupings)
+(`[palette.*]` in `moonglow.toml`), shared by the team.
+
+Where the project has one for the type shown, **Group by** is over the
+list: **Category** (the palette as it is) or a grouping, by its title.
+Grouped:
+
+- **Each group** is a branch of the list, in the order the project file
+  gives them, with every blueprint that falls in it: a blueprint in two
+  groups shows under both. **Other**, last, has those no group takes.
+  A group with no blueprint of the palette shown isn't drawn (a group
+  of creatures and placeables shows among the creatures only where it
+  has creatures); Verify says which groups are empty everywhere.
+- **Then by Category** (on unless you turn it off) keeps the palette's
+  categories inside each group (Tables › Domains of Dread › Tavern), each
+  holding the group's blueprints alone; off, a group lists its
+  blueprints at once, in the palette's order.
+- **The search** looks within the grouping: it opens the groups with a
+  match, and those without one are left out, as categories are. The
+  **Gallery** shows the same groups as pictures.
+- **Every row works as in the categories**: a click places it, a double
+  click opens it, its right-click menu, the arrow keys (a blueprint
+  shown twice is two rows, and the keys go on from the one you clicked),
+  dragging into an area or, in the Custom palette, onto a category
+  inside a group (the blueprint moves to that category), Favorites and
+  Recent. The Standard and Custom palettes alike.
+- Group by and Then by Category are each type's own, kept for the next
+  start, and each grouping remembers which of its groups you left open.
+
+The groups are worked out when the palette or the project's rules
+change, not as the list is drawn: the 14,665 placeables of a large
+module's palette take a few hundredths of a second. `mg find
+--palette-group Kind/Tables` lists a group's blueprints on the
+[command line](11-command-line.md).
 
 **The custom palettes change only where you change a blueprint.** A save
 leaves a palette as it is, byte for byte (and its nasher JSON file

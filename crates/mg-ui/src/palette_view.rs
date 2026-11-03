@@ -14,6 +14,7 @@ use mg_gff::{Gff, Value};
 use mg_module::palette::{
     BlueprintKind, Palette, PaletteBlueprint, PaletteNode, update_custom_palette,
 };
+use mg_module::palette_groups::{Grouped, Grouping};
 use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
@@ -47,6 +48,11 @@ pub struct PaletteView {
     standard: HashMap<BlueprintKind, Arc<Palette>>,
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
+    /// Each palette grouped as Group by asks (`grouped`), and what for:
+    /// the palette (its place), the groupings as read, the grouping and
+    /// whether by category within.
+    #[allow(clippy::type_complexity)]
+    grouped: HashMap<(BlueprintKind, bool), ((usize, u64, String, bool), Arc<Grouped>)>,
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
@@ -137,6 +143,9 @@ pub(crate) enum Branch {
 pub(crate) struct At {
     kind: BlueprintKind,
     custom: bool,
+    /// The grouping the palette was shown by (its id, and whether by
+    /// category within): none, by Category.
+    grouping: Option<(String, bool)>,
     pub(crate) branch: Branch,
     pub(crate) blueprint: Option<ResKey>,
 }
@@ -387,10 +396,22 @@ impl PaletteView {
         self.cursor.as_ref().is_some_and(|c| c.blueprint.is_none())
     }
 
+    /// The row the arrow keys' cursor is at: its category's place in the
+    /// palette as shown (grouped, its group's first), and the blueprint's
+    /// where it is at one's. None at Favorites or Recent.
+    pub fn cursor_row(&self) -> Option<(Vec<usize>, Option<ResKey>)> {
+        let c = self.cursor.as_ref()?;
+        match &c.branch {
+            Branch::Category(p) => Some((p.clone(), c.blueprint)),
+            Branch::Remembered(_) => None,
+        }
+    }
+
     /// Forgets palettes built from the game data (after Reload Resources).
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
         self.custom_cache.clear();
+        self.grouped.clear();
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
@@ -411,6 +432,7 @@ impl Default for PaletteView {
             filter: String::new(),
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
+            grouped: HashMap::new(),
             selected: None,
             thumb: None,
             fold: None,
@@ -1281,8 +1303,78 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         crate::palette_categories::open(app, kind);
         view = std::mem::take(&mut app.palette);
     }
-    ui.separator();
+    // Group by: the palette's categories, or one of the project's
+    // groupings offered in it (`[palette.*]` in moonglow.toml), each group
+    // with the categories in it (Then by Category) or its blueprints in a
+    // list. Not shown where the project offers none.
+    let groupings =
+        (app.ws.as_ref().map(|ws| ws.module.project_file.palette.clone())).unwrap_or_default();
+    let ext = kind.restype().extension().unwrap_or_default();
+    let offered: Vec<&Grouping> = groupings.offered(kind).collect();
+    let mut by = (app.settings.palette_group_by.get(ext))
+        .and_then(|id| offered.iter().position(|g| g.id == *id));
+    let mut nested = !app.settings.palette_flat.iter().any(|e| e == ext);
+    if !offered.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Group by").on_hover_text(
+                "The palette's categories, or a grouping the project's moonglow.toml gives                  ([palette.*]): a blueprint shows under each of its groups, Other last",
+            );
+            let options: Vec<Option<usize>> =
+                std::iter::once(None).chain((0..offered.len()).map(Some)).collect();
+            let text = |o: &Option<usize>| o.map_or("Category", |i| offered[i].title.as_str());
+            let mut pick = by;
+            crate::widgets::dropdown(("palette-group-by", kind))
+                .selected_text(text(&by))
+                .show(ui, &mut pick, &options, |o| text(o).to_string());
+            if pick != by {
+                match pick {
+                    Some(i) => {
+                        app.settings.palette_group_by.insert(ext.into(), offered[i].id.clone());
+                    }
+                    None => {
+                        app.settings.palette_group_by.remove(ext);
+                    }
+                }
+                by = pick;
+            }
+            if by.is_some()
+                && ui
+                    .checkbox(&mut nested, "Then by Category")
+                    .on_hover_text("Each group holds the palette's categories, as they are nested")
+                    .changed()
+            {
+                app.settings.palette_flat.retain(|e| e != ext);
+                if !nested {
+                    app.settings.palette_flat.push(ext.into());
+                }
+            }
+        });
+    }
     let game = app.game.as_deref().expect("checked");
+    let grouping = by.map(|i| offered[i]);
+    let grouped = grouping.map(|g| {
+        let made_for =
+            (Arc::as_ptr(&palette) as usize, groupings.fingerprint, g.id.clone(), nested);
+        match view.grouped.get(&(kind, custom)) {
+            Some((at, made)) if *at == made_for => made.clone(),
+            _ => {
+                let started = std::time::Instant::now();
+                let made = Arc::new(mg_module::palette_groups::group_palette(
+                    &palette,
+                    kind,
+                    g,
+                    &|n| n.text(game),
+                    nested,
+                ));
+                crate::trace::changed("palette-grouped", || {
+                    format!("{:?} by {} in {:?}", kind, g.id, started.elapsed())
+                });
+                view.grouped.insert((kind, custom), (made_for, made.clone()));
+                made
+            }
+        }
+    });
+    ui.separator();
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
@@ -1317,6 +1409,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         game,
         kind,
         custom,
+        grouping: grouping.map(|g| (g.id.clone(), nested)),
+        groups: (grouped.as_ref())
+            .map(|g| g.palette.nodes.iter().map(|n| n.name.text(game)).collect())
+            .unwrap_or_default(),
+        origin: grouped.as_ref().map(|g| &g.origin),
         own,
         fold: view.fold,
         open: app.settings.palette_open.clone(),
@@ -1341,7 +1438,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         hovered: None,
         resrefs,
         cr,
-        cursor: view.cursor.take().filter(|c| c.kind == kind && c.custom == custom),
+        cursor: (view.cursor.take()).filter(|c| {
+            c.kind == kind
+                && c.custom == custom
+                && c.grouping == grouping.map(|g| (g.id.clone(), nested))
+        }),
         reveal: std::mem::take(&mut view.reveal),
         toggle: view.toggle.take(),
         listed: pressed.map(|_| Listed::default()),
@@ -1364,7 +1465,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             tree.remembered(ui, "Favorites", &favorites, &palette);
             tree.remembered(ui, "Recent", &recent, &palette);
         }
-        for (i, node) in palette.nodes.iter().enumerate() {
+        // (Grouped: a node for each group, Other last.)
+        let nodes = grouped.as_ref().map_or(&palette.nodes, |g| &g.palette.nodes);
+        for (i, node) in nodes.iter().enumerate() {
             tree.node(ui, node, &[i], None);
         }
         // The room under the list has the menu too.
@@ -1429,7 +1532,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Step::To(row) => {
                 let (branch, blueprint) = listed.rows[row];
                 let branch = listed.branches[branch].branch.clone();
-                tree.cursor = Some(At { kind, custom, branch, blueprint });
+                let grouping = tree.grouping.clone();
+                tree.cursor = Some(At { kind, custom, grouping, branch, blueprint });
                 if blueprint.is_some() {
                     tree.sel.selected = blueprint;
                     tree.sel.chosen.clear();
@@ -1573,6 +1677,11 @@ impl Selection {
     }
 }
 
+/// How many blueprints a palette node and those under it hold.
+fn count_under(node: &PaletteNode) -> usize {
+    node.blueprints.len() + node.children.iter().map(count_under).sum::<usize>()
+}
+
 /// Every blueprint under a palette node.
 fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     out.extend(node.blueprints.iter().map(|b| ResKey::new(b.resref, kind.restype())));
@@ -1607,6 +1716,12 @@ struct Tree<'a> {
     game: &'a mg_rules::GameData,
     kind: BlueprintKind,
     custom: bool,
+    /// The grouping shown (its id, and whether by category within),
+    /// none by Category; its groups' names, by their places; and each
+    /// category's place in the palette it came from.
+    grouping: Option<(String, bool)>,
+    groups: Vec<String>,
+    origin: Option<&'a HashMap<Vec<usize>, Vec<usize>>>,
     /// The custom palette's blueprints the module has (the palette also
     /// lists its haks', the override folder's and blueprints there are no
     /// more, as Aurora's does: those are viewed, as the game's are).
@@ -1692,8 +1807,19 @@ impl Tree<'_> {
     fn remembered_key(&self, path: &[usize]) -> String {
         let ext = self.kind.restype().extension().unwrap_or_default();
         let source = if self.custom { "custom" } else { "standard" };
-        let at: Vec<String> = path.iter().map(usize::to_string).collect();
-        format!("{ext}/{source}/{}", at.join("."))
+        let dotted = |p: &[usize]| p.iter().map(usize::to_string).collect::<Vec<_>>().join(".");
+        // (Grouped: by the grouping, the group's name and the category's
+        // place in the palette, which stay as the groups change.)
+        match (&self.grouping, path.split_first()) {
+            (Some((id, _)), Some((group, rest))) => {
+                let name = self.groups.get(*group).map_or("", String::as_str);
+                match self.origin.and_then(|o| o.get(path)).filter(|_| !rest.is_empty()) {
+                    Some(from) => format!("{ext}/{source}/@{id}/{name}/{}", dotted(from)),
+                    None => format!("{ext}/{source}/@{id}/{name}"),
+                }
+            }
+            _ => format!("{ext}/{source}/{}", dotted(path)),
+        }
     }
 
     /// A category drawn open or closed: kept so for the next start, but
@@ -1761,7 +1887,9 @@ impl Tree<'_> {
         }
         if header.clicked() {
             let (kind, custom) = (self.kind, self.custom);
-            self.cursor = Some(At { kind, custom, branch: branch.clone(), blueprint: None });
+            let grouping = self.grouping.clone();
+            let branch = branch.clone();
+            self.cursor = Some(At { kind, custom, grouping, branch, blueprint: None });
             self.clicked = true;
         }
         if let (Some(at), Some(listed)) = (listing, &mut self.listed) {
@@ -1786,7 +1914,11 @@ impl Tree<'_> {
         let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), parent));
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
-        let count = node.blueprints.len();
+        // (A group counts every blueprint in it, in its categories too.)
+        let count = match self.grouping.is_some() && path.len() == 1 {
+            true => count_under(node),
+            false => node.blueprints.len(),
+        };
         let title = if count > 0 {
             format!("{} ({count})", shown_name(&node.name, game))
         } else {
@@ -1802,7 +1934,7 @@ impl Tree<'_> {
         let remembered = self.remembered_key(path);
         let searching = self.found.is_some();
         let shown = egui::CollapsingHeader::new(title)
-            .id_salt(("palette", kind, custom, path, searching))
+            .id_salt(("palette", kind, custom, path, searching, &self.grouping))
             .default_open(searching || self.open.contains(&remembered))
             .open(self.asked(&branch).or_else(|| self.arrives_in(node).then_some(true)))
             .show(ui, |ui| {
@@ -1921,7 +2053,8 @@ impl Tree<'_> {
         }
         if r.clicked() {
             // The arrow keys go on from here.
-            self.cursor = Some(At { kind, custom, branch: branch.clone(), blueprint: Some(key) });
+            let (grouping, branch) = (self.grouping.clone(), branch.clone());
+            self.cursor = Some(At { kind, custom, grouping, branch, blueprint: Some(key) });
             self.clicked = true;
         }
         let thumb = self.thumb.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
@@ -2552,6 +2685,7 @@ mod tests {
         let at = |branch, blueprint| At {
             kind: BlueprintKind::Placeable,
             custom: false,
+            grouping: None,
             branch,
             blueprint,
         };

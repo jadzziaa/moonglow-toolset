@@ -5463,6 +5463,13 @@ impl Moonglow {
                     game.custom_tlk(),
                     &skip,
                 ));
+                // (The palettes' groupings, held to the palettes.)
+                findings.extend(mg_module::doctor::palette_groups(
+                    &job.module,
+                    &game.resman,
+                    &|n| n.text(game),
+                    &skip,
+                ));
                 // (What the plugins would say of themselves goes with them.)
                 let (theirs, said) = if skip.group(Group::Plugins) {
                     (Vec::new(), Vec::new())
