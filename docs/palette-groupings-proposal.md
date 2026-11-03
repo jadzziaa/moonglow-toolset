@@ -3,7 +3,7 @@ type: Proposal
 title: 'Palettes grouped more than one way: a design'
 description: How the palette pane could show the same blueprints grouped by something other than their palette category (TDoD's placeables by theme, and also by what each one is - tables, seats, food, containers) without copying a blueprint or listing it twice in a palette file - what holds today (one PaletteID per blueprint, standard palettes written by a builder's tool), three ways to get it (groupings of Moonglow's own from rules in the project file; a second branch in a standard palette; names and the search), measurements on TDoD's 13,212 placeables, a recommendation, milestones and the owner's questions.
 tags: [proposal, palettes, blueprints, project-file, tdod]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T00:28:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:09:38Z }
 sources:
   - id: owner
     resource: human:august
@@ -152,11 +152,23 @@ oracles show that Aurora and the DM Creator take a blueprint listed twice.
 
 1. **M1, the groupings** (`mg-module`): reading `[palette.*]` and its `from` files, the match
    (words, ResRef patterns, lists), and a blueprint in several groups or none. Unit tests, plus a
-   corpus test over TDoD's hak when `MOONGLOW_HAKS` has it.
+   corpus test over TDoD's hak when `MOONGLOW_HAKS` has it. **Done** (2026-11-03,
+   `mg_module::palette_groups`): the keys as settled below; TDoD's 14,665 placeables grouped by
+   ten rules in about 25 ms, its own `palette_kinds.toml` (15,744 entries) read in about 4 ms.
 2. **M2, the pane**: Group by, Then by Category, Other, search and Gallery within a grouping, its
-   open groups remembered. UI tests, and a picture of the pane on TDoD's palette.
+   open groups remembered. UI tests, and a picture of the pane on TDoD's palette. **Done**
+   (2026-11-03): a group with no blueprint of the palette shown isn't drawn.
 3. **M3, the rest**: `mg find --palette-group`, Verify's two notes, the manual (Blueprints, and
-   the project file's keys), the plugin API (`ctx.palette`: maybe later, not in M3).
+   the project file's keys), the plugin API (`ctx.palette`: maybe later, not in M3). **Done**
+   (2026-11-03) but for the plugin API, not wanted now: Verify's notes are `palette-group-empty`
+   and `palette-list-missing`, with `palette-rules` for what the rules and lists hold that isn't
+   understood ("said in Verify" above).
+
+What was found building it: TDoD's names are not all `Theme: Name (source)`. Many read
+`Autumn: Fern 01, after HAM (AUT)`, so the `words_of` above still takes "after HAM" in, and a
+"ham" rule puts the ferns under Food; `'^.*?:\s*(.*?)\s*(?:,\s*after\b.*?)?\s*(?:\(|\[|$)'`
+leaves it out (`a_large_palette_is_grouped_in_milliseconds`). A name with no colon (the game's
+own, in TDoD's palette) gives its words whole.
 
 ## The owner's answers (2026-11-03)
 

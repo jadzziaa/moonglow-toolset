@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T08:51:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:09:38Z }
 ---
 
 # Build, verify and test
@@ -321,6 +321,7 @@ crash Aurora with an access violation that names nothing:
 | A tag the [project file](03-modules.md#the-project-file-moonglowtoml) says must be unique (`[tags] unique`) on more than one area or placed object, or one it says must be unique in each area (`unique_in_area`) on more than one of an area (a warning, `tag-unique`) | `GetObjectByTag` finds only one of them: a start waypoint copied and left behind keeps new characters there. Its fix gives the others tags of their own (`TAG_2`, `TAG_3`…; an area keeps its tag); what the scripts look for is yours to check |
 | An area the project's [claims table](03-modules.md#protected-areas) says is merged that the module no longer has (`claims-merged`), or whose Tag is not the one the table records (`claims-tag`); errors | the game keeps players' first visits by an area's ResRef and their positions by its Tag: those who were there lose them |
 | The project's [lines for typed text](03-modules.md#text-typed-into-the-talk-table) (`[talk]`) with a tenth or less left (a warning; none left, an error), lines of `mg tlk-alloc`'s map inside them, two builders' parts that share lines, or you without a part where other builders have one (`talk-range`) | text typed stays in the file once they are used; a key and a typed text, or two builders' texts, given one line |
+| The project's [palette groupings](03-modules.md#palette-groupings) (`[palette.*]`): a key, a `from` file or an entry not understood (`palette-rules`), a group no blueprint of the standard or custom palettes it is offered in falls in (`palette-group-empty`), blueprints a `from` file lists that are nowhere (`palette-list-missing`); warnings | the grouping works without what isn't understood; an empty group isn't shown in the palette, and a blueprint listed under another ResRef isn't in its group |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
 | A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
 
