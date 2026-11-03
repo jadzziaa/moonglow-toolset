@@ -134,11 +134,16 @@ const CASES: &[(u32, &str, &[CaseFile])] = &[
 
 /// The picture of `side`×`side`, its rows in stored order.
 fn picture(q: &Quarters, side: u32) -> Rgba {
-    let mut img = Rgba::new(side, side);
-    for y in 0..side {
-        for x in 0..side {
-            let c = q[usize::from(y >= side / 2) * 2 + usize::from(x >= side / 2)];
-            let i = ((y * side + x) * 4) as usize;
+    picture_of(q, side, side)
+}
+
+/// The picture of `w`×`h`, its rows in stored order.
+fn picture_of(q: &Quarters, w: u32, h: u32) -> Rgba {
+    let mut img = Rgba::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let c = q[usize::from(y >= h / 2) * 2 + usize::from(x >= w / 2)];
+            let i = ((y * w + x) * 4) as usize;
             img.data[i..i + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
         }
     }
@@ -484,4 +489,68 @@ fn reading_icon_rows() {
     let dir = scratch_dir("client_reading_icons");
     common::save_png(&strip, &dir.join("moonglow.png"));
     eprintln!("Moonglow's: {}", dir.join("moonglow.png").display());
+}
+
+/// A portrait whose pictures are only DDS, or only TGA: whether the game
+/// needs a TGA for a portrait as it does for an item icon. The player's
+/// portrait (`SetPortraitResRef`) is `po_mgtst_`, its five sizes (`h`,
+/// `l`, `m`, `s`, `t`: 256×512 down to 16×32) in the scratch `override`,
+/// each the quarters of [`FIRST`] (red and green the first stored rows),
+/// one run each: `client_reading_portrait_dds/` and
+/// `client_reading_portrait_tga/`, Moonglow's `m` picture (`images.rs`'s
+/// `portrait`, drawn top down) beside the client's as `moonglow.png`.
+///
+/// Seen 2026-11-03 (89.8193.37): the party bar's portrait is drawn from
+/// the DDS alone as from the TGA alone, the same way up (red and green,
+/// the first stored rows, at the bottom), the top 100 of its 128 rows:
+/// a portrait needs no TGA, unlike an item icon. Moonglow draws both so.
+/// See `docs/research/notes_models.md` §E.4.
+#[test]
+#[ignore]
+fn reading_portrait_dds() {
+    let light = Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
+    let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
+    for dds in [true, false] {
+        let mut files = Vec::new();
+        for (size, w) in [('h', 256u32), ('l', 128), ('m', 64), ('s', 32), ('t', 16)] {
+            let img = picture_of(&FIRST, w, w * 2);
+            let data = if dds {
+                let (data, _) = chain(&img, false);
+                let mut out = Vec::new();
+                // (DXT1: 8 bytes a 4×4 block, w × 2w.)
+                for v in [w, w * 2, 3, w * w] {
+                    out.extend(v.to_le_bytes());
+                }
+                out.extend(1.0f32.to_le_bytes());
+                out.extend(data);
+                out
+            } else {
+                let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                out.extend((w as u16).to_le_bytes());
+                out.extend((w as u16 * 2).to_le_bytes());
+                out.extend([32, 8]);
+                for p in img.data.as_chunks::<4>().0 {
+                    out.extend([p[2], p[1], p[0], p[3]]);
+                }
+                out
+            };
+            let ext = if dds { "dds" } else { "tga" };
+            files.push((format!("po_mgtst_{size}.{ext}"), data));
+        }
+        let files: Vec<(&str, Vec<u8>)> =
+            files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+        let name = if dds { "portrait_dds" } else { "portrait_tga" };
+        let r = Reading::new(name, "tic01", light, &files);
+        let game =
+            GameData::open(&GameInstall::new(&root, Some(r.dir.join("user")), "en")).unwrap();
+        let took = game.resman.texture(ResRef::from_str("po_mgtst_m").unwrap());
+        if let Some((t, data)) = took {
+            let shown = mg_image::read(t, &data).unwrap().to_rgba().top_down();
+            common::save_png(&shown, &r.dir.join("moonglow.png"));
+        }
+        let body =
+            format!("{}\n    SetPortraitResRef(pc, \"po_mgtst_\");", super::readings::INVISIBLE);
+        let (dir, _) = r.shoot(&super::readings::enter(&body, (90.0, 12.0, 45.0)), SETTINGS);
+        print_log(&dir);
+    }
 }
