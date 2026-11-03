@@ -18,7 +18,8 @@ use serde_json::{Value, json};
 use crate::saved::Shelf;
 use crate::widgets::VarRow;
 
-const SHELF: Shelf = Shelf { folder: "variable-sets", suffix: ".vars.json", what: "variable set" };
+pub(crate) const SHELF: Shelf =
+    Shelf { folder: "variable-sets", suffix: ".vars.json", what: "variable set" };
 
 /// Where variable sets are kept.
 pub fn dir() -> Option<PathBuf> {
@@ -118,32 +119,11 @@ pub fn rename(dir: &Path, from: &str, to: &str) -> Result<(), String> {
 /// its size or modified time changes (`kept`, from the last call: a
 /// window lists them every frame).
 pub fn read_all(dir: Option<&Path>, kept: &mut Read) -> Vec<(String, Result<Vec<VarRow>, String>)> {
-    let names = list(dir);
-    let mut out = Vec::with_capacity(names.len());
-    let mut now = Read::default();
-    for name in names {
-        let Ok(path) = SHELF.file(dir, &name) else { continue };
-        let stamp = std::fs::metadata(&path).ok().map(|m| (m.len(), m.modified().ok()));
-        let read = match kept.0.remove(&path) {
-            Some((was, read)) if was == stamp => read,
-            _ => load(dir.expect("listed"), &name),
-        };
-        now.0.insert(path, (stamp, read.clone()));
-        out.push((name, read));
-    }
-    *kept = now;
-    out
+    SHELF.read_all(dir, kept, load)
 }
 
 /// The sets as [`read_all`] last read them, by file.
-#[derive(Debug, Clone, Default)]
-#[allow(clippy::type_complexity)]
-pub struct Read(
-    std::collections::HashMap<
-        PathBuf,
-        (Option<(u64, Option<std::time::SystemTime>)>, Result<Vec<VarRow>, String>),
-    >,
-);
+pub type Read = crate::saved::Read<Vec<VarRow>>;
 
 /// The most variables a set's summary names ([`describe`]).
 const DESCRIBED: usize = 12;

@@ -59,6 +59,7 @@ mod outside;
 pub mod paint_mode;
 pub mod palette_categories;
 pub mod palette_view;
+pub mod param_sets;
 pub mod plugin_events;
 pub mod plugin_kinds;
 pub mod plugins;
@@ -835,6 +836,8 @@ pub struct Moonglow {
     pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
+    /// Where conversation scripts' parameter sets are kept (`param_sets`).
+    pub param_set_dir: Option<PathBuf>,
     /// Where Edit Areas Together's sets are kept (`area_sets`).
     pub area_set_dir: Option<PathBuf>,
     /// What each area holds, for Edit Areas Together's Holding (read
@@ -1184,6 +1187,7 @@ impl Moonglow {
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,
+            param_set_dir: None,
             area_set_dir: None,
             area_holds: Default::default(),
             lighting_dir: None,

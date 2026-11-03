@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:45:35Z }
 ---
 
 # Coming from Aurora
@@ -183,7 +183,8 @@ own.
   together or update all their instances at once (or a whole category's,
   from its right-click menu); **Edit › Edit Areas Together…** sets the
   lighting, fog, weather, music, scripts and variables of the areas you
-  tick (see [Areas](04-areas.md)); saved variable sets; **Edit › Find and
+  tick (see [Areas](04-areas.md)); saved variable sets, and saved sets
+  of a conversation script's parameters; **Edit › Find and
   Replace Text…** (Ctrl+H) across names, descriptions, conversations and
   the journal (see [Blueprints](05-blueprints.md) and
   [Modules](03-modules.md)).

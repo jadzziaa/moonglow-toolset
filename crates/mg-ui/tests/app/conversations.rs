@@ -1924,3 +1924,336 @@ fn select_token_and_conversation_test_resize_from_the_corner_dragged() {
         img.save(mg_testkit::output_dir("ui-dialog-resize").join("conversation-test.png")).unwrap();
     }
 }
+
+/// A conversation of two NPC lines, "Hello there." (its condition the
+/// builder's `ttc_c_skillcheck` with CHECK = 12, DC = 1, FEEDBACK = 1,
+/// SHOW_DC = 1) and "Go away." (no script, DC = 20 and MINE = 7), open
+/// in the editor, its parameter sets kept in a scratch folder.
+fn parameter_sets_harness(name: &str) -> (Harness<'static, Moonglow>, ResKey, std::path::PathBuf) {
+    use mg_module::dialog::{Parent, add_node, new_dialog, params_value};
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there.");
+    add_node(&mut g, Parent::Root, "Go away.");
+    {
+        let links = g.root.list_mut("StartingList").unwrap();
+        links[0]
+            .set("Active", mg_gff::Value::resref(ResRef::from_str("ttc_c_skillcheck").unwrap()));
+        links[0].set(
+            "ConditionParams",
+            params_value(&pairs(&[
+                ("CHECK", "12"),
+                ("DC", "1"),
+                ("FEEDBACK", "1"),
+                ("SHOW_DC", "1"),
+            ])),
+        );
+        links[1].set("ConditionParams", params_value(&pairs(&[("DC", "20"), ("MINE", "7")])));
+    }
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let sets = dir.join("parameter-sets");
+    app.param_set_dir = Some(sets.clone());
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = harness(app, 1300.0, 900.0);
+    settle(&mut h);
+    (h, key, sets)
+}
+
+fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    list.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect()
+}
+
+/// A starting link's condition: its script and parameters.
+fn condition(
+    h: &mut Harness<'_, Moonglow>,
+    key: &ResKey,
+    i: usize,
+) -> (String, Vec<(String, String)>) {
+    let g = h.state_mut().ws.as_mut().unwrap().doc(key).unwrap().clone();
+    let link = &g.root.list("StartingList").unwrap()[i];
+    let script = link.resref("Active").unwrap_or(ResRef::EMPTY).to_string();
+    (script, mg_module::dialog::params_in(link, "ConditionParams", mg_core::Codepage::WINDOWS_1252))
+}
+
+/// A line's action: its script and parameters.
+fn action(h: &mut Harness<'_, Moonglow>, key: &ResKey, i: u32) -> (String, Vec<(String, String)>) {
+    use mg_module::dialog::{Kind, node};
+    let g = h.state_mut().ws.as_mut().unwrap().doc(key).unwrap().clone();
+    let line = node(&g, Kind::Entry, i).unwrap();
+    let script = line.resref("Script").unwrap_or(ResRef::EMPTY).to_string();
+    (script, mg_module::dialog::params_in(line, "ActionParams", mg_core::Codepage::WINDOWS_1252))
+}
+
+/// The text fields' values, as shown.
+fn shown_fields(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter_map(|n| n.accesskit_node().value())
+        .collect()
+}
+
+/// The builder's request: a line's script and parameters saved as a
+/// set (Save Set…, its name taking Enter), and added to another line's
+/// condition: the script put in its Script field, the parameters merged
+/// by name (one of the same name takes the set's value, the rest after),
+/// one Undo putting both back; and a value being typed when the set is
+/// added is kept, not undone by it.
+#[test]
+fn parameter_sets_are_saved_and_added_to_another_line() {
+    let (mut h, key, sets) = parameter_sets_harness("ui-dialog-param-sets");
+    h.get_by_label_contains("Hello there.").click();
+    settle(&mut h);
+    // Nothing saved yet: the menu says so.
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    assert!(h.query_by_label("No parameter sets saved yet").is_some());
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    h.get_by_label("Save Set…").click();
+    settle(&mut h);
+    let before = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Skill check");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    let saved = mg_ui::param_sets::load(&sets, "Skill check").unwrap();
+    assert_eq!(saved.script, Some(ResRef::from_str("ttc_c_skillcheck").unwrap()));
+    assert_eq!(
+        saved.parameters,
+        pairs(&[("CHECK", "12"), ("DC", "1"), ("FEEDBACK", "1"), ("SHOW_DC", "1")])
+    );
+    assert!(h.query_by_label("Set name").is_none(), "the name's row closed");
+    let after = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    assert_eq!(before, after, "the conversation is as it was (Enter was the name's)");
+    // Added to "Go away."'s condition.
+    h.get_by_label_contains("Go away.").click();
+    settle(&mut h);
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    h.get_by_label("Skill check").hover();
+    settle(&mut h);
+    assert!(
+        h.query_by_label("Script: ttc_c_skillcheck\nCHECK = 12\nDC = 1\nFEEDBACK = 1\nSHOW_DC = 1")
+            .is_some(),
+        "what the set holds is its tip"
+    );
+    h.get_by_label("Skill check").click();
+    settle(&mut h);
+    let expect =
+        pairs(&[("DC", "1"), ("MINE", "7"), ("CHECK", "12"), ("FEEDBACK", "1"), ("SHOW_DC", "1")]);
+    assert_eq!(condition(&mut h, &key, 1), ("ttc_c_skillcheck".into(), expect.clone()));
+    let shown = shown_fields(&h);
+    assert!(shown.iter().any(|v| v == "ttc_c_skillcheck"), "the Script field: {shown:?}");
+    assert!(shown.iter().any(|v| v == "SHOW_DC"), "{shown:?}");
+    // One Undo puts both back; Redo both again.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(condition(&mut h, &key, 1), (String::new(), pairs(&[("DC", "20"), ("MINE", "7")])));
+    assert!(!shown_fields(&h).iter().any(|v| v == "ttc_c_skillcheck"), "shown back");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    assert_eq!(condition(&mut h, &key, 1).1, expect);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    // A value typed (MINE's 7 made 75), and the set added: the value
+    // stays, and the set's step takes back only what the set did.
+    let mine = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("7"))
+        .unwrap()
+        .rect();
+    for typing in [false, true] {
+        let field = h.get_all_by_role(egui::accesskit::Role::TextInput).find(|n| n.rect() == mine);
+        match typing {
+            false => field.unwrap().click(),
+            true => field.unwrap().type_text("5"),
+        }
+        h.run();
+        if !typing {
+            h.key_press(egui::Key::End);
+        }
+    }
+    assert!(h.ctx.text_edit_focused(), "the value is being typed");
+    assert!(shown_fields(&h).iter().any(|v| v == "75"));
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    h.get_by_label("Skill check").click();
+    settle(&mut h);
+    let mut typed = expect.clone();
+    typed[1].1 = "75".into();
+    assert_eq!(condition(&mut h, &key, 1), ("ttc_c_skillcheck".into(), typed));
+    for _ in 0..3 {
+        h.run();
+    }
+    assert_eq!(condition(&mut h, &key, 1).1[1].1, "75", "not put back by the field's buffer");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(condition(&mut h, &key, 1), (String::new(), pairs(&[("DC", "20"), ("MINE", "75")])));
+    // The other line kept its own.
+    assert_eq!(condition(&mut h, &key, 0).1.len(), 4);
+}
+
+/// Actions Taken has them too: a line's action saved to a file of one's
+/// choosing (named for its script), and files added (several at once, a
+/// later one's parameter of a name taking its value; one with no script
+/// leaving the Script field as it is, one that isn't a set said so in
+/// the log); with nothing to save, Save Set… and Save to File… can't be
+/// pressed.
+#[test]
+fn parameter_sets_are_kept_in_files_of_ones_choosing() {
+    use mg_ui::param_sets::{self, ParamSet};
+    let (mut h, key, _) = parameter_sets_harness("ui-dialog-param-files");
+    h.get_by_label_contains("Hello there.").click();
+    settle(&mut h);
+    h.get_by_label("Actions Taken").click();
+    settle(&mut h);
+    // Nothing yet: nothing to save.
+    assert!(h.get_by_label("Save Set…").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Save to File…").accesskit_node().is_disabled());
+    let scratch = mg_testkit::scratch_dir("ui-dialog-param-files-elsewhere");
+    let gold = scratch.join("gold.params.json");
+    let gold_set = ParamSet {
+        script: Some(ResRef::from_str("ttc_a_givegold").unwrap()),
+        parameters: pairs(&[("GOLD", "50"), ("SAY", "Thank you")]),
+    };
+    param_sets::save_file(&gold, &gold_set).unwrap();
+    let more = scratch.join("more.params.json");
+    std::fs::write(
+        &more,
+        "{ \"parameters\": [ { \"name\": \"GOLD\", \"value\": 75 }, \
+         { \"name\": \"XP\", \"value\": \"10\" } ] }",
+    )
+    .unwrap();
+    let broken = scratch.join("broken.params.json");
+    std::fs::write(&broken, "{ \"parameters\": [ { \"name\": \"X\" } ] }").unwrap();
+    h.state_mut().dialogs = Box::new(NoDialogs {
+        open_many: vec![vec![gold.clone(), broken, more]],
+        ..Default::default()
+    });
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    h.get_by_label("Add from File…").click();
+    settle(&mut h);
+    assert_eq!(
+        action(&mut h, &key, 0),
+        ("ttc_a_givegold".into(), pairs(&[("GOLD", "75"), ("SAY", "Thank you"), ("XP", "10")]))
+    );
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(
+        log.iter().any(|l| l.contains("broken.params.json") && l.contains("X has no value")),
+        "{log:?}"
+    );
+    // One Undo takes the files' sets back together.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(action(&mut h, &key, 0), (String::new(), Vec::new()));
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    // Saved to a file where the dialog says (the dialog's name given its
+    // ending).
+    let out = scratch.join("given");
+    h.state_mut().dialogs = Box::new(NoDialogs { save: vec![out], ..Default::default() });
+    h.get_by_label("Save to File…").click();
+    settle(&mut h);
+    let back = param_sets::load_file(&scratch.join("given.params.json")).unwrap();
+    assert_eq!(back.script, Some(ResRef::from_str("ttc_a_givegold").unwrap()));
+    assert_eq!(back.parameters.len(), 3);
+    // The other tab is the condition's own.
+    h.get_by_label("Text Appears When…").click();
+    settle(&mut h);
+    assert!(!shown_fields(&h).iter().any(|v| v == "GOLD"));
+}
+
+/// Add Set's menu manages the saved parameter sets as the Variables
+/// window's does its own (the same window, under its own title): one that
+/// isn't a set marked and not to be chosen, renamed, deleted and put
+/// back, the folder opened (made where it isn't), and Escape closing the
+/// window alone, the line still selected.
+#[test]
+fn parameter_sets_are_managed() {
+    use mg_ui::param_sets::{self, ParamSet};
+    let (mut h, key, sets) = parameter_sets_harness("ui-dialog-param-manage");
+    let set = |p: &[(&str, &str)]| ParamSet { script: None, parameters: pairs(p) };
+    param_sets::save(&sets, "Gold", &set(&[("GOLD", "50")])).unwrap();
+    param_sets::save(&sets, "Check", &set(&[("DC", "15")])).unwrap();
+    std::fs::write(sets.join("Broken.params.json"), "{ \"parameters\": [").unwrap();
+    h.get_by_label_contains("Go away.").click();
+    settle(&mut h);
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    for label in ["Check", "Gold", "Add from File…", "Manage Sets…", "Open Sets Folder"] {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    assert!(h.get_by_label("Broken (not a set)").accesskit_node().is_disabled());
+    h.get_by_label("Manage Sets…").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Parameter Sets").is_some(), "the window");
+    assert!(h.query_by_label_contains(&sets.display().to_string()).is_some(), "the folder");
+    // (A set's own button, in its row: the editor's toolbar has a Delete.)
+    let beside = |h: &mut Harness<'_, Moonglow>, name: &str, button: &str| {
+        let y = h.get_by_label(name).rect().center().y;
+        {
+            let mut all = h.get_all_by_label(button);
+            all.find(|n| (n.rect().center().y - y).abs() < 4.0).expect(button).click();
+        }
+        settle(h);
+    };
+    // Broken deleted (it is a file all the same), and forgotten.
+    beside(&mut h, "Broken (not a set)", "Delete");
+    assert_eq!(param_sets::list(Some(&sets)), ["Check", "Gold"]);
+    h.get_by_label("✖").click();
+    settle(&mut h);
+    // Gold renamed: not over Check's name, then to Treasure.
+    beside(&mut h, "Gold", "Rename…");
+    let renaming = |h: &mut Harness<'_, Moonglow>, to: &str| {
+        let view = h.state_mut().dialog_views.get_mut(&key).unwrap();
+        let w = view.param_sets.as_mut().unwrap();
+        assert_eq!(w.renaming.as_ref().map(|(n, _)| n.as_str()), Some("Gold"));
+        w.renaming = Some(("Gold".into(), to.into()));
+    };
+    renaming(&mut h, "check");
+    settle(&mut h);
+    assert!(h.query_by_label("Another set has that name").is_some());
+    assert!(h.get_by_label("Rename").accesskit_node().is_disabled());
+    renaming(&mut h, "Treasure");
+    settle(&mut h);
+    h.get_by_label("Rename").click();
+    settle(&mut h);
+    assert_eq!(param_sets::list(Some(&sets)), ["Check", "Treasure"]);
+    // Deleted and put back.
+    beside(&mut h, "Check", "Delete");
+    assert_eq!(param_sets::list(Some(&sets)), ["Treasure"]);
+    h.get_by_label("Undo Delete").click();
+    settle(&mut h);
+    assert_eq!(param_sets::load(&sets, "Check").unwrap().parameters, pairs(&[("DC", "15")]));
+    // Escape closes the window alone: the editor and its line stay.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.query_by_label("Parameter Sets").is_none(), "closed");
+    let view = &h.state().dialog_views[&key];
+    assert!(view.param_sets.is_none() && view.selected.is_some(), "the line still selected");
+    assert!(h.query_by_label("Add Set").is_some());
+    // Open Sets Folder makes the folder where it isn't.
+    let fresh = sets.with_file_name("fresh");
+    h.state_mut().param_set_dir = Some(fresh.clone());
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    assert!(h.query_by_label("No parameter sets saved yet").is_some());
+    h.get_by_label("Open Sets Folder").click();
+    settle(&mut h);
+    assert!(fresh.is_dir());
+    // With no data folder, sets can't be kept: Save Set… can't be pressed
+    // and the menu says why.
+    h.state_mut().param_set_dir = None;
+    settle(&mut h);
+    assert!(h.get_by_label("Save Set…").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Save to File…").accesskit_node().is_disabled());
+    h.get_by_label("Add Set").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Moonglow has no data folder to keep sets in").is_some());
+}
