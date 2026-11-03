@@ -560,6 +560,300 @@ fn an_area_exported_alone_takes_its_git_and_gic() {
     assert_eq!(names, ["start.are", "start.gic", "start.git"]);
 }
 
+/// Files for File › Import Files… and Import Folder…: a script the sample
+/// module has, changed; a new blueprint; a new area's three files; a
+/// blueprint that doesn't read and the module's properties, refused.
+fn import_files_folder(dir: &std::path::Path) -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
+    let files = dir.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    let gff = |t: &[u8; 4]| Gff::new(*t).to_bytes().unwrap();
+    let mut written = Vec::new();
+    for (name, bytes) in [
+        ("hello.nss", b"// imported\nvoid main() { }\n".to_vec()),
+        ("guard.utc", gff(b"UTC ")),
+        ("market.are", gff(b"ARE ")),
+        ("market.git", gff(b"GIT ")),
+        ("market.gic", gff(b"GIC ")),
+        ("broken.uti", b"not a GFF".to_vec()),
+        ("module.ifo", gff(b"IFO ")),
+    ] {
+        std::fs::write(files.join(name), bytes).unwrap();
+        written.push(files.join(name));
+    }
+    (files, written)
+}
+
+/// El Grillo's request (2026-11-03): File › Import Files… brings loose
+/// files into the module through Import Resources, as an archive's
+/// resources come: what the module has to overwrite or not (none until
+/// ticked), what is refused and why, the new area in the area list, all
+/// one step to undo. Import Folder… takes a folder's files, and with the
+/// script ticked, overwrites it.
+#[test]
+fn import_files_and_a_folder_through_the_menu() {
+    let dir = mg_testkit::scratch_dir("ui-import-files");
+    let path = sample_module(&dir);
+    let (folder, files) = import_files_folder(&dir);
+    let dialogs = NoDialogs { open_many: vec![files], folders: vec![folder], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&path);
+    let mut h = harness(app, 1000.0, 800.0);
+    settle(&mut h);
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let guard = ResKey::parse("guard", ResType::UTC).unwrap();
+    let market = ResKey::parse("market", ResType::ARE).unwrap();
+    let script = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        String::from_utf8_lossy(ws.module.get(&hello).unwrap()).into_owned()
+    };
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Import Files…").click();
+    settle(&mut h);
+    {
+        let draft = h.state().import.as_ref().expect("Import Resources open");
+        assert_eq!(draft.name, "7 files");
+        assert_eq!(draft.resources.len(), 5);
+        assert_eq!(draft.overwrites, [(hello, false)]);
+        assert_eq!(draft.refused.len(), 2, "{:?}", draft.refused);
+    }
+    h.get_by_label("7 files: 5 resources, 4 new");
+    h.get_by_label("Not imported (2):");
+    h.get_by_label_contains("broken.uti: doesn't read as a GFF");
+    h.get_by_label_contains("module.ifo: the module itself");
+    // No stamp line: files say nothing of what they were made from.
+    assert!(h.query_by_label("It doesn't say what it was made from.").is_none());
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    {
+        let ws = h.state().ws.as_ref().unwrap();
+        assert!(ws.module.contains(&guard) && ws.module.contains(&market));
+        assert!(!ws.module.contains(&ResKey::parse("broken", ResType::UTI).unwrap()));
+        assert_eq!(ws.module.areas().unwrap(), [ResRef::from_str("start").unwrap(), market.resref]);
+    }
+    assert_eq!(script(&mut h), "void main() { }\n", "not ticked: the module's own kept");
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(_, m)| m == "Imported 7 files: 4 added, 0 replaced, 1 kept"),
+        "{log:?}"
+    );
+    assert!(log.iter().any(|(l, m)| *l == mg_ui::Level::Warning && m.starts_with("Not imported:")));
+    // One step to undo.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    {
+        let ws = h.state().ws.as_ref().unwrap();
+        assert!(!ws.module.contains(&guard) && !ws.module.contains(&market));
+        assert_eq!(ws.module.areas().unwrap(), [ResRef::from_str("start").unwrap()]);
+    }
+
+    // The folder: its files, the script ticked to overwrite.
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Import Folder…").click();
+    settle(&mut h);
+    assert_eq!(h.state().import.as_ref().unwrap().name, "files/");
+    h.get_by_label("hello.nss").click();
+    settle(&mut h);
+    h.get_by_label("1 of 1 to overwrite");
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    assert_eq!(script(&mut h), "// imported\nvoid main() { }\n");
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&guard));
+}
+
+/// A script to be replaced whose editor holds unsaved typing: the import
+/// window says so beside it, and warns once it is ticked (the editor
+/// keeps the typing, and saving it would write over what was imported).
+#[test]
+fn import_files_says_which_editors_hold_unsaved_changes() {
+    let dir = mg_testkit::scratch_dir("ui-import-files-unsaved");
+    let path = sample_module(&dir);
+    let (_, files) = import_files_folder(&dir);
+    let dialogs = NoDialogs { open_many: vec![files], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&path);
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    let mut h = harness(app, 1000.0, 800.0);
+    settle(&mut h);
+    h.state_mut().script_tools.jump = Some((hello, 0));
+    h.run_steps(3);
+    h.event(egui::Event::Text("// typed\n".into()));
+    h.run_steps(3);
+    h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new(("script", hello))));
+    h.state_mut().actions.push(mg_ui::Action::ImportFilesDialog);
+    settle(&mut h);
+    assert_eq!(h.state().import.as_ref().unwrap().unsaved, [hello]);
+    h.get_by_label("hello.nss (open, with unsaved changes)");
+    assert!(h.query_by_label_contains("Careful: one ticked is open").is_none());
+    h.get_by_label("Select All").click();
+    settle(&mut h);
+    h.get_by_label_contains("Careful: one ticked is open with unsaved changes");
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.starts_with("Replaced while open with unsaved changes")));
+    assert!(h.state().script_text(hello).unwrap().starts_with("// typed\n"), "the editor's kept");
+}
+
+/// A script that comes without its compiled script is compiled as it is
+/// imported, with the module's scripts that include it, into the same
+/// step: Undo takes the compiled scripts back with it. With compiling on
+/// save off, it isn't, and the window and the log say so.
+#[test]
+fn import_files_compiles_a_script_that_comes_alone() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-import-files-compile");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let user = ResKey::parse("mg_user", ResType::NSS).unwrap();
+    m.set(user, b"#include \"mg_inc\"\nvoid main() { Greet(); }\n".to_vec());
+    m.set(ResKey::parse("mg_inc", ResType::NSS).unwrap(), b"void Greet() { }\n".to_vec());
+    m.save().unwrap();
+    let files = dir.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    std::fs::write(files.join("mg_new.nss"), "void main() { PrintString(\"new\"); }\n").unwrap();
+    std::fs::write(files.join("mg_inc.nss"), "void Greet() { PrintString(\"hi\"); }\n").unwrap();
+    std::fs::write(files.join("mg_bad.nss"), "void main() { nope }\n").unwrap();
+    let dialogs = NoDialogs { folders: vec![files.clone(), files], ..Default::default() };
+    let mut app = game_app_with(&root, None, dialogs);
+    app.settings.auto_compile = true;
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    settle(&mut h);
+    let ncs = |name: &str| ResKey::parse(name, ResType::NCS).unwrap();
+    let has = |h: &Harness<'_, Moonglow>, name: &str| {
+        h.state().ws.as_ref().unwrap().module.contains(&ncs(name))
+    };
+    h.state_mut().actions.push(mg_ui::Action::ImportFolderDialog);
+    settle(&mut h);
+    h.get_by_label_contains("Compiled as they are imported");
+    h.get_by_label("Select All").click();
+    settle(&mut h);
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    assert!(has(&h, "mg_new"), "compiled as it came in");
+    assert!(has(&h, "mg_user"), "it includes the include imported");
+    assert!(!has(&h, "mg_bad") && !has(&h, "mg_inc"));
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.starts_with("Compiled as imported:")), "{log:?}");
+    assert!(log.iter().any(|(l, m)| *l == mg_ui::Level::Error && m.contains("mg_bad")), "{log:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert!(!has(&h, "mg_new") && !has(&h, "mg_user"), "one step: its compiles undone too");
+    // Compiling on save off: not compiled, and said.
+    h.state_mut().settings.auto_compile = false;
+    h.state_mut().actions.push(mg_ui::Action::ImportFolderDialog);
+    settle(&mut h);
+    h.get_by_label_contains("Not compiled (no .ncs comes with them");
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    assert!(
+        h.state()
+            .ws
+            .as_ref()
+            .unwrap()
+            .module
+            .contains(&ResKey::parse("mg_new", ResType::NSS).unwrap())
+    );
+    assert!(!has(&h, "mg_new"));
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(l, m)| *l == mg_ui::Level::Warning && m.starts_with("Not compiled")));
+}
+
+/// A file dropped onto the window, as the window's system hands it over.
+#[derive(Debug)]
+struct DroppedFile(std::path::PathBuf);
+
+impl egui::DroppedFile for DroppedFile {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
+fn drop_files(h: &mut Harness<'_, Moonglow>, paths: &[std::path::PathBuf]) {
+    let input = h.input_mut();
+    input.hovered_files.clear();
+    for p in paths {
+        input.dropped_files.push(std::sync::Arc::new(DroppedFile(p.clone())));
+    }
+    settle(h);
+}
+
+/// Qlippoth's addition to El Grillo's request (2026-11-03): files and
+/// folders dropped onto the window open Import Resources with them, as
+/// File › Import Files… does; an `.erf` dropped alone imports as File ›
+/// Import… does, a hak opens in the hak editor and a `.mod` opens as the
+/// module. With no module open, nothing is imported, and the log says
+/// so. (What dragging them over the window says: the screen
+/// `import_files`.)
+#[test]
+fn files_dropped_onto_the_window_are_imported() {
+    let dir = mg_testkit::scratch_dir("ui-import-dropped");
+    let path = sample_module(&dir);
+    let (folder, files) = import_files_folder(&dir);
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
+    settle(&mut h);
+    // No module: nothing.
+    drop_files(&mut h, &files);
+    assert!(h.state().import.is_none());
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning && m.starts_with("Nothing imported")),
+        "{log:?}"
+    );
+    // A .mod alone: opened.
+    drop_files(&mut h, std::slice::from_ref(&path));
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    // Files and a folder: in Import Resources, as one.
+    let gone = dir.join("guard.utc");
+    std::fs::write(&gone, Gff::new(*b"UTC ").to_bytes().unwrap()).unwrap();
+    drop_files(&mut h, &[folder.clone(), gone]);
+    {
+        let draft = h.state().import.as_ref().expect("Import Resources open");
+        assert_eq!(draft.name, "2 files and folders");
+        assert!(!draft.archive);
+        assert!(draft.refused.iter().any(|r| r.contains("guard.utc is among the files twice")));
+    }
+    h.get_by_label("Cancel").click();
+    settle(&mut h);
+    // An archive among files: refused, and said why.
+    let erf = dir.join("some.erf");
+    let mut w = mg_erf::ErfWriter::new(*b"ERF ");
+    w.add(ResRef::from_str("mg_dropped").unwrap(), ResType::NSS, b"void main() {}".to_vec())
+        .unwrap();
+    std::fs::write(&erf, w.to_bytes().unwrap()).unwrap();
+    drop_files(&mut h, &[erf.clone(), files[1].clone()]);
+    let draft = h.state().import.as_ref().unwrap();
+    assert!(draft.refused.iter().any(|r| r.contains("File › Import…")), "{:?}", draft.refused);
+    h.get_by_label("Cancel").click();
+    settle(&mut h);
+    // An .erf alone: its resources, as File › Import… has them.
+    drop_files(&mut h, std::slice::from_ref(&erf));
+    let draft = h.state().import.as_ref().unwrap();
+    assert!(draft.archive);
+    assert_eq!(draft.resources, [ResKey::parse("mg_dropped", ResType::NSS).unwrap()]);
+    h.get_by_label("It doesn't say what it was made from.");
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&ResKey::parse("mg_dropped", ResType::NSS).unwrap()));
+    // A hak alone: in the hak editor.
+    let hak = dir.join("mine.hak");
+    std::fs::write(&hak, mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap()).unwrap();
+    drop_files(&mut h, std::slice::from_ref(&hak));
+    assert!(h.state().haks.iter().any(|d| d.hak.path.as_deref() == Some(hak.as_path())));
+    assert!(h.state().import.is_none());
+}
+
 /// A module that is a folder is written as a `.mod` beside the folder too
 /// when it is saved, as Aurora saves a module directory; not with
 /// Options › General's switch off.

@@ -1185,16 +1185,29 @@ enum Cmd {
         #[arg(long, value_name = "COMMAND")]
         upload: Option<String>,
     },
-    /// Import an ERF into a module and save it. What the ERF was made
-    /// from (stamped by Moonglow's export) is said, with a warning when
-    /// the module's git checkout is at another commit now: the ERF was
-    /// made from older work, and copying it in undoes what changed since.
+    /// Import an ERF, or loose files and folders, into a module and save
+    /// it. What an ERF was made from (stamped by Moonglow's export) is
+    /// said, with a warning when the module's git checkout is at another
+    /// commit now: the ERF was made from older work, and copying it in
+    /// undoes what changed since. Files are resources by their names
+    /// (`guard.utc`), a folder's with those of the folders in it, as
+    /// `mg export --files` writes them; what is no resource of a module's
+    /// (no ResRef, no type, a GFF that doesn't read as its type, a
+    /// resource given twice, module.ifo, an archive) is refused and
+    /// named. A script that comes without its compiled script is compiled,
+    /// with the module's scripts that include it.
     Import {
         module: PathBuf,
-        erf: PathBuf,
-        /// Overwrite resources the module already has.
+        /// An `.erf` (alone), or files and folders.
+        #[arg(required = true, num_args = 1..)]
+        paths: Vec<PathBuf>,
+        /// Overwrite resources the module already has (without it, those
+        /// are skipped and named).
         #[arg(long)]
         overwrite: bool,
+        /// Say what would be imported; change and save nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Set fields of one of a module's resources and save: each
     /// `FIELD=VALUE`, the field a path from the resource's root (`Tag`,
@@ -4051,50 +4064,108 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::Import { module, erf, overwrite } => {
+        Cmd::Import { module, paths, overwrite, dry_run } => {
             let mut m = crate::open_module(module)?;
             // (What the save writes, for the project's plugins to see.)
             let was = m.clone();
-            let data = std::fs::read(erf)?;
+            // One archive: its resources; else files and folders.
+            let archive = match paths.as_slice() {
+                [one] if one.is_file() && is_archive(one) => Some(std::fs::read(one)?),
+                _ => None,
+            };
+            let incoming = match &archive {
+                Some(data) => mg_module::transfer::Incoming::archive(data)?,
+                None => {
+                    if let Some(gone) = paths.iter().find(|p| !p.exists()) {
+                        bail!("{}: no such file or folder", gone.display());
+                    }
+                    mg_module::transfer::Incoming::files(paths)
+                }
+            };
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
-            let plan = mg_module::transfer::plan_import(&m, &data, &rm)?;
+            let plan = mg_module::transfer::plan_import_of(&m, &incoming, &rm);
+            for r in &plan.refused {
+                out.note(format!("warning: not imported: {}: {}", r.what, r.why));
+            }
             for r in &plan.missing {
                 out.note(format!(
                     "warning: {} needs {:?} {}, found nowhere",
                     r.from, r.kind, r.target
                 ));
             }
+            for w in &plan.warnings {
+                out.note(format!("warning: {w}"));
+            }
             // Where the archive came from, and whether the module has moved
             // on since (said before anything is imported).
-            let stamp = mg_module::transfer::archive_stamp(&data);
+            let stamp = archive.as_deref().and_then(mg_module::transfer::archive_stamp);
             let base_warning = stamp.as_ref().and_then(|s| mg_module::stamp::compare(s, &m));
             match &stamp {
                 Some(s) => out.note(format!("made from {}", s.summary())),
-                None => out.note("the archive doesn't say what it was made from (no stamp)"),
+                None if archive.is_some() => {
+                    out.note("the archive doesn't say what it was made from (no stamp)")
+                }
+                None => {}
             }
             if let Some(w) = &base_warning {
                 out.note(format!("warning: {w}"));
             }
             let opened = m.clone();
-            let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
+            let s = mg_module::transfer::import_incoming(&mut m, &incoming, |_| *overwrite)?;
+            // Scripts that came without their compiled scripts, and those
+            // that include them: compiled (with a debug file where the
+            // module keeps one of any of them).
+            let debug =
+                (s.to_compile.iter()).any(|k| m.contains(&ResKey::new(k.resref, ResType::NDB)));
+            let compiled =
+                mg_module::build::compile_named_with(&mut m, &rm, &s.to_compile, None, debug);
+            let failed: Vec<String> = (compiled.iter())
+                .filter(|r| r.result.is_err())
+                .map(|r| r.script.to_string())
+                .collect();
+            for r in compiled.iter().filter(|r| r.result.is_err()) {
+                if let Err(e) = &r.result {
+                    out.note(format!("warning: {} doesn't compile: {e}", r.script));
+                }
+            }
             keep_palettes(Some(&gi), &mut m, &opened, &mut out);
-            save_asked(cli, &was, &mut m, &mut out)?;
+            if !dry_run {
+                save_asked(cli, &was, &mut m, &mut out)?;
+            }
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
             out.json = json!({
                 "added": names(&s.added),
                 "replaced": names(&s.replaced),
                 "skipped": names(&s.skipped),
                 "new_areas": s.new_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "refused": plan.refused.iter().map(|r| json!({"file": r.what, "why": r.why}))
+                    .collect::<Vec<_>>(),
+                "compiled": names(&s.to_compile).into_iter().filter(|n| !failed.contains(n))
+                    .collect::<Vec<_>>(),
+                "not_compiled": failed,
+                "warnings": plan.warnings,
                 "stamp": stamp.as_ref().map(stamp_json),
                 "base_warning": base_warning,
+                "dry_run": dry_run,
             });
+            if !s.skipped.is_empty() {
+                out.note(format!(
+                    "kept the module's own (--overwrite replaces them): {}",
+                    names(&s.skipped).join(", ")
+                ));
+            }
             out.note(format!(
-                "imported {} new, replaced {}, skipped {} existing; new areas: {:?}",
+                "{} {} new, replaced {}, skipped {} existing{}; new areas: {:?}",
+                if *dry_run { "would import" } else { "imported" },
                 s.added.len(),
                 s.replaced.len(),
                 s.skipped.len(),
+                match plan.refused.len() {
+                    0 => String::new(),
+                    n => format!(", refused {n}"),
+                },
                 s.new_areas.iter().map(|a| a.to_string()).collect::<Vec<_>>()
             ));
             out
@@ -4605,6 +4676,13 @@ fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Resu
         g.after(was, m, out);
     }
     Ok(())
+}
+
+/// Whether `mg import` takes `path` as an archive whose resources it
+/// imports (`.erf`, or a hak or module as an ERF) rather than as a file.
+fn is_archive(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).and_then(ResType::from_extension);
+    matches!(ext, Some(ResType::ERF | ResType::HAK | ResType::MOD | ResType::NWM))
 }
 
 /// An export's stamp ([`mg_module::stamp`]) as JSON.

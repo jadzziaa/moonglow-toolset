@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:45:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:20Z }
 ---
 
 # Coming from Aurora
@@ -179,6 +179,10 @@ own.
   follows the conditions as the game does (switch each one TRUE or
   FALSE); Export to plain text, CSV, Twine or Ink, and File › Import
   Conversation… from Twine or Ink (see [Conversations](06-conversations.md)).
+- **Loose files in**: File › Import Files… and Import Folder… (or files
+  dropped onto the window) bring scripts, blueprints, areas and the rest
+  in as files, not only from an `.erf`, those the module has replaced
+  where you tick them (see [Modules](03-modules.md#import-and-export)).
 - **Bulk edits**: Ctrl+click several custom blueprints to edit them
   together or update all their instances at once (or a whole category's,
   from its right-click menu); **Edit › Edit Areas Together…** sets the

@@ -1,7 +1,9 @@
 //! Exporting module resources to an ERF with their dependencies, and
-//! importing an ERF into a module (Aurora's File › Export / Import).
+//! importing an ERF (Aurora's File › Export / Import) or loose files into
+//! a module.
 
 use std::collections::{BTreeSet, HashSet};
+use std::path::PathBuf;
 
 use mg_core::{ResRef, ResType, StrRef};
 use mg_erf::{Description, Erf, ErfWriter};
@@ -246,34 +248,201 @@ pub fn export_into_erf(
     w.to_bytes().map_err(|e| archive(&e))
 }
 
+/// Something offered to an import that is not imported, and why: a file
+/// (by its path) or an archive's entry (by its name).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused {
+    pub what: String,
+    pub why: String,
+}
+
+/// What an import brings: an archive's resources (File › Import…) or
+/// loose files' (File › Import Files…, Import Folder…), each resource
+/// once and in the order given, and what was refused.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Incoming {
+    pub resources: Vec<(ResKey, Vec<u8>)>,
+    pub refused: Vec<Refused>,
+}
+
+impl Incoming {
+    /// An ERF's resources (one named twice: its first), a GFF that does
+    /// not read as its type refused ([`gff_problem`]).
+    pub fn archive(data: &[u8]) -> Result<Incoming, ModuleError> {
+        let archive = |e: &dyn std::fmt::Display| ModuleError::Archive {
+            path: Default::default(),
+            message: e.to_string(),
+        };
+        let erf = Erf::read(data).map_err(|e| archive(&e))?;
+        let mut seen = HashSet::new();
+        let mut out = Incoming::default();
+        for e in &erf.entries {
+            let k = ResKey::new(e.resref, e.restype);
+            if !seen.insert(k) {
+                continue;
+            }
+            let bytes = erf.data(e).map_err(|e| archive(&e))?.into_owned();
+            match gff_problem(&k, &bytes) {
+                Some(why) => out.refused.push(Refused { what: k.to_string(), why }),
+                None => out.resources.push((k, bytes)),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Loose files, each a resource by its name and extension
+    /// ([`file_key`]); a folder given brings its files and those of the
+    /// folders in it ([`crate::hak_edit::folder_files`]: what file
+    /// managers leave there passed over). Refused, and said why: a name
+    /// that is no ResRef, an extension of no type a module holds
+    /// ([`refused_type`]), a file that doesn't read, a GFF that does not
+    /// read as its type, and every file of a resource given twice (a
+    /// folder and its copy: which is meant is the builder's to say).
+    pub fn files(paths: &[PathBuf]) -> Incoming {
+        let mut files: Vec<PathBuf> = Vec::new();
+        for p in paths {
+            if p.is_dir() {
+                files.extend(crate::hak_edit::folder_files(p));
+            } else {
+                files.push(p.clone());
+            }
+        }
+        let mut out = Incoming::default();
+        let mut keyed: Vec<(ResKey, PathBuf)> = Vec::new();
+        for f in files {
+            if keyed.iter().any(|(_, p)| *p == f) {
+                continue;
+            }
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let what = f.display().to_string();
+            // (Its type first: `name.utc.bak` is a backup, whatever its
+            // name.)
+            let ext = name.rsplit_once('.').and_then(|(_, e)| ResType::from_extension(e));
+            match ext.and_then(refused_type).map_or_else(|| file_key(&name), Err) {
+                Ok(k) => keyed.push((k, f)),
+                Err(why) => out.refused.push(Refused { what, why }),
+            }
+        }
+        for (i, (k, f)) in keyed.iter().enumerate() {
+            let what = f.display().to_string();
+            let others: Vec<String> = (keyed.iter().enumerate())
+                .filter(|(j, (o, _))| *j != i && o == k)
+                .map(|(_, (_, p))| p.display().to_string())
+                .collect();
+            if !others.is_empty() {
+                let why = format!("{k} is among the files twice: also {}", others.join(", "));
+                out.refused.push(Refused { what, why });
+                continue;
+            }
+            match std::fs::read(f) {
+                Err(e) => out.refused.push(Refused { what, why: format!("doesn't read: {e}") }),
+                Ok(bytes) => match gff_problem(k, &bytes) {
+                    Some(why) => out.refused.push(Refused { what, why }),
+                    None => out.resources.push((*k, bytes)),
+                },
+            }
+        }
+        out
+    }
+
+    fn has(&self, k: &ResKey) -> bool {
+        self.resources.iter().any(|(r, _)| r == k)
+    }
+}
+
+/// The resource a file of `name` holds (`name.ext`, the last dot before
+/// the extension), or why it holds none: no extension, or one of no type
+/// the game reads; a name that is no ResRef (1 to 16 ASCII characters,
+/// none of them a space, a dot or a character a file name can't hold on
+/// every system). Its case is kept: the game finds a resource in either
+/// case, and one the module has under another case is the same resource
+/// (replaced under the module's spelling of it), as an archive's is.
+pub fn file_key(name: &str) -> Result<ResKey, String> {
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return Err("no extension to give its type".into());
+    };
+    let Some(restype) = ResType::from_extension(ext) else {
+        return Err(format!(".{ext} isn't a type the game reads"));
+    };
+    if stem.is_empty() {
+        return Err("no name before its extension".into());
+    }
+    let odd = |c: char| {
+        !c.is_ascii_graphic()
+            || matches!(c, '.' | '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+    };
+    if let Some(c) = stem.chars().find(|c| odd(*c)) {
+        let c = if c == ' ' { "a space".to_string() } else { format!("{c:?}") };
+        return Err(format!("not a ResRef: it has {c} (1 to 16 letters, digits, _ and -)"));
+    }
+    if stem.len() > ResRef::MAX_LEN {
+        let most = ResRef::MAX_LEN;
+        return Err(format!("not a ResRef: {} characters, of {most} at most", stem.len()));
+    }
+    let resref = ResRef::from_str(stem).map_err(|e| e.to_string())?;
+    Ok(ResKey::new(resref, restype))
+}
+
+/// Why a resource of type `t` isn't imported from a file, where it
+/// isn't: an archive (its resources are what File › Import… brings), the
+/// game's own archives, a backup, a talk table (a module names its own,
+/// beside it), and `module.ifo` (the module itself: its areas, haks,
+/// talk table and start, edited in Module Properties; every module folder
+/// has one, which a folder imported whole would bring with it and lay
+/// over the module's own).
+pub fn refused_type(t: ResType) -> Option<String> {
+    let why = match t {
+        ResType::MOD | ResType::NWM | ResType::ERF | ResType::HAK | ResType::SAV => {
+            "an archive, not a resource (File › Import… brings an .erf's resources)"
+        }
+        ResType::KEY | ResType::BIF => "one of the game's own archives, not a resource",
+        ResType::BAK => "a backup copy (name.ext.bak): rename it to bring it in",
+        ResType::TLK => "a talk table: a module names its own (Module Properties › Custom Tlk)",
+        ResType::IFO => {
+            "the module itself (its areas, haks, talk table and start), edited in Module \
+             Properties, not imported"
+        }
+        _ => return None,
+    };
+    Some(why.into())
+}
+
+/// Why a resource of a GFF type can't be imported: it does not read as a
+/// GFF, or its header gives it another type than its extension does (a
+/// `.uti` that holds a creature). Any type will do for a `.gff`.
+pub fn gff_problem(k: &ResKey, bytes: &[u8]) -> Option<String> {
+    if !k.restype.is_gff() {
+        return None;
+    }
+    let gff = match Gff::read(bytes) {
+        Ok(g) => g,
+        Err(e) => return Some(format!("doesn't read as a GFF file: {e}")),
+    };
+    let ext = k.restype.extension().unwrap_or_default().to_ascii_uppercase();
+    let held = gff.file_type_str();
+    (k.restype != ResType::GFF && !held.eq_ignore_ascii_case(&ext))
+        .then(|| format!("a {held} file by its header, not a .{}", ext.to_ascii_lowercase()))
+}
+
 /// What an import will do.
 #[derive(Debug, Clone, Default)]
 pub struct ImportPlan {
-    /// Everything in the archive.
+    /// Everything imported.
     pub resources: Vec<ResKey>,
     /// Resources the module already has (the user picks which to overwrite).
     pub overwrites: Vec<ResKey>,
-    /// References from the archive that neither it, the module nor the game
-    /// can satisfy.
+    /// References from what is imported that neither it, the module nor
+    /// the game can satisfy.
     pub missing: Vec<Reference>,
-}
-
-fn read_archive(data: &[u8]) -> Result<Vec<(ResKey, Vec<u8>)>, ModuleError> {
-    let erf = Erf::read(data)
-        .map_err(|e| ModuleError::Archive { path: Default::default(), message: e.to_string() })?;
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for e in &erf.entries {
-        let k = ResKey::new(e.resref, e.restype);
-        if seen.insert(k) {
-            let bytes = erf.data(e).map_err(|err| ModuleError::Archive {
-                path: Default::default(),
-                message: err.to_string(),
-            })?;
-            out.push((k, bytes.into_owned()));
-        }
-    }
-    Ok(out)
+    /// What is not imported, and why.
+    pub refused: Vec<Refused>,
+    /// Scripts imported without their compiled script (`.ncs`), which are
+    /// compiled as they come in ([`ImportSummary::to_compile`]).
+    pub compile: Vec<ResKey>,
+    /// An area's files that come without the others, neither imported nor
+    /// in the module: an `.are` without its `.git` (the area comes in
+    /// with nothing placed in it), a `.git` or `.gic` of no area.
+    pub warnings: Vec<String>,
 }
 
 pub fn plan_import(
@@ -281,15 +450,23 @@ pub fn plan_import(
     archive: &[u8],
     resman: &ResMan,
 ) -> Result<ImportPlan, ModuleError> {
-    let entries = read_archive(archive)?;
+    Ok(plan_import_of(module, &Incoming::archive(archive)?, resman))
+}
+
+/// [`plan_import`] of resources from wherever they come.
+pub fn plan_import_of(module: &Module, incoming: &Incoming, resman: &ResMan) -> ImportPlan {
+    let entries = &incoming.resources;
     let in_archive: HashSet<ResKey> = entries.iter().map(|(k, _)| *k).collect();
     let mut plan = ImportPlan {
         resources: entries.iter().map(|(k, _)| *k).collect(),
         overwrites: entries.iter().map(|(k, _)| *k).filter(|k| module.contains(k)).collect(),
+        refused: incoming.refused.clone(),
+        compile: uncompiled(incoming),
+        warnings: area_warnings(module, incoming),
         missing: Vec::new(),
     };
     let mut seen = HashSet::new();
-    for (k, bytes) in &entries {
+    for (k, bytes) in entries {
         for r in references(*k, bytes) {
             let c = r.candidates();
             let found = c
@@ -300,7 +477,47 @@ pub fn plan_import(
             }
         }
     }
-    Ok(plan)
+    plan
+}
+
+/// The scripts imported without their compiled scripts.
+fn uncompiled(incoming: &Incoming) -> Vec<ResKey> {
+    (incoming.resources.iter())
+        .map(|(k, _)| *k)
+        .filter(|k| k.restype == ResType::NSS)
+        .filter(|k| !incoming.has(&ResKey::new(k.resref, ResType::NCS)))
+        .collect()
+}
+
+/// [`ImportPlan::warnings`].
+fn area_warnings(module: &Module, incoming: &Incoming) -> Vec<String> {
+    let mut areas: Vec<ResRef> = Vec::new();
+    for (k, _) in &incoming.resources {
+        if matches!(k.restype, ResType::ARE | ResType::GIT | ResType::GIC)
+            && !areas.contains(&k.resref)
+        {
+            areas.push(k.resref);
+        }
+    }
+    let has = |r: ResRef, t: ResType| {
+        let k = ResKey::new(r, t);
+        incoming.has(&k) || module.contains(&k)
+    };
+    let mut out = Vec::new();
+    for a in areas {
+        match (has(a, ResType::ARE), has(a, ResType::GIT)) {
+            (true, false) => out.push(format!(
+                "{a}.are comes without its .git, which the module hasn't either: the area comes \
+                 in with nothing placed in it"
+            )),
+            (false, _) => out.push(format!(
+                "{a}: its .git or .gic comes without the area's .are, which the module hasn't \
+                 either: they belong to no area"
+            )),
+            (true, true) => {}
+        }
+    }
+    out
 }
 
 /// What an import changed.
@@ -311,6 +528,11 @@ pub struct ImportSummary {
     pub skipped: Vec<ResKey>,
     /// Imported areas added to the module's area list.
     pub new_areas: Vec<ResRef>,
+    /// The scripts to compile now (and store as part of the import): those
+    /// imported without their compiled scripts, and the module's scripts
+    /// that include any of them, however indirectly (theirs are older
+    /// now), in the module's order.
+    pub to_compile: Vec<ResKey>,
 }
 
 /// Imports an archive; `overwrite` decides for each resource the module
@@ -320,18 +542,28 @@ pub fn import_erf(
     archive: &[u8],
     overwrite: impl Fn(&ResKey) -> bool,
 ) -> Result<ImportSummary, ModuleError> {
+    import_incoming(module, &Incoming::archive(archive)?, overwrite)
+}
+
+/// [`import_erf`] of resources from wherever they come (what was refused
+/// is left out).
+pub fn import_incoming(
+    module: &mut Module,
+    incoming: &Incoming,
+    overwrite: impl Fn(&ResKey) -> bool,
+) -> Result<ImportSummary, ModuleError> {
     let mut summary = ImportSummary::default();
-    for (k, bytes) in read_archive(archive)? {
-        if module.contains(&k) {
-            if !overwrite(&k) {
-                summary.skipped.push(k);
+    for (k, bytes) in &incoming.resources {
+        if module.contains(k) {
+            if !overwrite(k) {
+                summary.skipped.push(*k);
                 continue;
             }
-            summary.replaced.push(k);
+            summary.replaced.push(*k);
         } else {
-            summary.added.push(k);
+            summary.added.push(*k);
         }
-        module.set(k, bytes);
+        module.set(*k, bytes.clone());
     }
     let mut info = module.info()?;
     let listed: HashSet<ResRef> = module.areas()?.into_iter().collect();
@@ -346,6 +578,17 @@ pub fn import_erf(
     }
     if !summary.new_areas.is_empty() {
         module.set_info(&info)?;
+    }
+    let came: Vec<ResKey> = (summary.added.iter().chain(&summary.replaced))
+        .filter(|k| k.restype == ResType::NSS)
+        .filter(|k| !incoming.has(&ResKey::new(k.resref, ResType::NCS)))
+        .copied()
+        .collect();
+    if !came.is_empty() {
+        let mut all: HashSet<ResKey> = came.iter().copied().collect();
+        all.extend(crate::refs::includers(module, &came));
+        summary.to_compile =
+            module.keys_of(ResType::NSS).filter(|k| all.contains(k)).copied().collect();
     }
     Ok(summary)
 }
@@ -560,5 +803,176 @@ mod tests {
         m.set(key("guard_spawn", ResType::NCS), b"NCS2".to_vec());
         export_files(&m, &script, &dir).unwrap();
         assert_eq!(std::fs::read(dir.join("guard_spawn.ncs")).unwrap(), b"NCS2");
+    }
+
+    /// Loose files (El Grillo's request, 2026-11-03): each a resource by
+    /// its name and extension, a folder's with those of the folders in it;
+    /// refused, with the reason, what is no resource of a module's.
+    #[test]
+    fn files_are_resources_by_name_and_extension() {
+        let dir = mg_testkit::scratch_dir("import-files");
+        let gff = |t: &[u8; 4]| Gff::new(*t).to_bytes().unwrap();
+        let files: &[(&str, Vec<u8>)] = &[
+            ("guard.utc", gff(b"UTC ")),
+            ("Town.ARE", gff(b"ARE ")),
+            ("on_enter.nss", b"void main() {}".to_vec()),
+            ("sub/deeper/lamp.utp", gff(b"UTP ")),
+            ("my script.nss", b"".to_vec()),
+            ("a_name_of_twenty_ch.nss", b"".to_vec()),
+            ("notes.md", b"".to_vec()),
+            ("README", b"".to_vec()),
+            ("broken.uti", b"not a GFF".to_vec()),
+            ("creature.uti", gff(b"UTC ")),
+            ("anything.gff", gff(b"XYZ ")),
+            ("module.ifo", gff(b"IFO ")),
+            ("guard.utc.bak", gff(b"UTC ")),
+            ("other.erf", Vec::new()),
+            ("twice.nss", b"// one".to_vec()),
+            ("copy/TWICE.nss", b"// two".to_vec()),
+            (".hidden.nss", Vec::new()),
+            ("Thumbs.db", Vec::new()),
+        ];
+        for (name, bytes) in files {
+            let path = dir.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let incoming = Incoming::files(std::slice::from_ref(&dir));
+        let mut names: Vec<String> =
+            incoming.resources.iter().map(|(k, _)| k.to_string()).collect();
+        names.sort();
+        assert_eq!(names, ["anything.gff", "guard.utc", "lamp.utp", "on_enter.nss", "town.are"]);
+        // (Its case kept, as an archive's is.)
+        let town = incoming.resources.iter().find(|(k, _)| k.restype == ResType::ARE).unwrap();
+        assert_eq!(town.0.resref.as_bytes(), b"Town");
+        let refused = |file: &str| -> String {
+            let path = dir.join(file).display().to_string();
+            let r = incoming.refused.iter().find(|r| r.what == path);
+            r.unwrap_or_else(|| panic!("{file} refused: {:?}", incoming.refused)).why.clone()
+        };
+        assert!(refused("my script.nss").contains("a space"));
+        assert!(refused("a_name_of_twenty_ch.nss").contains("19 characters"));
+        assert!(refused("notes.md").contains(".md isn't a type"));
+        assert!(refused("README").contains("no extension"));
+        assert!(refused("broken.uti").contains("doesn't read as a GFF"));
+        assert_eq!(refused("creature.uti"), "a UTC file by its header, not a .uti");
+        assert!(refused("module.ifo").contains("Module Properties"));
+        assert!(refused("guard.utc.bak").contains("backup"));
+        assert!(refused("other.erf").contains("File › Import…"));
+        // A resource given twice: both refused, each naming the other.
+        let copy = dir.join("copy/TWICE.nss").display().to_string();
+        assert!(refused("twice.nss").contains(&copy), "{}", refused("twice.nss"));
+        assert!(refused("copy/TWICE.nss").contains("twice.nss is among the files twice"));
+        // What file managers leave is passed over, not refused.
+        assert_eq!(incoming.refused.len(), 11, "{:?}", incoming.refused);
+        // One file given, and a folder: as one.
+        let one = Incoming::files(&[dir.join("guard.utc"), dir.join("sub")]);
+        let names: Vec<String> = one.resources.iter().map(|(k, _)| k.to_string()).collect();
+        assert_eq!(names, ["guard.utc", "lamp.utp"]);
+        assert!(one.refused.is_empty());
+        // A file not there.
+        let gone = Incoming::files(&[dir.join("gone.nss")]);
+        assert!(gone.refused[0].why.starts_with("doesn't read"), "{:?}", gone.refused);
+    }
+
+    /// Files planned and imported as an archive's resources are: those the
+    /// module has (in any case) to overwrite or not, a new area listed,
+    /// a script without its compiled script compiled with the scripts that
+    /// include it, an area's files that come without the others named.
+    #[test]
+    fn files_are_planned_and_imported_as_an_archive_is() {
+        let dir = mg_testkit::scratch_dir("import-files-plan");
+        let mut m = sample();
+        m.set(key("guard_inc", ResType::NSS), b"void Guard() {}".to_vec());
+        m.set(key("guard_ai", ResType::NSS), b"#include \"guard_inc\"\nvoid main() {}".to_vec());
+        m.set(key("guard_ai", ResType::NCS), b"NCS".to_vec());
+        let gff = |t: &[u8; 4]| Gff::new(*t).to_bytes().unwrap();
+        let mut u = Gff::new(*b"UTC ");
+        u.root.write(&utc::CONVERSATION, rr("nowhere"));
+        let files: Vec<(&str, Vec<u8>)> = vec![
+            ("GUARD.utc", u.to_bytes().unwrap()),
+            ("guard_inc.nss", b"void Guard() { }".to_vec()),
+            ("hello.nss", b"void main() {}".to_vec()),
+            ("hello.ncs", b"NCS2".to_vec()),
+            ("market.are", gff(b"ARE ")),
+            ("market.git", gff(b"GIT ")),
+            ("market.gic", gff(b"GIC ")),
+            ("bare.are", gff(b"ARE ")),
+            ("stray.git", gff(b"GIT ")),
+            ("town.are", gff(b"ARE ")),
+        ];
+        let paths: Vec<PathBuf> = files
+            .iter()
+            .map(|(name, bytes)| {
+                std::fs::write(dir.join(name), bytes).unwrap();
+                dir.join(name)
+            })
+            .collect();
+        let incoming = Incoming::files(&paths);
+        let plan = plan_import_of(&m, &incoming, &base());
+        assert_eq!(plan.resources.len(), 10);
+        let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(names(&plan.overwrites), ["guard.utc", "guard_inc.nss", "town.are"]);
+        assert_eq!(names(&plan.compile), ["guard_inc.nss"], "hello.nss comes with its .ncs");
+        assert_eq!(
+            plan.missing.iter().map(|r| r.target.to_string()).collect::<Vec<_>>(),
+            ["nowhere"]
+        );
+        assert_eq!(plan.warnings.len(), 2, "{:?}", plan.warnings);
+        assert!(plan.warnings[0].starts_with("bare.are comes without its .git"));
+        assert!(plan.warnings[1].starts_with("stray: its .git or .gic"));
+        // (town.are with the module's .git: nothing to say.)
+
+        // Not overwritten: the module's kept, the new ones added and the
+        // new areas listed; nothing of the module's to compile again.
+        let mut kept = m.clone();
+        let s = import_incoming(&mut kept, &incoming, |_| false).unwrap();
+        assert_eq!(names(&s.skipped), ["guard.utc", "guard_inc.nss", "town.are"]);
+        assert_eq!(s.added.len(), 7);
+        assert_eq!(s.new_areas, [rr("market"), rr("bare")]);
+        assert_eq!(kept.areas().unwrap(), [rr("town"), rr("market"), rr("bare")]);
+        assert!(s.to_compile.is_empty(), "{:?}", s.to_compile);
+        // Overwritten: under the module's own spelling; the include, and
+        // the script that includes it, to compile.
+        let s = import_incoming(&mut m, &incoming, |_| true).unwrap();
+        assert_eq!(names(&s.replaced), ["guard.utc", "guard_inc.nss", "town.are"]);
+        assert_eq!(s.replaced[0].resref.as_bytes(), b"GUARD");
+        let guard = m.keys().find(|k| **k == key("guard", ResType::UTC)).unwrap();
+        assert_eq!(guard.resref.as_bytes(), b"guard");
+        assert_eq!(m.get(&key("guard", ResType::UTC)), Some(&files[0].1[..]));
+        assert_eq!(names(&s.to_compile), ["guard_inc.nss", "guard_ai.nss"]);
+        assert_eq!(m.get(&key("hello", ResType::NCS)), Some(&b"NCS2"[..]));
+    }
+
+    /// An archive's GFF that doesn't read as its type is refused as a
+    /// file's is; the rest of the archive comes in.
+    #[test]
+    fn an_archive_s_broken_gff_is_refused() {
+        let mut w = ErfWriter::new(*b"ERF ");
+        w.add(rr("good"), ResType::UTI, Gff::new(*b"UTI ").to_bytes().unwrap()).unwrap();
+        w.add(rr("bad"), ResType::UTI, b"junk".to_vec()).unwrap();
+        let erf = w.to_bytes().unwrap();
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        let plan = plan_import(&m, &erf, &base()).unwrap();
+        assert_eq!(plan.resources, [key("good", ResType::UTI)]);
+        assert_eq!(plan.refused[0].what, "bad.uti");
+        let s = import_erf(&mut m, &erf, |_| true).unwrap();
+        assert_eq!(s.added, [key("good", ResType::UTI)]);
+        assert!(!m.contains(&key("bad", ResType::UTI)));
+    }
+
+    #[test]
+    fn file_names() {
+        let k = file_key("Guard.UTC").unwrap();
+        assert_eq!((k.resref.as_bytes(), k.restype), (&b"Guard"[..], ResType::UTC));
+        assert_eq!(file_key("a-b_c.nss").unwrap(), key("a-b_c", ResType::NSS));
+        assert!(file_key("sixteen_chars_ok.nss").is_ok());
+        assert!(file_key("seventeen_chars_x.nss").unwrap_err().contains("17 characters"));
+        assert!(file_key(".nss").unwrap_err().contains("no name"));
+        assert!(file_key("café.nss").unwrap_err().contains("'é'"));
+        assert!(file_key("a.b.nss").unwrap_err().contains("'.'"));
+        assert!(refused_type(ResType::NSS).is_none());
+        assert!(refused_type(ResType::HAK).is_some());
     }
 }
