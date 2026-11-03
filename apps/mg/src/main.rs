@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod bake;
 mod claims;
 mod diff;
 mod edits;
@@ -902,6 +903,37 @@ enum Cmd {
         /// Only in this area.
         #[arg(long)]
         area: Option<String>,
+    },
+    /// Bake placed placeables' walkmeshes to their visual transforms
+    /// (the area view's Position › Bake Walkmesh to Transform): each gets a
+    /// copy of its model whose walkmesh is moved as the model is drawn, in
+    /// the project's hak (moonglow.toml's [bake]), and a placeables.2da row
+    /// in the project's rows file, which the project's build adds to the
+    /// table; its Appearance names that row, and the module is saved. The
+    /// same model and transform share one bake. With --unbake, each goes
+    /// back to the row it copies.
+    BakeWalkmesh {
+        module: PathBuf,
+        /// The area (its ResRef).
+        #[arg(long)]
+        area: String,
+        /// A placeable of the area: its number in the area's placeables,
+        /// from 0 (`mg find MODULE --type utp --area AREA` gives it).
+        /// Repeatable.
+        #[arg(long, required = true)]
+        object: Vec<usize>,
+        /// Set each back to the row its bake copies.
+        #[arg(long)]
+        unbake: bool,
+        /// Say what would be made; write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Plugins whose handlers look at what is saved, as for `mg set`.
+        #[arg(long)]
+        plugins: Vec<PathBuf>,
+        /// A plugin's warning of the save stops it too, as a refusal does.
+        #[arg(long)]
+        strict: bool,
     },
     /// Build a nasher project's module: compile its scripts and pack its
     /// target as nasher does (filters, modName and the rest). Fails if a
@@ -2259,6 +2291,18 @@ fn run(cli: &Cli) -> Result<Output> {
                 edits::set(m, resource, fields, remove, *dry_run, codepage, guard.as_ref(), gi)?;
             out.notes.splice(0..0, notes.notes);
             out
+        }
+        Cmd::BakeWalkmesh { module, area, object, unbake, dry_run, plugins, strict } => {
+            let asked = bake::Asked {
+                module,
+                area,
+                objects: object,
+                unbake: *unbake,
+                dry_run: *dry_run,
+                plugins,
+                strict: *strict,
+            };
+            bake::run(cli, &asked)?
         }
         Cmd::Apply { module, edits, dry_run, plugins, strict } => {
             let m = crate::open_module(module)?;
@@ -4910,6 +4954,8 @@ fn verify(
     let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // (The lines typed text takes, held to the table.)
     findings.extend(mg_module::doctor::talk_range(&m, custom_table.as_ref(), skip));
+    // (The walkmesh bake's rules, rows and leftovers.)
+    findings.extend(mg_module::doctor::bake(&m, &rm, Codepage::default(), skip));
     // (The palettes' groupings, held to the palettes: their names as the
     // palettes show them, in the game's letters.)
     let game_codepage = mg_rules::text_codepage(&rm, game_language(gi));

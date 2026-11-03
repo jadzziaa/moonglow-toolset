@@ -311,6 +311,15 @@ impl RowsFile {
         out
     }
 
+    /// Writes the file's text at `path` (its folder made if need be).
+    pub fn write(&self, path: &Path) -> Result<(), String> {
+        let name = path.file_name().map_or(DEFAULT_ROWS_FILE.into(), |n| n.to_string_lossy());
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(path, self.text(&name)).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     /// Row `row`, if the file has it.
     pub fn row(&self, row: u32) -> Option<&BakedRow> {
         self.rows.iter().find(|r| r.row == row)
@@ -479,6 +488,32 @@ pub fn moved(faces: &[([[f32; 3]; 3], u32)], to: [[f32; 4]; 4]) -> Vec<[[f32; 3]
         std::array::from_fn(|r| to[0][r] * p[0] + to[1][r] * p[1] + to[2][r] * p[2] + to[3][r])
     };
     faces.iter().map(|(c, _)| c.map(apply)).collect()
+}
+
+/// The visual transform a placed placeable `s` is baked to, or why it
+/// can't be: a static placeable is drawn without one, and one without a
+/// transform has nothing to bake to.
+pub fn transform_of(s: &mg_gff::Struct) -> Result<Transform, String> {
+    if s.integer("Static").unwrap_or(0) != 0 {
+        return Err("it is static, so the game draws it without its visual transform (untick \
+                    Static first)"
+            .into());
+    }
+    match crate::placement::visual_transform(s) {
+        Some(t) if !t.is_identity() => Ok(t),
+        _ => {
+            Err("it has no visual transform (Adjust Location): its walkmesh is as it is drawn"
+                .into())
+        }
+    }
+}
+
+/// The row a baked object's `Appearance` goes back to (the row it copies),
+/// or why it has none: it isn't a row of the rows file.
+pub fn unbaked_row(rows: &RowsFile, appearance: u32) -> Result<u32, String> {
+    rows.row(appearance).map(|r| r.copy_of).ok_or_else(|| {
+        format!("its Appearance, row {appearance}, is no baked row (of the rows file): not baked")
+    })
 }
 
 /// One object to bake.

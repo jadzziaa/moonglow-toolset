@@ -414,6 +414,10 @@ impl Module {
             Ok(missing) => (missing, None),
             Err(e) => (Vec::new(), Some(e)),
         };
+        // The walkmesh bake's rows the haks' table lacks yet, drawn as the
+        // project's build will add them (`bake::PENDING_LABEL`).
+        let rows = self.project_file.baked_rows().ok();
+        crate::bake::layer_pending(resman, mg_core::Codepage::default(), rows.as_ref());
         resman.add(
             mg_resman::priority::MODULE,
             mg_resman::MODULE_LABEL,

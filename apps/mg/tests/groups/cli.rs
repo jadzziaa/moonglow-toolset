@@ -6,6 +6,8 @@
 mod areas;
 #[path = "../attach.rs"]
 mod attach;
+#[path = "../bake_walkmesh.rs"]
+mod bake_walkmesh;
 #[path = "../claims.rs"]
 mod claims;
 #[path = "../compile.rs"]

@@ -10,6 +10,7 @@ mod common;
 
 mod area_view;
 mod areas;
+mod bake;
 mod blueprints;
 mod conversations;
 mod drawing;

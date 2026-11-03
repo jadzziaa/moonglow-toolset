@@ -427,6 +427,8 @@ impl Moonglow {
         let had = ws.module.project_file.found;
         if ws.module.reread_project_file() {
             self.log_project_file(true, had);
+            // (The bake's rows file may have changed with it.)
+            self.sync_bake_rows();
         }
     }
 
