@@ -1613,3 +1613,409 @@ fn the_kinds_the_filter_opens_close_again() {
     h.run_steps(30);
     assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "typed again");
 }
+
+/// A plugin whose command is for every kind the module tree lists
+/// ("Each Kind"), in a folder of installed plugins of its own.
+fn each_kind_plugin(name: &str) -> std::path::PathBuf {
+    let dir = mg_testkit::scratch_dir(name);
+    let plugin = dir.join("each");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"test.each\"\nname = \"Each\"\nversion = \"1\"\napi = \"0.5\"\n\
+         license = \"MIT\"\n\n[command]\nid = \"each\"\ntitle = \"Each Kind\"\nfor = \"area, \
+         dlg, nss, jui, jrl, fac, creature, door, encounter, item, placeable, sound, store, \
+         trigger, waypoint\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"each\", function(ctx)\n  local on = {}\n  \
+         for _, s in ipairs(ctx.selection) do table.insert(on, s.resource) end\n  \
+         ctx.log:info(\"each: \" .. table.concat(on, \",\"))\nend)\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// A right click on the row `label` (the pointer brought to it first, as
+/// a builder's is), and the frames that open its menu.
+fn right_click(h: &mut Harness<'_, Moonglow>, label: &str) {
+    h.get_by_label(label).hover();
+    h.run_steps(1);
+    h.get_by_label(label).click_secondary();
+    h.run_steps(3);
+}
+
+/// Several resources of every kind the module tree lists, chosen as a
+/// builder chooses them (a click, Shift and a click, Ctrl and a click),
+/// have the menu of several on a right click on one of them: Delete… for
+/// them all, Export, and the plugins' commands for their kind; the Delete
+/// key on one of them asks about them all too. Several of different
+/// kinds have Delete… and Export. (El Grillo's report, 3.6.0: the menu
+/// of several scripts or conversations had no Delete…, which releases
+/// before 3.0.0 left out.)
+#[test]
+fn several_of_every_kind_have_delete_and_export_in_their_menu() {
+    let dir = mg_testkit::scratch_dir("ui-tree-several-kinds");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    // Each group's three (the journal and the factions: one each).
+    let mut groups: Vec<(String, Vec<ResKey>)> = Vec::new();
+    let mut add = |group: &str, t: ResType, names: &[&str], bytes: &dyn Fn() -> Vec<u8>| {
+        let keys: Vec<ResKey> = names.iter().map(|n| ResKey::parse(n, t).unwrap()).collect();
+        for k in &keys {
+            m.set(*k, bytes());
+        }
+        groups.push((group.to_string(), keys));
+    };
+    let gff = |sig: &[u8; 4]| Gff::new(*sig).to_bytes().unwrap();
+    add("Areas", ResType::ARE, &["area_1", "area_2", "area_3"], &|| gff(b"ARE "));
+    add("Conversations", ResType::DLG, &["talk_1", "talk_2", "talk_3"], &|| gff(b"DLG "));
+    add("Scripts", ResType::NSS, &["code_1", "code_2", "code_3"], &|| b"void main() {}\n".to_vec());
+    add("NUI windows", ResType::JUI, &["nui_1", "nui_2", "nui_3"], &|| b"{}".to_vec());
+    for kind in mg_rules::ObjectKind::ALL {
+        let t = kind.restype();
+        let sig: [u8; 4] = format!("{:<4}", t.extension().unwrap().to_ascii_uppercase())
+            .into_bytes()
+            .try_into()
+            .unwrap();
+        let names: Vec<String> = (1..=3).map(|i| format!("{}_{i}", kind.name())).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        add(kind.label(), t, &names, &|| gff(&sig));
+    }
+    m.set(ResKey::parse("module", ResType::JRL).unwrap(), gff(b"JRL "));
+    m.set(ResKey::parse("repute", ResType::FAC).unwrap(), gff(b"FAC "));
+    groups.push((
+        "Journal and factions".into(),
+        vec![
+            ResKey::parse("module", ResType::JRL).unwrap(),
+            ResKey::parse("repute", ResType::FAC).unwrap(),
+        ],
+    ));
+    for k in m.keys_of(ResType::ARE).copied().collect::<Vec<_>>() {
+        m.set(ResKey::new(k.resref, ResType::GIT), gff(b"GIT "));
+    }
+    let path = dir.join("kinds.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.plugin_dir = Some(each_kind_plugin("ui-tree-several-kinds-plugins"));
+    app.load_plugins();
+    app.enable_plugin("test.each", true);
+    let mut h = harness(app, 1400.0, 900.0);
+    h.run();
+    let label = |k: &ResKey| match k.restype {
+        ResType::ARE | ResType::DLG | ResType::NSS => k.resref.to_string(),
+        _ => k.to_string(),
+    };
+    let chosen = |h: &Harness<'_, Moonglow>| -> Vec<ResKey> {
+        h.state().tree_selected.iter().copied().collect()
+    };
+    for (group, keys) in &groups {
+        let header = format!("{group} ({})", keys.len());
+        let rows: Vec<String> = keys.iter().map(label).collect();
+        // (The areas' group is open from the start.)
+        if h.query_by_label(&rows[0]).is_none() {
+            h.get_by_label(&header).click();
+            h.run_steps(3);
+        }
+        // A click on the first, Shift and a click on the last (all three),
+        // Ctrl and a click on the middle one (taken away again).
+        h.get_by_label(&rows[0]).click();
+        h.run_steps(2);
+        let last = rows.len() - 1;
+        h.get_by_label(&rows[last]).click_modifiers(egui::Modifiers::SHIFT);
+        h.run_steps(2);
+        assert_eq!(chosen(&h), *keys, "{group}: from the one clicked to this one");
+        let wanted: Vec<ResKey> = if keys.len() > 2 {
+            h.get_by_label(&rows[1]).click_modifiers(egui::Modifiers::COMMAND);
+            h.run_steps(2);
+            vec![keys[0], keys[2]]
+        } else {
+            keys.clone()
+        };
+        assert_eq!(chosen(&h), wanted, "{group}");
+        right_click(&mut h, &rows[last]);
+        h.get_by_label(&format!("{} resources chosen", wanted.len()));
+        h.get_by_label("Export ⏵");
+        // (A plugin's command where they are of one kind.)
+        let one_kind = keys.iter().all(|k| k.restype == keys[0].restype);
+        assert_eq!(h.query_by_label("Each Kind").is_some(), one_kind, "{group}");
+        h.get_by_label("Delete…").click();
+        h.run_steps(3);
+        assert_eq!(h.state().confirm_delete.as_ref(), Some(&wanted), "{group}");
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        h.run_steps(2);
+        // The Delete key on one of them: the same question.
+        h.get_by_label(&rows[0]).hover();
+        h.run_steps(1);
+        h.key_press(egui::Key::Delete);
+        h.run_steps(3);
+        assert_eq!(h.state().confirm_delete.as_ref(), Some(&wanted), "{group}: the Delete key");
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        h.run_steps(2);
+        // The plugin's command runs on them all.
+        if one_kind {
+            right_click(&mut h, &rows[0]);
+            h.get_by_label("Each Kind").click();
+            h.run_steps(4);
+            let said = (h.state().log.entries.iter().rev())
+                .find_map(|(_, m)| m.strip_prefix("Each: each: ").map(str::to_string));
+            let names: Vec<String> = wanted.iter().map(ToString::to_string).collect();
+            assert_eq!(said, Some(names.join(",")), "{group}");
+        }
+        h.get_by_label(&header).click();
+        h.run_steps(3);
+    }
+    // A conversation and a script together: Delete… and Export for both.
+    h.get_by_label("Conversations (3)").click();
+    h.run_steps(3);
+    h.get_by_label("Scripts (3)").click();
+    h.run_steps(3);
+    h.get_by_label("talk_2").click();
+    h.run_steps(2);
+    h.get_by_label("code_3").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    right_click(&mut h, "code_3");
+    h.get_by_label("2 resources chosen");
+    h.get_by_label("Export ⏵");
+    assert!(h.query_by_label("Each Kind").is_none(), "of two kinds");
+    h.get_by_label("Delete…").click();
+    h.run_steps(3);
+    let both = vec![ResKey::parse("code_3", ResType::NSS).unwrap(), groups[1].1[1]];
+    let mut asked = h.state().confirm_delete.clone().unwrap();
+    asked.sort();
+    assert_eq!(asked, both);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(2);
+}
+
+/// Several chosen in the module tree stay chosen when a conversation
+/// opened before is clicked in for the first time (a tab opened comes to
+/// the front without the focus, and the click that gives it the focus
+/// chose no other tab): a right click on one of them still has the menu
+/// of several. A tab of another chosen after does take the tree to it.
+#[test]
+fn several_chosen_stay_when_an_editor_opened_before_is_clicked_in() {
+    let dir = mg_testkit::scratch_dir("ui-tree-several-editor");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    for name in ["talk_1", "talk_2", "talk_3", "talk_4"] {
+        let g = mg_module::dialog::new_dialog();
+        m.set(ResKey::parse(name, ResType::DLG).unwrap(), g.to_bytes().unwrap());
+    }
+    let path = dir.join("editor.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1400.0, 900.0);
+    h.run();
+    let k = |name: &str| ResKey::parse(name, ResType::DLG).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenResource(k("talk_1")));
+    settle(&mut h);
+    let tab = Tab::Dialog(k("talk_1"));
+    assert!(h.state().dock.find_tab(&tab).is_some());
+    let chosen = |h: &Harness<'_, Moonglow>| -> Vec<ResKey> {
+        h.state().tree_selected.iter().copied().collect()
+    };
+    assert_eq!(chosen(&h), [k("talk_1")], "the tree goes to the tab opened");
+    h.get_by_label("talk_2").click();
+    h.run_steps(2);
+    h.get_by_label("talk_3").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    // A click in the editor's pane (its tab's own body, right of the tree).
+    let body = h.state().dock.find_tab(&tab).and_then(|p| h.state().dock.leaf(p.node_path()).ok());
+    let at = body.map(|leaf| leaf.rect.center()).expect("the editor's pane");
+    click_pos(&h, at);
+    h.run_steps(4);
+    assert_eq!(chosen(&h), [k("talk_2"), k("talk_3")], "kept");
+    right_click(&mut h, "talk_3");
+    h.get_by_label("2 resources chosen");
+    h.get_by_label("Delete…");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // Another conversation opened: the tree goes to it.
+    h.state_mut().actions.push(mg_ui::Action::OpenResource(k("talk_4")));
+    settle(&mut h);
+    assert_eq!(chosen(&h), [k("talk_4")]);
+}
+
+/// Conversations chosen in the module tree go out together from its
+/// Export menu, each a file of its own named after it in a folder asked
+/// for, in each of the four formats, exactly as the conversation
+/// editor's Export writes one (a change not saved yet included); files of
+/// their names there are asked about once, all named; one that can't be
+/// read is named in the log, and the rest are written. Not offered for
+/// a script, nor for a conversation chosen with a script. (dansen9191's
+/// request.)
+#[test]
+fn several_conversations_are_exported_as_ink_twine_text_and_csv() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-tree-export-stories");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let k = |name: &str| ResKey::parse(name, ResType::DLG).unwrap();
+    for (name, line) in [("gate", "Halt!"), ("inn", "A room?"), ("well", "Splash.")] {
+        let mut g = new_dialog();
+        let top = add_node(&mut g, Parent::Root, line);
+        add_node(&mut g, Parent::Node(Kind::Entry, top), "Goodbye.");
+        m.set(k(name), g.to_bytes().unwrap());
+    }
+    m.set(k("broken"), b"not a conversation".to_vec());
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    let path = dir.join("stories.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1400.0, 900.0);
+    h.run();
+    // The inn's editor open, with a change not saved.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(k("inn"))));
+    h.run_steps(3);
+    let mut changed = h.state_mut().ws.as_mut().unwrap().doc(&k("inn")).unwrap().clone();
+    add_node(&mut changed, Parent::Root, "Not saved yet.");
+    let set = mg_edit::Edit::SetResource { key: k("inn"), data: Some(changed.to_bytes().unwrap()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Line", vec![set])));
+    h.run_steps(3);
+    // (The conversations' group opened with the inn's tab.)
+    if h.query_by_label("gate").is_none() {
+        h.get_by_label("Conversations (4)").click();
+        h.run_steps(3);
+    }
+    h.get_by_label("Scripts (1)").click();
+    h.run_steps(3);
+    h.get_by_label("gate").click();
+    h.run_steps(2);
+    h.get_by_label("well").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    let three = [k("gate"), k("inn"), k("well")];
+    assert_eq!(h.state().tree_selected.iter().copied().collect::<Vec<_>>(), three);
+    let export =
+        |h: &mut Harness<'_, Moonglow>, row: &str, item: &str, folder: &std::path::Path| {
+            let dialogs = NoDialogs { folders: vec![folder.to_path_buf()], ..Default::default() };
+            h.state_mut().dialogs = Box::new(dialogs);
+            right_click(h, row);
+            open_submenu(h, "Export");
+            h.get_by_label(item).click();
+            h.run_steps(3);
+        };
+    let read = |p: std::path::PathBuf| std::fs::read(&p).unwrap_or_else(|e| panic!("{p:?}: {e}"));
+    // The editor's Export of the inn, in each format, for the files to be
+    // compared with.
+    let single = dir.join("single");
+    std::fs::create_dir_all(&single).unwrap();
+    for (word, menu, ext) in [
+        ("Ink", "Ink…", "ink"),
+        ("Twine", "Twine (Twee)…", "twee"),
+        ("Text", "Plain text…", "txt"),
+        ("CSV", "CSV…", "csv"),
+    ] {
+        let out = dir.join(format!("out-{ext}"));
+        let _ = std::fs::remove_dir_all(&out);
+        export(&mut h, "inn", &format!("Export as {word}…"), &out);
+        let mut written: Vec<String> = std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        written.sort();
+        let wanted: Vec<String> = ["gate", "inn", "well"].map(|n| format!("{n}.{ext}")).into();
+        assert_eq!(written, wanted, "{word}");
+        let said = h
+            .state()
+            .log
+            .entries
+            .iter()
+            .rev()
+            .map(|(_, m)| m.as_str())
+            .find(|m| m.starts_with("Wrote"));
+        let where_ = out.display().to_string();
+        assert_eq!(
+            said,
+            Some(
+                format!("Wrote 3 conversations as {word} to {where_}: {}", wanted.join(", "))
+                    .as_str()
+            )
+        );
+        let one = single.join(format!("inn.{ext}"));
+        h.state_mut().dialogs =
+            Box::new(NoDialogs { save: vec![one.clone()], ..Default::default() });
+        h.get_by_label("Export").click();
+        h.run_steps(2);
+        h.get_by_label(menu).click();
+        h.run_steps(3);
+        assert_eq!(
+            read(out.join(format!("inn.{ext}"))),
+            read(one),
+            "{word}: as the editor writes it"
+        );
+    }
+    let ink = dir.join("out-ink");
+    let inn = String::from_utf8(read(ink.join("inn.ink"))).unwrap();
+    assert!(inn.contains("Not saved yet."), "{inn}");
+    // Again into the same folder: asked first, the three named; Cancel
+    // leaves them.
+    std::fs::write(ink.join("gate.ink"), "kept").unwrap();
+    export(&mut h, "gate", "Export as Ink…", &ink);
+    h.get_by_label_contains("Files of these names are in");
+    for name in ["gate.ink", "inn.ink", "well.ink"] {
+        h.get_by_label(&format!("  {name}"));
+    }
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(read(ink.join("gate.ink")), b"kept");
+    export(&mut h, "gate", "Export as Ink…", &ink);
+    h.get_by_label("Overwrite").click();
+    h.run_steps(3);
+    assert!(h.state().dialog_export_ask.is_none());
+    assert_ne!(read(ink.join("gate.ink")), b"kept", "overwritten");
+    // One that can't be read: named, with why; the rest written.
+    h.get_by_label("broken").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    let out = dir.join("out-broken");
+    let _ = std::fs::remove_dir_all(&out);
+    export(&mut h, "broken", "Export as Ink…", &out);
+    assert!(out.join("gate.ink").exists() && out.join("well.ink").exists());
+    assert!(!out.join("broken.ink").exists());
+    let said = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .rev()
+        .map(|(_, m)| m.clone())
+        .find(|m| m.starts_with("Not written"));
+    assert!(
+        said.as_deref().is_some_and(|s| s.starts_with("Not written: broken.dlg: ")),
+        "{said:?}"
+    );
+    // One conversation alone: offered; a script, and a conversation with a
+    // script: not.
+    h.get_by_label("well").click();
+    h.run_steps(2);
+    right_click(&mut h, "well");
+    open_submenu(&mut h, "Export");
+    h.get_by_label("Export as Ink…");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label("hello").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    for row in ["well", "hello"] {
+        right_click(&mut h, row);
+        h.get_by_label("2 resources chosen");
+        open_submenu(&mut h, "Export");
+        h.get_by_label("Export as Files…");
+        assert!(h.query_by_label("Export as Ink…").is_none(), "a script among them");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+    }
+    h.get_by_label("hello").click();
+    h.run_steps(2);
+    right_click(&mut h, "hello");
+    open_submenu(&mut h, "Export");
+    h.get_by_label("Export as Files…");
+    assert!(h.query_by_label("Export as Twine…").is_none(), "a script");
+}

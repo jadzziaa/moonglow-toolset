@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T21:41:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:44Z }
 ---
 
 # The main window
@@ -287,7 +287,9 @@ area, conversation or blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Copy…**, **Delete…** and
 **Export**: **Export › Export…**, **Export › Export as Files…** and
 **Export › Copy to Scratch Folder** (an area's adds **Export Model
-Files…** and **Export Minimap…**).
+Files…** and **Export Minimap…**; a conversation's, **Export as
+Ink…**, **Export as Twine…**, **Export as Text…** and **Export as
+CSV…**, below).
 
 **Several resources at once:** Ctrl and a click adds a row to those
 chosen (or takes it away), Shift and a click chooses those from the row
@@ -295,10 +297,26 @@ clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
 of one kind, or areas: one Properties window, what you change set on
 each), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
-Folder**), **Delete…** (and the Delete key on one of them), for areas
-**Placeables › Make Placeables Static** and **Dynamic**, and the
-plugins' commands for them.
+Folder**; for conversations, the four below), **Delete…** (and the
+Delete key on one of them), for areas **Placeables › Make Placeables
+Static** and **Dynamic**, and the plugins' commands for them (where
+they are all of one kind). Resources of different kinds chosen together
+have Export and Delete… too.
 A click alone chooses one row again.
+
+**Conversations as stories:** on one conversation, or several chosen
+that are all conversations, **Export › Export as Ink…**, **Export as
+Twine…**, **Export as Text…** and **Export as CSV…** ask for a folder
+and write each conversation into it as a file of its own named after
+its ResRef (`gate.ink`, `gate.twee`, `gate.txt`, `gate.csv`), exactly as
+the conversation editor's [Export](06-conversations.md) writes it (a
+conversation open in an editor goes as it is there, changes not saved
+yet included). Files of those names in the folder are asked about once,
+each named, before they are overwritten (**Overwrite** or **Cancel**).
+The log says how many were written and where; one that can't be
+written is named there with why, and the rest are written. `mg
+dialog-export --to` does the same from the [command
+line](11-command-line.md).
 
 **Copy…** makes a copy in the module under a ResRef you give (a free one
 is offered), and for a blueprint or an area a Tag. An area is copied with
@@ -485,7 +503,10 @@ first brought into view. The keys stay with the tab, and a row in view
 stays where it is; one out of sight comes to the middle of the pane, the
 rows after it in sight too. A tab that comes to the front because the
 one before it was closed (an area, a Properties window opened from the
-tree) was not chosen: the tree stays where it is. A tab whose row the Filter hides, chosen
+tree) was not chosen: the tree stays where it is. Nor is the first
+click in a tab the tree has gone to already (one just opened): rows
+chosen in the tree since, several to delete or export together, stay
+chosen. A tab whose row the Filter hides, chosen
 while the Filter has something typed, is listed under it all the same
 (the Filter stays as it is) until what is typed changes. With **Show the tab
 chosen in the module tree** unticked in Options › General, the tree

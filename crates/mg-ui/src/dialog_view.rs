@@ -1142,18 +1142,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         });
         tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink", None);
         if let Some(f) = export {
-            let suggested =
-                std::path::PathBuf::from(format!("{}.{}", key.resref, f.extensions()[0]));
+            let suggested = std::path::PathBuf::from(crate::dialog_export::file_name(key, f));
             if let Some(path) =
                 app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
             {
-                // (The lines as the module's own table reads them, if any;
-                // a CSV with a column for the language edited, to
-                // translate into.)
-                let edited = crate::text::edit_language();
-                let to = if edited == mg_core::Language::ENGLISH { vec![] } else { vec![edited] };
-                let game = crate::text::game_table();
-                let text = f.write_in(&g, &key.resref.to_string(), game, &to);
+                // (As the module tree's Export as Ink… and the rest write
+                // each of several.)
+                let text = crate::dialog_export::text_of(&g, key, f);
                 match std::fs::write(&path, text) {
                     Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
                     Err(e) => app.log.error(format!("{}: {e}", path.display())),
