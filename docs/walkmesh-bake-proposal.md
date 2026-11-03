@@ -3,7 +3,7 @@ type: Proposal
 title: 'A placed object that blocks as it is drawn: a design'
 description: How Moonglow could give one placed placeable a walkmesh that follows its visual transform (a large stone scaled down to sit on a desk blocks as a small one), which the game never does by itself - the engine's rule (settled), what the bake makes (a copy of the model under a new name, its walkmesh transformed as the game draws the model, a placeables.2da row), why it must go in a hak, how its rows meet a project's own table (TDoD's library build writes placeables.2da), reuse, undoing it, readings to make in the engine, milestones and the owner's questions.
 tags: [proposal, walkmesh, visual-transform, placeables, custom-content, haks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:45:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:47:12Z }
 sources:
   - id: owner
     resource: human:august
@@ -153,12 +153,13 @@ the client once and the engine once.
 2. **The rows go by a rows file (a)**, for the project's build to add. (b) and (c) aren't built.
    A project whose build doesn't read the file yet sees Verify's `bake-row-pending` for each row
    the table in its haks lacks, and the game draws the original walkmesh until then.
-3. **TDoD: the hak `tdod_baked`, its rows still to be chosen.** 40000-40999, which the owner
+3. **TDoD: the hak `tdod_baked`, rows 19000-19999.** 40000-40999, which the owner
    first agreed, turned out to hold the library's blocks (they run without a gap from 20000 to
    68999). And a `placeables.2da` row can't pass 65535: the engine and the network carry it as a
    word. The TDoD Module session measured that on its server (65536 reads as 0, 65537 as 1), and
    nwn.wiki's 2DA page says the same. Rows 16500-19999 belong to neither the game nor the library,
-   so the owner picks a range there once the library's rows past the ceiling are settled. Moonglow
+   and the owner chose **19000-19999** there (as the TDoD Module session reported, 2026-11-03,
+   with the library's 2,391 placeables past the ceiling moved below it). Moonglow
    refuses a `[bake] rows` range past 65535 and never takes a row the table already has. Verify
    notes a range that overlaps the table, and any placeable whose `Appearance` is past 65535 (the
    game silently shows another model).

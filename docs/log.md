@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-03
+* **Update**: [A placed object that blocks as it is drawn](walkmesh-bake-proposal.md): TDoD's baked rows are 19000-19999, as the owner chose (reported by the TDoD Module session).
 * **Update**: [A placed object that blocks as it is drawn](walkmesh-bake-proposal.md): TDoD's rows aren't 40000-40999 (the library's blocks), and a `placeables.2da` row can't pass 65535 (a word in the engine and the network: the TDoD Module session's measurement, nwn.wiki): a range past it is refused, a row the table has is never taken, and Verify notes a placeable whose Appearance is past it.
 * **Update**: [A placed object that blocks as it is drawn](walkmesh-bake-proposal.md): the owner's answers (the walkmesh only; a rows file for the project's build; TDoD's range 40000-40999 and hak tdod_baked; placeables first; Tidy offered on save) and the keys and rows file as settled.
 * **Creation**: [A placed object that blocks as it is drawn](walkmesh-bake-proposal.md), a design for the owner's ask (a placeable's walkmesh following its visual transform, as an option): bake the walkmesh only (the model copied under a new name, its `.pwk` transformed as the game draws the model, a `placeables.2da` row), in a hak; three ways for the rows to meet a project's own table (TDoD's library build writes it); readings to make first; five questions for the owner. Nothing built.
