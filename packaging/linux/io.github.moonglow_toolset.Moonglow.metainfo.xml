@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.6.0" date="2026-11-03">
+      <description>
+        <p>Bake Walkmesh to Transform gives a scaled or tilted placeable a
+        walkmesh that follows its shape, in the project's hak, with the
+        new placeables.2da rows written for the project's build; Verify
+        and mg bake-walkmesh go with it. The conversation editor keeps a
+        script's parameters as sets to reuse, Page Up and Page Down lift a
+        blueprint onto a surface before it is placed, and palette
+        groupings can sort their groups by name.</p>
+      </description>
+    </release>
     <release version="3.5.0" date="2026-11-03">
       <description>
         <p>The palettes can be grouped more than one way: by their
