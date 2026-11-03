@@ -7,10 +7,13 @@ sources:
   - id: viewer
     resource: ~/Projects/moonglow-viewer/docs/PLAN.md
     title: 'Moonglow Viewer, PLAN §10.1 (2026-10-07): what the client and the game''s compiler showed (its tests mgv-mdl/tests/client.rs and engine.rs, run there in the toolset''s client sandbox; not run again here)'
+  - id: engine-walkmesh
+    resource: crates/mg-corpus-tests/tests/engine_placeable_walkmesh.rs
+    title: 'Where placeable and door walkmeshes block in the server, by creatures'' paths: their node position, and visual transforms (2026-10-30, 2026-11-03)'
   - id: corpus
     resource: crates/mg-corpus-tests/tests/mdl_compile.rs
     title: every_binary_model_writes_back_the_same and decompiled_models_compile_back over the whole install (MOONGLOW_FULL_CORPUS=1, 89.8193.37), 2026-10-29
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T01:07:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -1655,6 +1658,7 @@ Syntax: one directive per line, `//` comments, case-insensitive, underscores all
 - Engine matching strings: **`pwk_use`** and **`pwk_dp_use_`** (substring). Error text "Placeable Object (%s) has an invalid use node (%s)!" [ENG].
 - Use nodes: a creature walks to the nearer one. use01 should be in the front arc (the toolset arrow). No use node means use at the centre, and chairs face east [W:PWK] [W:Chair Sitting].
 - A 3D walkmesh taller than 20–25 units blocks line of sight [W:PWK].
+- Where it blocks, in the server [V engine: `engine_placeable_walkmesh.rs`, creatures' paths]: at its mesh node's own position (read 2026-10-30), placed by the object's position and Bearing alone. The object's visual transform (`VisTransformList`, Adjust Location) is not applied to it, no part of it: Scale 3, X Rotation 90 (about the upright axis), Y Rotation 90 (a tilt) and TranslateX 4 each leave the walkmesh where and as big as it was, on a dynamic or a static placeable, and with a scale a script set (`SetObjectVisualTransform`) the same; `GetObjectVisualTransform` returns each as the file has it (read 2026-11-03). Moonglow's Object Walkmeshes draws them so (`mg_area::walk::ObjectWalkmeshes::faces`).
 
 #### C3.3 Door nodes
 **In the model:** `<modelname>` + suffix with no underscore [W:Model Special Nodes] [G t_door01, ttr_udoor_01].
@@ -1691,6 +1695,7 @@ Syntax: one directive per line, `//` comments, case-insensitive, underscores all
 - Engine strings: `_DWK_wg_`, `open1`, `open2`, `closed`, `_DWK_dp_`, `_02` [ENG]. This suggests substring matching of `_DWK_dp_` + state, with `_02` marking the second point [inf].
 - Only orientation, verts and faces are read for meshes, and only position for dummies [W:DWK].
 - Closed door: the DWK controls the walkspace. Open door: the tile WOK plus the door's open walkmesh [W:Tileset Construction Tutorial].
+- A door's visual transform doesn't change where it blocks either [V engine: `engine_placeable_walkmesh.rs`, 2026-11-03]: a walker on a lane 0.95 m inside a Scale 3 locked door's scaled end walks straight on, where one meeting the unscaled door stops at its face (a path goes through a door, to open it).
 
 #### C3.4 Tile nodes
 - **Root dummy** = tile resref (the "aurorabase"). Classification `tile` is required for the walkmesh [W:Tileset Construction Tutorial].

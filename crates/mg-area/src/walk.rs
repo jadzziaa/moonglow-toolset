@@ -459,7 +459,13 @@ pub struct ObjectWalkmeshes {
 impl ObjectWalkmeshes {
     /// Every face of the placed placeables' and doors' walkmeshes, in the
     /// area's space, with the object's index in `area.objects`. Doors use
-    /// their state's surfaces; visual transforms don't move walkmeshes.
+    /// their state's surfaces. Placed by the object's position and Bearing
+    /// alone ([`AreaObject::transform`](crate::AreaObject::transform)):
+    /// visual transforms don't move walkmeshes, in the engine no part of
+    /// one (scale, turn, tilt or offset; a static placeable's, a door's and
+    /// a script's alike), as creatures' paths showed it
+    /// (`walkmeshes_by_visual_transforms` in
+    /// `mg-corpus-tests/tests/engine_placeable_walkmesh.rs`).
     pub fn faces(&mut self, game: &GameData, area: &AreaModel) -> Vec<([Vec3; 3], usize)> {
         let mut out = Vec::new();
         for (i, o) in area.objects.iter().enumerate() {
