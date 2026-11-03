@@ -3,7 +3,7 @@ type: Proposal
 title: 'A placed object that blocks as it is drawn: a design'
 description: How Moonglow could give one placed placeable a walkmesh that follows its visual transform (a large stone scaled down to sit on a desk blocks as a small one), which the game never does by itself - the engine's rule (settled), what the bake makes (a copy of the model under a new name, its walkmesh transformed as the game draws the model, a placeables.2da row), why it must go in a hak, how its rows meet a project's own table (TDoD's library build writes placeables.2da), reuse, undoing it, readings to make in the engine, milestones and the owner's questions.
 tags: [proposal, walkmesh, visual-transform, placeables, custom-content, haks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T04:50:42Z }
 sources:
   - id: owner
     resource: human:august
@@ -30,7 +30,7 @@ A builder scales a large stone down to sit on a desk. The model shrinks. Its wal
 so the stone still blocks a doorway's width of floor around the desk. The owner would like an
 option, never the default, that makes such an object block as it is drawn.[^owner] This
 proposal sets out what the game allows, what the option would make, and where that has to go.
-Nothing is built until the owner chooses.
+The owner chose (below), and it is built: see "As built".
 
 ## What the game does (settled)
 

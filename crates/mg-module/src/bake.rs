@@ -414,6 +414,11 @@ pub fn pending_table(table: &TwoDa, rows: &RowsFile) -> Option<TwoDa> {
 /// [`pending_table`] as a layer's container ([`PENDING_LABEL`]), of the
 /// game data `rm`: none where the table lacks no row of the file.
 pub fn pending_layer(rm: &ResMan, codepage: Codepage, rows: &RowsFile) -> Option<MemContainer> {
+    // (No rows, nothing pending: the table isn't read, as for every module
+    // without a bake.)
+    if rows.rows.is_empty() {
+        return None;
+    }
     let (table, _) = table_under(rm, codepage).ok()?;
     let table = pending_table(&table, rows)?;
     let bytes = table.to_bytes_as(codepage, mg_2da::Layout::Aligned).ok()?;

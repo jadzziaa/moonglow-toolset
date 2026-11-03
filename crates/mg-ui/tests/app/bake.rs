@@ -11,18 +11,34 @@ use mg_area::ObjectKind;
 const RULES: &str = "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
 
 /// The area's two armoires (`plc_armoire`, model `plc_a01`): at (15, 15)
-/// at Scale 0.5 turned 40 (dynamic), and plain at (27, 15).
+/// at Scale 0.5 turned 40 (dynamic), and plain at (27, 15); and at
+/// (21, 25), scaled as the first, a placeable of the first row of the
+/// game's whose model has no walkmesh.
 fn armoires(m: &mut Module, game: &mg_rules::GameData, area: ResRef) {
     use mg_module::instances::{Placement, Placing, instance};
     let key = ResKey::parse("plc_armoire", ResType::UTP).unwrap();
     let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
     let none = |_: ResRef| None;
     let placing = Placing { game, item: &none };
+    let table = game.table("placeables").unwrap();
+    let bare = (0..table.len())
+        .find(|&r| {
+            table.get(r, "ModelName").is_some_and(|m| {
+                game.resman.get_named(m, ResType::MDL).is_ok()
+                    && game.resman.get_named(m, ResType::PWK).is_err()
+            })
+        })
+        .expect("a placeable without a walkmesh");
     let mut placed = Vec::new();
-    for (x, scaled) in [(15.0, true), (27.0, false)] {
-        let at = Placement { position: [x, 15.0, 0.0], rotation: 0.0 };
+    for (x, y, scaled, row) in
+        [(15.0, 15.0, true, None), (27.0, 15.0, false, None), (21.0, 25.0, true, Some(bare))]
+    {
+        let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
         let mut p = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
         p.set("Static", mg_gff::Value::Byte(0));
+        if let Some(row) = row {
+            p.set("Appearance", mg_gff::Value::Dword(row as u32));
+        }
         if scaled {
             let v = mg_area::VisualTransform {
                 scale: Vec3::splat(0.5),
@@ -46,6 +62,16 @@ fn bake_harness(
     name: &str,
     rules: Option<&str>,
 ) -> Option<(Harness<'static, Moonglow>, ResRef, std::path::PathBuf, std::path::PathBuf)> {
+    bake_harness_with(name, rules, &|_, _| {})
+}
+
+/// [`bake_harness`], `more` done in the project's folder (given the area)
+/// before it opens.
+fn bake_harness_with(
+    name: &str,
+    rules: Option<&str>,
+    more: &dyn Fn(&std::path::Path, ResRef),
+) -> Option<(Harness<'static, Moonglow>, ResRef, std::path::PathBuf, std::path::PathBuf)> {
     let user = mg_testkit::scratch_dir(&format!("ui-bake-{name}-user"));
     let (mut app, rs, area) = area_app(name, "ttr01", None, 4, Some(user.clone()), &armoires)?;
     let mut m = app.ws.as_ref()?.module.clone();
@@ -54,6 +80,7 @@ fn bake_harness(
     if let Some(rules) = rules {
         std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
     }
+    more(&dir, area);
     app.open_module(&dir);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     let mut h = area_gpu_harness(app, rs, 1300.0, 900.0);
@@ -102,10 +129,13 @@ fn bake_walkmesh_is_offered_with_bake_rules_and_a_transform() {
     h.key_press(egui::Key::Escape);
     drop(h);
     let Some((mut h, area, _, _)) = bake_harness("offered", Some(RULES)) else { return };
-    position_menu(&mut h, area, 1, Vec3::new(27.0, 15.0, 0.0));
-    assert!(h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
-    h.key_press(egui::Key::Escape);
-    h.run_steps(2);
+    // No visual transform, and a model with no walkmesh: not offered.
+    for (i, at) in [(1, Vec3::new(27.0, 15.0, 0.0)), (2, Vec3::new(21.0, 25.0, 0.0))] {
+        position_menu(&mut h, area, i, at);
+        assert!(h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+    }
     position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
     assert!(!h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
     h.get_by_label("Bake Walkmesh to Transform…").click();
@@ -228,4 +258,47 @@ fn leftovers_kept_are_not_asked_of_again() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
     assert!(h.query_by_label("Keep Them").is_none(), "not asked again");
+}
+
+/// The save's questions one after another: the area another builder
+/// claimed (Save Anyway), then the bake no placeable uses (Keep Them);
+/// each asked once, and the save made.
+#[test]
+fn the_save_s_questions_are_each_asked_once() {
+    let rules = format!("{RULES}\n[claims]\nfile = \"claims.2da\"\nothers = \"warn\"\n");
+    let claims = |dir: &std::path::Path, area: ResRef| {
+        let table = format!(
+            "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
+             0   {:<16} cd       claimed  2026-10-20  ****\n",
+            area.to_string()
+        );
+        std::fs::write(dir.join("claims.2da"), table).unwrap();
+        let rows = "[[row]]\nrow = 50005\ncopy_of = 0\nmodel = \"mgbk_0042\"\nlabel = \"x\"\n";
+        std::fs::write(dir.join("baked_rows.toml"), rows).unwrap();
+        mg_module::project_file::ProjectFile::set_builder_code(dir, Some("ab")).unwrap();
+    };
+    let Some((mut h, area, _, _)) = bake_harness_with("chain", Some(&rules), &claims) else {
+        return;
+    };
+    // A change to the area another builder holds.
+    let git = ResKey::new(area, ResType::GIT);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 1),
+        label: "Appearance".into(),
+        value: Some(mg_gff::Value::Dword(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Change", vec![edit])));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Save Anyway").is_none());
+    h.get_by_label("Keep Them").click();
+    h.run_steps(4);
+    settle(&mut h);
+    assert!(h.query_by_label("Save Anyway").is_none(), "the claims not asked again");
+    assert!(h.query_by_label("Keep Them").is_none());
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "saved");
 }

@@ -119,13 +119,21 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
     }
     ui.separator();
     let why_not = (|| -> Result<(), String> {
-        rules(app)?;
+        let (_, rows) = rules(app)?;
+        let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
         for &i in &selected {
             let s = placed(app, view.area, i).ok_or("the placeable is gone")?;
-            bake::transform_of(&s).map_err(|e| {
-                let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
-                format!("{what}: {e}")
-            })?;
+            bake::transform_of(&s).map_err(|e| format!("{what}: {e}"))?;
+            // (A model with no walkmesh has nothing to bake: the row a baked
+            // one copies, its model.)
+            let a = s.integer("Appearance").unwrap_or(0) as u32;
+            let row = rows.row(a).map_or(a, |r| r.copy_of);
+            let game = app.game.as_deref().ok_or("no game data")?;
+            let table = game.table("placeables").map_err(|e| e.to_string())?;
+            let model = table
+                .get(row as usize, "ModelName")
+                .ok_or_else(|| format!("{what}: row {row} of placeables.2da has no model"))?;
+            bake::walkmesh_of(&game.resman, model).map_err(|e| format!("{what}: {e}"))?;
         }
         Ok(())
     })();
@@ -503,6 +511,10 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
             app.bake.kept = Some(ask.unused.clone());
         }
         app.bake.cleared = true;
+        // (The claims and the plugins were asked before, and the module is
+        // as it was then: not asked again.)
+        app.claims.cleared = true;
+        app.plugins.save.cleared = true;
         app.actions.push(ask.then);
     } else if cancel || !open {
         app.bake.ask = None;
