@@ -878,7 +878,7 @@ pub fn hak_models(rm: &ResMan, hak: &str) -> Vec<String> {
     let Some(layer) = rm.layers().iter().find(|l| l.label.eq_ignore_ascii_case(&label)) else {
         return Vec::new();
     };
-    let mut out: Vec<String> = (layer.container.keys().into_iter())
+    let mut out: Vec<String> = (layer.container.keys())
         .filter(|k| k.restype == ResType::MDL)
         .map(|k| k.resref.to_string())
         .collect();
