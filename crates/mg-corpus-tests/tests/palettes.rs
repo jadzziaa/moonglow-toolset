@@ -198,3 +198,85 @@ fn a_large_palette_is_grouped_in_milliseconds() {
         food.map(|f| f.blueprints.iter().map(|b| b.name.text(&game)).collect()).unwrap_or_default();
     assert!(!names.iter().any(|n| n.to_lowercase().contains("fern")), "{names:?}");
 }
+
+/// TDoD's own lists, as its library build writes them (`palette_kinds.toml`:
+/// 48 groups over placeables, creatures and items; `palette_roles.toml`:
+/// the items'), beside its project (read, never changed), where
+/// `MOONGLOW_HAKS` has its haks: read without a fault, and grouping its
+/// palettes by them takes milliseconds. A group of several types shows in
+/// each palette it has blueprints of alone.
+#[test]
+fn tdod_s_lists_read_and_group_its_palettes() {
+    use mg_module::palette::PaletteName;
+    use mg_module::palette_groups::group_palette;
+    let root = corpus!();
+    let Some(hak) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .map(|d| d.join("tdod_blueprints.hak"))
+        .find(|h| h.is_file())
+    else {
+        eprintln!("skipped: MOONGLOW_HAKS has no tdod_blueprints.hak");
+        return;
+    };
+    // (The project's folder: the haks are in its build/hak.)
+    let hak_dir = hak.parent().unwrap().to_path_buf();
+    let project = std::fs::canonicalize(&hak_dir).ok().and_then(|_| {
+        let p = hak_dir.parent()?.parent()?.to_path_buf();
+        p.join("palette_kinds.toml").is_file().then_some(p)
+    });
+    let Some(project) = project else {
+        eprintln!("skipped: no palette_kinds.toml beside TDoD's project");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("tdod-palette-lists");
+    let rules = format!(
+        "[palette.kind]\ntitle = \"Kind\"\n\
+         types = [\"utc\", \"ute\", \"uti\", \"utp\", \"uts\", \"utm\", \"utt\", \"utw\"]\n\
+         from = {:?}\n[palette.role]\ntitle = \"Role\"\ntypes = [\"uti\"]\nfrom = {:?}\n",
+        project.join("palette_kinds.toml").display().to_string(),
+        project.join("palette_roles.toml").display().to_string(),
+    );
+    std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
+    let started = std::time::Instant::now();
+    let p = mg_module::project_file::ProjectFile::read(&dir);
+    let read = started.elapsed();
+    assert_eq!(p.warnings, Vec::<String>::new());
+    let (kind, role) = (&p.palette.list[0], &p.palette.list[1]);
+    let listed: usize = kind.groups.iter().map(|g| g.listed.len()).sum();
+    eprintln!(
+        "TDoD's lists: {} groups of Kind ({listed} entries), {} of Role, read in {:.1} ms",
+        kind.groups.len(),
+        role.groups.len(),
+        read.as_secs_f64() * 1000.0
+    );
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let bytes = std::fs::read(&hak).unwrap();
+    let erf = mg_erf::Erf::read(&bytes).unwrap();
+    for kind_of in [BlueprintKind::Placeable, BlueprintKind::Creature, BlueprintKind::Item] {
+        let name = mg_core::ResRef::from_str(&format!("{}palstd", kind_of.name())).unwrap();
+        // (TDoD's palette where its hak has one, else the game's.)
+        let data = match erf.get(&name, ResType::ITP) {
+            Some(d) => d.unwrap().into_owned(),
+            None => game.resman.get(&mg_resman::ResKey::new(name, ResType::ITP)).unwrap().into(),
+        };
+        let palette = Palette::read(&Gff::read(&data).unwrap());
+        for g in [kind, role].into_iter().filter(|g| g.offered(kind_of)) {
+            let text = |n: &PaletteName| n.text(&game);
+            let started = std::time::Instant::now();
+            let grouped = group_palette(&palette, kind_of, g, &text, true);
+            let took = started.elapsed();
+            eprintln!(
+                "  {} by {}: {} entries in {} groups (Other {}) in {:.1} ms",
+                kind_of.name(),
+                g.title,
+                palette.blueprints().len(),
+                grouped.groups.iter().filter(|x| x.is_some()).count(),
+                if grouped.groups.last() == Some(&None) { "shown" } else { "empty" },
+                took.as_secs_f64() * 1000.0
+            );
+            assert!(took.as_secs_f64() < 2.0);
+            // Every group shown has a blueprint of this palette.
+            assert!(grouped.palette.nodes.iter().all(|n| !n.children.is_empty()));
+        }
+    }
+}

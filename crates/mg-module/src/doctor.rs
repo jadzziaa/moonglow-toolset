@@ -5217,6 +5217,32 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         let skip = Skip::parse(&["palette-group-empty", "palette-rules"]).unwrap();
         let f = palette_groups(&m, &rm, &name, &skip);
         assert!(f.iter().all(|f| f.check == "palette-list-missing") && f.len() == 2);
+        // A group of several types (TDoD's Animals: placeables and
+        // creatures) is empty only where it is empty in every palette it
+        // is offered in: here the placeables' have its blueprint, the
+        // creatures' none.
+        m.project_file.apply(
+            "moonglow.toml",
+            "[palette.mixed]\ntypes = [\"utp\", \"utc\"]\nfrom = \"m.toml\"\n",
+            false,
+        );
+        crate::palette_groups::read_list(
+            "m.toml",
+            "\"Animals\" = [\"dd_tbl.utp\", \"nw_wolf.utc\"]\n\"Bats\" = [\"nw_bat.utc\"]\n",
+            &mut std::sync::Arc::make_mut(&mut m.project_file.palette).list[1],
+            &mut warnings,
+        );
+        let skip = Skip::parse(&["palette-list-missing", "palette-rules"]).unwrap();
+        let f = palette_groups(&m, &rm, &name, &skip);
+        let empty: Vec<&str> = f.iter().map(|f| f.message.as_str()).collect();
+        assert!(!empty.iter().any(|e| e.contains("\"Animals\"")), "{empty:?}");
+        assert!(
+            empty.contains(
+                &"the group \"Bats\" of Mixed is empty: no blueprint of the creature, placeable \
+                  palettes falls in it"
+            ),
+            "{empty:?}"
+        );
     }
 
     #[test]

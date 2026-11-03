@@ -402,3 +402,29 @@ fn two_groupings_each_with_its_own_list() {
     assert!(m.reread_project_file());
     assert_eq!(m.project_file.palette.list[1].groups[0].listed[0].0.to_string(), "dd_axe");
 }
+
+/// A group of several types (TDoD's Animals: placeables and creatures)
+/// shows in each palette it has blueprints of; one with none there
+/// (Lights, among the creatures) isn't drawn.
+#[test]
+fn a_group_of_several_types_shows_where_it_has_blueprints() {
+    let mut g = read("[palette.kind]\ntypes = [\"utp\", \"utc\"]\n").palette.list[0].clone();
+    let mut warnings = Vec::new();
+    read_list(
+        "palette_kinds.toml",
+        "\"Animals\" = [\"dd_cat.utp\", \"dd_wolf.utc\"]\n\"Lights\" = [\"dd_lamp.utp\"]\n",
+        &mut g,
+        &mut warnings,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let shown = |kind: BlueprintKind, bps: &[(&str, &str)]| -> Vec<String> {
+        let palette = Palette { nodes: vec![node("All", Some(1), vec![], bps)] };
+        let grouped = group_palette(&palette, kind, &g, &text, true);
+        (0..grouped.groups.len()).map(|i| grouped.group_name(&g, i).to_string()).collect()
+    };
+    let placeables = [("dd_cat", "Cat"), ("dd_lamp", "Lamp"), ("dd_rock", "Rock")];
+    assert_eq!(shown(BlueprintKind::Placeable, &placeables), ["Animals", "Lights", "Other"]);
+    assert_eq!(shown(BlueprintKind::Creature, &[("dd_wolf", "Wolf")]), ["Animals"]);
+    // (dd_cat.utp is a placeable's: a creature of that ResRef is Other's.)
+    assert_eq!(shown(BlueprintKind::Creature, &[("dd_cat", "Cat")]), ["Other"]);
+}
