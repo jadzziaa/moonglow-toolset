@@ -216,10 +216,15 @@ impl<'a> Gatherer<'a> {
 
     /// A model: its file, its walkmeshes (a placeable's `.pwk`, a door's
     /// `.dwk`, a tile's `.wok`), its textures, the models its emitters
-    /// throw, and the model its animations come from.
-    fn model(&mut self, name: &str, depth: u8) {
+    /// throw, and the model its animations come from: each once, so a
+    /// chain that loops ends, however long a chain of supermodels is (a
+    /// builder's skeleton has 23; the walk stopped at 9, leaving out the
+    /// rest), to [`mg_mdl::SUPERMODEL_CHAIN_LIMIT`].
+    fn model(&mut self, name: &str, depth: usize) {
         let Some(resref) = ResRef::cut(name) else { return };
-        if depth > 8 || self.seen.contains(&ResKey::new(resref, ResType::MDL)) {
+        if depth > mg_mdl::SUPERMODEL_CHAIN_LIMIT
+            || self.seen.contains(&ResKey::new(resref, ResType::MDL))
+        {
             return;
         }
         if !self.add(resref, ResType::MDL) {
@@ -397,6 +402,32 @@ mod tests {
         let mut g = Gatherer::new(&game.resman);
         g.preview(&Preview::model("nothing"));
         assert_eq!(g.missing(), ["nothing.mdl"]);
+    }
+
+    /// Every model of a long chain of supermodels comes with the model (a
+    /// builder's skeleton has 23; ten were left out), and a chain that
+    /// loops back ends.
+    #[test]
+    fn a_long_chain_of_supermodels_brings_every_link() {
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let link = |i: usize, sup: &str| {
+            format!(
+                "newmodel s{i}\nsetsupermodel s{i} {sup}\nclassification Character\n\
+                 beginmodelgeom s{i}\nnode dummy s{i}\n  parent NULL\nendnode\n\
+                 endmodelgeom s{i}\ndonemodel s{i}\n"
+            )
+        };
+        let mut hak = MemContainer::new();
+        for i in 0..25 {
+            // (The last back to the first.)
+            let text = link(i, &format!("s{}", (i + 1) % 25));
+            hak.insert(key(&format!("s{i}.mdl")), text.as_bytes());
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:mg", LayerClass::Erf, hak);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let found = files(&game, &Preview::model("s0"));
+        assert_eq!(found.len(), 25);
     }
 
     /// An area's files: its tileset, its tiles' models with their

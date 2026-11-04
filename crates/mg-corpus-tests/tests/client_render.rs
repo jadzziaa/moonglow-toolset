@@ -64,6 +64,8 @@ mod batch5;
 mod batch6;
 #[path = "client_render/batch7.rs"]
 mod batch7;
+#[path = "client_render/custom_body.rs"]
+mod custom_body;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]

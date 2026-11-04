@@ -159,10 +159,16 @@ fn place_unguarded(
     // A part hung from a node and not animated (a body part, a held
     // item) is drawn rigid by the game, and a mesh in it that is a skin
     // has no skeleton to follow there, save a body part's skin bound to
-    // the body's skeleton.
+    // the body's skeleton. A body part is one of the body's, whatever its
+    // node is called: capart.2da may hang them from any (a builder's
+    // FFXIV skeleton's `j_sebo_a`), and the client draws a bound skin
+    // there as on `torso_g` (`reading_custom_skeleton_body`). (An item
+    // hung from one of the skeleton's `*_g` part nodes, a helmet on
+    // `head_g`, is taken as it was: the client's way with a helmet's skin
+    // is not read.)
     let mut skeleton = None;
     if let Some((node, base)) = part.attach.as_deref().zip(base).filter(|_| !part.animated) {
-        let body_part = node.ends_with("_g").then_some(base);
+        let body_part = (!part.item || node.ends_with("_g")).then_some(base);
         model = without_skins(model, body_part);
         if let Some((on, at)) = body_part.and_then(|base| on_skeleton(&model, base)) {
             (model, skeleton) = (on, Some(at));
@@ -1062,13 +1068,14 @@ mod ray_tests {
     /// A skeleton for it: the part hangs from `pelvis_g`, half a meter
     /// below `torso_g`.
     fn skeleton() -> Model {
-        let text = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
-            beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
-            node dummy pelvis_g\n  parent base\n  position 0 0 0.5\nendnode\n\
-            node dummy torso_g\n  parent base\n  position 0 0 1\nendnode\n\
-            endmodelgeom base\ndonemodel base\n";
-        Model::read(text.as_bytes()).unwrap()
+        Model::read(SKELETON.as_bytes()).unwrap()
     }
+
+    const SKELETON: &str = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+        beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+        node dummy pelvis_g\n  parent base\n  position 0 0 0.5\nendnode\n\
+        node dummy torso_g\n  parent base\n  position 0 0 1\nendnode\n\
+        endmodelgeom base\ndonemodel base\n";
 
     /// The part as compiled against the skeleton (as Beamdog's HD bodies
     /// are): its bone is the skeleton's `torso_g` (node 2), and its bind
@@ -1162,6 +1169,73 @@ mod ray_tests {
         assert!(
             c.ray_hit(Vec3::new(0.2, 0.2, 5.0), Vec3::NEG_Z)
                 .is_some_and(|t| (t - 4.0).abs() < 1e-4)
+        );
+    }
+
+    /// A builder's FFXIV-style body (a builder's report, 2026-11-04) drew
+    /// nothing: capart.2da hangs its parts from the skeleton's own bones
+    /// (`j_kosi`, `j_sebo_a`), not `*_g` nodes, and its parts' skins,
+    /// compiled against the skeleton, were taken for a held item's and
+    /// hidden; the client draws them (`reading_custom_skeleton_body`).
+    /// And the skeleton has no animations of its own: its idle is its
+    /// supermodel's supermodel's, which poses the skin's bone.
+    #[test]
+    fn a_body_part_bound_to_a_skeleton_of_its_own_names_follows_its_idle() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let rename = |text: &str| text.replace("pelvis_g", "j_kosi").replace("torso_g", "j_sebo_a");
+        let mut base = Model::read(rename(SKELETON).as_bytes()).unwrap();
+        base.supermodel = Some("chain1".into());
+        // (The chain: base → chain1, with nothing, → chain2, with `pause1`,
+        // which raises `j_sebo_a` to 2 m.)
+        let link = |name: &str, supermodel: &str, anims: &str| {
+            let text = format!(
+                "newmodel {name}\nsetsupermodel {name} {supermodel}\nclassification character\n\
+                 beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+                 node dummy j_kosi\n  parent {name}\n  position 0 0 0.5\nendnode\n\
+                 node dummy j_sebo_a\n  parent {name}\n  position 0 0 1\nendnode\n\
+                 endmodelgeom {name}\n{anims}donemodel {name}\n"
+            );
+            Arc::new(Model::read(text.as_bytes()).unwrap())
+        };
+        let pause = "newanim pause1 chain2\n  length 1\n  transtime 0\n  animroot chain2\n\
+            node dummy chain2\n  parent NULL\nendnode\n\
+            node dummy j_sebo_a\n  parent chain2\n  positionkey 2\n    0 0 0 2\n    1 0 0 2\n\
+            endnode\ndoneanim pause1 chain2\n";
+        let (chain1, chain2) = (link("chain1", "chain2", ""), link("chain2", "NULL", pause));
+        let mut part = bound_part();
+        part.nodes[1].name = "j_sebo_a_skin".into();
+        let (base, part) = (Arc::new(base), Arc::new(part));
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "part" => Some(part.clone()),
+            "chain1" => Some(chain1.clone()),
+            "chain2" => Some(chain2.clone()),
+            _ => None,
+        };
+        let part = crate::Part { attach: Some("j_kosi".into()), ..crate::Part::new("part") };
+        let preview =
+            Preview { parts: vec![part], idle: Some("pause1".into()), ..Preview::model("base") };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        // Drawn, at `j_sebo_a`, a meter up at rest.
+        let (min, max) = c.bounds();
+        assert!((min.z - 1.0).abs() < 1e-4 && (max.z - 1.0).abs() < 1e-4, "{min} {max}");
+        assert_eq!(c.animations(), ["pause1"]);
+        // Standing in its idle: the bone two meters up, and the skin with it.
+        let instances = c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY);
+        let pose = instances[1].pose.as_ref().expect("posed by the skeleton");
+        let bone = instances[1].transform * pose[4];
+        assert!(bone.w_axis.truncate().abs_diff_eq(Vec3::Z * 2.0, 1e-5), "{bone}");
+        // A held item's skin, hung there, is not drawn.
+        let held = crate::Part { item: true, ..preview.parts[0].clone() };
+        let preview = Preview { parts: vec![held], ..preview };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        assert_eq!(
+            c.bounds(),
+            Composed::new(&gpu, &Preview::model("base"), &load).unwrap().bounds()
         );
     }
 

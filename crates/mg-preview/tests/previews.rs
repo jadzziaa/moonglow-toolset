@@ -1285,3 +1285,100 @@ fn a_model_of_emitters_alone_is_boxed_by_its_particles() {
     assert!(near(min, glam::Vec3::new(0.0, -2.0, 0.5)), "{min}");
     assert!(near(max, glam::Vec3::new(4.0, 2.0, 3.5)), "{max}");
 }
+
+/// A builder's FFXIV-style bodies (a builder's report, 2026-11-04, "custom
+/// phenotype appearances aren't working as they should"), from the files
+/// they sent, where they are on this machine (`mg_testkit::builder_files`;
+/// skipped without them, and never committed): races Q (appearance 15100,
+/// `pmq0`) and V (15101, `pmv0`), male, phenotype 0, bare. Each is drawn
+/// (its parts hang from the skeleton's FFXIV bones and are skins bound to
+/// it), stands in its idle (`pause1`, two supermodels up: its arms down,
+/// narrower than the A-pose it rests in), finds the animations of its whole
+/// chain of supermodels, and with the game's shaders is tinted by its
+/// custom shaders' palette (`texture7` to `texture10`), not left white.
+/// The pictures go to `target/test-output/builder-body/`. By hand:
+/// `cargo test -p mg-preview --test previews builder -- --ignored`.
+#[test]
+#[ignore = "a builder's files"]
+fn a_builder_s_custom_skeleton_body_draws_as_the_client_does() {
+    let Some(files) = mg_testkit::builder_files("dafena-males/x") else {
+        eprintln!("skipped: the builder's files are not on this machine");
+        return;
+    };
+    let Some(mut game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    game.resman.add(
+        mg_resman::priority::HAK_USER,
+        "hak:builder",
+        mg_resman::LayerClass::Directory,
+        mg_resman::DirContainer::open(&files),
+    );
+    game.invalidate();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
+    };
+    let dir = mg_testkit::scratch_dir("builder-body");
+    // (Each skeleton's chain as far as the files have it: `pmq0`'s ends at
+    // `pmq0_ba3_f1`, which they lack, after 21 models; `pmv0`'s is 25 long.
+    // Where the walk stopped at 17, 127 and 168.)
+    for (row, base, anims) in [(15100u16, "pmq0", 165), (15101, "pmv0", 175)] {
+        let preview = creature(&game, &CreatureLook::new(row).to_utc(), &|_| None).unwrap();
+        assert_eq!(preview.base.model, base);
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        assert!(c.missing.is_empty(), "{base}: missing {:?}", c.missing);
+        assert_eq!(c.animations().len(), anims, "{base}: its whole chain's");
+        let width = |animation: Option<&str>| {
+            let points = c.points_in(&c.stance(animation, 0.5));
+            assert!(points.len() > 1000, "{base}: {} vertices drawn", points.len());
+            let (lo, hi) =
+                points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.x), hi.max(p.x)));
+            hi - lo
+        };
+        let (rest, idle) = (width(None), width(c.idle.as_deref()));
+        eprintln!(
+            "{base}: {} animations, {rest:.2} m wide at rest, {idle:.2} standing",
+            c.animations().len()
+        );
+        assert!(rest > 1.3 && idle < 0.9 * rest, "{base}: {rest} at rest, {idle} standing");
+        let (min, max) = c.bounds();
+        let camera = Camera::orbit(
+            (min + max) * 0.5,
+            ((max - min).length() * 0.5) / 20f32.to_radians().sin() * 1.1,
+            90f32.to_radians(),
+            15f32.to_radians(),
+        );
+        let scene = Scene {
+            instances: c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY),
+            lights: c.point_lights(Mat4::IDENTITY),
+            area: AreaLight::default(),
+            background: [0.2, 0.25, 0.3],
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = true;
+        let img = r.render_image(&gpu, rm, &scene, &camera, 384, 384);
+        assert_eq!(r.game_shader_failures(), &[], "{base}");
+        let out = std::fs::File::create(dir.join(format!("{base}.png"))).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(out), img.width, img.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.write_header().unwrap().write_image_data(&img.data).unwrap();
+        // Tinted: the body's pixels warmer (skin) than gray, on average.
+        let bg = [51u8, 64, 77];
+        let body: Vec<&[u8]> = img
+            .data
+            .chunks(4)
+            .filter(|p| p[..3].iter().zip(bg).any(|(a, b)| a.abs_diff(b) > 3))
+            .collect();
+        let mean = |i: usize| body.iter().map(|p| f64::from(p[i])).sum::<f64>() / body.len() as f64;
+        eprintln!("{base}: red {:.0}, blue {:.0}", mean(0), mean(2));
+        assert!(mean(0) > mean(2) + 25.0, "{base}: drawn gray, not tinted");
+    }
+}

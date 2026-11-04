@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:17:08Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -929,6 +929,57 @@ its own part is not drawn at all (`mg_preview::compose::without_skins`).
   and different from the stock parts'; in Moonglow,
   `a_body_part_bound_to_the_skeleton_follows_its_bones` (a part made so
   by hand).
+
+### A builder's FFXIV body
+
+A builder's FFXIV-style races (Q, a human, `pmq0`; V, a Miqo'te,
+`pmv0`; 2026-11-04) are skeletons of 195 bones with FFXIV's names, their
+animations in a chain of supermodels (`pause1` in the second link;
+`pmv0`'s chain is 25 models long), capart.2da hanging the body parts from
+those bones (the chest from `j_sebo_a`, the neck from `j_kubi`, the head,
+in the right foot's place, from `j_kao`), every part a skin compiled
+against the skeleton, and the materials custom shaders that tint from
+tint maps and a palette atlas in `texture7` to `texture10` by palette
+rows that the MTR (or the builder's scripts) give as parameters. In the
+client, a male of each, bare, phenotype 0, stands in his idle, skin, hair
+and swimwear tinted, no feature mesh showing (each feature's material has
+`fAlphaClipRef 1.1`, every texel cut, until a script lowers it). Where
+`pmq0`'s chain ends at a supermodel the files lack (`pmq0_ba3_f1`), the
+client still draws him, with the animations the chain has.
+
+Moonglow 3.7.0 drew neither: it took a part for a held item unless the
+node it hangs from is named `*_g`, and hid its skins. With the body parts
+told apart from held items by what they are, the skin follows the
+skeleton as the HD bodies' do. (An item on a `*_g` node, a helmet on
+`head_g`, is taken as before: the client's way with a helmet's skin has
+not been read.) Two more causes showed: the renderer bound
+an MTR's textures up to `texture7` (the game binds `texture0` to
+`texture10`), so the tinting shader read white tint maps and a white
+palette and drew the bodies white; and a chain of supermodels was
+followed for 17 models (and a creature's files for 9), so the animations
+past them were not offered. The game's shaders also take a uniform
+declared with a value (`uniform float rowHair = 0.172363;`,
+`uniform vec4 illumColor = vec4(1.0, …)`) to hold it until it is set, as
+OpenGL keeps it; Moonglow set such a uniform to zero where the MTR gave
+none, and now gives it the declared value (`mg_shader::uniform_defaults`).
+Where the game's shaders are off, Moonglow's own shader cannot run the
+tinting, and draws the bodies untinted (`texture0`, `xiv_white`, is not
+among the files): light gray.
+
+- **Checked:** in the client's pictures beside Moonglow's area view
+  (`reading_custom_skeleton_body` in `client_render.rs`, 2026-11-04, the
+  builder's files in a scratch override): pose, tint and where the
+  bodies stand alike. The builder's appearance.2da gives the elf's and the
+  human's rows races V and Q, and the files are the males' alone: the
+  client's default character, an elf woman (`pfv0`), could not be loaded
+  and the client stayed on its loading screen, so the reading's scratch
+  copy gives those two rows the game's races. In Moonglow,
+  `a_body_part_bound_to_a_skeleton_of_its_own_names_follows_its_idle`
+  (mg-preview, an authored skeleton), `a_long_chain_of_supermodels_is_followed_to_its_end`
+  (mg-mdl), `a_long_chain_of_supermodels_brings_every_link` (mg-preview's
+  files), `a_uniform_declared_with_a_value_holds_it` (mg-render), and on
+  the builder's own files, where they are,
+  `a_builder_s_custom_skeleton_body_draws_as_the_client_does`.
 
 ### `setfillumcolor` is not self-illumination
 
