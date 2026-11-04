@@ -998,6 +998,48 @@ fn cancel_after_a_build_leaves_a_window_that_builds() {
     assert!(built(h.state()), "and Build goes through");
 }
 
+/// The same with the Creator's tab closed (Close, Close All, Ctrl+W: what
+/// `CloseTabs` does) and Options' "Closing a window cancels its changes"
+/// on: the window as it was, its scripts those of the window as it was.
+#[test]
+fn closing_the_creator_after_a_build_cancels_when_asked() {
+    let root = mg_testkit::corpus!();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.close_cancels = true;
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("nui_test".into()));
+    let build = Action::GenerateNui { name: "nui_test".into(), export: false };
+    app.run(build.clone());
+    let built = |app: &Moonglow| {
+        let module = &app.ws.as_ref().unwrap().module;
+        let name = |t| ResKey::new(key().resref, t);
+        let window = mg_nui::parse(module.get(&name(ResType::JUI)).unwrap()).unwrap();
+        let settings = Settings::parse(module.get(&name(ResType::TXT)).unwrap()).unwrap();
+        mg_nui::is_current(module, "nui_test", &window, &settings)
+    };
+    let mut h = creator(app, [1200, 850]);
+    h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
+    h.run();
+    let opened = document(&h);
+    h.get_all_by_label("Button · Close").next().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.state_mut().run(build);
+    h.run();
+    assert_ne!(document(&h), opened);
+    h.state_mut().actions.push(Action::CloseTabs(vec![Tab::Nui(key())]));
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Nui(key())).is_none(), "closed");
+    assert_eq!(document(&h), opened, "as it was");
+    assert!(built(h.state()), "the scripts are those of the window as it was");
+}
+
 /// Cancel leaves the event script's code: what was written in its
 /// sections from the script editor since the tab was opened is the
 /// builder's, and the script is rebuilt around the handlers Cancel

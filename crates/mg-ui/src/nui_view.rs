@@ -618,17 +618,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // the builder's, and went with the rest. It is rebuilt around the
     // handlers Cancel brings back, its sections' code kept as Build keeps
     // it (a handler's that is gone again: commented out under it).
-    let name = key.resref.to_string();
-    let kept = events_script(&name);
-    let settings_key = ResKey::new(key.resref, ResType::TXT);
+    // (`cancel_more`.)
+    let kept = events_script(&key.resref.to_string());
     let tab = Tab::Nui(key);
-    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &kept, |app, set| {
-        let settings = set.iter().find_map(|e| match e {
-            Edit::SetResource { key, data } if *key == settings_key => data.as_deref(),
-            _ => None,
-        });
-        events::after_cancel(app, &name, settings).into_iter().collect()
+    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &kept);
+}
+
+/// What the window's Cancel adds to what it sets back (`set`): its event
+/// script rebuilt around the handlers brought back (`ui`).
+pub(crate) fn cancel_more(app: &Moonglow, key: ResKey, set: &[Edit]) -> Vec<Edit> {
+    let settings_key = ResKey::new(key.resref, ResType::TXT);
+    let settings = set.iter().find_map(|e| match e {
+        Edit::SetResource { key, data } if *key == settings_key => data.as_deref(),
+        _ => None,
     });
+    events::after_cancel(app, &key.resref.to_string(), settings).into_iter().collect()
 }
 
 /// A window's event script, as the resources Cancel leaves alone.

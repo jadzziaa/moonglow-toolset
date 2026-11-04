@@ -35,6 +35,14 @@ const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or an area's Copy… puts a 
      warning. A project whose moonglow.toml sets [tags] paste_warning follows that whatever this \
      says, and tags the project wants unique are warned of either way";
 
+const CLOSE_CANCELS_TIP: &str = "A window with OK and Cancel (a blueprint's or a placed \
+     object's Properties, Module and Area Properties, a conversation, the journal, the factions, \
+     the fields view, a NUI window) closed by its tab's ×, the tab's Close, Close Others, Close All \
+     or Ctrl+W sets back what was changed in it, as its Cancel does (and Aurora's close button), \
+     as one step that Undo takes back: Edit Copy's copy closed so is not made. Only OK keeps the \
+     changes then. Off: closing a window keeps them, as OK does. (The 2DA, hak, tileset, talk \
+     table and script editors ask about unsaved changes either way.)";
+
 /// The Options window's pages and their names.
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
@@ -99,6 +107,7 @@ pub struct OptionsDraft {
     pub scripts_external_only: bool,
     pub scripts_together: bool,
     pub properties_together: bool,
+    pub close_cancels: bool,
     pub tree_opens_area: bool,
     pub tree_follows_tabs: bool,
     pub dialogs_together: bool,
@@ -248,6 +257,7 @@ impl OptionsDraft {
             scripts_external_only: s.scripts_external_only,
             scripts_together: !s.scripts_own_windows,
             properties_together: !s.properties_own_windows,
+            close_cancels: s.close_cancels,
             tree_opens_area: !s.tree_keeps_areas_closed,
             tree_follows_tabs: !s.tree_stays,
             dialogs_together: !s.dialogs_own_windows,
@@ -351,6 +361,7 @@ impl OptionsDraft {
             scripts_external_only: self.scripts_external_only,
             scripts_own_windows: !self.scripts_together,
             properties_own_windows: !self.properties_together,
+            close_cancels: self.close_cancels,
             tree_keeps_areas_closed: !self.tree_opens_area,
             tree_stays: !self.tree_follows_tabs,
             dialogs_own_windows: !self.dialogs_together,
@@ -717,6 +728,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  window of its own. (A tab dragged out is a window of its own \
                                  again)",
                             );
+                            ui.checkbox(
+                                &mut draft.close_cancels,
+                                "Closing a window cancels its changes (as Aurora)",
+                            )
+                            .on_hover_text(CLOSE_CANCELS_TIP);
                             ui.checkbox(
                                 &mut draft.drag_windows_anywhere,
                                 "Move windows by dragging anywhere in them",
@@ -1966,6 +1982,21 @@ mod tests {
         assert!(!d.duplicate_tags_warning);
         d.duplicate_tags_warning = true;
         assert!(d.apply(&s).warn_duplicate_tags);
+    }
+
+    /// Closing a window by its tab's × keeps what it changed unless asked
+    /// otherwise (a builder's report: Aurora's close button is its
+    /// Cancel), and the choice is kept.
+    #[test]
+    fn closing_a_window_keeps_its_changes_until_asked_otherwise() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(!d.close_cancels && !s.close_cancels);
+        d.close_cancels = true;
+        let t = d.apply(&s);
+        assert!(t.close_cancels);
+        assert!(OptionsDraft::from_settings(&t).close_cancels, "and kept");
+        assert!(!d.moves_game(&s), "no reload for it");
     }
 
     #[test]

@@ -698,6 +698,47 @@ fn a_held_item_s_properties_follow_the_item() {
     assert_eq!(open_items.count(), 0, "closed with its item");
 }
 
+/// A placed object's Properties closed by the tab's ×, with Options'
+/// "Closing a window cancels its changes" on: what was changed is set
+/// back as by Cancel, which Undo takes back; off, it is kept.
+#[test]
+fn a_placed_object_s_properties_closed_cancel_when_asked() {
+    let Some((mut h, area)) = area_harness("held-close") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = chest_of_three(&mut h, area);
+    let path = chest.item("ItemList", 1);
+    let tab = Tab::Instance { area, path: path.clone() };
+    let plot = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        path.get(&ws.doc(&git).unwrap().root).unwrap().integer("Plot")
+    };
+    let try_plot = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(4);
+        held_window(h, area, "ITEM_B");
+        h.get_by_label("Plot Item").click();
+        h.run_steps(3);
+        click_tab_close(h, &tab);
+        h.run_steps(4);
+        assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    };
+    let was = plot(&mut h);
+    // Off: kept.
+    try_plot(&mut h);
+    assert_ne!(plot(&mut h), was, "kept");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(plot(&mut h), was);
+    // On: set back, as one step Undo takes back.
+    h.state_mut().settings.close_cancels = true;
+    try_plot(&mut h);
+    assert_eq!(plot(&mut h), was, "set back");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Cancel Changes"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_ne!(plot(&mut h), was, "Undo brings it back");
+}
+
 /// A placed store's items open their own Properties too (a page's item,
 /// right click › Properties), which follow the item as the page changes.
 #[test]

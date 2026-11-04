@@ -480,6 +480,23 @@ fn edit_copy_s_cancel_takes_the_copy_back() {
     close_windows(&mut h);
     h.run_steps(3);
     assert!(has(&h, &key), "its tab closed keeps it");
+    let key = copy(&mut h);
+    click_tab_close(&mut h, &Tab::Blueprint(key));
+    h.run_steps(3);
+    assert!(has(&h, &key) && open(&h, key).is_none(), "and so does its ×");
+
+    // With "Closing a window cancels its changes", its × is its Cancel:
+    // no copy (as Aurora's close button leaves none), back with Undo.
+    h.state_mut().settings.close_cancels = true;
+    let key = copy(&mut h);
+    click_tab_close(&mut h, &Tab::Blueprint(key));
+    h.run_steps(3);
+    assert!(!has(&h, &key) && open(&h, key).is_none(), "its × takes the copy back");
+    assert!(h.state().palette.selected.is_none(), "nothing of it is left to place");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Cancel Changes"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(has(&h, &key), "Undo brings it back");
 }
 
 #[test]

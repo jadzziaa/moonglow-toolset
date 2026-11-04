@@ -1291,6 +1291,17 @@ fn options_window() {
     shoot(&mut h, &dir, "options-general-graphics-backend");
     h.key_press(egui::Key::Escape);
     h.run();
+    // The windows' switches: closing one cancels its changes, ticked, its
+    // tooltip shown.
+    h.state_mut().options.as_mut().unwrap().close_cancels = true;
+    let closing = "Closing a window cancels its changes (as Aurora)";
+    h.get_by_label(closing).scroll_to_me();
+    h.run();
+    h.get_by_label(closing).hover();
+    for _ in 0..30 {
+        h.step();
+    }
+    shoot(&mut h, &dir, "options-general-closing");
     // Further down: the warnings, duplicate tags' among them.
     h.get_by_label("Show duplicate tags warning after a paste or a copy").scroll_to_me();
     shoot(&mut h, &dir, "options-general-warnings");

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
 ---
 
 # Options
@@ -206,6 +206,20 @@ the module is opened again from its file.
   Properties are open in already; off, each in a window of its own. A
   tab dragged out is a window of its own again, to set two side by side.
   (Scripts have the same on the Script Editor page.)
+- **Closing a window cancels its changes (as Aurora)**: off by default.
+  A window with **OK** and **Cancel** (a blueprint's or a placed
+  object's Properties, several edited together, Module and Area
+  Properties, a conversation, the journal, the factions, the raw fields
+  view, a NUI window) closed any way but OK (its tab's ×, the tab's
+  **Close**, **Close Others**, **Close Tabs to the Right** or **Close
+  All**, Ctrl+W) does what its Cancel does, as Aurora's close button
+  does: what was changed in it is set back, as one step that Undo takes
+  back, and Edit Copy's or Add to Palette's new blueprint closed so is
+  not made. A window with nothing changed just closes. Off, closing it
+  keeps the changes, as OK does. Windows closed because the module
+  closes, or because what they show was deleted, are only closed; the
+  2DA, hak, tileset, talk table and script editors ask about their
+  unsaved changes either way.
 - **Move windows by dragging anywhere in them**: off by default. A
   window of tabs (Properties, conversations, scripts…) moves by its tab
   bar alone, so a click that misses a control doesn't move it; on, any

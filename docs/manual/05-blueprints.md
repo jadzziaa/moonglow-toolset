@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:34:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
 ---
 
 # Blueprints
@@ -315,8 +315,9 @@ The palette's buttons:
   one is offered, after your builder code where you have one, named as
   Aurora's Edit Copy names it: without `nw_`, the first free number after
   the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
-  The copy's window keeps it with **OK** (or its tab's ×); its
-  **Cancel** (or Escape) takes the copy back with what you changed in
+  The copy's window keeps it with **OK** (or its tab's ×, unless
+  **Closing a window cancels its changes** is on in Options › General);
+  its **Cancel** (or Escape) takes the copy back with what you changed in
   it, as one step that Undo takes back, so a copy made only to try
   something leaves nothing behind, as in Aurora. The module tree's
   **Copy…** of a blueprint, and an area object's **Add to Palette**
@@ -494,7 +495,7 @@ there gives the blueprint text of its own.
 Each blueprint opens as a tab with Aurora's pages. Every change takes
 effect at once and is one undoable step. Under the pages are **OK** and
 **Cancel**: OK closes the window (what was changed is the module's
-already, as it is when the window is closed by its ×); Cancel closes it
+already, as it is when the window is closed by its tab's ×); Cancel closes it
 and sets back the fields that were changed in it since it was opened, as
 one step that Undo takes back. What was changed somewhere else meanwhile
 (the same object moved in its area, another field set by a script or a
@@ -502,8 +503,15 @@ plugin) stays. So you can try things and take them back: add, change or
 remove an item's properties to see what it would cost and the level it
 would ask for (its Total Cost and Required Level show each change), then
 press **Cancel** or Escape, and the item, its cost and level are as they
-were. (Aurora's window drops its changes when closed by its × too;
-Moonglow's tab × keeps them, as OK does.) A placed object's Properties
+were. (Aurora's window drops its changes when closed by its × too.
+Moonglow's tab × keeps them, as OK does, unless **Closing a window
+cancels its changes (as Aurora)** is on in Options › General: then
+closing the window any way but OK (its tab's ×, the tab's **Close**,
+**Close Others** or **Close All**, Ctrl+W) does what its Cancel does,
+as one step that Undo takes back, and Edit Copy's copy closed so is not
+made; a window with nothing changed just closes. A window closed
+because its module closes, or because what it shows was deleted, is
+only closed.) A placed object's Properties
 have the two as well, and so do several blueprints or objects edited
 together; the game's own
 blueprint, shown to look at, has **Close**. Module Properties, Area
@@ -524,7 +532,8 @@ hak asks where; a script's Save puts its text into the module) and
 closes the window; Cancel closes it as last saved, asking first where
 there are unsaved changes (**Save**, **Don't Save** or **Cancel**). The
 talk table's and a script's × keep what is unsaved for the module's
-Save, as before; their Cancel drops it. A talk table found in a hak has
+Save, as before; their Cancel drops it. (Closing a window cancels its
+changes leaves these editors' × as it is.) A talk table found in a hak has
 **Close**.
 
 Shared parts:

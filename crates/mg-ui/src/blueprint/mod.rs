@@ -373,13 +373,91 @@ pub(crate) fn window_drawn(
     targets: &[(ResKey, GffPath)],
     pressed: Option<Pressed>,
 ) {
-    window_drawn_but(app, pending, tab, targets, pressed, &[], |_, _| Vec::new());
+    window_drawn_but(app, pending, tab, targets, pressed, &[]);
+}
+
+/// The command a window's Cancel applies (`None`: nothing to set back):
+/// what it changed set back ([`cancel_command`], `all` as there), with
+/// what the window adds of its own to bring what it kept in line
+/// ([`cancel_more`]). A blueprint it takes back (the copy Edit Copy made)
+/// is not the palette's to place any more.
+fn cancel_window(
+    app: &mut Moonglow,
+    first: &(ResKey, GffPath),
+    tab: &Tab,
+    all: bool,
+) -> Option<Command> {
+    let mut command = cancel_command(app, first, all)?;
+    let more = cancel_more(app, tab, &command.edits);
+    command.edits.extend(more);
+    let removed = |k: &ResKey| {
+        let gone = |e: &Edit| matches!(e, Edit::SetResource { key, data: None } if key == k);
+        command.edits.iter().any(gone)
+    };
+    if app.palette.selected.as_ref().is_some_and(removed) {
+        app.palette.selected = None;
+    }
+    Some(command)
+}
+
+/// What a window's Cancel adds to what it sets back (given those edits),
+/// for the resources it leaves as they are (`window_drawn_but`'s `kept`):
+/// the NUI Creator's event script rebuilt around the handlers brought
+/// back; the factions' numbers, as a faction removed and set back had
+/// them.
+fn cancel_more(app: &mut Moonglow, tab: &Tab, set: &[Edit]) -> Vec<Edit> {
+    match tab {
+        Tab::Nui(key) => crate::nui_view::cancel_more(app, *key, set),
+        Tab::Factions => crate::faction_view::numbered_back(app),
+        _ => Vec::new(),
+    }
+}
+
+/// A window with OK and Cancel closed other than by them (its tab's ×,
+/// the tab's Close, Close Others or Close All, Ctrl+W), with Options ›
+/// General's "Closing a window cancels its changes" on: what it changed
+/// is set back as its Cancel sets it back, as Aurora's close button does,
+/// once what was asked for this frame is done
+/// ([`cancel_closed`]). A text field of it with the keyboard is dropped,
+/// as Cancel drops what was typed. (A window with nothing changed has
+/// nothing noted, and just closes.)
+pub(crate) fn closing(app: &mut Moonglow, tab: &Tab) {
+    let first = app.properties_changed.iter().find(|(_, c)| c.tab == *tab).map(|(f, _)| f.clone());
+    let Some(first) = first else { return };
+    if let Some(changes) = app.properties_changed.remove(&first) {
+        app.closing_cancels.push((first, changes));
+    }
+    if let Some(held) = app.held_text.take_if(|h| h.window.as_ref().is_some_and(|w| w.tab == *tab))
+    {
+        app.buffers.remove(&held.id);
+    }
+}
+
+/// The Cancels of the windows [`closing`] noted, each as one step that
+/// Undo takes back: after the frame's other actions (what the window
+/// asked for as it closed is set first, then set back).
+pub(crate) fn cancel_closed(app: &mut Moonglow) {
+    for (first, changes) in std::mem::take(&mut app.closing_cancels) {
+        let tab = changes.tab.clone();
+        app.properties_changed.insert(first.clone(), changes);
+        // (Still open: a window's close button closes it only when each of
+        // its tabs may close, and a side editor with unsaved changes asks
+        // first. What it changed stays its own Cancel's.)
+        if app.dock.find_tab(&tab).is_some() {
+            continue;
+        }
+        let command = cancel_window(app, &first, &tab, false);
+        app.properties_changed.remove(&first);
+        if let Some(command) = command {
+            app.run(Action::Apply(command));
+        }
+    }
 }
 
 /// [`window_drawn`] for a window whose Cancel leaves the resources `kept`
 /// as they are (what the builder wrote in them elsewhere is not the
-/// window's to take back) and adds edits of its own to what it sets back
-/// (`more`, given those: to bring what it kept in line with them).
+/// window's to take back; what it adds of its own to bring those in line
+/// is [`cancel_more`]'s).
 pub(crate) fn window_drawn_but(
     app: &mut Moonglow,
     pending: usize,
@@ -387,7 +465,6 @@ pub(crate) fn window_drawn_but(
     targets: &[(ResKey, GffPath)],
     pressed: Option<Pressed>,
     kept: &[ResKey],
-    more: impl FnOnce(&mut Moonglow, &[Edit]) -> Vec<Edit>,
 ) {
     note_changes(app, pending, tab, targets, kept);
     // (Open: what it noted before it opened is kept as any window's.)
@@ -413,19 +490,7 @@ pub(crate) fn window_drawn_but(
         // What the window asked for this frame is set first, then set
         // back.
         let asked = app.actions.len() > pending;
-        if let Some(mut command) = cancel_command(app, first, asked) {
-            let more = more(app, &command.edits);
-            command.edits.extend(more);
-            // (A blueprint it takes back, the copy Edit Copy made: not
-            // the palette's to place any more.)
-            let removed = |k: &ResKey| {
-                let gone =
-                    |e: &Edit| matches!(e, Edit::SetResource { key, data: None } if key == k);
-                command.edits.iter().any(gone)
-            };
-            if app.palette.selected.as_ref().is_some_and(removed) {
-                app.palette.selected = None;
-            }
+        if let Some(command) = cancel_window(app, first, tab, asked) {
             app.actions.push(Action::Apply(command));
         }
     }
