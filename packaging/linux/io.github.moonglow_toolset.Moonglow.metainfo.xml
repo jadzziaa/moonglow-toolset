@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.7.0" date="2026-11-04">
+      <description>
+        <p>Import Files and Import Folder bring loose scripts, blueprints,
+        conversations and areas into a module, choosing which of its own
+        to overwrite, and files dropped onto the window are imported the
+        same way. Several conversations can be exported at once as Ink,
+        Twine, text or CSV, from the module tree or mg dialog-export.</p>
+      </description>
+    </release>
     <release version="3.6.0" date="2026-11-03">
       <description>
         <p>Bake Walkmesh to Transform gives a scaled or tilted placeable a
