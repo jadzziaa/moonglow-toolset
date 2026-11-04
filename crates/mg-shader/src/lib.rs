@@ -27,6 +27,7 @@
 
 pub mod assemble;
 mod cache;
+mod defaults;
 mod glsl;
 mod link;
 mod reflect;
@@ -41,6 +42,7 @@ pub use assemble::{
     program_stage,
 };
 pub use cache::{Cached, ProgramCache};
+pub use defaults::{UniformDefault, uniform_defaults};
 pub use link::{AlphaKeep, FRAMEBUFFER_IMAGES};
 pub use reflect::{Member, Part, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
 pub use spirv::{DRAWS, LIGHT_ARRAYS, LIGHT_INDEX, LIGHT_TABLE, LIGHTS, ORDER};
@@ -107,6 +109,9 @@ pub struct Program {
     pub module: naga::Module,
     pub info: naga::valid::ModuleInfo,
     pub reflection: Reflection,
+    /// The values its source declares its uniforms with ([`uniform_defaults`]),
+    /// which they hold where the engine sets nothing else.
+    pub defaults: Vec<(String, UniformDefault)>,
 }
 
 /// An error and the errors it came from, as one line.
@@ -194,6 +199,7 @@ pub(crate) fn from_words(
         module,
         info,
         reflection,
+        defaults: defaults::uniform_defaults(&a.text),
     })
 }
 

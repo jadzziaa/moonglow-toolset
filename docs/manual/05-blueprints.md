@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:39:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:01:17Z }
 ---
 
 # Blueprints
@@ -660,7 +660,14 @@ every change, as Aurora does on OK.
   mesh that is a skin mesh is drawn as the game draws it: as a plain
   mesh where it is kept as text; where it is compiled, following the
   skeleton's bones if it was compiled against the skeleton (as Beamdog's
-  HD bodies are), else not at all. A creature that had a
+  HD bodies are), else not at all; whatever node capart.2da hangs it from
+  (a custom skeleton's own bone names, such as an FFXIV body's
+  `j_sebo_a`). A custom skeleton plays the animations of its whole chain
+  of supermodels, however long, and its materials' custom shaders, with
+  the **Shaders** switch on, read every texture an MTR can name
+  (`texture0` to `texture10`) and take the values their uniforms are
+  declared with where the MTR gives none, as the game does: a body tinted
+  by such a shader is drawn in its colors. A creature that had a
   single model keeps no body parts: given an appearance with a body of
   parts, it gets them (each 1, no belt or shoulders) and head 1 in the
   same step, since the game draws no body without them. A head of 0, or

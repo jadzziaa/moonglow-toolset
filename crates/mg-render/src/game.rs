@@ -207,6 +207,10 @@ pub(crate) enum Key {
     /// shader's own (`fSwaySpeed`); and every name the contract doesn't
     /// know.
     Param(String),
+    /// [`Key::Param`] of a uniform its program declares with a value
+    /// (`uniform float rowHair = 0.172363;`): the MTR's, else that one,
+    /// as OpenGL keeps it in the client ([`mg_shader::uniform_defaults`]).
+    ParamOr(String, MtrParam),
 }
 
 /// The contract (`docs/shaders-proposal.md`, "The uniform contract"):
@@ -353,8 +357,30 @@ fn fill_own(own: &[(Own, Member, Key)], f: &FrameValues, d: &DrawValues<'_>, out
 
 impl Plan {
     pub(crate) fn new(block: &UniformBlock) -> Plan {
+        Plan::declared(block, &[])
+    }
+
+    /// [`Plan::new`] of a program that declares some of its uniforms
+    /// with values (`declared`, [`mg_shader::Program::defaults`]): those
+    /// hold them where the MTR gives none ([`Key::ParamOr`]).
+    pub(crate) fn declared(
+        block: &UniformBlock,
+        declared: &[(String, mg_shader::UniformDefault)],
+    ) -> Plan {
+        let keyed = |m: &Member| match key(&m.name) {
+            Key::Param(name) => match declared.iter().find(|(n, _)| *n == name) {
+                Some((_, mg_shader::UniformDefault::Float(v))) => {
+                    Key::ParamOr(name, MtrParam::Float(v.clone()))
+                }
+                Some((_, mg_shader::UniformDefault::Int(i))) => {
+                    Key::ParamOr(name, MtrParam::Int(*i))
+                }
+                None => Key::Param(name),
+            },
+            k => k,
+        };
         let members: Vec<(Member, Key)> =
-            block.members.iter().map(|m| (m.clone(), key(&m.name))).collect();
+            block.members.iter().map(|m| (m.clone(), keyed(m))).collect();
         let (material, own): (Vec<_>, Vec<_>) = members.iter().cloned().partition(|(_, k)| {
             matches!(
                 k,
@@ -364,6 +390,7 @@ impl Plan {
                     | Key::TexEnvBound
                     | Key::TexEnvCubeBound
                     | Key::Param(_)
+                    | Key::ParamOr(..)
             )
         });
         let own = own.into_iter().map(|(m, k)| (Own::of(&m, &k), m, k)).collect();
@@ -466,6 +493,13 @@ pub(crate) struct DrawValues<'a> {
     pub(crate) blend_mode: i32,
     /// A particle's `particleSoftness` (0: no fade).
     pub(crate) particle_softness: f32,
+}
+
+impl DrawValues<'_> {
+    /// Its MTR's parameter of this name (any case).
+    fn param(&self, name: &str) -> Option<&MtrParam> {
+        self.params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, p)| p)
+    }
 }
 
 /// A value to write.
@@ -594,14 +628,17 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         AreaWeatherDensity => Val::F(f.environment.weather_density),
         BlendMode => Val::I(d.blend_mode),
         ParticleSoftness => Val::F(d.particle_softness),
-        Param(name) => match d.params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
-            Some((_, MtrParam::Int(i))) => Val::I(*i),
-            Some((_, MtrParam::Float(v))) if v.len() == 1 => Val::F(v[0]),
-            Some((_, MtrParam::Float(v))) => {
-                Val::V(std::array::from_fn(|i| v.get(i).copied().unwrap_or(0.0)))
-            }
-            None => Val::Zero,
-        },
+        Param(name) => d.param(name).map_or(Val::Zero, param_value),
+        ParamOr(name, declared) => param_value(d.param(name).unwrap_or(declared)),
+    }
+}
+
+/// An MTR parameter's value (or a uniform's declared one).
+fn param_value(p: &MtrParam) -> Val<'static> {
+    match p {
+        MtrParam::Int(i) => Val::I(*i),
+        MtrParam::Float(v) if v.len() == 1 => Val::F(v[0]),
+        MtrParam::Float(v) => Val::V(std::array::from_fn(|i| v.get(i).copied().unwrap_or(0.0))),
     }
 }
 
@@ -961,7 +998,11 @@ impl StagePlan {
     /// the bindings its entry point uses; the stock includes declare
     /// samplers for vertex programs that never read them, and each a
     /// material binds costs as it is bound).
-    fn new(r: &Reflection, used: &[u32]) -> Result<StagePlan, String> {
+    fn new(
+        r: &Reflection,
+        used: &[u32],
+        declared: &[(String, mg_shader::UniformDefault)],
+    ) -> Result<StagePlan, String> {
         let mut plan =
             StagePlan { draw: None, lights: None, frame: None, bones: None, textures: Vec::new() };
         for b in &r.uniforms {
@@ -972,7 +1013,7 @@ impl StagePlan {
             let bound = || Some(Bound { binding: b.binding, plan: Plan::new(b) });
             match b.part {
                 Part::Whole => return Err("its uniforms couldn't be split".into()),
-                Part::Draw => plan.draw = Some(Plan::new(b)),
+                Part::Draw => plan.draw = Some(Plan::declared(b, declared)),
                 Part::Lights => plan.lights = Some(Plan::new(b)),
                 Part::Frame => plan.frame = bound(),
                 Part::Bones => plan.bones = bound(),
@@ -1858,8 +1899,8 @@ impl Worker {
             p.reads_uniform("worldtimerTimeOfDay") || p.reads_uniform("sceneCurrentFrame")
         });
         let stages = [
-            StagePlan::new(&vs.reflection, &used(&vs)).map_err(|e| at(&key.vs, e))?,
-            StagePlan::new(&fs.reflection, &used(&fs)).map_err(|e| at(&key.fs, e))?,
+            StagePlan::new(&vs.reflection, &used(&vs), &vs.defaults).map_err(|e| at(&key.vs, e))?,
+            StagePlan::new(&fs.reflection, &used(&fs), &fs.defaults).map_err(|e| at(&key.fs, e))?,
         ];
         let winds: Vec<String> = vs
             .reflection
@@ -3383,7 +3424,10 @@ mod tests {
         assert_eq!(key("fSwaySpeed"), Key::Param("fSwaySpeed".into()));
         assert_eq!(unit("texUnit0"), Unit::Slot(0));
         assert_eq!(unit("texUnit5"), Unit::Slot(5));
-        assert_eq!(unit("texUnit9"), Unit::White);
+        // (An MTR binds texture0 to texture10.)
+        assert_eq!(unit("texUnit9"), Unit::Slot(9));
+        assert_eq!(unit("texUnit10"), Unit::Slot(10));
+        assert_eq!(unit("texUnit11"), Unit::White);
         assert_eq!(unit("texUnitEnv"), Unit::Env);
         assert_eq!(unit("texUnitEnvCube"), Unit::EnvCube);
         assert_eq!(unit("texUnitNoise"), Unit::Noise);
@@ -3621,5 +3665,46 @@ void main ()
         let wind = m("areaGlobalWind").offset;
         assert!((f32_at(&out, wind) - std::f32::consts::SQRT_2).abs() < 1e-5);
         assert_eq!(f32_at(&out, wind + 8), 0.0);
+    }
+
+    /// A uniform its program declares with a value holds it where the MTR
+    /// gives none, as OpenGL keeps it in the client (a builder's tinting
+    /// shader's `rowHair = 0.172363` and `illumColor = vec4(1.0, …)`); the
+    /// MTR's parameter goes first, and one declared without a value is
+    /// zero as before.
+    #[test]
+    fn a_uniform_declared_with_a_value_holds_it() {
+        let fs = r#"
+#define SHADER_TYPE 2
+uniform float rowHair = 0.25;
+uniform vec4 illumColor = vec4(1.0, 0.5, 0.25, 1.0);
+uniform int xivOpacityUV = 3;
+uniform float fAlphaClipRef = 0.01;
+uniform float fPlain;
+void main ()
+{
+    gl_FragColor = illumColor * (rowHair + fAlphaClipRef + fPlain + float(xivOpacityUV));
+}
+"#;
+        let src: BTreeMap<String, String> = [("fs_declared".to_string(), fs.to_string())].into();
+        let p =
+            mg_shader::compile("fs_declared", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let block = &p.reflection.uniforms[0];
+        let plan = Plan::declared(block, &p.defaults);
+        let params = vec![("FALPHACLIPREF".to_string(), MtrParam::Float(vec![1.1]))];
+        let d = DrawValues { params: &params, ..Default::default() };
+        let mut out = vec![0u8; plan.size as usize];
+        fill(&plan, &FrameValues::default().derive(), &d, &mut out);
+        let m = |name: &str| block.member(name).unwrap_or_else(|| panic!("{name}")).offset;
+        assert_eq!(f32_at(&out, m("rowHair")), 0.25);
+        let illum: Vec<f32> = (0..4).map(|i| f32_at(&out, m("illumColor") + 4 * i)).collect();
+        assert_eq!(illum, [1.0, 0.5, 0.25, 1.0]);
+        assert_eq!(i32_at(&out, m("xivOpacityUV")), 3);
+        assert_eq!(f32_at(&out, m("fAlphaClipRef")), 1.1, "the MTR's first");
+        assert_eq!(f32_at(&out, m("fPlain")), 0.0);
+        // (Without the declarations, as before: zeros.)
+        let mut bare = vec![0u8; plan.size as usize];
+        fill(&Plan::new(block), &FrameValues::default().derive(), &d, &mut bare);
+        assert_eq!(f32_at(&bare, m("rowHair")), 0.0);
     }
 }

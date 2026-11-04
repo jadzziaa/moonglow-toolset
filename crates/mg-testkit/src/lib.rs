@@ -184,6 +184,20 @@ pub fn test_output() -> PathBuf {
     }
 }
 
+/// A builder's files that a report came with, where they are on this
+/// machine (they are not the project's, and never committed): the folder
+/// `name` in `MOONGLOW_BUILDER_FILES`, else in the main checkout's
+/// `target/builder-files/` (`~/Projects/moonglow-toolset`). `None` where
+/// it isn't: a test of them skips.
+pub fn builder_files(name: &str) -> Option<PathBuf> {
+    let base = match env::var_os("MOONGLOW_BUILDER_FILES") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => PathBuf::from(env::var_os("HOME")?)
+            .join("Projects/moonglow-toolset/target/builder-files"),
+    };
+    Some(base.join(name)).filter(|d| d.is_dir())
+}
+
 /// A fresh, empty scratch directory for a test under `target/test-output/`
 /// ([`test_output`]).
 pub fn scratch_dir(name: &str) -> PathBuf {

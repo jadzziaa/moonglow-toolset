@@ -162,9 +162,13 @@ struct TextureEntry {
 pub const GAME_WATER: bool = true;
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
-/// self-illumination; then the two a known custom shader reads
-/// ([`Effect`]): an alpha mask or lightmap, and a flow map.
-pub(crate) const SLOTS: usize = 8;
+/// self-illumination; then a custom shader's, `texture6` to `texture10`
+/// (an MTR binds up to 11, nwn.wiki's MTR page), of which Moonglow's own
+/// shader reads the two a known custom shader reads ([`Effect`]): an
+/// alpha mask or lightmap, and a flow map. A builder's tinting shader
+/// reads its tint maps and palette from `texture7` to `texture10`: with
+/// the last three left white, every body it tinted was drawn white.
+pub(crate) const SLOTS: usize = 11;
 /// The slots the stock shaders read (the rest are a custom shader's).
 const STOCK_SLOTS: usize = 6;
 

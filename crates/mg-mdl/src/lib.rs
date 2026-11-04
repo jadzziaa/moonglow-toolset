@@ -565,28 +565,44 @@ pub fn animations(
 /// 2 on one of 3 plays the owner's animation at 6, the owner's scale,
 /// 0.5 or 1, alike; `batch6_supermodel_chain`). A scale that isn't a
 /// positive number counts as 1.
+///
+/// The chain is walked to its end, however long: a builder's skeleton
+/// whose animations were split into 23 supermodels lost those past the
+/// 17th when the walk stopped there. It stops where a model comes back
+/// (a chain that loops) or after [`SUPERMODEL_CHAIN_LIMIT`] links.
 pub fn animations_scaled(
     model: &std::sync::Arc<Model>,
     load: &dyn Fn(&str) -> Option<std::sync::Arc<Model>>,
 ) -> Vec<(String, std::sync::Arc<Model>, f32)> {
     let mut out: Vec<(String, std::sync::Arc<Model>, f32)> = Vec::new();
+    let mut names = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(model.name.to_ascii_lowercase());
     let mut current = Some(model.clone());
-    let mut depth = 0;
     let mut scale = 1.0;
     while let Some(m) = current {
         for a in &m.animations {
-            if !out.iter().any(|(n, ..)| n.eq_ignore_ascii_case(&a.name)) {
+            if names.insert(a.name.to_ascii_lowercase()) {
                 out.push((a.name.clone(), m.clone(), scale));
             }
         }
         if m.animation_scale.is_finite() && m.animation_scale > 0.0 {
             scale *= m.animation_scale;
         }
-        depth += 1;
-        current = if depth > 16 { None } else { m.supermodel.as_deref().and_then(load) };
+        // (Each loaded by name: a chain that loops names one again.)
+        current = m
+            .supermodel
+            .as_deref()
+            .filter(|s| seen.len() <= SUPERMODEL_CHAIN_LIMIT && seen.insert(s.to_ascii_lowercase()))
+            .and_then(load);
     }
     out
 }
+
+/// The most supermodels a chain is followed through ([`animations_scaled`]):
+/// far past any builder's (23 in the longest seen), a stop for a chain
+/// that never ends.
+pub const SUPERMODEL_CHAIN_LIMIT: usize = 256;
 
 /// `a` less `b`.
 pub(crate) fn sub(a: Vec3, b: Vec3) -> Vec3 {
@@ -683,6 +699,38 @@ mod tests {
         let walk = animations_scaled(&on_zero, &load).into_iter().find(|a| a.0 == "walk");
         assert_eq!(walk.map(|a| a.2), Some(3.0));
         assert_eq!(animations(&top, &load).len(), 4);
+    }
+
+    /// A builder's skeleton has its animations in a chain of 23
+    /// supermodels (a builder's report, 2026-11-04): those of the 18th and
+    /// on were lost where the walk stopped at 17. Every link's are found;
+    /// a chain that loops back ends where it comes back.
+    #[test]
+    fn a_long_chain_of_supermodels_is_followed_to_its_end() {
+        use std::sync::Arc;
+        let link = |i: usize, sup: Option<String>| {
+            Arc::new(Model {
+                name: format!("link{i}"),
+                animation_scale: 1.0,
+                supermodel: sup,
+                animations: vec![Animation { name: format!("anim{i}"), ..Default::default() }],
+                ..Default::default()
+            })
+        };
+        let chain: Vec<Arc<Model>> =
+            (0..30).map(|i| link(i, (i < 29).then(|| format!("link{}", i + 1)))).collect();
+        let load = |n: &str| {
+            let i: usize = n.strip_prefix("link")?.parse().ok()?;
+            chain.get(i).cloned()
+        };
+        let found = animations(&chain[0], &load);
+        assert_eq!(found.len(), 30);
+        assert_eq!(found[29].0, "anim29");
+        // (link2 → link0: back to the start.)
+        let looped: Vec<Arc<Model>> =
+            (0..3).map(|i| link(i, Some(format!("link{}", (i + 1) % 3)))).collect();
+        let load = |n: &str| looped.get(n.strip_prefix("link")?.parse::<usize>().ok()?).cloned();
+        assert_eq!(animations(&looped[0], &load).len(), 3);
     }
 
     /// A plane whose `faces` list says `count` and has `rows`.
