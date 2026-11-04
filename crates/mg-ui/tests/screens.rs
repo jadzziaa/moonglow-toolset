@@ -135,6 +135,13 @@ fn color_button_paste() {
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("../test-output/screens");
     std::fs::create_dir_all(&path).unwrap();
     image.save(path.join("color-button-paste.png")).unwrap();
+    // Its right-click menu, the picker closed.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click_secondary();
+    h.run_steps(3);
+    let image = h.render().expect("render");
+    image.save(path.join("color-button-menu.png")).unwrap();
 }
 
 #[test]
@@ -1073,6 +1080,17 @@ fn dialog_parameter_sets() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
     h.run_steps(4);
     h.get_by_label_contains("You look strong.").click();
+    h.run_steps(4);
+    // The row: Add Set, Save Set…, Copy Set, Paste Set and Save to File…
+    // (Paste Set's tip shown), and in a narrow window, where it wraps.
+    h.get_by_label("Paste Set").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "dialog-parameter-sets-row");
+    h.set_size(egui::vec2(900.0, 800.0));
+    h.hover_at(egui::pos2(10.0, 790.0));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "dialog-parameter-sets-row-narrow");
+    h.set_size(egui::vec2(1280.0, 800.0));
     h.run_steps(4);
     h.get_by_label("Add Set").click();
     shoot(&mut h, &dir, "dialog-parameter-sets-menu");
@@ -7573,6 +7591,17 @@ fn variable_sets() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
+    // The row: Add, Add Set, Save Set…, Copy Set, Paste Set and Save to
+    // File… (Paste Set's tip shown), and in a narrow window.
+    h.get_by_label("Paste Set").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "variables-copy-paste");
+    h.set_size(egui::vec2(640.0, 640.0));
+    h.hover_at(egui::pos2(5.0, 635.0));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "variables-copy-paste-narrow");
+    h.set_size(egui::vec2(1000.0, 640.0));
+    h.run_steps(4);
     h.get_by_label("Add Set").click();
     shoot(&mut h, &dir, "variables-add-set-menu");
     // What a set holds, as the pointer rests on it.

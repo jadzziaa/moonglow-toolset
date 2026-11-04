@@ -1928,7 +1928,9 @@ fn select_token_and_conversation_test_resize_from_the_corner_dragged() {
 /// A conversation of two NPC lines, "Hello there." (its condition the
 /// builder's `ttc_c_skillcheck` with CHECK = 12, DC = 1, FEEDBACK = 1,
 /// SHOW_DC = 1) and "Go away." (no script, DC = 20 and MINE = 7), open
-/// in the editor, its parameter sets kept in a scratch folder.
+/// in the editor, its parameter sets kept in a scratch folder; and
+/// another conversation, `farewell`, of one NPC line, "Farewell.", with
+/// no script.
 fn parameter_sets_harness(name: &str) -> (Harness<'static, Moonglow>, ResKey, std::path::PathBuf) {
     use mg_module::dialog::{Parent, add_node, new_dialog, params_value};
     let dir = mg_testkit::scratch_dir(name);
@@ -1952,8 +1954,11 @@ fn parameter_sets_harness(name: &str) -> (Harness<'static, Moonglow>, ResKey, st
         );
         links[1].set("ConditionParams", params_value(&pairs(&[("DC", "20"), ("MINE", "7")])));
     }
+    let mut other = new_dialog();
+    add_node(&mut other, Parent::Root, "Farewell.");
     let mut m = Module::open(&path).unwrap();
     m.set_gff(key, &g).unwrap();
+    m.set_gff(ResKey::parse("farewell", ResType::DLG).unwrap(), &other).unwrap();
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
@@ -2167,6 +2172,118 @@ fn parameter_sets_are_kept_in_files_of_ones_choosing() {
     h.get_by_label("Text Appears When…").click();
     settle(&mut h);
     assert!(!shown_fields(&h).iter().any(|v| v == "GOLD"));
+}
+
+/// What was copied to the clipboard in the frame just run.
+fn copied(h: &Harness<'_, Moonglow>) -> Option<String> {
+    h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    })
+}
+
+/// Paste Set pressed, which asks for the clipboard, and the clipboard's
+/// `text` given as the backend gives it: as the next frame's Paste.
+fn paste_set(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.get_by_label("Paste Set").click();
+    h.step();
+    let asked = (h.output().viewport_output.get(&egui::ViewportId::ROOT))
+        .is_some_and(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste));
+    assert!(asked, "Paste Set asks for the clipboard");
+    h.event(egui::Event::Paste(text.into()));
+    h.step();
+    settle(h);
+}
+
+/// The builder's request: a line's script and parameters copied (Copy
+/// Set, as a set file's text) and pasted on another line (Paste Set),
+/// added as Add Set adds a saved set: the parameters merged by name, the
+/// script put in the Script field, one Undo taking both back; pasted in
+/// another conversation too; never the conversation's own Paste of lines
+/// with the pointer over the editor; text that isn't a set logged and
+/// nothing changed; a paste that never comes not waited for past a
+/// click; and with nothing to copy, Copy Set can't be pressed.
+#[test]
+fn parameter_sets_are_copied_and_pasted_without_saving_one() {
+    use mg_ui::param_sets::{self, ParamSet};
+    let (mut h, key, sets) = parameter_sets_harness("ui-dialog-param-copy");
+    h.get_by_label_contains("Hello there.").click();
+    settle(&mut h);
+    h.get_by_label("Copy Set").click();
+    h.step();
+    let text = copied(&h).expect("the set copied");
+    let skill = pairs(&[("CHECK", "12"), ("DC", "1"), ("FEEDBACK", "1"), ("SHOW_DC", "1")]);
+    assert_eq!(
+        param_sets::from_text(&text).unwrap(),
+        ParamSet {
+            script: Some(ResRef::from_str("ttc_c_skillcheck").unwrap()),
+            parameters: skill.clone(),
+        }
+    );
+    assert_eq!(text, param_sets::to_text(&param_sets::from_text(&text).unwrap()), "a set's text");
+    settle(&mut h);
+    assert!(param_sets::list(Some(&sets)).is_empty(), "no set saved");
+    // The line copied too (the editor's Copy): Paste Set's paste is the
+    // set's, not the lines'.
+    h.get_by_label("Copy").click();
+    settle(&mut h);
+    assert!(h.state().dialog_clip.is_some());
+    let lines = |h: &mut Harness<'_, Moonglow>| {
+        let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+        (g.root.list("StartingList").unwrap().len(), g.root.list("EntryList").unwrap().len())
+    };
+    let before = lines(&mut h);
+    // Pasted on "Go away."'s condition.
+    h.get_by_label_contains("Go away.").click();
+    settle(&mut h);
+    paste_set(&mut h, &text);
+    let expect =
+        pairs(&[("DC", "1"), ("MINE", "7"), ("CHECK", "12"), ("FEEDBACK", "1"), ("SHOW_DC", "1")]);
+    assert_eq!(condition(&mut h, &key, 1), ("ttc_c_skillcheck".into(), expect));
+    assert_eq!(lines(&mut h), before, "no lines pasted");
+    assert!(shown_fields(&h).iter().any(|v| v == "ttc_c_skillcheck"), "the Script field");
+    let step = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert_eq!(step.as_deref(), Some("Paste parameter set"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    let was = (String::new(), pairs(&[("DC", "20"), ("MINE", "7")]));
+    assert_eq!(condition(&mut h, &key, 1), was);
+    // Text that isn't a set (what Moonglow puts there for copied lines):
+    // said so, nothing changed.
+    paste_set(&mut h, "Moonglow Toolset: conversation lines");
+    assert_eq!(condition(&mut h, &key, 1), was);
+    assert_eq!(lines(&mut h), before, "no lines pasted");
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(
+        log.iter().any(|l| l.contains("Paste Set") && l.contains("doesn't hold a parameter set")),
+        "{log:?}"
+    );
+    // A paste that doesn't come (nothing on the clipboard) isn't waited
+    // for past a click: a later paste isn't Paste Set's.
+    h.state_mut().dialog_clip = None;
+    h.get_by_label("Paste Set").click();
+    h.step();
+    h.get_by_label_contains("Go away.").click();
+    h.step();
+    h.event(egui::Event::Paste(text.clone()));
+    settle(&mut h);
+    assert_eq!(condition(&mut h, &key, 1), was, "not Paste Set's");
+    // In another conversation, on a line's Actions Taken, with nothing
+    // there to copy yet.
+    let other = ResKey::parse("farewell", ResType::DLG).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(other)));
+    settle(&mut h);
+    h.get_by_label_contains("Farewell.").click();
+    settle(&mut h);
+    h.get_by_label("Actions Taken").click();
+    settle(&mut h);
+    assert!(h.get_by_label("Copy Set").accesskit_node().is_disabled(), "nothing to copy");
+    paste_set(&mut h, &text);
+    assert_eq!(action(&mut h, &other, 0), ("ttc_c_skillcheck".into(), skill));
+    assert!(!h.get_by_label("Copy Set").accesskit_node().is_disabled());
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(action(&mut h, &other, 0), (String::new(), Vec::new()));
 }
 
 /// Add Set's menu manages the saved parameter sets as the Variables

@@ -2406,6 +2406,106 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     assert!(fresh.is_dir());
 }
 
+/// The builder's request, for variables too: one object's variables
+/// copied (Copy Set, as a variable set file's text) and pasted in
+/// another's Variables window (Paste Set), merged as Add Set merges a
+/// saved set (one of the same name taking its type and value), written
+/// by OK as one step; text that isn't a set logged and nothing changed;
+/// and with no variables, Copy Set can't be pressed.
+#[test]
+fn variable_sets_are_copied_and_pasted_without_saving_one() {
+    use mg_ui::widgets::{FieldTarget, VarRow, VarTableEdit};
+    let dir = mg_testkit::scratch_dir("ui-var-sets-copy");
+    let path = sample_module(&dir);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    {
+        let mut m = Module::open(&path).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        let two = vec![mg_gff::Struct::new(9), mg_gff::Struct::new(9)];
+        g.root.set("Placeable List", mg_gff::Value::List(two));
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let placeable = |i| mg_edit::GffPath::root().item("Placeable List", i);
+    let open = |h: &mut Harness<'_, Moonglow>, i, rows: Vec<VarRow>| {
+        let mut edit = VarTableEdit::new(FieldTarget::new(git, placeable(i), "VarTable"), &[]);
+        edit.rows = rows;
+        h.state_mut().var_edit = Some(edit);
+        h.run();
+    };
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    // Nothing to copy yet.
+    open(&mut h, 0, Vec::new());
+    assert!(h.get_by_label("Copy Set").accesskit_node().is_disabled());
+    // The first placeable's, copied.
+    let rows = vec![VarRow::new("MG_LOOT", 1, "3"), VarRow::new("MG_SAY", 3, "Hail")];
+    open(&mut h, 0, rows);
+    h.get_by_label("Copy Set").click();
+    h.step();
+    let text = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    let text = text.expect("the variables copied");
+    let set = mg_ui::var_sets::from_text(&text).unwrap();
+    assert_eq!(
+        set.iter().map(|r| (r.name.as_str(), r.kind, r.value.as_str())).collect::<Vec<_>>(),
+        [("MG_LOOT", 1, "3"), ("MG_SAY", 3, "Hail")]
+    );
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert!(h.state().var_edit.is_none());
+    // Pasted in the second's, whose MG_LOOT takes the set's value.
+    open(&mut h, 1, vec![VarRow::new("MG_LOOT", 1, "9"), VarRow::new("MG_KEEP", 2, "0.5")]);
+    let paste = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.get_by_label("Paste Set").click();
+        h.step();
+        let asked = (h.output().viewport_output.get(&egui::ViewportId::ROOT))
+            .is_some_and(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste));
+        assert!(asked, "Paste Set asks for the clipboard");
+        h.event(egui::Event::Paste(text.into()));
+        h.step();
+        h.run();
+    };
+    let shown = |h: &Harness<'_, Moonglow>| {
+        let rows = &h.state().var_edit.as_ref().unwrap().rows;
+        rows.iter().map(|r| (r.name.clone(), r.kind, r.value.clone())).collect::<Vec<_>>()
+    };
+    let merged = vec![
+        ("MG_LOOT".to_string(), 1, "3".to_string()),
+        ("MG_KEEP".to_string(), 2, "0.5".to_string()),
+        ("MG_SAY".to_string(), 3, "Hail".to_string()),
+    ];
+    paste(&mut h, &text);
+    assert_eq!(shown(&h), merged);
+    // Not a set: said so, nothing changed.
+    paste(&mut h, "MG_LOOT = 3");
+    assert_eq!(shown(&h), merged);
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(
+        log.iter().any(|l| l.contains("Paste Set") && l.contains("doesn't hold a variable set")),
+        "{log:?}"
+    );
+    // OK writes them, one step of Undo.
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    let vars = |h: &mut Harness<'_, Moonglow>, i| {
+        let g = h.state_mut().ws.as_mut().unwrap().doc(&git).unwrap().clone();
+        let list = placeable(i).get(&g.root).and_then(|s| s.list("VarTable")).unwrap_or(&[]);
+        list.iter()
+            .map(|v| String::from_utf8_lossy(v.string("Name").unwrap()).into_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(vars(&mut h, 1), ["MG_LOOT", "MG_KEEP", "MG_SAY"]);
+    assert!(vars(&mut h, 0).is_empty(), "the first kept its own");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(vars(&mut h, 1).is_empty());
+}
+
 #[test]
 fn script_sets_save_and_load() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_scripts", ResType::UTC)

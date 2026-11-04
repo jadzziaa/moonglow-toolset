@@ -91,7 +91,9 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
         button = button.on_hover_text("Click to edit color; Ctrl+V pastes one");
     }
     let mut pasted = if open || button.hovered() { take_paste(ui) } else { None };
-    button.context_menu(|ui| {
+    // (Its own id: egui's for a context menu is the picker's, which kept
+    // the menu from opening.)
+    Popup::context_menu(&button).id(popup_id.with("menu")).show(|ui| {
         if ui.button("Copy Color").on_hover_text("Its values, as 158, 151, 211").clicked() {
             ui.copy_text(text_of(*srgba, alpha));
             ui.close();
@@ -101,21 +103,17 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
             .on_hover_text("From the clipboard: 158, 151, 211, #9e97d3 or rgb(158, 151, 211)")
             .clicked()
         {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-            ui.ctx().request_repaint();
-            ui.data_mut(|d| d.insert_temp(popup_id.with("asked"), true));
+            crate::widgets::ask_paste(ui.ctx(), popup_id.with("asked"));
             ui.close();
         }
     });
     // (Paste asked for from the menu: the clipboard comes as the next
-    // frame's paste event, wherever the pointer is then.)
-    let asked = popup_id.with("asked");
+    // frame's paste event, wherever the pointer is then; text that isn't
+    // a color changes nothing.)
     if pasted.is_none()
-        && ui.data(|d| d.get_temp::<bool>(asked).unwrap_or(false))
-        && let Some(c) = take_paste(ui)
+        && let Some(text) = crate::widgets::asked_paste(ui.ctx(), popup_id.with("asked"))
     {
-        pasted = Some(c);
-        ui.data_mut(|d| d.remove::<bool>(asked));
+        pasted = parse(&text);
     }
     const COLOR_SLIDER_WIDTH: f32 = 275.0;
     Popup::menu(&button).id(popup_id).close_behavior(PopupCloseBehavior::CloseOnClickOutside).show(
