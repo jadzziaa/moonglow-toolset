@@ -535,8 +535,16 @@ mod tests {
         let watch = Watch::start(vec![dir.clone()], true, Duration::from_millis(40), false, None);
         assert!(watch.told, "inotify, FSEvents or ReadDirectoryChangesW watches the folder");
         heard(&watch).expect("looked at once, at the start");
-        std::thread::sleep(Duration::from_millis(400));
-        let _ = watch.take();
+        // (FSEvents may still tell of the folder made before the watch
+        // began a while after: waited out, with a deadline.)
+        let quiet = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = watch.take();
+            if !watch.hearing() || std::time::Instant::now() > quiet {
+                break;
+            }
+        }
         assert!(!watch.hearing(), "nothing changed: nothing being heard");
         std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
         // (Polled: it is heard for at least Watch::QUIET.)
