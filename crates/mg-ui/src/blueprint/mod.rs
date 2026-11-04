@@ -75,6 +75,9 @@ pub struct WindowChanges {
     pub tab: Tab,
     /// What it changed, in the order it first changed each.
     pub was: Vec<Was>,
+    /// Noted before the window opened (a blueprint just made,
+    /// [`note_made`]): kept while it is about to, until it is drawn.
+    pub opening: bool,
 }
 
 /// A thing a window changed, as it was before the window's first change
@@ -173,10 +176,9 @@ pub(crate) fn note_command(
                 (key, path, list)
             }
             Edit::SetResource { key, .. } => {
-                let entry = app
-                    .properties_changed
-                    .entry(first.clone())
-                    .or_insert_with(|| WindowChanges { tab: tab.clone(), was: Vec::new() });
+                let entry = app.properties_changed.entry(first.clone()).or_insert_with(|| {
+                    WindowChanges { tab: tab.clone(), was: Vec::new(), opening: false }
+                });
                 if !entry.was.iter().any(|w| matches!(w, Was::Resource(k, _) if k == key)) {
                     // (As the open documents have it, not as last saved.)
                     let _ = ws.flush();
@@ -193,10 +195,11 @@ pub(crate) fn note_command(
             .max_by_key(|(_, form)| form.0.len());
         let Some((k, form)) = within else { continue };
         let Some((at, field)) = field_changed(form, path, label) else { continue };
-        let entry = app
-            .properties_changed
-            .entry(first.clone())
-            .or_insert_with(|| WindowChanges { tab: tab.clone(), was: Vec::new() });
+        let entry = app.properties_changed.entry(first.clone()).or_insert_with(|| WindowChanges {
+            tab: tab.clone(),
+            was: Vec::new(),
+            opening: false,
+        });
         let known = |w: &Was| match w {
             Was::Field(wk, wp, wl, _) => wk == k && *wp == at && *wl == field,
             // (Set back whole: its fields with it.)
@@ -206,6 +209,36 @@ pub(crate) fn note_command(
             let before = ws.doc(k).ok().and_then(|g| at.get(&g.root)?.get(&field).cloned());
             entry.was.push(Was::Field(*k, at, field, before));
         }
+    }
+}
+
+/// Notes a command that makes the blueprint `key` (not applied yet) as the
+/// first change of the blueprint's window, which opens on it at once
+/// (Edit Copy, Add to Palette): its Cancel (and Escape) takes back the
+/// blueprint (there was none: it is removed) with what else the command
+/// changed, as Aurora's window, which makes the blueprint only at its OK,
+/// leaves nothing. `also`: the objects of other documents it changes (the
+/// placed object Add to Palette makes name it), whose fields it sets back;
+/// anything else it changes is set back by the field (or list) of the
+/// document's root it is in.
+pub(crate) fn note_made(
+    app: &mut Moonglow,
+    key: ResKey,
+    also: &[(ResKey, GffPath)],
+    cmd: &Command,
+) {
+    let mut targets = vec![(key, GffPath::root())];
+    targets.extend(also.iter().cloned());
+    for edit in &cmd.edits {
+        if !targets.iter().any(|(k, p)| k == edit.key() && p.0.is_empty()) {
+            targets.push((*edit.key(), GffPath::root()));
+        }
+    }
+    // (Nothing of a window of that name before is its.)
+    app.properties_changed.remove(&targets[0]);
+    note_command(app, &Tab::Blueprint(key), &targets, cmd);
+    if let Some(changes) = app.properties_changed.get_mut(&targets[0]) {
+        changes.opening = true;
     }
 }
 
@@ -357,6 +390,10 @@ pub(crate) fn window_drawn_but(
     more: impl FnOnce(&mut Moonglow, &[Edit]) -> Vec<Edit>,
 ) {
     note_changes(app, pending, tab, targets, kept);
+    // (Open: what it noted before it opened is kept as any window's.)
+    if let Some(changes) = targets.first().and_then(|f| app.properties_changed.get_mut(f)) {
+        changes.opening = false;
+    }
     // (A text field of this window's, drawn just now with the keyboard:
     // should it be gone before the keyboard leaves it, what it sets then,
     // after the window is drawn, is this window's to set back. A window
@@ -379,6 +416,16 @@ pub(crate) fn window_drawn_but(
         if let Some(mut command) = cancel_command(app, first, asked) {
             let more = more(app, &command.edits);
             command.edits.extend(more);
+            // (A blueprint it takes back, the copy Edit Copy made: not
+            // the palette's to place any more.)
+            let removed = |k: &ResKey| {
+                let gone =
+                    |e: &Edit| matches!(e, Edit::SetResource { key, data: None } if key == k);
+                command.edits.iter().any(gone)
+            };
+            if app.palette.selected.as_ref().is_some_and(removed) {
+                app.palette.selected = None;
+            }
             app.actions.push(Action::Apply(command));
         }
     }

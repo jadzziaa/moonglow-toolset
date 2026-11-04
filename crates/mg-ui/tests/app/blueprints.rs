@@ -1897,6 +1897,13 @@ fn sound_wizard_steps_through_timing_positioning_and_waves() {
     // Its properties open, as Aurora's Sound Wizard does by default.
     let key = ResKey::parse("civilization001", ResType::UTS).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some());
+    // Made at Finish, it stays when that window is cancelled, as Aurora's
+    // wizard's blueprint does (captured, `edit-copy-cancel/`), where Edit
+    // Copy's copy is taken back.
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_none());
+    assert!(module_gff(&mut h, "civilization001", ResType::UTS).is_some(), "kept");
 }
 
 #[test]

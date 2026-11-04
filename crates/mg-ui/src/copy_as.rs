@@ -142,6 +142,12 @@ impl Moonglow {
         let made = crate::plugin_events::Made::resources("copy", vec![new]);
         let cmd = Command::new(format!("Copy {} as {new}", draft.from), edits);
         let cmd = crate::plugin_events::with_plugins(self, cmd, &made);
+        // A blueprint's copy opens in its window (`window`), whose Cancel
+        // takes the copy back, as Aurora's Edit Copy makes it only at OK.
+        let opens = BlueprintKind::from_restype(new.restype).is_some();
+        if opens {
+            crate::blueprint::note_made(self, new, &[], &cmd);
+        }
         match self.apply(cmd) {
             Ok(()) => {
                 self.log.info(format!("Copied {} as {new}", draft.from));
@@ -167,6 +173,9 @@ impl Moonglow {
                 Some(new)
             }
             Err(e) => {
+                if opens {
+                    self.properties_changed.remove(&(new, mg_edit::GffPath::root()));
+                }
                 self.log.error(e.to_string());
                 None
             }

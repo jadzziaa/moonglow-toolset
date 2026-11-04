@@ -1790,9 +1790,15 @@ impl Moonglow {
             }
             self.buffers.remove(&held.id);
         }
-        // (What a Properties window changed is kept while it is open.)
-        let dock = &self.dock;
-        self.properties_changed.retain(|_, changes| dock.find_tab(&changes.tab).is_some());
+        // (What a Properties window changed is kept while it is open, or
+        // about to open: a blueprint's copy just made, its window's Cancel
+        // to take back, `blueprint::note_made`.)
+        let (dock, actions) = (&self.dock, &self.actions);
+        let opening =
+            |tab: &Tab| actions.iter().any(|a| matches!(a, Action::OpenTab(t) if t == tab));
+        self.properties_changed.retain(|_, changes| {
+            dock.find_tab(&changes.tab).is_some() || (changes.opening && opening(&changes.tab))
+        });
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
