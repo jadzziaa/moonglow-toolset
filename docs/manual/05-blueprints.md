@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T02:39:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:25:47Z }
 ---
 
 # Blueprints
@@ -539,7 +539,13 @@ Shared parts:
   pointer resting on it, what it holds), or a file's (**Add from
   File…**, one or several at once). It adds rather than replaces, hence its
   name: a variable of the same name takes the set's type and value, and
-  the others stay. In the same menu, **Manage Sets…** opens the Variable
+  the others stay. **Copy Set** and **Paste Set** carry them without
+  keeping a set: Copy Set puts the variables on the clipboard (as a set
+  file's text, to paste in another object's or blueprint's Variables, in
+  any module, or into a message to another builder), and Paste Set adds
+  what is there as Add Set adds a saved set (text that isn't a set is
+  said so in the log, and nothing is changed). As with Add Set, **OK**
+  writes them. In Add Set's menu, **Manage Sets…** opens the Variable
   Sets window, where a saved set is renamed (**Rename…**: a name another
   set has, in any case, or one that can't name a file is refused) or
   deleted (**Delete**; **Undo Delete** puts the last one back while the

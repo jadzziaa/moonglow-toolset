@@ -1287,7 +1287,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             &mut actions,
                         );
                         let ui = &mut cols[1];
-                        ui.horizontal(|ui| {
+                        // (Wrapped where the column is narrower: a row
+                        // wider than the column widened it past the
+                        // pane's edge, and the rows under it with it,
+                        // the parameters' buttons out of sight.)
+                        ui.horizontal_wrapped(|ui| {
                             for (t, label) in [
                                 (DataTab::Condition, "Text Appears When…"),
                                 (DataTab::Action, "Actions Taken"),
@@ -1923,8 +1927,9 @@ fn text_panel(
 /// A script field with its parameters and a preview of its source: a
 /// link's condition (`Active`, `ConditionParams`), else a line's action
 /// (`Script`, `ActionParams`). Beside the parameters, parameter sets
-/// (`param_sets`): added (script and parameters as one step), saved, and
-/// saved to and added from files.
+/// (`param_sets`): added (script and parameters as one step), saved,
+/// saved to and added from files, and copied and pasted as a set's text
+/// (to another line, conversation or module, or a message).
 #[allow(clippy::too_many_arguments)]
 fn script_with_params(
     app: &mut Moonglow,
@@ -1984,6 +1989,20 @@ fn script_with_params(
     let mut chosen: Vec<ParamSet> = Vec::new();
     let mut from_file = false;
     let mut to_file = false;
+    // Paste Set's clipboard, come this frame: added as a saved set is.
+    let paste_id = egui::Id::new(("dlg-param-paste", key, salt, path.to_string()));
+    let mut pasted = false;
+    if let Some(text) = crate::widgets::asked_paste(ui.ctx(), paste_id) {
+        match param_sets::from_text(&text) {
+            Ok(set) => {
+                chosen.push(set);
+                pasted = true;
+            }
+            Err(e) => app.log.error(format!(
+                "Paste Set: the clipboard doesn't hold a parameter set ({e}); nothing was changed"
+            )),
+        }
+    }
     let named = |pairs: &[(String, String)]| pairs.iter().any(|(n, _)| !n.trim().is_empty());
     let something = named(&pairs) || !script_now.is_empty();
     let set_of = |pairs: &[(String, String)], script: ResRef| ParamSet {
@@ -2018,6 +2037,26 @@ fn script_with_params(
                 .clicked()
         {
             view.param_set_name = Some((place.clone(), String::new()));
+        }
+        if ui
+            .add_enabled(something, egui::Button::new("Copy Set"))
+            .on_hover_text(
+                "Copy the script and these parameters to the clipboard, as a set file's text: \
+                 Paste Set adds them to another line, in any conversation or module",
+            )
+            .clicked()
+        {
+            ui.ctx().copy_text(param_sets::to_text(&set_of(&pairs, script_now)));
+        }
+        if ui
+            .button("Paste Set")
+            .on_hover_text(
+                "Add the set copied to the clipboard (Copy Set, or a set file's text) as Add Set \
+                 adds a saved one: same names take its values, and its script if it names one",
+            )
+            .clicked()
+        {
+            crate::widgets::ask_paste(ui.ctx(), paste_id);
         }
         to_file = ui
             .add_enabled(something, egui::Button::new("Save to File…"))
@@ -2136,7 +2175,8 @@ fn script_with_params(
             });
         }
         if !edits.is_empty() {
-            actions.push(Action::Apply(Command::new("Add parameter set", edits)));
+            let step = if pasted { "Paste parameter set" } else { "Add parameter set" };
+            actions.push(Action::Apply(Command::new(step, edits)));
         }
         ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
     } else if commit {

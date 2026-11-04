@@ -77,6 +77,31 @@ fn a_color_is_pasted_into_a_color_button() {
     h.event(egui::Event::Paste("#204060".into()));
     h.run();
     assert_eq!(*h.state(), [0x20, 0x40, 0x60]);
+    // Its right-click menu (which never opened: it had the picker's id),
+    // the picker closed: Copy Color, and Paste Color's paste, wherever the
+    // pointer is when it comes.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("Paste Color").is_none(), "the picker closed");
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click_secondary();
+    h.run();
+    h.get_by_label("Copy Color").click();
+    h.step();
+    let copied = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(copied.as_deref(), Some("32, 64, 96"));
+    h.run();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click_secondary();
+    h.run();
+    h.get_by_label("Paste Color").click();
+    h.step();
+    h.hover_at(egui::pos2(1.0, 1.0));
+    h.event(egui::Event::Paste("16, 32, 48".into()));
+    h.run();
+    assert_eq!(*h.state(), [16, 32, 48]);
+    assert!(h.query_by_label("Paste Color").is_none(), "the menu closed, the picker not opened");
 }
 
 #[test]

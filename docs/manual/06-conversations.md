@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:25:47Z }
 ---
 
 # Conversations
@@ -150,7 +150,14 @@ replies whose conditions pass, numbered.
   same name takes the set's value, and the others stay. A set saved
   with a script puts it in the Script field; one saved without leaves
   the field as it is. One **Undo** takes back the whole set, script and
-  parameters. **Manage Sets…** and **Open Sets Folder** are as the
+  parameters. To carry them without keeping a set, **Copy Set** puts the
+  script and the parameters on the clipboard (as a set file's text), and
+  **Paste Set** on another line or link, in this conversation or another,
+  in this module or another, adds them as **Add Set** adds a saved set
+  (one Undo again). What is copied can be pasted into a message to
+  another builder too, and pasted back from one; text on the clipboard
+  that isn't a set is said so in the log, and nothing is changed.
+  **Manage Sets…** and **Open Sets Folder** are as the
   [Variables window's](05-blueprints.md)
   are: in the Parameter Sets window a saved set is renamed or deleted
   (**Undo Delete** puts the last one back). Saved sets are small JSON

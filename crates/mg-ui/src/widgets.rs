@@ -1385,6 +1385,39 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     {
                         edit.set_name = Some(String::new());
                     }
+                    // Copied and pasted as a set file's text: to another
+                    // object or blueprint, in any module, or a message.
+                    if ui
+                        .add_enabled(!edit.rows.is_empty(), egui::Button::new("Copy Set"))
+                        .on_hover_text(
+                            "Copy these variables to the clipboard, as a set file's text: Paste \
+                             Set adds them to another object's or blueprint's, in any module",
+                        )
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
+                    }
+                    let paste_id = egui::Id::new("var-set-paste");
+                    if ui
+                        .button("Paste Set")
+                        .on_hover_text(
+                            "Add the variables copied to the clipboard (Copy Set, or a set \
+                             file's text) as Add Set adds a saved set: same names take their \
+                             types and values",
+                        )
+                        .clicked()
+                    {
+                        ask_paste(ui.ctx(), paste_id);
+                    }
+                    if let Some(text) = asked_paste(ui.ctx(), paste_id) {
+                        match crate::var_sets::from_text(&text) {
+                            Ok(rows) => crate::var_sets::merge(&mut edit.rows, rows),
+                            Err(e) => app.log.error(format!(
+                                "Paste Set: the clipboard doesn't hold a variable set ({e}); \
+                                 nothing was changed"
+                            )),
+                        }
+                    }
                     save_file = ui
                         .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save to File…"))
                         .on_hover_text(
@@ -2518,6 +2551,92 @@ pub(crate) fn clipboard_keys(ctx: &egui::Context) {
     if paste {
         ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
     }
+}
+
+/// The paste a button asked for ([`ask_paste`]): whose, and in which pass.
+#[derive(Clone, Copy)]
+struct PasteAsked {
+    id: egui::Id,
+    pass: u64,
+}
+
+/// Where [`PasteAsked`] is kept, and the text that came for it.
+fn paste_ids() -> (egui::Id, egui::Id) {
+    (egui::Id::new("mg-paste-asked"), egui::Id::new("mg-paste-came"))
+}
+
+/// The passes an asked paste is waited for (the backend sends it the next
+/// frame; an empty clipboard sends nothing).
+const PASTE_WAIT: u64 = 10;
+
+/// A Paste button's press (Paste Set, Paste Color): asks the backend for
+/// the clipboard (`RequestPaste`), whose text comes as a later frame's
+/// Paste. That paste is the button's (`id`): [`pastes_begin`] takes it
+/// from the frame's events before anything else reads them (a
+/// conversation's Paste of lines, a focused field), and
+/// [`asked_paste`] gives it to the button.
+pub(crate) fn ask_paste(ctx: &egui::Context, id: egui::Id) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+    ctx.request_repaint();
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        d.insert_temp(paste_ids().0, PasteAsked { id, pass });
+        d.remove::<(egui::Id, String, u64)>(paste_ids().1);
+    });
+}
+
+/// Once a frame, first: the paste a button asked for ([`ask_paste`]),
+/// taken from the frame's events and kept for it. One that doesn't come
+/// (nothing on the clipboard) is waited for until a key or a mouse
+/// button is pressed, or for [`PASTE_WAIT`] passes: a later Ctrl+V is
+/// then the field's or the editor's, not the button's.
+pub(crate) fn pastes_begin(ctx: &egui::Context) {
+    let (asked_id, came_id) = paste_ids();
+    let Some(asked) = ctx.data(|d| d.get_temp::<PasteAsked>(asked_id)) else { return };
+    let now = ctx.cumulative_pass_nr();
+    if now <= asked.pass {
+        return;
+    }
+    let came = ctx.input_mut(|i| {
+        let at = i.events.iter().position(|e| matches!(e, egui::Event::Paste(_)))?;
+        match i.events.remove(at) {
+            egui::Event::Paste(text) => Some(text),
+            _ => None,
+        }
+    });
+    let moved_on = ctx.input(|i| {
+        i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key { pressed: true, .. }
+                    | egui::Event::PointerButton { pressed: true, .. }
+            )
+        })
+    });
+    ctx.data_mut(|d| match came {
+        Some(text) => {
+            d.remove::<PasteAsked>(asked_id);
+            d.insert_temp(came_id, (asked.id, text, now));
+        }
+        None if moved_on || now > asked.pass + PASTE_WAIT => d.remove::<PasteAsked>(asked_id),
+        None => {}
+    });
+}
+
+/// The clipboard's text a button asked for with [`ask_paste`] under `id`,
+/// in the frame it came (a button not drawn then, its page left, has
+/// none later).
+pub(crate) fn asked_paste(ctx: &egui::Context, id: egui::Id) -> Option<String> {
+    // (Where the frame didn't begin with them: a widget's own test.)
+    pastes_begin(ctx);
+    let came_id = paste_ids().1;
+    let came: Option<(egui::Id, String, u64)> = ctx.data(|d| d.get_temp(came_id));
+    let (by, text, pass) = came?;
+    if by != id && pass + 1 >= ctx.cumulative_pass_nr() {
+        return None;
+    }
+    ctx.data_mut(|d| d.remove::<(egui::Id, String, u64)>(came_id));
+    (by == id && pass + 1 >= ctx.cumulative_pass_nr()).then_some(text)
 }
 
 /// Once a frame, before anything reads the events: text pasted (or sent

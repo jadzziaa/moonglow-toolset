@@ -1412,7 +1412,10 @@ impl Moonglow {
         widgets::install_fonts(ui.ctx());
         script_layout::watch_fonts(ui.ctx());
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
-        // Paste: first, before anything reads the keys.)
+        // Paste: first, before anything reads the keys; and before them,
+        // the paste a Paste button asked for, its own, and a key pressed
+        // instead.)
+        widgets::pastes_begin(ui.ctx());
         widgets::clipboard_keys(ui.ctx());
         widgets::plain_pastes(ui.ctx());
         widgets::dialogs_begin(ui.ctx());
