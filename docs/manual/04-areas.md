@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:27:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T10:56:22Z }
 ---
 
 # Areas
@@ -1018,8 +1018,9 @@ as Aurora's Terrain tab does:
 - The Tiles palette has the blueprint palettes' tools: a **search** (a
   brush's name, or a tile's model: a group or feature is found by the
   models of its tiles too, and shows as itself, one picture in the
-  Gallery; what it finds shows opened out, and cleared, each heading is
-  open or closed again as it was before), **Expand All** and **Collapse All**,
+  Gallery; what it finds shows opened out as it is typed, each heading
+  can be closed again after, and cleared, each heading is open or closed
+  again as it was before), **Expand All** and **Collapse All**,
   how many there are, and **List** (☰) or **Gallery** (🖼), the same switch
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and

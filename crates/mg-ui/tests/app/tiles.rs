@@ -4723,3 +4723,41 @@ fn select_tiles_shift_adds_to_the_selection() {
     drag_with(&mut h, from, to, none);
     assert_eq!(selection(&h), [(0, 0), (1, 0)]);
 }
+
+/// The tiles palette with a search typed: what it finds is opened out as
+/// it is typed, and its headings close and open again by a click (a
+/// builder's report: with text in the Filter no branch could be closed),
+/// in the list (a folder) and in the Gallery (a terrain's tiles).
+#[test]
+fn the_tile_palette_s_headings_close_while_a_search_is_typed() {
+    let Some((mut h, _)) = area_harness("tile-search-folds") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.state_mut().palette.filter = "water".into();
+    h.run_steps(3);
+    assert!(h.query_by_label("Water").is_some(), "found, its folder opened out");
+    // The folder closed by a click: closed, and kept so.
+    h.get_by_label("Terrain").click();
+    h.run_steps(5);
+    assert!(h.query_by_label("Water").is_none(), "the folder closed");
+    h.get_by_label("Terrain").click();
+    h.run_steps(5);
+    assert!(h.query_by_label("Water").is_some(), "opened again");
+    // In the Gallery, the terrain's heading: its tiles, closed by its arrow.
+    h.state_mut().settings.palette_gallery = true;
+    h.run_steps(5);
+    let tiles = |h: &Harness<'_, Moonglow>| h.query_all_by_label_contains("ttr01_").count();
+    assert!(tiles(&h) > 0, "the heading opened out with its tiles");
+    let row = h.get_by_label("Water").rect();
+    let arrow = egui::pos2(row.left() - 0.5 * row.height(), row.center().y);
+    h.hover_at(arrow);
+    press(&h, arrow, true, egui::Modifiers::NONE);
+    press(&h, arrow, false, egui::Modifiers::NONE);
+    h.run_steps(5);
+    assert_eq!(tiles(&h), 0, "the heading closed, and kept so");
+    // Typed again: what it finds opened out anew.
+    h.state_mut().palette.filter = "wate".into();
+    h.run_steps(5);
+    assert!(tiles(&h) > 0, "opened out as it is typed");
+}

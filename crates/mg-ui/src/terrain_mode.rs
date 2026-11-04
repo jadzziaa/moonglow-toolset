@@ -1543,6 +1543,14 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
         ui.weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
             .on_hover_text(if filter.is_empty() { "In this tileset's palette" } else { "Found" });
+        // A search typed opens every heading with a match, as it is typed
+        // (as the blueprint palettes' categories): closed after, they stay
+        // closed. (So does another tileset shown with the search there.)
+        let said = format!("{tileset}/{}", app.palette.filter);
+        let typed = crate::widgets::text_changed(ui, egui::Id::new("tile-palette-filter"), &said);
+        if typed && !filter.is_empty() {
+            fold = fold.or(Some(true));
+        }
         ui.separator();
         if ui.selectable_label(!gallery, "☰").on_hover_text("List: the brushes by name").clicked()
         {
@@ -1834,19 +1842,21 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
     }
     match item {
         PaletteItem::Folder { label, items } => {
-            // (What the search finds shows, opened out.)
+            // (What the search finds shows, opened out as it is typed,
+            // through `fold`, as the blueprint palettes' categories: they
+            // can be closed again after.)
             // (Its own while a search is typed: the search cleared, the
             // heading is open or closed as it was before.)
-            let open = if searching { Some(true) } else { at.fold };
             egui::CollapsingHeader::new(label.as_str())
                 .id_salt((tileset, depth, label.as_str(), searching))
                 .default_open(
-                    depth == 0
-                        && items
-                            .iter()
-                            .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })),
+                    searching
+                        || depth == 0
+                            && items.iter().any(|i| {
+                                matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })
+                            }),
                 )
-                .open(open)
+                .open(at.fold)
                 .show(ui, |ui| {
                     // The tools first (where tilesets list them varies),
                     // with Moonglow's Refine Tile beside the Eraser, then
@@ -1914,9 +1924,9 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id,
-                false,
+                searching,
             );
-            if let Some(open) = if searching { Some(true) } else { at.fold } {
+            if let Some(open) = at.fold {
                 state.set_open(open);
             }
             state
