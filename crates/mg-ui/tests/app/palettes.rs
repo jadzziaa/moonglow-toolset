@@ -388,6 +388,100 @@ fn palette_edit_copy_and_delete() {
     assert!(h.state().ws.as_ref().unwrap().module.contains(&copy));
 }
 
+/// Edit Copy's copy opens in its window, and the window's Cancel (or
+/// Escape) takes the copy back with what was changed in it, as one step:
+/// no copy and no palette entry, as Aurora's Edit Copy, which makes the
+/// copy at OK, leaves (captured, `edit-copy-cancel/`); Undo brings it back
+/// with its changes. OK keeps it (a builder trying properties to see the
+/// cost, 2026-11-04).
+#[test]
+fn edit_copy_s_cancel_takes_the_copy_back() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-copy-cancel");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.tiles = false;
+    let mut h = harness(app, 900.0, 700.0);
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    // Edit Copy of the standard Tavern waypoint, its copy made: its key.
+    let copy = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().palette.custom = false;
+        h.state_mut().palette.filter = "nw_wp_tavern".into();
+        h.run();
+        h.get_by_label(&tavern).click_secondary();
+        h.run();
+        h.get_by_label("Edit Copy…").click();
+        h.run();
+        let draft = h.state_mut().copy_as.as_mut().expect("the Copy window");
+        draft.tag = Some("MY_TAVERN".into());
+        let key = ResKey::parse(&draft.resref, ResType::UTW).unwrap();
+        h.get_by_label("Create Copy").click();
+        h.run_steps(3);
+        assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "made");
+        assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its window opened");
+        key
+    };
+    let has = |h: &Harness<'_, Moonglow>, key: &ResKey| {
+        h.state().ws.as_ref().unwrap().module.contains(key)
+    };
+    let open = |h: &Harness<'_, Moonglow>, key| h.state().dock.find_tab(&Tab::Blueprint(key));
+    // The custom palette's entries found by the copy's resref.
+    let listed = |h: &mut Harness<'_, Moonglow>, key: &ResKey| {
+        h.state_mut().palette.custom = true;
+        h.state_mut().palette.filter = key.resref.to_string();
+        h.run();
+        h.query_by_label("MY_TAVERN").is_some() || h.query_by_label(&tavern).is_some()
+    };
+
+    // Cancel, with the copy's tag changed in its window: no copy.
+    let key = copy(&mut h);
+    assert_eq!(key.resref.to_string(), "wp_tavern001");
+    h.get_all_by_value("MY_TAVERN").find(is_input).expect("the tag's field").click();
+    h.run();
+    h.key_press(egui::Key::End);
+    h.get_all_by_value("MY_TAVERN").find(is_input).unwrap().type_text("_X");
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(!has(&h, &key), "Cancel takes the copy back");
+    assert!(open(&h, key).is_none(), "and closes its window");
+    assert!(h.state().palette.selected.is_none(), "nothing of it is left to place");
+    assert!(!listed(&mut h, &key), "nor in the custom palette");
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!(ws.can_undo(), Some("Cancel Changes"), "one step");
+    // Undo brings it back, with the tag typed.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(has(&h, &key), "Undo brings it back");
+    let tag = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().root.string("Tag");
+    assert_eq!(tag.map(<[u8]>::to_vec), Some(b"MY_TAVERN_X".to_vec()), "with its change");
+    assert!(listed(&mut h, &key), "and its entry");
+
+    // Escape is the window's Cancel.
+    let key = copy(&mut h);
+    assert_eq!(key.resref.to_string(), "wp_tavern002", "the first is there again");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!has(&h, &key) && open(&h, key).is_none(), "Escape takes it back");
+
+    // OK keeps it, and so does closing its tab.
+    let key = copy(&mut h);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(has(&h, &key) && open(&h, key).is_none(), "OK keeps it");
+    assert!(listed(&mut h, &key));
+    let key = copy(&mut h);
+    close_windows(&mut h);
+    h.run_steps(3);
+    assert!(has(&h, &key), "its tab closed keeps it");
+}
+
 #[test]
 fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     use mg_edit::{Command, Edit};
@@ -938,6 +1032,19 @@ fn add_to_palette_create_waypoint_and_set() {
     let key = ResKey::new(new, ResType::UTP);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "the new blueprint");
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its editor opens");
+    // Its window's Cancel takes it back, and the chest names its own
+    // again, as Aurora's (which makes it at OK) leaves them (captured,
+    // `edit-copy-cancel/`); Undo brings both back.
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "taken back");
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_none(), "its editor closed");
+    let chest_now = git(&mut h).list("Placeable List").unwrap()[0].clone();
+    assert_eq!(chest_now.resref("TemplateResRef").unwrap().to_string(), "plc_chest1");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "Undo brings it back");
+    assert_eq!(git(&mut h).list("Placeable List").unwrap()[0], chest, "and names it");
 
     // Create Waypoint on the bandit, where the menu was opened.
     close_windows(&mut h);

@@ -7514,14 +7514,28 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
             }
         }
     }
-    let path = mg_edit::GffPath::root();
-    edits.push(mg_edit::Edit::remove_item(git, path.clone(), kind.list(), index));
-    edits.push(mg_edit::Edit::insert_item(git, path, kind.list(), index, added.instance));
+    // The object names it (and the items it holds theirs): the fields that
+    // change, set where it is, for its window's Cancel to set back.
+    let at = mg_edit::GffPath::root().item(kind.list(), index);
+    let label = |f: &mg_gff::Field| f.label.to_string_lossy();
+    let gone = placed.fields.iter().filter(|f| !added.instance.contains(&label(f)));
+    let gone = gone.map(|f| (label(f), None));
+    let changed = (added.instance.fields.iter())
+        .filter(|f| placed.get(&label(f)) != Some(&f.value))
+        .map(|f| (label(f), Some(f.value.clone())));
+    for (label, value) in gone.chain(changed).collect::<Vec<_>>() {
+        edits.push(mg_edit::Edit::SetField { key: git, path: at.clone(), label, value });
+    }
     let first = added.blueprints[0].0;
     let held = added.blueprints.len() - 1;
     let keys = added.blueprints.iter().map(|(k, _)| *k).collect();
     let made = crate::plugin_events::Made::resources("add-to-palette", keys);
-    app.actions.push(Action::ApplyMade(Command::new("Add to palette", edits), made));
+    // (With what the plugins do on what is made, in the same command.)
+    let cmd = crate::plugin_events::with_plugins(app, Command::new("Add to palette", edits), &made);
+    // Its window opens on it, whose Cancel takes it back, as Aurora's Add
+    // to Palette makes it only at OK.
+    crate::blueprint::note_made(app, first, &[(git, at)], &cmd);
+    app.actions.push(Action::Apply(cmd));
     app.actions.push(Action::OpenTab(crate::Tab::Blueprint(first)));
     app.log.info(if held > 0 {
         format!("Added {first} to the palette, and the {held} items it holds")

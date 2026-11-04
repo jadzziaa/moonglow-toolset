@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:25:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:34:02Z }
 ---
 
 # Blueprints
@@ -315,6 +315,14 @@ The palette's buttons:
   one is offered, after your builder code where you have one, named as
   Aurora's Edit Copy names it: without `nw_`, the first free number after
   the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
+  The copy's window keeps it with **OK** (or its tab's ×); its
+  **Cancel** (or Escape) takes the copy back with what you changed in
+  it, as one step that Undo takes back, so a copy made only to try
+  something leaves nothing behind, as in Aurora. The module tree's
+  **Copy…** of a blueprint, and an area object's **Add to Palette**
+  (the new blueprint, and the object named for it), do the same. A
+  wizard's blueprint is made at **Finish**, and stays when the window it
+  opens is cancelled, as in Aurora.
 - **Delete**: remove a custom blueprint from the module.
 - **The model in the page:** a placeable's and a door's Basic page and
   an item's Appearance page show the model beside their fields, in a
@@ -490,8 +498,14 @@ already, as it is when the window is closed by its ×); Cancel closes it
 and sets back the fields that were changed in it since it was opened, as
 one step that Undo takes back. What was changed somewhere else meanwhile
 (the same object moved in its area, another field set by a script or a
-plugin) stays. A placed object's Properties have the two as well, and so
-do several blueprints or objects edited together; the game's own
+plugin) stays. So you can try things and take them back: add, change or
+remove an item's properties to see what it would cost and the level it
+would ask for (its Total Cost and Required Level show each change), then
+press **Cancel** or Escape, and the item, its cost and level are as they
+were. (Aurora's window drops its changes when closed by its × too;
+Moonglow's tab × keeps them, as OK does.) A placed object's Properties
+have the two as well, and so do several blueprints or objects edited
+together; the game's own
 blueprint, shown to look at, has **Close**. Module Properties, Area
 Properties (of one area or several), the conversation editor, the
 journal, the faction editor and the raw fields view have the same two

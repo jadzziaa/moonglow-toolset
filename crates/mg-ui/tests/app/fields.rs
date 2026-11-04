@@ -736,6 +736,83 @@ fn a_properties_window_s_cancel_sets_back_what_it_changed() {
     assert_eq!(tag(&mut h), format!("{original}_Y"));
 }
 
+/// Properties tried on an item to see what it would cost (a builder,
+/// 2026-11-04): Cancel sets back those added, changed and removed, with
+/// the stored cost, and the cost and level shown are as they were, as
+/// Aurora's Cancel does (captured, `edit-copy-cancel/`: Total Cost 30 to
+/// 434 with Attack Bonus +1, back to 30).
+#[test]
+fn an_item_s_properties_tried_are_set_back_by_cancel() {
+    let Some((mut h, key)) = blueprint_harness("nw_wswmls002", "sword_try", ResType::UTI) else {
+        return;
+    };
+    let tab = Tab::Blueprint(key);
+    let props =
+        |h: &mut Harness<'_, Moonglow>| field(h, &key).list("PropertiesList").unwrap().to_vec();
+    // What the General page shows (Total Cost, Required Level and Lore
+    // among it).
+    let shown = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("General").click();
+        h.run();
+        let label = egui_kittest::kittest::by().role(egui::accesskit::Role::Label);
+        let values = h.query_all(label).filter_map(|n| n.accesskit_node().value());
+        values.collect::<Vec<_>>()
+    };
+    let add = |h: &mut Harness<'_, Moonglow>, kind: &str| {
+        h.get_all_by_label(kind).next().unwrap().scroll_to_me();
+        h.run();
+        h.get_all_by_label(kind).next().unwrap().click();
+        h.run();
+        h.get_by_label("Add").click();
+        h.run();
+    };
+    h.run();
+    // Keen added and kept (OK): the item has two properties.
+    h.get_by_label("Properties").click();
+    h.run();
+    add(&mut h, "Keen");
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(3);
+    let before = field(&mut h, &key);
+    assert_eq!(before.list("PropertiesList").map_or(0, <[_]>::len), 2, "Enhancement and Keen");
+    let was_shown = shown(&mut h);
+    // Tried: Keen removed, the Enhancement +1 made +3, Attack Bonus added.
+    h.get_by_label("Properties").click();
+    h.run();
+    h.get_all_by_label("Keen").last().unwrap().click();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    h.get_all_by_label_contains("Enhancement Bonus").last().unwrap().click();
+    h.run();
+    h.get_by_value("+1").scroll_to_me();
+    h.run();
+    h.get_by_value("+1").click();
+    h.run();
+    h.get_by_label("+3").click();
+    h.run();
+    add(&mut h, "Attack Bonus");
+    let tried = props(&mut h);
+    assert_eq!(tried.len(), 2);
+    assert_eq!(tried[0].integer("CostValue"), Some(3), "{tried:?}");
+    assert_ne!(field(&mut h, &key).integer("Cost"), before.integer("Cost"), "it costs more");
+    assert_ne!(shown(&mut h), was_shown, "and shows it");
+    // Cancel: as it was, stored and shown.
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let now = field(&mut h, &key);
+    assert_eq!(now.list("PropertiesList"), before.list("PropertiesList"), "the properties");
+    assert_eq!(now.integer("Cost"), before.integer("Cost"), "the cost");
+    assert_eq!(now, before, "the item as it was");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(3);
+    assert_eq!(shown(&mut h), was_shown, "shown as it was");
+}
+
 /// A text field typed in whose page goes away other than by a press of
 /// the pointer (a key, the window's page kept for it) sets its text as
 /// it goes (`Moonglow::held_text`), and that is among what the window's
