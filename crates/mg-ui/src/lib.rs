@@ -632,6 +632,10 @@ pub struct Moonglow {
     pub(crate) window_ids: HashMap<(mg_core::ResRef, mg_edit::GffPath), egui::Id>,
     /// What each open Properties window has changed, for its Cancel.
     pub(crate) properties_changed: blueprint::Changed,
+    /// The windows closed this frame whose Cancel is to be done, as
+    /// Options' "Closing a window cancels its changes" asks
+    /// (`blueprint::closing`): done after the frame's actions.
+    pub(crate) closing_cancels: Vec<((ResKey, mg_edit::GffPath), blueprint::WindowChanges)>,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
     pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
@@ -1125,6 +1129,7 @@ impl Moonglow {
             blueprint_pages: Default::default(),
             window_ids: Default::default(),
             properties_changed: Default::default(),
+            closing_cancels: Vec::new(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
             dialog_views: HashMap::new(),
@@ -1802,7 +1807,7 @@ impl Moonglow {
         self.properties_changed.retain(|_, changes| {
             dock.find_tab(&changes.tab).is_some() || (changes.opening && opening(&changes.tab))
         });
-        if !self.actions.is_empty() {
+        if !self.actions.is_empty() || !self.closing_cancels.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
             ui.ctx().request_repaint();
@@ -2233,6 +2238,11 @@ impl Moonglow {
                 }
                 _ => self.tile_props = None,
             }
+        }
+        // (Closed with what it changed: set back as its Cancel does, when
+        // asked for, as Aurora's close button does.)
+        if self.settings.close_cancels {
+            blueprint::closing(self, tab);
         }
         self.may_close_side(tab)
     }
@@ -3408,6 +3418,7 @@ impl Moonglow {
         self.script_tools.seen.clear();
         self.buffers.clear();
         self.properties_changed.clear();
+        self.closing_cancels.clear();
         self.talk = None;
         self.talk_view = Default::default();
         self.typed.forget();
@@ -3516,6 +3527,9 @@ impl Moonglow {
         for a in actions {
             self.run(a);
         }
+        // (Windows closed as their Cancel, once what they asked for is
+        // done.)
+        blueprint::cancel_closed(self);
         // (A tab of the middle closed just now: its place is kept at once.)
         self.keep_middle();
     }

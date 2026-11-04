@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
 ---
 
 # The main window
@@ -440,7 +440,11 @@ for **Close Others**, **Close Tabs to the Right** and **Close All** (the
 tabs of its pane), and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
-the module's area list), and its tab with it.
+the module's area list), and its tab with it. A window with **OK** and
+**Cancel** closed by its tab's ×, Close, Close Others, Close Tabs to the
+Right, Close All or Ctrl+W keeps what was changed in it, as OK does;
+with **Closing a window cancels its changes (as Aurora)** on in
+Options › General, it does what its Cancel does instead.
 
 **The tab keys** work on the pane with the focus when it has more than
 one tab, else on the main pane's: Ctrl+W (or Ctrl+F4) closes the tab in

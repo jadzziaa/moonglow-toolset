@@ -58,8 +58,8 @@ fn put_back(removed: &[u32]) -> impl Fn(u32) -> Option<u32> + use<> {
 }
 
 /// The edits that number the objects the window's removals renumbered as
-/// they were, for its Cancel (`window_drawn_but`'s `more`).
-fn numbered_back(app: &mut Moonglow) -> Vec<mg_edit::Edit> {
+/// they were, for its Cancel (`blueprint::cancel_more`).
+pub(crate) fn numbered_back(app: &mut Moonglow) -> Vec<mg_edit::Edit> {
     let cancel = &app.faction_view.cancel;
     let Some(ws) = app.ws.as_mut().filter(|_| cancel.steps.iter().any(|(r, _)| r.is_some())) else {
         return Vec::new();
@@ -191,9 +191,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     editor(app, ui);
     let tab = crate::Tab::Factions;
     let pressed = pressed.flatten();
-    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &[], |app, _| {
-        numbered_back(app)
-    });
+    // (What its Cancel adds: `numbered_back`, `blueprint::cancel_more`.)
+    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &[]);
 }
 
 fn editor(app: &mut Moonglow, ui: &mut Ui) {

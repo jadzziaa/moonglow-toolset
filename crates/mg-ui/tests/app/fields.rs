@@ -736,6 +736,160 @@ fn a_properties_window_s_cancel_sets_back_what_it_changed() {
     assert_eq!(tag(&mut h), format!("{original}_Y"));
 }
 
+/// With Options › General's "Closing a window cancels its changes" on, a
+/// Properties window closed other than by OK (its tab's ×, Ctrl+W, the
+/// tab's Close or Close All) sets back what it changed as its Cancel does,
+/// as Aurora's close button does (a builder's report, captured,
+/// `edit-copy-cancel/`): one step, which Undo takes back; what was typed
+/// in a field not left yet goes too; a window with nothing changed just
+/// closes; OK still keeps. Off (the default), the × keeps the changes.
+#[test]
+fn closing_a_window_cancels_its_changes_when_asked() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_close", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let tab = Tab::Blueprint(key);
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        String::from_utf8_lossy(field(h, &key).string("Tag").unwrap_or_default()).into_owned()
+    };
+    let type_tag = |h: &mut Harness<'_, Moonglow>, more: &str| {
+        let was = tag(h);
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(&*was)
+        };
+        let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.key_press(egui::Key::End);
+        h.event(egui::Event::Text(more.into()));
+        h.run_steps(2);
+    };
+    let reopen = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(4);
+    };
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let before = field(&mut h, &key);
+    let original = tag(&mut h);
+
+    // Off: the × keeps what was changed, as OK does.
+    assert!(!h.state().settings.close_cancels, "off by default");
+    type_tag(&mut h, "_K");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    click_tab_close(&mut h, &tab);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(tag(&mut h), format!("{original}_K"), "kept");
+    let kept = tag(&mut h);
+
+    // On: the × is its Cancel. Two changes, the tag's field left.
+    h.state_mut().settings.close_cancels = true;
+    reopen(&mut h);
+    type_tag(&mut h, "_X");
+    h.get_by_label("Plot").click();
+    h.run_steps(3);
+    assert_eq!(tag(&mut h), format!("{kept}_X"));
+    assert_ne!(field(&mut h, &key).integer("Plot"), before.integer("Plot"));
+    click_tab_close(&mut h, &tab);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(tag(&mut h), kept, "the tag is set back");
+    assert_eq!(field(&mut h, &key).integer("Plot"), before.integer("Plot"), "and Plot");
+    assert_eq!(undoable(&h).as_deref(), Some("Cancel Changes"), "as one step");
+    // Undo brings them back.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(tag(&mut h), format!("{kept}_X"), "Undo brings back the tag");
+    assert_ne!(field(&mut h, &key).integer("Plot"), before.integer("Plot"), "and Plot");
+    let undone = tag(&mut h);
+
+    // Ctrl+W with text typed and its field not left yet: what was typed
+    // is not kept.
+    reopen(&mut h);
+    type_tag(&mut h, "_W");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "the tab is closed");
+    assert_eq!(tag(&mut h), undone, "what was typed is not kept");
+
+    // Close All (as the tab's menu has it) does the same.
+    reopen(&mut h);
+    h.get_by_label("Plot").click();
+    h.run_steps(3);
+    let plot = field(&mut h, &key).integer("Plot");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&tab).is_none());
+    assert_ne!(field(&mut h, &key).integer("Plot"), plot, "set back");
+
+    // OK still keeps.
+    reopen(&mut h);
+    type_tag(&mut h, "_Y");
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), format!("{undone}_Y"), "OK keeps");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+
+    // Nothing changed: it just closes, no step of its own.
+    let last = undoable(&h);
+    reopen(&mut h);
+    click_tab_close(&mut h, &tab);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(undoable(&h), last, "nothing to set back");
+
+    // The tab's × with text typed and its field not left yet: the press
+    // takes the keyboard from the field, which sets its text, and that is
+    // set back too.
+    reopen(&mut h);
+    type_tag(&mut h, "_Z");
+    click_tab_close(&mut h, &tab);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(tag(&mut h), format!("{undone}_Y"), "what was typed is not kept");
+
+    // The window's own close button, with a 2DA of unsaved changes among
+    // its tabs: the 2DA asks, the window stays, and what was changed in
+    // the Properties is still their Cancel's to set back.
+    let table = ResKey::parse("mine", ResType::TWODA).unwrap();
+    let data = Some(b"2DA V2.0\n\n  A\n0 one\n".to_vec());
+    let made = mg_edit::Edit::SetResource { key: table, data };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("2DA", vec![made])));
+    reopen(&mut h);
+    h.get_by_label("Plot").click();
+    h.run_steps(3);
+    let tried = field(&mut h, &key).integer("Plot");
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), table).unwrap();
+    h.run_steps(4);
+    let dock = &mut h.state_mut().dock;
+    let at = dock.find_tab(&Tab::Table(id)).unwrap();
+    dock.remove_tab(at);
+    let window = dock.find_tab(&tab).unwrap().node_path();
+    dock.set_focused_node_and_surface(window);
+    dock.push_to_focused_leaf(Tab::Table(id));
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(0, 0, Some("two".into())).unwrap();
+    h.run_steps(2);
+    click_window_close(&mut h, &tab);
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&tab).is_some(), "the window stays");
+    assert_eq!(field(&mut h, &key).integer("Plot"), tried, "nothing set back");
+    h.get_by_label("Don't Save").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Table(id)).is_none(), "the 2DA closed");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(3);
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert_ne!(field(&mut h, &key).integer("Plot"), tried, "its Cancel sets it back");
+}
+
 /// Properties tried on an item to see what it would cost (a builder,
 /// 2026-11-04): Cancel sets back those added, changed and removed, with
 /// the stored cost, and the cost and level shown are as they were, as
@@ -811,6 +965,38 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
     h.run_steps(3);
     assert_eq!(shown(&mut h), was_shown, "shown as it was");
+}
+
+/// The same with "Closing a window cancels its changes" on and the tab's
+/// × (Aurora's close button drops them too, captured): a property added,
+/// with its cost, set back; Undo brings it back.
+#[test]
+fn an_item_s_properties_tried_are_set_back_by_its_close_when_asked() {
+    let Some((mut h, key)) = blueprint_harness("nw_wswmls002", "sword_close", ResType::UTI) else {
+        return;
+    };
+    h.state_mut().settings.close_cancels = true;
+    let tab = Tab::Blueprint(key);
+    h.run();
+    let before = field(&mut h, &key);
+    h.get_by_label("Properties").click();
+    h.run();
+    h.get_all_by_label("Attack Bonus").next().unwrap().scroll_to_me();
+    h.run();
+    h.get_all_by_label("Attack Bonus").next().unwrap().click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    let tried = field(&mut h, &key);
+    assert_ne!(tried.list("PropertiesList"), before.list("PropertiesList"), "added");
+    assert_ne!(tried.integer("Cost"), before.integer("Cost"), "it costs more");
+    click_tab_close(&mut h, &tab);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(field(&mut h, &key), before, "the item as it was, its cost too");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(field(&mut h, &key), tried, "Undo brings it back");
 }
 
 /// A text field typed in whose page goes away other than by a press of
@@ -1153,14 +1339,47 @@ fn the_raw_fields_view_s_cancel_sets_back_its_change() {
     h.run_steps(4);
     assert_eq!(tag(&mut h), original, "set back");
     assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_none(), "closed");
+    // Its tab's ×, with "Closing a window cancels its changes": the same.
+    h.state_mut().settings.close_cancels = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(key)));
+    h.run_steps(4);
+    let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_S".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(tag(&mut h), format!("{original}_S"), "set");
+    click_tab_close(&mut h, &Tab::Gff(key));
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), original, "set back by its ×");
+    assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_none(), "closed");
 }
 
 /// The other editors have OK and Cancel too: Cancel sets back what the
 /// window changed (a file it made is gone again), and closes it.
 #[test]
 fn the_editors_cancel_sets_back_what_they_changed() {
+    editors_set_back(false);
+}
+
+/// With Options' "Closing a window cancels its changes" on, each editor's
+/// tab × does as its Cancel (Aurora's close button does): the journal,
+/// a conversation, the factions, Area and Module Properties. A 2DA's ×
+/// asks about its unsaved changes, as without it.
+#[test]
+fn the_editors_closed_set_back_what_they_changed_when_asked() {
+    editors_set_back(true);
+}
+
+/// [`the_editors_cancel_sets_back_what_they_changed`], by Cancel or, with
+/// `close`, by the tab's × with "Closing a window cancels its changes".
+fn editors_set_back(close: bool) {
     use mg_module::dialog::{Parent, add_node, new_dialog};
-    let dir = mg_testkit::scratch_dir("ui-editors-cancel");
+    let dir = mg_testkit::scratch_dir(if close { "ui-editors-close" } else { "ui-editors-cancel" });
     let path = sample_module(&dir);
     let talk = ResKey::parse("talk", ResType::DLG).unwrap();
     let mut g = new_dialog();
@@ -1171,6 +1390,7 @@ fn the_editors_cancel_sets_back_what_they_changed() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
+    app.settings.close_cancels = close;
     app.open_module(&path);
     // (One window with OK and Cancel at a time.)
     close_tab(&mut app, &Tab::ModuleProperties);
@@ -1181,7 +1401,11 @@ fn the_editors_cancel_sets_back_what_they_changed() {
         h.run_steps(4);
     };
     let cancel = |h: &mut Harness<'_, Moonglow>, tab: &Tab| {
-        h.get_by_label("Cancel").click();
+        if close {
+            click_tab_close(h, tab);
+        } else {
+            h.get_by_label("Cancel").click();
+        }
         h.run_steps(4);
         assert!(h.state().dock.find_tab(tab).is_none(), "{tab:?} closed");
     };
@@ -1306,7 +1530,11 @@ fn the_editors_cancel_sets_back_what_they_changed() {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         doc.edit.set(0, 0, Some("two".into())).unwrap();
         h.run_steps(2);
-        h.get_by_label(press).click();
+        if close && press == "Cancel" {
+            click_tab_close(&mut h, &Tab::Table(id));
+        } else {
+            h.get_by_label(press).click();
+        }
         h.run_steps(4);
         if press == "Cancel" {
             h.get_by_label("Don't Save").click();

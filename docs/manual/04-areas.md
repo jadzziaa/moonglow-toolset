@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:34:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
 ---
 
 # Areas
@@ -651,8 +651,9 @@ Aurora):
     its blueprint's without a reserved prefix (`nw_`, `plc_`, `x0_`…)
     where that name is free (`nw_waypoint001` gives `waypoint001`), else
     numbered (`mgp_utd001`). The new blueprint opens in its window: OK
-    keeps it, and its Cancel (or Escape) takes it back, the instance
-    naming its blueprint as before, as in Aurora.
+    keeps it, and its Cancel (or Escape; its tab's × too with
+    Options' **Closing a window cancels its changes**) takes it back,
+    the instance naming its blueprint as before, as in Aurora.
   - **Reuse › Export as Blueprint…**: the instance written into an
     archive (`.erf`) as a blueprint of its own, made and named as Add to
     Palette makes one (with the items it holds, each an item blueprint),

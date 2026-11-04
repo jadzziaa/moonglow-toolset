@@ -601,6 +601,12 @@ pub struct Settings {
     /// object's) opens in a window of its own (off: as a tab of the
     /// window one is open in already).
     pub properties_own_windows: bool,
+    /// Options > General: Closing a window cancels its changes. A window
+    /// with OK and Cancel closed other than by them (its tab's ×, Close,
+    /// Close All, Ctrl+W) sets back what it changed, as its Cancel and
+    /// Aurora's close button do (`blueprint::closing`). Off by default:
+    /// closing keeps the changes, as OK does.
+    pub close_cancels: bool,
     /// Options > Conversation Editor: each conversation opens in a window
     /// of its own (off: as a tab of the window one is open in already).
     pub dialogs_own_windows: bool,
@@ -956,6 +962,18 @@ mod tests {
         let kept = Settings { animate_unfocused: true, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&kept).unwrap()).unwrap();
         assert!(back.animate_unfocused);
+    }
+
+    /// Closing a window cancels its changes: off by default and for
+    /// settings saved before it was; on, kept.
+    #[test]
+    fn closing_a_window_cancels_is_off_by_default_and_kept() {
+        assert!(!Settings::default().close_cancels);
+        let old: Settings = serde_json::from_str(r#"{"properties_own_windows":true}"#).unwrap();
+        assert!(!old.close_cancels);
+        let on = Settings { close_cancels: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(back.close_cancels);
     }
 
     #[test]
