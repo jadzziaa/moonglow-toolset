@@ -112,12 +112,12 @@ fn act(
             let (fu, fv) = (u.fract(), v.fract());
             let distances = [fv, 1.0 - fu, 1.0 - fv, fu];
             let edge = (0..4).min_by(|&a, &b| distances[a].total_cmp(&distances[b])).unwrap();
-            grid.draw_crosser(index, &[(cell, edge)], &[], c)
+            grid.lay_crosser(index, &[(cell, edge)], &[], c).0
         }
         Brush::Crosser(c) => {
             let path: Vec<(u32, u32)> = step["path"].as_array().unwrap().iter().map(at).collect();
             let edges = path_edges(&path).expect("a path of neighbouring cells");
-            grid.draw_crosser(index, &edges, &path[..1], c)
+            grid.lay_crosser(index, &edges, &path[..1], c).0
         }
         Brush::Eraser => {
             let (x, y) = at(&step["cell"]);

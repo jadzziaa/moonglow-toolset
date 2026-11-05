@@ -99,6 +99,10 @@ impl PartialEq for Grid {
     }
 }
 
+/// A cell and one of its edges (from [`SOUTH`](crate::SOUTH) counter-clockwise):
+/// the quarter of the cell by that edge.
+pub type Quarter = ((u32, u32), usize);
+
 /// A change a brush makes: the lattice after it and the cells that get new
 /// tiles.
 #[derive(Debug, Clone, PartialEq)]
@@ -243,6 +247,74 @@ impl Grid {
             }
         }
         self.stroke(index, lattice, BTreeSet::new(), cells)
+    }
+
+    /// [`Grid::draw_crosser`] as Aurora's brush lays it: edge by edge, in
+    /// the order the drag passed them, each on what those before it left.
+    /// An edge no tile fits is held and tried again with the next (a
+    /// stream across a road fits only both sides at once, as a bridge);
+    /// one that fits neither with them nor alone is passed over, and the
+    /// rest laid (a road dragged on into a wall stops at the wall; one
+    /// dragged through a room goes on beyond it). Returns the stroke,
+    /// `None` when no edge is laid ([`Grid::blocked`] then the tiles that
+    /// refused), and the edges passed over.
+    pub fn lay_crosser(
+        &self,
+        index: &TileIndex,
+        edges: &[((u32, u32), usize)],
+        click: &[(u32, u32)],
+        crosser: Crosser,
+    ) -> (Option<Stroke>, Vec<Quarter>) {
+        if !self.all_inside(edges.iter().map(|(c, _)| c).chain(click)) {
+            return (None, edges.to_vec());
+        }
+        let mut lattice = self.lattice.clone();
+        let mut cells: Vec<(u32, u32)> = click.to_vec();
+        let (mut laid, mut held, mut blocked) = (false, Vec::new(), Vec::new());
+        // The lattice and cells with `with` laid on what is laid so far,
+        // if every tile they touch fits.
+        let tried = |lattice: &Lattice, cells: &[(u32, u32)], with: &[((u32, u32), usize)]| {
+            let mut l = lattice.clone();
+            let mut more = cells.to_vec();
+            for &((x, y), edge) in with {
+                l.set_edge(x, y, edge, Some(crosser));
+                for c in std::iter::once((x, y)).chain(beside(&l, x, y, edge)) {
+                    if !more.contains(&c) {
+                        more.push(c);
+                    }
+                }
+            }
+            let fits = self.stroke(index, l.clone(), BTreeSet::new(), more.clone()).is_some();
+            fits.then_some((l, more))
+        };
+        for &e in edges {
+            let mut with = held.clone();
+            with.push(e);
+            if let Some(t) = tried(&lattice, &cells, &with) {
+                (lattice, cells) = t;
+                (laid, held) = (true, Vec::new());
+            } else if let Some(t) =
+                (!held.is_empty()).then(|| tried(&lattice, &cells, &[e])).flatten()
+            {
+                (lattice, cells) = t;
+                laid = true;
+            } else {
+                if !held.contains(&e) {
+                    held.push(e);
+                }
+                for c in self.blocked() {
+                    if !blocked.contains(&c) {
+                        blocked.push(c);
+                    }
+                }
+            }
+        }
+        // (Those still held at the end are the ones passed over.)
+        if !laid {
+            *self.blocked.borrow_mut() = blocked;
+            return (None, held);
+        }
+        (self.stroke(index, lattice, BTreeSet::new(), cells), held)
     }
 
     /// The Eraser on cell (x, y): the crossers on its edges go and its tile
@@ -1289,6 +1361,40 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert_eq!(rules.apply(placed, next), Some(Corner { terrain: a, height: 4 }));
         // Two steps apart: no rule.
         assert_eq!(rules.apply(placed, Corner { terrain: a, height: 2 }), None);
+    }
+
+    #[test]
+    fn a_crosser_is_laid_as_far_as_tiles_fit_it() {
+        // As Aurora's brush lays it (aurora_terrain's drags).
+        let set = set();
+        let index = TileIndex::new(&set);
+        let mut g = grid(&index, 5);
+        let (r, s) = (index.crosser("R").unwrap(), index.crosser("S").unwrap());
+        let road = |path: &[(u32, u32)]| path_edges(path).unwrap();
+        // A road on round a corner, which no tile turns: refused whole,
+        // laid as far as the corner.
+        let path = road(&[(1, 2), (2, 2), (3, 2), (3, 3)]);
+        assert!(g.draw_crosser(&index, &path, &[], r).is_none());
+        let (stroke, passed) = g.lay_crosser(&index, &path, &[], r);
+        assert_eq!(passed, path[2..], "the turn passed over");
+        apply(&mut g, &index, |_| stroke);
+        let row: Vec<Option<Crosser>> =
+            (0..5).map(|x| g.lattice.cell(x, 2).edges[crate::WEST]).collect();
+        assert_eq!(row, [None, None, Some(r), Some(r), None]);
+        assert_eq!(g.lattice.cell(3, 3).edges, [None; 4]);
+        // A stream across it: half a crossing fits no tile, so the first
+        // side is held and laid with the second.
+        let path = road(&[(2, 1), (2, 2), (2, 3)]);
+        assert!(g.lay_crosser(&index, &path[..1], &[], s).0.is_none(), "half a crossing");
+        let (stroke, passed) = g.lay_crosser(&index, &path, &[], s);
+        assert!(passed.is_empty());
+        apply(&mut g, &index, |_| stroke);
+        assert_eq!(g.lattice.cell(2, 2).edges, [Some(s), Some(r), Some(s), Some(r)]);
+        // Nothing that fits: refused, the tiles in the way blocked.
+        let (stroke, passed) = g.lay_crosser(&index, &road(&[(3, 2), (3, 3)]), &[], r);
+        assert!(stroke.is_none());
+        assert_eq!(passed.len(), 1);
+        assert!(!g.blocked().is_empty());
     }
 
     #[test]

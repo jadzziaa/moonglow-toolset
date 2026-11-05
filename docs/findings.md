@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:25:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -539,7 +539,13 @@ What lines ending each way in one file do was not measured.
   per edge; the crosser goes on the edge of every quarter the drag passes
   through, the first included. A click without moving puts it on the
   edge of the quarter clicked (refused, it changes nothing; Aurora's
-  cursor, the quarter, is red there).
+  cursor, the quarter, is red there). It is laid edge by edge as the
+  drag goes, each on what came before: an edge no tile fits is held and
+  tried again with the next (a stream across a road fits only both
+  sides at once, a bridge), one that fits neither with it nor alone is
+  passed over, and the rest of the drag is laid (a road dragged into a
+  wall stops at it; a corridor dragged through a room goes on beyond).
+  A drag is refused only when none of it fits.
 - **Eraser:** acts on the tile, not a corner, and does not paint the
   Default terrain: it clears the tile's crossers and re-picks it and its
   neighbours across the cleared edges; a tile that then fits nothing loses
@@ -550,8 +556,9 @@ What lines ending each way in one file do was not measured.
   Tile0 (its lowest corner), overwriting the terrain and re-picking the
   tiles around.
 
-- **Checked:** Aurora, `aurora_terrain.rs` `painting_matches_aurora` (67
-  scripted steps in four tilesets, five of them crosser clicks, and eight
+- **Checked:** Aurora, `aurora_terrain.rs` `painting_matches_aurora` (73
+  scripted steps in four tilesets, five of them crosser clicks and six
+  drags partly refused, and eight
   group placements); game data
   (770 group placements).
 - **Moonglow:** `crates/mg-tiles/src/paint.rs`.

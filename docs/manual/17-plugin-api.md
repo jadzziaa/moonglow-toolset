@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels, ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:14:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
 ---
 
 # Plugin API reference
@@ -582,7 +582,7 @@ from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
 | `area:raise(x, y, steps?)` | Raise on a corner, `steps` times (once; a negative number lowers). Corners around follow so that no two neighbors are more than a step apart. False when a step was refused (those before it stay). |
 | `area:set_height(x, y, height)` | Raises or lowers a corner until it is `height` steps high. False when it could not get there. |
 | `area:place_group(group, x, y, turns?)` | A group of the tileset (by name) with its first tile in cell (x, y), turned `turns` quarter turns, as placing it from the palette. False when it doesn't fit. Over part of another group, it takes that one away whole. |
-| `area:cross(crosser, path)` | A crosser drawn through cells, as the crosser brush dragged through them: `path` is a list of cells, each beside the one before (`{ { 1, 5 }, { 1, 6 }, { 2, 6 } }`), and the crosser goes on the edges between them. False when a cell on the way has no tile for it. |
+| `area:cross(crosser, path)` | A crosser drawn through cells, as the crosser brush dragged through them: `path` is a list of cells, each beside the one before (`{ { 1, 5 }, { 1, 6 }, { 2, 6 } }`), and the crosser goes on the edges between them, all or none: false when a cell on the way has no tile for it (where the brush, as Aurora's, would lay the rest). |
 | `area:erase(x, y)` | The Eraser on a cell: its crossers go, and a group or a feature that has a tile there goes whole. False when refused. |
 | `area:set_tile(x, y, id, orientation?, height?)` | Puts one tile into a cell as it is given, whether it fits its neighbors or not. |
 | `area:batch(f)` | Calls `f()` with the area's strokes held (since API 0.5): its tiles are read once, each stroke made on them as `f` goes (`corner` and `tile` read what they left; `ctx.module` reads the area as it was until `f` returns), and the tiles that changed go in when it returns, as one edit of its tile list. If `f` fails, none of them go in. A `set_tile` in it puts in the strokes before it first. Returns what `f` returns. |

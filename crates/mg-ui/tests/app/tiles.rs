@@ -1764,6 +1764,69 @@ fn a_crosser_click_lays_it_on_the_edge_of_the_quarter_clicked() {
 }
 
 #[test]
+fn a_crosser_drag_lays_what_fits_and_passes_over_the_rest() {
+    // As Aurora's brush (aurora_terrain's drags): a doorway dragged along
+    // the row of the area's stone room, which takes none on two of its
+    // sides. Refused whole before; now the rest is laid, and the quarters
+    // passed over are red while the drag lasts.
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness_on("crosser-lay", "tic01", None) else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    h.get_by_label("Doorway").click();
+    h.run_steps(2);
+    let doorway = index.crosser("Doorway").expect("tic01's Doorway");
+    let red = egui::Color32::from_rgb(230, 60, 60);
+    let before = grid(&mut h);
+
+    let from = screen(&h, area, Vec3::new(5.0, 15.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(2);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    let mut x = 7.0;
+    while x <= 35.0 {
+        h.hover_at(screen(&h, area, Vec3::new(x, 15.0, 0.0)));
+        h.run_steps(1);
+        x += 2.0;
+    }
+    h.run_steps(2);
+    let view = &h.state().area_views[&area];
+    let quarters = view.crossing.clone();
+    let colors: Vec<egui::Color32> = view.brush_cursor.iter().map(|(_, c)| *c).collect();
+    let (whole, (laid, passed)) = (
+        before.draw_crosser(&index, &quarters, &[], doorway),
+        before.lay_crosser(&index, &quarters, &[], doorway),
+    );
+    assert!(whole.is_none(), "the drag is refused as a whole: {quarters:?}");
+    let laid = laid.expect("some of it fits");
+    assert!(!passed.is_empty());
+    assert!(colors.contains(&red), "the quarters passed over red: {colors:?}");
+    let to = screen(&h, area, Vec3::new(35.0, 15.0, 0.0));
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let l = grid(&mut h).lattice;
+    assert_ne!(l, before.lattice, "something laid");
+    for y in 0..4 {
+        for x in 0..4 {
+            assert_eq!(l.cell(x, y).edges, laid.lattice.cell(x, y).edges, "({x}, {y})");
+        }
+    }
+}
+
+#[test]
 fn the_eraser_erases_every_tile_it_is_dragged_across() {
     use glam::Vec3;
     use mg_tiles::TileIndex;

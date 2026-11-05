@@ -391,7 +391,7 @@ pub struct AreaView {
     /// Where the pointer is, for the tileset brushes.
     pub(crate) spot: Option<crate::terrain_mode::Spot>,
     /// The quarters of tiles a crosser drag has passed (tile and edge).
-    pub(crate) crossing: Vec<((u32, u32), usize)>,
+    pub crossing: Vec<((u32, u32), usize)>,
     /// Where the crosser drag's pointer was last (on the ground).
     pub(crate) crossing_at: Option<Vec3>,
     /// Shift is held in a crosser drag: the tile under the pointer, the

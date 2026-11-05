@@ -591,7 +591,7 @@ fn stroke(
         }
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
         Brush::Crosser(c) => {
-            (grid.draw_crosser(&tools.index, &[(spot.cell, spot.edge)], &[], c), label)
+            (grid.lay_crosser(&tools.index, &[(spot.cell, spot.edge)], &[], c).0, label)
         }
         Brush::Group(g) => {
             let group = &tools.set.groups[g];
@@ -1124,7 +1124,9 @@ fn terrain_drag(
 }
 
 /// A crosser drag's stroke along `edges` (its quarters; one alone, a
-/// click's: the crosser on that quarter's edge, as Aurora's click).
+/// click's: the crosser on that quarter's edge, as Aurora's click), laid
+/// as Aurora lays it: what no tile fits passed over, the rest laid
+/// (`Grid::lay_crosser`).
 fn crosser_stroke(
     tools: &Tools,
     g: &Grid,
@@ -1135,7 +1137,7 @@ fn crosser_stroke(
     if edges.is_empty() {
         return None;
     }
-    g.draw_crosser(&tools.index, &edges, &[], c)
+    g.lay_crosser(&tools.index, &edges, &[], c).0
 }
 
 /// A terrain drag's strokes, corner (or tile) by corner in order, each on
@@ -1371,8 +1373,16 @@ fn cursor_shapes(
     };
     let ok = Color32::from_rgb(80, 220, 80);
     let refused = Color32::from_rgb(230, 60, 60);
-    for (cell, edge) in crossing_shown(view) {
-        quarter(cell, edge, Color32::from_rgb(240, 200, 60));
+    // A crosser drag's quarters, red where no tile fits them: letting go
+    // passes over those and lays the rest.
+    let crossing = crossing_shown(view);
+    let passed = match (crossing.is_empty(), brush.brush) {
+        (false, Brush::Crosser(c)) => g.lay_crosser(&tools.index, &crossing, &[], c).1,
+        _ => Vec::new(),
+    };
+    for (cell, edge) in crossing {
+        let red = passed.contains(&(cell, edge));
+        quarter(cell, edge, if red { refused } else { Color32::from_rgb(240, 200, 60) });
     }
     // A terrain drag's marked corners (the squares round them), or tiles.
     if let Some(drag) = &view.terrain_drag {
@@ -1399,7 +1409,7 @@ fn cursor_shapes(
                     ok
                 } else if there {
                     CYCLE
-                } else if g.draw_crosser(&tools.index, &[(cell, edge)], &[], c).is_none() {
+                } else if g.lay_crosser(&tools.index, &[(cell, edge)], &[], c).0.is_none() {
                     refused
                 } else {
                     ok

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:25:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
 ---
 
 # Areas
@@ -976,7 +976,10 @@ as Aurora's Terrain tab does:
   doorway in a wall is one click on the wall where it goes. The cursor
   is the quarter of the tile by that side, red where no tile fits the
   crosser there. Drag to lay one along a way: it follows the
-  pointer through the tiles it passes. A drag straight across a tile may
+  pointer through the tiles it passes, and where the tileset has no tile
+  for it (a road into a wall, a corridor through a room) it is passed
+  over there and laid on either side, as Aurora lays it; those quarters
+  are red while you drag. A stream across a road is laid as a bridge. A drag straight across a tile may
   wander up to 2.5 m off its middle. To turn within a tile, head for the
   side it should leave by. Running the drag back over its path lets go of
   what it passed. Shift + drag lays it round the outline of the rectangle
