@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:08:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:22:06Z }
 ---
 
 # The main window
@@ -498,7 +498,9 @@ put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the
 right of the window's bar, before its ✕, does it and shows which it is:
 🗖 Maximize, 🗗 Restore. **Ctrl+Shift+M** (Maximize Window in Options ›
-Keyboard) does it for the window of the tab in front. A maximized
+Keyboard) does it for the window of the tab in front. Any window does
+this, one of a tab dragged out of a pane (the main pane's Module
+Properties too) as well. A maximized
 window stays over the whole of Moonglow's window as that is resized. **The module tree
 follows the tab chosen**: a tab clicked, reached by the keys (Ctrl+Tab,
 Ctrl+Page Down, Ctrl and a digit) or opened (from the tree, a script

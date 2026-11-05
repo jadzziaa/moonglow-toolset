@@ -995,6 +995,9 @@ pub struct Moonglow {
     pub(crate) closed_tabs: Vec<Tab>,
     /// Where each window (by its first tab) is.
     windows: HashMap<Tab, WindowTrack>,
+    /// The width of a window's frame round its panes (its stroke: the dock
+    /// gives its windows no margin), for following a window egui_dock made.
+    window_frame: f32,
     /// Where the panes are drawn (under the toolbar, beside the tree).
     dock_rect: Option<egui::Rect>,
     /// The resources waiting for the answer to "delete it?" (one, or those
@@ -1287,6 +1290,7 @@ impl Moonglow {
             panes_tabs: Vec::new(),
             closed_tabs: Vec::new(),
             windows: HashMap::new(),
+            window_frame: 1.0,
             dock_rect: None,
             confirm_delete: None,
             quit_requested: false,
@@ -1666,6 +1670,8 @@ impl Moonglow {
             // window as tall as its tab bar, margin included, which left
             // half the bar (and half the arrow that opens it again).
             ui.spacing_mut().window_margin = egui::Margin::ZERO;
+            // (What is left of the frame round a window's panes: its stroke.)
+            self.window_frame = ui.visuals().window_stroke.width;
             self.pass_covered_arrow(ui.ctx());
             {
                 let mut viewer = tabs::Viewer { app: self };
@@ -2746,7 +2752,15 @@ impl Moonglow {
             .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
             .collect();
         for (tab, panes) in self.window_panes() {
-            let Some(track) = self.windows.get_mut(&tab) else { continue };
+            // A window Moonglow didn't open (a tab dragged out of a pane,
+            // the main pane's too, into a window of its own: egui_dock's)
+            // is followed from where it is, its panes inside its frame (a
+            // builder's report: without, Maximize did nothing on it).
+            let frame = self.window_frame;
+            let track = self.windows.entry(tab.clone()).or_insert_with(|| {
+                let put = panes.expand(frame);
+                WindowTrack { put, seen: Some(panes), first: Some(panes), now: put, aim: None }
+            });
             // (Once it has settled there: a window is a frame or two in
             // getting where it was put.)
             let settled = track.seen.replace(panes) == Some(panes);

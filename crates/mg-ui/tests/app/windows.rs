@@ -2218,6 +2218,88 @@ fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
     assert!(kept[0] as f32 <= first.width() - 80.0, "the dragged size kept: {kept:?}");
 }
 
+/// El Grillo's report: Module Properties, docked in the main pane as a
+/// module opens, "ejected" (its tab dragged out into a window of its own)
+/// was maximized neither by a double click on the window's bar nor by its
+/// Maximize button. Moonglow followed a window by the tab it opened it
+/// for, and a window egui_dock makes of a tab dragged out had nothing to
+/// follow. Dragged out (egui_dock's `detach_tab`, as its drag does), its
+/// window is maximized by its button and put back, and by a double click
+/// on its bar; and a window Moonglow opened (Area Properties) still is.
+#[test]
+fn a_tab_dragged_out_into_its_own_window_is_maximized() {
+    let Some((mut h, area)) = area_harness("window-maximize-dragged-out") else { return };
+    let (area_props, module_props) = (Tab::AreaProperties(area), Tab::ModuleProperties);
+    let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let s = h.state();
+        let path = s.dock.find_tab(tab).expect("open");
+        assert!(!path.surface.is_main(), "in a window");
+        s.dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area_props.clone()));
+    h.run_steps(8);
+    let path = h.state().dock.find_tab(&module_props).expect("docked as the module opened");
+    assert!(path.surface.is_main(), "in the main pane");
+    // Dragged out, to the right of Area Properties' window (as far as the
+    // screen lets it).
+    let beside = pane(&h, &area_props).right() + 20.0;
+    let rect = egui::Rect::from_min_size(egui::pos2(beside, 120.0), egui::vec2(340.0, 300.0));
+    h.state_mut().dock.detach_tab(path, rect);
+    h.run_steps(8);
+    // Each window's own Maximize button: the one at its bar's right end.
+    let button = |h: &Harness<'_, Moonglow>, tab: &Tab, label: &str| {
+        let bar = pane(h, tab);
+        (h.get_all_by_label(label))
+            .filter(|n| (n.rect().center().x - bar.right()).abs() < 60.0)
+            .min_by(|a, b| {
+                let d = |n: &egui_kittest::Node<'_>| (n.rect().center().y - bar.top()).abs();
+                d(a).total_cmp(&d(b))
+            })
+            .map(|n| n.rect().center())
+            .unwrap_or_else(|| panic!("{label} on {tab:?}'s window at {bar:?}"))
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, times: usize| {
+        h.hover_at(at);
+        for _ in 0..times {
+            press(h, at, true, egui::Modifiers::NONE);
+            press(h, at, false, egui::Modifiers::NONE);
+        }
+        h.run_steps(8);
+        // (Later: not a third click of the same.)
+        h.hover_at(at + egui::vec2(0.0, 200.0));
+        h.run_steps(30);
+    };
+    let maximized_by = |h: &mut Harness<'_, Moonglow>, tab: &Tab| {
+        let before = pane(h, tab);
+        let at = button(h, tab, "Maximize");
+        click(h, at, 1);
+        let big = pane(h, tab);
+        assert!(big.area() > before.area() + 1000.0, "{tab:?} maximized: {big:?} from {before:?}");
+        let at = button(h, tab, "Restore");
+        click(h, at, 1);
+        let back = pane(h, tab);
+        assert!(
+            (back.size() - before.size()).length() < 3.0 && (back.min - before.min).length() < 3.0,
+            "{tab:?} put back: {back:?}, {before:?}"
+        );
+    };
+    // The one dragged out (in front, as the last window made): its button,
+    // then a double click on its bar, between its tab and the button (the
+    // window is narrow).
+    maximized_by(&mut h, &module_props);
+    let before = pane(&h, &module_props);
+    let at = button(&h, &module_props, "Maximize") - egui::vec2(30.0, 0.0);
+    click(&mut h, at, 2);
+    let big = pane(&h, &module_props);
+    assert!(big.area() > before.area() + 1000.0, "by a double click: {big:?} from {before:?}");
+    let at = button(&h, &module_props, "Restore") - egui::vec2(30.0, 0.0);
+    click(&mut h, at, 2);
+    assert!((pane(&h, &module_props).size() - before.size()).length() < 3.0, "and back");
+    // Area Properties' window, which Moonglow opened (it covers the other
+    // as it comes to the front).
+    maximized_by(&mut h, &area_props);
+}
+
 /// Escape closes what is in front: the Variables window over a Properties
 /// window first (which a click on Properties doesn't bury), then the
 /// Properties window itself.
