@@ -2,7 +2,9 @@
 //! startup check's verdict (`apps/moonglow`, [`mg_render::backend::start`])
 //! and the area view's watch ([`mg_render::watch`]); the notice under the
 //! toolbar when either found it drawing nothing, with **Restart with …**
-//! (the same GPU's other backend), and the restart itself.
+//! (the same GPU's other backend), and the restart itself. The notice
+//! that the game's shaders alone draw wrong, which says the same each run
+//! on that driver, offers **Don't Show Again** too.
 //!
 //! On Automatic, the restart records the backend's failure
 //! ([`crate::settings::GraphicsFailure`]), which Automatic passes over
@@ -173,8 +175,10 @@ pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
             drew(lit.own_color, "draws")
         );
         app.log.warn(format!("Graphics: {said}"));
-        check.trouble =
-            Some(Trouble { said, offer: check.other, what: format!("the lit check: {why}") });
+        check.trouble = Some(Trouble {
+            what: format!("the lit check: {why}"),
+            ..Trouble::new(said, check.other)
+        });
     } else if lit.game_fails() {
         let why = match &lit.game {
             Some(Err(why)) => why.clone(),
@@ -187,13 +191,22 @@ pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
              again).",
             drew(lit.game_color, "draw")
         );
-        app.log.warn(format!("Graphics: {said}"));
         check.game_shaders_off = Some(why.clone());
-        check.trouble = Some(Trouble {
-            said,
-            offer: check.other,
-            what: format!("the lit check, the game's shaders: {why}"),
-        });
+        // (Hidden on this GPU, driver and backend: the log alone says it,
+        // as news, each run.)
+        if check.adapter.as_ref().is_some_and(|a| app.settings.graphics_notice_hidden(a)) {
+            app.log.info(format!(
+                "Graphics: {said} (Its notice is hidden on this GPU and driver: Options › \
+                 General shows it again.)"
+            ));
+        } else {
+            app.log.warn(format!("Graphics: {said}"));
+            check.trouble = Some(Trouble {
+                what: format!("the lit check, the game's shaders: {why}"),
+                hideable: check.adapter.is_some(),
+                ..Trouble::new(said, check.other)
+            });
+        }
     } else if let Some(why) = &lit.fell_back {
         app.log.warn(format!(
             "Graphics: the game's lit shaders can't be made through {drawing} ({why}): Moonglow's \
@@ -210,6 +223,17 @@ pub struct Trouble {
     pub offer: Option<wgpu::Backend>,
     /// What found it, as the record keeps it (`the startup check: …`).
     pub what: String,
+    /// Offers Don't Show Again: the game's shaders alone draw wrong, where
+    /// Moonglow's own draw for them ([`Settings::graphics_notices_hidden`]).
+    ///
+    /// [`Settings::graphics_notices_hidden`]: crate::Settings::graphics_notices_hidden
+    pub hideable: bool,
+}
+
+impl Trouble {
+    fn new(said: String, offer: Option<wgpu::Backend>) -> Trouble {
+        Trouble { said, offer, what: String::new(), hideable: false }
+    }
 }
 
 /// Moonglow to be started again once this run has ended
@@ -245,7 +269,10 @@ impl RendererCheck {
             said += &format!(" Nor does {} ({w}).", mg_render::backend::backend_name(*b));
         }
         let offer = self.other.filter(|_| self.asked_for && others.is_empty());
-        self.trouble = Some(Trouble { said, offer, what: format!("the startup check: {why}") });
+        self.trouble = Some(Trouble {
+            what: format!("the startup check: {why}"),
+            ..Trouble::new(said, offer)
+        });
     }
 }
 
@@ -272,9 +299,8 @@ pub(crate) fn watch_failed(app: &mut Moonglow, failure: mg_render::watch::Failur
     crate::trace::note(format!("graphics watch: failed, {failure} ({drawing})"));
     let check = &mut app.renderer_check;
     check.trouble = Some(Trouble {
-        said,
-        offer: check.other,
         what: format!("the area view's watch: {failure}"),
+        ..Trouble::new(said, check.other)
     });
 }
 
@@ -282,7 +308,7 @@ pub(crate) fn watch_failed(app: &mut Moonglow, failure: mg_render::watch::Failur
 /// there is one.
 pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(trouble) = app.renderer_check.trouble.clone() else { return };
-    let mut close = false;
+    let (mut close, mut hide) = (false, false);
     egui::Panel::top("renderer-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new("⚠").color(ui.visuals().warn_fg_color));
@@ -316,12 +342,30 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                     );
                 }
             }
+            if trouble.hideable
+                && ui
+                    .button("Don't Show Again")
+                    .on_hover_text(
+                        "Closes this notice and doesn't show it again on this GPU, driver and \
+                         backend: Moonglow draws with its own shaders there each time without \
+                         saying so here (the log still says it). A driver update shows it \
+                         again, and so does Options › General",
+                    )
+                    .clicked()
+            {
+                hide = true;
+            }
             if ui.small_button("×").on_hover_text("Close").clicked() {
                 close = true;
             }
         });
     });
-    if close {
+    if hide && let Some(info) = &app.renderer_check.adapter {
+        let hidden = crate::settings::GraphicsFailure::of(info, &trouble.what);
+        crate::trace::note(format!("graphics: the lit check's notice hidden ({})", hidden.driver));
+        app.settings.hide_graphics_notice(hidden);
+    }
+    if close || hide {
         app.renderer_check.trouble = None;
     }
 }

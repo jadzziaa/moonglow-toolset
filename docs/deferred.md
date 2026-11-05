@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T12:24:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -307,9 +307,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `development/` included: a builder's `inc_lighting` there draws so
   (`a_builder_s_include_leaves_the_lit_check_to_the_game_s_own`). It
   reads the game's own copies now and its debug-log line names any
-  copy the load order puts over them, with each shader's color: that
-  line from the next release says which of the two it was. (S) (Heed's
-  reports, October 2026)
+  copy the load order puts over them, with each shader's color. Which
+  of the two it was is settled: Philos's RX 480 through AMD's Vulkan
+  draws the same pink with the game's own copies (November 2026), so
+  it is that driver on Polaris cards, and the pink is not what Heed
+  reports of his interiors (findings, "The lit check's pink on Heed's
+  Vulkan"). (S) (Heed's reports, October 2026)
 - **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
   way B is built behind its option (Custom Light…, `mg_module::lights`;
   the server reads the hak, finds the model in it and places the row:

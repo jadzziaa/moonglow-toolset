@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:45:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
 ---
 
 # Troubleshooting
@@ -72,7 +72,13 @@ and Moonglow looks at what it draws:
   **Restart with …** (below). Where only the game's shaders draw it
   wrong, Moonglow draws with its own for the rest of the session and the
   notice says so (the **Shaders** button turns the game's on again): the
-  area is still drawn, only not by the game's shaders. The check draws
+  area is still drawn, only not by the game's shaders. On a GPU where
+  that is found every time (two Radeon RX 480 and 580 cards through
+  AMD's Vulkan driver draw the game's shaders' red a washed-out pink),
+  that notice's **Don't Show Again** hides it on that GPU, driver and
+  backend: Moonglow then draws with its own shaders there each time and
+  only the log says so. A driver update shows it again, and so does
+  **Show Again** in Options › General. The check draws
   the game's own shader files, as the game installs them, even where
   `override`, `development`, a Workshop item or a hak has its own copy
   of one (a builder's `inc_lighting`, say), since what the game's own

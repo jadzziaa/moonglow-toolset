@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
 ---
 
 # Options
@@ -161,7 +161,10 @@ the module is opened again from its file.
   GPU's other backend is checked and taken, and the backend that failed
   is remembered: Automatic passes over it on this GPU until its driver
   changes. Below the choice, the page lists the backends passed over
-  this way; **Try Again** forgets them (when you choose OK). See
+  this way; **Try Again** forgets them (when you choose OK). It lists
+  too where the notice that the game's shaders draw wrong was hidden
+  (**Don't Show Again**); **Show Again** shows it from the next start.
+  See
   [Troubleshooting](13-troubleshooting.md#an-area-draws-nothing-or-loses-its-tiles-on-an-amd-gpu-under-windows).
   Or choose one: **Vulkan** or **Direct3D 12** on Windows, **Vulkan**
   on Linux, **Metal** on macOS (the only one there); only the

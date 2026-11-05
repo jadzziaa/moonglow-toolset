@@ -85,6 +85,10 @@ pub struct OptionsDraft {
     /// as the page shows them, and whether OK forgets them.
     pub graphics_failures: Vec<crate::settings::GraphicsFailure>,
     pub forget_graphics_failures: bool,
+    /// The lit check's notices hidden ([`Settings::graphics_notices_hidden`]),
+    /// and whether OK shows them again.
+    pub graphics_notices_hidden: Vec<crate::settings::GraphicsFailure>,
+    pub show_graphics_notices: bool,
     pub toolbar_icons_only: bool,
     /// Per cent.
     pub ui_scale: u16,
@@ -236,6 +240,8 @@ impl OptionsDraft {
             graphics_backend: s.graphics_backend,
             graphics_failures: s.graphics_failures.clone(),
             forget_graphics_failures: false,
+            graphics_notices_hidden: s.graphics_notices_hidden.clone(),
+            show_graphics_notices: false,
             toolbar_icons_only: s.toolbar_icons_only,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
@@ -338,6 +344,11 @@ impl OptionsDraft {
                 Vec::new()
             } else {
                 s.graphics_failures.clone()
+            },
+            graphics_notices_hidden: if self.show_graphics_notices {
+                Vec::new()
+            } else {
+                s.graphics_notices_hidden.clone()
             },
             toolbar_icons_only: self.toolbar_icons_only,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
@@ -1422,6 +1433,31 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
         note.push_str(" WGPU_BACKEND is set, and decides over this.");
     }
     ui.weak(note);
+    // The lit check's notice, hidden where the game's shaders draw wrong.
+    if !draft.graphics_notices_hidden.is_empty() && !draft.show_graphics_notices {
+        ui.horizontal_wrapped(|ui| {
+            let each: Vec<String> = draft
+                .graphics_notices_hidden
+                .iter()
+                .map(|f| format!("{} on {} (driver {})", f.backend, f.adapter, f.driver))
+                .collect();
+            ui.weak(format!(
+                "The notice that the game's shaders draw wrong, and that Moonglow draws with its \
+                 own, is hidden on {}.",
+                each.join(", ")
+            ));
+            if ui
+                .button("Show Again")
+                .on_hover_text(
+                    "Shows the notice under the toolbar again when you choose OK, from the next \
+                     start, where the check still finds the game's shaders drawing wrong",
+                )
+                .clicked()
+            {
+                draft.show_graphics_notices = true;
+            }
+        });
+    }
     // The backends found drawing wrong here, which Automatic passes over.
     if draft.graphics_failures.is_empty() || draft.forget_graphics_failures {
         return;

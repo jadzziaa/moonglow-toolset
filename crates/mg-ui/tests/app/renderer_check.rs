@@ -440,6 +440,100 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     assert!(h.state().viewport.as_ref().unwrap().renderer.game_shaders);
 }
 
+/// Philos's case (November 2026: a Radeon RX 480 that has to draw through
+/// Vulkan, where the game's programs draw the lit mesh pink as Heed's RX
+/// 580 did, on every start): the notice offers Don't Show Again. Hidden,
+/// it is closed and remembered for this GPU, driver and backend; on the
+/// next start the check finds the same, Moonglow draws with its own
+/// shaders as before, and the log alone says so (as news, not a warning,
+/// naming where to show the notice again); Options › General's Show Again
+/// shows it again. The notices of Moonglow's own drawing wrong don't offer
+/// it.
+#[test]
+fn the_game_s_shaders_notice_can_be_hidden_on_this_driver() {
+    let mut info = heeds(wgpu::Backend::Vulkan);
+    (info.device, info.name) = (0x67df, "Radeon (TM) RX 480 Graphics".into());
+    let pink = mg_render::probe::Lit {
+        backend: wgpu::Backend::Vulkan,
+        adapter: info.name.clone(),
+        own: Ok(()),
+        game: Some(Err("the lit mesh is [212, 133, 133] at (24, 24), not red".into())),
+        fell_back: None,
+        own_time: Default::default(),
+        game_time: Default::default(),
+        own_picture: None,
+        game_picture: None,
+        own_color: Some([204, 56, 56]),
+        game_color: Some([212, 133, 133]),
+        overridden: Vec::new(),
+    };
+    let start = |settings: mg_ui::Settings| {
+        let mut app = app_with(Vec::new());
+        app.settings = settings;
+        app.settings.game_shaders = Some(true);
+        let check = &mut app.renderer_check;
+        (check.adapter, check.asked_for, check.other) =
+            (Some(info.clone()), true, Some(wgpu::Backend::Dx12));
+        mg_ui::renderer_check::lit_found(&mut app, pink.clone());
+        let mut h = harness(app, 1270.0, 700.0);
+        h.run_steps(2);
+        h
+    };
+    let mut h = start(mg_ui::Settings::default());
+    let trouble = h.state().renderer_check.trouble.clone().expect("the notice");
+    assert!(trouble.hideable, "{trouble:?}");
+    assert!(!h.state().game_shaders());
+    let shot = picture(&mut h, "notice_hideable");
+    eprintln!("{}", shot.display());
+    h.get_by_label("Don't Show Again").click();
+    h.run_steps(2);
+    let app = h.state();
+    assert_eq!(app.renderer_check.trouble, None);
+    let hidden = &app.settings.graphics_notices_hidden;
+    assert_eq!(hidden.len(), 1, "{hidden:?}");
+    assert_eq!(
+        (hidden[0].backend.as_str(), hidden[0].adapter.as_str()),
+        ("Vulkan", "Radeon (TM) RX 480 Graphics")
+    );
+    assert!(app.settings.graphics_failures.is_empty(), "no backend passed over");
+    assert!(!app.game_shaders(), "Moonglow's own still");
+
+    // The next start: the settings as saved; the same found, said in the log alone.
+    let saved: mg_ui::Settings = ron::from_str(&ron::to_string(&app.settings).unwrap()).unwrap();
+    let mut h = start(saved);
+    let app = h.state();
+    assert_eq!(app.renderer_check.trouble, None, "hidden");
+    assert!(!app.game_shaders(), "Moonglow's own for the run");
+    assert!(app.settings.game_shaders(), "the builder's setting is kept");
+    let (level, said) = app.log.entries.last().cloned().expect("the log's line");
+    assert_eq!(level, mg_ui::Level::Info, "{said}");
+    assert!(said.contains("the game's shaders draw the lit, textured test mesh"), "{said}");
+    assert!(said.contains("Options › General shows it again"), "{said}");
+
+    // Options › General › Show Again, then OK: shown again from the next start.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run_steps(2);
+    h.get_by_label("General").click();
+    h.run_steps(2);
+    let shot = picture(&mut h, "notice_hidden_options");
+    eprintln!("{}", shot.display());
+    h.get_by_label("Show Again").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let settings = h.state().settings.clone();
+    assert!(settings.graphics_notices_hidden.is_empty());
+    let h = start(settings);
+    assert!(h.state().renderer_check.trouble.as_ref().is_some_and(|t| t.hideable));
+
+    // Moonglow's own shader drawing wrong: no Don't Show Again.
+    let own = mg_render::probe::Lit { own: Err("the lit mesh is black".into()), ..pink.clone() };
+    let mut app = app_with(Vec::new());
+    app.renderer_check.adapter = Some(info.clone());
+    mg_ui::renderer_check::lit_found(&mut app, own);
+    assert!(!app.renderer_check.trouble.unwrap().hideable);
+}
+
 /// The adapter Heed's machine draws with on Automatic, as Windows lists
 /// it, and its other backend: Moonglow can't run Direct3D 12 here, so the
 /// app is told this one (the picture is Vulkan's, blanked).

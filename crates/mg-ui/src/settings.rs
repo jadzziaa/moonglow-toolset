@@ -522,6 +522,12 @@ pub struct Settings {
     /// ([`mg_render::backend::pick_adapter`]). Options › General forgets
     /// them.
     pub graphics_failures: Vec<GraphicsFailure>,
+    /// The lit check's notice that the game's shaders draw wrong, hidden
+    /// (Don't Show Again) on a GPU, driver and backend: Moonglow draws with
+    /// its own there without saying so under the toolbar, until the driver
+    /// changes ([`crate::renderer_check::lit_found`]). Options › General
+    /// shows it again.
+    pub graphics_notices_hidden: Vec<GraphicsFailure>,
     /// Options > General: Toolbar buttons, Icons only: the main toolbar's
     /// and the area view's buttons show their glyphs alone, their names
     /// in their tips (the default: Icons and text).
@@ -821,6 +827,21 @@ impl Settings {
         let key = failure.failed();
         self.graphics_failures.retain(|f| f.failed() != key);
         self.graphics_failures.push(failure);
+    }
+
+    /// Hides the lit check's notice on a GPU, driver and backend
+    /// ([`Settings::graphics_notices_hidden`]), in place of one of the same.
+    pub fn hide_graphics_notice(&mut self, hidden: GraphicsFailure) {
+        let key = hidden.failed();
+        self.graphics_notices_hidden.retain(|f| f.failed() != key);
+        self.graphics_notices_hidden.push(hidden);
+    }
+
+    /// Whether the lit check's notice is hidden on `info`'s GPU, driver and
+    /// backend.
+    pub fn graphics_notice_hidden(&self, info: &wgpu::AdapterInfo) -> bool {
+        let here = mg_render::backend::Failed::of(info);
+        self.graphics_notices_hidden.iter().any(|f| f.failed().as_ref() == Some(&here))
     }
 
     /// The Shaders switch: the game's own shaders draw the 3D views.
@@ -1125,6 +1146,33 @@ mod tests {
         assert!(older.graphics_failures.is_empty());
         let unknown = GraphicsFailure { backend: "WebGPU 2".into(), ..Default::default() };
         assert_eq!(unknown.failed(), None);
+    }
+
+    /// The lit check's notice is hidden on one GPU, driver and backend
+    /// alone (once, however often it is hidden): another backend, or a
+    /// driver update, shows it again; settings saved before read as none
+    /// hidden.
+    #[test]
+    fn a_hidden_graphics_notice_is_kept_by_gpu_driver_and_backend() {
+        let mut info = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+        (info.vendor, info.device, info.name) = (0x1002, 0x67df, "Radeon RX 480 Graphics".into());
+        info.driver_info = "25.9.1".into();
+        let mut s = Settings::default();
+        assert!(!s.graphics_notice_hidden(&info));
+        s.hide_graphics_notice(GraphicsFailure::of(&info, "the lit check, the game's shaders"));
+        s.hide_graphics_notice(GraphicsFailure::of(&info, "the lit check, the game's shaders"));
+        assert_eq!(s.graphics_notices_hidden.len(), 1);
+        assert!(s.graphics_notice_hidden(&info));
+        assert!(s.graphics_failures.is_empty(), "Automatic passes over nothing");
+        let back: Settings = ron::from_str(&ron::to_string(&s).unwrap()).unwrap();
+        assert!(back.graphics_notice_hidden(&info));
+        let mut dx12 = info.clone();
+        dx12.backend = wgpu::Backend::Dx12;
+        assert!(!s.graphics_notice_hidden(&dx12));
+        info.driver_info = "26.1.1".into();
+        assert!(!s.graphics_notice_hidden(&info), "a driver update shows it again");
+        let older: Settings = ron::from_str("(light_theme:true)").unwrap();
+        assert!(older.graphics_notices_hidden.is_empty());
     }
 
     /// Automatic and the backends the platform has.

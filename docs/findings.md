@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1204,6 +1204,16 @@ computes the view vector wrong is not known. The check now draws the
 game's own copies (`Assets::game_shader`, the keys' copy) and names any
 copy the load order puts over them in its debug-log line, with the
 colors each shader drew.
+
+A second builder's card settled which (November 2026): Philos's Radeon
+RX 480 through AMD's Windows Vulkan driver, on a release that draws the
+game's own copies (the notice's "in the wrong colors" came with them,
+50a13f63), drew the same [212, 133, 133] at the same pixel, on every
+start. Both cards are Polaris; the stock programs give that pink there
+and nowhere else seen, so it is the driver's, not a builder's include.
+Moonglow's own shader draws right on both, so the views are drawn by it
+there; the notice can be hidden on that GPU, driver and backend (**Don't
+Show Again**).
 
 - **Checked:** `the_lit_check_draws_with_the_game_s_programs` and
   `a_builder_s_include_leaves_the_lit_check_to_the_game_s_own`
