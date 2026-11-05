@@ -64,6 +64,102 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     assert!(h.state().area_views[&area].walkmesh, "chosen in what the hold opened");
 }
 
+/// El Grillo's asks: several areas' minimaps exported at once (each
+/// `NAME.png` in a folder chosen, asked before writing over them), and
+/// minimaps with their map notes marked as the game's map marks them (the
+/// menus' … with Map Notes…): Chess's board and a copy of it,
+/// with a waypoint's map note added and not yet saved.
+#[test]
+fn minimaps_are_exported_together_and_with_their_map_notes() {
+    use mg_gff::Value;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-minimaps");
+    let path = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
+    // A copy of the board.
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let chess = ResRef::from_str("chess").unwrap();
+    let copy = ResRef::from_str("chess2").unwrap();
+    for t in [ResType::ARE, ResType::GIT, ResType::GIC] {
+        let data = m.get(&ResKey::new(chess, t)).unwrap().to_vec();
+        m.set(ResKey::new(copy, t), data);
+    }
+    m.save().unwrap();
+    let mut app = game_app_with(&root, None, NoDialogs::default());
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    // A map note on the board, not saved: an edit of its GIT.
+    let git_key = ResKey::new(chess, ResType::GIT);
+    let mut git = h.state_mut().ws.as_mut().unwrap().doc(&git_key).unwrap().clone();
+    let mut w = mg_module::instances::walk_waypoint(b"MG_NOTE", [15.0, 25.0, 0.0]);
+    w.set("HasMapNote", Value::Byte(1));
+    w.set("MapNoteEnabled", Value::Byte(1));
+    let mut list = match git.root.get("WaypointList") {
+        Some(Value::List(l)) => l.clone(),
+        _ => Vec::new(),
+    };
+    list.push(w);
+    git.root.set("WaypointList", Value::List(list));
+    let set = mg_edit::Edit::SetResource { key: git_key, data: Some(git.to_bytes().unwrap()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Note", vec![set])));
+    h.run_steps(3);
+    let drawn = |h: &Harness<'_, Moonglow>, area: ResRef, notes: bool| {
+        let app = h.state();
+        let ws = app.ws.as_ref().unwrap();
+        let doc = |t| ws.module.gff(&ResKey::new(area, t)).unwrap().unwrap();
+        let are = doc(ResType::ARE);
+        let git = if area == chess { git.clone() } else { doc(ResType::GIT) };
+        let rm = &app.game.as_ref().unwrap().resman;
+        let codepage = mg_core::Codepage::default();
+        let d = mg_module::minimap::draw(rm, &are.root, notes.then_some(&git.root), None, codepage)
+            .unwrap();
+        mg_module::minimap::png(&d.image).unwrap()
+    };
+
+    // One area, with its map notes: the note, unsaved, marked.
+    let png = dir.join("one.png");
+    h.state_mut().dialogs = Box::new(NoDialogs { save: vec![png.clone()], ..Default::default() });
+    h.get_by_label("chess").click_secondary();
+    h.run();
+    open_submenu(&mut h, "Export");
+    h.get_by_label("Export Minimap with Map Notes…").click();
+    h.run();
+    let one = std::fs::read(&png).expect("the minimap is saved");
+    assert_eq!(one, drawn(&h, chess, true), "marked as mg_module draws it");
+    assert_ne!(one, drawn(&h, chess, false), "the note marked");
+
+    // Both areas chosen: Export Minimaps… into a folder.
+    let folder = dir.join("maps");
+    let into = |h: &mut Harness<'_, Moonglow>, item: &str| {
+        h.state_mut().dialogs =
+            Box::new(NoDialogs { folders: vec![folder.clone()], ..Default::default() });
+        h.get_by_label("chess").click();
+        h.run_steps(2);
+        h.get_by_label("chess2").click_modifiers(egui::Modifiers::SHIFT);
+        h.run_steps(2);
+        h.get_by_label("chess2").click_secondary();
+        h.run_steps(2);
+        open_submenu(h, "Export");
+        h.get_by_label(item).click();
+        h.run_steps(3);
+    };
+    into(&mut h, "Export Minimaps with Map Notes…");
+    assert!(h.state().dialog_export_ask.is_none(), "nothing to write over");
+    let read = |name: &str| std::fs::read(folder.join(name)).unwrap();
+    assert_eq!(read("chess.png"), one);
+    assert_eq!(read("chess2.png"), drawn(&h, copy, true));
+    // Again, without the notes: asked first, then written over.
+    into(&mut h, "Export Minimaps…");
+    let ask = h.state().dialog_export_ask.clone().expect("asked before writing over them");
+    assert_eq!(ask.existing, ["chess.png", "chess2.png"]);
+    h.get_by_label("Overwrite").click();
+    h.run_steps(3);
+    assert_eq!(read("chess.png"), drawn(&h, chess, false), "unmarked now");
+    let said = h.state().log.entries.last().unwrap().1.clone();
+    assert!(said.starts_with("Wrote 2 minimaps to "), "{said}");
+}
+
 /// Area Properties › Visual: another area's lighting given to this one
 /// (Copy From Area), and lighting kept under a name and given to another
 /// area (Saved Lighting): dansen9191's ask.

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T21:46:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:08:42Z }
 ---
 
 # The main window
@@ -289,7 +289,8 @@ area, conversation or blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Copy…**, **Delete…** and
 **Export**: **Export › Export…**, **Export › Export as Files…** and
 **Export › Copy to Scratch Folder** (an area's adds **Export Model
-Files…** and **Export Minimap…**; a conversation's, **Export as
+Files…**, **Export Minimap…** and **Export Minimap with Map Notes…**
+([Minimaps](04-areas.md#minimaps)); a conversation's, **Export as
 Ink…**, **Export as Twine…**, **Export as Text…** and **Export as
 CSV…**, below).
 
@@ -299,7 +300,9 @@ clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
 of one kind, or areas: one Properties window, what you change set on
 each), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
-Folder**; for conversations, the four below), **Delete…** (and the
+Folder**; for areas, **Export Minimaps…** and **Export Minimaps with
+Map Notes…**, each area's map into a folder as `NAME.png`
+([Minimaps](04-areas.md#minimaps)); for conversations, the four below), **Delete…** (and the
 Delete key on one of them), for areas **Placeables › Make Placeables
 Static** and **Dynamic**, and the plugins' commands for them (where
 they are all of one kind). Resources of different kinds chosen together

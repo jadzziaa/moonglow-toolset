@@ -41,6 +41,7 @@ pub mod light_maker;
 pub mod lighting;
 mod manual;
 mod minimap;
+mod minimap_export;
 mod model_textures;
 pub mod model_view;
 pub mod module_folder;
@@ -253,8 +254,13 @@ pub enum Action {
     Redo,
     /// Saves the module's talk table (Talk Table › Save).
     SaveTalkTable,
-    /// An area's minimap, saved as a PNG.
-    ExportMinimap(mg_core::ResRef),
+    /// Areas' minimaps: one saved as a PNG asked for, several each
+    /// `NAME.png` in a folder asked for; `notes`, their enabled map notes
+    /// marked as the game's map marks them.
+    ExportMinimaps {
+        areas: Vec<mg_core::ResRef>,
+        notes: bool,
+    },
     /// Makes these areas' placeables static, where nothing is lost by it.
     StaticPlaceables(Vec<mg_core::ResRef>),
     /// Runs a plugin's command on what a right-click menu was opened on
@@ -4026,7 +4032,10 @@ impl Moonglow {
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }
-            Action::ExportMinimap(area) => self.export_minimap(area),
+            Action::ExportMinimaps { areas, notes } => match areas.as_slice() {
+                [area] => self.export_minimap(*area, notes),
+                _ => self.export_minimaps(areas, notes),
+            },
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
             Action::RunPluginCommand { plugin, command, selected } => {
                 self.run_plugin_command_on(&plugin, &command, selected);
@@ -5168,33 +5177,6 @@ impl Moonglow {
                 self.log.info(format!("Made {made} placeable{s} dynamic in {within} area{a}"));
             }
             Err(e) => self.log.error(e.to_string()),
-        }
-    }
-
-    /// Writes an area's minimap (as it is now, unsaved tiles included) to a
-    /// PNG the user chooses.
-    fn export_minimap(&mut self, area: mg_core::ResRef) {
-        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        let Ok(are) = ws.doc(&ResKey::new(area, ResType::ARE)).map(|g| g.root.clone()) else {
-            return;
-        };
-        let image = mg_module::minimap::tileset(&game.resman, &are)
-            .and_then(|set| mg_module::minimap::minimap(&game.resman, &are, &set, None))
-            .and_then(|i| mg_module::minimap::png(&i));
-        let data = match image {
-            Ok(d) => d,
-            Err(e) => {
-                self.log.error(format!("Minimap of {area}: {e}"));
-                return;
-            }
-        };
-        let suggested = std::path::PathBuf::from(format!("{area}.png"));
-        let Some(path) = self.dialogs.save_file(dialogs::FileKind::Png, Some(&suggested)) else {
-            return;
-        };
-        match std::fs::write(&path, data) {
-            Ok(()) => self.log.info(format!("Saved the minimap of {area} to {}", path.display())),
-            Err(e) => self.log.error(format!("{}: {e}", path.display())),
         }
     }
 

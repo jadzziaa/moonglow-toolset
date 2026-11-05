@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:08:42Z }
 ---
 
 # Areas
@@ -266,6 +266,26 @@ tile's picture (the tileset's `ImageMap2D`) turned as the tile is, north
 up, unsaved tiles included. A tile without a picture is black, as in the game. `mg
 minimap` does the same from the command line. Each picture keeps its own
 size unless `--size` sets one; the game's are mostly 16 pixels.
+
+**Export Minimap with Map Notes…** marks the area's map notes too, as
+the game's map marks them: each waypoint whose map note is enabled gets
+the game's own pin (the `ctl_map_pin` GUI model's picture, a hak's if it
+has one), centered on the waypoint and sized as on the game's map (12
+pixels where a tile is 16); a waypoint whose note is disabled, or that
+has none, is left out, as the game leaves it out. The note's text isn't
+drawn: the game shows it only while the pointer rests on the pin (`mg
+minimap --map-notes --json` lists each note's text and where its pin
+is in the picture). Unsaved waypoints are included. The game places a
+pin at a whole pixel and spreads the area over its map less two pixels,
+so its pins can sit a pixel or two from where Moonglow marks the
+waypoint itself.
+
+Several areas chosen together in the module tree have **Export ›
+Export Minimaps…** and **Export Minimaps with Map Notes…**: they ask for
+a folder and write each area's map into it as `NAME.png` (its ResRef),
+asking once, with the files named, before writing over any of that name
+there; the log says how many were written. `mg minimap MODULE AREA…
+--to FOLDER` (or `--all`) does the same from the command line.
 
 The same map shows in the area view's corner with the toolbar's
 **🗾 Minimap**, and in **Setup Area Transition**, where a door's or

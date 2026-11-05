@@ -1539,13 +1539,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 app.settings.scratch_dir.as_deref(),
                                 &format!("{k}{with}"),
                             );
-                            if k.restype == ResType::ARE
-                                && ui
-                                    .button("Export Minimap…")
-                                    .on_hover_text("The area's map as the game shows it, as a PNG")
-                                    .clicked()
-                            {
-                                app.actions.push(Action::ExportMinimap(k.resref));
+                            if k.restype == ResType::ARE {
+                                minimap_items(ui, &[k.resref], &mut app.actions);
                             }
                             if ui.button("Copy to Scratch Folder").on_hover_text(tip).clicked() {
                                 app.actions.push(Action::ExportFiles {
@@ -2071,6 +2066,33 @@ fn story_items(ui: &mut Ui, keys: &[ResKey], actions: &mut Vec<Action>) {
     }
 }
 
+/// The Export menu's minimap items for areas (one, or several chosen):
+/// Export Minimap… (a PNG chosen) or Export Minimaps… (each `NAME.png` in a
+/// folder chosen), and each with Map Notes, the areas' enabled map notes
+/// marked as the game's map marks them.
+fn minimap_items(ui: &mut Ui, areas: &[ResRef], actions: &mut Vec<Action>) {
+    let (what, tip) = match areas {
+        [_] => ("Minimap", "The area's map as the game shows it, as a PNG"),
+        _ => (
+            "Minimaps",
+            "Each area's map as the game shows it, as a PNG named after it (NAME.png), into a \
+             folder",
+        ),
+    };
+    let notes = " with each map note the game's map shows (a waypoint's, enabled) marked by \
+                 the game's own pin, where the game marks it (its text shows only under the \
+                 pointer in the game, so it isn't drawn)";
+    for (label, tip, notes) in [
+        (format!("Export {what}…"), tip.to_string(), false),
+        (format!("Export {what} with Map Notes…"), format!("{tip},{notes}"), true),
+    ] {
+        if ui.button(label).on_hover_text(tip).clicked() {
+            actions.push(Action::ExportMinimaps { areas: areas.to_vec(), notes });
+            ui.close();
+        }
+    }
+}
+
 /// The right-click menu of a row among several resources chosen in the
 /// module tree (`keys`): what is done to them together. Edit Together for
 /// blueprints of one kind or for areas (Properties of several); Export…,
@@ -2122,6 +2144,10 @@ fn several_menu(
             let keys = keys.to_vec();
             actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
             ui.close();
+        }
+        if one_type && first == ResType::ARE {
+            ui.separator();
+            minimap_items(ui, &areas, actions);
         }
         story_items(ui, keys, actions);
     });

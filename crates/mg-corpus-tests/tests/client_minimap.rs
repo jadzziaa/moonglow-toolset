@@ -333,3 +333,184 @@ fn minimaps_are_laid_out_as_the_client_draws_them() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Map notes marked as the client's map marks them (2026-11-05, for El
+/// Grillo's ask: minimaps exported with their notes marked). The same
+/// area, every tile picture one even gray, with four waypoints: two with
+/// an enabled map note (west and east), one whose note is disabled and one
+/// with none. The client's map (`client.png`) marks the two enabled ones
+/// alone, each by `ctl_map_pin`'s diamond centered on the waypoint, 12
+/// pixels where a tile is 16 (the text shows only under the pointer).
+/// Moonglow's minimap at 16 pixels a tile, marked (`moonglow.png`), must
+/// have its marked pixels where the client's are: each note's within two
+/// pixels of the client's middle, and most of them the same pixels. (The
+/// client places the marker at whole pixels and spreads the area's meters
+/// over the map less 2 pixels: read with fourteen notes on this area and
+/// on one 8 by 6, each marker the client's pixel for pixel once placed so,
+/// at most 2 pixels from where Moonglow marks the waypoint itself.)
+#[test]
+#[ignore]
+fn map_notes_are_marked_as_the_client_marks_them() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let dir = scratch_dir("client_minimap_notes");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("settings.tml"), SETTINGS).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&base, "MgMap", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Map".into(),
+        tileset: ResRef::from_str(TILESET).unwrap(),
+        width: WIDTH,
+        height: HEIGHT,
+    };
+    let area = add_area(&mut m, &base, &spec, &mut rng).unwrap();
+    let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_module::minimap::tileset(&base.resman, &are.root).unwrap();
+    let gray = [[96, 96, 96]; 4];
+    for t in &set.tiles {
+        let Some(name) = t.image_map_2d.as_ref().filter(|n| !n.is_empty()) else { continue };
+        std::fs::write(user.join(format!("override/{}.tga", name.to_lowercase())), tga(&gray))
+            .unwrap();
+    }
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let notes = [
+        ("MG_ALPHA", [5.0, 25.0], Some((true, "Alpha note"))),
+        ("MG_BETA", [25.0, 25.0], Some((false, "Beta note"))),
+        ("MG_GAMMA", [35.0, 5.0], None),
+        ("MG_DELTA", [32.0, 12.0], Some((true, "Delta note"))),
+    ];
+    let mut list = Vec::new();
+    for (tag, [x, y], note) in notes {
+        let mut w = mg_module::instances::walk_waypoint(tag.as_bytes(), [x, y, 0.0]);
+        if let Some((enabled, text)) = note {
+            w.set("HasMapNote", Value::Byte(1));
+            w.set("MapNoteEnabled", Value::Byte(u8::from(enabled)));
+            let mut l = mg_core::LocString::default();
+            l.set(mg_core::Language::ENGLISH, mg_core::Gender::Male, text);
+            w.set("MapNote", Value::LocString(l));
+        }
+        list.push(w);
+    }
+    git.root.set("WaypointList", Value::List(list));
+    m.set_gff(git_key, &git).unwrap();
+    // (Where the server has each waypoint, logged: `MG_AT tag x y`.)
+    let enter = ENTER.replace(
+        "    DelayCommand(6.0, Log(\"MG_READY\"));",
+        "    string t; object w; int i;\n    for (i = 0; i < 4; i++) {\n        t = \
+         i == 0 ? \"MG_ALPHA\" : i == 1 ? \"MG_BETA\" : i == 2 ? \"MG_GAMMA\" : \"MG_DELTA\";\n        \
+         w = GetWaypointByTag(t);\n        Log(\"MG_AT \" + t + \" \" + FloatToString(GetPosition(w).x, 0, 3) + \
+         \" \" + FloatToString(GetPosition(w).y, 0, 3));\n    }\n    DelayCommand(6.0, Log(\"MG_READY\"));",
+    );
+    assert!(enter.contains("MG_AT"));
+    let enter = compile(&dir, "mg_enter", &enter);
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), enter);
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_CLIENT_ENTR, ResRef::from_str("mg_enter").unwrap());
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Archive(user.join("modules/MgMap.mod"))).unwrap();
+
+    // Moonglow's, marked.
+    let game = GameData::open(&GameInstall::new(&root, Some(user.clone()), "en")).unwrap();
+    let mut ours = mg_module::minimap::minimap(&game.resman, &are.root, &set, Some(16)).unwrap();
+    let marked = mg_module::minimap::map_notes(
+        &git.root,
+        mg_core::Language::ENGLISH,
+        mg_core::Codepage::default(),
+    );
+    assert_eq!(marked.len(), 2, "the enabled notes alone: {marked:?}");
+    let pin = mg_module::minimap::pin(&game.resman).unwrap();
+    eprintln!(
+        "pin: {}x{} texels, {:?} pixels, offset {:?}",
+        pin.image.width, pin.image.height, pin.size, pin.offset
+    );
+    mg_module::minimap::mark(&mut ours, 16, &marked, &pin);
+    let ours = ours.top_down();
+    save_png(&ours, &dir.join("moonglow.png"));
+
+    let client = client_screenshot(&dir, "MgMap").expect("the client reached the area");
+    let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
+    for line in log.lines().filter(|l| l.contains("MG_AT")) {
+        eprintln!("{line}");
+    }
+    // The map: the box of the gray the game draws the tiles in (the most
+    // common color of the top left corner's quarter of the window but black).
+    let mut counts = std::collections::HashMap::new();
+    for y in 0..client.height / 4 {
+        for x in 0..client.width / 4 {
+            let p = client.pixel(x, y);
+            if p[0] == p[1] && p[1] == p[2] && (40..120).contains(&p[0]) {
+                *counts.entry(p[0]).or_insert(0) += 1;
+            }
+        }
+    }
+    let gray = counts.into_iter().max_by_key(|(_, n)| *n).map(|(g, _)| g).unwrap();
+    let is_gray = |p: [u8; 4]| p[..3] == [gray; 3];
+    let rows: Vec<u32> = (0..client.height / 4)
+        .filter(|&y| (0..client.width / 4).filter(|&x| is_gray(client.pixel(x, y))).count() > 30)
+        .collect();
+    let (y0, y1) = (rows[0], rows[rows.len() - 1] + 1);
+    let cols: Vec<u32> = (0..client.width / 4)
+        .filter(|&x| (y0..y1).filter(|&y| is_gray(client.pixel(x, y))).count() > 20)
+        .collect();
+    let (x0, x1) = (cols[0], cols[cols.len() - 1] + 1);
+    eprintln!("map at ({x0}, {y0}) to ({x1}, {y1}), gray {gray}, in {}", dir.display());
+    assert_eq!((x1 - x0, y1 - y0), (WIDTH * 16, HEIGHT * 16), "16 pixels a tile");
+    // Marked: not the map's gray, by more than a little.
+    let off = |p: [u8; 4], g: u8| p[..3].iter().any(|&c| c.abs_diff(g) > 12);
+    let theirs = |x: u32, y: u32| off(client.pixel(x0 + x, y0 + y), gray);
+    let mine = |x: u32, y: u32| off(ours.pixel(x, y), 96);
+    let (w, h) = (WIDTH * 16, HEIGHT * 16);
+    let mut failures = Vec::new();
+    for note in &marked {
+        // The note's square: three quarters of a tile about it.
+        let (cx, cy) = (note.position[0] * 1.6, h as f32 - note.position[1] * 1.6);
+        let near =
+            |x: u32, y: u32| (x as f32 + 0.5 - cx).abs() < 9.0 && (y as f32 + 0.5 - cy).abs() < 9.0;
+        let cells: Vec<(u32, u32)> =
+            (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| near(x, y)).collect();
+        let middle = |is: &dyn Fn(u32, u32) -> bool| {
+            let hit: Vec<_> = cells.iter().filter(|&&(x, y)| is(x, y)).collect();
+            let n = hit.len().max(1) as f32;
+            let sx: f32 = hit.iter().map(|(x, _)| *x as f32 + 0.5).sum();
+            let sy: f32 = hit.iter().map(|(_, y)| *y as f32 + 0.5).sum();
+            (hit.len(), [sx / n, sy / n])
+        };
+        let (nt, mt) = middle(&theirs);
+        let (nm, mm) = middle(&mine);
+        let both = cells.iter().filter(|&&(x, y)| theirs(x, y) && mine(x, y)).count();
+        let either = cells.iter().filter(|&&(x, y)| theirs(x, y) || mine(x, y)).count();
+        let share = both as f32 / either.max(1) as f32;
+        eprintln!(
+            "{}: client {nt} marked about {mt:?}, Moonglow {nm} about {mm:?}, {both} of {either} the same",
+            note.tag
+        );
+        if nt == 0 || (mt[0] - mm[0]).abs() > 2.0 || (mt[1] - mm[1]).abs() > 2.0 || share < 0.6 {
+            failures.push(note.tag.clone());
+        }
+    }
+    // Nothing else marked: the disabled note and the plain waypoint (the
+    // player's arrow aside, at the area's middle).
+    let others = |is: &dyn Fn(u32, u32) -> bool| {
+        (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let mx = x as f32 + 0.5;
+                let my = y as f32 + 0.5;
+                let by_note = marked.iter().any(|n| {
+                    (mx - n.position[0] * 1.6).abs() < 9.0
+                        && (my - (h as f32 - n.position[1] * 1.6)).abs() < 9.0
+                });
+                let arrow =
+                    (mx - w as f32 / 2.0).abs() < 10.0 && (my - h as f32 / 2.0).abs() < 10.0;
+                !by_note && !arrow && is(x, y)
+            })
+            .count()
+    };
+    assert_eq!((others(&theirs), others(&mine)), (0, 0), "nothing else marked");
+    assert!(failures.is_empty(), "{failures:?} (see {})", dir.display());
+}

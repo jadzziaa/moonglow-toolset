@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:08:42Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -826,11 +826,29 @@ the picture's bottom, also in a TGA that declares a top-left origin
 (descriptor bit 5): the game ignores it, so a picture saved top row
 first, as Krita saves it, shows upside down.
 
+Map notes (read 2026-11-05 for a builder's ask): the map marks a
+waypoint's note only where both `HasMapNote` and `MapNoteEnabled` are
+set; a disabled note and a waypoint without one show nothing. The mark
+is the GUI model `ctl_map_pin`: a 0.1205-unit square (12 pixels) showing
+the 12 by 12 texels of `gui_map_pieces` its UVs name, its mesh 0.01 right
+and 0.01 down of the waypoint, drawn unscaled over a map whose tiles are
+16 pixels (the game's minimap pictures are 16 by 16). The note's text
+shows only while the pointer rests on the pin. The client puts the pin
+at whole pixels and spreads the area's meters over the map less two
+pixels: on a 4 by 3 area (64 by 48 pixels) and an 8 by 6 one (128 by 96)
+with fourteen notes each, every pin is the client's pixel for pixel at
+left `floor(s·x) − 3`, top `floor(s·(height − y)) − 4`, with `s` =
+(16 × width − 2) / (10 × width) pixels a meter, x and y in meters; a
+tall area (3 by 5) was not settled (its map is drawn in two grays).
+Moonglow marks the waypoint's own place (16 pixels a tile), within two
+pixels of the client's.
+
 - **Checked:** game client, `client_minimap.rs`
-  `minimaps_are_laid_out_as_the_client_draws_them`.
+  `minimaps_are_laid_out_as_the_client_draws_them` and
+  `map_notes_are_marked_as_the_client_marks_them`.
 - **Moonglow:** `crates/mg-module/src/minimap.rs`.
 - **Wiki:** the layout and rotation are missing (flipping DDS is
-  documented).
+  documented); map notes' marking is missing.
 
 ### Particles
 

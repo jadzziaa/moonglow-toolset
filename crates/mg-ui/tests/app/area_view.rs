@@ -5650,6 +5650,7 @@ fn the_area_menus_group_related_commands_in_submenus() {
             "Export as Files…",
             "Export Model Files…",
             "Export Minimap…",
+            "Export Minimap with Map Notes…",
             "Copy to Scratch Folder"
         ]
     );

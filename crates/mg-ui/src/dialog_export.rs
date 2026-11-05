@@ -5,6 +5,7 @@
 //! changes not saved yet included). Files of those names in the folder are
 //! asked about once, all of them named, before they are overwritten; one
 //! that can't be written is named with why, and the rest are written.
+//! (Several areas' minimaps ask the same question: [`Exported`].)
 
 use std::path::{Path, PathBuf};
 
@@ -47,11 +48,19 @@ pub(crate) fn all_conversations(keys: &[ResKey]) -> bool {
     !keys.is_empty() && keys.iter().all(|k| k.restype == ResType::DLG)
 }
 
+/// What a question before writing over files is about: conversations
+/// written as `format`, or areas' minimaps (`minimap_export`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exported {
+    Conversations(Format),
+    Minimaps { notes: bool },
+}
+
 /// The question asked before files in the folder are written over.
 #[derive(Debug, Clone)]
 pub struct Ask {
     pub keys: Vec<ResKey>,
-    pub format: Format,
+    pub what: Exported,
     pub dir: PathBuf,
     /// The files of those names in the folder.
     pub existing: Vec<String>,
@@ -77,7 +86,8 @@ impl Moonglow {
         if existing.is_empty() {
             self.write_conversations(&keys, format, &dir);
         } else {
-            self.dialog_export_ask = Some(Ask { keys, format, dir, existing });
+            let what = Exported::Conversations(format);
+            self.dialog_export_ask = Some(Ask { keys, what, dir, existing });
         }
     }
 
@@ -127,7 +137,10 @@ impl Moonglow {
 pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = &app.dialog_export_ask else { return };
     let mut answer = None;
-    let title = format!("Export as {}", word(ask.format));
+    let title = match ask.what {
+        Exported::Conversations(format) => format!("Export as {}", word(format)),
+        Exported::Minimaps { .. } => "Export Minimaps".to_string(),
+    };
     crate::widgets::modal(ctx, title).id(egui::Id::new("dialog-export-ask")).show(ctx, |ui| {
         ui.set_max_width(460.0);
         let n = ask.existing.len();
@@ -154,6 +167,9 @@ pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
         && let Some(ask) = app.dialog_export_ask.take()
         && overwrite
     {
-        app.write_conversations(&ask.keys, ask.format, &ask.dir);
+        match ask.what {
+            Exported::Conversations(format) => app.write_conversations(&ask.keys, format, &ask.dir),
+            Exported::Minimaps { notes } => app.write_minimaps(&ask.keys, notes, &ask.dir),
+        }
     }
 }

@@ -999,13 +999,28 @@ enum Cmd {
         replace: bool,
     },
     /// Write an area's minimap as a PNG: each tile's picture, turned as the
-    /// tile is, as the game's map shows it.
+    /// tile is, as the game's map shows it; with --map-notes, its enabled
+    /// map notes marked as the game's map marks them. With --to, several
+    /// areas' (or --all), each NAME.png in a folder.
     Minimap {
         module: PathBuf,
-        /// The area's resref.
-        area: String,
-        /// The PNG to write.
-        out: PathBuf,
+        /// The areas' resrefs. Without --to: one, then the PNG to write.
+        #[arg(value_name = "AREA")]
+        names: Vec<String>,
+        /// The folder to write each area's minimap into (made if missing).
+        #[arg(long, value_name = "FOLDER")]
+        to: Option<PathBuf>,
+        /// With --to: every area of the module.
+        #[arg(long, requires = "to")]
+        all: bool,
+        /// With --to: write over files of the same names in the folder.
+        #[arg(long, requires = "to")]
+        force: bool,
+        /// Mark the map notes the game's map shows (waypoints whose map note
+        /// is enabled), as it marks them; their text and where each is are
+        /// in --json's output (`map_notes`).
+        #[arg(long)]
+        map_notes: bool,
         /// Pixels a tile (default: the pictures' size).
         #[arg(long)]
         size: Option<u32>,
@@ -4209,21 +4224,126 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::Minimap { module, area, out: png, size } => {
+        Cmd::Minimap { module, names, to, all, force, map_notes, size } => {
             let m = crate::open_module(module)?;
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
-            let key = ResKey::parse(area, ResType::ARE).context("not an area name")?;
-            let data = rm.get(&key).with_context(|| format!("{area}.are"))?;
-            let are = mg_gff::Gff::read(&data)?;
-            let set = mg_module::minimap::tileset(&rm, &are.root).map_err(anyhow::Error::msg)?;
-            let image = mg_module::minimap::minimap(&rm, &are.root, &set, *size)
+            let codepage = module_codepage(cli, &m);
+            use mg_core::ResRef;
+            let draw = |area: ResRef| -> Result<(mg_module::minimap::Drawn, Vec<u8>)> {
+                let key = ResKey::new(area, ResType::ARE);
+                let data = rm.get(&key).with_context(|| format!("{area}.are"))?;
+                let are = mg_gff::Gff::read(&data)?;
+                let git = match map_notes {
+                    true => {
+                        let key = ResKey::new(area, ResType::GIT);
+                        let data = rm.get(&key).with_context(|| format!("{area}.git"))?;
+                        Some(mg_gff::Gff::read(&data)?)
+                    }
+                    false => None,
+                };
+                let drawn = mg_module::minimap::draw(
+                    &rm,
+                    &are.root,
+                    git.as_ref().map(|g| &g.root),
+                    *size,
+                    codepage,
+                )
                 .map_err(anyhow::Error::msg)?;
-            std::fs::write(png, mg_module::minimap::png(&image).map_err(anyhow::Error::msg)?)?;
-            out.json =
-                json!({ "file": path_text(png), "width": image.width, "height": image.height });
-            out.note(format!("{}×{} pixels", image.width, image.height));
+                let png = mg_module::minimap::png(&drawn.image).map_err(anyhow::Error::msg)?;
+                Ok((drawn, png))
+            };
+            let described = |area: ResRef, file: &Path, d: &mg_module::minimap::Drawn| {
+                let mut j = json!({
+                    "area": area.to_string(),
+                    "file": path_text(file),
+                    "width": d.image.width,
+                    "height": d.image.height,
+                });
+                if *map_notes {
+                    j["map_notes"] = (d.notes.iter())
+                        .map(|(n, [x, y])| {
+                            json!({ "tag": n.tag, "text": n.text, "x": x, "y": y,
+                                    "position": n.position })
+                        })
+                        .collect();
+                }
+                j
+            };
+            if let Some(dir) = to {
+                let mut areas: Vec<ResRef> = Vec::new();
+                let mut failed: Vec<(String, String)> = Vec::new();
+                if *all {
+                    let mut keys: Vec<ResKey> = m.keys_of(ResType::ARE).copied().collect();
+                    keys.sort();
+                    areas.extend(keys.iter().map(|k| k.resref));
+                }
+                for name in names {
+                    let name = name.strip_suffix(".are").unwrap_or(name);
+                    match ResRef::from_str(&name.to_ascii_lowercase()) {
+                        Ok(a) if !areas.contains(&a) => areas.push(a),
+                        Ok(_) => {}
+                        Err(_) => failed.push((name.to_string(), "not an area name".into())),
+                    }
+                }
+                if areas.is_empty() && failed.is_empty() {
+                    bail!("name the areas, or pass --all for every one");
+                }
+                let existing: Vec<String> = (areas.iter())
+                    .map(|a| format!("{a}.png"))
+                    .filter(|f| dir.join(f).exists())
+                    .collect();
+                if !existing.is_empty() && !force {
+                    bail!(
+                        "{} has {} of these files already ({}): --force writes over them",
+                        dir.display(),
+                        existing.len(),
+                        existing.join(", ")
+                    );
+                }
+                std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
+                let mut written = Vec::new();
+                for area in areas {
+                    let path = dir.join(format!("{area}.png"));
+                    let wrote = draw(area).and_then(|(d, png)| {
+                        std::fs::write(&path, png).with_context(|| path.display().to_string())?;
+                        Ok(d)
+                    });
+                    match wrote {
+                        Ok(d) => {
+                            out.line(format!("{area}\t{}", path_text(&path)));
+                            written.push(described(area, &path, &d));
+                        }
+                        Err(e) => failed.push((area.to_string(), format!("{e:#}"))),
+                    }
+                }
+                for (what, why) in &failed {
+                    out.note(format!("error: {what}: {why}"));
+                }
+                out.note(format!("{} minimaps written to {}", written.len(), dir.display()));
+                out.failed = !failed.is_empty();
+                let failed: Vec<_> =
+                    failed.iter().map(|(a, e)| json!({ "area": a, "error": e })).collect();
+                out.json = json!({ "written": written, "failed": failed });
+                return Ok(out);
+            }
+            let [area, png] = names.as_slice() else {
+                bail!(
+                    "give one area and the PNG to write (AREA OUT.png), or areas and --to FOLDER"
+                );
+            };
+            let area = area.strip_suffix(".are").unwrap_or(area);
+            let area =
+                ResRef::from_str(&area.to_ascii_lowercase()).ok().context("not an area name")?;
+            let png = Path::new(png);
+            let (d, data) = draw(area)?;
+            std::fs::write(png, data)?;
+            out.json = described(area, png, &d);
+            out.note(format!("{}×{} pixels", d.image.width, d.image.height));
+            if *map_notes {
+                out.note(format!("{} map notes marked", d.notes.len()));
+            }
             out
         }
         Cmd::Find { module, types, name, resref, palette_group: Some(spec), .. } => {
