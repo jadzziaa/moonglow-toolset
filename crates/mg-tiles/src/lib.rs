@@ -15,6 +15,9 @@ use mg_set::Tileset;
 use thiserror::Error;
 
 pub mod paint;
+mod seams;
+
+pub use seams::{Disagreement, Seam, seams};
 
 /// A terrain of a tileset (see [`TileIndex::terrain`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -89,6 +92,8 @@ pub struct TileIndex {
     crossers: Vec<String>,
     cells: Vec<Cell>,
     grouped: Vec<bool>,
+    /// Tiles with no section or no model (`mg_set::Tile::is_hole`).
+    holes: Vec<bool>,
     /// The tileset's groups: columns, and row-major tiles.
     groups: Vec<(u32, Vec<Option<u32>>)>,
     fits: HashMap<Cell, Vec<Placement>>,
@@ -164,9 +169,10 @@ impl TileIndex {
                 });
             }
         }
+        let holes = set.tiles.iter().map(mg_set::Tile::is_hole).collect();
         let max_height = cells.iter().flat_map(|c| c.corners).map(|c| c.height).max().unwrap_or(0);
         let groups = set.groups.iter().map(|g| (g.columns.max(1), g.tiles.clone())).collect();
-        TileIndex { terrains, crossers, cells, grouped, groups, fits, max_height }
+        TileIndex { terrains, crossers, cells, grouped, holes, groups, fits, max_height }
     }
 
     /// A terrain by name (case-insensitive).
@@ -223,6 +229,19 @@ impl TileIndex {
     /// their group, never to fit terrain.
     pub fn is_grouped(&self, tile: u32) -> bool {
         self.grouped.get(tile as usize).copied().unwrap_or(false)
+    }
+
+    /// Whether a tile is a hole in the tileset: its section or its model
+    /// is missing (the game draws nothing there).
+    pub fn is_hole(&self, tile: u32) -> bool {
+        self.holes.get(tile as usize).copied().unwrap_or(false)
+    }
+
+    /// Whether a tile outside groups (and no hole) has crosser `c` on an
+    /// edge: one painting can lay, and that can meet a group's.
+    pub fn is_free_crosser(&self, c: Crosser) -> bool {
+        (self.cells.iter().enumerate())
+            .any(|(i, cell)| !self.grouped[i] && !self.holes[i] && cell.edges.contains(&Some(c)))
     }
 
     /// The cells of the group placed with a tile of its own at (x, y):

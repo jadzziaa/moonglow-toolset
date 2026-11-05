@@ -69,6 +69,7 @@ pub enum Check {
     AppearanceRange,
     AreaVariables,
     TileReplace,
+    TileSeam,
     TagUnique,
     NuiSources,
     VarType,
@@ -90,7 +91,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 49] = [
+    pub const ALL: [Check; 50] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -122,6 +123,7 @@ impl Check {
         Check::AppearanceRange,
         Check::AreaVariables,
         Check::TileReplace,
+        Check::TileSeam,
         Check::TagUnique,
         Check::NuiSources,
         Check::VarType,
@@ -175,6 +177,7 @@ impl Check {
             Check::AppearanceRange => "appearance-range",
             Check::AreaVariables => "area-variables",
             Check::TileReplace => "tile-replace",
+            Check::TileSeam => "tile-seam",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
             Check::VarType => "var-type",
@@ -271,6 +274,11 @@ impl Check {
                 "a tile whose model has a replace_tex texture names a replacetexture.2da row \
                  (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
                  or a value past the table)"
+            }
+            Check::TileSeam => {
+                "an area's neighboring tiles agree about the corners and edge they share: its \
+                 terrain and height, and its crosser (a road, a stream), as Aurora's painting \
+                 leaves them"
             }
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
@@ -382,6 +390,7 @@ impl Check {
             | Check::AppearanceRange
             | Check::AreaVariables
             | Check::TileReplace
+            | Check::TileSeam
             | Check::TagUnique
             | Check::VarType
             | Check::VarValue
@@ -1057,6 +1066,9 @@ pub fn examine_groups(
     }
     if runs(&[TileReplace]) {
         timings.time("tiles' replacement textures", || tile_replacements(&mut d, module));
+    }
+    if runs(&[TileSeam]) {
+        timings.time("tiles' seams", || tile_seams(&mut d, module));
     }
     if runs(&[TagUnique]) {
         timings.time("unique tags", || unique_tags(&mut d, module));
@@ -3345,6 +3357,96 @@ fn tile_replacements(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// Neighboring tiles that disagree about a corner or an edge they share
+/// ([`mg_tiles::seams`]): its terrain, its height (the tile's corner and
+/// its `Tile_Height`) or its crosser, where a tile that agrees could have
+/// been chosen (not what a tileset's own group makes). Aurora's painting
+/// leaves none; an area written by hand, by a script or by a tool can,
+/// and its ground then doesn't meet. Of the game's own areas, nine
+/// (`tiles.rs` `shipped_tile_grids_are_consistent`). A tile the tileset
+/// lacks, or a hole in it, is the area's problems' to name, not this
+/// check's.
+fn tile_seams(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> =
+        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
+    keys.sort();
+    let mut indexes: HashMap<ResRef, Option<mg_tiles::TileIndex>> = HashMap::new();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let Some(name) = gff.root.resref("Tileset") else { continue };
+        let rm = d.rm;
+        let index = indexes.entry(name).or_insert_with(|| {
+            let set = crate::minimap::tileset(rm, &gff.root).ok()?;
+            Some(mg_tiles::TileIndex::new(&set))
+        });
+        let Some(index) = index else { continue };
+        let int = |s: &Struct, label: &str| s.integer(label).unwrap_or(0);
+        let width = u32::try_from(int(&gff.root, "Width")).unwrap_or(0).min(1024);
+        let height = u32::try_from(int(&gff.root, "Height")).unwrap_or(0).min(1024);
+        let tiles: Vec<mg_tiles::Placement> = (gff.root.list("Tile_List").unwrap_or(&[]).iter())
+            .map(|t| mg_tiles::Placement {
+                tile: u32::try_from(int(t, "Tile_ID")).unwrap_or(u32::MAX),
+                orientation: int(t, "Tile_Orientation").rem_euclid(4) as u8,
+                height: int(t, "Tile_Height").clamp(-1024, 1024) as i32,
+            })
+            .collect();
+        for seam in mg_tiles::seams(index, width, height, &tiles).area {
+            let (place, message) = seam_said(index, &seam);
+            d.push(Severity::Warning, Check::TileSeam, "module", key, place, message);
+        }
+    }
+}
+
+/// Where a seam is (`tile (3, 4)`) and what it says.
+fn seam_said(index: &mg_tiles::TileIndex, seam: &mg_tiles::Seam) -> (String, String) {
+    use mg_tiles::Disagreement;
+    const CORNERS: [&str; 4] = ["south-west", "south-east", "north-east", "north-west"];
+    const EDGES: [&str; 4] = ["south", "east", "north", "west"];
+    let ((x, y), (nx, ny)) = (seam.cell, seam.neighbor);
+    let side = match (i64::from(nx) - i64::from(x), i64::from(ny) - i64::from(y)) {
+        (1, 0) => "east",
+        (0, 1) => "north",
+        (1, 1) => "north-east",
+        _ => "north-west",
+    };
+    let corner =
+        |c: mg_tiles::Corner| format!("{} at height {}", index.terrain_name(c.terrain), c.height);
+    let crosser = |c: Option<mg_tiles::Crosser>| match c {
+        Some(c) => format!("a {}", index.crosser_name(c)),
+        None => "no crosser".to_string(),
+    };
+    let what: Vec<String> = (seam.what.iter())
+        .map(|w| match *w {
+            Disagreement::Corner { corner: k, here, there } => format!(
+                "the {} corner is {} here, {} there",
+                CORNERS[k],
+                corner(here),
+                corner(there)
+            ),
+            Disagreement::Edge { edge, here, there } => format!(
+                "the {} edge has {} here, {} there",
+                EDGES[edge],
+                crosser(here),
+                crosser(there)
+            ),
+        })
+        .collect();
+    let corners = seam.what.iter().any(|w| matches!(w, Disagreement::Corner { .. }));
+    let edge = seam.what.iter().any(|w| matches!(w, Disagreement::Edge { .. }));
+    let shows = match (corners, edge) {
+        (true, true) => "their ground doesn't meet, and what crosses one tile's edge stops there",
+        (true, false) => "their ground doesn't meet",
+        _ => "what crosses one tile's edge stops there",
+    };
+    let message = format!(
+        "the tile and its {side} neighbor, tile ({nx}, {ny}), don't fit together: {}. In the \
+         tileset's terms {shows}: paint the corner or the crosser again (painting chooses tiles \
+         that fit), or choose such tiles yourself",
+        what.join("; ")
+    );
+    (format!("tile ({x}, {y})"), message)
+}
+
 /// Tags the project says must be unique (`[tags] unique` in its
 /// `moonglow.toml`) that are on more than one object: `GetObjectByTag`
 /// gives a script only one of them (the one placed later, of two in an
@@ -4935,6 +5037,88 @@ node trimesh flag\n  parent {name}\n  bitmap {bitmap}\n  verts 3\n    0 0 0\n   
         assert!(found[0].message.contains("Tile_ReplaceTex is 0"), "{}", found[0].message);
         assert!(found[1].message.contains("past replacetexture.2da's 2 rows"));
         assert_eq!(Group::of(found[0]), Group::Objects);
+    }
+
+    /// Neighboring tiles that disagree about a corner, its height or an
+    /// edge's crosser are named with the neighbor and what each has; an
+    /// area whose tiles fit, and a tile the tileset lacks, say nothing.
+    #[test]
+    fn tiles_that_do_not_fit_their_neighbors_are_found() {
+        let set = "[GENERAL]\nName=TST03\nTransition=5\n\
+[TERRAIN TYPES]\nCount=2\n[TERRAIN0]\nName=Grass\n[TERRAIN1]\nName=Water\n\
+[CROSSER TYPES]\nCount=1\n[CROSSER0]\nName=Road\n\
+[TILES]\nCount=3\n\
+[TILE0]\nModel=tst03_a\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+[TILE1]\nModel=tst03_b\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Water\nBottomRight=Grass\n\
+[TILE2]\nModel=tst03_c\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
+        let rm = resman(&[("tst03", ResType::SET, set.as_bytes())]);
+        let mut m = Module::new();
+        // (id, orientation, height), row-major from the south-west.
+        let area = |m: &mut Module, name: &str, width: i32, tiles: &[(i32, i32, i32)]| {
+            let mut are = Gff::new(*b"ARE ");
+            are.root.set("Tileset", Value::ResRef(b"tst03".to_vec()));
+            are.root.set("Width", Value::Int(width));
+            are.root.set("Height", Value::Int(tiles.len() as i32 / width));
+            let list = (tiles.iter())
+                .map(|&(id, o, h)| {
+                    let mut t = Struct::new(1);
+                    t.set("Tile_ID", Value::Int(id));
+                    t.set("Tile_Orientation", Value::Int(o));
+                    t.set("Tile_Height", Value::Int(h));
+                    t
+                })
+                .collect();
+            are.root.set("Tile_List", Value::List(list));
+            m.set_gff(key(name, ResType::ARE), &are).unwrap();
+        };
+        // Water at (0, 0)'s north-east corner, Grass all round (1, 0); a
+        // road that stops at the tile north of it; a tile a step up.
+        area(&mut m, "seams", 2, &[(1, 2, 0), (0, 0, 0), (2, 0, 0), (0, 0, 1)]);
+        // The water corner shared by four tiles turned to meet it, and a
+        // tile the tileset lacks.
+        area(&mut m, "fitting", 2, &[(1, 2, 0), (1, 3, 0), (1, 1, 0), (1, 0, 0)]);
+        area(&mut m, "unknown", 2, &[(0, 0, 0), (7, 0, 0)]);
+        let f = examine(&m, &rm, TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tile-seam").collect();
+        let at: Vec<(String, &str)> =
+            found.iter().map(|x| (x.resource.to_string(), x.at.as_str())).collect();
+        assert_eq!(
+            at,
+            [
+                ("seams.are".into(), "tile (0, 0)"),
+                ("seams.are".into(), "tile (0, 0)"),
+                ("seams.are".into(), "tile (1, 0)"),
+                ("seams.are".into(), "tile (0, 1)"),
+            ],
+            "{found:#?}"
+        );
+        assert!(found.iter().all(|x| x.severity == Severity::Warning));
+        let said: Vec<&str> = found.iter().map(|x| x.message.as_str()).collect();
+        assert!(
+            said[0].contains("its east neighbor, tile (1, 0)")
+                && said[0].contains(
+                    "the north-east corner is Water at height 0 here, Grass at height 0 there"
+                ),
+            "{}",
+            said[0]
+        );
+        assert!(
+            said[1].contains(
+                "its north neighbor, tile (0, 1), don't fit together: the north-east corner is \
+                 Water at height 0 here, Grass at height 0 there; the north edge has no crosser \
+                 here, a Road there."
+            ),
+            "{}",
+            said[1]
+        );
+        let step = "the north-west corner is Grass at height 0 here, Grass at height 1 there; \
+                    the north-east corner is Grass at height 0 here, Grass at height 1 there.";
+        assert!(said[2].contains("north neighbor, tile (1, 1)") && said[2].contains(step));
+        assert!(said[3].contains("east neighbor, tile (1, 1)"), "{}", said[3]);
+        assert!(said[0].contains("In the tileset's terms their ground doesn't meet: paint"));
+        assert!(said[1].contains("doesn't meet, and what crosses one tile's edge stops there"));
+        assert_eq!(Check::TileSeam.group(), Group::Objects);
     }
 
     /// A placeable whose Appearance is past 65535, placed or a blueprint:

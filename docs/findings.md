@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:14:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:01:09Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -456,7 +456,27 @@ floor is at `Tile_Height` × `Transition`.
   `a_tile_s_own_height_stands_where_the_engine_puts_it`). The game's own
   areas reach 19; below 0 is not in them but loads. Tile Properties'
   Height (issue #29) sets it.
-- **Moonglow:** `crates/mg-area/src/lib.rs`, `crates/mg-tiles`.
+- **Seams the game ships:** of the install's 1,462 areas (102,182
+  tiles), 75 pairs of neighbors disagree (69 cells). 66 are a group's
+  own: ttu01's two-tile group (Tile0=299, Tile1=300) has Floor on its
+  left and Rock on its right in both tiles, so they disagree with each
+  other where they meet, and whatever the tile beside that corner has
+  disagrees with one of them (Kingmaker, Hordes' chapter 1, Infinite
+  Dungeons); tid01's and tni01's groups disagree inside about a
+  crosser; trs02's `path` is on one tile only, 582 of group 12, and
+  declared as no crosser, so nothing outside the group can meet it.
+  Nine are an area's own, where the tileset has tiles that fit:
+  Tyrants of the Moonsea's `moonseablockade` and `moonseabattle` (tss13)
+  put the plain deck, tile 0, beside a group's gangplank, where tiles
+  392 to 403 are that same deck model with a gangplank edge; Darkness
+  over Daggerford's `c1ar2000_northco` (tno01) ends a sandbank at a
+  cliff tile (2, 5) that has none, where 42 free tiles carry one. The
+  game takes them as they are: they ship in the modules it plays (game
+  data, `tiles.rs` `shipped_tile_grids_are_consistent`; not run in the
+  engine here). Verify's `tile-seam` says the nine and not the 66
+  (`mg verify` on those modules).
+- **Moonglow:** `crates/mg-area/src/lib.rs`, `crates/mg-tiles`
+  (`seams`, Verify's `tile-seam`).
 - **Wiki:** missing (no page documents the ARE `Tile_*` fields).
 
 ### Door hooks, and the doors Aurora places itself
