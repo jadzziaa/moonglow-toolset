@@ -715,6 +715,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     {
         for area in ws.module.keys_of(ResType::ARE).map(|k| k.resref) {
             ui.data_mut(|d| {
+                // (Those the Filter opened out too, until it changes.)
+                let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                d.insert_temp(egui::Id::new(("tree-area-filter-closed", area)), now);
                 d.insert_temp(egui::Id::new(("tree-area-open", area)), false);
                 d.insert_temp(egui::Id::new(("tree-area-kinds-closed", area)), true);
             });
@@ -1214,14 +1217,36 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     let is_area = k.restype == ResType::ARE;
                     let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
                     // (Shown opened out while the Filter finds what is
-                    // placed in it.)
-                    out |= !filter.is_empty() && holds(&k);
-                    // (Opened out or closed by the keys.)
+                    // placed in it, until it is closed: then closed until
+                    // what is typed changes. It was held open, a click on
+                    // its arrow undone the next frame, a builder's report.)
+                    let closed_for = egui::Id::new(("tree-area-filter-closed", k.resref));
+                    let by_filter = is_area
+                        && !filter.is_empty()
+                        && holds(&k)
+                        && ui.data(|d| {
+                            let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                            d.get_temp::<Option<u64>>(closed_for) != Some(now)
+                        });
+                    out |= by_filter;
+                    // Opened out or closed by hand (its arrow, the keys):
+                    // closed, it stays closed while the Filter has the same.
+                    let set_out = |ui: &mut Ui, open: bool| {
+                        ui.data_mut(|d| {
+                            d.insert_temp(opened, open);
+                            if open {
+                                d.remove_temp::<Option<u64>>(closed_for);
+                            } else {
+                                let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                                d.insert_temp(closed_for, now);
+                            }
+                        });
+                    };
                     if let Some((_, open)) =
                         folded.filter(|f| is_area && f.0 == TreeAt::Resource(k))
                     {
                         out = open;
-                        ui.data_mut(|d| d.insert_temp(opened, out));
+                        set_out(ui, out);
                     }
                     // The resource to bring into view (a tab chosen, or
                     // its menu's Show in Module Tree, which opens an area
@@ -1263,7 +1288,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 .on_hover_text("What is placed in the area, by kind");
                             if toggle.clicked() {
                                 out = !out;
-                                ui.data_mut(|d| d.insert_temp(opened, out));
+                                set_out(ui, out);
                             }
                         }
                         let marked = in_hand || at_row || chosen;

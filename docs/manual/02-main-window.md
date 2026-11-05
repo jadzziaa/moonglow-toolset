@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T21:46:15Z }
 ---
 
 # The main window
@@ -260,8 +260,10 @@ the view), **Copy**, **Delete** (one step to undo), **Properties** (of
 objects of one kind, edited together) and the plugins' commands. The
 Filter finds objects by name or tag in every area, opened out or not
 (an area that holds one it finds is shown opened out to it), and narrows
-an opened area's objects to those it finds. The kinds it finds objects
-in open as it is typed, and close again with a click on their arrow.
+an opened area's objects to those it finds. The areas and the kinds it
+finds objects in open as it is typed, and close again with a click on
+their arrow (or Collapse All), staying closed until what is typed
+changes.
 **Edit** on the right-click menu of any other row (a conversation, a
 script, a blueprint) opens it, as a double click does; a blueprint's
 also has **Preview** (the model viewer).

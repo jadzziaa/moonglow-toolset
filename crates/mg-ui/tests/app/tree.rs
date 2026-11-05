@@ -1614,6 +1614,49 @@ fn the_kinds_the_filter_opens_close_again() {
     assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "typed again");
 }
 
+/// El Grillo's report after the kinds' fix: with the Filter typed, an
+/// area it found objects in was held opened out (its own arrow undone the
+/// next frame). Now it closes, and stays closed while the Filter has the
+/// same; its arrow opens it again; Collapse All closes it too; and typed
+/// anew, the Filter opens it out once more.
+#[test]
+fn an_area_the_filter_opens_out_closes_again() {
+    let Some((mut h, _)) = area_harness("tree-filter-area") else { return };
+    let typed = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+        filter.click();
+        h.run_steps(2);
+        filter_type(h, text);
+        h.run_steps(30);
+    };
+    let kinds = |h: &Harness<'_, Moonglow>| h.query_all_by_label("Waypoints (2 of 2)").count();
+    typed(&mut h, "nw_waypoint001");
+    assert_eq!(kinds(&h), 1, "opened out by the Filter");
+    // (The area's arrow: the "⏷" just above its kinds, left of them;
+    // Expand All's is above the tree, the area view has its own.)
+    let under = h.get_by_label("Waypoints (2 of 2)").rect();
+    let arrow = (h.get_all_by_label("⏷"))
+        .filter(|n| n.rect().left() < under.left() && n.rect().top() < under.top())
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    arrow.unwrap().click();
+    h.run_steps(10);
+    assert_eq!(kinds(&h), 0, "closed, and stays closed");
+    h.get_by_label("⏵").click();
+    h.run_steps(10);
+    assert_eq!(kinds(&h), 1, "opened out again");
+    // Collapse All, then the Filter cleared and typed again: opened out once more.
+    // (The tree's, left of the area view's.)
+    let collapse =
+        h.get_all_by_label("⏶").min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
+    collapse.unwrap().click();
+    h.run_steps(10);
+    assert_eq!(kinds(&h), 0, "Collapse All");
+    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.run_steps(4);
+    typed(&mut h, "nw_waypoint001");
+    assert_eq!(kinds(&h), 1, "typed again");
+}
+
 /// A plugin whose command is for every kind the module tree lists
 /// ("Each Kind"), in a folder of installed plugins of its own.
 fn each_kind_plugin(name: &str) -> std::path::PathBuf {
