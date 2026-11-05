@@ -483,8 +483,11 @@ fn the_game_s_shaders_notice_can_be_hidden_on_this_driver() {
     let trouble = h.state().renderer_check.trouble.clone().expect("the notice");
     assert!(trouble.hideable, "{trouble:?}");
     assert!(!h.state().game_shaders());
-    let shot = picture(&mut h, "notice_hideable");
-    eprintln!("{}", shot.display());
+    // (Pictures to look at, where there is a GPU.)
+    if adapter() {
+        mg_testkit::gpu::hold();
+        eprintln!("{}", picture(&mut h, "notice_hideable").display());
+    }
     h.get_by_label("Don't Show Again").click();
     h.run_steps(2);
     let app = h.state();
@@ -515,8 +518,10 @@ fn the_game_s_shaders_notice_can_be_hidden_on_this_driver() {
     h.run_steps(2);
     h.get_by_label("General").click();
     h.run_steps(2);
-    let shot = picture(&mut h, "notice_hidden_options");
-    eprintln!("{}", shot.display());
+    if adapter() {
+        mg_testkit::gpu::hold();
+        eprintln!("{}", picture(&mut h, "notice_hidden_options").display());
+    }
     h.get_by_label("Show Again").click();
     h.run_steps(2);
     h.get_by_label("OK").click();
