@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.8.1" date="2026-11-04">
+      <description>
+        <p>Crossers are painted as Aurora paints them: a click puts a
+        doorway in a wall, and a drag lays what the tileset has tiles for,
+        passing over the rest, where it had laid nothing.</p>
+      </description>
+    </release>
     <release version="3.8.0" date="2026-11-04">
       <description>
         <p>Copy Set and Paste Set carry a script's parameters or a
