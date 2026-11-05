@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.9.0" date="2026-11-05">
+      <description>
+        <p>Several areas' minimaps are exported at once, and with their map
+        notes marked as the game's map marks them; the notice that the
+        game's shaders draw wrong can be hidden on a GPU where it says the
+        same every time; an area the module tree's Filter opened closes
+        again.</p>
+      </description>
+    </release>
     <release version="3.8.1" date="2026-11-04">
       <description>
         <p>Crossers are painted as Aurora paints them: a click puts a
