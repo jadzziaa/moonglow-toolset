@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:47:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:25:05Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -297,7 +297,7 @@ scripts (name, picker, Edit), Comments.
 | Context menu: Levelup Wizard | see the creature's Levelup Wizard | ✅ |
 | Terrain palette (Features, Groups, Terrain: terrains, crossers, Eraser, Raise/Lower), sorted by name | Palettes › Tiles: the area's tileset palette, the same entries and order | ✅ (`aurora_terrain.rs`: four tilesets' Terrain branches as Aurora lists them) |
 | Terrain brushes: a corner's terrain, the primary rules on its neighbours; Raise/Lower (right click lowers); only the touched tiles change; a stroke nothing fits does nothing | the same; the cursor (the four tiles around the corner) turns red where the stroke would do nothing | ✅ (`aurora_terrain.rs`: 62 steps give Aurora's corners, heights and crossers) [area_viewer_paints_terrain] |
-| Crossers dragged across tiles (roads, streams, walls, corridors…); bridges where they cross | the same: the crosser goes on the edge of every quarter of a tile the drag passes | ✅ (`aurora_terrain.rs`) |
+| Crossers dragged across tiles (roads, streams, walls, corridors…), or clicked on one edge (a doorway); bridges where they cross | the same: the crosser goes on the edge of every quarter of a tile the drag passes, or of the quarter clicked; the cursor red where nothing fits | ✅ (`aurora_terrain.rs`, tic01's clicks) |
 | Eraser: the tile under the pointer chosen again; its crossers go | the same (crossers that then fit nothing go too, as Aurora's) | ✅ (`aurora_terrain.rs`) |
 | Groups and features: a ghost under the pointer (its first tile there), right click turns it; its doors come with it | the same | ✅ (`aurora_terrain.rs`: eight placements and the doors, field for field; `engine_terrain.rs`) |
 | Select Terrain: tiles by click and box; Delete; Shift + right click: next variant; Tile Properties (main and source lights from lightcolor.2da, animation loops, Defaults) | Select Tiles: the same | ◐ [area_viewer_selects_tiles_and_sets_their_properties]; Defaults' lights not checked against Aurora indoors; Ctrl + C, X, V copy, cut and paste tiles with their lights (pasted as a group goes in) [tiles_copy_and_paste] |

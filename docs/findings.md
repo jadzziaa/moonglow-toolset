@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:17:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:25:05Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -537,7 +537,9 @@ What lines ending each way in one file do was not measured.
   re-picks the tiles.
 - **Crossers:** each cell is split by its diagonals into four quarters, one
   per edge; the crosser goes on the edge of every quarter the drag passes
-  through, the first included. A click without moving re-picks the cell.
+  through, the first included. A click without moving puts it on the
+  edge of the quarter clicked (refused, it changes nothing; Aurora's
+  cursor, the quarter, is red there).
 - **Eraser:** acts on the tile, not a corner, and does not paint the
   Default terrain: it clears the tile's crossers and re-picks it and its
   neighbours across the cleared edges; a tile that then fits nothing loses
@@ -548,8 +550,9 @@ What lines ending each way in one file do was not measured.
   Tile0 (its lowest corner), overwriting the terrain and re-picking the
   tiles around.
 
-- **Checked:** Aurora, `aurora_terrain.rs` `painting_matches_aurora` (54
-  scripted steps in four tilesets, and eight group placements); game data
+- **Checked:** Aurora, `aurora_terrain.rs` `painting_matches_aurora` (67
+  scripted steps in four tilesets, five of them crosser clicks, and eight
+  group placements); game data
   (770 group placements).
 - **Moonglow:** `crates/mg-tiles/src/paint.rs`.
 - **Wiki:** the Tilesets page says only that the toolset "will perform a

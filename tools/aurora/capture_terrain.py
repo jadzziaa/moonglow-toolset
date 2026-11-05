@@ -210,7 +210,12 @@ def approach(p, towards=None):
 
 def play(pointer, palette, step):
     brush(palette, step["brush"])
-    if "at" in step or "cell" in step:
+    if "click" in step:
+        # A crosser clicked at a point (metres): on the edge of its quarter.
+        p = pointer.aim(*step["click"], 1)
+        approach(p)
+        x.click(*p, 1)
+    elif "at" in step or "cell" in step:
         p = pointer.corner(*step["at"]) if "at" in step else pointer.cell(*step["cell"])
         approach(p)
         x.click(*p, 3 if step.get("lower") else 1)

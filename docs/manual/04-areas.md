@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:25:05Z }
 ---
 
 # Areas
@@ -971,7 +971,11 @@ as Aurora's Terrain tab does:
   the whole rectangle from where the drag began. Letting go paints them
   all, and one undo takes the whole drag back. The cursor shows the four
   tiles a stroke changes.
-- **Crossers** (roads, streams, walls) are dragged: they follow the
+- **Crossers** (roads, streams, walls, doorways) go on a tile's edges.
+  Click near a side of a tile to put one on that edge, as in Aurora: a
+  doorway in a wall is one click on the wall where it goes. The cursor
+  is the quarter of the tile by that side, red where no tile fits the
+  crosser there. Drag to lay one along a way: it follows the
   pointer through the tiles it passes. A drag straight across a tile may
   wander up to 2.5 m off its middle. To turn within a tile, head for the
   side it should leave by. Running the drag back over its path lets go of

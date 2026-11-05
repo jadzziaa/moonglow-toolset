@@ -217,9 +217,9 @@ impl Grid {
     /// edge of every quarter of a cell the pointer passes through with the
     /// button down (the quarter nearest that edge), from the one it was in
     /// when pressed ([`path_edges`] for a path through cell centres). The
-    /// cells on both sides of each edge choose their tiles again; with no
-    /// edge, the `cells` given (a click). `None` when refused, or for a
-    /// cell outside the grid.
+    /// cells on both sides of each edge choose their tiles again, and the
+    /// `cells` given. A click is one quarter's edge. `None` when refused,
+    /// or for a cell outside the grid.
     ///
     /// [`SOUTH`]: crate::SOUTH
     pub fn draw_crosser(

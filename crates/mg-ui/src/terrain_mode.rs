@@ -9,7 +9,9 @@
 //!   all, as one command, when the button is let go.
 //! - A crosser brush is dragged: the crosser goes on the edge of every
 //!   quarter of a tile the pointer passes through (the quarter nearest that
-//!   edge), as Aurora draws it. A click chooses the tile again.
+//!   edge), as Aurora draws it. A click puts it on the edge of the quarter
+//!   clicked (a doorway in a wall), as Aurora's does; the cursor, that
+//!   quarter, is red where no tile fits it.
 //!   A right click on a quarter the crosser already crosses takes that
 //!   crosser off the tile, as the Eraser would, leaving other crossers.
 //! - The Eraser acts on the tile under the pointer: it removes its crossers
@@ -588,7 +590,9 @@ fn stroke(
             (grid.place_tiles(&tools.index, &[((0, 0), Some(p))], cx, cy), label)
         }
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
-        Brush::Crosser(c) => (grid.draw_crosser(&tools.index, &[], &[spot.cell], c), label),
+        Brush::Crosser(c) => {
+            (grid.draw_crosser(&tools.index, &[(spot.cell, spot.edge)], &[], c), label)
+        }
         Brush::Group(g) => {
             let group = &tools.set.groups[g];
             let (cx, cy) = spot.cell;
@@ -1119,8 +1123,8 @@ fn terrain_drag(
     true
 }
 
-/// A crosser drag's stroke along `edges` (its quarters), or for one
-/// quarter alone, the tile chosen again.
+/// A crosser drag's stroke along `edges` (its quarters; one alone, a
+/// click's: the crosser on that quarter's edge, as Aurora's click).
 fn crosser_stroke(
     tools: &Tools,
     g: &Grid,
@@ -1128,11 +1132,10 @@ fn crosser_stroke(
     c: mg_tiles::Crosser,
 ) -> Option<Stroke> {
     edges.dedup();
-    match edges.as_slice() {
-        [] => None,
-        [(cell, _)] => g.draw_crosser(&tools.index, &[], &[*cell], c),
-        _ => g.draw_crosser(&tools.index, &edges, &[], c),
+    if edges.is_empty() {
+        return None;
     }
+    g.draw_crosser(&tools.index, &edges, &[], c)
 }
 
 /// A terrain drag's strokes, corner (or tile) by corner in order, each on
@@ -1388,11 +1391,19 @@ fn cursor_shapes(
             if view.crossing_outline.is_none() {
                 let (cell, edge) = next_quarter(&view.crossing, s);
                 // Before a drag, over a quarter the crosser already crosses,
-                // a click only chooses the tile again; elsewhere a drag from
-                // here lays it.
+                // a click only chooses the tile again; elsewhere a click
+                // lays it on the quarter's edge, red where nothing fits it.
                 let there =
                     g.lattice.get_cell(cell.0, cell.1).is_some_and(|t| t.edges[edge] == Some(c));
-                let color = if view.crossing.is_empty() && there { CYCLE } else { ok };
+                let color = if !view.crossing.is_empty() {
+                    ok
+                } else if there {
+                    CYCLE
+                } else if g.draw_crosser(&tools.index, &[(cell, edge)], &[], c).is_none() {
+                    refused
+                } else {
+                    ok
+                };
                 quarter(cell, edge, color);
             }
         }
@@ -1975,6 +1986,11 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         Brush::Rotate => Some(
             "Click a tile: a quarter turn counter-clockwise (Shift: clockwise), where it still \
              fits its neighbors; its lights stay",
+        ),
+        Brush::Crosser(_) => Some(
+            "Click near a side of a tile: it goes on that edge (a doorway in a wall). Drag: it \
+             follows the pointer through the tiles it passes (Shift + drag: round a rectangle). \
+             Right click where it lies: it goes from that tile",
         ),
         _ => None,
     };

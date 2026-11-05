@@ -102,6 +102,18 @@ fn act(
             let turns = step["turns"].as_u64().unwrap_or(0) as u8;
             grid.place_group(index, &set.groups[g], x, y, turns)
         }
+        // A click at a point (metres): the crosser on the edge of the
+        // quarter there, the edge nearest the point (as the area view's
+        // `terrain_mode::spot` finds it).
+        Brush::Crosser(c) if step.get("click").is_some() => {
+            let (u, v) = (step["click"][0].as_f64().unwrap(), step["click"][1].as_f64().unwrap());
+            let (u, v) = (u / 10.0, v / 10.0);
+            let cell = (u.floor() as u32, v.floor() as u32);
+            let (fu, fv) = (u.fract(), v.fract());
+            let distances = [fv, 1.0 - fu, 1.0 - fv, fu];
+            let edge = (0..4).min_by(|&a, &b| distances[a].total_cmp(&distances[b])).unwrap();
+            grid.draw_crosser(index, &[(cell, edge)], &[], c)
+        }
         Brush::Crosser(c) => {
             let path: Vec<(u32, u32)> = step["path"].as_array().unwrap().iter().map(at).collect();
             let edges = path_edges(&path).expect("a path of neighbouring cells");

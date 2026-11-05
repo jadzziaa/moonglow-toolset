@@ -1697,6 +1697,73 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
 }
 
 #[test]
+fn a_crosser_click_lays_it_on_the_edge_of_the_quarter_clicked() {
+    // A doorway in a wall is a click near the tile's side, as in Aurora
+    // (`aurora_terrain`'s clicks); the cursor, that quarter, is red where
+    // no tile fits it, and a click there changes nothing.
+    use glam::Vec3;
+    use mg_tiles::{EAST, TileIndex, WEST};
+    let Some((mut h, area)) = area_harness_on("crosser-click", "tic01", None) else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        h.run_steps(3);
+        let colors: Vec<egui::Color32> =
+            h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect();
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        colors
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    h.get_by_label("Doorway").click();
+    h.run_steps(2);
+    let doorway = index.crosser("Doorway").expect("tic01's Doorway");
+    let (green, red) = (egui::Color32::from_rgb(80, 220, 80), egui::Color32::from_rgb(230, 60, 60));
+
+    // Near the east side of tile (0, 1): a doorway between it and (1, 1).
+    let before = grid(&mut h);
+    assert_eq!(click(&mut h, Vec3::new(8.0, 15.0, 0.0)), [green]);
+    let l = grid(&mut h).lattice;
+    assert_eq!(l.cell(0, 1).edges[EAST], Some(doorway));
+    assert_eq!(l.cell(1, 1).edges[WEST], Some(doorway));
+    let changed: Vec<(u32, u32)> = (0..4)
+        .flat_map(|y| (0..4).map(move |x| (x, y)))
+        .filter(|&(x, y)| l.cell(x, y) != before.lattice.cell(x, y))
+        .collect();
+    assert_eq!(changed, [(0, 1), (1, 1)], "only the two tiles either side");
+    // One undo takes it back.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).lattice, before.lattice);
+
+    // A quarter no tile fits a doorway at (beside the area's stone room):
+    // red, and the click is refused.
+    let g = grid(&mut h);
+    let refused = (0..4u32)
+        .flat_map(|y| (0..4u32).flat_map(move |x| (0..4usize).map(move |e| ((x, y), e))))
+        .find(|&q| g.draw_crosser(&index, &[q], &[], doorway).is_none());
+    let ((x, y), e) = refused.expect("a quarter that refuses a doorway");
+    // That quarter's middle, a metre and a half in from its edge.
+    let (dx, dy) = [(0.0, -3.5), (3.5, 0.0), (0.0, 3.5), (-3.5, 0.0)][e];
+    let p = Vec3::new(x as f32 * 10.0 + 5.0 + dx, y as f32 * 10.0 + 5.0 + dy, 0.0);
+    assert_eq!(click(&mut h, p), [red], "quarter {e} of ({x}, {y})");
+    assert_eq!(grid(&mut h).lattice, before.lattice);
+}
+
+#[test]
 fn the_eraser_erases_every_tile_it_is_dragged_across() {
     use glam::Vec3;
     use mg_tiles::TileIndex;

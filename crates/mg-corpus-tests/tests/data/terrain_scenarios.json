@@ -1,5 +1,5 @@
 {
-  "comment": "Terrain painting scenarios, captured from Aurora by tools/aurora/capture_terrain.py and replayed by tests/aurora_terrain.rs. Each runs in a 10x10 area of its tileset made by Moonglow's area wizard (examples/terrain_probe_module.rs). A step paints a corner ('at'; the right button with 'lower'), a cell ('cell', the Eraser) or drags along cells ('path'), with the palette entry 'brush'; 'palette' is the Terrain branch as Aurora lists it. A scenario with 'captures' keeps them under that name; 'by_hand' ones were captured by hand (the script does not drive the Groups folder). A step with 'group' places a tile group from the palette with its first tile in 'cell', 'turns' quarter turns (right clicks); a step with 'steps' is several saved as one.",
+  "comment": "Terrain painting scenarios, captured from Aurora by tools/aurora/capture_terrain.py and replayed by tests/aurora_terrain.rs. Each runs in a 10x10 area of its tileset made by Moonglow's area wizard (examples/terrain_probe_module.rs). A step paints a corner ('at'; the right button with 'lower'), a cell ('cell', the Eraser) drags along cells ('path') or clicks a point ('click', metres from the area's south-west corner: a crosser on the edge of the quarter there), with the palette entry 'brush'; 'palette' is the Terrain branch as Aurora lists it. A scenario with 'captures' keeps them under that name; 'by_hand' ones were captured by hand (the script does not drive the Groups folder). A step with 'group' places a tile group from the palette with its first tile in 'cell', 'turns' quarter turns (right clicks); a step with 'steps' is several saved as one.",
   "size": 10,
   "scenarios": [
     {
@@ -47,7 +47,12 @@
         {"brush": "Corridor", "path": [[6, 1], [7, 1], [8, 1]]},
         {"brush": "Doorway", "path": [[3, 2], [3, 3]]},
         {"brush": "Eraser", "cell": [3, 3]},
-        {"brush": "Jail", "at": [2, 7]}
+        {"brush": "Jail", "at": [2, 7]},
+        {"brush": "Doorway", "click": [78, 55]},
+        {"brush": "Doorway", "click": [35, 31]},
+        {"brush": "Doorway", "click": [51, 65]},
+        {"brush": "Doorway", "click": [35, 38]},
+        {"brush": "Corridor", "click": [15, 41]}
       ]
     },
     {
