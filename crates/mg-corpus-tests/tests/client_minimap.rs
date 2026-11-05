@@ -340,7 +340,7 @@ fn minimaps_are_laid_out_as_the_client_draws_them() {
 /// an enabled map note (west and east), one whose note is disabled and one
 /// with none. The client's map (`client.png`) marks the two enabled ones
 /// alone, each by `ctl_map_pin`'s diamond centered on the waypoint, 12
-/// pixels where a tile is 16 (the text shows only under the pointer).
+/// pixels where a tile is 16 (the map draws no text of the note).
 /// Moonglow's minimap at 16 pixels a tile, marked (`moonglow.png`), must
 /// have its marked pixels where the client's are: each note's within two
 /// pixels of the client's middle, and most of them the same pixels. (The

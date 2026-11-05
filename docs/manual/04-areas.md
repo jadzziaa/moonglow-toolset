@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:08:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:14:29Z }
 ---
 
 # Areas
@@ -273,9 +273,8 @@ the game's own pin (the `ctl_map_pin` GUI model's picture, a hak's if it
 has one), centered on the waypoint and sized as on the game's map (12
 pixels where a tile is 16); a waypoint whose note is disabled, or that
 has none, is left out, as the game leaves it out. The note's text isn't
-drawn: the game shows it only while the pointer rests on the pin (`mg
-minimap --map-notes --json` lists each note's text and where its pin
-is in the picture). Unsaved waypoints are included. The game places a
+drawn, as the game's map draws none of it (`mg minimap --map-notes
+--json` lists each note's text and where its pin is in the picture). Unsaved waypoints are included. The game places a
 pin at a whole pixel and spreads the area over its map less two pixels,
 so its pins can sit a pixel or two from where Moonglow marks the
 waypoint itself.

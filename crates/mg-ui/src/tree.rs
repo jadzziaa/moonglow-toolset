@@ -2080,8 +2080,8 @@ fn minimap_items(ui: &mut Ui, areas: &[ResRef], actions: &mut Vec<Action>) {
         ),
     };
     let notes = " with each map note the game's map shows (a waypoint's, enabled) marked by \
-                 the game's own pin, where the game marks it (its text shows only under the \
-                 pointer in the game, so it isn't drawn)";
+                 the game's own pin, where the game marks it (the game's map draws no text of \
+                 the note, so none is drawn)";
     for (label, tip, notes) in [
         (format!("Export {what}…"), tip.to_string(), false),
         (format!("Export {what} with Map Notes…"), format!("{tip},{notes}"), true),

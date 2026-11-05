@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:14:29Z }
 ---
 
 # Coming from Aurora
@@ -164,7 +164,8 @@ own.
   Aurora's.
 - **Area visibility**: **Object Walkmeshes** shows where placeables and
   doors keep creatures out, beside the ground's **Walkmesh**; **Export
-  Minimap…** saves an area's map as a PNG.
+  Minimap…** saves an area's map as a PNG (several areas' at once, and
+  with their map notes marked, as the game's map marks them).
 - **Haks**: Tools › Haks builds a hak from a folder and opens one to add,
   rename, extract and remove files (nwhak's job, without its cut-short
   names); Module Properties › Custom Content › **Add Haks and Talk

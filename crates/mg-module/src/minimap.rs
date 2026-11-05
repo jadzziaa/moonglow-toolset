@@ -8,8 +8,8 @@
 //! Map notes ([`map_notes`], [`mark`]) are marked as the game's map marks
 //! them: an enabled one (`HasMapNote` and `MapNoteEnabled`) by the GUI
 //! model `ctl_map_pin`'s picture, centered on the waypoint, a disabled one
-//! not at all; the note's text shows only under the pointer there, so it
-//! isn't drawn (`client_minimap`'s `reading_map_notes`).
+//! not at all. The game's map draws no text of the note, so none is drawn
+//! (`client_minimap`'s `map_notes_are_marked_as_the_client_marks_them`).
 
 use mg_core::{ResRef, ResType};
 use mg_gff::Struct;
@@ -349,8 +349,9 @@ mod tests {
     }
 
     /// The map notes the game's map shows: the enabled ones alone (as the
-    /// client's map showed four waypoints, `reading_map_notes`), with their
-    /// text and where they are.
+    /// client's map showed four waypoints: `client_minimap`'s
+    /// `map_notes_are_marked_as_the_client_marks_them`), with their text and
+    /// where they are.
     #[test]
     fn the_enabled_map_notes_are_the_ones_shown() {
         let mut git = Struct::new(0);
