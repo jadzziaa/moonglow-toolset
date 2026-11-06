@@ -5153,10 +5153,24 @@ fn verify(
     times: &mut mg_module::doctor::Timings,
 ) -> Result<Output> {
     use mg_module::doctor::Group;
-    let m = times.time("open the module", || crate::open_module(path))?;
+    let mut m = times.time("open the module", || crate::open_module(path))?;
     let mut out = Output::default();
     project_file_notes(&m, &mut out);
     let rm = times.time("the game and the haks", || module_resman(gi, &m, &mut out))?;
+    // A project's compiled scripts are build output (its tree holds only
+    // sources): those its build compiles are compiled here, in memory, as
+    // the window compiles them as it opens it, so a script reference is
+    // satisfied by a source that compiles; one that doesn't stays "not
+    // compiled". Nothing is written.
+    let failed = times.time("the project's scripts compiled", || {
+        mg_module::build::compiled_for_checks(&mut m, &rm)
+    });
+    if failed > 0 {
+        out.note(format!(
+            "{failed} of the project's scripts didn't compile (`mg compile` says why): what \
+             names them is said not compiled"
+        ));
+    }
     // (Every GFF of the module read once for both.)
     let references = if show_unused || !skip.group(Group::References) {
         times.time("the module's references", || mg_module::verify::module_references(&m))

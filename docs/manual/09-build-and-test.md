@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T06:04:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T07:13:59Z }
 ---
 
 # Build, verify and test
@@ -255,6 +255,13 @@ untick its group, or one check of it, in **Options › Verify**, or name
 the hak or the tileset there; the summary line says what was left out,
 not checked. **Clear**, in the log's
 corner, empties the log before a second run.
+
+A [project](03-modules.md)'s compiled scripts are build output, so its
+tree holds its scripts as sources: Verify compiles those its build
+compiles first, in memory, so a script reference is satisfied by a
+source that compiles, and one that doesn't compile is said not compiled
+(an error). Nothing is written (since Moonglow 3.10.0; before, every
+such script was said not compiled).
 
 **Fixes.** A problem whose right change is plain has a button beside it
 in the log that says what it does: **Retag the other as …** for a tag

@@ -4562,14 +4562,7 @@ impl Moonglow {
         let known = self.script_stamps.clone();
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
         let Ok(pass) = ws.derive(|module| {
-            let uncompiled: Vec<ResKey> = (module.keys_of(ResType::NSS))
-                .filter(|k| !module.contains(&ResKey::new(k.resref, ResType::NCS)))
-                .filter(|k| {
-                    let target = module.project.as_ref().map(|p| p.target());
-                    !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
-                })
-                .copied()
-                .collect();
+            let uncompiled = mg_module::build::uncompiled(module);
             mg_module::build::compile_changed(
                 module,
                 &game.resman,
@@ -5520,7 +5513,15 @@ impl Moonglow {
                     Vec::new()
                 } else {
                     job.progress.say("Looking for what is missing");
-                    mg_module::verify::missing(&job.module, &game.resman)
+                    // (A project's scripts compiled, in a copy: its
+                    // compiled scripts are build output.)
+                    let compiled = (job.module.project.is_some()).then(|| {
+                        let mut m = job.module.clone();
+                        mg_module::build::compiled_for_checks(&mut m, &game.resman);
+                        m
+                    });
+                    let module = compiled.as_ref().unwrap_or(&job.module);
+                    mg_module::verify::missing(module, &game.resman)
                 };
                 if job.progress.cancelled() {
                     return None;

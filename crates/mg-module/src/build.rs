@@ -506,6 +506,36 @@ fn changed_of(
         .collect()
 }
 
+/// The sources that have no compiled script and that a build compiles
+/// (not those a nasher project's target leaves uncompiled): a project's,
+/// whose compiled scripts are build output, which the window compiles as
+/// it opens one and `mg verify` before it looks.
+pub fn uncompiled(module: &Module) -> Vec<ResKey> {
+    module
+        .keys_of(ResType::NSS)
+        .filter(|k| !module.contains(&ResKey::new(k.resref, ResType::NCS)))
+        .filter(|k| !skips_compiling(module, k))
+        .copied()
+        .collect()
+}
+
+/// A project's sources compiled into `module`, in memory, for what checks
+/// it (Verify Module, `mg verify`): its compiled scripts are build output,
+/// so a reference to a script its build compiles is satisfied by a source
+/// that compiles, and one that doesn't stays not compiled. Nothing for a
+/// module that isn't a project. How many didn't compile.
+pub fn compiled_for_checks(module: &mut Module, resman: &ResMan) -> usize {
+    if module.project.is_none() {
+        return 0;
+    }
+    let names = uncompiled(module);
+    if names.is_empty() {
+        return 0;
+    }
+    let pass = compile_changed(module, resman, None, &Remembered::default(), Some(names), false);
+    pass.results.iter().filter(|r| r.result.is_err()).count()
+}
+
 /// A nasher project's target leaves the script uncompiled.
 fn skips_compiling(module: &Module, k: &ResKey) -> bool {
     module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))

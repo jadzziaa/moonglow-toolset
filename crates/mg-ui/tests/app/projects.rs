@@ -2917,3 +2917,42 @@ fn an_nwsync_upload_canceled_sends_nothing_more() {
     assert_eq!(sent_order(&dir), ["data"], "nothing after it");
     h.get_by_label("Canceled (stopped).");
 }
+
+/// Verify Module on a project, whose tree holds its scripts as sources
+/// alone (their compiled scripts are build output): a source that
+/// compiles satisfies what names it, one that doesn't is said not
+/// compiled (a builder's report: every script of a fresh checkout was).
+#[test]
+fn verify_takes_a_project_s_sources_that_compile() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-verify-project");
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut g = m.gff(&ifo).unwrap().unwrap();
+    g.root.set("Mod_OnModLoad", mg_gff::Value::resref(ResRef::from_str("mg_onload").unwrap()));
+    m.set_gff(ifo, &g).unwrap();
+    let script = ResKey::parse("mg_onload", ResType::NSS).unwrap();
+    m.set(script, b"void main() { PrintString(\"loaded\"); }\n".to_vec());
+    let project = dir.join("project");
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    let verified = |source: Option<&str>| {
+        if let Some(text) = source {
+            std::fs::write(project.join("src/mg_onload.nss"), text).unwrap();
+        }
+        let mut h = window_harness(game_app(&root, None));
+        h.state_mut().open_module(&project);
+        h.run();
+        let ws = h.state().ws.as_ref().expect("the project");
+        let ncs = ResKey::parse("mg_onload", ResType::NCS).unwrap();
+        assert!(!ws.module.contains(&ncs), "the tree holds no compiled script");
+        h.state_mut().actions.push(mg_ui::Action::Verify);
+        h.run();
+        logged(&h, "mg_onload") && logged(&h, "not compiled")
+    };
+    assert!(!verified(None), "a source that compiles satisfies Mod_OnModLoad");
+    assert!(verified(Some("void main() { nonsense }\n")), "one that doesn't: not compiled");
+}
