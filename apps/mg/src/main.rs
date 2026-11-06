@@ -536,7 +536,7 @@ enum Cmd {
     /// is a conflict (the merge fails and nothing is written, unless
     /// --prefer takes a side). Written over OURS (or -o): git's merge
     /// driver (`mg merge-claims %O %A %B --path %P`; the manual's Modules
-    /// chapter, "Claimed areas", has the lines for .gitattributes and
+    /// chapter, "Merging in git", has the lines for .gitattributes and
     /// .git/config). Two builders each claiming a new area add a line under
     /// the same number, which git's own merge calls a conflict
     #[command(name = "merge-claims")]
