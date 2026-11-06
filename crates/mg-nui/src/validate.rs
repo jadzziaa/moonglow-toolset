@@ -35,7 +35,13 @@ pub struct Diagnostic {
 /// build, a warning something likely wrong. The document is read once,
 /// whatever the number of handlers.
 pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
-    let mut c = Check { settings, findings: Vec::new(), ids: BTreeSet::new(), uses: Vec::new() };
+    let mut c = Check {
+        settings,
+        findings: Vec::new(),
+        ids: BTreeSet::new(),
+        uses: Vec::new(),
+        in_group: false,
+    };
     if !window.is_object() {
         c.error("", "NuiWindow must be a JSON object");
         return c.findings;
@@ -90,6 +96,9 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     }
     for (name, variant) in &settings.variants {
         c.ids.clear();
+        // (A variant shown in a group is that group's child; one shown as
+        // the whole window is the root.)
+        c.in_group = settings.variant_targets.get(name).is_none_or(|t| t != "_window_");
         c.element(variant, &format!("/views/{name}"), false);
         let Names { binds, ids, groups } = Names::of(variant);
         names.ids.extend(ids);
@@ -352,6 +361,8 @@ struct Check<'a> {
     /// The IDs seen in the layout being read (the window, or one variant).
     ids: BTreeSet<String>,
     uses: Vec<Use<'a>>,
+    /// The element read next is a group's child.
+    in_group: bool,
 }
 
 impl<'a> Check<'a> {
@@ -498,6 +509,7 @@ impl<'a> Check<'a> {
 
     /// Checks an element and what it holds; its place is `path`.
     fn element(&mut self, v: &'a Value, path: &str, array_bind: bool) {
+        let in_group = std::mem::take(&mut self.in_group);
         let Some(ty) = v.get("type").and_then(Value::as_str) else {
             self.error(path, "Element needs a string type");
             return;
@@ -629,9 +641,13 @@ impl<'a> Check<'a> {
                 // with "The constraint can not be satisfied" (NWN EE 8193.37:
                 // row 30/33 with a child of 30 fails, 34 opens; margin 0 opens
                 // at 30). Along the row or column, children may overflow.
+                // A row or column that is a group's child is not held to its
+                // own size: the group lays it out (8193.37-17: a column of
+                // 100 holding a label of 150 opens in a group; of 316
+                // holding one of 316 is refused in a row and in a column).
                 let across = match ty {
-                    "row" => Some("height"),
-                    "col" => Some("width"),
+                    "row" if !in_group => Some("height"),
+                    "col" if !in_group => Some("width"),
                     _ => None,
                 };
                 if let Some(key) = across
@@ -653,6 +669,7 @@ impl<'a> Check<'a> {
                     }
                 }
                 for (i, child) in a.iter().enumerate() {
+                    self.in_group = ty == "group";
                     self.element(child, &format!("{path}/children/{i}"), array_bind);
                 }
             } else {
@@ -1255,6 +1272,27 @@ mod tests {
             60.0,
             json!({"type":"group","height":40.0,"children":[{"type":"label"}]})
         )));
+        // A column as wide as what it holds is refused in a row as in a
+        // column; a group's column is not held to its width (8193.37-17).
+        let label = |w: f64| json!({"type":"label","value":"L","width":w,"height":30.0});
+        assert!(fails(json!({"type":"row","height":40.0,"children":[col(316.0, label(316.0))]})));
+        let group = |child: Value| json!({"type":"group","height":40.0,"children":[child]});
+        assert!(!fails(group(col(316.0, label(316.0)))));
+        assert!(!fails(group(col(100.0, label(150.0)))));
+        // (What the group's column holds is held to its own sizes: inferred
+        // from a column's column in the client's col150_150, not measured.)
+        assert!(fails(group(col(316.0, col(100.0, label(150.0))))));
+        // A variant shown in a group is the group's child; shown as the
+        // whole window, the root.
+        let mut s = Settings::default();
+        s.variants.insert("page".into(), col(100.0, label(150.0)));
+        let w = with(json!([{"type":"group","id":"pane","height":40.0,
+            "children":[{"type":"label"}]}]));
+        let refused = |s: &Settings| errors(&w, s).iter().any(|d| d.message.contains("constraint"));
+        s.variant_targets.insert("page".into(), "pane".into());
+        assert!(!refused(&s));
+        s.variant_targets.insert("page".into(), "_window_".into());
+        assert!(refused(&s));
         // Along a row, children may overflow it; a group scrolls a taller child.
         assert!(!fails(json!({"type":"row","width":300.0,"children":[
             button("width", 200.0, None), button("width", 200.0, None)]})));

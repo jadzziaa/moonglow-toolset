@@ -494,6 +494,18 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
         geometry["w"] = width.into();
         geometry["h"] = height.into();
     }
+    // What the client refuses to build ("The constraint can not be
+    // satisfied"), which the canvas lays out all the same: said, as the
+    // checks say it (a builder's report: `layout` said nothing of a column
+    // as wide as what it holds, in a row).
+    for d in mg_nui::validate(&window, &settings) {
+        if d.severity == mg_nui::Severity::Error && d.message.starts_with("NWN refuses") {
+            let line = format!("{}: {}", d.path, d.message);
+            if !said.contains(&line) {
+                said.push(line);
+            }
+        }
+    }
     Ok((window, settings, said))
 }
 

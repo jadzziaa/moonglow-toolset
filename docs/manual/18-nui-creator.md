@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T00:17:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T11:40:31Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -534,8 +534,10 @@ every option):
    off the screen, at a UI scale and a window size of your choosing, and
    `mg nui layout MODULE NAME --json` gives each control's rectangle and
    what doesn't fit (clipped, out of view, no room, text cut, a title
-   longer than its bar): the same layout the picture shows, a list's
-   rows out of its view included. Both take a `.jui` file alone too, and
+   longer than its bar, and what the game refuses to build at all, as the
+   checks say it, such as a child that doesn't fit across its row or
+   column): the same layout the picture shows, a list's rows out of its
+   view included. Both take a `.jui` file alone too, and
    draw the window otherwise than as it opens with the same options:
    `--state hover:send` (or `pressed`, `disabled`, `normal`; without
    `:ID`, every control; `hover:read@2`, a list's control in its third
@@ -566,8 +568,12 @@ and the preview follow them.
   must fit: a row 30 high with a button 30 high is refused with *Error
   constructing window from json: The constraint can not be satisfied*, a row
   34 high is fine, and so is a button with margin 0. The same holds for a
-  column's fixed width. This is an error, so the window can't be built.
-  Along a row or column, children may run past its size. The Creator keeps you
+  column's fixed width: a column 316 wide holding a label 316 wide (320 with
+  its margins) is refused, in a row as in a column. A row or column that is a
+  group's child (or a variant shown in a group) is not held to its own size:
+  the group lays it out, and a column of 100 holding a label of 150 opens
+  there (checked in 8193.37-17). This is an error, so the window can't be
+  built. Along a row or column, children may run past its size. The Creator keeps you
   from getting there: a control added or moved into such a row or column is
   shrunk to fit, a resize handle stops at the room left, and a size given to a
   row or column (the **Auto** button, **Add property**) leaves room for its
@@ -594,7 +600,13 @@ and the preview follow them.
   last draw layers of a window it blanks the whole window. So the Creator
   doesn't offer it (its draw layers are written with it off); a JUI that has
   it on is flagged, an error on the last draw layers, and **Turn it off** in
-  the problem list fixes it. The preview doesn't clip.
+  the problem list fixes it. The preview doesn't clip. A group's draw
+  layers reach past the group out to the window's body, as the game draws
+  them.
+- **A group as the window's root** draws no draw layers of its own (a row's
+  or a column's at the root does): put them on its child. Its border is 4
+  points out from where its controls begin, in the window's inset; the
+  preview draws both so (checked in 8193.37-17).
 - **Events.** *Clicked* comes from buttons; a label or a list cell sends only
   *Mouse pressed* and *released* (with the button and the pointer's position
   in the control as payload). A text input sends *Focus gained* and *lost*; a

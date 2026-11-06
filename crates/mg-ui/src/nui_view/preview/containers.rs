@@ -12,7 +12,20 @@ impl Renderer<'_> {
         let Control { s, a, scale, node, ty, row, body, tint, .. } = *c;
         let p = &c.p;
         if ty == "group" && flag(&node["border"], s, row, true) {
-            a.paint(p, "window.border_image", body, scale, true, tint);
+            // The window's root group has its border 4 points out, in the
+            // window's inset (the stage lets it draw there).
+            if c.source_path == "/root" {
+                a.paint(
+                    ui.painter(),
+                    "window.border_image",
+                    body.expand(4.0 * scale),
+                    scale,
+                    true,
+                    tint,
+                );
+            } else {
+                a.paint(p, "window.border_image", body, scale, true, tint);
+            }
         }
         let mut inner = if ty == "group" { body.shrink(4.0 * scale) } else { body };
         let mut scrolled = Vec2::ZERO;

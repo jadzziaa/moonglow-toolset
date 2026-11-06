@@ -338,6 +338,108 @@ fn cases() -> Vec<Case> {
             Shown,
         )
         .green(true),
+        // The window's root draws its own draw list when it is a row or a
+        // column, as a spacer, label or button root does (above), and none
+        // when it is a group (a builder's report, the TDoD Design session,
+        // 2026-11-06, held to the client: of the three, a group's alone).
+        case(
+            "root_col_dl",
+            json!({"type":"col","draw_list_scissor":false,"draw_list":[rect(1, 0)],
+                "children":[label()]}),
+            None,
+            Shown,
+        ),
+        case(
+            "root_row_dl",
+            json!({"type":"row","draw_list_scissor":false,"draw_list":[rect(1, 0)],
+                "children":[label()]}),
+            None,
+            Shown,
+        ),
+        case(
+            "root_group_dl",
+            json!({"type":"group","draw_list_scissor":false,"draw_list":[rect(1, 0)],
+                "children":[label()]}),
+            None,
+            Blank,
+        ),
+        // A group root reaches 4 points into the window's inset on every
+        // side (its border there, measured on this screenshot). Its child,
+        // a spacer filled whole: where the child's box is, 120 by 40 drawn.
+        case(
+            "root_grp_sp",
+            json!({"type":"group","children":[{"type":"spacer","width":120.0,"height":40.0,
+                "draw_list_scissor":false,"draw_list":[rect(1, 0)]}]}),
+            None,
+            Shown,
+        )
+        .magenta(4_800),
+        // A group in a group root (the report's frame, drawn at negative
+        // offsets from the root's one child): how far its draw list
+        // reaches (9,372 pixels of 12,800). The preview draws 8,400: the
+        // client puts a group there 2 points further in than a spacer and
+        // draws its list up to the body's top, where the preview clips it
+        // at the root group's inside (a difference measured, not settled).
+        case(
+            "root_grp_child",
+            json!({"type":"group","children":[{"type":"group","width":120.0,"height":40.0,
+                "draw_list_scissor":false,"draw_list":[{"type":7,"enabled":true,
+                    "color":color(MAGENTA),"fill":true,"line_thickness":1.0,"order":1,
+                    "render":0,"rect":{"x":-20.0,"y":-20.0,"w":160.0,"h":80.0}}],
+                "children":[label()]}]}),
+            None,
+            Shown,
+        )
+        .magenta(9_000),
+        // A column exactly as wide as what it holds (a label of 316 with its
+        // margins in a column of 316): refused in a row, as in a column; in
+        // a group it is opened (the same report).
+        column(
+            "row_col_exact",
+            json!([
+                mark(),
+                row(
+                    40.0,
+                    col(
+                        316.0,
+                        json!({"type":"label","value":"L",
+                "width":316.0,"height":30.0})
+                    )
+                )
+            ]),
+            unfit,
+            Refused,
+        ),
+        column(
+            "grp_col_exact",
+            json!([mark(), {"type":"group","height":40.0,"children":[col(316.0,
+                json!({"type":"label","value":"L","width":316.0,"height":30.0}))]}]),
+            fits,
+            Shown,
+        ),
+        column(
+            "grp_col_over",
+            json!([mark(), {"type":"group","height":40.0,"children":[col(100.0,
+                json!({"type":"label","value":"L","width":150.0,"height":30.0}))]}]),
+            fits,
+            Shown,
+        ),
+        // A group's own draw list is drawn past the group's box (Clip to
+        // control off), to the window's body: a rectangle 20 pixels past a
+        // group of 120 by 40 on every side, 160 by 80 (12,800 pixels;
+        // clipped at the group, at most 4,800; seen, 11,360, as the
+        // preview draws it).
+        column(
+            "group_overflow",
+            json!([gap(), {"type":"group","width":120.0,"height":40.0,
+                "draw_list_scissor":false,"draw_list":[{"type":7,"enabled":true,
+                    "color":color(MAGENTA),"fill":true,"line_thickness":1.0,"order":1,
+                    "render":0,"rect":{"x":-20.0,"y":-20.0,"w":160.0,"h":80.0}}],
+                "children":[label()]}]),
+            None,
+            Shown,
+        )
+        .magenta(10_000),
     ];
     // A variant shown in place of the whole window is its last drawing.
     let mut variant = column("clip_variant", json!([mark()]), Some("when this variant"), Blank);

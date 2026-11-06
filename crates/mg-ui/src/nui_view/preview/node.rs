@@ -343,7 +343,10 @@ impl Renderer<'_> {
             changed: None,
             normalization: false,
         };
-        if visible {
+        // The window's root draws no draw list of its own when it is a group
+        // (8193.37-17: a row's and a column's are drawn).
+        let drawn = visible && !(source_path == "/root" && ty == "group");
+        if drawn {
             draw::paint(ui.painter(), node, body, scale, s, a, row, true, mouse);
         }
         if interactive && c.response.clicked() {
@@ -378,7 +381,7 @@ impl Renderer<'_> {
         } else {
             self.control(ui, &mut c);
         }
-        if visible {
+        if drawn {
             draw::paint(ui.painter(), node, body, scale, s, a, row, false, mouse);
         }
         self.ancestor_disabled = parent_disabled;

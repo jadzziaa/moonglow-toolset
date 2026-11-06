@@ -3040,3 +3040,64 @@ fn a_window_rename_leaves_a_text_that_is_not_the_window_s_settings() {
     assert!(!module.contains(&res("pages", ResType::TXT)));
     assert_eq!(resources(&app).len(), before);
 }
+
+/// What the client does with a window's root and a column's fit, held to
+/// its screenshots (`client_nui`, 8193.37-17; the TDoD Design session's
+/// report): a group root's draw list isn't drawn, where a column root's
+/// is; a group root's border is 4 points out in the window's inset, its
+/// child where it would be without it; a column as wide as what it holds
+/// is said refused in a row, and not in a group.
+#[test]
+fn a_group_root_and_a_column_s_fit_are_as_the_client_has_them() {
+    use mg_ui::nui_render::{Options, layout, render};
+    mg_testkit::gpu::hold();
+    let magenta = json!({"r":255,"g":0,"b":255,"a":255});
+    let rect = json!([{"type":7,"enabled":true,"color":magenta,"fill":true,"line_thickness":1.0,
+        "order":1,"render":0,"rect":{"x":0.0,"y":0.0,"w":120.0,"h":40.0}}]);
+    let window = |root: Value| {
+        let mut doc = mg_nui::window();
+        doc["geometry"] = json!({"x":-1.0,"y":-1.0,"w":400.0,"h":300.0});
+        doc["root"] = root;
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse("w", ResType::JUI).unwrap(), serde_json::to_vec(&doc).unwrap());
+        m
+    };
+    let spacer = json!({"type":"spacer","width":120.0,"height":40.0,"draw_list_scissor":false,
+        "draw_list":rect});
+    let label = |w: f64| json!({"type":"label","value":"L","width":w,"height":30.0});
+    let col = |w: f64, child: Value| json!({"type":"col","width":w,"children":[child]});
+    // The fit, said or not.
+    let refused = |root: Value| {
+        let m = window(root);
+        let w = mg_ui::nui_render::Window { name: "w", ..crier_window(&m) };
+        let l = layout(&w, &Options::default()).unwrap();
+        l.issues.iter().any(|i| i.contains("NWN refuses this window"))
+    };
+    let row = json!({"type":"row","height":40.0,"children":[col(316.0, label(316.0))]});
+    let group = json!({"type":"group","height":40.0,"children":[col(316.0, label(316.0))]});
+    assert!(refused(json!({"type":"col","children":[row]})));
+    assert!(!refused(json!({"type":"col","children":[group]})));
+    // The group root's child, where the client has it.
+    let root = json!({"type":"group","draw_list_scissor":false,"draw_list":rect,
+        "children":[spacer]});
+    let m = window(root.clone());
+    let w = mg_ui::nui_render::Window { name: "w", ..crier_window(&m) };
+    let l = layout(&w, &Options::default()).unwrap();
+    let child = l.elements.iter().find(|e| e.path == "/root/children/0").unwrap();
+    assert_eq!((child.area.x, child.area.y), (12.0, 45.0), "{l:#?}");
+    let Some(gpu) = mg_render::Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let count = |root: Value| {
+        let m = window(root);
+        let w = mg_ui::nui_render::Window { name: "w", ..crier_window(&m) };
+        let p = render(&gpu, &w, &Options::default()).unwrap();
+        p.rgba.chunks(4).filter(|c| c[..3] == [255, 0, 255]).count()
+    };
+    // The spacer's alone: the group root's own isn't drawn.
+    assert_eq!(count(root), 4_800);
+    let col_root = json!({"type":"col","draw_list_scissor":false,"draw_list":rect,
+        "children":[label(200.0)]});
+    assert_eq!(count(col_root), 4_800, "a column root's is");
+}

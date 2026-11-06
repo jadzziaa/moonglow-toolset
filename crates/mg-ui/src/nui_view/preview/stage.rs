@@ -630,8 +630,13 @@ impl Stage<'_> {
     fn body(&mut self, ui: &mut Ui, inner: Rect, font: &str) {
         let (s, scale) = (self.s, self.scale);
         let v: &Value = self.shown.unwrap_or(&*self.authored);
-        ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
-            ui.set_clip_rect(inner.intersect(ui.clip_rect()));
+        // A group at the root draws its border 4 points into the inset on
+        // every side, its controls where they would be without that
+        // (8193.37-17: measured on the client's screenshots; `container`).
+        let root_group = v["root"]["type"] == "group";
+        let reach = if root_group { inner.expand(4.0 * scale) } else { inner };
+        ui.scope_builder(egui::UiBuilder::new().max_rect(reach), |ui| {
+            ui.set_clip_rect(reach.intersect(ui.clip_rect()));
             let mut renderer = Renderer {
                 s,
                 assets: self.assets,
