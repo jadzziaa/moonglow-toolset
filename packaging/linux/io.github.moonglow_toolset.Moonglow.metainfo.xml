@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.11.0" date="2026-11-06">
+      <description>
+        <p>Edit › Change Tileset lays an area anew in another tileset, all the
+        rest of it kept; the NUI Creator's preview places a window's root group
+        as the game does; a folder typed with ~ is the home folder's.</p>
+      </description>
+    </release>
     <release version="3.10.0" date="2026-11-06">
       <description>
         <p>The user folder's nwn.ini folder aliases are followed, as the game
