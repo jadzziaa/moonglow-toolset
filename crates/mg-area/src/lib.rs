@@ -32,6 +32,7 @@ mod grass_view;
 pub mod marker;
 pub mod pick;
 pub mod reshape;
+pub mod retile;
 mod scene;
 pub mod terrain;
 pub mod walk;

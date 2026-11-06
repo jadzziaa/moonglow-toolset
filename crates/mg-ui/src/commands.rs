@@ -39,6 +39,7 @@ pub enum Id {
     ClaimsTable,
     ResizeArea,
     RotateArea,
+    ChangeTileset,
     FindInstance,
     /// Edit › Edit Areas Together…: the areas to edit as one.
     EditAreasTogether,
@@ -192,6 +193,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Separator,
             Do(Id::ResizeArea),
             Do(Id::RotateArea),
+            Do(Id::ChangeTileset),
             Separator,
             Do(Id::FindInstance),
             Item::Prefabs,
@@ -405,6 +407,7 @@ impl Id {
             ),
             Id::ResizeArea => ("resize-area", "Resize Area…", ""),
             Id::RotateArea => ("rotate-area", "Rotate Area…", ""),
+            Id::ChangeTileset => ("change-tileset", "Change Tileset…", ""),
             Id::FindInstance => ("find-instance", "Find Instance…", ""),
             Id::EditAreasTogether => (
                 "edit-areas-together",
@@ -706,7 +709,9 @@ impl Id {
             Id::Redo => app
                 .local_can_undo(true)
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
-            Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
+            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics => {
+                shown_area(app).is_some()
+            }
             Id::IndentToTabs | Id::IndentToSpaces => script_in_front(app).is_some(),
             Id::PackTarget => self.shown(app),
             // (A project's or a module folder's: a .mod's folder holds
@@ -815,6 +820,12 @@ impl Id {
             Id::RotateArea => {
                 if let Some(a) = shown_area(app) {
                     app.rotate_area = Some(crate::area_reshape::RotateDraft { area: a, turns: 1 });
+                }
+                return;
+            }
+            Id::ChangeTileset => {
+                if let Some(a) = shown_area(app) {
+                    crate::area_reshape::open_change_tileset(app, a);
                 }
                 return;
             }

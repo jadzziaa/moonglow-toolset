@@ -766,6 +766,8 @@ pub struct Moonglow {
     pub resize_area: Option<area_reshape::ResizeDraft>,
     /// The Rotate Area window, while it is open.
     pub rotate_area: Option<area_reshape::RotateDraft>,
+    /// The Change Tileset window, while it is open.
+    pub change_tileset: Option<area_reshape::TilesetDraft>,
     /// What to open after the Area Wizard's area is made: the viewer, its
     /// properties.
     pub after_new_area: (bool, bool),
@@ -1241,6 +1243,7 @@ impl Moonglow {
             creature_wizard: None,
             resize_area: None,
             rotate_area: None,
+            change_tileset: None,
             palette: Default::default(),
             hak_report: None,
             hak_usage: None,
@@ -3456,6 +3459,7 @@ impl Moonglow {
         self.area_stats = None;
         self.resize_area = None;
         self.rotate_area = None;
+        self.change_tileset = None;
         self.adjust = None;
         self.find_instance = None;
         self.area_focus = None;

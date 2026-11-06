@@ -152,3 +152,114 @@ fn a_rectangle_raised_corner_by_corner_is_a_plateau() {
     assert!(tried >= 10, "{tried} tilesets with heights");
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+/// Change Tileset (`mg_area::retile`): a rural area with a plateau and a
+/// road, laid in every shipped tileset. Each new layout is the new
+/// tileset's tiles, fitted with no seams, as many as the area has; laid
+/// in its own tileset again, nothing of the layout is lost.
+#[test]
+fn an_area_s_layout_is_laid_in_another_tileset() {
+    use mg_area::retile::{Mapping, Set, retile};
+    use mg_core::ResRef;
+    use mg_edit::Edit;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_resman::GameInstall;
+    use mg_rules::GameData;
+    use mg_tiles::paint::Rules;
+
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(9);
+    let mut m = new_module(&game, "Retile", &mut rng).unwrap();
+    let rural = ResRef::from_str("ttr01").unwrap();
+    let spec = AreaSpec { name: "Field".into(), tileset: rural, width: 8, height: 8 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let set = mg_area::tileset(&game, rural).unwrap();
+    let index = TileIndex::new(&set);
+    let rules = Rules::new(&index, &set);
+    let mut are = m.gff(&are_key).unwrap().unwrap();
+    let mut g = mg_area::terrain::grid(&are.root, &index).unwrap();
+    // A plateau, and a road across the area's middle row.
+    for (x, y) in (3..=5).flat_map(|y| (3..=5).map(move |x| (x, y))) {
+        if let Some(s) = g.raise(&index, &rules, x, y, true) {
+            g.apply(&index, s, &mut rng);
+        }
+    }
+    // Trees and water in two corners of it.
+    for (name, at) in [("trees", (7, 6)), ("water", (1, 6))] {
+        let t = index.terrain(name).unwrap_or_else(|| panic!("ttr01's {name}"));
+        if let Some(s) = g.paint(&index, &rules, at.0, at.1, t) {
+            g.apply(&index, s, &mut rng);
+        }
+    }
+    let road = index.crosser("road").expect("ttr01's road");
+    let edges: Vec<_> = (0..7).map(|x| ((x, 1), mg_tiles::EAST)).collect();
+    let (stroke, _) = g.lay_crosser(&index, &edges, &[], road);
+    g.apply(&index, stroke.expect("the road laid"), &mut rng);
+    let list = are.root.list_mut("Tile_List").unwrap();
+    for (i, p) in g.tiles.iter().enumerate() {
+        list[i].set("Tile_ID", mg_gff::Value::Int(p.tile as i32));
+        list[i].set("Tile_Orientation", mg_gff::Value::Int(i32::from(p.orientation)));
+        list[i].set("Tile_Height", mg_gff::Value::Int(p.height));
+    }
+    let git = m.gff(&git_key).unwrap().map(|g| g.root).unwrap_or_default();
+    let old = Set { resref: rural, set: &set, index: &index };
+    let none = |_: ResRef| None;
+    let (mut tried, mut wrong) = (0, Vec::new());
+    for tileset in game.resman.list(ResType::SET) {
+        let Ok(new_set) = mg_area::tileset(&game, tileset) else { continue };
+        let new_index = TileIndex::new(&new_set);
+        let new = Set { resref: tileset, set: &new_set, index: &new_index };
+        let Some(mapping) = Mapping::of(&old, &new, &are.root) else { continue };
+        let Some(r) =
+            retile(&game, are_key, git_key, &are.root, &git, &old, &new, &mapping, &none, &mut rng)
+        else {
+            continue;
+        };
+        tried += 1;
+        let field = |label: &str| {
+            r.edits.iter().find_map(|e| match e {
+                Edit::SetField { label: l, value: Some(v), .. } if l == label => Some(v.clone()),
+                _ => None,
+            })
+        };
+        let Some(mg_gff::Value::List(tiles)) = field("Tile_List") else { panic!("no tiles") };
+        let placed: Vec<mg_tiles::Placement> = tiles
+            .iter()
+            .map(|t| mg_tiles::Placement {
+                tile: t.integer("Tile_ID").unwrap() as u32,
+                orientation: t.integer("Tile_Orientation").unwrap() as u8,
+                height: t.integer("Tile_Height").unwrap() as i32,
+            })
+            .collect();
+        let foreign = placed.iter().filter(|p| new_index.cell(**p).is_none()).count();
+        let seams = mg_tiles::seams(&new_index, 8, 8, &placed);
+        let seams = seams.area.len() + seams.groups.len();
+        let same_set = field("Tileset") == Some(mg_gff::Value::resref(tileset));
+        if placed.len() != 64 || foreign > 0 || seams > 0 || !same_set {
+            wrong.push(format!(
+                "{tileset}: {} tiles, {foreign} not its own, {seams} seams",
+                placed.len()
+            ));
+        }
+        if tileset == rural {
+            let terrains: Vec<&str> = mapping.terrains.iter().map(|(o, _)| o.as_str()).collect();
+            assert!(terrains.contains(&"trees") && terrains.contains(&"water"), "{terrains:?}");
+            assert!(mapping.terrains.iter().all(|(o, n)| o == n), "{mapping:?}");
+            assert_eq!(mapping.crossers, [("road".to_string(), Some("road".to_string()))]);
+        }
+        if tileset == rural && (r.corners_missed > 0 || r.crossers_missed > 0) {
+            wrong.push(format!(
+                "ttr01 again: {} corners and {} crossers lost",
+                r.corners_missed, r.crossers_missed
+            ));
+        }
+        eprintln!(
+            "{tileset}: {} corners and {} crosser edges not laid; {:?} {:?}",
+            r.corners_missed, r.crossers_missed, mapping.terrains, mapping.crossers
+        );
+    }
+    assert!(tried >= 15, "{tried} tilesets");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

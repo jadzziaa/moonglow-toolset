@@ -1280,6 +1280,59 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     assert!((w[0].0 - 20.0).abs() < 1e-3 && (w[0].1 - 20.0).abs() < 1e-3, "{w:?}");
 }
 
+/// Change Tileset from the Edit menu (an area of the rural tileset laid
+/// in the city's, as one step): its tiles are the city's, every one of
+/// them fitting its neighbors; its waypoints stay where they were, and
+/// the view draws the new tiles. Undone, it is the rural area again.
+#[test]
+fn change_tileset_from_the_edit_menu() {
+    let Some((mut h, area)) = area_harness("change-tileset") else { return };
+    let are = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
+    };
+    let before = are(&mut h);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Change Tileset…").click();
+    h.run_steps(2);
+    let city = ResRef::from_str("tcn01").unwrap();
+    let d = h.state_mut().change_tileset.as_mut().expect("the window is open");
+    assert_eq!(d.from.to_string(), "ttr01");
+    d.to = city;
+    h.run_steps(2);
+    let d = h.state().change_tileset.as_ref().unwrap();
+    let mapping = d.mapping.as_ref().expect("the mapping for tcn01");
+    assert!(mapping.terrains.iter().any(|(from, _)| from == "grass"), "{mapping:?}");
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let after = are(&mut h);
+    assert_eq!(after.resref("Tileset"), Some(city));
+    let set = h.state().tileset(city).unwrap();
+    let index = mg_tiles::TileIndex::new(&set);
+    let grid = mg_area::terrain::grid(&after, &index).expect("the city's tiles");
+    let seams = mg_tiles::seams(&index, 4, 4, &grid.tiles);
+    assert_eq!(seams.area.len() + seams.groups.len(), 0);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    assert_eq!(git.root.list("WaypointList").unwrap().len(), 2, "the waypoints stay");
+    assert!(
+        h.state().log.entries.iter().any(|(_, m)| m.starts_with("Change Tileset:")),
+        "{:?}",
+        h.state().log.entries
+    );
+    h.run_steps(6);
+    let view = &h.state().area_views[&area];
+    assert_eq!(view.model.as_ref().unwrap().tiles.len(), 16);
+    if std::env::var_os("MG_SHOT").is_some() {
+        let dir = mg_testkit::scratch_dir("ui-change-tileset");
+        h.render().unwrap().save(dir.join("after.png")).unwrap();
+    }
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(1);
+    assert_eq!(are(&mut h), before, "undone, the rural area as it was");
+}
+
 /// Resize Area from the Edit menu to `columns` by `rows` (the new ground
 /// at the north and east), the camera then over all of it.
 fn resize_area_to(h: &mut Harness<'_, Moonglow>, area: ResRef, columns: u32, rows: u32) {

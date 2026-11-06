@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T12:50:32Z }
 ---
 
 # Areas
@@ -1361,6 +1361,22 @@ an area is kept, and shown among the raw fields of the area's `.are`
 edges, as Aurora does, or at the two you choose there (east and south,
 south and west, west and north): what is in the area keeps its place
 against the two edges that stay; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
+
+**Edit › Change Tileset…** lays the area anew in another tileset, all the
+rest of it kept: its objects, sounds, lighting, variables, scripts and
+size. Choose the tileset; below it, each of the area's terrains and
+crossers is listed with the new tileset's it becomes, the one of the same
+name where the tileset has it (Grass, Water, Road), else its Default
+terrain and no crosser, and you can choose another for each. The layout
+is then painted in the new tileset as you would paint it, its placement
+rules fitting the tiles around: the terrain, the heights (where the
+tileset has height transitions; flat where it hasn't) and the crossers,
+as far as its tiles fit them. What it couldn't lay, the old tileset's
+groups (buildings and other set pieces, laid as plain terrain) and the
+doors it changed (those on the old tiles' door hooks go, the new tiles
+bring their own, as painting does) are said in the log. It is one step,
+which **Undo** takes back; to try a tileset and keep the area as it is,
+copy it first (the module tree's **Copy…**) and change the copy.
 **Build › Area Statistics** counts the area's tiles and objects and the
 memory its models take.
 
