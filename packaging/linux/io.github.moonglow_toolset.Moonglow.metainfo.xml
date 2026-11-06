@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.9.1" date="2026-11-05">
+      <description>
+        <p>A window made of a tab dragged out of a pane, Module Properties
+        among them, is maximized by a double click on its bar and by its
+        Maximize button.</p>
+      </description>
+    </release>
     <release version="3.9.0" date="2026-11-05">
       <description>
         <p>Several areas' minimaps are exported at once, and with their map
