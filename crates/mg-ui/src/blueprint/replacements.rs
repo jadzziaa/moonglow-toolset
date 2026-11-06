@@ -296,15 +296,9 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                     ui.add_enabled(false, egui::Button::new("Select Texture…"))
                         .on_disabled_hover_text(TOO_LONG);
                 } else {
-                    if let Some(v) = crate::widgets::commit_text_in(
-                        &mut f.app.buffers,
-                        ui,
-                        id,
-                        &new,
-                        None,
-                        140.0,
-                        Some(16),
-                    ) && let Ok(r) = ResRef::from_str(v.trim())
+                    if let Some(v) =
+                        crate::widgets::commit_resref_in(&mut f.app.buffers, ui, id, &new, 140.0)
+                        && let Ok(r) = ResRef::from_str(v.trim())
                     {
                         set_new = Some((row.entry, row.name.clone(), r));
                     }
@@ -347,10 +341,8 @@ fn add_row(f: &mut Form<'_>, ui: &mut Ui, p: &Pairs, items: &[Struct]) {
     ui.horizontal(|ui| {
         ui.weak("Any name:");
         for (id, hint) in ids.into_iter().zip([p.titles.0, p.titles.1]) {
-            let buf = f.app.buffers.entry(id).or_default();
-            ui.add(
-                egui::TextEdit::singleline(buf).char_limit(16).desired_width(140.0).hint_text(hint),
-            );
+            let mut text = crate::widgets::ResRefText(f.app.buffers.entry(id).or_default());
+            ui.add(crate::widgets::resref_edit(&mut text).desired_width(140.0).hint_text(hint));
         }
         let text = |f: &Form<'_>, id| {
             f.app.buffers.get(&id).map(|s| s.trim().to_string()).unwrap_or_default()

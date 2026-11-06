@@ -145,6 +145,27 @@ impl ResRef {
         text.chars().map(|c| if plain(c) { c.to_ascii_lowercase() } else { '_' }).collect()
     }
 
+    /// Whether a builder may type `c` in a resref: an ASCII letter, a
+    /// digit or `_`, as Aurora takes them in its ResRef fields (and makes
+    /// resrefs of names). Other names the game finds (a hak's `my-tex`)
+    /// are kept as they are, but not typed.
+    pub fn typable(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
+
+    /// A resref a builder typed or gave (a field, a command's argument):
+    /// [`ResRef::typable`] characters, at most 16, in lower case (as
+    /// Aurora writes them). Empty text is the empty resref.
+    pub fn typed(text: &str) -> Result<ResRef, Typed> {
+        if let Some(c) = text.chars().find(|&c| !Self::typable(c)) {
+            return Err(Typed::Character(c));
+        }
+        if text.len() > Self::MAX_LEN {
+            return Err(Typed::TooLong(text.len()));
+        }
+        Self::from_str(&text.to_ascii_lowercase()).map_err(|_| Typed::TooLong(text.len()))
+    }
+
     fn folded(&self) -> impl Iterator<Item = u8> + '_ {
         self.as_bytes().iter().map(u8::to_ascii_lowercase)
     }
@@ -164,6 +185,20 @@ pub enum NewName {
 impl NewName {
     /// The rule, as a message says it.
     pub const RULE: &str = "1 to 16 letters, digits, _ and -";
+}
+
+/// Why text typed for a resref is not one ([`ResRef::typed`]).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum Typed {
+    #[error("{0:?}: {rule}", rule = Typed::RULE)]
+    Character(char),
+    #[error("{0} characters: {rule}", rule = Typed::RULE)]
+    TooLong(usize),
+}
+
+impl Typed {
+    /// The rule, as a message says it.
+    pub const RULE: &str = "a resref is at most 16 letters, digits and _";
 }
 
 impl Default for ResRef {
@@ -296,6 +331,22 @@ mod tests {
         assert!(ResRef::new_name(&ResRef::name_of("Ein Märchen")).is_ok());
         let said = NewName::Character('.').to_string();
         assert!(said.contains("'.'") && said.contains(NewName::RULE), "{said}");
+    }
+
+    #[test]
+    fn a_typed_resref_is_letters_digits_and_underscores_lowered() {
+        let typed = |n: &str| ResRef::typed(n).map(|r| r.as_str().unwrap().to_string());
+        assert_eq!(typed("My_Sword01").as_deref(), Ok("my_sword01"));
+        assert_eq!(typed("sixteen_chars_ok").as_deref(), Ok("sixteen_chars_ok"));
+        assert_eq!(typed("").as_deref(), Ok(""));
+        assert_eq!(typed("seventeen_chars_x"), Err(Typed::TooLong(17)));
+        for (name, c) in [("a b", ' '), ("my-sword", '-'), ("<>", '<'), ("x!@#$%^&*", '!')] {
+            assert_eq!(typed(name), Err(Typed::Character(c)), "{name}");
+        }
+        assert_eq!(typed("é"), Err(Typed::Character('é')));
+        let said = Typed::Character('!').to_string();
+        assert!(said.contains("'!'") && said.contains(Typed::RULE), "{said}");
+        assert!("<>!@#$%^&*-. ".chars().all(|c| !ResRef::typable(c)));
     }
 
     #[test]

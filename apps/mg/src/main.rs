@@ -3246,7 +3246,10 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut m = crate::open_module(module)?;
             // (What the save writes, for the project's plugins to see.)
             let was = m.clone();
-            let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
+            let to = mg_core::ResRef::typed(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
+            if to.is_empty() {
+                bail!("give the new name");
+            }
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
             let mut out = Output::default();
             let mut compile = json!(null);

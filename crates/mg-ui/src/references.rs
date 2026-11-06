@@ -1325,7 +1325,8 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "New name");
-                let r = ui.add(egui::TextEdit::singleline(&mut draft.to).desired_width(200.0));
+                let mut text = crate::widgets::ResRefText(&mut draft.to);
+                let r = ui.add(crate::widgets::resref_edit(&mut text).desired_width(200.0));
                 autofocus(ui, &r);
             });
             let name = draft.to.trim();

@@ -20,6 +20,7 @@ use mg_module::project_file::StoreRules;
 use mg_module::store_setup::{self, GREETING, NO, YES};
 use mg_resman::ResKey;
 
+use crate::widgets::{ResRefText, resref_edit};
 use crate::{Action, Moonglow};
 
 /// The wizard's pages.
@@ -190,7 +191,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.checkbox(&mut w.appraise, "Use appraise checks");
                 }
                 ui.label("(optional) Enter the filename for the shopkeeper's conversation");
-                ui.add(egui::TextEdit::singleline(&mut w.dialog).char_limit(16));
+                ui.add(resref_edit(&mut ResRefText(&mut w.dialog)));
                 match opens {
                     Some(script) => {
                         ui.label(format!(
@@ -203,7 +204,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             "(optional) Enter the filename for the script that will open \
                                  the store",
                         );
-                        ui.add(egui::TextEdit::singleline(&mut w.script).char_limit(16));
+                        ui.add(resref_edit(&mut ResRefText(&mut w.script)));
                     }
                 }
             }
@@ -516,7 +517,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
             crate::widgets::text_area(ui, egui::Id::new("popup-text"), field).response.response;
         crate::widgets::autofocus(ui, &field);
         crate::widgets::field_label(ui, "Conversation File");
-        ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
+        ui.add(resref_edit(&mut ResRefText(&mut p.name)));
         if exists {
             ui.colored_label(
                 ui.visuals().warn_fg_color,

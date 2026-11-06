@@ -10,7 +10,7 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 
 use crate::text::{decode, encode};
-use crate::widgets::{autofocus, enter};
+use crate::widgets::{ResRefText, autofocus, enter};
 use crate::{Action, Moonglow, Tab};
 
 /// What the Copy window asks.
@@ -195,7 +195,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         |ui| {
             egui::Grid::new("copy-as").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "ResRef");
-                let r = ui.add(egui::TextEdit::singleline(&mut draft.resref).desired_width(200.0));
+                let mut text = ResRefText(&mut draft.resref);
+                let r = ui.add(crate::widgets::resref_edit(&mut text).desired_width(200.0));
                 autofocus(ui, &r);
                 ui.end_row();
                 if let Some(tag) = &mut draft.tag {

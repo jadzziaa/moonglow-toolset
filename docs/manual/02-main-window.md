@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:22:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T02:49:16Z }
 ---
 
 # The main window
@@ -225,6 +225,11 @@ polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
+A ResRef you type (a blueprint's, Copy's or Rename's new name, a
+script's in its field) takes letters, digits and `_` alone, at most 16,
+in lower case, as in Aurora: other characters typed or pasted are left
+out (`My Chest!` goes in as `mychest`). A name the game finds that has
+others (a hak's `my-tex`, picked with **…**) is kept as it is.
 A name is shown in the language you edit (**Options › Language**), else
 as the game shows it (its talk-table string), else in another language,
 English first; `mg areas` and `mg find` name them the same way.

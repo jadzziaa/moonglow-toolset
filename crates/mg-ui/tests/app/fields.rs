@@ -555,6 +555,57 @@ fn undo_in_a_text_field_is_the_field_s() {
 /// Text typed in a Properties field is kept when the field is left by a
 /// click on another page, or by closing the window: the field is gone
 /// before the keyboard leaves it, and what was typed was lost.
+/// A resref takes letters, digits and `_` alone, in lower case, as in
+/// Aurora: what else is typed in a script's field, or in Copy As's name,
+/// is left out (a builder's report: `<>!@#$%^&*` went in, and broke
+/// things after).
+#[test]
+fn a_resref_field_takes_letters_digits_and_underscores_alone() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_chars", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let input = |value: &str| {
+        let value = value.to_string();
+        egui_kittest::kittest::by().predicate(
+            move |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == egui::accesskit::Role::TextInput
+                    && n.value().as_deref() == Some(&*value)
+            },
+        )
+    };
+    // (The first of the fields that hold it: the chest's OnOpen and
+    // OnDeath name one script.)
+    let click = |h: &mut Harness<'_, Moonglow>, value: &str| {
+        let at = h.get_all(input(value)).next().unwrap().rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.key_press(egui::Key::End);
+    };
+    h.get_by_label("Scripts").click();
+    h.run_steps(3);
+    click(&mut h, "nw_o2_classlow");
+    h.event(egui::Event::Text("<>!@#$%^&*".into()));
+    h.event(egui::Event::Text("X-1 ".into()));
+    h.run_steps(2);
+    assert!(h.query_all(input("nw_o2_classlowx1")).next().is_some(), "as typed");
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let scripts = ["OnOpen", "OnDeath"].map(|l| field(&mut h, &key).resref(l).unwrap().to_string());
+    assert!(scripts.contains(&"nw_o2_classlowx1".to_string()), "set: {scripts:?}");
+    // Pasted into Copy As's ResRef: the same.
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    h.state_mut().copy_as.as_mut().unwrap().resref = "copy".into();
+    h.run_steps(2);
+    click(&mut h, "copy");
+    h.event(egui::Event::Paste("Of My Chest! <2>".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().copy_as.as_ref().unwrap().resref, "copyofmychest2");
+}
+
 #[test]
 fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_typed", ResType::UTP) else {

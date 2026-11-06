@@ -101,3 +101,54 @@ fn shipped_tile_grids_are_consistent() {
     let new: Vec<&String> = area_seams.iter().filter(|s| !SHIPPED.contains(&s.as_str())).collect();
     assert!(new.is_empty(), "seams in shipped areas beside the known nine: {new:?}");
 }
+
+/// Raise/Lower dragged with Shift over a rectangle of corners (the area
+/// view's `paint_corners`: each corner raised in turn, row by row, on
+/// what the last left) makes a plateau a step up, its edges fitted, in
+/// every shipped tileset with heights but Frozen Wastes (tti01), whose
+/// open ground has no tiles for a plateau's edges.
+#[test]
+fn a_rectangle_raised_corner_by_corner_is_a_plateau() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_resman::GameInstall;
+    use mg_rules::GameData;
+    use mg_tiles::paint::Rules;
+
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Plateau", &mut rng).unwrap();
+    let (mut tried, mut wrong) = (0, Vec::new());
+    for tileset in game.resman.list(ResType::SET) {
+        let Ok(set) = mg_area::tileset(&game, tileset) else { continue };
+        if !set.general.has_height_transition || tileset.to_string() == "tti01" {
+            continue;
+        }
+        let spec = AreaSpec { name: format!("p {tileset}"), tileset, width: 8, height: 8 };
+        let Ok(area) = add_area(&mut m, &game, &spec, &mut rng) else { continue };
+        let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap().root;
+        let index = TileIndex::new(&set);
+        let rules = Rules::new(&index, &set);
+        let Some(mut g) = mg_area::terrain::grid(&are, &index) else { continue };
+        tried += 1;
+        // Corners 3 to 5 each way, clear of the area's border.
+        let rect: Vec<(u32, u32)> = (3..=5).flat_map(|y| (3..=5).map(move |x| (x, y))).collect();
+        let mut refused = 0;
+        for &(x, y) in &rect {
+            match g.raise(&index, &rules, x, y, true) {
+                Some(s) => drop(g.apply(&index, s, &mut rng)),
+                None => refused += 1,
+            }
+        }
+        let corners = || (0..=8).flat_map(|y| (0..=8).map(move |x| (x, y)));
+        let plateau = corners()
+            .all(|(x, y)| g.lattice.corner(x, y).height == i32::from(rect.contains(&(x, y))));
+        let seams = mg_tiles::seams(&index, 8, 8, &g.tiles);
+        let seams = seams.area.len() + seams.groups.len();
+        if refused > 0 || !plateau || seams > 0 {
+            wrong.push(format!("{tileset}: {refused} refused, plateau {plateau}, {seams} seams"));
+        }
+    }
+    assert!(tried >= 10, "{tried} tilesets with heights");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

@@ -1554,6 +1554,48 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
+/// The text of a field a resref is typed in: only what
+/// [`ResRef::typable`] takes goes in (letters, digits and `_`), in lower
+/// case, as in Aurora's ResRef fields; the rest of what is typed or
+/// pasted is left out. What was there before (a hak's `my-tex`, picked)
+/// stays as it is.
+pub(crate) struct ResRefText<'a>(pub &'a mut String);
+
+impl egui::TextBuffer for ResRefText<'_> {
+    fn is_mutable(&self) -> bool {
+        true
+    }
+
+    fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    fn insert_text(&mut self, text: &str, char_index: egui::text::CharIndex) -> usize {
+        // (Cut to the room left here, not by the field's `char_limit`:
+        // that would count what is left out.)
+        let room = ResRef::MAX_LEN.saturating_sub(self.0.chars().count());
+        let kept: String = (text.chars().filter(|&c| ResRef::typable(c)))
+            .map(|c| c.to_ascii_lowercase())
+            .take(room)
+            .collect();
+        self.0.insert_text(&kept, char_index)
+    }
+
+    fn delete_char_range(&mut self, char_range: std::ops::Range<egui::text::CharIndex>) {
+        self.0.delete_char_range(char_range);
+    }
+
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<ResRefText<'static>>()
+    }
+}
+
+/// A one-line field for typing a resref in `text` ([`ResRefText`]: at
+/// most 16 characters).
+pub(crate) fn resref_edit<'t>(text: &'t mut ResRefText<'_>) -> egui::TextEdit<'t> {
+    egui::TextEdit::singleline(text)
+}
+
 /// A resref field with a picker button. Returns the new value when the user
 /// types one (on focus loss) or picks one.
 pub(crate) fn resref_field(
@@ -1569,7 +1611,7 @@ pub(crate) fn resref_field(
         // (A name typed is set when a click takes the field away, another
         // page's tab or its window's close button: it was lost.)
         let shown = current.to_string();
-        let typed = commit_text_in(&mut app.buffers, ui, id, &shown, None, 160.0, Some(16));
+        let typed = commit_resref_in(&mut app.buffers, ui, id, &shown, 160.0);
         if let Some(text) = typed {
             match ResRef::from_str(text.trim()) {
                 Ok(v) => out = Some(v),
@@ -1809,8 +1851,20 @@ pub(crate) fn commit_text_hinted(
     hint: &str,
 ) -> Option<String> {
     let shown = to_editor(current).0;
-    let typed = commit_typed(buffers, ui, id, &shown, rows, width, limit, hint);
+    let typed = commit_field(buffers, ui, id, &shown, rows, width, limit, hint, false);
     typed.map(|text| with_line_ends(&text, current))
+}
+
+/// [`commit_text_in`] for a resref: what is typed in it takes
+/// [`ResRefText`]'s characters alone.
+pub(crate) fn commit_resref_in(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    width: f32,
+) -> Option<String> {
+    commit_field(buffers, ui, id, current, None, width, None, "", true)
 }
 
 /// [`commit_text_in`] for the text of a localized string
@@ -1824,15 +1878,17 @@ pub(crate) fn commit_loc_text_in(
     width: f32,
     limit: Option<usize>,
 ) -> Option<String> {
-    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit, "");
+    let shown = to_editor(current).0;
+    let typed = commit_field(buffers, ui, id, &shown, rows, width, limit, "", false);
     typed.map(|text| with_loc_line_ends(&text, current))
 }
 
 /// The field of [`commit_text_in`], `shown` its value as the field shows
-/// it ([`to_editor`]), `hint` shown while it is empty: what was typed
+/// it ([`to_editor`]), `hint` shown while it is empty, `resref` whether
+/// it takes a resref's characters alone ([`ResRefText`]): what was typed
 /// (with plain line ends) when the keyboard leaves it changed.
 #[allow(clippy::too_many_arguments)]
-fn commit_typed(
+fn commit_field(
     buffers: &mut std::collections::HashMap<egui::Id, String>,
     ui: &mut Ui,
     id: egui::Id,
@@ -1841,11 +1897,14 @@ fn commit_typed(
     width: f32,
     limit: Option<usize>,
     hint: &str,
+    resref: bool,
 ) -> Option<String> {
     let buf = buffers.entry(id).or_insert_with(|| shown.to_owned());
+    let mut name = ResRefText(&mut *buf);
     let edit = match rows {
-        Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
-        None => egui::TextEdit::singleline(buf),
+        _ if resref => egui::TextEdit::singleline(&mut name),
+        Some(rows) => egui::TextEdit::multiline(name.0).desired_rows(rows),
+        None => egui::TextEdit::singleline(name.0),
     };
     let edit = if hint.is_empty() { edit } else { edit.hint_text(hint) };
     let edit = match limit {
@@ -2730,7 +2789,7 @@ impl NameWindow<'_> {
         let mut out = Named::Open;
         modal(ctx, self.title).show(ctx, |ui| {
             ui.label(self.label);
-            let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
+            let field = ui.add(resref_edit(&mut ResRefText(name)));
             // (Where the name goes: after `ab_`, before a code that goes after
             // it, `{name}_ab`.)
             if self.new

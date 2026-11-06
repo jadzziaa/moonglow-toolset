@@ -14,6 +14,7 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_rules::item_wizard::{self, Magical};
 
+use crate::widgets::ResRefText;
 use crate::{Action, Moonglow, Tab};
 use mg_module::project_file::Naming;
 
@@ -548,7 +549,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 egui::Grid::new("bw-names").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                     crate::widgets::field_label(ui, "ResRef");
                     ui.add(
-                        egui::TextEdit::singleline(&mut w.resref)
+                        crate::widgets::resref_edit(&mut ResRefText(&mut w.resref))
                             .hint_text(made.to_string())
                             .desired_width(180.0),
                     )

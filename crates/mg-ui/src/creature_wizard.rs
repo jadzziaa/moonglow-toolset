@@ -13,6 +13,7 @@ use mg_resman::ResKey;
 use mg_rules::{Choice, GameData};
 
 use crate::images::Loader;
+use crate::widgets::ResRefText;
 use crate::{Action, Moonglow, Tab};
 
 /// The wizard's pages, in order.
@@ -626,7 +627,7 @@ fn page(
             egui::Grid::new("cw-names").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "ResRef");
                 ui.add(
-                    egui::TextEdit::singleline(&mut w.resref)
+                    crate::widgets::resref_edit(&mut ResRefText(&mut w.resref))
                         .hint_text(
                             blueprints::resref_named(&name, &names.naming, |r| {
                                 names.taken.contains(r)

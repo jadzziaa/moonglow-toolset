@@ -313,3 +313,30 @@ fn where_things_are_said_as_they_were() {
         );
     }
 }
+
+/// A new name with characters a resref doesn't take (Aurora's: letters,
+/// digits and `_`) is refused, the module left as it was; capitals are
+/// lowered.
+#[test]
+fn a_rename_to_a_name_with_other_characters_is_refused() {
+    let dir = mg_testkit::scratch_dir("mg-rename-chars");
+    let path = module(&dir);
+    let p = path.to_str().unwrap();
+    let nowhere = dir.join("no-game");
+    let before = std::fs::read(&path).unwrap();
+    for to in ["my-guard", "guard<2>", "g!@#$%^&*"] {
+        let out =
+            crate::mg_on(&nowhere, None).args(["rename", p, "guard.utc", to]).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success() && said.contains("letters, digits and _"), "{to}: {said}");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "{to}: unchanged");
+    }
+    let out =
+        crate::mg_on(&nowhere, None).args(["rename", p, "guard.utc", "Sentry"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let m = Module::open(&path).unwrap();
+    assert!(m.contains(&ResKey::parse("sentry", ResType::UTC).unwrap()));
+    let names: Vec<String> =
+        m.keys_of(ResType::UTC).map(|k| k.resref.as_str().unwrap().to_string()).collect();
+    assert!(names.contains(&"sentry".to_string()), "lowered: {names:?}");
+}

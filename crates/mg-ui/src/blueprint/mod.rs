@@ -1696,8 +1696,9 @@ impl Form<'_> {
         let current = self.key.resref;
         let id = self.id("TemplateResRef");
         let buf = self.app.buffers.entry(id).or_insert_with(|| current.to_string());
+        let mut text = crate::widgets::ResRefText(&mut *buf);
         let r = ui
-            .add(egui::TextEdit::singleline(buf).id(id).char_limit(16).desired_width(160.0))
+            .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(160.0))
             .on_hover_text("Edit the Blueprint ResRef");
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {

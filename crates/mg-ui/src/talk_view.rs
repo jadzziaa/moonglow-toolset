@@ -1115,7 +1115,8 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         }
         ui.horizontal(|ui| {
             ui.label("Sound");
-            ui.add(egui::TextEdit::singleline(&mut line.sound).desired_width(140.0).char_limit(16));
+            let mut sound = crate::widgets::ResRefText(&mut line.sound);
+            ui.add(crate::widgets::resref_edit(&mut sound).desired_width(140.0));
             ui.label("Length (s)");
             ui.add(egui::DragValue::new(&mut line.sound_length).speed(0.05).range(0.0..=600.0));
         });
