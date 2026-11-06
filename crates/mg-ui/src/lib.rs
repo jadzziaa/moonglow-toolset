@@ -5982,6 +5982,13 @@ fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameDat
         Some(gi) => match GameData::open(gi) {
             Ok(g) => {
                 log.info(format!("Game data loaded from {}", gi.root.display()));
+                if let Some(user) = gi.user_dir.as_ref().filter(|u| !u.is_dir()) {
+                    log.warn(format!(
+                        "The NWN user folder {} doesn't exist: no hak, talk table or override \
+                         is found there (Tools › Options › Folders)",
+                        user.display()
+                    ));
+                }
                 Some(Arc::new(g))
             }
             Err(e) => {

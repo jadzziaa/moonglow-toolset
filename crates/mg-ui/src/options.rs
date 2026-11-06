@@ -4,7 +4,7 @@
 //! debug information, the code templates folder, font size and colours),
 //! and Moonglow's own (Updates: the daily check for a new release).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::Ui;
 use mg_resman::GameInstall;
@@ -212,7 +212,7 @@ fn text(p: &Option<PathBuf>) -> String {
 
 fn path(s: &str) -> Option<PathBuf> {
     let s = s.trim();
-    (!s.is_empty()).then(|| PathBuf::from(s))
+    (!s.is_empty()).then(|| crate::settings::expand_home(Path::new(s)))
 }
 
 impl OptionsDraft {
@@ -599,6 +599,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 .clone()
                                 .or_else(|| path(&draft.user_dir))
                                 .or_else(|| detected.as_ref().and_then(|d| d.user_dir.clone()));
+                            if let Some(user) = &user
+                                && !user.is_dir()
+                            {
+                                ui.colored_label(
+                                    ui.visuals().warn_fg_color,
+                                    format!(
+                                        "{} doesn't exist: no hak, talk table or override is \
+                                         found there.",
+                                        user.display()
+                                    ),
+                                );
+                            }
                             if let Some(user) = user {
                                 let gi = mg_resman::GameInstall::new("", Some(user.clone()), "en");
                                 for sub in ALIASED {

@@ -115,6 +115,45 @@ fn options_say_the_folders_nwn_ini_puts_elsewhere() {
     assert!(h.query_by_label_contains("override: ").is_none(), "not aliased: not said");
 }
 
+/// A user folder that doesn't exist is said, in the log as the game data
+/// loads and under the field in Options (a builder's report: typed with a
+/// `~`, kept as typed, every hak was "not found" and nothing said why); a
+/// folder typed with a leading `~` is the home folder's.
+#[test]
+fn a_user_folder_that_does_not_exist_is_said() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let missing = mg_testkit::scratch_dir("ui-options-missing-user").join("nowhere");
+    let settings = mg_ui::Settings {
+        game_root: Some(root),
+        user_dir: Some(missing.clone()),
+        ..Default::default()
+    };
+    let mut h = window_harness(Moonglow::with_settings(settings, Box::new(NoDialogs::default())));
+    h.run();
+    let said = format!("The NWN user folder {} doesn't exist", missing.display());
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.starts_with(&said)), "{log:#?}");
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label(&format!(
+        "{} doesn't exist: no hak, talk table or override is found there.",
+        missing.display()
+    ));
+    // Typed with a `~`: the home folder's.
+    if let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        let settings = mg_ui::Settings {
+            user_dir: Some(std::path::PathBuf::from("~/mg-no-such-folder")),
+            ..Default::default()
+        };
+        let user = settings.install().and_then(|i| i.user_dir);
+        let home = std::path::PathBuf::from(home);
+        assert!(user.as_ref().is_none_or(|u| *u == home.join("mg-no-such-folder")), "{user:?}");
+    }
+}
+
 /// Options › OK leaves the module open, its unsaved work with it, and asks
 /// nothing: only another game or user folder has it read again, and then
 /// it is opened again.

@@ -902,15 +902,16 @@ impl Settings {
     }
 
     /// The game install these settings choose: the configured folders, or
-    /// what is detected.
+    /// what is detected. A folder kept with a leading `~` (typed so before
+    /// Options expanded it) is the home folder's.
     pub fn install(&self) -> Option<GameInstall> {
         let detected = GameInstall::detect();
         let root = match &self.game_root {
-            Some(r) => r.clone(),
+            Some(r) => expand_home(r),
             None => detected.as_ref()?.root.clone(),
         };
         let user_dir = (self.user_dir_this_run.clone())
-            .or_else(|| self.user_dir.clone())
+            .or_else(|| self.user_dir.as_deref().map(expand_home))
             .or_else(|| detected.and_then(|d| d.user_dir));
         // The game's own text (names and descriptions by StrRef, the
         // rules' names) in the language edited, where the install has it:
@@ -926,9 +927,38 @@ impl Settings {
     }
 }
 
+/// A folder typed with a leading `~` (`~/.local/share/Neverwinter
+/// Nights`, as a shell takes it): the home folder's. Others as they are.
+/// (A builder's report: kept as typed, every hak was "not found".)
+pub fn expand_home(path: &Path) -> PathBuf {
+    let home =
+        || std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    match path.strip_prefix("~") {
+        Ok(rest) => home().map_or_else(|| path.to_path_buf(), |h| h.join(rest)),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A leading `~` is the home folder; `~name` and a `~` further in are
+    /// left as they are.
+    #[test]
+    fn a_folder_typed_with_a_tilde_is_the_home_folder_s() {
+        let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+        let Some(home) = home.map(PathBuf::from) else { return };
+        let nwn = Path::new("~").join(".local").join("share").join("Neverwinter Nights");
+        assert_eq!(expand_home(&nwn), home.join(".local/share/Neverwinter Nights"));
+        assert_eq!(expand_home(Path::new("~")), home);
+        for kept in ["~other/nwn", "/games/~nwn", "relative"] {
+            assert_eq!(expand_home(Path::new(kept)), PathBuf::from(kept));
+        }
+        let s = Settings { user_dir: Some(nwn), ..Default::default() };
+        let user = s.install().and_then(|i| i.user_dir);
+        assert!(user.as_ref().is_none_or(|u| u.starts_with(&home)), "{user:?}");
+    }
 
     /// Workshop items and userpatch.ini's haks are not read unless asked
     /// for, as in Aurora (builders' asks); settings saved when the
