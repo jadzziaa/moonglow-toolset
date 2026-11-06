@@ -19,6 +19,7 @@ fn shipped_tile_grids_are_consistent() {
     let root = corpus!();
     let mut indexes: HashMap<String, Option<TileIndex>> = HashMap::new();
     let (mut areas, mut cells, mut mismatched, mut unfitted) = (0, 0, 0, 0);
+    let (mut area_seams, mut group_seams) = (Vec::new(), 0);
     let mut worst: Vec<(f64, String)> = Vec::new();
     each_module(&root, |opened| {
         let (path, m, rm, haks) = (&opened.path, &opened.module, &opened.game.resman, &opened.haks);
@@ -47,6 +48,13 @@ fn shipped_tile_grids_are_consistent() {
             areas += 1;
             cells += tiles.len();
             mismatched += bad.len();
+            let seams = mg_tiles::seams(index, w, h, &tiles);
+            group_seams += seams.groups.len();
+            let file = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let file = file.trim_start_matches("Neverwinter Nights - ").to_string();
+            for seam in seams.area {
+                area_seams.push(format!("{file}:{area} {:?}-{:?}", seam.cell, seam.neighbor));
+            }
             for y in 0..h {
                 for x in 0..w {
                     if index.fits(&lattice.cell(x, y)).is_empty() {
@@ -65,9 +73,31 @@ fn shipped_tile_grids_are_consistent() {
         "{areas} areas, {cells} tiles: {mismatched} disagree with a neighbour, {unfitted} cells fit no free tile; worst {:?}",
         &worst[..worst.len().min(5)]
     );
+    eprintln!("seams: {group_seams} a group's own, the area's {area_seams:?}");
     // 1,462 areas, 102,182 tiles: 69 seams (0.07%), and 103 cells (group
     // tiles) that no free tile fits. Ignoring Tile_Height gives 6% seams.
     assert!(areas > mg_testkit::at_least(1000, 6));
     assert!((mismatched as f64) < cells as f64 * 0.001, "{mismatched} of {cells}");
     assert!((unfitted as f64) < cells as f64 * 0.002, "{unfitted} of {cells}");
+    // Verify's tile-seam: of 75 neighbors that disagree (the 69 cells),
+    // 66 are a group's own (ttu01's 299 and 300 disagree with each other;
+    // trs02's path is on one group's tile alone), and nine the area's,
+    // where tiles that fit are in the tileset: Tyrants of the Moonsea's
+    // ship puts its plain deck (tile 0) beside a group's gangplank, where
+    // tiles 392 to 403 are the same deck with one; Darkness over
+    // Daggerford ends a sandbank at a cliff tile. The game loads them as
+    // they are.
+    const SHIPPED: [&str; 9] = [
+        "Darkness over Daggerford.nwm:c1ar2000_northco (2, 5)-(3, 5)",
+        "Tyrants of the Moonsea.nwm:moonseablockade (14, 7)-(15, 7)",
+        "Tyrants of the Moonsea.nwm:moonseablockade (12, 11)-(13, 11)",
+        "Tyrants of the Moonsea.nwm:moonseablockade (15, 11)-(16, 11)",
+        "Tyrants of the Moonsea.nwm:moonseablockade (17, 14)-(18, 14)",
+        "Tyrants of the Moonsea.nwm:moonseablockade (17, 17)-(17, 18)",
+        "Tyrants of the Moonsea.nwm:moonseabattle (15, 11)-(16, 11)",
+        "Tyrants of the Moonsea.nwm:moonseabattle (21, 15)-(22, 15)",
+        "Tyrants of the Moonsea.nwm:moonseabattle (17, 17)-(17, 18)",
+    ];
+    let new: Vec<&String> = area_seams.iter().filter(|s| !SHIPPED.contains(&s.as_str())).collect();
+    assert!(new.is_empty(), "seams in shipped areas beside the known nine: {new:?}");
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:14:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:01:09Z }
 ---
 
 # Areas
@@ -1077,7 +1077,9 @@ as Aurora's Terrain tab does:
   changes: no neighbor, corner terrain, height or crosser around it is
   adjusted, so it may not meet them (a wall's end in open ground, the
   lip of a castle by itself, as builders otherwise did by hand in the
-  area's `Tile_List`). The preview and the cursor show that one tile.
+  area's `Tile_List`; [Verify](09-build-and-test.md#verify-module) names
+  a tile that doesn't fit a neighbor, `tile-seam`). The preview and the
+  cursor show that one tile.
   Its lights are chosen afresh, as a painted tile's, and the doors its
   hooks call for come and go as a painted tile's do (as the plugin
   API's `set_tile` puts a tile). Over a tile of a group or a feature it

@@ -54,6 +54,12 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     // Two spells (rows 807 and 809) whose FeatID names feats 3000 and
     // 2589 of a feat.2da of 1607 rows.
     ("Neverwinter Nights - Wyvern Crown of Cormyr", "2da-ref", "hak:wc_2da_shared", 2),
+    // Neighboring tiles that don't fit where the tileset has tiles that
+    // would (`tile-seam`, docs/findings.md): the plain deck beside a
+    // group's gangplank (moonseablockade, moonseabattle), and a sandbank
+    // ending at a cliff tile that has none (c1ar2000_northco).
+    ("Neverwinter Nights - Darkness over Daggerford", "tile-seam", "module", 1),
+    ("Neverwinter Nights - Tyrants of the Moonsea", "tile-seam", "module", 8),
 ];
 
 #[test]
