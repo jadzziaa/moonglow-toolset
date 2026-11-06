@@ -638,9 +638,16 @@ fn look_placeable_appearance() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.run_steps(20);
+    // Set MG_AT to "distance,yaw,pitch" to change the camera position.
+    let at: Vec<f32> = std::env::var("MG_AT")
+        .map(|at| at.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_default();
     if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
         o.target = glam::Vec3::new(25.0, 25.0, 0.5);
         (o.distance, o.pitch) = (5.0, 0.5);
+        if let [distance, yaw, pitch] = at[..] {
+            (o.distance, o.yaw, o.pitch) = (distance, yaw, pitch);
+        }
     }
     h.run_steps(20);
     let dir = mg_testkit::scratch_dir("ui-placeable-look");
