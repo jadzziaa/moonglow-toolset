@@ -200,3 +200,73 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
     });
     Ok(out)
 }
+
+/// `mg merge-claims BASE OURS THEIRS`: two copies of a project's claims
+/// table merged by area ([`mg_module::claims::merge`]), git's merge driver
+/// as [`merge_gff`] is: written over OURS (or `output`) in OURS's
+/// encoding, a failure where an area was changed by both, each its own
+/// way, unless `prefer` takes a side; a merge that is OURS leaves the file
+/// as it was.
+pub(crate) fn merge_claims(args: &Args<'_>) -> Result<Output> {
+    use mg_module::claims::{Side, decode};
+    let prefer = match args.prefer {
+        None => None,
+        Some("ours" | "a") => Some(Side::Ours),
+        Some("theirs" | "b") => Some(Side::Theirs),
+        Some(other) => bail!("--prefer ours or theirs, not {other}"),
+    };
+    let bytes = |p: &Path| std::fs::read(p).with_context(|| p.display().to_string());
+    let (base, ours, theirs) = (bytes(args.base)?, bytes(args.ours)?, bytes(args.theirs)?);
+    let ((b, _), (o, utf8), (t, _)) = (decode(&base), decode(&ours), decode(&theirs));
+    let name = args.path.unwrap_or(args.ours).display().to_string();
+    let merged = mg_module::claims::merge(&b, &o, &t, prefer.unwrap_or(Side::Ours))
+        .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+    let text = |v: &Option<String>| v.clone().unwrap_or_else(|| "(none)".into());
+    let mut out = Output::new(json!({
+        "file": name,
+        "conflicts": merged.conflicts.iter().map(|c| json!({
+            "area": c.area, "base": c.base, "ours": c.ours, "theirs": c.theirs,
+        })).collect::<Vec<_>>(),
+    }));
+    for c in &merged.conflicts {
+        out.line(format!(
+            "CONFLICT {}: {} -> ours {}, theirs {}",
+            c.area,
+            text(&c.base),
+            text(&c.ours),
+            text(&c.theirs)
+        ));
+    }
+    let unsettled = !merged.conflicts.is_empty() && prefer.is_none();
+    out.json["merged"] = json!(!unsettled);
+    if unsettled {
+        out.failed = true;
+        out.json["written"] = json!(null);
+        out.note(format!(
+            "{name}: {} areas were changed by both, each its own way: nothing written (--prefer \
+             ours or theirs takes one side's)",
+            merged.conflicts.len()
+        ));
+        return Ok(out);
+    }
+    let target = args.output.unwrap_or(args.ours);
+    let unchanged = merged.text == *o && args.output.is_none();
+    if !unchanged {
+        let data = if utf8 {
+            merged.text.into_bytes()
+        } else {
+            Codepage::WINDOWS_1252.encode_lossy(&merged.text)
+        };
+        std::fs::write(target, data).with_context(|| target.display().to_string())?;
+    }
+    out.json["written"] = json!((!unchanged).then(|| target.display().to_string()));
+    out.note(match merged.conflicts.len() {
+        0 if unchanged => format!("{name}: merged (ours already was the merge)"),
+        0 => format!("{name}: merged"),
+        n => format!(
+            "{name}: merged, {n} areas changed by both taken from {}",
+            if prefer == Some(Side::Theirs) { "theirs" } else { "ours" }
+        ),
+    });
+    Ok(out)
+}

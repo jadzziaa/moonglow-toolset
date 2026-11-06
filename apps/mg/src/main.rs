@@ -528,6 +528,37 @@ enum Cmd {
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
+    /// Merge two copies of a project's claims table (moonglow.toml's
+    /// `[claims] file`), both made from BASE, row by row by their Area:
+    /// what one side changed of an area (claimed, released, handed on,
+    /// merged, taken out) is taken, both sides' new areas are kept (theirs
+    /// after ours, numbered on), and an area both changed, each its own way,
+    /// is a conflict (the merge fails and nothing is written, unless
+    /// --prefer takes a side). Written over OURS (or -o): git's merge
+    /// driver (`mg merge-claims %O %A %B --path %P`; the manual's Modules
+    /// chapter, "Claimed areas", has the lines for .gitattributes and
+    /// .git/config). Two builders each claiming a new area add a line under
+    /// the same number, which git's own merge calls a conflict
+    #[command(name = "merge-claims")]
+    MergeClaims {
+        /// The table both were made from (git's %O).
+        base: PathBuf,
+        /// Ours (git's %A): the merge is written here.
+        ours: PathBuf,
+        /// Theirs (git's %B).
+        theirs: PathBuf,
+        /// Whose row an area both changed takes: ours or theirs (then the
+        /// merge is written, and succeeds).
+        #[arg(long)]
+        prefer: Option<String>,
+        /// Write the merge here instead of over OURS.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// The table's path in the repository (git's %P): its name in the
+        /// report.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// Write a custom talk table from strings kept by name (a .toml or
     /// .json file: `key = "text"`, in groups if you like), each on a line
     /// that stays its own: a map kept beside the names file says which. A
@@ -2933,6 +2964,17 @@ fn run(cli: &Cli) -> Result<Output> {
                 output: output.as_deref(),
                 path: path.as_deref(),
                 project: project.as_deref(),
+            })?
+        }
+        Cmd::MergeClaims { base, ours, theirs, prefer, output, path } => {
+            merge::merge_claims(&merge::Args {
+                base,
+                ours,
+                theirs,
+                prefer: prefer.as_deref(),
+                output: output.as_deref(),
+                path: path.as_deref(),
+                project: None,
             })?
         }
         Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against, project } => {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T23:12:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T09:13:39Z }
 ---
 
 # Modules
@@ -663,6 +663,28 @@ or open the module in Moonglow and make the change there.
 The command needs no game install, and `--json` prints the conflicts for
 a script or a bot.
 
+**The claims table** ([Claimed areas](#claimed-areas)) has a driver of
+its own, `mg merge-claims`, which merges it area by area: two builders
+who each claim a new area add a line under the same number at its end,
+which git calls a conflict, and the driver keeps both (yours first,
+theirs numbered on after it). What one side changed of an area's row
+(claimed, released, handed on, merged, taken out) is taken; an area both
+changed, each its own way (or both claimed anew, for two builders), is a
+conflict, said as `CONFLICT kz_square: … -> ours …, theirs …`, which
+`--prefer ours` or `--prefer theirs` settles as above. The three tables
+are to have the same columns. Set it up as the GFF driver, with the
+table's path from the project file's `[claims] file`:
+
+```
+# .gitattributes
+claims/claims.2da merge=mg-claims
+```
+
+```sh
+git config merge.mg-claims.name "Moonglow claims table merge"
+git config merge.mg-claims.driver "mg merge-claims %O %A %B --path %P"
+```
+
 ## The project file (moonglow.toml)
 
 A team's rules for Moonglow are kept with its module, in version
@@ -1221,8 +1243,13 @@ log by line, as the project file's are.
 **Claim This Area** and **Release Claim**, in the area's menu in the
 module tree and on its tab, write your row into the table (made, with
 its folder, if it isn't there yet): one line changed or added at the
-end, every other line as it was, so that two builders claiming two
-areas at once make changes git merges by itself. Commit the table with
+end, every other line as it was, so that two builders changing claims
+the table has make changes git merges by itself. Two who each add a
+claim at once add a line at the same place, under the same number, which
+git calls a conflict: keep both lines (their numbers needn't follow on:
+Moonglow reads the table by its Area column), or let
+[`mg merge-claims`](#merging-in-git) merge the table, as git's merge
+driver, which does so itself (since Moonglow 3.10.0). Commit the table with
 your work so that the others see it. An area another builder claimed is
 theirs to release. Without a builder code, Claim is there and off.
 

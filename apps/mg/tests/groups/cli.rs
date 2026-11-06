@@ -30,6 +30,8 @@ mod import_files;
 mod json;
 #[path = "../lsp.rs"]
 mod lsp;
+#[path = "../merge_claims.rs"]
+mod merge_claims;
 #[path = "../merge_gff.rs"]
 mod merge_gff;
 #[path = "../minimap.rs"]
