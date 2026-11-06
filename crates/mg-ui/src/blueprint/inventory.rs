@@ -432,6 +432,7 @@ pub(super) enum Ask {
     Equip,
     Open,
     Copy,
+    Find,
 }
 
 /// What an item list reports: the edits asked for, the item clicked, an
@@ -467,6 +468,22 @@ pub(super) struct ItemLook<'a> {
     pub equip: bool,
     /// How many items are copied, to paste (0: none).
     pub copied: usize,
+    /// The item blueprints in the palettes, keyed by resref. A row offers
+    /// Find in Palette only if its blueprint is listed here.
+    pub palette: &'a HashMap<ResRef, String>,
+}
+
+/// Adds Find in Palette to an item's right-click menu. The button is
+/// enabled only if the item's blueprint is in a palette (`found`).
+/// Returns whether it was clicked.
+pub(super) fn find_in_palette_button(ui: &mut Ui, found: bool) -> bool {
+    ui.add_enabled(found, egui::Button::new("Find in Palette"))
+        .on_hover_text("Choose the item's blueprint in the palette on the left")
+        .on_disabled_hover_text(
+            "The item's blueprint isn't in either palette. It may have been removed, or come \
+             from a hak the module doesn't use.",
+        )
+        .clicked()
 }
 
 /// The width of a store's Infinite column.
@@ -482,7 +499,7 @@ pub(super) fn item_list(
     items: &[Struct],
     look: ItemLook<'_>,
 ) -> ListOut {
-    let ItemLook { row: make, infinite, selected, equip, copied } = look;
+    let ItemLook { row: make, infinite, selected, equip, copied, palette } = look;
     let mut clicked = None;
     let mut asked = None;
     let (mut paste, mut moved) = (false, Vec::new());
@@ -647,6 +664,10 @@ pub(super) fn item_list(
                             ));
                             ui.close();
                         }
+                        if find_in_palette_button(ui, palette.contains_key(&resref)) {
+                            asked = Some((i, Ask::Find));
+                            ui.close();
+                        }
                         // Properties last, as in Aurora's menus.
                         ui.separator();
                         if ui
@@ -794,7 +815,7 @@ impl Form<'_> {
         self.app.actions.push(Action::Apply(Command::new(what, together)));
     }
 
-    /// Copy and Properties from a row's menu, a row moved within the
+    /// Copy, Find in Palette and Properties from a row's menu, a row moved within the
     /// list, and what there is to add to it: the items pasted, one dragged
     /// from the palette, one dragged from another object's inventory
     /// (moved out of it, unless Ctrl is held: then a copy; either way the
@@ -818,6 +839,11 @@ impl Form<'_> {
             Some((i, Ask::Copy)) => {
                 if let Some(item) = items.get(i).filter(|e| !entry_resref(e).is_empty()) {
                     self.copy_item(ui, item);
+                }
+            }
+            Some((i, Ask::Find)) => {
+                if let Some(entry) = items.get(i) {
+                    self.find_in_palette(ui, BlueprintKind::Item, entry_resref(entry));
                 }
             }
             _ => {}

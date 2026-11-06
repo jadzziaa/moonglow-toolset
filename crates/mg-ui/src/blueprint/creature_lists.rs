@@ -1839,7 +1839,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // taken off by its menu.
     let mut slot_drop: Option<(u32, inventory::Dragged)> = None;
     let (mut adds, mut taken): (Vec<inventory::Added>, Vec<Edit>) = (Vec::new(), Vec::new());
-    let (mut unequip, mut copy) = (None, None);
+    // The blueprint of an equipped item to find in the palette.
+    let (mut unequip, mut copy, mut find) = (None, None, None);
     let whose = inventory::owner(key, &base);
     // (The palette's rows offer Equip here, and a dragged one is equipped
     // where it is dropped.)
@@ -1965,6 +1966,11 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     unequip = Some(i);
                                     ui.close();
                                 }
+                                let found = names.contains_key(&resref);
+                                if inventory::find_in_palette_button(ui, found) {
+                                    find = Some(resref);
+                                    ui.close();
+                                }
                                 // Properties last, as in Aurora's menus.
                                 ui.separator();
                                 if ui.button("Properties").clicked() {
@@ -2004,6 +2010,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     selected: &in_pack,
                     equip: true,
                     copied,
+                    palette: &names,
                 };
                 let mut out = inventory::item_list(ui, key, &path, &backpack, look);
                 edits.extend(std::mem::take(&mut out.edits));
@@ -2072,6 +2079,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     }
     if let Some(i) = unequip {
         edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
+    }
+    if let Some(r) = find {
+        f.find_in_palette(ui, BlueprintKind::Item, r);
     }
     // An item equipped from where it was, as it is (not made again from
     // its blueprint), taken from there in the same step.
