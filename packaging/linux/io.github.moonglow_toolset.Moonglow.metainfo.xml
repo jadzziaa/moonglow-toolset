@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.9.2" date="2026-11-05">
+      <description>
+        <p>A resref typed takes letters, digits and underscores alone, in
+        lower case, as in Aurora; Verify finds an area's neighboring tiles
+        that don't fit together.</p>
+      </description>
+    </release>
     <release version="3.9.1" date="2026-11-05">
       <description>
         <p>A window made of a tab dragged out of a pane, Module Properties
