@@ -2101,8 +2101,10 @@ fn creatures_look() {
         // (Part 7: the torso.)
         set_armor_part_color(&mut armor.root, 7, channel, Some(88));
     }
-    // `MG_PARTS`: armor part numbers, as `Torso=32,LThigh=3,RThigh=3`.
+    // `MG_PARTS`: armor part numbers, as `Torso=32,LThigh=3,RThigh=3`
+    // (`Robe=3` too: no robe unless named).
     if let Ok(parts) = std::env::var("MG_PARTS") {
+        armor.root.set("ArmorPart_Robe", Value::Byte(0));
         for (part, n) in parts.split(',').filter_map(|p| p.split_once('=')) {
             let n: u8 = n.trim().parse().unwrap();
             let label = format!("ArmorPart_{}", part.trim());
@@ -2112,7 +2114,6 @@ fn creatures_look() {
                 armor.root.set(&wide, Value::Word(u16::from(n)));
             }
         }
-        armor.root.set("ArmorPart_Robe", Value::Byte(0));
     }
     let mut cloak = first(ResType::UTI, &|s| s.integer("BaseItem") == Some(80));
     // (Nothing that could keep a creature from wearing it.)

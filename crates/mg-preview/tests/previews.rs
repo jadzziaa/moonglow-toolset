@@ -64,6 +64,38 @@ fn creatures_by_appearance() {
     assert!(creature_look(&game, &CreatureLook::new(60_000)).is_err());
 }
 
+/// A robe whose `parts_robe` row says `HIDEHEAD` 1 leaves the head on,
+/// as the client draws it (`creatures_look` with `MG_PARTS=Robe=3`, the
+/// row set to 1 in the override: the head drawn as with 0; issue #42, a
+/// Vault hak's robes that hid the head in Moonglow alone).
+#[test]
+fn a_robe_s_hidehead_leaves_the_head_on() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = base.resman.get_named("parts_robe", ResType::TWODA).unwrap();
+    let mut lines: Vec<String> =
+        String::from_utf8_lossy(&table).lines().map(str::to_owned).collect();
+    // Robe 4's row: every HIDE column 1, the head's (the last) among them.
+    let row = lines.iter().position(|l| l.split_whitespace().next() == Some("4")).unwrap();
+    let mut cells: Vec<String> = lines[row].split_whitespace().map(str::to_owned).collect();
+    *cells.last_mut().unwrap() = "1".into();
+    lines[row] = cells.join(" ");
+    let user = mg_testkit::scratch_dir("preview-hidehead");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("override/parts_robe.2da"), lines.join("\n") + "\n").unwrap();
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let hidehead = game.table("parts_robe").unwrap();
+    assert_eq!(hidehead.get(4, "HIDEHEAD").map(str::trim), Some("1"));
+    // A gnome in robe 4.
+    let utc = blueprint(&game, "nw_hen_bod_05", ResType::UTC);
+    let p = creature(&game, &utc.root, &items(&game)).unwrap();
+    assert!(p.parts.iter().any(|x| x.model == "pmg0_robe004"));
+    assert!(p.parts.iter().any(|x| x.model.starts_with("pmg0_head")), "{:?}", models(&p));
+}
+
 #[test]
 fn blueprints_assemble() {
     let Some(game) = game() else {

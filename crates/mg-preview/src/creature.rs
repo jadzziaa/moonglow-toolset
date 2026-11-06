@@ -219,7 +219,10 @@ pub(crate) fn dressed(
             p
         };
 
-        // A robe hides the parts its parts_robe row says.
+        // A robe hides the parts its parts_robe row says, but the head: the
+        // client draws the head whatever `HIDEHEAD` says (a robe row of the
+        // game's set to 1, `creatures_look` with `MG_PARTS=Robe=3`; issue
+        // #42, a Vault hak's robes that hid the head in Moonglow alone).
         let robe = armor.as_ref().map_or(0, |a| number(a, "ArmorPart_Robe"));
         let robes = game.table("parts_robe")?;
         let hidden = |mdlname: &str| {
@@ -321,7 +324,7 @@ pub(crate) fn dressed(
             }
             // Head 0, or no field, is no head: the client draws the neck
             // alone (`client_render.rs`'s `heads_look`).
-            None if !hidden("head") => {
+            None => {
                 let head = number(utc, "Appearance_Head");
                 if head > 0
                     && let Some(m) = part_model("head", head)
@@ -331,7 +334,6 @@ pub(crate) fn dressed(
                     preview.parts.push(p);
                 }
             }
-            None => {}
         }
     }
 
