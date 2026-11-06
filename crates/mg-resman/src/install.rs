@@ -64,11 +64,7 @@ impl GameInstall {
             std::fs::read(user.join(name)).map(|b| b.iter().map(|&c| c as char).collect::<String>())
         };
         let Ok(ini) = read("userpatch.ini") else { return Vec::new() };
-        let folder = read("nwn.ini")
-            .ok()
-            .and_then(|nwn| ini_value(&nwn, "alias", "patch"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| user.join("patch"));
+        let folder = self.user_folder("patch").unwrap_or_else(|| user.join("patch"));
         let mut haks: Vec<(u32, String)> = ini_section(&ini, "patch")
             .into_iter()
             .filter_map(|(k, v)| {
@@ -165,7 +161,21 @@ impl GameInstall {
     }
 
     fn user(&self, sub: &str) -> Option<PathBuf> {
-        self.user_dir.as_ref().map(|u| u.join(sub))
+        self.user_folder(sub)
+    }
+
+    /// A folder of the user directory's (`hak`, `tlk`, `override`,
+    /// `development`, `modules`, `portraits`, `patch`…) where the game
+    /// finds it: the one `nwn.ini`'s `[Alias]` names under the folder's
+    /// name in capitals (`HAK=D:\GOG Games\NWN Diamond\hak`: a builder
+    /// who keeps haks and talk tables with the original game beside EE),
+    /// a relative one within the user directory; else the folder of that
+    /// name in it, as the game makes them. `None` without a user
+    /// directory. (The game reads the aliases unless started with
+    /// `-noaliases`: nwn.wiki's NWMain.)
+    pub fn user_folder(&self, sub: &str) -> Option<PathBuf> {
+        let user = self.user_dir.as_ref()?;
+        Some(alias(user, sub).unwrap_or_else(|| user.join(sub)))
     }
 
     /// The Steam Workshop items read ([`GameInstall::workshop`]): their
@@ -517,6 +527,18 @@ fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// The folder `nwn.ini` (in the user directory `user`) names under
+/// `[Alias]` for the user folder `sub` (its name in any case), a relative
+/// one within `user`; `None` where it names none.
+fn alias(user: &Path, sub: &str) -> Option<PathBuf> {
+    // (UTF-8, else Windows' letters: a path the game wrote on Windows.)
+    let ini = std::fs::read(user.join("nwn.ini")).ok()?;
+    let ini = String::from_utf8(ini)
+        .unwrap_or_else(|e| e.as_bytes().iter().map(|&c| c as char).collect());
+    let path = PathBuf::from(ini_value(&ini, "alias", sub)?);
+    Some(if path.is_relative() { user.join(path) } else { path })
+}
+
 /// The player's NWN folder where the game puts it on this system.
 pub fn default_user_dir() -> Option<PathBuf> {
     if cfg!(windows) {
@@ -777,6 +799,54 @@ mod install_tests {
         let elsewhere = GameInstall { root: lib.join("game"), ..install };
         assert!(elsewhere.workshop_items().is_empty());
         let _ = std::fs::remove_dir_all(&lib);
+    }
+
+    /// The user folders `nwn.ini` aliases are where the game finds them
+    /// (a builder's report, Carcerian: haks and talk tables kept with the
+    /// original game beside EE): haks, talk tables and `override/` read
+    /// from there, an alias relative to the user directory within it,
+    /// any case of the key; a folder it doesn't name is the user
+    /// directory's own.
+    #[test]
+    fn nwn_ini_s_aliases_name_the_user_s_folders() {
+        let dir = env::temp_dir().join(format!("moonglow-alias-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (root, user, diamond) = (dir.join("game"), dir.join("user"), dir.join("Diamond"));
+        for d in [root.join("data"), user.join("tlk"), diamond.join("hak"), diamond.join("tlk")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::create_dir_all(user.join("mine/override")).unwrap();
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        w.add(mg_core::ResRef::from_str("mg_cep").unwrap(), mg_core::ResType::TWODA, b"cep")
+            .unwrap();
+        std::fs::write(diamond.join("hak/cep2_top.hak"), w.to_bytes().unwrap()).unwrap();
+        std::fs::write(diamond.join("tlk/cep.tlk"), b"TLK V3.0").unwrap();
+        std::fs::write(user.join("mine/override/mg_over.2da"), "aliased").unwrap();
+        std::fs::write(
+            user.join("nwn.ini"),
+            format!(
+                "[Display Options]\nHAK=no\n[Alias]\nhak={}\nTlk={}\nOVERRIDE=mine/override\n\
+                 MODULES=\n",
+                diamond.join("hak").display(),
+                diamond.join("tlk").display()
+            ),
+        )
+        .unwrap();
+        let install = GameInstall::new(&root, Some(user.clone()), "en");
+        assert_eq!(install.user_hak_dir(), Some(diamond.join("hak")));
+        assert_eq!(install.find_hak("cep2_top"), Some(diamond.join("hak/cep2_top.hak")));
+        assert_eq!(install.tlk_names(), ["cep"]);
+        assert_eq!(install.user_folder("override"), Some(user.join("mine/override")));
+        assert_eq!(install.user_folder("modules"), Some(user.join("modules")), "an empty alias");
+        assert_eq!(install.user_folder("portraits"), Some(user.join("portraits")), "none");
+        let rm = ResMan::for_game(&install).unwrap();
+        let key = |n: &str| crate::ResKey::parse(n, mg_core::ResType::TWODA).unwrap();
+        assert_eq!(&*rm.get(&key("mg_over")).unwrap(), b"aliased");
+        // Without nwn.ini, the user directory's own.
+        std::fs::remove_file(user.join("nwn.ini")).unwrap();
+        assert_eq!(install.user_hak_dir(), Some(user.join("hak")));
+        assert_eq!(install.find_hak("cep2_top"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// userpatch.ini's haks are read when asked for, the highest number

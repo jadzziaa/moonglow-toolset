@@ -838,7 +838,8 @@ pub struct AttachDraft {
 }
 
 fn start_attach(app: &mut Moonglow) {
-    let Some(user) = app.install.as_ref().and_then(|i| i.user_dir.clone()) else {
+    let folders = app.install.as_ref().and_then(|i| i.user_folder("hak").zip(i.user_folder("tlk")));
+    let Some((hak_dir, tlk_dir)) = folders else {
         app.log.error("Adding haks needs the game's user folder (Tools › Options)");
         return;
     };
@@ -846,7 +847,7 @@ fn start_attach(app: &mut Moonglow) {
     if files.is_empty() {
         return;
     }
-    match mg_module::attach::placements(&user, &files) {
+    match mg_module::attach::placements(&hak_dir, &tlk_dir, &files) {
         Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
         Err(e) => app.log.error(format!("Add Haks and Talk Table: {e}")),
     }

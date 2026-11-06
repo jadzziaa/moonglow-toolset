@@ -44,6 +44,12 @@ const CLOSE_CANCELS_TIP: &str = "A window with OK and Cancel (a blueprint's or a
      table and script editors ask about unsaved changes either way.)";
 
 /// The Options window's pages and their names.
+/// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
+/// writes (`GameInstall::user_folder`), said under the user folder where
+/// it does.
+const ALIASED: [&str; 7] =
+    ["hak", "tlk", "override", "development", "modules", "portraits", "patch"];
+
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
     (OptionsPage::Area, "Area"),
@@ -586,6 +592,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     Some(u) => ui.weak(format!("Empty: {}", u.display())),
                                     None => ui.weak("Empty: none"),
                                 };
+                            }
+                            // The folders its nwn.ini puts elsewhere, as
+                            // the game finds them.
+                            let user = this_run
+                                .clone()
+                                .or_else(|| path(&draft.user_dir))
+                                .or_else(|| detected.as_ref().and_then(|d| d.user_dir.clone()));
+                            if let Some(user) = user {
+                                let gi = mg_resman::GameInstall::new("", Some(user.clone()), "en");
+                                for sub in ALIASED {
+                                    match gi.user_folder(sub) {
+                                        Some(f) if f != user.join(sub) => ui.weak(format!(
+                                            "{sub}: {} (nwn.ini's alias, as the game reads it)",
+                                            f.display()
+                                        )),
+                                        _ => continue,
+                                    };
+                                }
                             }
                             ui.add_space(6.0);
                             crate::widgets::field_label(ui, "Scratch folder (To Scratch)");

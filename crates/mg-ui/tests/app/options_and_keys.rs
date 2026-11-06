@@ -68,6 +68,53 @@ fn options_say_the_user_folder_of_this_run() {
     assert_eq!(user(&h), Some(run));
 }
 
+/// A user folder whose `nwn.ini` puts haks and talk tables elsewhere (a
+/// builder's report, Carcerian: kept with the original game beside EE):
+/// the window reads the haks from there, and Options › Folders says where
+/// each aliased folder is.
+#[test]
+fn options_say_the_folders_nwn_ini_puts_elsewhere() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-options-aliases");
+    let (user, diamond) = (dir.join("user"), dir.join("Diamond"));
+    for d in [user.join("modules"), diamond.join("hak"), diamond.join("tlk")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(
+        user.join("nwn.ini"),
+        format!(
+            "[Alias]\nHAK={}\nTLK={}\n",
+            diamond.join("hak").display(),
+            diamond.join("tlk").display()
+        ),
+    )
+    .unwrap();
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    w.add(ResRef::from_str("mg_alias").unwrap(), ResType::TWODA, b"2DA V2.0\n".to_vec()).unwrap();
+    std::fs::write(diamond.join("hak/mg_diamond.hak"), w.to_bytes().unwrap()).unwrap();
+    let settings = mg_ui::Settings {
+        game_root: Some(root),
+        user_dir: Some(user.clone()),
+        ..Default::default()
+    };
+    let mut h = window_harness(Moonglow::with_settings(settings, Box::new(NoDialogs::default())));
+    h.run();
+    let install = h.state().install.clone().unwrap();
+    assert!(install.hak_names().contains(&"mg_diamond".to_string()), "the aliased folder's hak");
+    assert_eq!(install.find_hak("mg_diamond"), Some(diamond.join("hak/mg_diamond.hak")));
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    let said = |sub: &str, f: &std::path::Path| {
+        format!("{sub}: {} (nwn.ini's alias, as the game reads it)", f.display())
+    };
+    h.get_by_label(&said("hak", &diamond.join("hak")));
+    h.get_by_label(&said("tlk", &diamond.join("tlk")));
+    assert!(h.query_by_label_contains("override: ").is_none(), "not aliased: not said");
+}
+
 /// Options › OK leaves the module open, its unsaved work with it, and asks
 /// nothing: only another game or user folder has it read again, and then
 /// it is opened again.

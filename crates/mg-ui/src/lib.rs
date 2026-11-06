@@ -3646,11 +3646,7 @@ impl Moonglow {
             }
             Action::Proceed(next) => self.run_now(*next),
             Action::OpenModuleDialog => {
-                let start = self
-                    .install
-                    .as_ref()
-                    .and_then(|gi| gi.user_dir.as_ref())
-                    .map(|u| u.join("modules"));
+                let start = self.install.as_ref().and_then(|gi| gi.user_folder("modules"));
                 if let Some(p) = self.dialogs.open_file(FileKind::Module, start.as_deref()) {
                     module_folder::open(self, &p);
                 }
@@ -3760,7 +3756,7 @@ impl Moonglow {
                             text::game_codepage(),
                         )?
                         .into_owned();
-                    let dir = self.install.as_ref()?.user_dir.as_ref()?.join("modules");
+                    let dir = self.install.as_ref()?.user_folder("modules")?;
                     Some(dir.join(format!("{name}.mod")))
                 });
                 if let Some(p) = self.dialogs.save_file(FileKind::Module, suggested.as_deref()) {
@@ -4848,8 +4844,9 @@ impl Moonglow {
         if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
             return true;
         }
-        let user = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
-        let name = user.zip(self.module_path()).and_then(|(u, p)| test_module::module_name(&u, &p));
+        let modules = self.install.as_ref().and_then(|gi| gi.user_folder("modules"));
+        let name =
+            modules.zip(self.module_path()).and_then(|(m, p)| test_module::module_name(&m, &p));
         let Some(name) = name else { return true };
         let allowed = self.other_game_allows(&name);
         self.test_checked = allowed.then_some(name);
@@ -4897,7 +4894,9 @@ impl Moonglow {
             ));
             return;
         };
-        let Some(user) = install.user_dir else {
+        let (Some(user), Some(modules)) =
+            (install.user_dir.clone(), install.user_folder("modules"))
+        else {
             self.log.error("Test Module needs the game's user folder (Options › Folders)");
             return;
         };
@@ -4911,8 +4910,8 @@ impl Moonglow {
             if !self.other_game_allows(&name) {
                 return;
             }
-            let dest = user.join("modules").join(file);
-            let copied = std::fs::create_dir_all(user.join("modules"))
+            let dest = modules.join(file);
+            let copied = std::fs::create_dir_all(&modules)
                 .and_then(|()| std::fs::copy(&packed, &dest).map(|_| ()));
             if let Err(e) = copied {
                 self.log.error(format!("Test Module: {}: {e}", dest.display()));
@@ -4926,10 +4925,10 @@ impl Moonglow {
             self.log.error("Test Module: save the module in the game's modules folder first");
             return;
         };
-        let Some(name) = test_module::module_name(user, &path) else {
+        let Some(name) = test_module::module_name(&modules, &path) else {
             self.log.error(format!(
                 "Test Module: the game loads modules from {}; save the module there",
-                user.join("modules").display()
+                modules.display()
             ));
             return;
         };
@@ -4967,9 +4966,10 @@ impl Moonglow {
             return;
         }
         let bytes = self.test_from_here_archive(area, at, facing);
-        let dest = user.join("modules").join(format!("{}.mod", test_module::FROM_HERE));
+        let modules = install.user_folder("modules").unwrap_or_else(|| user.join("modules"));
+        let dest = modules.join(format!("{}.mod", test_module::FROM_HERE));
         let written = bytes.and_then(|b| {
-            std::fs::create_dir_all(user.join("modules"))
+            std::fs::create_dir_all(&modules)
                 .and_then(|()| std::fs::write(&dest, b))
                 .map_err(|e| format!("{}: {e}", dest.display()))
         });

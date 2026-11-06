@@ -24,14 +24,14 @@ pub fn client_binary(root: &Path) -> Option<PathBuf> {
 }
 
 /// The module's name for `+TestNewModule`, if `module` (a `.mod` file or a
-/// module folder) is in `user_dir`'s `modules` folder.
-pub fn module_name(user_dir: &Path, module: &Path) -> Option<String> {
+/// module folder) is in the game's modules folder `modules` (the user
+/// directory's, or the one `nwn.ini` aliases: `GameInstall::user_folder`).
+pub fn module_name(modules: &Path, module: &Path) -> Option<String> {
     let folder = module.parent()?;
-    let modules = user_dir.join("modules");
     let same = |a: &Path, b: &Path| {
         a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b)
     };
-    if !same(folder, &modules) {
+    if !same(folder, modules) {
         return None;
     }
     let is_mod = module.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod"));
@@ -310,12 +310,10 @@ mod tests {
         let modules = dir.join("modules");
         std::fs::create_dir_all(modules.join("Folder Module")).unwrap();
         std::fs::write(modules.join("My Module.mod"), b"").unwrap();
-        assert_eq!(module_name(&dir, &modules.join("My Module.mod")).as_deref(), Some("My Module"));
-        assert_eq!(
-            module_name(&dir, &modules.join("Folder Module")).as_deref(),
-            Some("Folder Module")
-        );
-        assert_eq!(module_name(&dir, &dir.join("elsewhere.mod")), None);
+        let named = |m: &Path| module_name(&modules, m);
+        assert_eq!(named(&modules.join("My Module.mod")).as_deref(), Some("My Module"));
+        assert_eq!(named(&modules.join("Folder Module")).as_deref(), Some("Folder Module"));
+        assert_eq!(named(&dir.join("elsewhere.mod")), None);
         let c =
             command(Path::new("/game/bin/linux-x86/nwmain-linux"), &dir, "My Module", false, true);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();

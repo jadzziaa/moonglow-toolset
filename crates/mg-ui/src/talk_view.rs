@@ -420,7 +420,7 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
         app.log.error("The talk table has unsaved changes: save it (or undo them) first.");
         return;
     }
-    let start = app.install.as_ref().and_then(|i| i.user_dir.clone()).map(|d| d.join("tlk"));
+    let start = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
     let named = |path: &std::path::Path| {
         path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
     };
@@ -525,7 +525,7 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
     // where the rules put it, and a target of its own.)
     let project = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref());
     let in_project = project.filter(|p| mg_module::nasher::kept_as(&p.settings).is_some());
-    let user_dir = app.install.as_ref().and_then(|i| i.user_dir.clone()).map(|d| d.join("tlk"));
+    let user_dir = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
     let Some(dir) = user_dir.or_else(|| in_project.map(|p| p.root().join("tlk"))) else {
         ui.label("Making a talk table needs the game's user folder (Tools › Options).");
         return;

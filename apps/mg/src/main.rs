@@ -4233,8 +4233,9 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Attach { module, files, replace } => {
             use mg_module::attach::{There, copy, hak_list, placements};
             let gi = install(cli)?;
-            let user = gi.user_dir.context("no user folder; pass --user-dir")?;
-            let placed = placements(&user, files).map_err(anyhow::Error::msg)?;
+            let folder = |sub| gi.user_folder(sub).context("no user folder; pass --user-dir");
+            let placed =
+                placements(&folder("hak")?, &folder("tlk")?, files).map_err(anyhow::Error::msg)?;
             let differ: Vec<String> = placed
                 .iter()
                 .filter(|p| p.there == There::Different)

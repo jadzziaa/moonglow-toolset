@@ -301,8 +301,9 @@ fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) -> bool {
     };
     let hak = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     if path.parent() != Some(folder.as_path()) {
-        let user = folder.parent().unwrap_or(&folder).to_owned();
-        match mg_module::attach::placements(&user, &[path.to_owned()]) {
+        let tlk_dir = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
+        let tlk_dir = tlk_dir.unwrap_or_else(|| folder.with_file_name("tlk"));
+        match mg_module::attach::placements(&folder, &tlk_dir, &[path.to_owned()]) {
             Ok(places) => {
                 if places.iter().any(|p| p.there == mg_module::attach::There::Different) {
                     app.log.error(format!("Another {hak}.hak is in the hak folder: not replaced"));
