@@ -113,6 +113,17 @@ fn options_say_the_folders_nwn_ini_puts_elsewhere() {
     h.get_by_label(&said("hak", &diamond.join("hak")));
     h.get_by_label(&said("tlk", &diamond.join("tlk")));
     assert!(h.query_by_label_contains("override: ").is_none(), "not aliased: not said");
+    // Not followed (an nwn.ini that is another install's): the user
+    // folder's own folders, said so and read so.
+    h.get_by_label("Follow nwn.ini's folder aliases").click();
+    h.run();
+    assert!(h.query_by_label_contains("nwn.ini's alias").is_none());
+    h.get_all_by_label("OK").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().settings.no_nwn_aliases);
+    let install = h.state().install.clone().unwrap();
+    assert_eq!(install.user_hak_dir(), Some(user.join("hak")));
+    assert_eq!(install.find_hak("mg_diamond"), None);
 }
 
 /// A user folder that doesn't exist is said, in the log as the game data

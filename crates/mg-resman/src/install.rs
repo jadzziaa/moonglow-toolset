@@ -28,6 +28,11 @@ pub struct GameInstall {
     /// them ([`GameInstall::userpatch_haks`]). Aurora doesn't read them;
     /// off unless asked for.
     pub userpatch: bool,
+    /// The user folder's `nwn.ini` aliases are followed
+    /// ([`GameInstall::user_folder`]), as the game follows them unless
+    /// started with `-noaliases`. On unless turned off (a builder whose
+    /// `nwn.ini` is another install's).
+    pub aliases: bool,
 }
 
 impl GameInstall {
@@ -38,6 +43,7 @@ impl GameInstall {
             language: language.to_string(),
             workshop: false,
             userpatch: false,
+            aliases: true,
         }
     }
 
@@ -136,6 +142,7 @@ impl GameInstall {
             language: "en".into(),
             workshop: false,
             userpatch: false,
+            aliases: true,
         })
     }
 
@@ -175,7 +182,8 @@ impl GameInstall {
     /// `-noaliases`: nwn.wiki's NWMain.)
     pub fn user_folder(&self, sub: &str) -> Option<PathBuf> {
         let user = self.user_dir.as_ref()?;
-        Some(alias(user, sub).unwrap_or_else(|| user.join(sub)))
+        let aliased = self.aliases.then(|| alias(user, sub)).flatten();
+        Some(aliased.unwrap_or_else(|| user.join(sub)))
     }
 
     /// The Steam Workshop items read ([`GameInstall::workshop`]): their
@@ -535,8 +543,39 @@ fn alias(user: &Path, sub: &str) -> Option<PathBuf> {
     let ini = std::fs::read(user.join("nwn.ini")).ok()?;
     let ini = String::from_utf8(ini)
         .unwrap_or_else(|e| e.as_bytes().iter().map(|&c| c as char).collect());
-    let path = PathBuf::from(ini_value(&ini, "alias", sub)?);
+    let path = native_path(user, &ini_value(&ini, "alias", sub)?)?;
     Some(if path.is_relative() { user.join(path) } else { path })
+}
+
+/// A folder `nwn.ini` names, as this system reaches it. On Windows, as it
+/// is. Elsewhere, a Windows path (`C:\users\steamuser\Documents\…`, as
+/// the game writes it under Proton or Wine) through the Wine prefix the
+/// user folder is in: its drive under `dosdevices`, else `drive_c` for
+/// `C:`; and `\` as `/`. `None` for a drive the user folder is in no
+/// prefix of (a builder's report: under Proton every alias was joined to
+/// the user folder as it was written, and no hak was found).
+fn native_path(user: &Path, raw: &str) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return Some(PathBuf::from(raw));
+    }
+    let b = raw.as_bytes();
+    let drive = b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic();
+    let slashed = raw.replace('\\', "/");
+    if !drive {
+        return Some(PathBuf::from(slashed));
+    }
+    let letter = raw[..1].to_ascii_lowercase();
+    let tail = slashed[2..].trim_start_matches('/');
+    for at in user.ancestors() {
+        let device = at.join("dosdevices").join(format!("{letter}:"));
+        if device.exists() {
+            return Some(device.join(tail));
+        }
+        if letter == "c" && at.file_name().is_some_and(|n| n == "drive_c") {
+            return Some(at.join(tail));
+        }
+    }
+    None
 }
 
 /// The player's NWN folder where the game puts it on this system.
@@ -846,6 +885,41 @@ mod install_tests {
         std::fs::remove_file(user.join("nwn.ini")).unwrap();
         assert_eq!(install.user_hak_dir(), Some(user.join("hak")));
         assert_eq!(install.find_hak("cep2_top"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Under Proton or Wine the game writes Windows paths into `nwn.ini`
+    /// (a builder's report: `C:\\users\\steamuser\\Documents\\…`, every hak
+    /// not found): they are read through the Wine prefix the user folder
+    /// is in, `C:` as its `drive_c` and another drive as its `dosdevices`
+    /// link; a drive outside any prefix is left as the user folder's own
+    /// folder. With the aliases off, the user folder's own folders.
+    #[cfg(unix)]
+    #[test]
+    fn a_proton_prefix_s_windows_aliases_are_read_through_it() {
+        let dir = env::temp_dir().join(format!("moonglow-proton-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pfx = dir.join("compatdata/704450/pfx");
+        let user = pfx.join("drive_c/users/steamuser/Documents/Neverwinter Nights");
+        let elsewhere = dir.join("games");
+        for d in [user.join("hak"), user.join("tlk"), pfx.join("dosdevices"), elsewhere.join("tlk")]
+        {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::os::unix::fs::symlink(&elsewhere, pfx.join("dosdevices/d:")).unwrap();
+        std::fs::write(
+            user.join("nwn.ini"),
+            "[Alias]\r\nHAK=C:\\users\\steamuser\\Documents\\Neverwinter Nights\\hak\r\n\
+             TLK=D:\\tlk\r\nOVERRIDE=Q:\\nowhere\\override\r\nPATCH=.\\patches\r\n",
+        )
+        .unwrap();
+        let mut install = GameInstall::new(dir.join("game"), Some(user.clone()), "en");
+        assert_eq!(install.user_hak_dir(), Some(user.join("hak")));
+        assert_eq!(install.user_folder("tlk"), Some(pfx.join("dosdevices/d:/tlk")));
+        assert_eq!(install.user_folder("override"), Some(user.join("override")), "no Q: drive");
+        assert_eq!(install.user_folder("patch"), Some(user.join("patches")), "relative, slashed");
+        install.aliases = false;
+        assert_eq!(install.user_folder("tlk"), Some(user.join("tlk")), "the aliases off");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

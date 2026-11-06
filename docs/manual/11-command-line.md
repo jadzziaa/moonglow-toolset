@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T09:13:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T21:59:49Z }
 ---
 
 # Command-line tools
@@ -20,7 +20,7 @@ Moonglow package:
 | macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
 
 ```text
-mg [--root GAME] [--user-dir DIR | --no-user-dir] [--userpatch] [--workshop] [--json] COMMAND ...
+mg [--root GAME] [--user-dir DIR | --no-user-dir] [--userpatch] [--workshop] [--no-aliases] [--json] COMMAND ...
 ```
 
 `--root` is the game's folder (default: `$NWN_ROOT`, else Steam's);
@@ -29,7 +29,10 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--userpatch] [--workshop] [--
 user folder's `userpatch.ini` names and `--workshop` the Steam Workshop
 items you are subscribed to, as the game does and as Options › General's
 switches have the window read them (both off unless given: see
-[Options](10-options.md)); `--json` prints the result as JSON (below).
+[Options](10-options.md)); `--no-aliases` leaves the user folder's
+`nwn.ini` folder aliases unfollowed, its own `hak/`, `tlk/` and the rest
+read, as Options › Folders' switch does; `--json` prints the result as
+JSON (below).
 `mg COMMAND --help` describes each command.
 
 ## Archives and files

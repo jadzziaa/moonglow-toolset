@@ -130,6 +130,8 @@ pub struct OptionsDraft {
     pub external_compiler: String,
     pub workshop: bool,
     pub userpatch: bool,
+    /// Follow nwn.ini's folder aliases.
+    pub aliases: bool,
     pub external_compiler_args: String,
     pub dialog_names: bool,
     pub edit_language: Option<u32>,
@@ -282,6 +284,7 @@ impl OptionsDraft {
             external_compiler: text(&s.external_compiler),
             workshop: s.read_workshop,
             userpatch: s.read_userpatch,
+            aliases: !s.no_nwn_aliases,
             external_compiler_args: s.external_compiler_args.clone(),
             dialog_names: !s.dialog_hide_names,
             edit_language: s.edit_language,
@@ -391,6 +394,7 @@ impl OptionsDraft {
             external_compiler: path(&self.external_compiler),
             read_workshop: self.workshop,
             read_userpatch: self.userpatch,
+            no_nwn_aliases: !self.aliases,
             external_compiler_args: self.external_compiler_args.trim().to_string(),
             dialog_hide_names: !self.dialog_names,
             edit_language: self.edit_language,
@@ -445,6 +449,7 @@ impl OptionsDraft {
             || path(&self.user_dir) != s.user_dir
             || self.workshop != s.read_workshop
             || self.userpatch != s.read_userpatch
+            || self.aliases == s.no_nwn_aliases
     }
 }
 
@@ -611,7 +616,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     ),
                                 );
                             }
-                            if let Some(user) = user {
+                            ui.checkbox(&mut draft.aliases, "Follow nwn.ini's folder aliases")
+                                .on_hover_text(
+                                    "Find haks, talk tables, override and modules where the user \
+                                     folder's nwn.ini says they are (its [Alias] section), as the \
+                                     game does. Untick it when that nwn.ini is another install's \
+                                     (a game run under Proton, say, while Moonglow reads the \
+                                     folder from Linux): the user folder's own folders are read. \
+                                     Changing this reads the game's data again",
+                                );
+                            if let Some(user) = user.filter(|_| draft.aliases) {
                                 let gi = mg_resman::GameInstall::new("", Some(user.clone()), "en");
                                 for sub in ALIASED {
                                     match gi.user_folder(sub) {

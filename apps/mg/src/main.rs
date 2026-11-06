@@ -51,6 +51,11 @@ struct Cli {
     /// read them.
     #[arg(long, global = true)]
     workshop: bool,
+    /// Don't follow the user directory's nwn.ini folder aliases (HAK=,
+    /// TLK=…): its own hak/, tlk/ and the rest, as Options › Folders'
+    /// switch has the window read them.
+    #[arg(long, global = true)]
+    no_aliases: bool,
     /// Print the result as one JSON object, for scripts and build
     /// pipelines (warnings in its "notes"; an error as {"error": …}).
     #[arg(long, global = true)]
@@ -2079,6 +2084,7 @@ fn install(cli: &Cli) -> Result<GameInstall> {
     }
     gi.userpatch = cli.userpatch;
     gi.workshop = cli.workshop;
+    gi.aliases = !cli.no_aliases;
     Ok(gi)
 }
 

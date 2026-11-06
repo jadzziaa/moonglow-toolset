@@ -5699,17 +5699,16 @@ impl Moonglow {
         written
     }
 
-    /// Whether these options choose another game or user folder: the
-    /// game's data is read again then, and the module with it.
+    /// Whether these options make another game install: another game or
+    /// user folder (not while `--user-dir` chooses this run's), another
+    /// language edited that the game has, the Workshop, userpatch.ini's
+    /// haks or nwn.ini's aliases read or not. The game's data is read
+    /// again then, and the module with it. (The three switches were kept
+    /// and read only at the next start.)
     fn options_reload(&self, draft: &OptionsDraft) -> bool {
         let settings = draft.apply(&self.settings);
-        // (Another language edited, if the game has it: its talk table.)
-        let language = |i: Option<GameInstall>| i.map(|i| i.language);
         settings.game_root != self.settings.game_root
-            // (Not while `--user-dir` chooses this run's.)
-            || (settings.user_dir != self.settings.user_dir
-                && settings.user_dir_this_run.is_none())
-            || language(settings.install()) != language(self.settings.install())
+            || settings.install() != self.settings.install()
     }
 
     /// Options › OK. The module stays open: only another game or user

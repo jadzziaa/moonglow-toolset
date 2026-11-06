@@ -644,6 +644,10 @@ pub struct Settings {
     /// Options > General: Read userpatch.ini's haks, as the game reads
     /// them. Off by default, as Aurora (the same reason).
     pub read_userpatch: bool,
+    /// Options > Folders: Follow nwn.ini's folder aliases, unticked (a
+    /// builder whose user folder's nwn.ini names another install's
+    /// folders). Followed by default, as the game follows them.
+    pub no_nwn_aliases: bool,
     /// Options > Script Editor: External Script Compiler, a program that
     /// compiles scripts in place of the built-in compiler (`None`: the
     /// built-in one), and its line of arguments (empty: the program's own).
@@ -923,6 +927,7 @@ impl Settings {
         let mut install = GameInstall::new(root, user_dir, code);
         install.workshop = self.read_workshop;
         install.userpatch = self.read_userpatch;
+        install.aliases = !self.no_nwn_aliases;
         Some(install)
     }
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T12:39:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T21:59:49Z }
 ---
 
 # Options
@@ -30,7 +30,12 @@ the module is opened again from its file.
   user folder within it) is read and written there, haks and talk tables
   kept with the original game beside Enhanced Edition, say, and this page
   lists each such folder under the user folder (since Moonglow 3.10.0;
-  before, only `PATCH` was followed). `mg` follows them too. A folder
+  before, only `PATCH` was followed). `mg` follows them too. A Windows
+  path the game wrote under Proton or Wine (`C:\users\steamuser\Documents\…`)
+  is read through the Wine prefix the user folder is in (since 3.12.1).
+  **Follow nwn.ini's folder aliases**, on by default, can be unticked
+  when that `nwn.ini` is another install's: the user folder's own folders
+  are read then (`mg --no-aliases`). A folder
   typed with a leading `~` (`~/.local/share/Neverwinter Nights`) is your
   home folder's, as a shell takes it; one that doesn't exist is said under
   the field and in the log as the game data loads, as nothing is found
