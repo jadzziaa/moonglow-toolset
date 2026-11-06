@@ -76,6 +76,8 @@ mod heed;
 mod icons;
 #[path = "client_render/joined.rs"]
 mod joined;
+#[path = "client_render/local_z.rs"]
+mod local_z;
 #[path = "client_render/nui.rs"]
 mod nui;
 #[path = "client_render/programs.rs"]

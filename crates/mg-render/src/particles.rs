@@ -37,7 +37,9 @@
 //! gravity, bouncing, tinting, and that the three-stop values (`colorMid`,
 //! `alphaMid`, `sizeMid`, `percentStart`/`Mid`/`End`) change nothing the
 //! client draws, so they are not used; nor does `twosidedtex` (both sides
-//! of aligned particles show). The drag and Bezier details and the
+//! of aligned particles show), but on a `Billboard_to_Local_Z` emitter,
+//! whose particles show only their front without it
+//! (`local_z_particles_lie_as_the_client_lays_them`). The drag and Bezier details and the
 //! lightning shape are guesses from the wiki's descriptions; wind
 //! (`affectedByWind`), `splat` and `deadspace` are not simulated.
 
@@ -622,11 +624,18 @@ impl Particles {
                         (r, Vec3::Z)
                     }
                     // Lie flat in the emitter's local XY plane, facing
-                    // along the emitter's Z axis. This matches the game.
-                    "billboard_to_local_z" => (
-                        world.transform_vector3(Vec3::X).normalize_or(Vec3::X),
-                        world.transform_vector3(Vec3::Y).normalize_or(Vec3::Y),
-                    ),
+                    // along the emitter's Z axis. This matches the game;
+                    // seen from behind, the client draws nothing of it
+                    // unless the emitter is two-sided (`twosidedtex`):
+                    // `local_z_particles_lie_as_the_client_lays_them`.
+                    "billboard_to_local_z" => {
+                        let r = world.transform_vector3(Vec3::X).normalize_or(Vec3::X);
+                        let u = world.transform_vector3(Vec3::Y).normalize_or(Vec3::Y);
+                        if !em.two_sided && r.cross(u).dot(eye - pos) <= 0.0 {
+                            continue;
+                        }
+                        (r, u)
+                    }
                     "billboard_to_world_z" => (Vec3::X, Vec3::Y),
                     "aligned_to_particle_dir" => {
                         let world_vel =
@@ -1105,7 +1114,8 @@ mod tests {
         // Not rotated, and rotated 90 degrees about X (so its Z points along -Y).
         let tipped = Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
         for (turn, normal) in [(Mat4::IDENTITY, Vec3::Z), (tipped, Vec3::NEG_Y)] {
-            for eye in [Vec3::new(0.0, -5.0, 1.0), Vec3::new(5.0, 0.0, 4.0)] {
+            // (Both in front of it: seen from behind or edge-on it isn't drawn.)
+            for eye in [Vec3::new(0.0, -5.0, 1.0), Vec3::new(5.0, -3.0, 4.0)] {
                 let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Z);
                 let b = p.batches(&m, None, 0.0, &pose, turn, view);
                 let v = &b[0].vertices[..6];
@@ -1115,6 +1125,18 @@ mod tests {
                 assert!(facing.dot(normal).abs() > 0.999, "{normal} from {eye}: {facing}");
             }
         }
+        // Seen from behind, nothing; unless it is two-sided.
+        let below = Mat4::look_at_rh(Vec3::new(0.0, -1.0, -5.0), Vec3::ZERO, Vec3::Z);
+        let drawn = |m: &Model| {
+            p.batches(m, None, 0.0, &pose, Mat4::IDENTITY, below)
+                .iter()
+                .any(|b| !b.vertices.is_empty())
+        };
+        assert!(!drawn(&m), "its back");
+        if let NodeKind::Emitter(e) = &mut m.nodes[1].kind {
+            e.two_sided = true;
+        }
+        assert!(drawn(&m), "two-sided");
     }
 
     /// An upright (`Aligned_to_World_Z`) particle is turned about Z to the
