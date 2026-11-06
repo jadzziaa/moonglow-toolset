@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.10.0" date="2026-11-06">
+      <description>
+        <p>The user folder's nwn.ini folder aliases are followed, as the game
+        follows them; shader values set on objects and The Domains of Dread's
+        color tints are drawn, with color pickers for the tints; mg
+        merge-claims merges a claims table in git by area; Verify on a
+        project counts its scripts that compile.</p>
+      </description>
+    </release>
     <release version="3.9.2" date="2026-11-05">
       <description>
         <p>A resref typed takes letters, digits and underscores alone, in
