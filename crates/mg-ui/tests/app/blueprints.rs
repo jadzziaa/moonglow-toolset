@@ -1019,6 +1019,25 @@ fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
         h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
     }
+    // A tdodTint stored in the shader parameters: said to be the
+    // variables' to set.
+    let said = "tdodTint is The Domains of Dread's tint";
+    assert!(h.query_by_label_contains(said).is_none());
+    let mut e = mg_gff::Struct::new(0);
+    e.set("Material", mg_gff::Value::String(b"plc_rugdmtlbrk".to_vec()));
+    e.set("Param", mg_gff::Value::String(b"tdodTint".to_vec()));
+    e.set("Type", mg_gff::Value::Byte(2));
+    let mut material = mg_gff::Struct::new(7);
+    material.set("ShaderParams", mg_gff::Value::List(vec![e]));
+    let stored = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Material".into(),
+        value: Some(mg_gff::Value::Struct(material)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Store", vec![stored])));
+    h.run();
+    assert!(h.query_by_label_contains(said).is_some());
     // Static: said to draw as made.
     assert!(h.query_by_label_contains("draws a static placeable as made").is_none());
     let set = mg_edit::Edit::SetField {

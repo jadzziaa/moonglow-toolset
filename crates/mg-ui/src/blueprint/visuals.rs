@@ -267,6 +267,17 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
         }
     });
+    // (The Domains of Dread's tint is its locals', which its script sets
+    // over a stored one: `mg_rules::tint`, Verify's `tint-stored`.)
+    let tint = |e: &Struct| text(e, "Param").trim().eq_ignore_ascii_case(mg_rules::tint::PARAMETER);
+    if items.iter().any(tint) {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            "tdodTint is The Domains of Dread's tint, which its scripts set from the tdod_tint \
+             variables (the Tint section) as the module loads, over what is stored here: set it \
+             there instead.",
+        );
+    }
     let ids = ["Material", "Param"].map(|l| f.id(&format!("ShaderParams#new#{l}")));
     ui.horizontal(|ui| {
         for (id, hint) in ids.iter().zip(["material", "parameter"]) {

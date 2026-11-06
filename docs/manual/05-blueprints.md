@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T06:04:39Z }
 ---
 
 # Blueprints
@@ -677,7 +677,10 @@ Shared parts:
     takes one out. The area view draws the tint as the game does, with
     the Shaders switch on. A static placeable takes none in the game (the
     client merges it into the tiles as made): the section says so, and
-    Verify warns of one (`static-tint`).
+    Verify warns of one (`static-tint`). The variables are where a tint
+    is set: a `tdodTint` stored in **Shader parameters** as well is said
+    there, and Verify warns of one a variable also sets (`tint-stored`),
+    as the module's script sets the variables' over it.
   - The highlight color, the mouse cursor over the object, its text
     bubble (its name, or text that replaces it or goes before or after
     it), whether it is highlighted and named on mouse-over and with Tab,

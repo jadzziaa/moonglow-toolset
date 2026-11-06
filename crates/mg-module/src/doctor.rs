@@ -67,6 +67,7 @@ pub enum Check {
     PcFaction,
     StaticTransform,
     StaticTint,
+    TintStored,
     AppearanceRange,
     AreaVariables,
     TileReplace,
@@ -92,7 +93,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 51] = [
+    pub const ALL: [Check; 52] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -122,6 +123,7 @@ impl Check {
         Check::PcFaction,
         Check::StaticTransform,
         Check::StaticTint,
+        Check::TintStored,
         Check::AppearanceRange,
         Check::AreaVariables,
         Check::TileReplace,
@@ -177,6 +179,7 @@ impl Check {
             Check::PcFaction => "pc-faction",
             Check::StaticTransform => "static-transform",
             Check::StaticTint => "static-tint",
+            Check::TintStored => "tint-stored",
             Check::AppearanceRange => "appearance-range",
             Check::AreaVariables => "area-variables",
             Check::TileReplace => "tile-replace",
@@ -270,6 +273,11 @@ impl Check {
             Check::StaticTint => {
                 "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
                  the game draws it as made"
+            }
+            Check::TintStored => {
+                "a material's tint is set in one place: a tdodTint stored in the object's shader \
+                 parameters isn't also given by its tdod_tint variables, which the module's \
+                 script sets over it as the module loads"
             }
             Check::AppearanceRange => {
                 "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
@@ -395,6 +403,7 @@ impl Check {
             | Check::PcFaction
             | Check::StaticTransform
             | Check::StaticTint
+            | Check::TintStored
             | Check::AppearanceRange
             | Check::AreaVariables
             | Check::TileReplace
@@ -1068,6 +1077,9 @@ pub fn examine_groups(
     }
     if runs(&[StaticTint]) {
         timings.time("static placeables' tints", || static_tints(&mut d, module));
+    }
+    if runs(&[TintStored]) {
+        timings.time("tints stored and set", || tints_stored(&mut d, module));
     }
     if runs(&[AppearanceRange]) {
         timings.time("placeables' rows past 65535", || appearance_range(&mut d, module));
@@ -3170,6 +3182,57 @@ fn static_tints(d: &mut Doctor, module: &Module) {
             let at = GffPath::root().item("Placeable List", i).field("Static");
             let place = crate::rename::describe(key, Some(&gff), &at);
             d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
+        }
+    }
+}
+
+/// Placeables, placed and blueprints, with a `tdodTint` stored in their
+/// shader parameters (`Material` › `ShaderParams`, Properties › Visuals)
+/// for a material their tint's locals also tint: the module's script
+/// sets the locals' over it as the module loads, so the stored one is
+/// never seen (The Domains of Dread's scripts: the locals are the
+/// source, [`mg_rules::tint`]).
+fn tints_stored(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
+        .copied()
+        .collect();
+    keys.sort();
+    let mut check = |key: ResKey, gff: &mg_gff::Gff, s: &Struct, at: GffPath| {
+        let tints = mg_rules::tint::of_object(s);
+        if tints.is_empty() {
+            return;
+        }
+        let params = s.child("Material").and_then(|m| m.list("ShaderParams")).unwrap_or(&[]);
+        for (i, e) in params.iter().enumerate() {
+            let text = |l: &str| {
+                String::from_utf8_lossy(e.string(l).unwrap_or_default()).trim().to_string()
+            };
+            let (material, param) = (text("Material"), text("Param"));
+            if !param.eq_ignore_ascii_case(mg_rules::tint::PARAMETER)
+                || tints.of(&material).is_none()
+            {
+                continue;
+            }
+            let path = at.clone().field("Material").item("ShaderParams", i);
+            let place = crate::rename::describe(key, Some(gff), &path);
+            let message = format!(
+                "stores a tdodTint for {material}, which its tdod_tint variables also tint: the \
+                 module's script sets theirs over it as the module loads. Take the stored one \
+                 out (Properties › Visuals › Shader parameters), or the variable"
+            );
+            d.push(Severity::Warning, Check::TintStored, "module", key, place, message);
+        }
+    };
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        if key.restype == ResType::UTP {
+            check(key, &gff, &gff.root, GffPath::root());
+            continue;
+        }
+        for (i, s) in gff.root.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
+            check(key, &gff, s, GffPath::root().item("Placeable List", i));
         }
     }
 }
@@ -6311,5 +6374,55 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(at[0].contains("RUG") && at[1].contains("BED"), "{at:?}");
         assert!(found[0].message.contains("untick Static"), "{found:?}");
         assert_eq!(Check::StaticTint.group(), Group::Objects);
+    }
+
+    /// A `tdodTint` stored for a material a tint's local also tints is
+    /// warned of; one for another material, or without a local, is not.
+    #[test]
+    fn a_tint_stored_and_set_by_a_local_is_warned_of() {
+        let text = |t: &str| Value::String(t.as_bytes().to_vec());
+        let placed = |tag: &str, local: Option<&str>, stored: &[(&str, &str)]| {
+            let mut s = Struct::new(9);
+            s.set("Tag", text(tag));
+            if let Some(name) = local {
+                let mut v = Struct::new(0);
+                v.set("Name", text(name));
+                v.set("Type", Value::Dword(3));
+                v.set("Value", text("#2a4d8f"));
+                s.set("VarTable", Value::List(vec![v]));
+            }
+            let entries = stored
+                .iter()
+                .map(|(material, param)| {
+                    let mut e = Struct::new(0);
+                    e.set("Material", text(material));
+                    e.set("Param", text(param));
+                    e.set("Type", Value::Byte(2));
+                    e
+                })
+                .collect();
+            let mut m = Struct::new(7);
+            m.set("ShaderParams", Value::List(entries));
+            s.set("Material", Value::Struct(m));
+            s
+        };
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placed("RUG", Some("tdod_tint"), &[("dd_gca_carpeta", "tdodTint")]),
+                placed("BED", Some("tdod_tint_dd_ctn_bedb"), &[("dd_ctn_bedc", "tdodTint")]),
+                placed("CLOTH", None, &[("dd_cloth", "tdodTint")]),
+                placed("LAMP", Some("tdod_tint"), &[("dd_lamp", "fGlow")]),
+            ]),
+        );
+        let mut m = Module::new();
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "tint-stored").collect();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].at.contains("RUG"), "{found:?}");
+        assert!(found[0].message.contains("dd_gca_carpeta"), "{found:?}");
+        assert_eq!(Check::TintStored.group(), Group::Objects);
     }
 }
