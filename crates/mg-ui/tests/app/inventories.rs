@@ -1685,3 +1685,45 @@ fn a_placed_object_s_item_is_pasted_as_it_is() {
     let left = chest.get(&ws.doc(&git).unwrap().root).unwrap().list("ItemList").unwrap().len();
     assert_eq!(left, 3, "a copy: the chest keeps it");
 }
+
+/// A store's item has Find in Palette in its menu too, which chooses its
+/// blueprint in the palette beside it.
+#[test]
+fn a_store_s_item_is_found_in_the_palette() {
+    let Some((mut h, key)) = blueprint_harness("nw_storebar01", "store_find", ResType::UTM) else {
+        return;
+    };
+    h.run();
+    let item = {
+        let s = field(&mut h, &key);
+        let pages = s.list("StoreList").unwrap();
+        pages.iter().find_map(|p| p.list("ItemList")?.first()?.resref("InventoryRes")).unwrap()
+    };
+    h.get_by_label("Inventory…").click();
+    h.run();
+    let rows: Vec<egui::Rect> = h.get_all_by_label_contains(" gp").map(|n| n.rect()).collect();
+    let row = *rows.iter().max_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
+    h.hover_at(row.center());
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row.center(),
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    let shown = h.get_all_by_label_contains(" gp").count();
+    assert!(shown > 0);
+    h.get_by_label("Find in Palette").click();
+    settle(&mut h);
+    // The first row's item, or another of the page's: one is chosen.
+    let s = field(&mut h, &key);
+    let items: Vec<ResRef> = (s.list("StoreList").unwrap().iter())
+        .flat_map(|p| p.list("ItemList").into_iter().flatten())
+        .filter_map(|i| i.resref("InventoryRes"))
+        .collect();
+    assert!(items.contains(&item));
+    let chosen = items.iter().any(|r| h.query_by_label_contains(&format!("· {r}")).is_some());
+    assert!(chosen, "an item's blueprint is chosen in the palette");
+}

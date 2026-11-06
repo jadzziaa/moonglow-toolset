@@ -818,9 +818,8 @@ A domain or school left **Not set** is the game's to choose.
   it, and clears any search that hides it. It is grayed out if the
   blueprint is in neither palette, for example because the blueprint was
   removed or comes from a hak the module doesn't use. A placeable's and
-  a store's items have Find in Palette too, and their palette rows have
-  Properties. A placeable's and a store's
-  items take an item dragged from the palette as well.
+  a store's items have Find in Palette too, their palette rows have
+  Properties, and they take an item dragged from the palette as well.
 - **Between inventories, and within one:** drag an item from one object's
   inventory (a creature's backpack or equipment, a placeable's contents,
   a store's page) onto another's list or a creature's slot to move it
