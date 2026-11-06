@@ -70,6 +70,12 @@ pub struct Instance {
     /// own: the tile border past an area's edge, which the client draws
     /// in half the sun's diffuse color (`mg_area::border::material`).
     pub material: Option<Vec3>,
+    /// Values its materials' programs take in place of their MTRs'
+    /// parameters, as a script sets them on one object
+    /// (`SetMaterialShaderUniformInt`, `…Vec4`; the object's `Material`
+    /// keeps them) and a placeable's tint (`mg_rules::tint`), in the order
+    /// they are set: a later one wins. Drawn by the game's shaders alone.
+    pub material_values: Option<Arc<[mg_image::mtr::MaterialValue]>>,
 }
 
 impl Instance {
@@ -92,6 +98,7 @@ impl Instance {
             casts_shadows: true,
             casts_light_shadows: false,
             material: None,
+            material_values: None,
         }
     }
 }
@@ -305,6 +312,10 @@ pub struct Environment {
     pub weather_density: f32,
     /// The module's clock (`moduleHour`, `moduleDawnHour`…).
     pub clock: ModuleClock,
+    /// `scriptableVec1` to `scriptableVec16`, which the game's scripts set
+    /// for a player (`SetShaderUniformVec`): zero unless the editor has a
+    /// source for one (an area's wallpaper tint, `mg_rules::tint`).
+    pub scriptable: [[f32; 4]; 16],
 }
 
 /// The module's clock as the game's shaders read it (`moduleHour`,
@@ -352,6 +363,7 @@ impl Environment {
             weather: 0,
             weather_density: 0.0,
             clock: ModuleClock::default(),
+            scriptable: [[0.0; 4]; 16],
         }
     }
 }

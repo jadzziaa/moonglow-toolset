@@ -1,0 +1,4 @@
+data_type = IFO
+Mod_Area_list[]$List = 6
+Mod_Area_list[].Area_Name$ResRef = a1
+Mod_Entry_Area$ResRef = a1

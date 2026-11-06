@@ -224,13 +224,24 @@ pub(crate) fn blueprint_harness(
     copy: &str,
     t: ResType,
 ) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    blueprint_harness_with(name, copy, t, None)
+}
+
+/// [`blueprint_harness`] with the game's user folder `user` (content in
+/// its override).
+pub(crate) fn blueprint_harness_with(
+    name: &str,
+    copy: &str,
+    t: ResType,
+    user: Option<std::path::PathBuf>,
+) -> Option<(Harness<'static, Moonglow>, ResKey)> {
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return None;
     };
     let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
     let path = sample_module(&dir);
-    let mut app = game_app(&root, None);
+    let mut app = game_app(&root, user);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();

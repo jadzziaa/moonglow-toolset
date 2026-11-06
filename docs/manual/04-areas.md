@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:01:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
 ---
 
 # Areas
@@ -1443,6 +1443,12 @@ Properties** on the viewer's toolbar:
   opening the area's Variables moves them to the GIT (one step to undo;
   a variable of the same name already there keeps its value), and
   **Verify Module** lists the areas that still hold some in their ARE.
+  An area's `tdod_wallpaper` (`"#rrggbb"`, with a color swatch in the
+  Variables window) is the color The Domains of Dread's scripts give
+  its wallpaper as a player enters (`SetShaderUniformVec`'s
+  `SHADER_UNIFORM_1`, which the wallpaper materials' shader reads as
+  `scriptableVec1`): with **Shaders** on, the view draws the area's
+  wallpaper in it (since Moonglow 3.10.0).
 
 ### Grass
 
@@ -1595,6 +1601,8 @@ it left, and why. Left dynamic are placeables that:
 - have a script, a conversation, a trap or an inventory, or an animation
   switched on (a lit torch): a static placeable plays no animations and
   can't be destroyed;
+- have saved shader parameters (Properties › Visuals), which a static
+  placeable doesn't show;
 - have local variables: scripts set and read them (a lore stone, a
   lamp, a workbench), and what they do to the placeable a static one
   doesn't show. The server keeps a static placeable as an object, found
@@ -1603,7 +1611,8 @@ it left, and why. Left dynamic are placeables that:
   loaded. The log names each kept for its variables;
 - or the [project file](03-modules.md#the-project-file-moonglowtoml)
   says so (`[make_static]`): its tags or blueprints by name, and which
-  variables count (all, unless it names them);
+  variables count (all, unless it names them; a tint's, `tdod_tint…`,
+  always: [Tint](05-blueprints.md#the-editors));
 - have a tag one of the module's scripts names: the tag written in a
   script as text (`GetObjectByTag("GATE_LEVER")`, a constant
   `"LAMP_01"`), which it may destroy, animate or make usable. The log

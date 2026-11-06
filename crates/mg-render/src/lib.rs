@@ -67,6 +67,8 @@ pub fn wgsl_sources() -> Vec<(String, String)> {
     out
 }
 
+/// What an object sets on its materials ([`Instance::material_values`]).
+pub use mg_image::mtr::MaterialValue;
 pub use scene::{
     AreaLight, Camera, Environment, Fog, Instance, Line, LineCopy, LineShape, MeshOverride,
     MeshState, ModuleClock, PointLight, Scene, SunShadows,

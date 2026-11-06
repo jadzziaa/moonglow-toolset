@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:08:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
 ---
 
 # Build, verify and test
@@ -316,6 +316,7 @@ crash Aurora with an access violation that names nothing:
 | A waypoint whose Appearance is a `waypoint.2da` row with no flag model (a warning) | the area view draws no flag for it; the game draws no waypoint |
 | A creature, placeable, door or encounter of the PC faction, or a creature, placeable or door with no faction, which the game reads as the PC faction (a warning; not a trigger, which Aurora gives faction 0 when its blueprint has none) | the PC faction is the players' alone: the game puts such a creature in Hostile, and creatures regard the others as they regard players |
 | A static placeable whose file has a visual transform (a warning) | the game client draws a static placeable without it, merged into the area's tiles: untick Static to have it scaled, tilted or moved |
+| A static placeable, placed or a blueprint, with a tint's variable (`tdod_tint`, `tdod_tint_<mtr>`: a warning, `static-tint`) | the game client draws it as made, without the tint: untick Static to have it tinted |
 | A placeable, placed or a blueprint, whose Appearance is past row 65535 (an error, `appearance-range`) | the game carries an object's placeables.2da row as a 16-bit number: it draws row 65536 as row 0, 65537 as row 1, another model, without a word |
 | An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them, as does its fix |
 | A tile whose model draws a `replace_tex` texture and whose `Tile_ReplaceTex` is 0 or past `replacetexture.2da` (an error, `tile-replace`) | the game crashes as it loads the area: choose a row in Tile Properties' Replacement Texture |

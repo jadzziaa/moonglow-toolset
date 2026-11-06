@@ -24,6 +24,7 @@ struct Placed {
     colors: Option<[u8; 10]>,
     env_map: Option<String>,
     env_map_default: bool,
+    material_values: Option<Arc<[mg_image::mtr::MaterialValue]>>,
     animated: bool,
     /// A body part whose skins are bound to the base's skeleton: its
     /// nodes from here on stand for the base's, posed as the base is
@@ -193,6 +194,8 @@ fn place_unguarded(
         colors: part.colors,
         env_map: part.env_map.clone(),
         env_map_default: part.env_map_default,
+        material_values: (!part.material_values.is_empty())
+            .then(|| Arc::from(part.material_values.as_slice())),
         animated: part.animated,
         skeleton,
         anims,
@@ -454,6 +457,7 @@ impl Composed {
             env_map_default: p.env_map_default,
             plt_colors: p.colors,
             textures: p.textures.clone(),
+            material_values: p.material_values.clone(),
             ..Instance::new(p.gpu.clone(), transform)
         };
         // (The base in its own visual transform too, where it has one: a

@@ -509,10 +509,16 @@ fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
             return Some(Kept::Active(label.into()));
         }
     }
+    // Shader parameters saved on it, which a static placeable doesn't show.
+    if p.child("Material").and_then(|m| m.list("ShaderParams")).is_some_and(|l| !l.is_empty()) {
+        return Some(Kept::Active("Material".into()));
+    }
     let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
     for v in p.list("VarTable").unwrap_or(&[]) {
         let name = text(v.string("Name").unwrap_or_default());
-        if rules.keep_variables.matches(&name) {
+        // (A tint's, whatever the project's rules: the client draws a
+        // static placeable as made, `mg_rules::tint`.)
+        if rules.keep_variables.matches(&name) || mg_rules::tint::is_tint_name(&name) {
             return Some(Kept::Variable(name));
         }
     }
@@ -1251,6 +1257,20 @@ mod tests {
         };
         let plan = static_plan(&git.root, &rules);
         assert_eq!(plan.convert, [0, 2, 5], "x_note is not the project's");
+        // A tint's variable and saved shader parameters, whatever the rules.
+        let mut params = Struct::new(7);
+        params.set("ShaderParams", Value::List(vec![Struct::new(0)]));
+        let tinted = Value::List(vec![
+            placeable("RUG", &[("VarTable", vars_named("tdod_tint"))]),
+            placeable("BED", &[("Material", Value::Struct(params))]),
+        ]);
+        let mut both = git.root.clone();
+        both.set("Placeable List", tinted);
+        let none = StaticRules { keep_variables: p(&[]), ..StaticRules::default() };
+        let kept = static_plan(&both, &none);
+        assert_eq!(kept.convert, Vec::<usize>::new());
+        let why: Vec<String> = kept.kept.iter().map(|(_, k)| k.describe()).collect();
+        assert_eq!(why, ["it has the variable tdod_tint", "it has Material"]);
         assert_eq!((plan.variables, plan.project), (1, 2));
         let why: Vec<String> = plan.kept.iter().map(|(_, k)| k.describe()).collect();
         assert_eq!(

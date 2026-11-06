@@ -66,6 +66,7 @@ pub enum Check {
     ObjectRow,
     PcFaction,
     StaticTransform,
+    StaticTint,
     AppearanceRange,
     AreaVariables,
     TileReplace,
@@ -91,7 +92,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 50] = [
+    pub const ALL: [Check; 51] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -120,6 +121,7 @@ impl Check {
         Check::ObjectRow,
         Check::PcFaction,
         Check::StaticTransform,
+        Check::StaticTint,
         Check::AppearanceRange,
         Check::AreaVariables,
         Check::TileReplace,
@@ -174,6 +176,7 @@ impl Check {
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
             Check::StaticTransform => "static-transform",
+            Check::StaticTint => "static-tint",
             Check::AppearanceRange => "appearance-range",
             Check::AreaVariables => "area-variables",
             Check::TileReplace => "tile-replace",
@@ -263,6 +266,10 @@ impl Check {
             Check::PcFaction => "no object belongs to the PC faction, the players' alone",
             Check::StaticTransform => {
                 "a static placeable has no visual transform: the game draws it without one"
+            }
+            Check::StaticTint => {
+                "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
+                 the game draws it as made"
             }
             Check::AppearanceRange => {
                 "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
@@ -387,6 +394,7 @@ impl Check {
             Check::ObjectRow
             | Check::PcFaction
             | Check::StaticTransform
+            | Check::StaticTint
             | Check::AppearanceRange
             | Check::AreaVariables
             | Check::TileReplace
@@ -1057,6 +1065,9 @@ pub fn examine_groups(
     }
     if runs(&[StaticTransform]) {
         timings.time("static placeables' transforms", || static_transforms(&mut d, module));
+    }
+    if runs(&[StaticTint]) {
+        timings.time("static placeables' tints", || static_tints(&mut d, module));
     }
     if runs(&[AppearanceRange]) {
         timings.time("placeables' rows past 65535", || appearance_range(&mut d, module));
@@ -3123,6 +3134,42 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
                            transformed (ticking it again takes the transform off, as Aurora does)"
                 .to_string();
             d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
+        }
+    }
+}
+
+/// Static placeables with a tint's local (The Domains of Dread's
+/// colorways, [`mg_rules::tint`]): the module's script sets the tint on
+/// the object, and the game client draws a static placeable merged into
+/// the area's tiles as made, untinted (seen in the client, that project's
+/// trial of 2026-11-06). Placed ones and blueprints.
+fn static_tints(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
+        .copied()
+        .collect();
+    keys.sort();
+    let message = "static, so the game draws it as made, without the tint its tdod_tint \
+                   variables give: untick Static (Properties) to have it tinted"
+        .to_string();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let tinted =
+            |s: &Struct| !mg_rules::tint::takes_tint(s) && !mg_rules::tint::of_object(s).is_empty();
+        if key.restype == ResType::UTP {
+            if tinted(&gff.root) {
+                let place =
+                    crate::rename::describe(key, Some(&gff), &GffPath::root().field("Static"));
+                d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
+            }
+            continue;
+        }
+        let list = gff.root.list("Placeable List").unwrap_or(&[]);
+        for (i, _) in list.iter().enumerate().filter(|(_, s)| tinted(s)) {
+            let at = GffPath::root().item("Placeable List", i).field("Static");
+            let place = crate::rename::describe(key, Some(&gff), &at);
+            d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
         }
     }
 }
@@ -6221,5 +6268,48 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(found[0].severity, Severity::Warning);
         assert!(found[0].message.contains("untick Static"), "{found:?}");
         assert_eq!(Check::StaticTransform.group(), Group::Objects);
+    }
+
+    /// A static placeable with a tint's local is warned of (the client
+    /// draws it as made); a dynamic one, or a static one without, is not;
+    /// a static blueprint's too.
+    #[test]
+    fn static_placeables_with_a_tint_are_warned_of() {
+        let placed = |tag: &str, is_static: u8, local: Option<&str>| {
+            let mut s = Struct::new(9);
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s.set("Static", Value::Byte(is_static));
+            let vars = local.map(|name| {
+                let mut v = Struct::new(0);
+                v.set("Name", Value::String(name.as_bytes().to_vec()));
+                v.set("Type", Value::Dword(3));
+                v.set("Value", Value::String(b"#2a4d8f".to_vec()));
+                v
+            });
+            s.set("VarTable", Value::List(vars.into_iter().collect()));
+            s
+        };
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placed("RUG", 1, Some("tdod_tint")),
+                placed("BED", 1, Some("tdod_tint_dd_ctn_bedb")),
+                placed("DYNAMIC", 0, Some("tdod_tint")),
+                placed("PLAIN", 1, Some("x_note")),
+            ]),
+        );
+        let mut m = Module::new();
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let mut utp = Gff::new(*b"UTP ");
+        utp.root = placed("CARPET", 1, Some("tdod_tint"));
+        m.set_gff(key("carpet", ResType::UTP), &utp).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "static-tint").collect();
+        let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(at.len(), 3, "{at:?}");
+        assert!(at[0].contains("RUG") && at[1].contains("BED"), "{at:?}");
+        assert!(found[0].message.contains("untick Static"), "{found:?}");
+        assert_eq!(Check::StaticTint.group(), Group::Objects);
     }
 }

@@ -59,7 +59,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
             ],
         ),
         "Advanced" => situated::advanced(f, ui, &STATES, advanced),
-        "Visuals" => super::visuals::page(f, ui, true),
+        "Visuals" => {
+            super::tint::section(f, ui);
+            super::visuals::page(f, ui, true);
+        }
         "Description" => f.locstring_memo(ui, "Description", "Description"),
         _ => f.memo(ui, "Comments", "Comment"),
     }

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:51:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1742,7 +1742,9 @@ is not taken for a new gap.
   defaults or zero: `vColor`, `vStaticLightDir` (`staticLighting` 0,
   as the client has it at fragment lighting), the weather (clear: the
   game rolls it from the ARE's chances as it runs), wind sources,
-  targeting, `scriptable*`; the model viewer and previews have no
+  targeting, the scriptable floats and ints, and the scriptable vectors
+  but `scriptableVec1` of an area with The Domains of Dread's
+  `tdod_wallpaper` (`mg_rules::tint`, 2026-11-06); the model viewer and previews have no
   module (noon, two minutes an hour); `cameraViewAngle` is the editor's
   field of view. (M1)
 - **A program the renderer can't take falls back** to Moonglow's own

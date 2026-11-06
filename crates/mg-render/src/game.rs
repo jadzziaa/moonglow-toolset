@@ -182,6 +182,10 @@ pub(crate) enum Key {
     ModuleDay,
     ModuleMonth,
     ModuleYear,
+    /// `scriptableVec1` to `scriptableVec16` (0 to 15), which a script
+    /// sets for a player (`SetShaderUniformVec`): the scene's
+    /// ([`crate::scene::Environment::scriptable`]).
+    ScriptableVec(usize),
     // The camera, and the player at its focus.
     CameraPosition,
     CameraFocus,
@@ -282,7 +286,10 @@ pub(crate) fn key(name: &str) -> Key {
             Some(n) if n.parse::<u8>().is_ok_and(|n| n <= 15) => {
                 TextureBound(n.parse().unwrap_or_default())
             }
-            _ => Param(name.to_string()),
+            _ => match name.strip_prefix("scriptableVec").and_then(|n| n.parse::<usize>().ok()) {
+                Some(n @ 1..=16) => ScriptableVec(n - 1),
+                _ => Param(name.to_string()),
+            },
         },
     }
 }
@@ -615,6 +622,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         ModuleDay => Val::I(f.environment.clock.day as i32),
         ModuleMonth => Val::I(f.environment.clock.month as i32),
         ModuleYear => Val::I(f.environment.clock.year as i32),
+        ScriptableVec(n) => Val::V(f.environment.scriptable[*n]),
         CameraPosition => Val::V(v3(f.eye, 0.0)),
         CameraFocus => Val::V(v3(f.target, 0.0)),
         CameraPitch => Val::F(f.derived.pitch),
@@ -882,8 +890,9 @@ pub(crate) fn part(m: &Member) -> Part {
 
 /// The engine's uniforms the contract leaves zero (`staticLighting`, as
 /// Moonglow has no baked light, and as the client has it for every mesh
-/// at fragment lighting; the target, scriptable, keyhole and wind
-/// sources' values): the same for every draw, so the frame's, not looked
+/// at fragment lighting; the target, keyhole and wind sources' values,
+/// and the scriptable floats and ints: [`Key::ScriptableVec`] alone has a
+/// source): the same for every draw, so the frame's, not looked
 /// up as an MTR's parameter for each.
 fn unfilled(name: &str) -> bool {
     matches!(

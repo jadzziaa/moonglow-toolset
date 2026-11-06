@@ -22,6 +22,19 @@ pub enum Param {
     Int(i32),
 }
 
+/// A value an object gives a parameter of its materials
+/// (`mg_render::Instance::material_values`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterialValue {
+    /// The MTR it is set on (its resref, any case); `None`: every MTR of
+    /// the object that declares the parameter.
+    pub material: Option<String>,
+    /// The parameter (the uniform's name, any case).
+    pub name: String,
+    /// An integer, or a float or vector of up to four.
+    pub value: Param,
+}
+
 /// How the mesh is lit and which tangents it needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderHint {

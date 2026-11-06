@@ -2586,6 +2586,94 @@ fn the_game_path_draws_opengl_s_clip_space_right() {
     assert!(differ <= 8, "{differ} pixels differ in what they show");
 }
 
+/// An object's material values reach its materials' programs in place of
+/// their MTRs' parameters, as `SetMaterialShaderUniformVec4` sets them on
+/// one object (The Domains of Dread's tint, `mg_rules::tint`): three
+/// copies of one model, untinted (the MTR's strength 0), tinted blue as an
+/// object (every MTR declaring the parameter) and red by its MTR's name,
+/// set after the object's green: a later value wins. And `scriptableVec1` is the
+/// scene's (`SetShaderUniformVec`, the wallpaper's tint): a fourth quad's
+/// program draws it.
+#[test]
+fn an_object_s_material_values_and_the_scene_s_scriptable_vector_reach_the_programs() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    assets.opaque("white", [255, 255, 255]);
+    let tint = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform vec4 tdodTint;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    vec3 t = texture2D(texUnit0, vUv).rgb * vWhite + vBlack;
+    gl_FragColor = vec4(mix(t, tdodTint.rgb, tdodTint.a), 1.0);
+}
+"#;
+    let wall = r#"
+#define SHADER_TYPE 2
+uniform vec4 scriptableVec1;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    gl_FragColor = vec4(mix(vWhite + vBlack, scriptableVec1.rgb, scriptableVec1.a), 1.0);
+}
+"#;
+    assets.shaders.insert("fstint".into(), tint.into());
+    assets.shaders.insert("fswall".into(), wall.into());
+    let mtr = |text: &str| mg_image::mtr::Mtr::parse(text.as_bytes());
+    assets.materials.insert(
+        "rug".into(),
+        mtr("customshaderVS vslit\ncustomshaderFS fstint\ntexture0 white\n\
+             parameter float tdodTint 1.0 1.0 1.0 0.0\n"),
+    );
+    assets.materials.insert(
+        "wall".into(),
+        mtr("customshaderVS vslit\ncustomshaderFS fswall\ntexture0 white\n"),
+    );
+    let (_, camera) = clip_space_scene(&gpu);
+    let rug = standing_quad(&gpu, "rug", Vec3::ZERO, 0.75);
+    let at = |inst: &Instance, x: f32, z: f32| Instance {
+        transform: Mat4::from_translation(Vec3::new(x, 0.0, z)) * inst.transform,
+        ..inst.clone()
+    };
+    let value = |material: Option<&str>, value: [f32; 4]| mg_render::MaterialValue {
+        material: material.map(str::to_string),
+        name: "TDODTINT".into(),
+        value: mg_image::mtr::Param::Float(value.to_vec()),
+    };
+    let blue = Arc::from(vec![value(None, [0.0, 0.0, 1.0, 1.0])]);
+    let red = Arc::from(vec![
+        value(None, [0.0, 1.0, 0.0, 1.0]),
+        value(Some("RUG"), [1.0, 0.0, 0.0, 1.0]),
+    ]);
+    let mut scene = Scene {
+        instances: vec![
+            at(&rug, -2.5, 1.0),
+            Instance { material_values: Some(blue), ..at(&rug, 0.0, 1.0) },
+            Instance { material_values: Some(red), ..at(&rug, 2.5, 1.0) },
+            standing_quad(&gpu, "wall", Vec3::new(0.0, 0.0, 3.5), 0.75),
+        ],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    scene.environment.scriptable[0] = [0.0, 1.0, 0.0, 1.0];
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&img, &mg_testkit::output_dir("render").join("material_values.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 4, "{:?}", r.drawn);
+    assert_eq!(img.pixel(13, 32), [255, 255, 255, 255], "untinted");
+    assert_eq!(img.pixel(32, 32), [0, 0, 255, 255], "the object's tint");
+    assert_eq!(img.pixel(51, 32), [255, 0, 0, 255], "the MTR's own");
+    assert_eq!(img.pixel(32, 13), [0, 255, 0, 255], "scriptableVec1");
+}
+
 /// Two meshes of one pipeline and material lying in one plane are drawn
 /// by the game's programs in the order of the scene's instances, whatever
 /// their meshes' addresses: one wins where they meet the same each run

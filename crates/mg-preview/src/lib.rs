@@ -87,6 +87,10 @@ pub struct Part {
     /// `envmaptexture default` passes over for the area's map
     /// (`mg_render::Instance::env_map_default`).
     pub env_map_default: bool,
+    /// Values its materials' programs take in place of their MTRs'
+    /// parameters (`mg_render::Instance::material_values`): a placeable's
+    /// tint ([`tinted`]).
+    pub material_values: Vec<mg_image::mtr::MaterialValue>,
     /// Plays the animation on its own nodes: skinned robes and cloaks (their
     /// bones copy the skeleton's), wings and tails (with their own
     /// animations).
@@ -112,6 +116,7 @@ impl Part {
             colors: None,
             env_map: None,
             env_map_default: false,
+            material_values: Vec::new(),
             animated: false,
             local: None,
             item: false,
@@ -229,6 +234,63 @@ pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
     p
 }
 
+/// A placeable with the tint its locals give (The Domains of Dread's
+/// colorways, [`mg_rules::tint`]), as its module's script sets it when
+/// the module loads: `tdod_tint` on every material whose MTR declares
+/// `tdodTint`, then `tdod_tint_<mtr>` on that MTR, at full strength. Not a
+/// static one: the client bakes it into the tiles as made, untinted (seen
+/// in the game client, The Domains of Dread's trial of 2026-11-06).
+pub fn tinted(mut p: Preview, utp: &Struct) -> Preview {
+    use mg_rules::tint;
+    if !tint::takes_tint(utp) {
+        return p;
+    }
+    let tints = tint::of_object(utp);
+    let value = |material: Option<String>, color| mg_image::mtr::MaterialValue {
+        material,
+        name: tint::PARAMETER.to_string(),
+        value: mg_image::mtr::Param::Float(tint::uniform(color).to_vec()),
+    };
+    let values: Vec<_> = tints
+        .all
+        .map(|c| value(None, c))
+        .into_iter()
+        .chain(tints.by_material.into_iter().map(|(m, c)| value(Some(m), c)))
+        .collect();
+    p.base.material_values.extend(values);
+    p
+}
+
+/// The materials of a placeable's model that take a tint (The Domains of
+/// Dread's colorways, [`mg_rules::tint`]): the MTRs its meshes draw with
+/// (the one a mesh names, else one named as its texture, as the renderer
+/// takes them) that declare `tdodTint`, lower case, each once.
+pub fn tintable_materials(game: &GameData, utp: &Struct) -> Vec<String> {
+    let Ok(p) = placeable(game, utp) else { return Vec::new() };
+    let Some(model) =
+        game.resman.get_named(&p.base.model, ResType::MDL).ok().and_then(|d| Model::read(&d).ok())
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for node in &model.nodes {
+        let Some(mesh) = node.mesh().filter(|m| m.render) else { continue };
+        let names = [mesh.material.as_deref(), mesh.textures[0].as_deref()];
+        let Some((name, mtr)) = names.into_iter().flatten().find_map(|n| {
+            let data = game.resman.get_named(n, ResType::MTR).ok()?;
+            Some((n.to_ascii_lowercase(), mg_image::mtr::Mtr::parse(&data)))
+        }) else {
+            continue;
+        };
+        let tints =
+            mtr.params.iter().any(|(n, _)| n.eq_ignore_ascii_case(mg_rules::tint::PARAMETER));
+        if tints && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 /// Where [`of_object`] shows an object, which tells how an item looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shown {
@@ -273,7 +335,54 @@ pub fn of_object(
         K::Sound => sound(game, object),
         K::Encounter | K::Trigger => return None,
     };
-    Some(preview.map(|p| replaced(p, object)))
+    Some(preview.map(|p| {
+        let p = replaced(p, object);
+        // (A static placeable is baked into the tiles as made: nothing set
+        // on it shows in the client, The Domains of Dread's trial of
+        // 2026-11-06.)
+        if kind == K::Placeable && !mg_rules::tint::takes_tint(object) {
+            return p;
+        }
+        let p = shader_params(p, object);
+        if kind == K::Placeable { tinted(p, object) } else { p }
+    }))
+}
+
+/// The preview with the shader parameters saved on the object
+/// (`Material` › `ShaderParams`: what `SetMaterialShaderUniformInt` and
+/// `…Vec4` set, which the game reads back as it loads the object,
+/// `engine_ee_fields.rs`) on its materials, by MTR name. A creature's
+/// reach its body, not what it wears or holds, as its texture
+/// replacements ([`replaced`]).
+pub fn shader_params(mut p: Preview, object: &Struct) -> Preview {
+    let Some(params) = object.child("Material").and_then(|m| m.list("ShaderParams")) else {
+        return p;
+    };
+    let text = |s: &Struct, l: &str| {
+        String::from_utf8_lossy(s.string(l).unwrap_or_default()).trim().to_string()
+    };
+    let values: Vec<mg_image::mtr::MaterialValue> = params
+        .iter()
+        .filter_map(|e| {
+            let (material, name) = (text(e, "Material"), text(e, "Param"));
+            let value = match e.integer("Type")? {
+                1 => mg_image::mtr::Param::Int(e.integer("Int").unwrap_or(0) as i32),
+                2 => mg_image::mtr::Param::Float(
+                    (1..=4).map(|k| e.float(&format!("Float{k}")).unwrap_or(0.0)).collect(),
+                ),
+                _ => return None,
+            };
+            (!material.is_empty() && !name.is_empty()).then(|| mg_image::mtr::MaterialValue {
+                material: Some(material.to_ascii_lowercase()),
+                name,
+                value,
+            })
+        })
+        .collect();
+    for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut().filter(|p| !p.item)) {
+        part.material_values.extend(values.iter().cloned());
+    }
+    p
 }
 
 /// PLT layers.
@@ -419,6 +528,67 @@ mod tests {
         assert!(m.transform_vector3(Vec3::Z).abs_diff_eq(Vec3::Z * 2.0, 1e-5), "ScaleX alone");
         assert_eq!(scope_matrix(&o, 253), None, "changes nothing");
         assert_eq!(scope_matrix(&o, 0), None, "no base entry");
+    }
+
+    /// A dynamic placeable's tint locals become its material values, the
+    /// object's for every MTR declaring `tdodTint` and a material's own
+    /// by its name; a static one's none, as the client draws it.
+    #[test]
+    fn a_dynamic_placeable_s_tint_locals_reach_its_preview() {
+        let var = |name: &str, value: &str| {
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(name.into()));
+            v.set("Type", Value::Dword(3));
+            v.set("Value", Value::String(value.into()));
+            v
+        };
+        let mut utp = Struct::new(0);
+        utp.set(
+            "VarTable",
+            Value::List(vec![var("tdod_tint", "#ff0000"), var("tdod_tint_dd_ctn_bedc", "#00ff00")]),
+        );
+        let values = tinted(Preview::model("bed"), &utp).base.material_values;
+        let value = |m: Option<&str>, v: [f32; 4]| mg_image::mtr::MaterialValue {
+            material: m.map(str::to_string),
+            name: "tdodTint".into(),
+            value: mg_image::mtr::Param::Float(v.to_vec()),
+        };
+        assert_eq!(
+            values,
+            [value(None, [1.0, 0.0, 0.0, 1.0]), value(Some("dd_ctn_bedc"), [0.0, 1.0, 0.0, 1.0])]
+        );
+        utp.set("Static", Value::Byte(1));
+        assert_eq!(tinted(Preview::model("bed"), &utp).base.material_values, []);
+    }
+
+    /// The shader parameters saved on an object (`Material` ›
+    /// `ShaderParams`, as the game writes them) reach its materials by
+    /// name, an integer and a vector, before the tint its locals give.
+    #[test]
+    fn saved_shader_parameters_reach_the_preview() {
+        let entry = |param: &str, ty: u8| {
+            let mut e = Struct::new(0);
+            e.set("Material", Value::String(b"MG_Mat".to_vec()));
+            e.set("Param", Value::String(param.into()));
+            e.set("Type", Value::Byte(ty));
+            e.set("Int", Value::Int(7));
+            e.set("Float1", Value::Float(0.5));
+            e
+        };
+        let mut m = Struct::new(7);
+        m.set("ShaderParams", Value::List(vec![entry("nOn", 1), entry("vTint", 2), entry("x", 9)]));
+        let mut o = Struct::new(0);
+        o.set("Material", Value::Struct(m));
+        let values = shader_params(Preview::model("chest"), &o).base.material_values;
+        let names: Vec<_> =
+            values.iter().map(|v| (v.material.as_deref(), v.name.as_str())).collect();
+        assert_eq!(
+            names,
+            [(Some("mg_mat"), "nOn"), (Some("mg_mat"), "vTint")],
+            "unknown types left out"
+        );
+        assert_eq!(values[0].value, mg_image::mtr::Param::Int(7));
+        assert_eq!(values[1].value, mg_image::mtr::Param::Float(vec![0.5, 0.0, 0.0, 0.0]));
     }
 
     #[test]

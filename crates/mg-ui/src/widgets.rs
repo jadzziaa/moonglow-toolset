@@ -180,6 +180,26 @@ pub(crate) fn merge_variables(
     out
 }
 
+/// Whether a variable holds a color the Variables window offers a picker
+/// for: a string `"#rrggbb"`, or one of the tint's locals however it is
+/// set so far (The Domains of Dread's colorways, [`mg_rules::tint`]).
+fn colored(r: &VarRow) -> bool {
+    r.kind == 3
+        && (mg_rules::tint::parse_bytes(&r.value).is_some()
+            || mg_rules::tint::is_tint_name(&r.name))
+}
+
+/// A color's swatch and picker for a value of `"#rrggbb"` (white while it
+/// is none), which a color chosen writes.
+fn color_swatch(ui: &mut Ui, value: &mut String) {
+    let mut rgb = mg_rules::tint::parse_bytes(value).unwrap_or([255; 3]);
+    let r = crate::color_button::edit_srgb(ui, &mut rgb)
+        .on_hover_text("The color, written as #rrggbb (red, green and blue in hexadecimal)");
+    if r.changed() {
+        *value = mg_rules::tint::format(rgb);
+    }
+}
+
 /// The Variables window: a VarTable list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarTableEdit {
@@ -1306,6 +1326,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 match (desc, choices) {
                                     (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
                                         value_choice(ui, i, d, c, &mut r.value, value_width);
+                                    }
+                                    _ if edits && colored(r) => {
+                                        // A color's swatch beside its text.
+                                        ui.horizontal(|ui| {
+                                            let swatch = ui.spacing().interact_size.y
+                                                + ui.spacing().item_spacing.x;
+                                            ui.add(wide(&mut r.value, value_width - swatch));
+                                            color_swatch(ui, &mut r.value);
+                                        });
                                     }
                                     _ => {
                                         ui.add_enabled(edits, wide(&mut r.value, value_width));

@@ -1761,3 +1761,91 @@ fn grass_sways_in_the_wind_with_either_shader() {
         }
     }
 }
+
+/// A builder's tinted placeables and wallpaper (The Domains of Dread's
+/// colorway trial of 2026-11-06: its module `MG_TINT_MODULE`, opened from
+/// a copy, with the user folder `MG_TEST_USER` that holds its haks;
+/// skipped without), drawn by the game's shaders as the client drew them
+/// (`docs/design/colorways.md` in that project): the rug with
+/// `tdod_tint` blue beside the reference rug, its static copy untinted,
+/// and the wallpaper the area's `tdod_wallpaper`. The locals taken out,
+/// as in the Variables window, the rug and the wallpaper are drawn as
+/// made at once. Pictures in `target/test-output/ui-tint-trial/`.
+#[test]
+#[ignore]
+fn a_builders_tinted_placeables_and_wallpaper_draw_tinted() {
+    let Some(module) = std::env::var_os("MG_TINT_MODULE").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: MG_TINT_MODULE names no module");
+        return;
+    };
+    let (Some(root), Some(rs)) = (mg_testkit::nwn_root(), gpu()) else { return };
+    let dir = mg_testkit::scratch_dir("ui-tint-trial");
+    let path = dir.join("trial.mod");
+    std::fs::copy(&module, &path).unwrap();
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    let install = mg_resman::GameInstall::new(&root, user, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(true);
+    app.open_module(&path);
+    let area = ResRef::from_str("tt_room").unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+    // Looking north over the rugs (as the client's first picture), then
+    // west along the wall papered on its north face (as its second).
+    let orbits = [
+        (glam::Vec3::new(10.0, 12.0, 0.0), 270f32, 55f32, 14f32),
+        (glam::Vec3::new(10.5, 13.0, 2.0), 0.0, 10.0, 5.0),
+    ];
+    let ppp = h.ctx.pixels_per_point();
+    let blue = |c: [f32; 3]| c[2] - c[0];
+    // The rugs' middles (their models lie a little east of their
+    // positions): tinted, the reference and the static one; and the wall.
+    let points = [(5.6, 12.0, 0.0), (11.0, 12.0, 0.0), (15.6, 12.0, 0.0), (8.0, 10.1, 2.0)];
+    let look = |h: &mut Harness<'_, Moonglow>, name: &str| -> [[f32; 3]; 4] {
+        let mut out = [[0.0; 3]; 4];
+        for (i, (target, yaw, pitch, distance)) in orbits.into_iter().enumerate() {
+            h.state_mut().area_views.get_mut(&area).unwrap().orbit =
+                Some(mg_ui::area_view::Orbit {
+                    target,
+                    yaw: yaw.to_radians(),
+                    pitch: pitch.to_radians(),
+                    distance,
+                });
+            h.hover_at(egui::pos2(5.0, 5.0));
+            h.run_steps(3);
+            until_the_game_draws(h);
+            let img = h.render().unwrap();
+            img.save(dir.join(format!("{name}_{i}.png"))).unwrap();
+            let picked: &[usize] = if i == 0 { &[0, 1, 2] } else { &[3] };
+            for &p in picked {
+                let (x, y, z) = points[p];
+                let at = screen(h, area, glam::Vec3::new(x, y, z));
+                out[p] = mean_around(&img, ppp, at, 6.0);
+            }
+        }
+        eprintln!("{name}: rug, reference, static, wall {out:?}");
+        out
+    };
+    let [rug, plain, static_rug, wallpaper] = look(&mut h, "tinted");
+    assert!(blue(rug) > blue(plain) + 20.0, "the rug is blue: {rug:?} against {plain:?}");
+    assert!((blue(static_rug) - blue(plain)).abs() < 8.0, "the static one is not: {static_rug:?}");
+    // The locals taken out: the rug's and the area's.
+    let cleared = |path: mg_edit::GffPath| mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path,
+        label: "VarTable".into(),
+        value: Some(mg_gff::Value::List(Vec::new())),
+    };
+    let edits = vec![
+        cleared(mg_edit::GffPath::root().item("Placeable List", 0)),
+        cleared(mg_edit::GffPath::root()),
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Untint", edits)));
+    let [rug_after, plain_after, _, wallpaper_after] = look(&mut h, "untinted");
+    assert!((blue(rug_after) - blue(plain_after)).abs() < 8.0, "as made: {rug_after:?}");
+    let differ = (0..3).map(|c| (wallpaper[c] - wallpaper_after[c]).abs()).sum::<f32>();
+    assert!(differ > 15.0, "the wallpaper as made: {wallpaper:?} then {wallpaper_after:?}");
+}

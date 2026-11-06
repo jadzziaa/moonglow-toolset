@@ -1200,7 +1200,7 @@ impl AreaScene {
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,
-            environment: mg_render::Environment::from_are(l.flags, l.wind_power),
+            environment: environment(l),
             shadows: view.shadows_of(l),
             light_shadows: view.light_shadows_of(l),
         }
@@ -1397,6 +1397,17 @@ fn shown(
         .clone()
 }
 
+/// What the game's shaders read of the area: its flags and wind, and
+/// the wallpaper's tint its script sets (strength 0 without one, as it
+/// sets for an area without its local).
+pub(crate) fn environment(l: &Lighting) -> mg_render::Environment {
+    let mut e = mg_render::Environment::from_are(l.flags, l.wind_power);
+    if let Some(c) = l.wallpaper {
+        e.scriptable[mg_rules::tint::WALLPAPER_UNIFORM] = mg_rules::tint::uniform(c);
+    }
+    e
+}
+
 /// lightcolor.2da's colours (RED, GREEN, BLUE) by row.
 fn light_colors(game: &GameData) -> Vec<Vec3> {
     let Ok(t) = game.table("lightcolor") else { return Vec::new() };
@@ -1563,6 +1574,7 @@ mod tests {
             wind_power: 0,
             sun_direction: None,
             moon_direction: None,
+            wallpaper: None,
         };
         let day = View {
             time: 0.0,

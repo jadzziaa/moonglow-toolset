@@ -28,6 +28,7 @@ pub mod objects;
 pub mod placeables;
 pub mod rows;
 pub mod spell_warnings;
+pub mod tint;
 pub use challenge::Challenge;
 pub use creatures::{ClassSpells, CreatureSheet, CreatureStats};
 pub use items::{ItemProperty, ItemValue};

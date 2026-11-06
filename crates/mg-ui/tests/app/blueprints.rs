@@ -903,6 +903,135 @@ fn an_object_s_factions_leave_out_the_pc_faction() {
     assert!(h.query_by_value("PC (not for objects)").is_none());
 }
 
+/// A placeable whose model's material takes a tint (The Domains of
+/// Dread's colorways: an MTR declaring `tdodTint`, here one for the
+/// chest's rug in the user folder's override) has a Tint section on its Visuals page:
+/// the whole object's color and the material's own, each set by its
+/// swatch as a local (`tdod_tint`, `tdod_tint_<mtr>`), which the area view
+/// draws; Clear takes one out, and a static placeable is said to draw as
+/// made.
+#[test]
+fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
+    let user = mg_testkit::scratch_dir("ui-bp-chest-tint-user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mtr = "texture0 plc_rugdmtlbrk\nparameter float tdodTint 1.0 1.0 1.0 0.0\n";
+    std::fs::write(user.join("override/plc_rugdmtlbrk.mtr"), mtr).unwrap();
+    let Some((mut h, key)) =
+        blueprint_harness_with("plc_chest1", "chest_tint", ResType::UTP, Some(user))
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    assert!(h.query_by_label("Whole object").is_some(), "the Tint section");
+    // (Its row, beside the texture replacements' list of the model's textures.)
+    assert!(h.query_all_by_label("plc_rugdmtlbrk").count() >= 2, "the tintable material");
+    let swatch = |h: &Harness<'_, Moonglow>, i: usize| {
+        let wells: Vec<_> =
+            h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).collect();
+        wells[i].rect().center()
+    };
+    let pick = |h: &mut Harness<'_, Moonglow>, i: usize, color: &str| {
+        h.hover_at(swatch(h, i));
+        h.run();
+        h.event(egui::Event::Paste(color.into()));
+        h.run();
+        h.hover_at(egui::pos2(1.0, 1.0));
+        h.run();
+    };
+    let locals = |h: &mut Harness<'_, Moonglow>| -> Vec<(String, String)> {
+        let root = field(h, &key);
+        let text = |v: &mg_gff::Struct, l: &str| {
+            String::from_utf8_lossy(v.string(l).unwrap()).into_owned()
+        };
+        root.list("VarTable")
+            .unwrap_or(&[])
+            .iter()
+            .map(|v| (text(v, "Name"), text(v, "Value")))
+            .collect()
+    };
+    pick(&mut h, 0, "#2a4d8f");
+    assert_eq!(locals(&mut h), [("tdod_tint".to_string(), "#2a4d8f".to_string())]);
+    pick(&mut h, 1, "255, 0, 0");
+    assert_eq!(
+        locals(&mut h),
+        [
+            ("tdod_tint".to_string(), "#2a4d8f".to_string()),
+            ("tdod_tint_plc_rugdmtlbrk".to_string(), "#ff0000".to_string())
+        ]
+    );
+    if std::env::var_os("MG_SHOT").is_some() {
+        mg_testkit::gpu::hold();
+        let dir = mg_testkit::scratch_dir("ui-tint-section");
+        h.render().unwrap().save(dir.join("tint.png")).unwrap();
+    }
+    // The area view draws them: the material's own, after the object's.
+    let chest = field(&mut h, &key);
+    let game = h.state().game.clone().unwrap();
+    let none = |_: ResRef| None;
+    let shown = mg_preview::of_object(
+        &game,
+        mg_rules::ObjectKind::Placeable,
+        &chest,
+        &none,
+        Default::default(),
+    );
+    let values = shown.unwrap().unwrap().base.material_values;
+    let names: Vec<_> = values.iter().map(|v| v.material.as_deref()).collect();
+    assert_eq!(names, [None, Some("plc_rugdmtlbrk")]);
+    // Clear: the whole object's taken out.
+    h.get_all_by_label("Clear").next().unwrap().click();
+    h.run();
+    assert_eq!(locals(&mut h), [("tdod_tint_plc_rugdmtlbrk".to_string(), "#ff0000".to_string())]);
+    // The Variables window: a swatch for a color's variable, set or not.
+    {
+        use mg_ui::widgets::{FieldTarget, VarRow, VarTableEdit};
+        let target = FieldTarget::new(key, mg_edit::GffPath::root(), "VarTable");
+        let mut edit = VarTableEdit::new(target, &[]);
+        edit.rows = vec![
+            VarRow::new("tdod_tint", 3, ""),
+            VarRow::new("x_note", 3, "#123456"),
+            VarRow::new("x_word", 3, "hello"),
+        ];
+        h.state_mut().var_edit = Some(edit);
+        h.run();
+        let wells: Vec<_> =
+            h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).collect();
+        let window = h.get_by_label("Variables").rect();
+        let swatches: Vec<_> = wells
+            .iter()
+            .map(|w| w.rect().center())
+            .filter(|c| window.max.x > c.x && c.y > window.min.y)
+            .collect();
+        // (Two of the Tint section's behind it, two of the window's: none
+        // for a word.)
+        assert_eq!(wells.len(), 4);
+        drop(wells);
+        let values = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+            h.state().var_edit.as_ref().unwrap().rows.iter().map(|r| r.value.clone()).collect()
+        };
+        h.hover_at(*swatches.iter().min_by(|a, b| a.y.total_cmp(&b.y)).unwrap());
+        h.run();
+        h.event(egui::Event::Paste("#2a4d8f".into()));
+        h.run();
+        assert_eq!(values(&h), ["#2a4d8f", "#123456", "hello"], "the empty tint's swatch sets it");
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        h.run();
+    }
+    // Static: said to draw as made.
+    assert!(h.query_by_label_contains("draws a static placeable as made").is_none());
+    let set = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Static".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Static", vec![set])));
+    h.run();
+    assert!(h.query_by_label_contains("draws a static placeable as made").is_some());
+}
+
 #[test]
 fn visuals_page_sets_replacements_and_misc_visuals() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_visuals", ResType::UTP) else {

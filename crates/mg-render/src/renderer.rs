@@ -206,10 +206,12 @@ const EFFECT_SHADERS: [&str; 2] = ["vertexalpha", "mzlm"];
 type MaterialKey = ([Option<String>; SLOTS], String, (bool, bool));
 
 /// What a mesh's textures and MTR resolve to.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct Slots {
     /// Per slot, the texture name to load.
     names: [Option<String>; SLOTS],
+    /// The MTR they resolve to (lower case), if any.
+    mtr: Option<String>,
     /// MTR parameters (0: none).
     specularity: f32,
     /// How far a custom pair may offset the mesh, meters: the largest of
@@ -362,6 +364,8 @@ struct SurfaceKey {
     env: u32,
     scene_env: u32,
     plt: Option<[u8; 10]>,
+    /// Its material values ([`Renderer::values_id`]).
+    values: u32,
 }
 
 /// How many instances a scene has before its sun's shadows are planned on
@@ -539,6 +543,14 @@ pub struct Renderer {
     #[allow(clippy::type_complexity)]
     renames: HashMap<u64, Vec<(Vec<(String, String)>, u32)>>,
     renames_made: u32,
+    /// Instances' material values, numbered from 1 (0: none) by their
+    /// place here.
+    value_sets: Vec<Arc<[mg_image::mtr::MaterialValue]>>,
+    /// Slots with an instance's material values in their MTR's parameters,
+    /// by the slots' place and the values' number: kept, as the game's
+    /// programs keep a material's values by where its parameters are
+    /// ([`crate::game::GameShaders`]'s templates).
+    valued: HashMap<(usize, u32), Arc<Slots>>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
     /// A frame's uniforms, bones and replaced vertices: kept from frame
@@ -1376,6 +1388,8 @@ impl Renderer {
             names: HashMap::new(),
             renames: HashMap::new(),
             renames_made: 0,
+            value_sets: Vec::new(),
+            valued: HashMap::new(),
             samplers: HashMap::new(),
             env_sampler,
             uniforms: Vec::new(),
@@ -1395,6 +1409,7 @@ impl Renderer {
         }
         self.textures.clear();
         self.slots.clear();
+        self.valued.clear();
         self.materials.clear();
         self.kept.materials.clear();
         self.groups.clear();
@@ -1551,12 +1566,12 @@ impl Renderer {
         if let Some(s) = self.slots.get(&key) {
             return s.clone();
         }
-        let mtr = mat
-            .mtr
-            .as_deref()
-            .and_then(|n| assets.material(n))
-            .or_else(|| mat.texture.as_deref().and_then(|n| assets.material(n)));
-        let mut out = Slots::default();
+        let (mtr_name, mtr) = [mat.mtr.as_deref(), mat.texture.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|n| assets.material(n).map(|m| (n.to_ascii_lowercase(), m)))
+            .unzip();
+        let mut out = Slots { mtr: mtr_name, ..Slots::default() };
         out.names[0] = mat.texture.clone();
         for (i, m) in mat.maps.iter().enumerate() {
             out.names[i + 1] = m.clone();
@@ -1728,6 +1743,59 @@ impl Renderer {
         self.renames_made
     }
 
+    /// An instance's material values' number (0: none): the same for the
+    /// same values.
+    fn values_id(&mut self, values: &Arc<[mg_image::mtr::MaterialValue]>) -> u32 {
+        if values.is_empty() {
+            return 0;
+        }
+        let at = match self.value_sets.iter().position(|v| v == values) {
+            Some(at) => at,
+            None => {
+                self.value_sets.push(values.clone());
+                self.value_sets.len() - 1
+            }
+        };
+        at as u32 + 1
+    }
+
+    /// `slots` with the material values numbered `id` in its MTR's
+    /// parameters, where one is set on it (by its name, or on every MTR
+    /// declaring the parameter), in order: a later one wins.
+    fn valued_slots(&mut self, slots: Arc<Slots>, id: u32) -> Arc<Slots> {
+        let Some(values) = id.checked_sub(1).and_then(|i| self.value_sets.get(i as usize)) else {
+            return slots;
+        };
+        let Some(mtr) = slots.mtr.as_deref() else { return slots };
+        let key = (Arc::as_ptr(&slots) as usize, id);
+        if let Some(s) = self.valued.get(&key) {
+            return s.clone();
+        }
+        let declares = |n: &str| slots.params.iter().any(|(p, _)| p.eq_ignore_ascii_case(n));
+        let set: Vec<_> = values
+            .iter()
+            .filter(|v| match v.material.as_deref() {
+                Some(m) => m.eq_ignore_ascii_case(mtr),
+                None => declares(&v.name),
+            })
+            .collect();
+        let out = if set.is_empty() {
+            slots.clone()
+        } else {
+            let mut s = Slots::clone(&slots);
+            for v in set {
+                let value = v.value.clone();
+                match s.params.iter_mut().find(|(p, _)| p.eq_ignore_ascii_case(&v.name)) {
+                    Some((_, p)) => *p = value,
+                    None => s.params.push((v.name.clone(), value)),
+                }
+            }
+            Arc::new(s)
+        };
+        self.valued.insert(key, out.clone());
+        out
+    }
+
     /// The surfaces of the meshes of `inst`'s model, as the instance
     /// dresses it (in a scene whose environment map is `scene_env`,
     /// numbered `scene_env_id`).
@@ -1745,6 +1813,7 @@ impl Renderer {
             env: self.name_id(inst.env_map.as_deref()),
             scene_env: scene_env_id,
             plt: inst.plt_colors,
+            values: inst.material_values.as_ref().map_or(0, |v| self.values_id(v)),
         };
         if let Some(surfaces) = self.surfaces.get(&key) {
             return Some(surfaces.clone());
@@ -1779,6 +1848,8 @@ impl Renderer {
         scene_env: Option<&str>,
     ) -> Option<Surface> {
         let slots = self.slots(assets, mat);
+        let values = inst.material_values.as_ref().map_or(0, |v| self.values_id(v));
+        let slots = self.valued_slots(slots, values);
         // The instance's texture renames, and its PLT colours on the
         // diffuse texture.
         // (A mesh that names none takes the instance's texture

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T21:12:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
 ---
 
 # Blueprints
@@ -553,7 +553,9 @@ Shared parts:
   one added goes at the bottom, and they are saved in the order they
   were made). Ints, floats and strings are edited; an object's or a
   location's variable (which only scripts set) is shown as it is and
-  kept. A placed object's opens from its right-click menu too, in
+  kept. A string that holds a color (`#rrggbb`), or a tint's variable
+  (`tdod_tint…`, an area's `tdod_wallpaper`), has a color swatch beside
+  it: pick a color there, and its text is the color's. A placed object's opens from its right-click menu too, in
   the area or the module tree. **Variable sets** carry variables from
   one object to another, in any module. **Save Set…** keeps them under a
   name; **Save to File…** saves them as a set file (`.vars.json`)
@@ -657,7 +659,25 @@ Shared parts:
     with the stock shaders. The material is an MTR's name, and the game
     passes the values only to a mesh drawn with that MTR when the MTR
     names its own shaders (`customshadervs`, `customshaderfs`); declare
-    each parameter in it too (`parameter int Name 0`).
+    each parameter in it too (`parameter int Name 0`). With
+    [Shaders](04-areas.md#the-toolbar) on, the area view and the
+    blueprint's view draw them (since Moonglow 3.10.0).
+  - **Tint**, at the top of a placeable's page, where its model has a
+    material that takes one: The Domains of Dread's colorways, the color
+    its scripts give a placeable's fabric as the module loads. A material
+    takes a tint when its MTR names the module's tint shader and declares
+    `parameter float tdodTint R G B S` (red, green and blue 0 to 1, then
+    the strength, 0 for the material as made). **Whole object** colors
+    every such material, and each material's own row colors that one
+    over it. Each has a color swatch: click it to pick a color (set when
+    the picker closes, as one undoable step), or paste one (`#2a4d8f`,
+    `42, 77, 143`) with the pointer on it. What is set is a local
+    variable, `tdod_tint` for the whole object and `tdod_tint_<mtr>` for
+    a material (`"#rrggbb"`), which the module's script reads; **Clear**
+    takes one out. The area view draws the tint as the game does, with
+    the Shaders switch on. A static placeable takes none in the game (the
+    client merges it into the tiles as made): the section says so, and
+    Verify warns of one (`static-tint`).
   - The highlight color, the mouse cursor over the object, its text
     bubble (its name, or text that replaces it or goes before or after
     it), whether it is highlighted and named on mouse-over and with Tab,

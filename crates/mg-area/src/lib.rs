@@ -493,6 +493,10 @@ pub struct Lighting {
     /// game's own.
     pub sun_direction: Option<Vec3>,
     pub moon_direction: Option<Vec3>,
+    /// The wallpaper's color its GIT's `tdod_wallpaper` local gives (The
+    /// Domains of Dread's colorways, [`mg_rules::tint`]): what the
+    /// module's script sets as `scriptableVec1` for a player who enters.
+    pub wallpaper: Option<[f32; 3]>,
 }
 
 impl Lighting {
@@ -512,6 +516,7 @@ impl Lighting {
         Lighting {
             sun_direction: direction("Sun"),
             moon_direction: direction("Moon"),
+            wallpaper: mg_rules::tint::wallpaper(git),
             ..Lighting::read(are, tileset)
         }
     }
@@ -539,6 +544,7 @@ impl Lighting {
             wind_power: are.integer("WindPower").unwrap_or(0),
             sun_direction: None,
             moon_direction: None,
+            wallpaper: None,
         }
     }
 
@@ -905,6 +911,23 @@ donemodel tst01_a01_01\n"
         assert_eq!(l.direction(true), None, "a zero direction is none");
         let l = Lighting::read_with(&Struct::new(0), &Struct::new(0xFFFF_FFFF), None);
         assert_eq!((l.direction(false), l.direction(true)), (None, None));
+    }
+
+    /// The GIT's `tdod_wallpaper` is the scene's `scriptableVec1` at full
+    /// strength, as the module's script sets it; without it, zero.
+    #[test]
+    fn the_git_s_wallpaper_local_is_scriptable_vec1() {
+        let mut var = Struct::new(0);
+        var.set("Name", Value::String(b"tdod_wallpaper".to_vec()));
+        var.set("Type", Value::Dword(3));
+        var.set("Value", Value::String(b"#ff0000".to_vec()));
+        let mut git = Struct::new(0xFFFF_FFFF);
+        git.set("VarTable", Value::List(vec![var]));
+        let l = Lighting::read_with(&Struct::new(0), &git, None);
+        assert_eq!(l.wallpaper, Some([1.0, 0.0, 0.0]));
+        assert_eq!(scene::environment(&l).scriptable[0], [1.0, 0.0, 0.0, 1.0]);
+        let l = Lighting::read_with(&Struct::new(0), &Struct::new(0xFFFF_FFFF), None);
+        assert_eq!(scene::environment(&l).scriptable[0], [0.0; 4]);
     }
 
     #[test]
