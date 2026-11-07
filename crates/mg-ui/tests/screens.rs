@@ -1316,7 +1316,11 @@ fn options_pages_whole() {
     for (page, name, later) in [
         (P::Folders, "folders", &["Sending files"][..]),
         (P::Area, "area", &["Editing"][..]),
-        (P::General, "general", &["Windows and tabs", "Warnings", "Troubleshooting"][..]),
+        (
+            P::General,
+            "general",
+            &["Windows and tabs", "Questions", "Warnings", "Troubleshooting"][..],
+        ),
         (P::ScriptEditor, "script-editor", &["External editor", "Font and colors"][..]),
         (P::ConversationEditor, "conversation-editor", &["Links"][..]),
     ] {

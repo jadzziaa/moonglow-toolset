@@ -1152,8 +1152,25 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
     }
     let named = named.then(|| app.references.named.take()).flatten();
+    // Nothing names them, nothing unsaved goes, none kept: deleted without
+    // asking, where Options › General › Questions says so (a builder's
+    // ask: a question always given the same answer). What something names
+    // is still asked about: the window says what.
+    let alone = |n: &Named| n.usages.is_empty() && n.mentions.is_empty();
+    if app.settings.delete_without_asking
+        && why_not.is_none()
+        && kept.is_empty()
+        && unsaved.is_empty()
+        && named.as_ref().is_some_and(alone)
+    {
+        app.actions.push(Action::DeleteResources(keys));
+        app.confirm_delete = None;
+        return;
+    }
     let mut open = true;
     let mut find = None;
+    let always_id = egui::Id::new("delete-always");
+    let always = ctx.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
     crate::widgets::modal(ctx, "Delete from Module").show(ctx, |ui| {
         if let Some(why) = &why_not {
             ui.label(why);
@@ -1226,6 +1243,10 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
             // (Once what names them is known, to be said first.)
             let delete = ui.add_enabled(named.is_some(), egui::Button::new("Delete"));
             if delete.clicked() {
+                // (Not asked again: Options' switch, from now on.)
+                if always {
+                    app.settings.delete_without_asking = true;
+                }
                 app.actions.push(Action::DeleteResources(keys.clone()));
                 open = false;
             }
@@ -1233,6 +1254,12 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
                 open = false;
             }
         });
+        crate::widgets::always_box(
+            ui,
+            always_id,
+            "Don't ask when nothing else names them",
+            &format!("{} › Ask before deleting from the module", crate::widgets::QUESTIONS_AT),
+        );
     });
     if named.is_some() {
         app.references.named = named;

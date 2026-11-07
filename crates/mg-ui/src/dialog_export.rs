@@ -66,7 +66,41 @@ pub struct Ask {
     pub existing: Vec<String>,
 }
 
+impl Ask {
+    /// The file `key` is written as.
+    fn file_of(&self, key: ResKey) -> String {
+        match self.what {
+            Exported::Conversations(format) => file_name(key, format),
+            Exported::Minimaps { .. } => format!("{}.png", key.resref),
+        }
+    }
+
+    /// The keys whose files aren't in the folder (Skip Those).
+    fn new_ones(&self) -> Vec<ResKey> {
+        self.keys.iter().copied().filter(|k| !self.existing.contains(&self.file_of(*k))).collect()
+    }
+}
+
 impl Moonglow {
+    /// Files of `ask`'s in the folder already: asked about, unless
+    /// Options › General › Questions says to replace them or skip them.
+    pub(crate) fn ask_or_write(&mut self, ask: Ask) {
+        use crate::settings::FilesThere;
+        match self.settings.files_there {
+            FilesThere::Ask => self.dialog_export_ask = Some(ask),
+            FilesThere::Replace => self.write_exported(&ask, &ask.keys),
+            FilesThere::Skip => self.write_exported(&ask, &ask.new_ones()),
+        }
+    }
+
+    /// Writes `keys` of `ask`'s export into its folder.
+    fn write_exported(&mut self, ask: &Ask, keys: &[ResKey]) {
+        match ask.what {
+            Exported::Conversations(format) => self.write_conversations(keys, format, &ask.dir),
+            Exported::Minimaps { notes } => self.write_minimaps(keys, notes, &ask.dir),
+        }
+    }
+
     /// Export as Ink… (or Twine…, Text…, CSV…) of conversations chosen in
     /// the module tree: a folder asked for, then written (asked first
     /// about files of their names in it).
@@ -87,7 +121,7 @@ impl Moonglow {
             self.write_conversations(&keys, format, &dir);
         } else {
             let what = Exported::Conversations(format);
-            self.dialog_export_ask = Some(Ask { keys, what, dir, existing });
+            self.ask_or_write(Ask { keys, what, dir, existing });
         }
     }
 
@@ -132,11 +166,14 @@ impl Moonglow {
     }
 }
 
-/// The question, while there is one: the files named, Overwrite or
-/// Cancel.
+/// The question, while there is one: the files named, Overwrite, Skip
+/// Those (the others written) or Cancel, and Always do this.
 pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
+    use crate::settings::FilesThere;
     let Some(ask) = &app.dialog_export_ask else { return };
-    let mut answer = None;
+    let mut answer: Option<Option<FilesThere>> = None;
+    let always_id = egui::Id::new("dialog-export-always");
+    let always = ctx.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
     let title = match ask.what {
         Exported::Conversations(format) => format!("Export as {}", word(format)),
         Exported::Minimaps { .. } => "Export Minimaps".to_string(),
@@ -156,20 +193,33 @@ pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Overwrite").clicked() {
-                answer = Some(true);
+                answer = Some(Some(FilesThere::Replace));
+            }
+            if ui
+                .button("Skip Those")
+                .on_hover_text("Write the others, and leave these as they are")
+                .clicked()
+            {
+                answer = Some(Some(FilesThere::Skip));
             }
             if crate::widgets::cancel(ui) {
-                answer = Some(false);
+                answer = Some(None);
             }
         });
+        crate::widgets::always_box(
+            ui,
+            always_id,
+            "Always do this",
+            &format!("{} › Files there already", crate::widgets::QUESTIONS_AT),
+        );
     });
-    if let Some(overwrite) = answer
-        && let Some(ask) = app.dialog_export_ask.take()
-        && overwrite
-    {
-        match ask.what {
-            Exported::Conversations(format) => app.write_conversations(&ask.keys, format, &ask.dir),
-            Exported::Minimaps { notes } => app.write_minimaps(&ask.keys, notes, &ask.dir),
-        }
+    let Some(answer) = answer else { return };
+    let Some(ask) = app.dialog_export_ask.take() else { return };
+    let Some(choice) = answer else { return };
+    // (Always so: Options' choice, from now on.)
+    if always {
+        app.settings.files_there = choice;
     }
+    let keys = if choice == FilesThere::Skip { ask.new_ones() } else { ask.keys.clone() };
+    app.write_exported(&ask, &keys);
 }

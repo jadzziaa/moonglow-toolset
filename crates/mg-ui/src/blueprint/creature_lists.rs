@@ -2223,16 +2223,40 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             .collect();
         let text = tlk(game, MISSING_FEATS).replacen("%s", &names.join("\n"), 1);
         let (mut yes, mut no) = (false, false);
-        // (Escape is its No.)
-        let window = crate::widgets::modal(ui.ctx(), "Missing Feats").id(ask.with("modal"));
-        window.show(ui.ctx(), |ui| {
-            ui.set_max_width(360.0);
-            crate::widgets::field_label(ui, text);
-            ui.horizontal(|ui| {
-                yes = ui.button("Yes").clicked();
-                no = ui.button("No").clicked() || crate::widgets::escape_here(ui);
-            });
-        });
+        use crate::settings::MissingFeats;
+        match f.app.settings.missing_feats {
+            // (Options › General › Questions answers it.)
+            MissingFeats::Add => yes = true,
+            MissingFeats::Refuse => no = true,
+            MissingFeats::Ask => {
+                // (Escape is its No.)
+                let always_id = ask.with("always");
+                let always = ui.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
+                let window = crate::widgets::modal(ui.ctx(), "Missing Feats").id(ask.with("modal"));
+                let mut escaped = false;
+                window.show(ui.ctx(), |ui| {
+                    ui.set_max_width(360.0);
+                    crate::widgets::field_label(ui, text);
+                    ui.horizontal(|ui| {
+                        yes = ui.button("Yes").clicked();
+                        no = ui.button("No").clicked();
+                    });
+                    crate::widgets::always_box(
+                        ui,
+                        always_id,
+                        "Always do this",
+                        &format!("{} › Equipping without the feats", crate::widgets::QUESTIONS_AT),
+                    );
+                    escaped = crate::widgets::escape_here(ui) && !yes && !no;
+                });
+                // (Always so: Options' choice, from now on; not Escape's.)
+                if always && (yes || no) {
+                    f.app.settings.missing_feats =
+                        if yes { MissingFeats::Add } else { MissingFeats::Refuse };
+                }
+                no |= escaped;
+            }
+        }
         if yes {
             let count = f.root.list("FeatList").map_or(0, <[_]>::len);
             let mut feat = Struct::new(FEAT_ID);

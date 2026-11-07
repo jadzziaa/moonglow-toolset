@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T07:56:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T21:32:19Z }
 ---
 
 # Options
@@ -201,23 +201,9 @@ the module is opened again from its file.
   project is not packed this way: it has **Build › Pack** *file*.
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
-- **Exporting to an archive there** (Ask: append or overwrite): File ›
-  Export… to an `.erf` that is there already asks whether to append to
-  it or overwrite it, as Aurora asks; **Append to it** adds the
-  resources without asking (those of the same names replaced, the rest
-  it holds kept), **Overwrite it** replaces it with an archive of the
-  resources alone. The question's **Always do this** sets it too. See
-  [Modules](03-modules.md#import-and-export).
 
 ### Opening modules
 
-- **A .mod with its folder beside it** (Ask which to open): a `.mod`
-  opened with a folder of its name beside it (`mymodule.mod` and
-  `mymodule/`, a module directory as Aurora keeps one) asks whether to
-  open the folder or the `.mod`, as Aurora asks; **Open the folder**
-  opens the folder without asking (Aurora's Always open module
-  directories), **Open the .mod** the `.mod`. See
-  [Modules](03-modules.md#opening-and-saving).
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
@@ -289,10 +275,6 @@ the module is opened again from its file.
 
 ### Windows and tabs
 
-- **Ask before the window is closed**: on by default. The window's
-  close button asks before Moonglow closes where nothing is unsaved (with
-  unsaved changes it asks about those, as always); File › Exit closes
-  without this question.
 - **Open Properties as tabs of one window**: on by default. A
   blueprint's or a placed object's Properties open as a tab of the window
   Properties are open in already; off, each in a window of its own. A
@@ -363,6 +345,48 @@ the module is opened again from its file.
   Preview and the item's Properties, whose Appearance page's **Shown
   on** changes it too. Off by default: a man's. A creature's own
   Inventory page shows the icons of its Gender, as the game does.
+
+### Questions
+
+What Moonglow asks, answered here once for all; each question's own
+**Always do this** box (or **Don't ask again**) sets its choice here too,
+a builder's ask (Carcerian: a question always given the same answer
+should be answered once). The questions that would throw work away if
+answered once for all (unsaved changes as a window closes, files changed
+outside Moonglow) always ask.
+
+- **A .mod with its folder beside it** (Ask which to open): a `.mod`
+  opened with a folder of its name beside it (`mymodule.mod` and
+  `mymodule/`, a module directory as Aurora keeps one) asks whether to
+  open the folder or the `.mod`, as Aurora asks; **Open the folder**
+  opens the folder without asking (Aurora's Always open module
+  directories), **Open the .mod** the `.mod`. See
+  [Modules](03-modules.md#opening-and-saving).
+- **Exporting to an archive there** (Ask: append or overwrite): File ›
+  Export… to an `.erf` that is there already asks whether to append to
+  it or overwrite it, as Aurora asks; **Append to it** adds the
+  resources without asking (those of the same names replaced, the rest
+  it holds kept), **Overwrite it** replaces it with an archive of the
+  resources alone. The question's **Always do this** sets it too. See
+  [Modules](03-modules.md#import-and-export).
+- **Files there already** (Ask: replace or skip them): files of the same
+  names where Moonglow writes: files added to a hak (the hak editor's
+  Add Files), a model's **Export Files**, conversations or minimaps
+  exported into a folder, NUI windows imported. Asked each time
+  (**Replace**, **Skip Those**, Cancel), or always replaced, or always
+  left as they are, the others written.
+- **Equipping without the feats** (Ask, as Aurora): equipping a creature
+  with an item it lacks the feats for, on its Inventory page: asked, as
+  Aurora asks (Yes adds the first feat it lacks and equips it, No leaves
+  it unequipped); or always the one or the other.
+- **Ask before deleting from the module** (on): Delete… in the module
+  tree asks first. Unticked, what nothing else in the module names is
+  deleted at once (Undo brings it back); what something names is still
+  asked about, the window saying what names it.
+- **Ask before the window is closed**: on by default. The window's
+  close button asks before Moonglow closes where nothing is unsaved (with
+  unsaved changes it asks about those, as always); File › Exit closes
+  without this question.
 
 ### Warnings
 
@@ -538,7 +562,8 @@ module's custom talk table, at the next free line of the project's
 lines, and the field names it by its StrRef; off, the text is the
 field's own, as Aurora writes it. **When the talk table has the text
 already**: **Ask** (the default: Use Line N, Add a Line or Keep in the
-File), **Use that line**, or **Add a line**. A project's `moonglow.toml`
+File), **Use that line**, **Add a line**, or **Keep it in the file**; the
+question's **Always do this** sets it too. A project's `moonglow.toml`
 with `[talk] typed` turns it on (or off) for everyone who opens its
 module: the switch shows the project's word, greyed, with a line saying
 so, and yours is kept for other modules. See [Text typed into the talk

@@ -1022,6 +1022,35 @@ fn a_folder_module_is_saved_as_a_mod_beside_it() {
 /// Aurora keeps one) asks which to open, as Aurora does: the folder (saved
 /// into, and written as the `.mod` too), or the `.mod`; Options › General
 /// opens either without asking (GitHub issue 30).
+/// The question of a .mod with its folder beside it keeps its answer with
+/// Always do this (Options › General › Questions), and isn't asked again
+/// (a builder's ask: a question always given the same answer).
+#[test]
+fn a_mod_with_its_folder_beside_it_is_answered_once_for_all() {
+    let dir = mg_testkit::scratch_dir("ui-mod-folder-always");
+    let path = sample_module(&dir);
+    let folder = dir.join("sample");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut h = window_harness(app_with(vec![path.clone(), path.clone()]));
+    h.run();
+    let location = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref()?.module.location.clone();
+    h.get_by_label("Open Module…").click();
+    h.run();
+    h.get_by_label("Always do this").click();
+    h.run();
+    h.get_by_label("Open .mod File").click();
+    h.run();
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path.clone())));
+    assert_eq!(h.state().settings.module_folders, mg_ui::settings::ModuleFolders::Module);
+    // Not asked again: the .mod.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenModuleDialog);
+    h.run();
+    assert!(h.state().module_folder.is_none(), "not asked");
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path)));
+}
+
 #[test]
 fn a_mod_with_its_folder_beside_it_asks_which_to_open() {
     let dir = mg_testkit::scratch_dir("ui-mod-folder");
@@ -1042,6 +1071,7 @@ fn a_mod_with_its_folder_beside_it_asks_which_to_open() {
     assert_eq!(location(&h), Some(ModuleLocation::Folder(folder.clone())));
     assert!(h.state().module_folder.is_none());
     assert_eq!(h.state().settings.recent.first(), Some(&folder), "the folder is remembered");
+    assert_eq!(h.state().settings.module_folders, mg_ui::settings::ModuleFolders::Ask);
     // An edit saved goes into the folder, and into the .mod beside it.
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     let text = b"void main() { int saved; }\n".to_vec();
@@ -2266,12 +2296,16 @@ fn closing_the_window_asks_first() {
     assert!(!h.state().closing && h.state().confirm_discard.is_some());
     h.state_mut().confirm_discard = None;
     assert!(mg_ui::table_view::save(h.state_mut(), id));
-    // Nothing unsaved again: asked, and closed on the answer.
+    // Nothing unsaved again: asked, and closed on the answer; Don't ask
+    // again switches the question off (Options › General › Questions).
     h.state_mut().actions.push(mg_ui::Action::CloseWindow);
     h.run_steps(3);
+    h.get_by_label("Don't ask again").click();
+    h.run_steps(2);
     h.get_by_label("Close Moonglow").click();
     h.run_steps(3);
     assert!(h.state().quit_requested);
+    assert!(h.state().settings.close_without_asking, "not asked again");
     // With the option off, the button closes.
     h.state_mut().quit_requested = false;
     h.state_mut().settings.close_without_asking = true;

@@ -2992,14 +2992,25 @@ pub(crate) enum Already {
 /// a model's Export Files ("…in the Folder"). `said` heads the list of
 /// them (each with what it is on hover, where given); `replace` and
 /// `skip` say what Replace and Skip Those do. `None` while unanswered.
+/// Answered at once, nothing asked, where Options says what to do
+/// (`there`), which "Always do this" sets.
 pub(crate) fn files_already(
     ctx: &egui::Context,
+    there: &mut crate::settings::FilesThere,
     place: &str,
     said: &str,
     files: &[(String, Option<String>)],
     [replace, skip]: [&str; 2],
 ) -> Option<Already> {
+    use crate::settings::FilesThere;
+    match there {
+        FilesThere::Replace => return Some(Already::Replace),
+        FilesThere::Skip => return Some(Already::Skip),
+        FilesThere::Ask => {}
+    }
     let mut answer = None;
+    let always_id = egui::Id::new(("files-already-always", place));
+    let always = ctx.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
     modal(ctx, format!("Files Already in the {place}")).show(ctx, |ui| {
         ui.label(said);
         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
@@ -3022,9 +3033,38 @@ pub(crate) fn files_already(
                 answer = Some(Already::Cancel);
             }
         });
+        always_box(
+            ui,
+            always_id,
+            "Always do this",
+            &format!("{QUESTIONS_AT} › Files there already"),
+        );
     });
+    // (Always so: Options' choice, from now on.)
+    match answer {
+        Some(Already::Replace) if always => *there = FilesThere::Replace,
+        Some(Already::Skip) if always => *there = FilesThere::Skip,
+        _ => {}
+    }
     answer
 }
+
+/// A question's "Always do this" box (`id`: the question's, its state kept
+/// while it is asked), on hover where Options changes it again
+/// (`options_at`, "Tools › Options › General › Questions"): whether it is
+/// ticked. Asked for by a builder (Carcerian): a question always given
+/// the same answer is answered once.
+pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &str) -> bool {
+    let mut on = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    ui.checkbox(&mut on, label).on_hover_text(format!(
+        "Your answer is kept, and this isn't asked again: {options_at} changes it"
+    ));
+    ui.data_mut(|d| d.insert_temp(id, on));
+    on
+}
+
+/// Where the questions' answers are kept, for [`always_box`]'s tip.
+pub(crate) const QUESTIONS_AT: &str = "Tools › Options › General › Questions";
 
 /// A dialog's Cancel button: clicked, or Escape pressed for its window.
 pub(crate) fn cancel(ui: &mut Ui) -> bool {

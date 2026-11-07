@@ -158,6 +158,25 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     assert_eq!(read("chess.png"), drawn(&h, chess, false), "unmarked now");
     let said = h.state().log.entries.last().unwrap().1.clone();
     assert!(said.starts_with("Wrote 2 minimaps to "), "{said}");
+    // Skip Those: the files there left as they are (the notes not drawn).
+    into(&mut h, "Export Minimaps with Map Notes…");
+    h.get_by_label("Skip Those").click();
+    h.run_steps(3);
+    assert_eq!(read("chess.png"), drawn(&h, chess, false), "left as it was");
+    // Always do this: Options' choice, and not asked again (a builder's
+    // ask: a question always given the same answer).
+    use mg_ui::settings::FilesThere;
+    assert_eq!(h.state().settings.files_there, FilesThere::Ask);
+    into(&mut h, "Export Minimaps with Map Notes…");
+    h.get_by_label("Always do this").click();
+    h.run_steps(2);
+    h.get_by_label("Overwrite").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.files_there, FilesThere::Replace);
+    assert_eq!(read("chess.png"), one, "written over");
+    into(&mut h, "Export Minimaps…");
+    assert!(h.state().dialog_export_ask.is_none(), "not asked");
+    assert_eq!(read("chess.png"), drawn(&h, chess, false), "written over without asking");
 }
 
 /// Area Properties › Visual: another area's lighting given to this one

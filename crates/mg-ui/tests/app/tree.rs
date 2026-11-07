@@ -1734,6 +1734,56 @@ fn each_kind_plugin(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Delete… asks first; Don't ask when nothing else names them makes it
+/// Options › General › Questions' switch: what nothing names is then
+/// deleted at once, and what something names is still asked about (a
+/// builder's ask: a question always given the same answer).
+#[test]
+fn delete_is_answered_once_for_what_nothing_names() {
+    let dir = mg_testkit::scratch_dir("ui-delete-always");
+    let path = dir.join("m.mod");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    for n in ["one", "two"] {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    }
+    m.set(
+        ResKey::parse("caller", ResType::NSS).unwrap(),
+        b"void main() { ExecuteScript(\"two\", OBJECT_SELF); }\n".to_vec(),
+    );
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let has = |h: &Harness<'_, Moonglow>, n: &str| {
+        h.state().ws.as_ref().unwrap().module.contains(&ResKey::parse(n, ResType::NSS).unwrap())
+    };
+    let one = ResKey::parse("one", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(one));
+    h.run_steps(3);
+    h.get_by_label("Don't ask when nothing else names them").click();
+    h.run_steps(2);
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert!(!has(&h, "one"));
+    assert!(h.state().settings.delete_without_asking);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    // Not asked again where nothing names it.
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(one));
+    h.run_steps(4);
+    assert!(h.state().confirm_delete.is_none(), "not asked");
+    assert!(!has(&h, "one"), "deleted at once");
+    // Asked about what something names, saying what.
+    let two = ResKey::parse("two", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(two));
+    h.run_steps(4);
+    assert!(h.state().confirm_delete.is_some(), "asked");
+    h.get_by_label_contains("Spelled out in scripts (1)");
+    assert!(has(&h, "two"));
+}
+
 /// A right click on the row `label` (the pointer brought to it first, as
 /// a builder's is), and the frames that open its menu.
 fn right_click(h: &mut Harness<'_, Moonglow>, label: &str) {

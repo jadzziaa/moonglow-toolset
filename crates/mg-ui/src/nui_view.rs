@@ -241,6 +241,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             .collect();
         let answer = crate::widgets::files_already(
             ui.ctx(),
+            &mut app.settings.files_there,
             "Module",
             "The module has these already, otherwise than the files imported:",
             &taken,

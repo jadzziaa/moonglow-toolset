@@ -86,6 +86,32 @@ pub enum TalkReuse {
     Use,
     /// Adds another line.
     Add,
+    /// Keeps the text in the file, as Aurora writes it.
+    File,
+}
+
+/// What to do with files that are there already where Moonglow writes
+/// (Options › General › Questions): a hak's added files, a model's Export
+/// Files, conversations or minimaps exported, NUI windows imported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilesThere {
+    /// Asks: replace them, skip them, or cancel.
+    #[default]
+    Ask,
+    Replace,
+    Skip,
+}
+
+/// What equipping a creature with an item it lacks the feats for does
+/// (Options › General › Questions; Aurora asks, Yes adding the feats).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissingFeats {
+    #[default]
+    Ask,
+    /// Adds the feats and equips it (Aurora's Yes).
+    Add,
+    /// Leaves it unequipped (Aurora's No).
+    Refuse,
 }
 
 /// sharp as the picture's, anti-aliased with it), dearer in the largest
@@ -473,6 +499,16 @@ pub struct Settings {
     /// Options › General: what Export does with an archive that is there
     /// already (its question's "Always do this" sets it too).
     pub export_existing: ExistingArchive,
+    /// Options › General › Questions: files there already where Moonglow
+    /// writes (the question's "Always do this" sets it too).
+    pub files_there: FilesThere,
+    /// Options › General › Questions: equipping an item a creature lacks
+    /// the feats for.
+    pub missing_feats: MissingFeats,
+    /// Options › General › Questions: Ask before deleting from the
+    /// module, unticked: what nothing else names is deleted at once (what
+    /// something names is still asked about, the window saying what).
+    pub delete_without_asking: bool,
     /// View: the module tree, the log and the palettes folded away.
     pub hide_tree: bool,
     pub hide_log: bool,

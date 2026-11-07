@@ -263,6 +263,7 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
             (None, Some(row)) => match app.settings.talk_reuse {
                 TalkReuse::Use => Answer::Use(row),
                 TalkReuse::Add => Answer::Add,
+                TalkReuse::File => Answer::File,
                 TalkReuse::Ask => {
                     app.typed.ask = Some(Ask { cmd, text: w.text.clone(), row, answers });
                     return;
@@ -441,6 +442,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
     let mut open = true;
+    let mut always = false;
     let title = "Text in the Talk Table";
     crate::widgets::modal(ctx, title).open(&mut open).show(ctx, |ui| {
         ui.set_max_width(420.0);
@@ -476,8 +478,21 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 answer = Some(Answer::File);
             }
         });
-        ui.weak("Options › Language says what to do without asking.");
+        always = crate::widgets::always_box(
+            ui,
+            egui::Id::new("talk-typed-always"),
+            "Always do this",
+            "Tools › Options › Language › When the talk table has the text",
+        );
     });
+    // (Always so: Options › Language's choice, from now on.)
+    if always && let Some(a) = answer {
+        app.settings.talk_reuse = match a {
+            Answer::Use(_) => TalkReuse::Use,
+            Answer::Add => TalkReuse::Add,
+            Answer::File => TalkReuse::File,
+        };
+    }
     if !open || crate::widgets::escape_closes(ctx, title) {
         answer = answer.or(Some(Answer::File));
     }

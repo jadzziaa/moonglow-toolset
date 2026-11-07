@@ -702,7 +702,9 @@ pub(crate) fn export_window(app: &mut Moonglow, ctx: &egui::Context) {
         "Write the other files and leave the folder's as they are",
     ];
     use crate::widgets::Already;
-    let Some(answer) = crate::widgets::files_already(ctx, "Folder", &said, &files, tips) else {
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Folder", &said, &files, tips)
+    else {
         return;
     };
     app.model_export = None;

@@ -156,12 +156,21 @@ fn a_text_the_talk_table_has_is_asked_about() {
     assert_eq!(english(&module_name(&mut h)), Some(&b"Sample"[..]));
     assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "The Keep");
 
-    // Kept in the file: Aurora's way, for that text.
+    // Kept in the file: Aurora's way, for that text; Always do this makes
+    // it Options › Language's choice, not asked again.
     retype(&mut h, "Sample", "The Keep");
+    h.get_by_label("Always do this").click();
+    h.run();
     h.get_by_label("Keep in the File").click();
     settle(&mut h);
     let name = module_name(&mut h);
     assert_eq!((name.strref, english(&name)), (mg_core::StrRef::NONE, Some(&b"The Keep"[..])));
+    assert_eq!(h.state().settings.talk_reuse, mg_ui::settings::TalkReuse::File);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    retype(&mut h, "Sample", "The Keep");
+    assert!(h.query_by_label("Text in the Talk Table").is_none(), "not asked");
+    assert_eq!(module_name(&mut h).strref, mg_core::StrRef::NONE, "kept in the file");
 
     // Options say "Add a line": another, not asked; without a range, at
     // the table's end.

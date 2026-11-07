@@ -947,7 +947,8 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
         "Add the other files and leave the hak's as they are",
     ];
     use crate::widgets::Already;
-    let Some(answer) = crate::widgets::files_already(ctx, "Hak", &said, &files, tips) else {
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Hak", &said, &files, tips) else {
         return;
     };
     app.haks[i].adding = None;

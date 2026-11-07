@@ -158,6 +158,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if app.closing {
         let mut open = true;
         let mut answer = None;
+        let mut always = false;
         crate::widgets::dialog(&ctx, "Close Moonglow?", &mut open)
             .collapsible(false)
             .resizable(false)
@@ -171,11 +172,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         answer = Some(false);
                     }
                 });
-                ui.weak("Options › General: Ask before the window is closed");
+                always = crate::widgets::always_box(
+                    ui,
+                    egui::Id::new("close-always"),
+                    "Don't ask again",
+                    "Tools › Options › General › Questions › Ask before the window is closed",
+                );
             });
         if let Some(close) = answer {
             app.closing = false;
             if close {
+                // (Not asked again: Options' switch, from now on.)
+                if always {
+                    app.settings.close_without_asking = true;
+                }
                 app.actions.push(Action::Quit);
             }
         } else if !open {

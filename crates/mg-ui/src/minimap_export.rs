@@ -78,7 +78,7 @@ impl Moonglow {
             self.write_minimaps(&keys, notes, &dir);
         } else {
             let what = Exported::Minimaps { notes };
-            self.dialog_export_ask = Some(Ask { keys, what, dir, existing });
+            self.ask_or_write(Ask { keys, what, dir, existing });
         }
     }
 

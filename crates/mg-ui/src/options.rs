@@ -10,7 +10,9 @@ use egui::Ui;
 use mg_resman::GameInstall;
 
 use crate::script_view::Palette;
-use crate::settings::{ExistingArchive, ModuleFolders, SCRIPT_ELEMENTS, ScriptStyle};
+use crate::settings::{
+    ExistingArchive, FilesThere, MissingFeats, ModuleFolders, SCRIPT_ELEMENTS, ScriptStyle,
+};
 use crate::{Action, Moonglow, Settings};
 
 /// The Options window's pages.
@@ -75,6 +77,9 @@ pub struct OptionsDraft {
     pub mod_beside_folder: bool,
     pub module_folders: ModuleFolders,
     pub export_existing: ExistingArchive,
+    pub files_there: FilesThere,
+    pub missing_feats: MissingFeats,
+    pub ask_before_delete: bool,
     pub area_names: bool,
     pub categories_by_name: bool,
     pub drag_windows_anywhere: bool,
@@ -237,6 +242,9 @@ impl OptionsDraft {
             mod_beside_folder: !s.no_mod_beside_folder,
             module_folders: s.module_folders,
             export_existing: s.export_existing,
+            files_there: s.files_there,
+            missing_feats: s.missing_feats,
+            ask_before_delete: !s.delete_without_asking,
             area_names: s.area_names,
             categories_by_name: s.categories_by_name,
             drag_windows_anywhere: s.drag_windows_anywhere,
@@ -342,6 +350,9 @@ impl OptionsDraft {
             no_mod_beside_folder: !self.mod_beside_folder,
             module_folders: self.module_folders,
             export_existing: self.export_existing,
+            files_there: self.files_there,
+            missing_feats: self.missing_feats,
+            delete_without_asking: !self.ask_before_delete,
             area_names: self.area_names,
             categories_by_name: self.categories_by_name,
             drag_windows_anywhere: self.drag_windows_anywhere,
@@ -1418,6 +1429,11 @@ fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft, project: Option<&(String, b
                 (TalkReuse::Ask, "Ask", "Use that line, add another, or keep the text in the file"),
                 (TalkReuse::Use, "Use that line", "The field names the line the table has"),
                 (TalkReuse::Add, "Add a line", "A new line with the same text"),
+                (
+                    TalkReuse::File,
+                    "Keep it in the file",
+                    "The text is the field's own, as Aurora writes it",
+                ),
             ] {
                 ui.radio_value(&mut draft.talk_reuse, value, label).on_hover_text(tip);
             }
@@ -1709,45 +1725,8 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         });
         ui.label("minutes");
     });
-    ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Exporting to an archive there");
-        let name = |c: &ExistingArchive| match c {
-            ExistingArchive::Ask => "Ask: append or overwrite",
-            ExistingArchive::Append => "Append to it",
-            ExistingArchive::Overwrite => "Overwrite it",
-        };
-        let all = [ExistingArchive::Ask, ExistingArchive::Append, ExistingArchive::Overwrite];
-        crate::widgets::dropdown("export-existing")
-            .selected_text(name(&draft.export_existing))
-            .show(ui, &mut draft.export_existing, &all, name)
-            .on_hover_text(
-                "File › Export… to an .erf that is there already: \
-                 asked each time, as Aurora asks; or always appended to \
-                 (the resources added, those of the same names replaced, \
-                 the rest it holds kept); or always overwritten (a new \
-                 archive of the resources exported alone)",
-            );
-    });
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Opening modules");
-    ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "A .mod with its folder beside it");
-        let name = |c: &ModuleFolders| match c {
-            ModuleFolders::Ask => "Ask which to open",
-            ModuleFolders::Folder => "Open the folder",
-            ModuleFolders::Module => "Open the .mod",
-        };
-        let all = [ModuleFolders::Ask, ModuleFolders::Folder, ModuleFolders::Module];
-        crate::widgets::dropdown("module-folders")
-            .selected_text(name(&draft.module_folders))
-            .show(ui, &mut draft.module_folders, &all, name)
-            .on_hover_text(
-                "A module opened as name.mod, with a folder named name \
-                 beside it (a module directory, as Aurora keeps one): \
-                 asked, as Aurora asks, or always the folder (Aurora's \
-                 Always open module directories), or always the .mod",
-            );
-    });
     ui.checkbox(&mut draft.last_area, "Open a module on the area opened last")
         .on_hover_text("The first time, on the first area the module tree lists");
     ui.checkbox(&mut draft.reopen_tabs, "Open a module with the tabs it had when it was closed")
@@ -1785,10 +1764,6 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     graphics_backend(ui, draft, drawing_with);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Windows and tabs");
-    ui.checkbox(&mut draft.ask_before_closing, "Ask before the window is closed").on_hover_text(
-        "The window's close button asks first, where there are no \
-         unsaved changes to ask about (File › Exit does not)",
-    );
     ui.checkbox(&mut draft.properties_together, "Open Properties as tabs of one window")
         .on_hover_text(
             "A blueprint's or a placed object's Properties open as a tab of \
@@ -1860,6 +1835,90 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
          armor's inventory icon as a woman's inventory shows it, in \
          inventories, the palette and the item's Properties (whose \
          Shown on changes it too); off, a man's",
+    );
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Questions");
+    ui.weak("What Moonglow asks, answered here once for all: each question's \"Always do this\" sets it too.");
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "A .mod with its folder beside it");
+        let name = |c: &ModuleFolders| match c {
+            ModuleFolders::Ask => "Ask which to open",
+            ModuleFolders::Folder => "Open the folder",
+            ModuleFolders::Module => "Open the .mod",
+        };
+        let all = [ModuleFolders::Ask, ModuleFolders::Folder, ModuleFolders::Module];
+        crate::widgets::dropdown("module-folders")
+            .selected_text(name(&draft.module_folders))
+            .show(ui, &mut draft.module_folders, &all, name)
+            .on_hover_text(
+                "A module opened as name.mod, with a folder named name \
+                 beside it (a module directory, as Aurora keeps one): \
+                 asked, as Aurora asks, or always the folder (Aurora's \
+                 Always open module directories), or always the .mod",
+            );
+    });
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Exporting to an archive there");
+        let name = |c: &ExistingArchive| match c {
+            ExistingArchive::Ask => "Ask: append or overwrite",
+            ExistingArchive::Append => "Append to it",
+            ExistingArchive::Overwrite => "Overwrite it",
+        };
+        let all = [ExistingArchive::Ask, ExistingArchive::Append, ExistingArchive::Overwrite];
+        crate::widgets::dropdown("export-existing")
+            .selected_text(name(&draft.export_existing))
+            .show(ui, &mut draft.export_existing, &all, name)
+            .on_hover_text(
+                "File › Export… to an .erf that is there already: \
+                 asked each time, as Aurora asks; or always appended to \
+                 (the resources added, those of the same names replaced, \
+                 the rest it holds kept); or always overwritten (a new \
+                 archive of the resources exported alone)",
+            );
+    });
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Files there already");
+        let name = |c: &FilesThere| match c {
+            FilesThere::Ask => "Ask: replace or skip them",
+            FilesThere::Replace => "Replace them",
+            FilesThere::Skip => "Skip them",
+        };
+        let all = [FilesThere::Ask, FilesThere::Replace, FilesThere::Skip];
+        crate::widgets::dropdown("files-there")
+            .selected_text(name(&draft.files_there))
+            .show(ui, &mut draft.files_there, &all, name)
+            .on_hover_text(
+                "Files of the same names where Moonglow writes: files added to a hak, a \
+                 model's Export Files, conversations or minimaps exported into a folder, NUI \
+                 windows imported. Asked each time, or always replaced, or always left as they \
+                 are (the others written)",
+            );
+    });
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Equipping without the feats");
+        let name = |c: &MissingFeats| match c {
+            MissingFeats::Ask => "Ask, as Aurora",
+            MissingFeats::Add => "Add the feats",
+            MissingFeats::Refuse => "Don't equip it",
+        };
+        let all = [MissingFeats::Ask, MissingFeats::Add, MissingFeats::Refuse];
+        crate::widgets::dropdown("missing-feats")
+            .selected_text(name(&draft.missing_feats))
+            .show(ui, &mut draft.missing_feats, &all, name)
+            .on_hover_text(
+                "Equipping a creature with an item it lacks the feats for (a creature's \
+                 Inventory page): asked, as Aurora asks; or the feats added and the item \
+                 equipped; or the item left unequipped",
+            );
+    });
+    ui.checkbox(&mut draft.ask_before_delete, "Ask before deleting from the module").on_hover_text(
+        "Delete… in the module tree asks first; unticked, what nothing else in the module names \
+         is deleted at once (Undo brings it back), and what something names is still asked \
+         about, the window saying what",
+    );
+    ui.checkbox(&mut draft.ask_before_closing, "Ask before the window is closed").on_hover_text(
+        "The window's close button asks first, where there are no \
+         unsaved changes to ask about (File › Exit does not)",
     );
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Warnings");

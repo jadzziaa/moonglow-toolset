@@ -327,6 +327,23 @@ fn equipping_without_the_feat_asks_to_add_it() {
     h.run();
     assert!(feats(&mut h).is_empty());
     assert_eq!(primary(&mut h), before);
+    // Always do this: Options' choice, and not asked again (a builder's
+    // ask: a question always given the same answer).
+    use mg_ui::settings::MissingFeats;
+    h.get_all_by_label("Equip").nth(5).unwrap().click();
+    h.run();
+    h.get_by_label("Always do this").click();
+    h.run();
+    h.get_by_label("Yes").click();
+    h.run();
+    assert_eq!(h.state().settings.missing_feats, MissingFeats::Add);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(feats(&mut h).is_empty());
+    h.get_all_by_label("Equip").nth(5).unwrap().click();
+    h.run();
+    assert!(h.query_by_label("Missing Feats").is_none(), "not asked");
+    assert_eq!((primary(&mut h).as_deref(), feats(&mut h)), (Some("nw_waxbt001"), vec![45]));
 }
 
 /// Find in Palette on an equipped item chooses its blueprint in the
