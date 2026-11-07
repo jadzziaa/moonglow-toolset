@@ -379,6 +379,105 @@ fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
     assert_eq!(answer("Cancel"), [keep], "nothing written");
 }
 
+/// File dialogs that answer from `NoDialogs`' lists and note where each
+/// started (what a save suggested, where an open began).
+struct Started(NoDialogs, std::rc::Rc<std::cell::RefCell<Vec<Option<std::path::PathBuf>>>>);
+
+impl mg_ui::Dialogs for Started {
+    fn open_file(
+        &mut self,
+        kind: mg_ui::FileKind,
+        start: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        self.1.borrow_mut().push(start.map(std::path::Path::to_path_buf));
+        mg_ui::Dialogs::open_file(&mut self.0, kind, start)
+    }
+    fn save_file(
+        &mut self,
+        kind: mg_ui::FileKind,
+        suggested: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        self.1.borrow_mut().push(suggested.map(std::path::Path::to_path_buf));
+        mg_ui::Dialogs::save_file(&mut self.0, kind, suggested)
+    }
+    fn pick_folder(
+        &mut self,
+        title: &str,
+        start: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        mg_ui::Dialogs::pick_folder(&mut self.0, title, start)
+    }
+}
+
+/// Export's and Import's file dialogs open in the user folder's `erf`
+/// folder, as Aurora's do (a builder's uploader watches it), then where
+/// the last archive was written or read (Carcerian's ask on Discord,
+/// 2026-11-06); in the module's folder without either.
+#[test]
+fn export_and_import_open_in_the_erf_folder_then_the_last_one() {
+    let dir = mg_testkit::scratch_dir("ui-export-folder");
+    let source = sample_module(&dir);
+    let user = dir.join("user");
+    let erf_dir = user.join("erf");
+    let other = dir.join("other");
+    std::fs::create_dir_all(&erf_dir).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let area = ResKey::parse("start", ResType::ARE).unwrap();
+    let written = other.join("start.erf");
+    let started = std::rc::Rc::default();
+    let dialogs = NoDialogs {
+        save: vec![written.clone(), written.clone()],
+        open: vec![written.clone()],
+        ..Default::default()
+    };
+    let export = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
+        h.run();
+        h.get_by_label("Export 1…").click();
+        h.run();
+        if h.state().export_ask.is_some() {
+            h.get_by_label("No").click();
+            h.run();
+        }
+    };
+
+    // No user folder: the module's folder, as before.
+    let mut app =
+        Moonglow::new(None, Box::new(Started(NoDialogs::default(), std::rc::Rc::clone(&started))));
+    app.open_module(&source);
+    let mut h = window_harness(app);
+    export(&mut h);
+    assert_eq!(started.borrow().as_slice(), [Some(dir.join("start.erf"))]);
+    assert_eq!(h.state().settings.erf_folder, None, "cancelled: nothing remembered");
+    started.borrow_mut().clear();
+
+    // The user folder's `erf` first.
+    let mut app = Moonglow::new(None, Box::new(Started(dialogs, std::rc::Rc::clone(&started))));
+    app.install = Some(mg_resman::GameInstall::new(dir.join("game"), Some(user.clone()), "en"));
+    app.open_module(&source);
+    let mut h = window_harness(app);
+    export(&mut h);
+    assert!(written.is_file());
+    assert_eq!(started.borrow().as_slice(), [Some(erf_dir.join("start.erf"))]);
+    assert_eq!(h.state().settings.erf_folder.as_ref(), Some(&other), "remembered");
+    // Then the folder last written: Export's and Import's.
+    export(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    h.run();
+    assert_eq!(
+        started.borrow()[1..],
+        [Some(other.join("start.erf")), Some(other.clone())],
+        "the folder last written"
+    );
+    // A remembered folder that is gone: the `erf` folder again.
+    std::fs::remove_dir_all(&other).unwrap();
+    started.borrow_mut().clear();
+    h.state_mut().import = None;
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    h.run();
+    assert_eq!(started.borrow().as_slice(), [Some(erf_dir.clone())]);
+}
+
 #[test]
 fn export_then_import_into_another_module() {
     let dir = mg_testkit::scratch_dir("ui-transfer");

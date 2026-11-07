@@ -212,12 +212,34 @@ impl Moonglow {
         })
     }
 
+    /// Where Export's and Import's file dialogs open: the folder of the
+    /// archive last written or read, else the user folder's `erf` (where
+    /// `nwn.ini` puts it), as Aurora's open, else the module's folder.
+    pub(crate) fn erf_folder(&self) -> Option<PathBuf> {
+        let last = self.settings.erf_folder.clone().filter(|d| d.is_dir());
+        last.or_else(|| {
+            let erf = self.install.as_ref().and_then(|i| i.user_folder("erf"));
+            erf.filter(|d| d.is_dir())
+        })
+        .or_else(|| self.module_path().and_then(|p| p.parent().map(Path::to_path_buf)))
+    }
+
+    /// An archive chosen in Export's or Import's file dialog: its folder
+    /// is where they open next.
+    fn erf_chosen(&mut self, path: &Path) {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            self.settings.erf_folder = Some(dir.to_path_buf());
+        }
+    }
+
     /// File › Import…: an archive's resources.
     pub(crate) fn open_import(&mut self) {
         if self.ws.is_none() {
             return;
         }
-        let Some(path) = self.dialogs.open_file(FileKind::Erf, None) else { return };
+        let start = self.erf_folder();
+        let Some(path) = self.dialogs.open_file(FileKind::Erf, start.as_deref()) else { return };
+        self.erf_chosen(&path);
         self.import_archive(&path);
     }
 
@@ -703,11 +725,11 @@ impl Moonglow {
         let comments = mg_module::stamp::describe("", &stamp);
         let bytes = mg_module::transfer::export_erf(&staged, &plan.resources, &comments, false);
         let first = roots[0];
-        let suggested = (self.module_path())
-            .and_then(|p| p.parent().map(|d| d.join(format!("{}.erf", first.resref))));
+        let suggested = self.erf_folder().map(|d| d.join(format!("{}.erf", first.resref)));
         let Some(path) = self.dialogs.save_file(FileKind::Erf, suggested.as_deref()) else {
             return;
         };
+        self.erf_chosen(&path);
         match bytes
             .map_err(|e| e.to_string())
             .and_then(|b| std::fs::write(&path, b).map_err(|e| format!("{}: {e}", path.display())))
@@ -759,14 +781,13 @@ impl Moonglow {
             // alone brings no objects. Export as Files takes them too.)
             mg_module::transfer::with_companions(&ws.module, &roots)
         };
-        let suggested = self
-            .module_path()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        let suggested = (self.erf_folder())
             .zip(roots.first())
             .map(|(dir, k)| dir.join(format!("{}.erf", k.resref)));
         let Some(path) = self.dialogs.save_file(FileKind::Erf, suggested.as_deref()) else {
             return;
         };
+        self.erf_chosen(&path);
         // An archive that is there: asked about first, as Aurora asks.
         if path.exists() {
             self.export_ask = Some(ExportAsk { draft, resources, path });

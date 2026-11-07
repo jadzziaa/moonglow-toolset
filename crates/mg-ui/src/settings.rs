@@ -699,6 +699,10 @@ pub struct Settings {
     pub key_bindings: std::collections::BTreeMap<String, Vec<String>>,
     /// Build › Publish to NWSync: the repository folder last written.
     pub nwsync_repository: Option<PathBuf>,
+    /// File › Export… and Import…: the folder of the archive last written
+    /// or read, where their file dialogs open next (before one: the user
+    /// folder's `erf`, as Aurora's open).
+    pub erf_folder: Option<PathBuf>,
     /// Options › Folders: the command that sends the NWSync repository to
     /// the web server, once for each part (`{folder}`, `{part}`), where
     /// the project names none (`[nwsync] upload`).

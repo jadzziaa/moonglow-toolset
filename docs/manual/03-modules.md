@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T09:13:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T00:58:21Z }
 ---
 
 # Modules
@@ -2138,7 +2138,10 @@ plugin reads a description with `mg.twoda.describe`
 ## Import and export
 
 - **File › Export…** writes chosen resources to an `.erf` archive.
-  Two options add the module resources they use (an area its blueprints,
+  Its file dialog opens in the user folder's `erf` folder (where
+  `nwn.ini` puts it), as Aurora's does, and from then on in the folder
+  of the archive last exported or imported (Export as Blueprint and
+  Import… share it), which Moonglow remembers between sessions. Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
   Right-click a resource in the tree to export it (**Export ›
