@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.13.0" date="2026-11-07">
+      <description>
+        <p>A new release opens the update window, asking. Adjust Location
+        from the module tree, an option to hide its empty groups, and
+        Export's question with Append and Overwrite. A click passes a
+        locked object to the one behind it.</p>
+      </description>
+    </release>
     <release version="3.12.2" date="2026-11-06">
       <description>
         <p>Export and Import open in the user folder's erf folder, as
