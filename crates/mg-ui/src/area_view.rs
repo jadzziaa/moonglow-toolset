@@ -1198,15 +1198,14 @@ impl AreaView {
         let (model, scene, ray) = (self.model.as_ref()?, self.scene.as_ref()?, self.ray(pos)?);
         // (By the models themselves: a click through the empty part of a
         // wide box reaches what is behind it.)
-        let found = pick_precisely(
+        pick_precisely(
             model,
             &ray,
             &|i| scene.bounds(model, i),
             &|i| scene.ray_hit(model, i, &ray),
-            &|k| self.show[k.index()],
-        )?;
-        // Locked objects can't be picked.
-        (!model.objects[found].locked).then_some(found)
+            // (Locked objects can't be picked: a click passes them by.)
+            &|o| self.show[o.kind.index()] && !o.locked,
+        )
     }
 
     /// The tile at a column and row, for the view's readout: its model's

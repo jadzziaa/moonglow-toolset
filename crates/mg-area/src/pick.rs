@@ -4,7 +4,7 @@
 use glam::{Mat4, Vec2, Vec3};
 use mg_render::Camera;
 
-use crate::{AreaModel, ObjectKind};
+use crate::{AreaModel, AreaObject, ObjectKind};
 
 /// A ray from `origin` along `dir` (unit length).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -145,7 +145,8 @@ pub fn marker_bounds(kind: ObjectKind) -> (Vec3, Vec3) {
 
 /// The nearest object `ray` meets: objects by their boxes (`bounds` gives
 /// object `i`'s, in its own space), triggers and encounters by their
-/// outlines. Only objects `shown` count.
+/// outlines. Only objects `pickable` takes count: one it leaves (hidden,
+/// locked) is passed by, and the click reaches what is behind it.
 ///
 /// An object with a model is picked by the model itself where `model`
 /// tells (how far along the ray it meets object `i`'s triangles;
@@ -159,25 +160,24 @@ pub fn pick_precisely(
     ray: &Ray,
     bounds: &dyn Fn(usize) -> (Vec3, Vec3),
     model: &dyn Fn(usize) -> Option<Option<f32>>,
-    shown: &dyn Fn(ObjectKind) -> bool,
+    pickable: &dyn Fn(&AreaObject) -> bool,
 ) -> Option<usize> {
-    let hits =
-        area.objects.iter().enumerate().filter(|(_, o)| shown(o.kind)).filter_map(|(i, o)| {
-            if o.kind.has_outline() {
-                // Outlines lie on the ground: whatever stands on them is nearer.
-                return ray.hits_outline(&o.outline).map(|t| (i, Hit::Met(t)));
-            }
-            let (min, max) = bounds(i);
-            let boxed = ray.hits_box(min, max, o.model_transform())?;
-            Some((
-                i,
-                match model(i) {
-                    None => Hit::Met(boxed),
-                    Some(Some(t)) => Hit::Met(t),
-                    Some(None) => Hit::Beside(boxed),
-                },
-            ))
-        });
+    let hits = area.objects.iter().enumerate().filter(|(_, o)| pickable(o)).filter_map(|(i, o)| {
+        if o.kind.has_outline() {
+            // Outlines lie on the ground: whatever stands on them is nearer.
+            return ray.hits_outline(&o.outline).map(|t| (i, Hit::Met(t)));
+        }
+        let (min, max) = bounds(i);
+        let boxed = ray.hits_box(min, max, o.model_transform())?;
+        Some((
+            i,
+            match model(i) {
+                None => Hit::Met(boxed),
+                Some(Some(t)) => Hit::Met(t),
+                Some(None) => Hit::Beside(boxed),
+            },
+        ))
+    });
     nearest(hits)
 }
 

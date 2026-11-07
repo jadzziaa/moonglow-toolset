@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T12:50:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T05:50:00Z }
 ---
 
 # Areas
@@ -647,7 +647,7 @@ Aurora):
 
   Objects keep their height above the ground.
 - **Lock**: locked objects can't be selected by a click or a box, so you
-  can work around them. **Unlock All** (on any part of the area) frees
+  can work around them: a click on one picks what is behind it. **Unlock All** (on any part of the area) frees
   them. Moonglow marks a locked object with a field of its own
   (`MG_Locked`), which the game ignores. Aurora drops it when it saves,
   unlocking the object. A nasher project's files don't carry it: Moonglow

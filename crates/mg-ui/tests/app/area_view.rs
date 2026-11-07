@@ -4040,6 +4040,57 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
     assert_eq!(distance(&h), before, "the area isn't zoomed from under the window");
 }
 
+/// A click on a locked object picks what is behind it, as the manual says
+/// (locked so that you can work around it), for the owner's report: the
+/// click was taken by the locked placeable in front and picked nothing.
+#[test]
+fn a_click_passes_a_locked_object_by_to_the_one_behind_it() {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_harness("locked-in-front") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    // A point of the first waypoint's flag, and where the line from the
+    // eye through it reaches the ground: the second waypoint stands
+    // between, right behind the first.
+    let front = Vec3::new(20.0, 20.0, 1.0);
+    let at = screen(&h, area, front);
+    let ground = h.state().area_views[&area].focus_at(at).unwrap();
+    let behind = front + (ground - front) * 0.4;
+    let set = |label: &str, value: f32| mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("WaypointList", 1),
+        label: label.into(),
+        value: Some(mg_gff::Value::Float(value)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Move",
+        vec![set("XPosition", behind.x), set("YPosition", behind.y)],
+    )));
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.run_steps(3);
+    let click = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        h.state().area_views[&area].selection.clone()
+    };
+    assert_eq!(click(&mut h), [(Waypoint, 0)], "the one in front, unlocked");
+    // Locked, the one in front is passed by.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Lock",
+        vec![mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("WaypointList", 0),
+            label: mg_area::LOCKED.into(),
+            value: Some(mg_gff::Value::Byte(1)),
+        }],
+    )));
+    h.run_steps(3);
+    assert_eq!(click(&mut h), [(Waypoint, 1)], "the one behind the locked one");
+}
+
 #[test]
 fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;
