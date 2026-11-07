@@ -2539,6 +2539,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     {
         view.selection = objects.clone();
         app.area_select = None;
+        // (The module tree's Adjust Location…: for them.)
+        if app.area_adjust.take_if(|a| *a == area).is_some() {
+            app.adjust = crate::area_tools::adjust(&view);
+        }
     }
     // The start location to go to (Go to Start Location).
     if app.start_focus == Some(area) && view.orbit.is_some() {

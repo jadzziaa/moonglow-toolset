@@ -939,6 +939,10 @@ pub struct Moonglow {
     /// Objects to select in an area's view once it is open (the module
     /// tree's Go To on several).
     pub(crate) area_select: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
+    /// Adjust Location to open for the area's selection once its view has
+    /// selected [`Moonglow::area_select`] (the module tree's Adjust
+    /// Location…).
+    pub(crate) area_adjust: Option<mg_core::ResRef>,
     /// The module tree's row the arrow keys are at (a click puts them
     /// there), whether it is to be brought into view, and a group to open
     /// or close at the next frame.
@@ -1268,6 +1272,7 @@ impl Moonglow {
             tree_objects_anchor: None,
             tree_seen_selection: None,
             area_select: None,
+            area_adjust: None,
             tree_cursor: None,
             tree_cursor_moved: false,
             tree_fold: None,
@@ -3476,6 +3481,7 @@ impl Moonglow {
         self.tree_objects_anchor = None;
         self.tree_seen_selection = None;
         self.area_select = None;
+        self.area_adjust = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)

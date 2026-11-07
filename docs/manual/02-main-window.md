@@ -249,7 +249,9 @@ tags are what scripts and transitions go by); the pointer resting on a
 row shows the other. Click an object to go to it in the area's view,
 selected (the tree stays still, so a second click makes a double click);
 double-click for its Properties; right-click for **Go To**, for
-**Preview** (creatures, doors, items and placeables, as placed),
+**Adjust Location…** (the object, or those chosen, selected in the
+area's view and [Adjust Location](04-areas.md) opened for them, as the
+view's own menu has it), for **Preview** (creatures, doors, items and placeables, as placed),
 **Copy** (pasted in any area with Ctrl+V, as high above the ground as it
 stood, its area's view open or not), **Delete** and **Export as
 Blueprint…** (written into an archive as a blueprint of its own, as Add

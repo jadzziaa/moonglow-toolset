@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-07
+* **Feature**: A placed object's right-click menu in the module tree has **Adjust Location…**, for a builder's ask (Carcerian, on Discord): the object (or those chosen) selected in the area's view, its tab brought up, and Adjust Location opened for them once the view has them, as the view's own menu opens it ([The main window](manual/02-main-window.md)). Tests: `adjust_location_from_a_placed_object_s_row`, `properties_is_the_last_item_of_the_area_and_tree_menus`.
 * **Fix**: A click on a locked object picks what is behind it, for the owner's report (a placeable behind a locked one couldn't be clicked: the click was taken by the locked one, which then picked nothing). The area view leaves locked objects out before it chooses the nearest one the click meets (`mg_area::pick::pick_precisely` takes which objects count), as [Areas](manual/04-areas.md) says it does: locked so that you can work around them. Test: `a_click_passes_a_locked_object_by_to_the_one_behind_it` (failed before the fix: nothing selected).
 
 ## 2026-11-06

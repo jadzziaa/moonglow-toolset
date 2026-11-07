@@ -5545,7 +5545,15 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     // (A waypoint has no Preview.)
     assert_eq!(
         items,
-        ["Go To", "Copy", "Delete", "Export as Blueprint…", "Variables…", "Properties"]
+        [
+            "Go To",
+            "Adjust Location…",
+            "Copy",
+            "Delete",
+            "Export as Blueprint…",
+            "Variables…",
+            "Properties"
+        ]
     );
     h.key_press(egui::Key::Escape);
     h.run_steps(3);

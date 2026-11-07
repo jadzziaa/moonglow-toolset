@@ -1463,6 +1463,30 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
     assert!((lifts[0] - 2.0).abs() < 0.05, "lift {lifts:?}");
 }
 
+/// Adjust Location… on a placed object's row of the module tree selects
+/// it in the area's view and opens Adjust Location for it, as the area
+/// view's menu does (Carcerian's ask on Discord, 2026-11-06).
+#[test]
+fn adjust_location_from_a_placed_object_s_row() {
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_harness("tree-adjust-location") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(3);
+    // The second waypoint (at 30, 20).
+    h.query_all_by_label("NW_WAYPOINT001").nth(1).unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(4);
+    assert_eq!(h.state().area_views[&area].selection, [(Waypoint, 1)]);
+    let adjust = h.state().adjust.clone().expect("Adjust Location open");
+    assert_eq!((adjust.area, adjust.objects), (area, vec![(Waypoint, 1)]));
+    assert!((adjust.position.x - 30.0).abs() < 1e-3, "{:?}", adjust.position);
+    assert!(h.query_by_label("Adjust Location").is_some(), "its window");
+}
+
 /// Export as Blueprint… on a placed object (the module tree's menu, and
 /// the area view's): written into an archive as a blueprint of its own,
 /// named as Add to Palette names one, without where it stood, and not

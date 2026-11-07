@@ -342,6 +342,9 @@ enum Asked {
     /// Written out as a blueprint of its own, in an archive (Export as
     /// Blueprint…).
     Export,
+    /// Selected in the area's view, and Adjust Location opened for it (or
+    /// them).
+    Adjust,
     /// A plugin's command run on it: its place among the plugins'
     /// commands for menus.
     Plugin(usize),
@@ -356,7 +359,7 @@ pub(crate) fn previewable(kind: mg_area::ObjectKind) -> bool {
 /// An area's placed objects under its row of the module tree, kind by
 /// kind as Aurora lists them. A click goes to the object in the area's
 /// view; a double click opens its Properties; a right click has both, and
-/// Copy, Delete, Export as Blueprint… and the plugins' commands for its
+/// Adjust Location…, Copy, Delete, Export as Blueprint… and the plugins' commands for its
 /// kind. Ctrl and Shift with a click choose several (`chosen`, marked),
 /// which a right click on one of them acts on together. With a filter
 /// that some of them match (lower case), only those are listed. Only the
@@ -527,9 +530,12 @@ fn contents_ui(
                             ui.weak(format!("{n} objects chosen"));
                             ui.separator();
                         }
-                        // Variables and Properties last, as in Aurora.
+                        // Variables and Properties last, as in Aurora;
+                        // Adjust Location… after Go To, as the area
+                        // view's menu has it near the top.
                         for (label, asked) in [
                             ("Go To", Asked::Go),
+                            ("Adjust Location…", Asked::Adjust),
                             ("Preview", Asked::Preview),
                             ("Copy", Asked::Copy),
                             ("Delete", Asked::Delete),
@@ -1937,6 +1943,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 app.actions.push(Action::OpenTab(Tab::InstanceModel { area, path }));
             }
             Asked::Export => app.actions.push(Action::ExportObject { area, kind, index }),
+            Asked::Adjust => {
+                // Selected in the area's view (once it is open and has
+                // them), then Adjust Location for them, as its menu's.
+                app.area_focus = Some((area, kind, index));
+                app.area_select = Some((area, targets.clone()));
+                app.area_adjust = Some(area);
+                app.actions.push(Action::OpenTab(Tab::Area(area)));
+            }
             Asked::Go if targets.len() > 1 => {
                 // Each of them selected in the area's view (once it is
                 // open), the camera at the one clicked.
