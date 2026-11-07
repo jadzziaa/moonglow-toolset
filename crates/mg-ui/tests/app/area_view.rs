@@ -1140,6 +1140,71 @@ fn copy_cut_and_paste_objects() {
     assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
 }
 
+/// A paste shows its ghost as soon as Ctrl+V is pressed, the pointer
+/// still (it was drawn only once the pointer moved), and Q and E turn it
+/// before it is put down, about where it goes, as they turn a blueprint
+/// being placed; the selection is not turned (the owner's report).
+#[test]
+fn a_paste_shows_its_ghost_at_once_and_turns_with_q_and_e() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("paste-turn") else { return };
+    let waypoints = |h: &mut Harness<'_, Moonglow>| -> Vec<(glam::Vec2, f32)> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let list = git.root.list("WaypointList").unwrap();
+        list.iter()
+            .map(|w| {
+                let f = |l: &str| w.float(l).unwrap();
+                (
+                    glam::Vec2::new(f("XPosition"), f("YPosition")),
+                    f("YOrientation").atan2(f("XOrientation")),
+                )
+            })
+            .collect()
+    };
+    let both = vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = both.clone();
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    let was = waypoints(&mut h);
+    // Ctrl+V, the pointer not moving: its ghosts, at once.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run();
+    assert!(h.state().area_views[&area].pasting);
+    assert_eq!(h.state().area_views[&area].pasted_shown, 2, "the ghosts, the pointer still");
+    // Q twice: 30° to the left, the copies as one about where they go.
+    for _ in 0..2 {
+        h.key_press(egui::Key::Q);
+        h.run_steps(2);
+    }
+    assert!(!h.state().area_views[&area].key_turning(), "the selection isn't turned");
+    assert_eq!(waypoints(&mut h), was);
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let w = waypoints(&mut h);
+    assert_eq!(w.len(), 4);
+    let turn = 30f32.to_radians();
+    let offset = was[1].0 - was[0].0;
+    let second = glam::Vec2::new(15.0, 30.0) + glam::Vec2::from_angle(turn).rotate(offset);
+    assert!((w[2].0 - glam::Vec2::new(15.0, 30.0)).length() < 0.1, "{w:?}");
+    assert!((w[3].0 - second).length() < 0.1, "{w:?} {second}");
+    for (copy, original) in w[2..].iter().zip(&was) {
+        let d = (copy.1 - original.1 - turn).rem_euclid(std::f32::consts::TAU);
+        assert!(d < 1e-3 || d > std::f32::consts::TAU - 1e-3, "{copy:?} {original:?}");
+    }
+    // The next paste starts unturned.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].paste_turn, 0.0);
+}
+
 /// The classic clipboard keys in the area view: Ctrl+Insert copies the
 /// objects selected, Shift+Insert pastes them, and Shift+Delete cuts them
 /// (into the clipboard: Delete alone deletes, and Shift with it must not).

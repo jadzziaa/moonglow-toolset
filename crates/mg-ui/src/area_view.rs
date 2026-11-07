@@ -515,6 +515,9 @@ pub struct AreaView {
     alt_held: Option<bool>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
+    /// How far Q and E have turned what is being pasted (radians), about
+    /// where it is put down.
+    pub paste_turn: f32,
     /// How many of them were drawn, see-through, last frame.
     pub pasted_shown: usize,
     /// The placed objects' particles, from frame to frame
@@ -1033,6 +1036,7 @@ impl AreaView {
             rectangle: false,
             alt_held: None,
             pasting: false,
+            paste_turn: 0.0,
             pasted_shown: 0,
             particles: std::collections::HashMap::new(),
             particles_shown: 0,
@@ -3006,7 +3010,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
          the next click makes a rectangle to there); right click or Escape: stop"
             .to_string()
     } else if view.pasting {
-        "Pasting: click to place the copies; right click or Escape: stop".to_string()
+        "Pasting: click to place the copies; Q and E turn them; right click or Escape: stop"
+            .to_string()
     } else if app.palette.placing_start {
         "Placing the start location: click to put it here, facing the way the view looks \
          (Shift + click: and again); right click or Escape: stop"
@@ -3209,12 +3214,10 @@ fn viewport(
             let at = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
             let at = at.map(|at| view.snapped(at));
             at.map_or_else(Vec::new, |at| {
-                let places = pasted_positions(view, clip, at);
-                let placed = clip.objects.iter().zip(places).map(|((o, _, _), p)| {
+                let places = pasted_places(view, clip, at);
+                let placed = clip.objects.iter().zip(places).map(|((o, _, _), (p, r))| {
                     let mut o = o.clone();
-                    let moved = p - o.position;
-                    o.outline.iter_mut().for_each(|q| *q += moved);
-                    o.position = p;
+                    pose(&mut o, p, r);
                     o
                 });
                 placed.collect()
@@ -3222,12 +3225,16 @@ fn viewport(
         }
         _ => Vec::new(),
     };
+    // (Each outlined by its model's own box, as a blueprint being placed
+    // is: a fixed marker's box at a large placeable's foot hid what it was.)
+    let mut paste_boxes = Vec::new();
     if let (Some(scene), Some(vp), Some(game)) =
         (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
     {
         for o in &pasted {
-            let (instances, _) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
+            let (instances, bounds) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
             ghost_instances.extend(instances);
+            paste_boxes.push((o.model_transform(), bounds));
         }
     }
     view.pasted_shown = pasted.len();
@@ -3418,6 +3425,7 @@ fn viewport(
             .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
         door_arrows: !app.settings.no_door_arrows,
         ghost_box,
+        paste_boxes,
     };
     // The start location where it is being dragged to.
     let start = match view.drag {
@@ -4136,13 +4144,16 @@ pub(crate) const SPAWN_MARKER: (u8, u8) = (12, 4);
 
 /// What Options › Area adds over the view, and the box of a blueprint
 /// about to be placed (placed by the transform, in its own space).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Marks {
     /// A post over each encounter spawn point: its height and width (m).
     spawn_points: Option<(f32, f32)>,
     /// An arrow along each door's facing.
     door_arrows: bool,
     ghost_box: Option<(glam::Mat4, (Vec3, Vec3))>,
+    /// Each copy being pasted: where its model stands and its box (none
+    /// where the ghost isn't drawn).
+    paste_boxes: Vec<(glam::Mat4, (Vec3, Vec3))>,
 }
 
 /// Markers for objects without models, outlines, the grid, the start
@@ -4348,20 +4359,22 @@ fn overlays(
         && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0))
     {
         let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
-        for ((o, _, _), p) in
-            clip.objects.iter().zip(pasted_positions(view, clip, view.snapped(at)))
-        {
+        let places = pasted_places(view, clip, view.snapped(at));
+        for (k, ((o, _, _), (p, r))) in clip.objects.iter().zip(places).enumerate() {
             if o.kind.has_outline() {
-                let d = p - o.position;
+                let mut o = o.clone();
+                pose(&mut o, p, r);
                 let n = o.outline.len();
                 for k in 0..n {
-                    line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
+                    line(o.outline[k], o.outline[(k + 1) % n], stroke);
                 }
                 continue;
             }
-            let (min, max) = mg_area::pick::marker_bounds(o.kind);
-            let t =
-                glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(o.rotation), p);
+            // (Its model's box where its ghost is drawn, else a marker's.)
+            let (t, (min, max)) = marks.paste_boxes.get(k).copied().unwrap_or_else(|| {
+                let t = glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(r), p);
+                (t, mg_area::pick::marker_bounds(o.kind))
+            });
             for (a, b) in box_edges(t, min, max) {
                 line(a, b, stroke);
             }
@@ -4737,11 +4750,17 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // Q and E turn a blueprint about to be placed (dragged, or chosen in
     // the palette), as they turn a selection; doors face as their hooks do.
     let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some()
-        || crate::paint_mode::active(app).is_some();
+        || crate::paint_mode::active(app).is_some()
+        || view.pasting;
     if placing && !ui.ctx().memory(|m| m.focused().is_some()) {
         for (cmd, by) in turn_keys(view) {
             if ui.input(|i| app.keymap.pressed(i, cmd)) {
-                view.ghost_turn += by;
+                // (What is being pasted turns about where it is put down.)
+                if view.pasting {
+                    view.paste_turn += by;
+                } else {
+                    view.ghost_turn += by;
+                }
             }
         }
         // Page Up and Page Down: up or down to the next flat surface, as
@@ -4831,6 +4850,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         if pasted && !read_only && app.object_clip.is_some() {
             view.pasting = true;
+            view.paste_turn = 0.0;
+            // (Its ghost is drawn before the keys are read: shown at the
+            // next frame, asked for now, not when the pointer next moves.)
+            ui.ctx().request_repaint();
         }
     }
     if view.pasting {
@@ -6202,18 +6225,23 @@ fn copy_selection(app: &mut Moonglow, view: &AreaView) -> Option<ObjectClip> {
 }
 
 /// Where each copied object would stand with the first at `at` (the ground
-/// under the pointer): the same places around it, the same heights above
-/// the ground (outlines at their own).
-fn pasted_positions(view: &AreaView, clip: &ObjectClip, at: Vec3) -> Vec<Vec3> {
+/// under the pointer), and how it would be turned: the same places around
+/// it, the same heights above the ground (outlines at their own), all
+/// turned together by Q and E ([`AreaView::paste_turn`]).
+fn pasted_places(view: &AreaView, clip: &ObjectClip, at: Vec3) -> Vec<(Vec3, f32)> {
+    // (Turned by Q and E as one, about where it is put down: each led
+    // round with the rest, each facing turned with it but a sound's.)
+    let round = Vec2::from_angle(view.paste_turn);
     clip.objects
         .iter()
         .map(|(o, _, lift)| {
-            let xy = at.truncate() + (o.position - clip.anchor).truncate();
+            let xy = at.truncate() + round.rotate((o.position - clip.anchor).truncate());
+            let r = if turns(o.kind) { o.rotation + view.paste_turn } else { o.rotation };
             if o.kind.has_outline() {
-                return xy.extend(o.position.z);
+                return (xy.extend(o.position.z), r);
             }
             let ground = view.ground.as_ref().and_then(|g| g.height(xy, at.z));
-            xy.extend(ground.unwrap_or(at.z) + lift)
+            (xy.extend(ground.unwrap_or(at.z) + lift), r)
         })
         .collect()
 }
@@ -6232,14 +6260,15 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
         .collect();
     let mut edits = Vec::new();
     let mut selection = Vec::new();
-    for ((o, s, _), position) in clip.objects.iter().zip(pasted_positions(view, &clip, at)) {
+    for ((o, s, _), (position, rotation)) in clip.objects.iter().zip(pasted_places(view, &clip, at))
+    {
         let count = counts.get_mut(&o.kind).expect("every kind");
         edits.push(mg_edit::Edit::insert_item(
             git,
             mg_edit::GffPath::root(),
             o.kind.list(),
             *count,
-            mg_area::edit::moved(o, s, position, o.rotation),
+            mg_area::edit::moved(o, s, position, rotation),
         ));
         selection.push((o.kind, *count));
         *count += 1;

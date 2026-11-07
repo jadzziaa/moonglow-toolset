@@ -734,3 +734,66 @@ fn look_surface_steps_on_a_stall() {
     }
     eprintln!("{}", dir.display());
 }
+
+/// A copied placeable being pasted (Ctrl+C, Ctrl+V, the pointer still)
+/// beside the same blueprint being placed from the palette, as pictures:
+/// the paste's ghost against the placement's (the owner's report: the
+/// paste's did not always show as a placement's does). By hand: `cargo
+/// test -p mg-ui --test app -- --ignored a_paste_s_ghost_beside_a_placement`.
+#[test]
+#[ignore]
+fn a_paste_s_ghost_beside_a_placement() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let placed = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let mut chest = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        // (MG_APPEARANCE: another placeables.2da row, a large one say.)
+        if let Some(row) = std::env::var("MG_APPEARANCE").ok().and_then(|r| r.parse().ok()) {
+            chest.set("Appearance", mg_gff::Value::Dword(row));
+        }
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![chest]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("paste-ghost", "ttr01", None, 4, None, &placed)
+    else {
+        return;
+    };
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection = vec![(ObjectKind::Placeable, 0)];
+    if let Some(o) = view.orbit.as_mut() {
+        (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(14.0, 20.0, 0.5), 8.0, -1.57, 0.6);
+    }
+    h.run_steps(10);
+    let dir = mg_testkit::scratch_dir("ui-paste-ghost");
+    let to = screen(&h, area, Vec3::new(16.0, 20.0, 0.0));
+    h.hover_at(to);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(1);
+    h.render().expect("render").save(dir.join("paste-first-frame.png")).unwrap();
+    h.run_steps(5);
+    h.render().expect("render").save(dir.join("paste.png")).unwrap();
+    eprintln!(
+        "pasting {} shown {}",
+        h.state().area_views[&area].pasting,
+        h.state().area_views[&area].pasted_shown
+    );
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.state_mut().palette.selected = ResKey::parse("plc_chest1", ResType::UTP);
+    h.hover_at(to + egui::vec2(1.0, 0.0));
+    h.run_steps(5);
+    h.render().expect("render").save(dir.join("placement.png")).unwrap();
+    eprintln!("{}", dir.display());
+}

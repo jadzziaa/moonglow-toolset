@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T05:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T11:34:23Z }
 ---
 
 # Areas
@@ -791,7 +791,9 @@ placeables around.
   above the list, does (for the one deleted last, until Moonglow is
   closed).
 - **Copy and paste** do the same without a name: Ctrl+C on a selection,
-  Ctrl+V in this area or another. (Copying leaves a line of text on the
+  Ctrl+V in this area or another; **Q** and **E** turn what is being
+  pasted (a prefab too) about where it goes, before it is put down.
+  (Copying leaves a line of text on the
   system's clipboard, "Moonglow Toolset: 3 objects": Windows gives Ctrl+V
   nothing to do with an empty clipboard.) A paste that puts a tag on a
   second object says so: see [Duplicate tags](#duplicate-tags).

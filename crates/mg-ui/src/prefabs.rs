@@ -154,6 +154,7 @@ impl Moonglow {
                 match self.palette.area.and_then(|a| self.area_views.get_mut(&a)) {
                     Some(view) => {
                         view.pasting = true;
+                        view.paste_turn = 0.0;
                         self.log.info(format!("Prefab {name}: click in the area to place it"));
                     }
                     None => {
