@@ -9,8 +9,8 @@ use mg_rules::Choice;
 
 use super::{Form, situated};
 
-pub(super) const PAGES: [&str; 7] =
-    ["Basic", "Area Transition", "Trap", "Scripts", "Advanced", "Visuals", "Comments"];
+pub(super) const PAGES: [&str; 8] =
+    ["Basic", "Area Transition", "Trap", "Scripts", "Advanced", "Variables", "Visuals", "Comments"];
 
 /// Trigger types (`Type`).
 const TYPES: [(i64, &str); 3] = [(0, "Generic"), (1, "Area Transition"), (2, "Trap")];

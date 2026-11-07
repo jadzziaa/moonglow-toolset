@@ -19,7 +19,7 @@ use super::{Form, creature_lists, situated};
 use crate::widgets::{commit_number, spin_number};
 use crate::{Action, Moonglow, Tab};
 
-pub(super) const PAGES: [&str; 13] = [
+pub(super) const PAGES: [&str; 14] = [
     "Basic",
     "Statistics",
     "Appearance",
@@ -31,6 +31,7 @@ pub(super) const PAGES: [&str; 13] = [
     "Inventory",
     "Scripts",
     "Advanced",
+    "Variables",
     "Visuals",
     "Comments",
 ];

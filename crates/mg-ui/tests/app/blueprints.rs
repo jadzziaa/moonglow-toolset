@@ -998,7 +998,10 @@ fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
         h.run();
         let wells: Vec<_> =
             h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).collect();
-        let window = h.get_by_label("Variables").rect();
+        // (The window, not the page's tab of that name.)
+        let window = (h.get_all_by_label("Variables").map(|n| n.rect()))
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .unwrap();
         let swatches: Vec<_> = wells
             .iter()
             .map(|w| w.rect().center())
@@ -2365,6 +2368,64 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     for page in ["Basic", "Advanced", "Comments"] {
         assert_eq!(marks(&mut h, page), 0, "{page}");
     }
+}
+
+/// Every Properties window has a Variables page (Carcerian's ask on
+/// Discord: variables are edited all the time, and the Variables… button
+/// is on the Advanced page): the Variables window's list in place, set as
+/// the window's other fields are, once a field typed in is let go, one
+/// step of Undo; Undo shows it as it was. The Advanced page keeps its
+/// button.
+#[test]
+fn the_variables_page_edits_them_in_place() {
+    let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "wp_vars_page", ResType::UTW)
+    else {
+        return;
+    };
+    let vars = |h: &mut Harness<'_, Moonglow>| -> Vec<(String, Option<i64>)> {
+        (field(h, &key).list("VarTable").map(<[_]>::to_vec).unwrap_or_default())
+            .iter()
+            .map(|v| {
+                (
+                    String::from_utf8_lossy(v.string("Name").unwrap()).into_owned(),
+                    v.integer("Value"),
+                )
+            })
+            .collect()
+    };
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("Variables (0)…");
+    // (The page's tab, over the Advanced page's label beside its button.)
+    h.get_all_by_label("Variables").next().unwrap().click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    // (The row's name, then its value: the last two fields.)
+    let field_from_end = |h: &Harness<'_, Moonglow>, back: usize| {
+        let all: Vec<_> = h.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+        all[all.len() - back].click();
+    };
+    field_from_end(&h, 2);
+    h.run();
+    h.event(egui::Event::Text("MG_LOOT".into()));
+    h.run();
+    assert!(vars(&mut h).is_empty(), "not set while typed in");
+    field_from_end(&h, 1);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("7".into()));
+    h.run();
+    // Let go: set, one step.
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    assert_eq!(vars(&mut h), [("MG_LOOT".to_string(), Some(7))]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Edit variables"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    assert!(vars(&mut h).is_empty());
+    assert!(h.query_by_label("Delete").is_none(), "the page shows it as it is");
 }
 
 #[test]

@@ -36,15 +36,17 @@ pub enum Page {
     Basic,
     Events,
     Advanced,
+    Variables,
     Description,
     CustomContent,
 }
 
 /// The dialog's tabs and their names.
-pub(crate) const PAGES: [(Page, &str); 5] = [
+pub(crate) const PAGES: [(Page, &str); 6] = [
     (Page::Basic, "Basic"),
     (Page::Events, "Events"),
     (Page::Advanced, "Advanced"),
+    (Page::Variables, "Variables"),
     (Page::Description, "Description"),
     (Page::CustomContent, "Custom Content"),
 ];
@@ -126,6 +128,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             Page::Basic => basic(&mut f, ui),
             Page::Events => events(&mut f, ui),
             Page::Advanced => advanced(&mut f, ui),
+            Page::Variables => f.variables_page(ui),
             Page::Description => f.locstring_memo(ui, "Description", ifo::MOD_DESCRIPTION.label),
             Page::CustomContent => {}
         }

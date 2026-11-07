@@ -21,8 +21,8 @@ use super::Form;
 use crate::widgets::spin_number;
 use crate::{Action, Moonglow};
 
-pub(super) const PAGES: [&str; 6] =
-    ["General", "Appearance", "Properties", "Visuals", "Description", "Comments"];
+pub(super) const PAGES: [&str; 7] =
+    ["General", "Appearance", "Properties", "Variables", "Visuals", "Description", "Comments"];
 
 /// The width of the Appearance page's fields beside the model.
 const APPEARANCE_SIDE: f32 = 460.0;

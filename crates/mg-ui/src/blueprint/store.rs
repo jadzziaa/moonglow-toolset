@@ -14,7 +14,8 @@ use super::{Form, situated};
 use crate::Action;
 use crate::widgets::commit_number;
 
-pub(super) const PAGES: [&str; 5] = ["Basic", "Inventory", "Advanced", "Restrictions", "Comments"];
+pub(super) const PAGES: [&str; 6] =
+    ["Basic", "Inventory", "Advanced", "Variables", "Restrictions", "Comments"];
 
 /// The store's inventory pages as Aurora writes them: (`StoreList` struct
 /// id, name).

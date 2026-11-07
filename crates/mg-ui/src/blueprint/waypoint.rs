@@ -6,7 +6,7 @@ use mg_module::palette::BlueprintKind;
 
 use super::Form;
 
-pub(super) const PAGES: [&str; 4] = ["Basic", "Advanced", "Description", "Comments"];
+pub(super) const PAGES: [&str; 5] = ["Basic", "Advanced", "Variables", "Description", "Comments"];
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {

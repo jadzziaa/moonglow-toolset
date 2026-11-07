@@ -11,7 +11,8 @@ use mg_rules::Choice;
 use super::{Form, situated};
 use crate::Action;
 
-pub(super) const PAGES: [&str; 5] = ["Basic", "Creature List", "Scripts", "Advanced", "Comments"];
+pub(super) const PAGES: [&str; 6] =
+    ["Basic", "Creature List", "Scripts", "Advanced", "Variables", "Comments"];
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {

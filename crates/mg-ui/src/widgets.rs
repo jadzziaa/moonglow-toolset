@@ -1208,307 +1208,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ])
             .min_size([520.0, 220.0])
             .show(&ctx, |ui| {
-                // What the project's descriptions say is wrong (not of the
-                // name being typed), a line each under the list.
-                let notes: Vec<String> = if described {
-                    let typing = help.completing;
-                    let rows = (edit.rows.iter().enumerate()).filter(|(i, _)| Some(*i) != typing);
-                    let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.note(r)).collect();
-                    notes.extend(help.needed(&edit.rows, typing));
-                    notes
-                } else {
-                    Vec::new()
-                };
-                let lines = notes.len().min(VAR_NOTES + 1) as f32;
-                // (The list scrolls, over the buttons kept in reach below it.)
-                let tall = (ui.available_height() - VAR_FOOT - lines * 18.0).max(100.0);
-                let spare =
-                    (ui.available_width() - VAR_NAME_WIDTH - VAR_VALUE_WIDTH - 210.0).max(0.0);
-                let (name_width, value_width) =
-                    (VAR_NAME_WIDTH + spare * 0.45, VAR_VALUE_WIDTH + spare * 0.55);
-                egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(
-                    ui,
-                    |ui| {
-                        egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
-                            ui.strong("Name");
-                            ui.strong("Type");
-                            ui.strong("Value");
-                            ui.end_row();
-                            let mut remove = None;
-                            let mut picked = None;
-                            let mut picked_field: Option<egui::Id> = None;
-                            for i in 0..edit.rows.len() {
-                                // (A minimum: a new window offers the fields no width yet,
-                                // and they would keep to it.)
-                                fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
-                                    egui::TextEdit::singleline(text)
-                                        .desired_width(width)
-                                        .min_size(egui::vec2(width, 0.0))
-                                }
-                                // The offer's keys, before the field takes them.
-                                let offering = described && help.completing == Some(i);
-                                let count = if offering { help.offered_before } else { 0 };
-                                let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
-                                let field = wide(&mut edit.rows[i].name, name_width);
-                                let name = ui.add(field.hint_text("Name"));
-                                let r = &edit.rows[i];
-                                let desc = help.variables.describe(r.name.trim());
-                                let name = match desc {
-                                    Some(d) => name.on_hover_text(description_tip(d)),
-                                    None => name,
-                                };
-                                // The described names, offered as one is typed.
-                                if described {
-                                    // (Escape closes the offer, until the name
-                                    // changes; the name is still being typed.)
-                                    let dismissed =
-                                        help.dismissed.as_ref() == Some(&(i, r.name.clone()));
-                                    if closed {
-                                        help.completing = None;
-                                        help.dismissed = Some((i, r.name.clone()));
-                                        name.request_focus();
-                                    } else if (name.has_focus() || name.gained_focus())
-                                        && !dismissed
-                                    {
-                                        help.completing = Some(i);
-                                        help.dismissed = None;
-                                    }
-                                    if help.completing == Some(i) {
-                                        let offered = help.offered(&r.name, &edit.rows, i);
-                                        // (Typing anew: the first again.)
-                                        let retyped =
-                                            help.names.get(i).is_some_and(|n| *n != r.name);
-                                        let h = if retyped || help.highlighted >= offered.len() {
-                                            0
-                                        } else {
-                                            help.highlighted
-                                        };
-                                        if taken && let Some(o) = offered.get(h) {
-                                            picked = Some((i, o.name.clone()));
-                                        }
-                                        let over =
-                                            completion(ui, i, &name, &offered, h, &mut picked);
-                                        let pressed = ui.input(|i| i.pointer.any_pressed());
-                                        let count = offered.len();
-                                        help.highlighted = h;
-                                        help.offered_before = count;
-                                        if picked.is_some() {
-                                            // (Typed on from there, from its end.)
-                                            picked_field = Some(name.id);
-                                        }
-                                        if count == 0
-                                            || picked.is_some()
-                                            || (!name.has_focus() && !over && pressed)
-                                            || (name.lost_focus() && !over)
-                                        {
-                                            help.completing = None;
-                                        }
-                                    }
-                                    if help.completing.is_none() {
-                                        help.offered_before = 0;
-                                    }
-                                }
-                                let r = &mut edit.rows[i];
-                                // An object's or a location's is shown, not
-                                // edited (it isn't set from text).
-                                let edits = VarType::of(r.kind.into())
-                                    .is_some_and(|t| t.field_type().is_some());
-                                ui.add_enabled_ui(edits, |ui| {
-                                    let kinds = [VarType::Int, VarType::Float, VarType::String]
-                                        .map(VarType::code);
-                                    dropdown(("var-type", i))
-                                        .selected_text(kind_name(r.kind))
-                                        .show(ui, &mut r.kind, &kinds, |k| kind_name(*k));
-                                });
-                                let typed = desc
-                                    .is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
-                                let choices = desc.and_then(|d| help.choices.get(&d.name));
-                                match (desc, choices) {
-                                    (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
-                                        value_choice(ui, i, d, c, &mut r.value, value_width);
-                                    }
-                                    _ if edits && colored(r) => {
-                                        // A color's swatch beside its text.
-                                        ui.horizontal(|ui| {
-                                            let swatch = ui.spacing().interact_size.y
-                                                + ui.spacing().item_spacing.x;
-                                            ui.add(wide(&mut r.value, value_width - swatch));
-                                            color_swatch(ui, &mut r.value);
-                                        });
-                                    }
-                                    _ => {
-                                        ui.add_enabled(edits, wide(&mut r.value, value_width));
-                                    }
-                                }
-                                if ui.small_button("Delete").clicked() {
-                                    remove = Some(i);
-                                }
-                                ui.end_row();
-                            }
-                            if let Some((i, name)) = picked {
-                                // The field keeps the keyboard, its cursor at the
-                                // end: a pattern's beginning is typed on from.
-                                if let Some(id) = picked_field {
-                                    let end = egui::text::CCursor::new(name.chars().count());
-                                    let mut state =
-                                        egui::text_edit::TextEditState::load(ui.ctx(), id)
-                                            .unwrap_or_default();
-                                    state
-                                        .cursor
-                                        .set_char_range(Some(egui::text::CCursorRange::one(end)));
-                                    state.store(ui.ctx(), id);
-                                    ui.memory_mut(|m| m.request_focus(id));
-                                }
-                                edit.rows[i].name = name;
-                            }
-                            if let Some(i) = remove {
-                                edit.rows.remove(i);
-                                help.completing = None;
-                            }
-                            // A name changed to a described one: its type.
-                            let names: Vec<String> =
-                                edit.rows.iter().map(|r| r.name.clone()).collect();
-                            if names.len() == help.names.len() {
-                                for (r, was) in edit.rows.iter_mut().zip(&help.names) {
-                                    if r.name != *was {
-                                        take_described_type(&help.variables, r);
-                                    }
-                                }
-                            }
-                            help.names = names;
-                        });
-                    },
-                );
-                let mut add_file = false;
-                let mut save_file = false;
-                ui.horizontal(|ui| {
-                    if ui.button("Add").clicked() {
-                        edit.rows.push(VarRow::new("", 1, "0"));
-                    }
-                    ui.separator();
-                    // Variable sets, kept in Moonglow's data folder, and in
-                    // files anywhere.
-                    let dir = app.var_set_dir.clone();
-                    ui.menu_button("Add Set", |ui| {
-                        match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
-                            Some(SetChoice::Add(rows)) => {
-                                crate::var_sets::merge(&mut edit.rows, rows)
-                            }
-                            Some(SetChoice::FromFile) => add_file = true,
-                            Some(SetChoice::Manage) => {
-                                edit.sets.get_or_insert_default();
-                            }
-                            None => {}
-                        }
-                    })
-                    .response
-                    .on_hover_text("Add a saved set's variables (same names take its values)");
-                    if edit.set_name.is_none()
-                        && ui
-                            .add_enabled(
-                                dir.is_some() && !edit.rows.is_empty(),
-                                egui::Button::new("Save Set…"),
-                            )
-                            .on_hover_text("Keep these variables under a name, to add elsewhere")
-                            .clicked()
-                    {
-                        edit.set_name = Some(String::new());
-                    }
-                    // Copied and pasted as a set file's text: to another
-                    // object or blueprint, in any module, or a message.
-                    if ui
-                        .add_enabled(!edit.rows.is_empty(), egui::Button::new("Copy Set"))
-                        .on_hover_text(
-                            "Copy these variables to the clipboard, as a set file's text: Paste \
-                             Set adds them to another object's or blueprint's, in any module",
-                        )
-                        .clicked()
-                    {
-                        ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
-                    }
-                    let paste_id = egui::Id::new("var-set-paste");
-                    if ui
-                        .button("Paste Set")
-                        .on_hover_text(
-                            "Add the variables copied to the clipboard (Copy Set, or a set \
-                             file's text) as Add Set adds a saved set: same names take their \
-                             types and values",
-                        )
-                        .clicked()
-                    {
-                        ask_paste(ui.ctx(), paste_id);
-                    }
-                    if let Some(text) = asked_paste(ui.ctx(), paste_id) {
-                        match crate::var_sets::from_text(&text) {
-                            Ok(rows) => crate::var_sets::merge(&mut edit.rows, rows),
-                            Err(e) => app.log.error(format!(
-                                "Paste Set: the clipboard doesn't hold a variable set ({e}); \
-                                 nothing was changed"
-                            )),
-                        }
-                    }
-                    save_file = ui
-                        .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save to File…"))
-                        .on_hover_text(
-                            "Save these variables as a set file (.vars.json) where you choose: \
-                             to share, or to keep with a module",
-                        )
-                        .clicked();
-                });
-                // (Several at once, in the order chosen: a later file's
-                // variable of a name an earlier one has takes its value.)
-                if add_file {
-                    for path in app.dialogs.open_files(FileKind::VariableSet, None) {
-                        match crate::var_sets::load_file(&path) {
-                            Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
-                            Err(e) => app.log.error(format!("Add from File: {e}")),
-                        }
-                    }
-                }
-                if save_file
-                    && let Some(path) = app.dialogs.save_file(
-                        FileKind::VariableSet,
-                        Some(std::path::Path::new("variables.vars.json")),
-                    )
-                {
-                    match crate::var_sets::save_file(&path, &edit.rows) {
-                        Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
-                        Err(e) => app.log.error(format!("Save to File: {e}")),
-                    }
-                }
-                if let Some(name) = edit.set_name.as_mut() {
-                    let (save, cancel) = set_name_row(ui, name);
-                    if save && let Some(dir) = app.var_set_dir.clone() {
-                        match crate::var_sets::save(&dir, name, &edit.rows) {
-                            Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
-                            Err(e) => app.log.error(format!("Save Set: {e}")),
-                        }
-                    }
-                    if save || cancel {
-                        edit.set_name = None;
-                    }
-                }
-                let problem = edit.problem();
-                if let Some(p) = &problem {
-                    ui.colored_label(ui.visuals().error_fg_color, p);
-                }
-                // What the project's descriptions say is wrong (OK still
-                // writes it: Verify Module says it too).
-                for n in notes.iter().take(VAR_NOTES) {
-                    let text = egui::RichText::new(n).color(ui.visuals().warn_fg_color);
-                    ui.add(egui::Label::new(text).truncate()).on_hover_text(n);
-                }
-                if notes.len() > VAR_NOTES {
-                    ui.weak(format!("and {} more", notes.len() - VAR_NOTES));
-                }
-                if !edit.target.also.is_empty() {
-                    ui.weak(format!(
-                        "{} edited together, shown as the first: the variables you add or change \
-                     are set on each, those you delete are deleted from each, and each keeps \
-                     its others.",
-                        edit.target.also.len() + 1
-                    ));
-                }
+                let problem = var_body(app, ui, &mut edit, &mut help, described);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
                         || (problem.is_none() && crate::widgets::enter(ui))
@@ -1652,6 +1352,366 @@ pub(crate) fn resref_field(
         }
     });
     out
+}
+
+/// The Variables window's list and its buttons (Add, the sets, the files),
+/// what the project's descriptions say of it and why it can't be set as
+/// it is (returned): drawn in the window, over its OK and Cancel, and as
+/// a Properties window's Variables page ([`variables_page`]).
+fn var_body(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    edit: &mut VarTableEdit,
+    help: &mut VarHelp,
+    described: bool,
+) -> Option<String> {
+    // What the project's descriptions say is wrong (not of the
+    // name being typed), a line each under the list.
+    let notes: Vec<String> = if described {
+        let typing = help.completing;
+        let rows = (edit.rows.iter().enumerate()).filter(|(i, _)| Some(*i) != typing);
+        let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.note(r)).collect();
+        notes.extend(help.needed(&edit.rows, typing));
+        notes
+    } else {
+        Vec::new()
+    };
+    let lines = notes.len().min(VAR_NOTES + 1) as f32;
+    // (The list scrolls, over the buttons kept in reach below it.)
+    let tall = (ui.available_height() - VAR_FOOT - lines * 18.0).max(100.0);
+    let spare = (ui.available_width() - VAR_NAME_WIDTH - VAR_VALUE_WIDTH - 210.0).max(0.0);
+    let (name_width, value_width) = (VAR_NAME_WIDTH + spare * 0.45, VAR_VALUE_WIDTH + spare * 0.55);
+    egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.strong("Name");
+            ui.strong("Type");
+            ui.strong("Value");
+            ui.end_row();
+            let mut remove = None;
+            let mut picked = None;
+            let mut picked_field: Option<egui::Id> = None;
+            for i in 0..edit.rows.len() {
+                // (A minimum: a new window offers the fields no width yet,
+                // and they would keep to it.)
+                fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
+                    egui::TextEdit::singleline(text)
+                        .desired_width(width)
+                        .min_size(egui::vec2(width, 0.0))
+                }
+                // The offer's keys, before the field takes them.
+                let offering = described && help.completing == Some(i);
+                let count = if offering { help.offered_before } else { 0 };
+                let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
+                let field = wide(&mut edit.rows[i].name, name_width);
+                let name = ui.add(field.hint_text("Name"));
+                let r = &edit.rows[i];
+                let desc = help.variables.describe(r.name.trim());
+                let name = match desc {
+                    Some(d) => name.on_hover_text(description_tip(d)),
+                    None => name,
+                };
+                // The described names, offered as one is typed.
+                if described {
+                    // (Escape closes the offer, until the name
+                    // changes; the name is still being typed.)
+                    let dismissed = help.dismissed.as_ref() == Some(&(i, r.name.clone()));
+                    if closed {
+                        help.completing = None;
+                        help.dismissed = Some((i, r.name.clone()));
+                        name.request_focus();
+                    } else if (name.has_focus() || name.gained_focus()) && !dismissed {
+                        help.completing = Some(i);
+                        help.dismissed = None;
+                    }
+                    if help.completing == Some(i) {
+                        let offered = help.offered(&r.name, &edit.rows, i);
+                        // (Typing anew: the first again.)
+                        let retyped = help.names.get(i).is_some_and(|n| *n != r.name);
+                        let h = if retyped || help.highlighted >= offered.len() {
+                            0
+                        } else {
+                            help.highlighted
+                        };
+                        if taken && let Some(o) = offered.get(h) {
+                            picked = Some((i, o.name.clone()));
+                        }
+                        let over = completion(ui, i, &name, &offered, h, &mut picked);
+                        let pressed = ui.input(|i| i.pointer.any_pressed());
+                        let count = offered.len();
+                        help.highlighted = h;
+                        help.offered_before = count;
+                        if picked.is_some() {
+                            // (Typed on from there, from its end.)
+                            picked_field = Some(name.id);
+                        }
+                        if count == 0
+                            || picked.is_some()
+                            || (!name.has_focus() && !over && pressed)
+                            || (name.lost_focus() && !over)
+                        {
+                            help.completing = None;
+                        }
+                    }
+                    if help.completing.is_none() {
+                        help.offered_before = 0;
+                    }
+                }
+                let r = &mut edit.rows[i];
+                // An object's or a location's is shown, not
+                // edited (it isn't set from text).
+                let edits = VarType::of(r.kind.into()).is_some_and(|t| t.field_type().is_some());
+                ui.add_enabled_ui(edits, |ui| {
+                    let kinds = [VarType::Int, VarType::Float, VarType::String].map(VarType::code);
+                    dropdown(("var-type", i)).selected_text(kind_name(r.kind)).show(
+                        ui,
+                        &mut r.kind,
+                        &kinds,
+                        |k| kind_name(*k),
+                    );
+                });
+                let typed = desc.is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
+                let choices = desc.and_then(|d| help.choices.get(&d.name));
+                match (desc, choices) {
+                    (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
+                        value_choice(ui, i, d, c, &mut r.value, value_width);
+                    }
+                    _ if edits && colored(r) => {
+                        // A color's swatch beside its text.
+                        ui.horizontal(|ui| {
+                            let swatch = ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
+                            ui.add(wide(&mut r.value, value_width - swatch));
+                            color_swatch(ui, &mut r.value);
+                        });
+                    }
+                    _ => {
+                        ui.add_enabled(edits, wide(&mut r.value, value_width));
+                    }
+                }
+                if ui.small_button("Delete").clicked() {
+                    remove = Some(i);
+                }
+                ui.end_row();
+            }
+            if let Some((i, name)) = picked {
+                // The field keeps the keyboard, its cursor at the
+                // end: a pattern's beginning is typed on from.
+                if let Some(id) = picked_field {
+                    let end = egui::text::CCursor::new(name.chars().count());
+                    let mut state =
+                        egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                    state.store(ui.ctx(), id);
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
+                edit.rows[i].name = name;
+            }
+            if let Some(i) = remove {
+                edit.rows.remove(i);
+                help.completing = None;
+            }
+            // A name changed to a described one: its type.
+            let names: Vec<String> = edit.rows.iter().map(|r| r.name.clone()).collect();
+            if names.len() == help.names.len() {
+                for (r, was) in edit.rows.iter_mut().zip(&help.names) {
+                    if r.name != *was {
+                        take_described_type(&help.variables, r);
+                    }
+                }
+            }
+            help.names = names;
+        });
+    });
+    let mut add_file = false;
+    let mut save_file = false;
+    ui.horizontal(|ui| {
+        if ui.button("Add").clicked() {
+            edit.rows.push(VarRow::new("", 1, "0"));
+        }
+        ui.separator();
+        // Variable sets, kept in Moonglow's data folder, and in
+        // files anywhere.
+        let dir = app.var_set_dir.clone();
+        ui.menu_button("Add Set", |ui| {
+            match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
+                Some(SetChoice::Add(rows)) => crate::var_sets::merge(&mut edit.rows, rows),
+                Some(SetChoice::FromFile) => add_file = true,
+                Some(SetChoice::Manage) => {
+                    edit.sets.get_or_insert_default();
+                }
+                None => {}
+            }
+        })
+        .response
+        .on_hover_text("Add a saved set's variables (same names take its values)");
+        if edit.set_name.is_none()
+            && ui
+                .add_enabled(dir.is_some() && !edit.rows.is_empty(), egui::Button::new("Save Set…"))
+                .on_hover_text("Keep these variables under a name, to add elsewhere")
+                .clicked()
+        {
+            edit.set_name = Some(String::new());
+        }
+        // Copied and pasted as a set file's text: to another
+        // object or blueprint, in any module, or a message.
+        if ui
+            .add_enabled(!edit.rows.is_empty(), egui::Button::new("Copy Set"))
+            .on_hover_text(
+                "Copy these variables to the clipboard, as a set file's text: Paste \
+                 Set adds them to another object's or blueprint's, in any module",
+            )
+            .clicked()
+        {
+            ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
+        }
+        let paste_id = egui::Id::new("var-set-paste");
+        if ui
+            .button("Paste Set")
+            .on_hover_text(
+                "Add the variables copied to the clipboard (Copy Set, or a set \
+                 file's text) as Add Set adds a saved set: same names take their \
+                 types and values",
+            )
+            .clicked()
+        {
+            ask_paste(ui.ctx(), paste_id);
+        }
+        if let Some(text) = asked_paste(ui.ctx(), paste_id) {
+            match crate::var_sets::from_text(&text) {
+                Ok(rows) => crate::var_sets::merge(&mut edit.rows, rows),
+                Err(e) => app.log.error(format!(
+                    "Paste Set: the clipboard doesn't hold a variable set ({e}); \
+                     nothing was changed"
+                )),
+            }
+        }
+        save_file = ui
+            .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save to File…"))
+            .on_hover_text(
+                "Save these variables as a set file (.vars.json) where you choose: \
+                 to share, or to keep with a module",
+            )
+            .clicked();
+    });
+    // (Several at once, in the order chosen: a later file's
+    // variable of a name an earlier one has takes its value.)
+    if add_file {
+        for path in app.dialogs.open_files(FileKind::VariableSet, None) {
+            match crate::var_sets::load_file(&path) {
+                Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                Err(e) => app.log.error(format!("Add from File: {e}")),
+            }
+        }
+    }
+    if save_file
+        && let Some(path) = app
+            .dialogs
+            .save_file(FileKind::VariableSet, Some(std::path::Path::new("variables.vars.json")))
+    {
+        match crate::var_sets::save_file(&path, &edit.rows) {
+            Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
+            Err(e) => app.log.error(format!("Save to File: {e}")),
+        }
+    }
+    if let Some(name) = edit.set_name.as_mut() {
+        let (save, cancel) = set_name_row(ui, name);
+        if save && let Some(dir) = app.var_set_dir.clone() {
+            match crate::var_sets::save(&dir, name, &edit.rows) {
+                Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
+                Err(e) => app.log.error(format!("Save Set: {e}")),
+            }
+        }
+        if save || cancel {
+            edit.set_name = None;
+        }
+    }
+    let problem = edit.problem();
+    if let Some(p) = &problem {
+        ui.colored_label(ui.visuals().error_fg_color, p);
+    }
+    // What the project's descriptions say is wrong (OK still
+    // writes it: Verify Module says it too).
+    for n in notes.iter().take(VAR_NOTES) {
+        let text = egui::RichText::new(n).color(ui.visuals().warn_fg_color);
+        ui.add(egui::Label::new(text).truncate()).on_hover_text(n);
+    }
+    if notes.len() > VAR_NOTES {
+        ui.weak(format!("and {} more", notes.len() - VAR_NOTES));
+    }
+    if !edit.target.also.is_empty() {
+        ui.weak(format!(
+            "{} edited together, shown as the first: the variables you add or change \
+         are set on each, those you delete are deleted from each, and each keeps \
+         its others.",
+            edit.target.also.len() + 1
+        ));
+    }
+    problem
+}
+
+/// A Variables page's list as being edited ([`variables_page`]), and the
+/// list it was read from.
+#[derive(Debug, Clone)]
+pub struct VarPage {
+    edit: VarTableEdit,
+    read: Vec<Struct>,
+}
+
+/// A Properties window's Variables page (Carcerian's ask: variables are
+/// edited all the time, and the Variables… button sits on the Advanced
+/// page): the Variables window's list in place, for the VarTable `list`
+/// of `target`. What is changed is set as the window's other fields are:
+/// when the field typed in is let go, or at once for a row added or
+/// deleted and a set added, as one command, as the window's OK sets it;
+/// the list as it is anew where something else changed it (Undo, the
+/// window). `locked`: why it can't be changed (another builder's area).
+pub(crate) fn variables_page(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    target: FieldTarget,
+    list: &[Struct],
+    locked: Option<String>,
+) {
+    let id = (target.key, target.path.clone());
+    // (Read anew where the list changed, but not under the fields typed in.)
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    let mut page = match app.var_pages.remove(&id) {
+        Some(p) if p.edit.target == target && (p.read == list || typing) => p,
+        _ => VarPage { edit: VarTableEdit::new(target.clone(), list), read: list.to_vec() },
+    };
+    let edit = &mut page.edit;
+    if edit.described.is_none() {
+        edit.described = Some(VarHelp::of(app, &edit.target));
+    }
+    let mut help = edit.described.take().expect("just made");
+    help.read_choices(app, &edit.rows);
+    let described = !help.variables.is_empty();
+    if let Some(why) = &locked {
+        ui.colored_label(ui.visuals().warn_fg_color, format!("{why}: read-only here"));
+    }
+    let problem = ui
+        .add_enabled_ui(locked.is_none(), |ui| {
+            ui.push_id(("variables-page", target.key, &target.path), |ui| {
+                var_body(app, ui, edit, &mut help, described)
+            })
+            .inner
+        })
+        .inner;
+    edit.described = Some(help);
+    let dir = app.var_set_dir.clone();
+    let ctx = ui.ctx().clone();
+    sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
+    // Set, once nothing is being typed and it can be: read anew after.
+    let as_read = VarTableEdit::new(target, list).list();
+    if locked.is_none() && !typing && problem.is_none() && edit.list() != as_read {
+        let action = if edit.target.also.is_empty() {
+            edit.target.command("Edit variables", Value::List(edit.list()))
+        } else {
+            edit.merged(app)
+        };
+        app.actions.push(action);
+        return;
+    }
+    app.var_pages.insert(id, page);
 }
 
 /// Opens the Variables window on the VarTable of the struct at `path` in

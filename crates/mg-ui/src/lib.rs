@@ -887,6 +887,9 @@ pub struct Moonglow {
     /// The custom talk table loaded into the game data, by name.
     custom_tlk: Option<String>,
     pub var_edit: Option<widgets::VarTableEdit>,
+    /// The Variables pages of the open Properties windows: each object's
+    /// list as being edited there (`widgets::variables_page`).
+    pub(crate) var_pages: HashMap<(ResKey, mg_edit::GffPath), widgets::VarPage>,
     pub picker: Option<widgets::Picker>,
     /// Resources chosen in the picker, by the field that asked.
     pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
@@ -1255,6 +1258,7 @@ impl Moonglow {
             hak_usage: None,
             custom_tlk: None,
             var_edit: None,
+            var_pages: HashMap::new(),
             picker: None,
             picked: HashMap::new(),
             viewed: HashMap::new(),

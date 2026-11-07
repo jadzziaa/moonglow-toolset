@@ -8,13 +8,14 @@ use mg_module::palette::BlueprintKind;
 
 use super::{Form, inventory, situated};
 
-pub(super) const PAGES: [&str; 9] = [
+pub(super) const PAGES: [&str; 10] = [
     "Basic",
     "Inventory",
     "Lock",
     "Trap",
     "Scripts",
     "Advanced",
+    "Variables",
     "Visuals",
     "Description",
     "Comments",

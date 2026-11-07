@@ -2055,7 +2055,7 @@ fn blueprint_editors() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     for (name, t, pages) in [
-        ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
+        ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced", "Variables"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
         ("x0_trapavg_shuri", ResType::UTT, &["Basic", "Trap", "Advanced", "Visuals"][..]),
         ("nw_mumcleric", ResType::UTC, &["Classes", "Spells"][..]),
@@ -2070,7 +2070,7 @@ fn blueprint_editors() {
         (
             "nw_bartender",
             ResType::UTC,
-            &["Basic", "Statistics", "Appearance", "Classes", "Skills", "Advanced"][..],
+            &["Basic", "Statistics", "Appearance", "Classes", "Skills", "Advanced", "Variables"][..],
         ),
         (
             "db_tanarukk_do",

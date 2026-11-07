@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T06:04:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T21:22:49Z }
 ---
 
 # Blueprints
@@ -549,7 +549,12 @@ Shared parts:
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
 - **Variables…**: local variables the object starts with, in a window
-  whose edges are dragged to size it, listed by name (each case alike;
+  whose edges are dragged to size it; the same list is the **Variables**
+  page of every Properties window (after Advanced; an item's after
+  Properties), edited in place: what you change there is set when you
+  leave the field you typed in (a variable added or deleted, a set
+  added: at once), one step of Undo, as the window's OK sets it. Area
+  Properties and Module Properties have the page too. Listed by name (each case alike;
   one added goes at the bottom, and they are saved in the order they
   were made). Ints, floats and strings are edited; an object's or a
   location's variable (which only scripts set) is shown as it is and

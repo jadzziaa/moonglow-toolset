@@ -11,7 +11,7 @@ use super::Form;
 use crate::Action;
 use crate::audio::Channel;
 
-pub(super) const PAGES: [&str; 4] = ["Basic", "Positioning", "Advanced", "Comments"];
+pub(super) const PAGES: [&str; 5] = ["Basic", "Positioning", "Advanced", "Variables", "Comments"];
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {

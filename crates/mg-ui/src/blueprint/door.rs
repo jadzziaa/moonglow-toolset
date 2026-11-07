@@ -8,13 +8,14 @@ use mg_rules::{Choice, ChoiceColumns};
 
 use super::{Form, situated};
 
-pub(super) const PAGES: [&str; 9] = [
+pub(super) const PAGES: [&str; 10] = [
     "Basic",
     "Lock",
     "Trap",
     "Area Transition",
     "Scripts",
     "Advanced",
+    "Variables",
     "Visuals",
     "Description",
     "Comments",

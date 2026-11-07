@@ -1651,6 +1651,17 @@ impl Form<'_> {
         }
     }
 
+    /// The Variables page: the list in place ([`crate::widgets::variables_page`]),
+    /// read-only for an object of a read-only area.
+    pub(crate) fn variables_page(&mut self, ui: &mut Ui) {
+        let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
+        self.mark_mixed(ui, "VarTable");
+        let locked =
+            crate::claims::area_of(&self.key).and_then(|a| crate::claims::read_only(self.app, a));
+        let target = self.target("VarTable");
+        crate::widgets::variables_page(self.app, ui, target, &list, locked);
+    }
+
     /// The Variables… button (off for an object of a read-only area).
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
@@ -1970,6 +1981,8 @@ pub(crate) fn edit_many(
             read_only_look(ui);
         }
         match restype {
+            // (Every kind's, drawn alike.)
+            _ if page == "Variables" => form.variables_page(ui),
             ResType::UTW => waypoint::page(&mut form, ui, page),
             ResType::UTS => sound::page(&mut form, ui, page),
             ResType::UTT => trigger::page(&mut form, ui, page),

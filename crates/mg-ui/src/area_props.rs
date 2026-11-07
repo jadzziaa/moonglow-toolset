@@ -15,8 +15,8 @@ use crate::{Action, Moonglow};
 use mg_module::areas::Has;
 use mg_module::lighting::TileColors;
 
-pub(crate) const PAGES: [&str; 7] =
-    ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Comments"];
+pub(crate) const PAGES: [&str; 8] =
+    ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Variables", "Comments"];
 
 /// ARE `Flags` bits.
 const INTERIOR: u32 = 0x1;
@@ -25,7 +25,7 @@ const NATURAL: u32 = 0x4;
 
 /// The pages for several areas edited together: what is an area's own
 /// (its name, tag and comments) is edited one area at a time.
-const SHARED_PAGES: [&str; 5] = ["Visual", "Grass", "Audio", "Events", "Advanced"];
+const SHARED_PAGES: [&str; 6] = ["Visual", "Grass", "Audio", "Events", "Advanced", "Variables"];
 
 /// Area Properties of `area`; with `others`, of them all (Edit Areas
 /// Together): shown as `area`'s, and what is changed is set on each.
@@ -189,6 +189,7 @@ fn pages(
             "Visual" => visual(&mut f, ui),
             "Events" => events(&mut f, ui),
             "Advanced" => advanced(&mut f, ui),
+            "Variables" => variables_page(&mut f, ui),
             _ => f.memo(ui, "Comments", "Comments"),
         }
     });
@@ -989,9 +990,26 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 /// 1.34.3 are moved to the GIT, one step to undo, when the window opens
 /// (one of the same name in the GIT keeps its value there).
 fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
+    let Some((target, moved)) = variables_moved(f) else { return };
+    let shown = moved[0].1.clone();
+    if !crate::claims::variables_button(f.app, ui, &f.key, shown.len()) {
+        return;
+    }
+    move_variables(f, &moved);
+    f.app.var_edit = Some(crate::widgets::VarTableEdit::new(target, &shown));
+}
+
+/// Each area's variables (this one's, and those edited with it) as they
+/// are once moved from the ARE to the GIT (the GIT's, then the ARE's it
+/// lacks, as Verify's fix moves them), and whether any were in the ARE;
+/// and their GIT roots' VarTable, the first's with the others'.
+#[allow(clippy::type_complexity)]
+fn variables_moved(
+    f: &mut Form<'_>,
+) -> Option<(crate::widgets::FieldTarget, Vec<(ResRef, Vec<mg_gff::Struct>, bool)>)> {
     let areas: Vec<ResRef> =
         std::iter::once(f.key.resref).chain(f.also.iter().map(|(k, _)| k.resref)).collect();
-    let Some(ws) = f.app.ws.as_mut() else { return };
+    let ws = f.app.ws.as_mut()?;
     let mut lists = Vec::new();
     for &area in &areas {
         let read = |t: ResType, ws: &mut mg_edit::Workspace| -> Vec<mg_gff::Struct> {
@@ -1002,18 +1020,23 @@ fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
         };
         lists.push((area, read(ResType::GIT, ws), read(ResType::ARE, ws)));
     }
-    // Each area's variables as they are once moved: the GIT's, then the
-    // ARE's it lacks (as Verify's fix moves them).
-    let moved: Vec<(ResRef, Vec<mg_gff::Struct>, bool)> = lists
+    let moved = lists
         .into_iter()
         .map(|(area, git, are)| (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty()))
         .collect();
-    let shown = &moved[0].1;
-    if !crate::claims::variables_button(f.app, ui, &f.key, shown.len()) {
-        return;
-    }
+    let git = |a: ResRef| (ResKey::new(a, ResType::GIT), GffPath::root());
+    let (key, path) = git(areas[0]);
+    let mut target = crate::widgets::FieldTarget::new(key, path, "VarTable");
+    target.also = areas[1..].iter().map(|&a| git(a)).collect();
+    Some((target, moved))
+}
+
+/// Moves the variables still in an area's ARE to its GIT (`moved`, as
+/// [`variables_moved`] reads them), one step to undo: whether there were
+/// any.
+fn move_variables(f: &mut Form<'_>, moved: &[(ResRef, Vec<mg_gff::Struct>, bool)]) -> bool {
     let mut edits = Vec::new();
-    for (area, list, had) in &moved {
+    for (area, list, had) in moved {
         if !had {
             continue;
         }
@@ -1026,22 +1049,32 @@ fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
         edits.push(set(ResType::GIT, Some(Value::List(list.clone()))));
         edits.push(set(ResType::ARE, None));
     }
-    if !edits.is_empty() {
-        f.app.log.info(if edits.len() == 2 {
-            "The area's variables moved from its ARE to its GIT, where the game reads them".into()
-        } else {
-            format!(
-                "{} areas' variables moved from their ARE to their GIT, where the game reads them",
-                edits.len() / 2
-            )
-        });
-        f.app.actions.push(Action::Apply(Command::new("Move area variables", edits)));
+    if edits.is_empty() {
+        return false;
     }
-    let git = |a: ResRef| (ResKey::new(a, ResType::GIT), GffPath::root());
-    let (key, path) = git(areas[0]);
-    let mut target = crate::widgets::FieldTarget::new(key, path, "VarTable");
-    target.also = areas[1..].iter().map(|&a| git(a)).collect();
-    f.app.var_edit = Some(crate::widgets::VarTableEdit::new(target, shown));
+    f.app.log.info(if edits.len() == 2 {
+        "The area's variables moved from its ARE to its GIT, where the game reads them".into()
+    } else {
+        format!(
+            "{} areas' variables moved from their ARE to their GIT, where the game reads them",
+            edits.len() / 2
+        )
+    });
+    f.app.actions.push(Action::Apply(Command::new("Move area variables", edits)));
+    true
+}
+
+/// The Variables page: the areas' variables in place
+/// ([`crate::widgets::variables_page`]), those still in an ARE moved to
+/// the GIT first, as the Variables… button moves them.
+fn variables_page(f: &mut Form<'_>, ui: &mut Ui) {
+    let Some((target, moved)) = variables_moved(f) else { return };
+    if move_variables(f, &moved) {
+        ui.weak("Moving the variables from the ARE to the GIT…");
+        return;
+    }
+    let locked = crate::claims::read_only(f.app, f.key.resref);
+    crate::widgets::variables_page(f.app, ui, target, &moved[0].1, locked);
 }
 
 /// The Edit Areas Together window: the areas ticked, and the filters that
