@@ -347,6 +347,24 @@ pub(crate) struct WheelScale {
 /// How long the wheel rests before its scaling is made a command, seconds.
 const WHEEL_REST: f64 = 0.4;
 
+/// Q and E turning the selection, not yet a command: what is turned, by
+/// how much so far (radians) and when a key turned it last (the input's
+/// time). Shown at once, as the turning ring's drag is, and made one
+/// command when the keys rest ([`KEY_TURN_REST`]): each press made one,
+/// and with it the area read again, which a held key did some thirty
+/// times a second (the owner's report: lag in busy areas, where the ring
+/// had none).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct KeyTurn {
+    selection: Vec<(ObjectKind, usize)>,
+    by: f32,
+    at: f64,
+}
+
+/// How long Q and E rest before their turning is made a command, seconds
+/// (longer than a held key's wait before it repeats).
+const KEY_TURN_REST: f64 = 0.6;
+
 /// How much a point of the wheel's turning scales by: a notch about a
 /// twentieth.
 const WHEEL_SCALE: f32 = 0.001;
@@ -430,6 +448,8 @@ pub struct AreaView {
     /// Ctrl + wheel scaling under way: shown as a scale drag is, and made
     /// one command when the wheel rests or Ctrl is let go.
     pub(crate) wheel_scale: Option<WheelScale>,
+    /// Q and E turning the selection, not yet a command.
+    pub(crate) key_turn: Option<KeyTurn>,
     /// When Ctrl + wheel last found only objects that take no scale (a
     /// static placeable): the status line says so for a moment.
     wheel_refused: Option<f64>,
@@ -983,6 +1003,7 @@ impl AreaView {
             notice: None,
             refused: None,
             wheel_scale: None,
+            key_turn: None,
             wheel_refused: None,
             ground: None,
             error: None,
@@ -2002,8 +2023,9 @@ impl AreaView {
                     | Drag::Pan
             )
         };
+        // (No drag: Q and E's turning under way, if any.)
         let Some(mut drag) = self.drag.filter(moves) else {
-            return Vec::new();
+            return self.key_turned();
         };
         if let Drag::Spin { angle, .. } = drag {
             drag = Drag::Turn { angle };
@@ -3232,6 +3254,7 @@ fn viewport(
     // What follows the pointer is drawn every frame it is there (and once
     // more when it is gone).
     let follows = view.drag.is_some()
+        || view.key_turn.is_some()
         || !adjusting.0.is_empty()
         || !adjusting.1.is_empty()
         || !ghost_instances.is_empty()
@@ -3297,17 +3320,7 @@ fn viewport(
     let dragged = view.dragged();
     let mut shown = std::borrow::Cow::Borrowed(model);
     for &(i, p, r) in adjusting.0.iter().chain(&dragged) {
-        let o = &mut shown.to_mut().objects[i];
-        // (An outline's turn is its points', led round its position.)
-        let (was, round) = (o.position, Vec2::from_angle(r - o.rotation));
-        let led = |q: &mut Vec3| *q = p + round.rotate((*q - was).truncate()).extend(q.z - was.z);
-        if o.kind.has_outline() {
-            o.outline.iter_mut().for_each(led);
-            o.spawn_points.iter_mut().for_each(led);
-        } else {
-            o.rotation = r;
-        }
-        o.position = p;
+        pose(&mut shown.to_mut().objects[i], p, r);
     }
     for (i, v) in adjusting.1.into_iter().chain(view.tilted()).chain(view.scaled()) {
         shown.to_mut().objects[i].visual = Some(v);
@@ -4655,14 +4668,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let rectangle = view.rectangle || view.alt_held == Some(false);
     // (Whether something was in hand when the frame began: Escape drops it
     // and no more.)
-    let in_hand =
-        view.drag.is_some() || view.pasting || brush(app).is_some() || app.paint || view.held.on;
+    let in_hand = view.drag.is_some()
+        || view.key_turn.is_some()
+        || view.pasting
+        || brush(app).is_some()
+        || app.paint
+        || view.held.on;
     // (And said to the windows over the view: Escape with the pointer here
     // drops what is in hand and leaves the Properties window in front open.)
     if in_hand || view.redraw.is_some() || crate::terrain_mode::active(app, view).is_some() {
         app.area_tool_at = ui.ctx().cumulative_pass_nr();
     }
     view.held = Held::read(ui, response, view.held);
+    key_turns(app, ui, view, response);
     let scaling = wheel_scales(app, ui, view, response, (command, shift));
     // (Shift + wheel sizes the placeable brush, rather than zooming.)
     let scaling = crate::paint_mode::wheel(app, ui, response) || scaling;
@@ -5351,8 +5369,22 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let drop = pressed(Cmd::DropToGround);
         let onto = pressed(Cmd::DropOntoObject);
         let (raise, lower) = (pressed(Cmd::SurfaceAbove), pressed(Cmd::SurfaceBelow));
-        for by in turns {
-            rotate_selection(app, view, by);
+        // (Turned at once, and made a command when the keys rest.)
+        if !turns.is_empty() {
+            let by: f32 = turns.iter().sum();
+            let now = ui.input(|i| i.time);
+            match &mut view.key_turn {
+                Some(k) if k.selection == view.selection => {
+                    k.by += by;
+                    k.at = now;
+                }
+                _ => {
+                    commit_key_turn(app, view, false);
+                    view.key_turn =
+                        Some(KeyTurn { selection: view.selection.clone(), by, at: now });
+                }
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(KEY_TURN_REST));
         }
         if drop {
             drop_to_ground(app, view);
@@ -5877,18 +5909,29 @@ fn raise(o: &mut Orbit, by: f32) {
 /// One command that puts each object (by its position in the model) where
 /// the drag left it.
 fn commit_moves(app: &mut Moonglow, view: &AreaView, moved: &[(usize, Vec3, f32)], label: &str) {
-    let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return };
+    if let Some(command) = moves_command(app, view, moved, label) {
+        app.actions.push(Action::Apply(command));
+    }
+}
+
+/// The command that stands each object (by its place in the model) where
+/// `moved` says, turned as it says; none where nothing changes.
+fn moves_command(
+    app: &mut Moonglow,
+    view: &AreaView,
+    moved: &[(usize, Vec3, f32)],
+    label: &str,
+) -> Option<Command> {
+    let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return None };
     let git = view.git();
-    let Ok(doc) = ws.doc(&git) else { return };
+    let doc = ws.doc(&git).ok()?;
     let mut edits = Vec::new();
     for &(i, position, rotation) in moved {
         let o = &model.objects[i];
         let Some(s) = doc.root.list(o.kind.list()).and_then(|l| l.get(o.index)) else { continue };
         edits.extend(mg_area::edit::move_edits(git, o, s, position, rotation));
     }
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new(label, edits)));
-    }
+    (!edits.is_empty()).then(|| Command::new(label, edits))
 }
 
 /// A scaling made a command, if it changes anything (a handle let go
@@ -6269,34 +6312,130 @@ fn ring_mark(o: &mg_area::AreaObject) -> f32 {
     }
 }
 
-/// Turns each selected object in place by `by` radians (one command).
-fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
-    let Some(model) = &view.model else { return };
-    // Together: all by the same angle about their middle, those that
-    // don't turn (a sound) led round with the rest.
-    if let Some(middle) = view.middle(model) {
-        let moved: Vec<(usize, Vec3, f32)> = view
-            .selected_indices()
+impl AreaView {
+    /// Where each selected object stands and turns, turned in place by
+    /// `by` radians (as Q and E turn it).
+    fn turned(&self, by: f32) -> Vec<(usize, Vec3, f32)> {
+        let Some(model) = &self.model else { return Vec::new() };
+        // Together: all by the same angle about their middle, those that
+        // don't turn (a sound) led round with the rest.
+        if let Some(middle) = self.middle(model) {
+            return self
+                .selected_indices()
+                .map(|i| {
+                    let o = &model.objects[i];
+                    let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
+                    (i, self.turned_about(Some(middle), o.position, by), r)
+                })
+                .collect();
+        }
+        // (Snapped from where each was: the same as turning it a step at
+        // a time, the steps being the snapping angle or a quarter turn.)
+        self.selected_indices()
+            .filter(|&i| turns(model.objects[i].kind))
             .map(|i| {
                 let o = &model.objects[i];
-                let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
-                (i, view.turned_about(Some(middle), o.position, by), r)
+                let r = mg_area::arrange::snap_rotation(o.rotation + by, self.snap.1);
+                let about = o.kind.has_outline().then(|| pivot(o).truncate());
+                (i, self.turned_about(about, o.position, r - o.rotation), r)
             })
-            .collect();
-        commit_moves(app, view, &moved, "Rotate");
+            .collect()
+    }
+
+    /// Q and E's turning under way, as [`AreaView::turned`] has it.
+    fn key_turned(&self) -> Vec<(usize, Vec3, f32)> {
+        self.key_turn.as_ref().map(|k| self.turned(k.by)).unwrap_or_default()
+    }
+
+    /// Whether Q and E's turning is under way (not yet a command).
+    pub fn key_turning(&self) -> bool {
+        self.key_turn.is_some()
+    }
+}
+
+/// Stands `o` at `p`, turned to `r` (an outline's turn is its points', led
+/// round its position).
+fn pose(o: &mut mg_area::AreaObject, p: Vec3, r: f32) {
+    let (was, round) = (o.position, Vec2::from_angle(r - o.rotation));
+    let led = |q: &mut Vec3| *q = p + round.rotate((*q - was).truncate()).extend(q.z - was.z);
+    if o.kind.has_outline() {
+        o.outline.iter_mut().for_each(led);
+        o.spawn_points.iter_mut().for_each(led);
+    } else {
+        o.rotation = r;
+    }
+    o.position = p;
+}
+
+/// Makes Q and E's turning under way one command, and turns the view's
+/// model with it at once: what is done after it before the area is read
+/// again (G, a drag, another command) starts from where it left them.
+/// (`now`: applied at once, rather than as an action after this frame's
+/// others: before another edit, which then comes after it.)
+fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
+    let Some(k) = view.key_turn.take() else { return };
+    let moved = view.turned(k.by);
+    if let Some(command) = moves_command(app, view, &moved, "Rotate") {
+        if !now {
+            app.actions.push(Action::Apply(command));
+        } else if let Err(e) = app.apply(command) {
+            app.log.error(e.to_string());
+        }
+    }
+    if let Some(model) = view.model.as_mut() {
+        for (i, p, r) in moved {
+            pose(&mut model.objects[i], p, r);
+        }
+    }
+}
+
+/// Q and E's turning, each frame: made a command when the keys rest, the
+/// selection changes, or the view is clicked or another key pressed (what
+/// they do starts from where the turn left the selection); Escape drops
+/// it, as it drops a Ctrl + wheel scaling.
+fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
+    let Some(k) = &view.key_turn else { return };
+    if escaped(ui, response) {
+        view.key_turn = None;
         return;
     }
-    let moved: Vec<(usize, Vec3, f32)> = view
-        .selected_indices()
-        .filter(|&i| turns(model.objects[i].kind))
-        .map(|i| {
-            let o = &model.objects[i];
-            let r = mg_area::arrange::snap_rotation(o.rotation + by, view.snap.1);
-            let about = o.kind.has_outline().then(|| pivot(o).truncate());
-            (i, view.turned_about(about, o.position, r - o.rotation), r)
+    let now = ui.input(|i| i.time);
+    let rest = KEY_TURN_REST - (now - k.at);
+    let turning = turn_keys(view).iter().any(|(c, _)| ui.input(|i| app.keymap.pressed(i, *c)));
+    let other = ui.input(|i| {
+        i.events.iter().any(|e| match e {
+            egui::Event::Key { pressed: true, .. } => !turning,
+            egui::Event::PointerButton { pressed: true, .. } => true,
+            _ => false,
         })
-        .collect();
-    commit_moves(app, view, &moved, "Rotate");
+    });
+    if rest <= 0.0 || k.selection != view.selection || other {
+        commit_key_turn(app, view, false);
+    } else {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+    }
+}
+
+/// Makes Q and E's turning under way in any area a command at once:
+/// before another edit, a save, or the module going.
+pub(crate) fn commit_key_turns(app: &mut Moonglow) {
+    let pending: Vec<ResRef> =
+        app.area_views.iter().filter(|(_, v)| v.key_turn.is_some()).map(|(a, _)| *a).collect();
+    for area in pending {
+        let Some(mut view) = app.area_views.remove(&area) else { continue };
+        commit_key_turn(app, &mut view, true);
+        app.area_views.insert(area, view);
+    }
+}
+
+/// Drops Q and E's turning under way in any area (Undo, while one is,
+/// takes that back): whether there was one.
+pub(crate) fn drop_key_turn(app: &mut Moonglow) -> bool {
+    let mut dropped = false;
+    for view in app.area_views.values_mut() {
+        dropped |= view.key_turn.take().is_some();
+    }
+    dropped
 }
 
 /// Turns each selected object to a facing of its own, at random (one

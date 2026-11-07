@@ -523,6 +523,19 @@ pub(crate) fn waypoint(
     Some((w.float("XPosition")?, w.float("YPosition")?, w.float("XOrientation")?.to_bits()))
 }
 
+/// Steps until Q and E's turning in `area` is made a command (when the
+/// keys rest): shown at once, it is not one yet.
+pub(crate) fn rest_turn_keys(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    for _ in 0..2000 {
+        if !h.state().area_views[&area].key_turning() {
+            h.run_steps(2);
+            return;
+        }
+        h.run_steps(1);
+    }
+    panic!("Q and E's turning was never made a command");
+}
+
 pub(crate) fn screen(h: &Harness<'_, Moonglow>, area: ResRef, p: glam::Vec3) -> egui::Pos2 {
     h.state().area_views[&area].screen_pos(p).expect("in view")
 }

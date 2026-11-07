@@ -2297,6 +2297,7 @@ fn a_trigger_s_turning_ring_in_a_picture() {
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
     h.run_steps(6);
+    rest_turn_keys(&mut h, area);
     h.render().unwrap().save(dir.join("after-turn.png")).unwrap();
     // Turned, the mark has gone round with the outline.
     let turned = h.state().area_views[&area].ring_places()[0].1;
@@ -4131,18 +4132,65 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     h.hover_at(a);
     h.run_steps(1);
 
-    // Q turns the selection 15° to the left, Shift+E 90° to the right.
+    // Q turns the selection 15° to the left, Shift+E 90° to the right:
+    // shown at once, and one command when the keys rest (each press was
+    // one, the area read again at each: lag in busy areas while a key was
+    // held, the owner's report).
     let before: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    let undo =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let was = undo(&h);
+    for _ in 0..3 {
+        h.key_press(egui::Key::Q);
+        h.run_steps(2);
+    }
+    assert!(h.state().area_views[&area].key_turning(), "turning, not yet a command");
+    assert_eq!(undo(&h), was, "the module not changed yet");
+    rest_turn_keys(&mut h, area);
+    let after: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    for (b, a) in before.iter().zip(&after) {
+        assert!((a - b - 45f32.to_radians()).abs() < 1e-4, "{b} → {a}");
+    }
+    assert_eq!(undo(&h).as_deref(), Some("Rotate"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    let undone: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    assert_eq!(undone, before, "the three presses, one step of Undo");
+    assert_eq!(undo(&h), was);
     h.key_press(egui::Key::Q);
     h.run_steps(2);
+    rest_turn_keys(&mut h, area);
     let after: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
     for (b, a) in before.iter().zip(&after) {
         assert!((a - b - 15f32.to_radians()).abs() < 1e-4, "{b} → {a}");
     }
-    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    // Undo while it is turning takes the turn back, as it is not a
+    // command yet; Escape drops it too.
+    h.key_press(egui::Key::E);
     h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].key_turning());
+    assert_eq!(waypoints(&mut h).iter().map(facing).collect::<Vec<f32>>(), after);
+    assert_eq!(undo(&h).as_deref(), Some("Rotate"), "only the pending turn taken back");
+    h.key_press(egui::Key::E);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].key_turning());
+    assert_eq!(h.state().area_views[&area].selection, both, "Escape drops the turn alone");
+    assert_eq!(waypoints(&mut h).iter().map(facing).collect::<Vec<f32>>(), after);
+    // G while it is turning: the turn made first, then the drop, from
+    // where the turn left them.
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(1);
+    h.key_press(egui::Key::G);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].key_turning());
     let turned: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
     assert!((after[0] - turned[0] - 90f32.to_radians()).abs() < 1e-4);
+    // (On the ground already: G has nothing to drop, the turn its step.)
+    assert_eq!(undo(&h).as_deref(), Some("Rotate"));
 
     // Together: the two turn about their middle as one, each keeping
     // where the other is, seen from the way it faces.
@@ -4158,6 +4206,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
     h.run_steps(2);
+    rest_turn_keys(&mut h, area);
     let now = waypoints(&mut h);
     assert!((facing(&was[0]) - facing(&now[0]) - 90f32.to_radians()).abs() < 1e-4, "turned");
     let moved = (was[0].float("XPosition").unwrap() - now[0].float("XPosition").unwrap()).abs()
@@ -4212,6 +4261,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
     h.run_steps(2);
+    rest_turn_keys(&mut h, area);
     // (22..26 by 20..22, a quarter turn to the right about 24, 21.)
     let now = outline(&mut h);
     assert!(near(now[0], glam::Vec2::new(23.0, 23.0)), "{now:?}");
@@ -4223,6 +4273,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
     h.run_steps(2);
+    rest_turn_keys(&mut h, area);
     let together = outline(&mut h);
     let side = |o: &[glam::Vec2]| o[1] - o[0];
     assert!(near(side(&together), -side(&alone).perp()), "{alone:?} → {together:?}");

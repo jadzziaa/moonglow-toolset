@@ -333,14 +333,14 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
 | Ctrl + wheel, the pointer on one of them | scale their models, as in Aurora: up larger, down smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
-| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
+| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90°. Shown at once, and one step of Undo once the keys rest, however many presses (Escape drops it before then) |
 | G | drop them to the ground |
 | Shift+G | drop them onto the placeable below |
 | Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground (also a blueprint about to be placed) |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
-| Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another) |
+| Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another): the copies follow the pointer, each outlined by its model's box, and Q and E turn them together before the click puts them down |
 | Double-click | the object's Properties |
 
 Every move, turn and deletion is one undoable step. The view's corner

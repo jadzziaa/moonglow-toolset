@@ -3590,6 +3590,10 @@ impl Moonglow {
                     | Action::ProjectCommand(_)
             ),
         };
+        // (Q and E's turning under way is work to keep, or to ask about.)
+        if discards || action == Action::CloseWindow {
+            area_view::commit_key_turns(self);
+        }
         // The window's X: with unsaved work, the question Exit asks; with
         // none, one of its own, so that a slip of the pointer does not end
         // a session of open areas and scripts.
@@ -3796,6 +3800,10 @@ impl Moonglow {
                 // (A Ctrl + wheel scaling under way is what Undo takes
                 // back: it is not a command yet.)
                 if action == Action::Undo && area_view::drop_wheel_scale(self) {
+                    return;
+                }
+                // (So is Q and E's turning, not yet a command.)
+                if action == Action::Undo && area_view::drop_key_turn(self) {
                     return;
                 }
                 let Some(ws) = &mut self.ws else { return };
@@ -4187,6 +4195,11 @@ impl Moonglow {
     /// item's cost, a creature's hit points), and follows a changed hak list
     /// or talk table. On failure nothing is changed.
     pub(crate) fn apply(&mut self, cmd: Command) -> Result<(), mg_edit::EditError> {
+        // (Q and E's turning under way goes first: the command may be of
+        // what it turned.)
+        if self.area_views.values().any(area_view::AreaView::key_turning) {
+            area_view::commit_key_turns(self);
+        }
         self.warn_shadowing(&cmd);
         // Claimed areas kept read-only, protected names asked about.
         claims::gate(self, &cmd)?;
@@ -4258,8 +4271,10 @@ impl Moonglow {
             self.run_now(Action::SaveAsDialog);
             return;
         }
-        // (A Ctrl + wheel scaling still under way is part of what is saved.)
+        // (A Ctrl + wheel scaling still under way is part of what is saved,
+        // and so is Q and E's turning.)
         area_view::commit_wheel_scales(self);
+        area_view::commit_key_turns(self);
         // Options > General: Build module on save.
         if self.settings.build_on_save && self.ws.is_some() {
             build_view::build_on_save(self);

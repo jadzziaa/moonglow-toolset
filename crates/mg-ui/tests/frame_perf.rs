@@ -84,6 +84,9 @@ enum Pointer {
     /// Pressed at the first point, moved to the second and let go at the
     /// last frame: a drag (of a selection, in an area's view).
     Drags(egui::Pos2, egui::Pos2),
+    /// Rests at the point with the key pressed every so many frames, as a
+    /// key held down repeats (E turning the selection, in an area's view).
+    Keys(egui::Pos2, egui::Key, usize),
 }
 
 struct Report {
@@ -233,6 +236,18 @@ fn frames(
                 });
             }
             Pointer::Away => {}
+            Pointer::Keys(at, key, every) => {
+                input.events.push(egui::Event::PointerMoved(at));
+                if n % every.max(1) == 0 {
+                    input.events.push(egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: n > 0,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+            }
             Pointer::Drags(from, to) => {
                 let at = from.lerp(to, n as f32 / (count - 1).max(1) as f32);
                 input.events.push(egui::Event::PointerMoved(at));
@@ -504,12 +519,31 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
     };
     let f = frames(h, rect, Pointer::Drags(from, to), r.count, |_, _| {});
     said(r, &what, "drag", &f);
-    // (The move taken back, the selection let go.)
+    // (The move taken back.)
     h.run_steps(2);
-    let now = h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
-    assert_eq!(now.as_deref(), Some("Move"), "{what}: the drag moved the selection");
+    let undo = |h: &App<'_>| h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
+    assert_eq!(undo(h).as_deref(), Some("Move"), "{what}: the drag moved the selection");
     h.state_mut().actions.push(Action::Undo);
     h.run_steps(2);
+    // E held on it, repeating as a held key does (about 30 a second): each
+    // turns the selection as the ring's drag does.
+    let every = 5;
+    let f = frames(h, rect, Pointer::Keys(from, egui::Key::E, every), r.count, |_, _| {});
+    said(r, &what, "turned by E held", &f);
+    // (Made one command once the key rests.)
+    for _ in 0..2000 {
+        if !h.state().area_views.get(&area).is_some_and(|v| v.key_turning()) {
+            break;
+        }
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert_eq!(undo(h).as_deref(), Some("Rotate"), "{what}: E turned the selection");
+    while undo(h).as_deref() == Some("Rotate") {
+        h.state_mut().actions.push(Action::Undo);
+        h.run_steps(1);
+    }
+    // (The selection let go.)
     if let Some(v) = h.state_mut().area_views.get_mut(&area) {
         v.selection.clear();
     }
