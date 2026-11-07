@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T02:49:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
 ---
 
 # The main window
@@ -68,8 +68,14 @@ Offline, or when GitHub refuses (it limits how often it is asked), the
 window says why. What is sent is that one request and nothing else (no
 identifier, path or anything about your modules). Once a day at most
 Moonglow also asks by itself, in the background, unless Tools › Options
-› Updates says not to; when a newer release is out, a line under the
-toolbar says so, with **What's New…** (the window, with the notes),
+› Updates says not to; when a newer release is out, this window opens
+on it, with its notes, **Install Now**, **Later** and **Always install
+updates** (Options › Updates › Install updates automatically: this
+release downloaded at once and installed as Moonglow closes, and later
+ones without the window); it opens once for each release while
+Moonglow runs, and once
+it is closed a line under the toolbar says so, with **What's New…** (the
+window again),
 **Install Now**, **Later**, **Don't remind me about this version** (a
 later version is told again) and **×** to close it until the next check.
 

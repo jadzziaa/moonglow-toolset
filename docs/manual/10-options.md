@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T21:59:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
 ---
 
 # Options
@@ -538,7 +538,8 @@ Moonglow's own: Aurora has no such page.
 - **Check for updates automatically** (on by default): at each start
   (and as you switch it on) and once a day while it runs, in the
   background, Moonglow asks GitHub for its latest release,
-  and when a newer one is out says so in a line under the toolbar (see
+  and when a newer one is out opens the Check for Updates window on it,
+  then a line under the toolbar says so (see
   [Help › Check for Updates…](02-main-window.md#menus)). It never holds
   up starting or the window. Offline, or on any error, it says nothing
   (a line in the
@@ -547,8 +548,9 @@ Moonglow's own: Aurora has no such page.
 - **Install updates automatically** (off): a newer release the
   automatic check finds is downloaded and verified in the background,
   and installed when Moonglow closes, so the next start is the new
-  version; the line under the toolbar says so and offers **Restart
-  Now**. It is greyed where Moonglow doesn't install updates itself
+  version, without the window asking; the line under the toolbar says
+  so and offers **Restart Now**. The window's **Always install updates**
+  switches it on. It is greyed where Moonglow doesn't install updates itself
   (see [Installing an update](02-main-window.md#installing-an-update)).
 - **Include pre-releases** (off): a newer pre-release (a release
   candidate, to try before the release) is offered too. Releases are

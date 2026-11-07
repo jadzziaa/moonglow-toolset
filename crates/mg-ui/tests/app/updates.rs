@@ -92,6 +92,74 @@ fn check_for_updates_says_what_is_newest() {
     h.get_by_label("Check Again");
 }
 
+/// Closes the Check for Updates window the automatic check opened on a
+/// newer release: the notice under the toolbar stays.
+fn close_window(h: &mut Harness<'_, Moonglow>) {
+    assert!(h.state().updates.window, "the window opened on the release");
+    h.get_by_label("Close").click();
+    h.run();
+}
+
+/// A newer release the automatic check finds at start opens the Check for
+/// Updates window on it, asking (Carcerian's ask on Discord, 2026-11-06:
+/// the line under the toolbar went unseen), with Always install updates,
+/// which is Options › Updates › Install updates automatically; with that
+/// on, it is downloaded without the window. A skipped version opens
+/// nothing.
+#[test]
+fn a_newer_release_found_at_start_opens_the_window_asking() {
+    let current = mg_core::release::version();
+    let told = format!("Moonglow 99.0.0 is out (you have {current}).");
+    let dir = mg_testkit::scratch_dir("ui-update-window");
+    let key = mg_testkit::signing::TestKey::new();
+    let server = serve_release(&key, "v99.0.0", false, b"Moonglow 99.0.0's AppImage");
+    let (app, _) = app_updating(&dir, &server, Some(key.public()));
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    assert!(h.state().updates.window, "the window, open");
+    assert_eq!(h.get_all_by_label(&told).count(), 1, "told once: the notice waits");
+    h.get_by_label("Install Now");
+    h.get_by_label("Later");
+    assert!(!h.state().settings.update_auto_install);
+    // Closed, the daily check while Moonglow runs doesn't open it again.
+    close_window(&mut h);
+    let day_ago = mg_ui::updates::now() - mg_ui::updates::DAY - 60;
+    h.state_mut().settings.update_checked = Some(day_ago);
+    h.state_mut().updates.look_again();
+    h.run_steps(3);
+    assert!(h.state().settings.update_checked > Some(day_ago), "asked again");
+    assert!(!h.state().updates.window, "not opened again in this run");
+    h.get_by_label(&told);
+    // What's New… opens it; Always install updates gets this release too.
+    h.get_by_label("What's New…").click();
+    h.run_steps(2);
+    assert!(h.state().updates.getting.is_none());
+    h.get_by_label("Always install updates").click();
+    h.run_steps(2);
+    assert!(h.state().settings.update_auto_install, "Options › Updates' switch");
+    let getting = h.state().updates.getting.as_ref().expect("this release, downloading");
+    assert!(!getting.now, "installed as Moonglow closes, as Later");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Always install updates").is_none(), "the window's alone");
+
+    // Always: the next start downloads it, without the window.
+    let settings = h.state().settings.clone();
+    let (mut app, _) = app_updating(&dir, &server, Some(key.public()));
+    app.settings = settings;
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(3);
+    assert!(!h.state().updates.window, "not asked");
+    assert!(h.state().updates.getting.is_some(), "downloading");
+
+    // Skipped: nothing opens.
+    let (mut app, _) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.settings.update_skipped = Some("99.0.0".into());
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    assert!(!h.state().updates.window);
+}
+
 /// The automatic check, due, tells of a newer release under the toolbar
 /// at start; Don't remind me about this version keeps it from telling of
 /// that one again (a later one is told), and × closes it for now.
@@ -104,6 +172,9 @@ fn the_update_notice_appears_and_is_dismissed() {
     assert_eq!(app.settings.update_checked, None);
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    // (The window opens on it; closed, the notice under the toolbar.)
+    h.get_by_label(&told);
+    close_window(&mut h);
     h.get_by_label(&told);
     h.get_by_label("Release Page");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
@@ -130,6 +201,7 @@ fn the_update_notice_appears_and_is_dismissed() {
     app.settings = settings;
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    close_window(&mut h);
     h.get_by_label(&format!("Moonglow 99.1.0 is out (you have {current})."));
     h.get_by_label("×").click();
     h.run();
@@ -341,6 +413,7 @@ fn an_update_is_installed_from_the_notice_and_a_restart_asked() {
     let current = mg_core::release::version();
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    close_window(&mut h);
     h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
     h.get_by_label("What's New…").click();
     h.run_steps(2);
@@ -397,6 +470,7 @@ fn restart_now_asks_about_unsaved_work_first() {
     app.open_module(&path);
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    close_window(&mut h);
     let ifo = ResKey::parse("module", ResType::IFO).unwrap();
     let edit = mg_edit::Edit::SetField {
         key: ifo,
@@ -426,6 +500,7 @@ fn an_update_with_a_bad_signature_is_refused() {
     let (app, image) = app_updating(&dir, &server, Some(ours.public()));
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    close_window(&mut h);
     h.get_by_label("Install Now").click();
     h.run_steps(2);
     h.get_by_label(
@@ -456,6 +531,7 @@ fn an_update_with_a_bad_signature_is_refused() {
     let (app, _) = app_updating(&dir, &server, None);
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
+    close_window(&mut h);
     assert!(h.query_by_label("Install Now").is_none());
     h.get_by_label("Release Page");
     h.get_by_label("What's New…").click();

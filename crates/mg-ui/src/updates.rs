@@ -142,6 +142,9 @@ pub struct Updates {
     /// The automatic check has asked since this program started: it asks
     /// once at each start (or as it is switched on), then once a day.
     asked: bool,
+    /// The release the automatic check opened the window on, in this run:
+    /// once for each (the daily check doesn't open it again mid-work).
+    opened: Option<Version>,
     /// The request under way (on its thread): whether the automatic
     /// check and the window wait for it.
     pending: Option<(Answer, bool, bool)>,
@@ -163,6 +166,7 @@ impl Default for Updates {
             notes: Default::default(),
             looked: None,
             asked: false,
+            opened: None,
             pending: None,
         }
     }
@@ -316,11 +320,20 @@ fn finish(app: &mut Moonglow, answer: Result<String, String>, auto: bool, manual
         // Install updates automatically: downloaded now, installed as
         // Moonglow closes.
         let getting = app.updates.getting.as_ref().map(|g| &g.release.version);
-        if app.settings.update_auto_install
-            && app.updates.why_not(r).is_none()
-            && getting != Some(&r.version)
-        {
+        let auto_install = app.settings.update_auto_install && app.updates.why_not(r).is_none();
+        if auto_install && getting != Some(&r.version) {
             get(app, r.clone(), false);
+        }
+        // Otherwise the window opens on it, asking (a builder's ask: the
+        // line under the toolbar alone went unseen): once a run for each
+        // release, not while it is open, nor for one being installed.
+        else if !auto_install
+            && getting != Some(&r.version)
+            && !app.updates.window
+            && app.updates.opened.as_ref() != Some(&r.version)
+        {
+            app.updates.opened = Some(r.version.clone());
+            whats_new(app, r.clone());
         }
     }
     if manual {
@@ -644,6 +657,12 @@ fn install_state(
 /// The notice of a newer release, under the toolbar, while there is one.
 pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(release) = app.updates.notice.clone() else { return };
+    // (Not while the window tells of it: once is enough.)
+    let told =
+        matches!(&app.updates.report, Some(Outcome::Newer(r)) if r.version == release.version);
+    if app.updates.window && told {
+        return;
+    }
     let mut close = false;
     let mut action = None;
     // (Try Again: Install Now's or Later's again.)
@@ -804,6 +823,17 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
                 }
             });
             ui.weak(format!("Installs it in place of {}.", app.updates.kind.what()));
+            let always = ui
+                .checkbox(&mut app.settings.update_auto_install, "Always install updates")
+                .on_hover_text(
+                    "This release and every later one downloaded and verified as soon as it is \
+                     found, and installed when Moonglow closes, without asking (Tools › Options \
+                     › Updates › Install updates automatically)",
+                );
+            // (Ticked: this one too, as Later gets it.)
+            if always.changed() && app.settings.update_auto_install {
+                get(app, r.clone(), false);
+            }
         }
     }
     action
