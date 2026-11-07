@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.15.0" date="2026-11-07">
+      <description>
+        <p>A Variables page in every Properties window, and questions that
+        keep coming up answered once for all (Options › General ›
+        Questions).</p>
+      </description>
+    </release>
     <release version="3.14.1" date="2026-11-07">
       <description>
         <p>Edits in busy areas no longer stall: an edit reads again only
