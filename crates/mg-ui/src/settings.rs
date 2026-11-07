@@ -620,6 +620,9 @@ pub struct Settings {
     /// nothing in them (Scripts (0)) and an area's kinds with nothing
     /// placed (Doors (0)); off, as Aurora lists them all.
     pub tree_hides_empty: bool,
+    /// Options > General: the palettes leave out the categories with no
+    /// blueprint in them or under them; off, as Aurora lists them all.
+    pub palette_hides_empty: bool,
     /// Options > General: each Properties window (a blueprint's, a placed
     /// object's) opens in a window of its own (off: as a tab of the
     /// window one is open in already).

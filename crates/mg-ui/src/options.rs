@@ -122,6 +122,7 @@ pub struct OptionsDraft {
     pub tree_opens_area: bool,
     pub tree_follows_tabs: bool,
     pub tree_hides_empty: bool,
+    pub palette_hides_empty: bool,
     pub dialogs_together: bool,
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
@@ -278,6 +279,7 @@ impl OptionsDraft {
             tree_opens_area: !s.tree_keeps_areas_closed,
             tree_follows_tabs: !s.tree_stays,
             tree_hides_empty: s.tree_hides_empty,
+            palette_hides_empty: s.palette_hides_empty,
             dialogs_together: !s.dialogs_own_windows,
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
@@ -390,6 +392,7 @@ impl OptionsDraft {
             tree_keeps_areas_closed: !self.tree_opens_area,
             tree_stays: !self.tree_follows_tabs,
             tree_hides_empty: self.tree_hides_empty,
+            palette_hides_empty: self.palette_hides_empty,
             dialogs_own_windows: !self.dialogs_together,
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
@@ -1840,6 +1843,12 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
          module tree (the Wizards and Tools menus make what a hidden \
          group's New would)",
     );
+    ui.checkbox(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")
+        .on_hover_text(
+            "Categories with no blueprint in them (or in the categories under them) are left \
+             out of the palettes. A blueprint's Category list and Palette › Categories… still \
+             have every category",
+        );
     ui.checkbox(&mut draft.categories_by_name, "List a blueprint's categories alphabetically")
         .on_hover_text(
             "A blueprint's Category list in alphabetical order; off, in the \

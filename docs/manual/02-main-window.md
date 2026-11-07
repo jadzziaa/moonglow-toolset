@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T07:56:21Z }
 ---
 
 # The main window
@@ -606,7 +606,9 @@ player's character enters the module: chosen, a click in an area puts
 it there). **Preview** (toolbar) shows
 the chosen blueprint in a window of its own. After a click in it, the
 arrow keys move through its rows and open and close its categories (see
-[Blueprints](05-blueprints.md)).
+[Blueprints](05-blueprints.md)). Tools › Options › General › **Hide
+empty categories in the palettes** leaves out the categories with no
+blueprint in them ([Options](10-options.md#module-tree-and-palettes)).
 
 ## The resource browser
 

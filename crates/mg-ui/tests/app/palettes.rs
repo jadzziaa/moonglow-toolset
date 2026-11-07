@@ -592,6 +592,57 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     assert_eq!(category(&mut h), Some(5));
 }
 
+/// Options › General › Hide empty categories in the palettes leaves out
+/// the categories with no blueprint in them or under them, a search's
+/// matches still shown; off, every category is listed, as Aurora lists
+/// them (the owner's ask, 2026-11-07).
+#[test]
+fn empty_palette_categories_are_hidden_when_asked() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-hide-empty");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let game = app.game.as_deref().unwrap();
+    let mut g = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let key = ResKey::parse("mg_gate", ResType::UTW).unwrap();
+    g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+    let ls = LocString::from_text(Language::ENGLISH, Gender::Male, "Gate");
+    g.root.set("LocalizedName", mg_gff::Value::LocString(ls));
+    // (Custom 1, under Special.)
+    g.root.set("PaletteID", mg_gff::Value::Byte(0));
+    let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(mg_edit::Command::new("setup", vec![edit])).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    let mut h = harness(app, 900.0, 700.0);
+    h.run();
+    let search = search_rect(&h, "🔍 Search name, tag, resref");
+    let below = |n: &egui_kittest::Node<'_>| (n.rect().top() - search.bottom()).abs();
+    let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
+    expand.expect("Expand All").click();
+    h.run();
+    h.get_by_label("Custom 1 (1)");
+    assert!(h.query_by_label("Custom 2").is_some(), "an empty category, listed");
+    h.state_mut().settings.palette_hides_empty = true;
+    h.run();
+    assert!(h.query_by_label("Custom 2").is_none(), "left out");
+    h.get_by_label("Custom 1 (1)");
+    h.get_by_label("Gate");
+    // (Special holds Custom 1: it stays.)
+    assert!(h.query_by_label_contains("Special").is_some());
+    // A search shows its matches as before.
+    h.state_mut().palette.filter = "gate".into();
+    h.run();
+    h.get_by_label("Gate");
+    h.state_mut().palette.filter.clear();
+    h.state_mut().settings.palette_hides_empty = false;
+    h.run();
+    assert!(h.query_by_label("Custom 2").is_some(), "listed again");
+}
+
 /// GitHub issue 16: the palette's header. The types are one row of icons
 /// (a dropdown in a pane too narrow for it), the one shown named under
 /// it; the search says what it looks in and has a button to clear it; the

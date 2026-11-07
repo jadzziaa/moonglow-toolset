@@ -1438,6 +1438,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         hovered: None,
         resrefs,
         cr,
+        hide_empty: app.settings.palette_hides_empty,
         cursor: (view.cursor.take()).filter(|c| {
             c.kind == kind
                 && c.custom == custom
@@ -1761,6 +1762,9 @@ struct Tree<'a> {
     /// ratings.
     resrefs: bool,
     cr: bool,
+    /// Options › General: categories with no blueprint in them (or under
+    /// them) left out.
+    hide_empty: bool,
     /// The row the arrow keys are at, and whether to bring it into view.
     cursor: Option<At>,
     reveal: bool,
@@ -1850,6 +1854,10 @@ impl Tree<'_> {
 
     /// Whether a node or anything under it passes the search.
     fn any_shown(&self, node: &PaletteNode) -> bool {
+        // (Empty, under Hide empty categories: left out, searched or not.)
+        if self.hide_empty && count_under(node) == 0 {
+            return false;
+        }
         self.found.is_none()
             || node.blueprints.iter().any(|b| self.shown(b))
             || node.children.iter().any(|c| self.any_shown(c))

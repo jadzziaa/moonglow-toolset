@@ -344,6 +344,12 @@ the module is opened again from its file.
   nothing in them (Scripts (0)) and the kinds of object an area has none
   of (Doors (0)) are left out; off, they are listed, as Aurora lists
   them. A hidden group's New is in the Wizards and Tools menus.
+- **Hide empty categories in the palettes** (off): the categories with
+  no blueprint in them (or in the categories under them) are left out of
+  the palettes, the Custom palette's too; a search still shows what it
+  finds. A blueprint's Category list and Palette › Categories… have
+  every category either way. Off, every category is listed, as Aurora
+  lists them.
 - **List a blueprint's categories alphabetically**: a blueprint's
   Category list in alphabetical order, rather than in the palette's
   (the order Palette › Categories… gives them): case and accents aside
