@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.12.2" date="2026-11-06">
+      <description>
+        <p>Export and Import open in the user folder's erf folder, as
+        Aurora's do, then in the folder last used.</p>
+      </description>
+    </release>
     <release version="3.12.1" date="2026-11-06">
       <description>
         <p>nwn.ini's folder aliases are read through a Proton or Wine
