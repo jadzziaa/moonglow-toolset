@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.14.1" date="2026-11-07">
+      <description>
+        <p>Edits in busy areas no longer stall: an edit reads again only
+        what it changed, and Q and E turn at once and make one step. Q and
+        E turn a paste before it is put down.</p>
+      </description>
+    </release>
     <release version="3.14.0" date="2026-11-07">
       <description>
         <p>The Options window in sections, an option to hide the palettes'
