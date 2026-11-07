@@ -147,6 +147,13 @@ the module is opened again from its file.
   opens the folder without asking (Aurora's Always open module
   directories), **Open the .mod** the `.mod`. See
   [Modules](03-modules.md#opening-and-saving).
+- **Exporting to an archive there** (Ask: append or overwrite): File ›
+  Export… to an `.erf` that is there already asks whether to append to
+  it or overwrite it, as Aurora asks; **Append to it** adds the
+  resources without asking (those of the same names replaced, the rest
+  it holds kept), **Overwrite it** replaces it with an archive of the
+  resources alone. The question's **Always do this** sets it too. See
+  [Modules](03-modules.md#import-and-export).
 - **Minimize Toolset on test module**.
 - **Start a Steam copy of the game through Steam for a test** (on):
   off, the game's program is started on its own, without Steam's overlay

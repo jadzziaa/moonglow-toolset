@@ -37,22 +37,23 @@ pub struct ExportDraft {
 pub(crate) type Listed = (u64, Option<ResType>, String, Arc<Vec<ResKey>>, Arc<Vec<ResKey>>);
 
 /// An Export to an archive that is there, waiting on the question
-/// Aurora's Export asks of it: append to it (Yes), overwrite it (No), or
-/// do nothing (Cancel).
+/// Aurora's Export asks of it: append to it, overwrite it, or do nothing
+/// (Cancel); and whether to do so always (`always`, the question's box).
 #[derive(Debug, Clone)]
 pub struct ExportAsk {
     pub draft: ExportDraft,
     pub resources: Vec<ResKey>,
     pub path: PathBuf,
+    pub always: bool,
 }
 
 /// The answer to [`ExportAsk`]'s question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportAnswer {
-    /// Yes: the resources are added to the archive (those of the same
-    /// names replaced; the rest and its description stay).
+    /// The resources are added to the archive (those of the same names
+    /// replaced; the rest and its description stay): Aurora's Yes.
     Append,
-    /// No: the archive is replaced.
+    /// The archive is replaced: Aurora's No.
     Overwrite,
     /// Cancel: nothing is written.
     Cancel,
@@ -788,9 +789,24 @@ impl Moonglow {
             return;
         };
         self.erf_chosen(&path);
-        // An archive that is there: asked about first, as Aurora asks.
+        // An archive that is there: asked about first, as Aurora asks,
+        // unless Options › General says what to do.
         if path.exists() {
-            self.export_ask = Some(ExportAsk { draft, resources, path });
+            use crate::settings::ExistingArchive;
+            match self.settings.export_existing {
+                ExistingArchive::Ask => {
+                    self.export_ask = Some(ExportAsk { draft, resources, path, always: false });
+                }
+                chosen => {
+                    let append = chosen == ExistingArchive::Append;
+                    self.log.info(format!(
+                        "{} was there: {} it, as Tools › Options › General says",
+                        path.display(),
+                        if append { "appended to" } else { "overwrote" }
+                    ));
+                    self.write_export(&draft, &resources, &path, append);
+                }
+            }
             return;
         }
         self.write_export(&draft, &resources, &path, false);
@@ -801,6 +817,12 @@ impl Moonglow {
         let Some(ask) = self.export_ask.take() else { return };
         if answer != ExportAnswer::Cancel {
             let append = answer == ExportAnswer::Append;
+            // Always so: Options › General's choice, from now on.
+            if ask.always {
+                use crate::settings::ExistingArchive;
+                self.settings.export_existing =
+                    if append { ExistingArchive::Append } else { ExistingArchive::Overwrite };
+            }
             self.write_export(&ask.draft, &ask.resources, &ask.path, append);
         }
     }
@@ -843,28 +865,36 @@ impl Moonglow {
     }
 }
 
-/// The question an Export to an archive that is there asks, in Aurora's
-/// words (its Export, captured 2026-10-29): Yes appends, No overwrites,
-/// Cancel does nothing.
+/// The question an Export to an archive that is there asks: Aurora's
+/// (its Export, captured 2026-10-29: Yes appends, No overwrites, Cancel
+/// does nothing), with buttons named for what they do and each said, and
+/// a box to do so always (Options › General), for a builder's ask
+/// (Carcerian: Yes and No said too little).
 fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(ask) = &app.export_ask else { return };
+    let Some(ask) = &mut app.export_ask else { return };
     let mut answer = None;
     crate::widgets::modal(ctx, "Export").id(egui::Id::new("export-ask")).show(ctx, |ui| {
         ui.set_max_width(460.0);
-        ui.label(format!(
-            "The file '{}' already exists. Do you wish to append to it?",
-            ask.path.display()
-        ));
+        let name = ask
+            .path
+            .file_name()
+            .map_or_else(|| ask.path.display().to_string(), |n| n.to_string_lossy().into_owned());
+        ui.label(format!("{name} is there already.")).on_hover_text(ask.path.display().to_string());
         ui.add_space(6.0);
-        ui.label("Click YES to append to the file.");
-        ui.label("Click NO to overwrite the file.");
-        ui.label("Click CANCEL to do nothing.");
+        ui.label(
+            "Append adds the resources to it: those it has of the same names are \
+             replaced, the rest it holds stay.",
+        );
+        ui.label("Overwrite replaces it with an archive of these resources alone.");
+        ui.add_space(6.0);
+        ui.checkbox(&mut ask.always, "Always do this")
+            .on_hover_text("Tools › Options › General › Exporting to an archive there changes it");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.button("Yes").clicked() {
+            if ui.button("Append").clicked() {
                 answer = Some(ExportAnswer::Append);
             }
-            if ui.button("No").clicked() {
+            if ui.button("Overwrite").clicked() {
                 answer = Some(ExportAnswer::Overwrite);
             }
             if crate::widgets::cancel(ui) {

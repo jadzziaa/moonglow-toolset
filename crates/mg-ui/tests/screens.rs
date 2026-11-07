@@ -1265,6 +1265,38 @@ fn welcome_recent_modules() {
     eprintln!("{}", dir.join("welcome-recent.png").display());
 }
 
+/// Export's question about an archive that is there: Append and
+/// Overwrite, each said, and Always do this (Carcerian's ask, 2026-11-06).
+#[test]
+#[ignore]
+fn export_to_an_archive_there() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-export-there");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let script = ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
+    m.set(script, b"void main() {}\n".to_vec());
+    let path = dir.join("sample.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let erf = dir.join("amb_boardwalk.erf");
+    std::fs::write(&erf, mg_erf::ErfWriter::new(*b"ERF ").to_bytes().unwrap()).unwrap();
+    let dialogs = NoDialogs { save: vec![erf], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![script]));
+    h.run();
+    h.get_by_label("Export 1…").click();
+    h.run();
+    assert!(h.state().export_ask.is_some());
+    shoot(&mut h, &dir, "export-there");
+    eprintln!("{}", dir.join("export-there.png").display());
+}
+
 #[test]
 #[ignore]
 fn options_window() {

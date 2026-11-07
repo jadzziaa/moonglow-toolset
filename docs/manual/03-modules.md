@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T00:58:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
 ---
 
 # Modules
@@ -2154,11 +2154,14 @@ plugin reads a description with `mg.twoda.describe`
   then the rest by extension); **Kind** lists one kind alone, **Filter**
   those whose names hold what is typed, and **Select the Listed** and
   **Clear Them** tick and untick what the two leave. Choosing an archive
-  that is already there asks what Aurora's Export asks, in its words
-  ("The file … already exists. Do you wish to append to it?"): **Yes**
-  adds the resources to it (those of the same names are replaced, the
-  rest and its description stay), **No** replaces the file, **Cancel**
-  writes nothing. (The file dialog may ask about replacing the file
+  that is already there asks what Aurora's Export asks, with buttons
+  named for what they do: **Append** adds the resources to it (those of
+  the same names are replaced, the rest and its description stay;
+  Aurora's Yes), **Overwrite** replaces the file (Aurora's No),
+  **Cancel** writes nothing. **Always do this** makes the answer Tools ›
+  Options › General › **Exporting to an archive there**, which then
+  appends or overwrites without asking (the log says which); set it back
+  to Ask there. (The file dialog may ask about replacing the file
   first; this question comes after it.)
 - **An export says what it was made from.** After the description, the
   archive holds a stamp: the module's git commit, if the module is in a

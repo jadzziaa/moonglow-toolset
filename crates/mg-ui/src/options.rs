@@ -10,7 +10,7 @@ use egui::Ui;
 use mg_resman::GameInstall;
 
 use crate::script_view::Palette;
-use crate::settings::{ModuleFolders, SCRIPT_ELEMENTS, ScriptStyle};
+use crate::settings::{ExistingArchive, ModuleFolders, SCRIPT_ELEMENTS, ScriptStyle};
 use crate::{Action, Moonglow, Settings};
 
 /// The Options window's pages.
@@ -74,6 +74,7 @@ pub struct OptionsDraft {
     pub build_on_save: bool,
     pub mod_beside_folder: bool,
     pub module_folders: ModuleFolders,
+    pub export_existing: ExistingArchive,
     pub area_names: bool,
     pub categories_by_name: bool,
     pub drag_windows_anywhere: bool,
@@ -234,6 +235,7 @@ impl OptionsDraft {
             build_on_save: s.build_on_save,
             mod_beside_folder: !s.no_mod_beside_folder,
             module_folders: s.module_folders,
+            export_existing: s.export_existing,
             area_names: s.area_names,
             categories_by_name: s.categories_by_name,
             drag_windows_anywhere: s.drag_windows_anywhere,
@@ -337,6 +339,7 @@ impl OptionsDraft {
             build_on_save: self.build_on_save,
             no_mod_beside_folder: !self.mod_beside_folder,
             module_folders: self.module_folders,
+            export_existing: self.export_existing,
             area_names: self.area_names,
             categories_by_name: self.categories_by_name,
             drag_windows_anywhere: self.drag_windows_anywhere,
@@ -710,6 +713,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                          beside it (a module directory, as Aurora keeps one): \
                                          asked, as Aurora asks, or always the folder (Aurora's \
                                          Always open module directories), or always the .mod",
+                                    );
+                            });
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Exporting to an archive there");
+                                let name = |c: &ExistingArchive| match c {
+                                    ExistingArchive::Ask => "Ask: append or overwrite",
+                                    ExistingArchive::Append => "Append to it",
+                                    ExistingArchive::Overwrite => "Overwrite it",
+                                };
+                                let all = [
+                                    ExistingArchive::Ask,
+                                    ExistingArchive::Append,
+                                    ExistingArchive::Overwrite,
+                                ];
+                                crate::widgets::dropdown("export-existing")
+                                    .selected_text(name(&draft.export_existing))
+                                    .show(ui, &mut draft.export_existing, &all, name)
+                                    .on_hover_text(
+                                        "File › Export… to an .erf that is there already: \
+                                         asked each time, as Aurora asks; or always appended to \
+                                         (the resources added, those of the same names replaced, \
+                                         the rest it holds kept); or always overwritten (a new \
+                                         archive of the resources exported alone)",
                                     );
                             });
                             ui.checkbox(

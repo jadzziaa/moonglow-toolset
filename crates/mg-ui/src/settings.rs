@@ -49,6 +49,16 @@ impl Default for ScriptStyle {
     }
 }
 
+/// What File › Export… does with an archive that is there already
+/// (Options › General): asks, appends to it or overwrites it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExistingArchive {
+    #[default]
+    Ask,
+    Append,
+    Overwrite,
+}
+
 /// What opening a `.mod` with a folder of its name beside it opens
 /// (Options › General): Aurora asks, or with its Always open module
 /// directories opens the folder.
@@ -460,6 +470,9 @@ pub struct Settings {
     /// Options › General: a `.mod` opened with a folder of its name
     /// beside it (as Aurora keeps a module directory): which is opened.
     pub module_folders: ModuleFolders,
+    /// Options › General: what Export does with an archive that is there
+    /// already (its question's "Always do this" sets it too).
+    pub export_existing: ExistingArchive,
     /// View: the module tree, the log and the palettes folded away.
     pub hide_tree: bool,
     pub hide_log: bool,

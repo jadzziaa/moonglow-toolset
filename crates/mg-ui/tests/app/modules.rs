@@ -331,11 +331,16 @@ fn export_lists_a_kind() {
     assert!(!left.contains(&ResKey::parse("mg_two", ResType::NSS).unwrap()));
 }
 
-/// An Export to an archive that is there asks what Aurora's asks, in its
-/// words: Yes adds the resources to it (what it held stays), No replaces
-/// it, Cancel writes nothing (Aurora's Export, captured 2026-10-29).
+/// An Export to an archive that is there asks what Aurora's asks (its
+/// Export, captured 2026-10-29: Yes appends, No overwrites, Cancel does
+/// nothing), with buttons named for what they do and each said
+/// (Carcerian's ask on Discord, 2026-11-06): Append adds the resources to
+/// it (what it held stays), Overwrite replaces it, Cancel writes nothing.
+/// "Always do this" makes the answer Options › General's, which then does
+/// it without asking.
 #[test]
 fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
+    use mg_ui::settings::ExistingArchive;
     let dir = mg_testkit::scratch_dir("ui-export-ask");
     let source = sample_module(&dir);
     let erf = dir.join("kept.erf");
@@ -346,8 +351,11 @@ fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
         let archive = mg_erf::Erf::read(&bytes).unwrap();
         archive.entries.iter().map(|e| ResKey::new(e.resref, e.restype)).collect()
     };
-    let answer = |label: &str| {
-        // The archive there, holding one script.
+    // Exports `area` into the archive there (holding one script), with
+    // Options' choice `existing`, answering `label` (with "Always do
+    // this" ticked when `always`) where asked; what it holds then, and
+    // Options' choice after.
+    let export = |existing: ExistingArchive, label: Option<&str>, always: bool| {
         let mut old = mg_erf::ErfWriter::new(*b"ERF ");
         old.add(keep.resref, keep.restype, b"void main() {}\n".to_vec()).unwrap();
         std::fs::write(&erf, old.to_bytes().unwrap()).unwrap();
@@ -355,28 +363,49 @@ fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
             None,
             Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() }),
         );
+        app.settings.export_existing = existing;
         app.open_module(&source);
         let mut h = window_harness(app);
         h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
         h.run();
         h.get_by_label("Export 1…").click();
         h.run();
-        // Asked first: nothing written yet.
-        assert_eq!(held(&erf), [keep], "asked before anything is written");
-        h.get_by_label_contains("already exists. Do you wish to append to it?");
-        h.get_by_label("Click YES to append to the file.");
-        h.get_by_label("Click NO to overwrite the file.");
-        h.get_by_label("Click CANCEL to do nothing.");
-        h.get_by_label(label).click();
-        h.run();
+        match label {
+            Some(label) => {
+                // Asked first: nothing written yet.
+                assert_eq!(held(&erf), [keep], "asked before anything is written");
+                h.get_by_label("kept.erf is there already.");
+                h.get_by_label_contains("Append adds the resources to it");
+                h.get_by_label_contains("Overwrite replaces it");
+                if always {
+                    h.get_by_label("Always do this").click();
+                    h.run();
+                }
+                h.get_by_label(label).click();
+                h.run();
+            }
+            None => assert!(h.state().export_ask.is_none(), "not asked"),
+        }
         assert!(h.state().export_ask.is_none(), "answered");
-        held(&erf)
+        (held(&erf), h.state().settings.export_existing)
     };
-    let appended = answer("Yes");
+    let ask = ExistingArchive::Ask;
+    let (appended, after) = export(ask, Some("Append"), false);
     assert!(appended.contains(&keep) && appended.contains(&area), "{appended:?}");
-    let replaced = answer("No");
+    assert_eq!(after, ask, "asked again next time");
+    let (replaced, _) = export(ask, Some("Overwrite"), false);
     assert!(!replaced.contains(&keep) && replaced.contains(&area), "{replaced:?}");
-    assert_eq!(answer("Cancel"), [keep], "nothing written");
+    assert_eq!(export(ask, Some("Cancel"), true), (vec![keep], ask), "nothing written");
+    // Always: the answer becomes Options' choice.
+    let (appended, after) = export(ask, Some("Append"), true);
+    assert!(appended.contains(&keep), "{appended:?}");
+    assert_eq!(after, ExistingArchive::Append);
+    assert_eq!(export(ask, Some("Overwrite"), true).1, ExistingArchive::Overwrite);
+    // Options' choice: done without asking.
+    let (appended, _) = export(ExistingArchive::Append, None, false);
+    assert!(appended.contains(&keep) && appended.contains(&area), "{appended:?}");
+    let (replaced, _) = export(ExistingArchive::Overwrite, None, false);
+    assert!(!replaced.contains(&keep) && replaced.contains(&area), "{replaced:?}");
 }
 
 /// File dialogs that answer from `NoDialogs`' lists and note where each
@@ -436,7 +465,7 @@ fn export_and_import_open_in_the_erf_folder_then_the_last_one() {
         h.get_by_label("Export 1…").click();
         h.run();
         if h.state().export_ask.is_some() {
-            h.get_by_label("No").click();
+            h.get_by_label("Overwrite").click();
             h.run();
         }
     };
