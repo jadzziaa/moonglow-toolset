@@ -431,6 +431,97 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     h.get_by_label("Command: Count Objects (right-click: area)");
 }
 
+/// A plugin's commands in submenus (API 0.7's `menu`), as TDoD's plugin
+/// asked for its dozen Make commands: in a right-click menu each
+/// submenu is made once, where its first command is, nested at each ›,
+/// its commands in the manifest's order; a command with no `menu` stays
+/// in the menu itself. The Plugins menu nests them the same way, and the
+/// Command Palette and the Plugins window name each by its whole path.
+#[test]
+fn a_plugin_s_commands_are_grouped_into_submenus() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-submenus", false) else { return };
+    let dir = mg_testkit::scratch_dir("ui-plugin-submenus-plugins");
+    let plugin = dir.join("roles");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let command = |id: &str, title: &str, menu: &str| {
+        let menu = if menu.is_empty() { String::new() } else { format!("menu = \"{menu}\"\n") };
+        format!("[command]\nid = \"{id}\"\ntitle = \"{title}\"\nfor = \"creature\"\n{menu}\n")
+    };
+    let cfg = [
+        "[plugin]\nid = \"test.roles\"\nname = \"Roles\"\nversion = \"1\"\napi = \"0.7\"\n\
+         license = \"MIT\"\n\n"
+            .to_string(),
+        command("workbench", "Workbench…", "Make › Crafting"),
+        command("crier", "Crier", "Make › Services"),
+        command("node", "Harvest Node…", "Make › Crafting"),
+        command("clear", "Clear Role", ""),
+    ]
+    .concat();
+    std::fs::write(plugin.join("plugin.cfg"), cfg).unwrap();
+    let mut luau = String::from("local mg = require(\"@moonglow\")\n");
+    for id in ["workbench", "crier", "node", "clear"] {
+        luau += &format!("mg.command(\"{id}\", function(ctx) ctx.log:info(\"ran {id}\") end)\n");
+    }
+    std::fs::write(plugin.join("main.luau"), luau).unwrap();
+    h.state_mut().plugin_dir = Some(dir);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.roles", true);
+    h.run();
+    h.get_by_label_contains("Creatures (1)").click();
+    h.run();
+    let ran = |h: &Harness<'_, Moonglow>| {
+        let mut said = h.state().log.entries.iter().rev();
+        said.find_map(|(_, m)| m.strip_prefix("Roles: ran ").map(str::to_string))
+    };
+
+    // The right-click menu: Make once, then Clear Role.
+    h.get_by_label("guard.utc").click_secondary();
+    h.run();
+    let make = h.get_all_by_label("Make ⏵").count();
+    assert_eq!(make, 1, "one Make submenu");
+    assert!(h.query_by_label("Workbench…").is_none(), "inside Make");
+    let (make, clear) = (h.get_by_label("Make ⏵").rect(), h.get_by_label("Clear Role").rect());
+    assert!(make.bottom() <= clear.top(), "Make where its first command is: {make:?} {clear:?}");
+    open_submenu(&mut h, "Make");
+    let items = menu_items(&h, "Services ⏵");
+    assert_eq!(items, ["Crafting ⏵", "Services ⏵"], "each once, in the manifest's order");
+    open_submenu(&mut h, "Crafting");
+    let items = menu_items(&h, "Workbench…");
+    assert_eq!(items, ["Workbench…", "Harvest Node…"]);
+    h.get_by_label("Harvest Node…").click();
+    h.run_steps(3);
+    assert_eq!(ran(&h).as_deref(), Some("node"));
+
+    // The Plugins menu: nested the same way.
+    // (The main menu's submenus are named alone, without the arrow.)
+    h.get_by_label("Plugins").click();
+    h.run();
+    assert_eq!(h.get_all_by_label("Make").count(), 1, "one Make submenu");
+    h.get_by_label("Clear Role");
+    assert!(h.query_by_label("Workbench…").is_none(), "inside Make");
+    h.get_by_label("Make").click();
+    h.run();
+    h.get_by_label("Crafting").click();
+    h.run();
+    h.get_by_label("Workbench…").click();
+    h.run_steps(3);
+    assert_eq!(ran(&h).as_deref(), Some("workbench"));
+
+    // The Command Palette: by the whole path, found by a submenu's name.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    type_into_hint(&mut h, "Type a command's name", "crafting workbench");
+    h.get_by_label("Make › Crafting › Workbench…");
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // The Plugins window says where each is.
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("Command: Make › Services › Crier (right-click: creature)");
+    h.get_by_label("Command: Clear Role (right-click: creature)");
+}
+
 /// API 0.5: a command for placed objects alone is not in a blueprint's
 /// menu, one for blueprints alone is; a group's row of the module tree
 /// runs a command on every one of the group; a command from the Plugins

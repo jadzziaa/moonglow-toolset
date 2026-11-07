@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.6, for editors that check
+-- The types of Moonglow's plugin API, version 0.7, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -351,7 +351,7 @@ export type Element = string | {
 
 local mg = {}
 
-mg.api = "0.6"
+mg.api = "0.7"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.

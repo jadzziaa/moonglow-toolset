@@ -9,10 +9,10 @@ pub use mg_module::project_plugins::SettingValue;
 use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.6";
+pub const API: &str = "0.7";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 6] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"];
+pub const APIS: [&str; 7] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -669,6 +669,40 @@ pub struct CommandDecl {
     /// right-click menus of each, and gets what was clicked as its
     /// selection. None: the Plugins menu alone (API 0.4).
     pub targets: Vec<Target>,
+    /// The submenu it is in, in every menu it is in (`menu = "Make ›
+    /// Crafting"`: Crafting within Make), each name a level deeper; none:
+    /// the menu itself (API 0.7).
+    pub menu: Vec<String>,
+}
+
+impl CommandDecl {
+    /// Its title with the submenus it is in before it (`Make › Crafting ›
+    /// Workbench…`): how the Command Palette and the keys name it.
+    pub fn path_title(&self) -> String {
+        path_title(&self.menu, &self.title)
+    }
+}
+
+/// A title with the submenus it is in before it, `›` between them.
+pub fn path_title(menu: &[String], title: &str) -> String {
+    menu.iter().map(String::as_str).chain([title]).collect::<Vec<_>>().join(" › ")
+}
+
+/// A command's `menu` (`Make › Crafting`, or with `>`): its submenus'
+/// names in order, none where it is empty.
+fn menu_of(s: &Section, menu: &str) -> Result<Vec<String>, String> {
+    if menu.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let names: Vec<String> = menu.split(['›', '>']).map(|n| n.trim().to_string()).collect();
+    if names.iter().any(String::is_empty) {
+        return Err(format!(
+            "line {}: menu names its submenus, each with a name, between › (\"Make › \
+             Crafting\"), not {menu:?}",
+            s.line
+        ));
+    }
+    Ok(names)
 }
 
 /// What a command can be for: a kind of object (placed in an area, or its
@@ -1120,7 +1154,7 @@ impl Manifest {
                     });
                 }
                 "command" => {
-                    let get = keys(s, &["id", "title", "hint", "key", "for"])?;
+                    let get = keys(s, &["id", "title", "hint", "key", "for", "menu"])?;
                     let id = id_of(s, get("id"))?;
                     if commands.iter().any(|c| c.id == id) {
                         return Err(format!("line {}: a second command {id:?}", s.line));
@@ -1132,6 +1166,7 @@ impl Manifest {
                         hint: get("hint").to_string(),
                         key: Some(get("key")).filter(|k| !k.is_empty()).map(str::to_string),
                         targets,
+                        menu: menu_of(s, get("menu"))?,
                     });
                 }
                 "check" => {
@@ -1279,6 +1314,15 @@ impl Manifest {
                 d.id, plugin.api
             ));
         }
+        if let Some(c) = commands.iter().find(|c| !c.menu.is_empty())
+            && api_before(&plugin.api, "0.7")
+        {
+            return Err(format!(
+                "the command {:?} is in a submenu (`menu`), which is plugin API 0.7; the \
+                 manifest says api = {:?}",
+                c.id, plugin.api
+            ));
+        }
         if let Some((line, name)) = since_0_6
             && api_before(&plugin.api, "0.6")
         {
@@ -1385,6 +1429,33 @@ severity = "error"
         assert!(with("for = \"creature\"").contains("for creature twice"));
         let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
         assert!(e.contains("plugin API 0.4") && e.contains("\"fix-tags\""), "{e}");
+    }
+
+    /// API 0.7: a command in a submenu, `menu`, nested at each › (or >),
+    /// in every menu it is in; the Command Palette names it by the whole
+    /// path. A name left empty is refused, and so is `menu` in a manifest
+    /// written for an earlier API.
+    #[test]
+    fn a_command_is_put_in_a_submenu() {
+        let text = SAMPLE
+            .replace("api = \"0.1\"", "api = \"0.7\"")
+            .replace("key = \"Ctrl+Alt+T\"", "key = \"Ctrl+Alt+T\"\nmenu = \" Make ›Crafting \"");
+        let m = Manifest::parse(&text).unwrap();
+        assert_eq!(m.commands[0].menu, ["Make", "Crafting"]);
+        assert_eq!(m.commands[0].path_title(), "Make › Crafting › Fix Creature Tags");
+        let plain = Manifest::parse(&text.replace("\nmenu = \" Make ›Crafting \"", "")).unwrap();
+        assert!(plain.commands[0].menu.is_empty());
+        assert_eq!(plain.commands[0].path_title(), "Fix Creature Tags");
+        let ascii = Manifest::parse(&text.replace("Make ›Crafting", "Make > Crafting")).unwrap();
+        assert_eq!(ascii.commands[0].menu, ["Make", "Crafting"]);
+        for bad in ["Make ›", "› Make", "Make ›› Crafting"] {
+            let e = Manifest::parse(&text.replace("Make ›Crafting", bad)).unwrap_err();
+            assert!(e.contains("menu names its submenus"), "{bad}: {e}");
+        }
+        let e = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.6\"")).unwrap_err();
+        assert!(e.contains("plugin API 0.7") && e.contains("\"fix-tags\""), "{e}");
+        let later = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.8\"")).unwrap_err();
+        assert!(later.contains("0.8"), "{later}");
     }
 
     /// API 0.5: a command for placed objects alone or blueprints alone,

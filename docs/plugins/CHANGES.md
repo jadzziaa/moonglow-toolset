@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T19:23:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:19:16Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,30 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.7
+
+In Moonglow 3.14.0. Only an addition: a plugin written for 0.6 or
+before runs as it is. A plugin that puts its commands in submenus says
+`api = "0.7"`; a manifest with `menu` and an earlier `api` is refused,
+with the reason.
+
+- Submenus: a `[command]`'s `menu` names the submenu it is in, nested
+  with `›` (or `>`) between the names, in every menu the command is in
+  (its right-click menus and the Plugins menu). Each submenu is made
+  once, where the first command naming it is, its commands in the
+  manifest's order; a command without `menu` stays in the menu itself.
+  The Command Palette, Options › Keyboard, the Plugins window and `mg
+  plugin list` name the command by its whole path (`Make › Crafting ›
+  Workbench…`), and `mg plugin list --json` gives it as `menu`.
+
+  ```ini
+  [command]
+  id = "workbench"
+  title = "Workbench…"
+  for = "placeable"
+  menu = "Make › Crafting"
+  ```
 
 ## 0.6
 

@@ -1330,7 +1330,7 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
             job.append(&name[..split], 0.0, under);
             job.append(&name[split..], 0.0, plain);
             let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
-                app.menu_row = [0, 0];
+                app.menu_row = vec![0];
                 menu(app, ui, items, 0);
             });
             tops.push((Popup::default_response_id(&response), response));
@@ -1422,6 +1422,9 @@ fn row<'a>(
     entry: egui::Button<'a>,
     enabled: bool,
 ) -> (egui::Button<'a>, bool) {
+    if app.menu_row.len() <= level {
+        app.menu_row.resize(level + 1, 0);
+    }
     let index = app.menu_row[level];
     app.menu_row[level] += 1;
     if app.menu_keys.rows.len() <= level {
@@ -1448,8 +1451,8 @@ fn submenu(
     contents: impl FnOnce(&mut Moonglow, &mut Ui),
 ) -> egui::Response {
     use egui::containers::menu::{MenuState, SubMenu, SubMenuButton};
-    let index = app.menu_row[level];
     let (button, chosen) = row(app, level, name, egui::Button::new(name), enabled);
+    let index = app.menu_row[level] - 1;
     let at = app.menu_keys.at(level, index);
     let inside = app.menu_keys.path.len() == level + 2 && app.menu_keys.path[level] == index;
     let enter = at && enabled && (chosen || app.menu_keys.into);
@@ -1472,9 +1475,10 @@ fn submenu(
         ui.ctx().request_repaint();
     }
     let (response, _) = SubMenuButton::from_button(button).ui(ui, |ui| {
-        if level + 1 < app.menu_row.len() {
-            app.menu_row[level + 1] = 0;
+        if app.menu_row.len() <= level + 1 {
+            app.menu_row.resize(level + 2, 0);
         }
+        app.menu_row[level + 1] = 0;
         contents(app, ui);
     });
     if inside && app.menu_keys.path.last() == Some(&usize::MAX) {
@@ -1535,30 +1539,16 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
             Item::PluginCommands => {
                 let commands = app.plugin_commands();
                 let several = commands.iter().any(|c| c.plugin != commands[0].plugin);
-                let mut last = None;
-                for c in &commands {
+                let mut at = 0;
+                while at < commands.len() {
                     // Each plugin's under its name, when there are several.
-                    if several && last != Some(&c.plugin) {
-                        ui.weak(&c.plugin_name);
+                    let plugin = &commands[at].plugin;
+                    let n = commands[at..].iter().take_while(|c| &c.plugin == plugin).count();
+                    if several {
+                        ui.weak(&commands[at].plugin_name);
                     }
-                    last = Some(&c.plugin);
-                    let mut entry = egui::Button::new(&c.title);
-                    let key = app.keymap.label_of(&c.key_id, ui.ctx());
-                    if !key.is_empty() {
-                        entry = entry.shortcut_text(key);
-                    }
-                    let enabled = app.ws.is_some();
-                    let (entry, chosen) = row(app, level, &c.title, entry, enabled);
-                    let mut r = ui.add_enabled(enabled, entry);
-                    if !c.hint.is_empty() {
-                        r = r.on_hover_text(&c.hint);
-                    }
-                    if r.clicked() || chosen {
-                        app.run_plugin_command(&c.plugin, &c.command);
-                        if chosen {
-                            egui::Popup::close_all(ui.ctx());
-                        }
-                    }
+                    plugin_command_rows(app, ui, level, &commands[at..at + n], 0);
+                    at += n;
                 }
                 if !commands.is_empty() {
                     ui.separator();
@@ -1677,6 +1667,50 @@ pub struct Finder {
 /// The enabled plugins' exporters, importers, wizards or panels in a
 /// menu: each plugin's under its name, where there are several; a panel's
 /// ticked while it is shown.
+/// A plugin's commands in the Plugins menu at `depth` of their submenus
+/// (API 0.7's `menu`): each without a submenu there a row, each submenu
+/// once, where its first command is, holding those that name it.
+fn plugin_command_rows(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    level: usize,
+    commands: &[crate::plugins::PluginCommand],
+    depth: usize,
+) {
+    let mut made: Vec<&str> = Vec::new();
+    for c in commands {
+        let enabled = app.ws.is_some();
+        let Some(name) = c.menu.get(depth) else {
+            let mut entry = egui::Button::new(&c.title);
+            let key = app.keymap.label_of(&c.key_id, ui.ctx());
+            if !key.is_empty() {
+                entry = entry.shortcut_text(key);
+            }
+            let (entry, chosen) = row(app, level, &c.title, entry, enabled);
+            let mut r = ui.add_enabled(enabled, entry);
+            if !c.hint.is_empty() {
+                r = r.on_hover_text(&c.hint);
+            }
+            if r.clicked() || chosen {
+                app.run_plugin_command(&c.plugin, &c.command);
+                if chosen {
+                    egui::Popup::close_all(ui.ctx());
+                }
+            }
+            continue;
+        };
+        if made.contains(&name.as_str()) {
+            continue;
+        }
+        made.push(name);
+        let inside: Vec<crate::plugins::PluginCommand> =
+            commands.iter().filter(|d| d.menu.get(depth) == Some(name)).cloned().collect();
+        submenu(app, ui, level, name, enabled, |app, ui| {
+            plugin_command_rows(app, ui, level + 1, &inside, depth + 1);
+        });
+    }
+}
+
 fn plugin_entries(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1779,8 +1813,8 @@ pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
             }
         });
     let plugins = app.plugin_commands().into_iter().map(|c| Row {
+        label: c.path_title(),
         choice: Choice::Plugin(c.plugin, c.command),
-        label: c.title,
         menu: c.plugin_name,
         key_id: c.key_id,
         enabled: app.ws.is_some(),

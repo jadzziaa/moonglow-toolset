@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T19:23:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:19:16Z }
 ---
 
 # Writing plugins
@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.6): it may change in a
+The plugin API is **experimental** (version 0.7): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
@@ -233,7 +233,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The plugin's name for programs, the same wherever it is installed: `author.plugin-name`, in lower-case letters, digits, `.`, `-` and `_`. Settings and keys are kept under it, so don't change it between versions. |
 | `name` | Needed. Its name for people. |
 | `version` | Needed. The plugin's own version, as you number it. |
-| `api` | Needed. The plugin API it was written for: `"0.6"`, or an earlier one (`"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
+| `api` | Needed. The plugin API it was written for: `"0.7"`, or an earlier one (`"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
 | `description` | One or two sentences on what it does, shown in Manage Plugins. |
 | `author` | Who wrote it. Repeat the line for each author. |
@@ -248,6 +248,7 @@ running the plugin, to list what it adds.
 | `hint` | What its tip says. |
 | `key` | A key it has until the user chooses another: `Ctrl+Alt+T` (`Ctrl`, `Alt`, `Shift` and a key's name; Ctrl is Cmd on macOS). A key something else has already is reported as a conflict in Options › Keyboard, so choose an unusual one, or none. |
 | `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line; since API 0.5 also a kind's placed objects alone (`"placed creature"`) or its blueprints alone (`"creature blueprint"`), `tile`, and another resource's type (`nss`, `dlg`, `ifo`, `fac`, `jrl`, `2da`, `gui`, `jui`). It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
+| `menu` | The submenu it is in (since API 0.7), in every menu it is in (the right-click menus and the Plugins menu): `"Make"`, or nested with `›` (or `>`) between the names, `"Make › Crafting"`. Each submenu is made once, where the first command naming it is, and holds the commands that name it in the manifest's order; the title is then the command's name within it (`Workbench…`). The Command Palette, Options › Keyboard and `mg plugin list` name it by the whole path, `Make › Crafting › Workbench…`, so it is still found by name. Left out, the command is in the menu itself, as before. |
 
 `[check]`, once for each check:
 

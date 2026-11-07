@@ -431,7 +431,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         } else {
                             format!("\tfor {}", on.join(", "))
                         };
-                        out.line(format!("\tcommand\t{}\t{}{on}", c.id, c.title));
+                        out.line(format!("\tcommand\t{}\t{}{on}", c.id, c.path_title()));
                     }
                     for c in &m.checks {
                         out.line(format!("\tcheck\t{}\t{}", c.id, c.title));
@@ -498,6 +498,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         "commands": m.commands.iter().map(|c| json!({
                             "id": c.id, "title": c.title, "hint": c.hint, "key": c.key,
                             "for": c.targets.iter().map(|t| t.name()).collect::<Vec<_>>(),
+                            "menu": c.menu,
                         })).collect::<Vec<_>>(),
                         "checks": m.checks.iter().map(|c| json!({
                             "id": c.id, "title": c.title,

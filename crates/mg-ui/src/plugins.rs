@@ -256,6 +256,8 @@ pub struct PluginCommand {
     /// What it is for: the right-click menus it is in (none: the Plugins
     /// menu alone).
     pub targets: Vec<mg_plugin::Target>,
+    /// The submenus it is in, in every menu it is in (API 0.7's `menu`).
+    pub menu: Vec<String>,
 }
 
 impl PluginCommand {
@@ -265,6 +267,13 @@ impl PluginCommand {
     /// for both takes ([`mg_plugin::Target::takes`]).
     pub fn fits(&self, kinds: &[mg_plugin::Target]) -> bool {
         !kinds.is_empty() && kinds.iter().all(|k| self.targets.iter().any(|t| t.takes(*k)))
+    }
+
+    /// Its title after the submenus it is in (`Make › Crafting ›
+    /// Workbench…`): how the Command Palette and Options › Keyboard name
+    /// it, where it is found by name.
+    pub fn path_title(&self) -> String {
+        mg_plugin::path_title(&self.menu, &self.title)
     }
 }
 
@@ -349,22 +358,47 @@ pub(crate) fn menu_commands(
     commands: &[PluginCommand],
     kinds: &[mg_plugin::Target],
 ) -> Option<usize> {
-    let mut chosen = None;
-    let mut first = true;
-    for (i, c) in commands.iter().enumerate().filter(|(_, c)| c.fits(kinds)) {
-        if std::mem::take(&mut first) {
-            ui.separator();
-        }
-        let tip = match c.hint.as_str() {
-            "" => format!("A command of the plugin {}", c.plugin_name),
-            hint => format!("{hint}\nA command of the plugin {}", c.plugin_name),
-        };
-        if ui.button(&c.title).on_hover_text(tip).clicked() {
-            chosen = Some(i);
-            ui.close();
-        }
+    let fitting: Vec<(usize, &PluginCommand)> =
+        commands.iter().enumerate().filter(|(_, c)| c.fits(kinds)).collect();
+    if fitting.is_empty() {
+        return None;
     }
+    ui.separator();
+    let mut chosen = None;
+    nested_commands(ui, &fitting, 0, &mut chosen);
     chosen
+}
+
+/// `commands` at `depth` of their submenus: each without a submenu there
+/// a button, each submenu once (where its first command is), holding
+/// those that name it, in their order.
+fn nested_commands(
+    ui: &mut egui::Ui,
+    commands: &[(usize, &PluginCommand)],
+    depth: usize,
+    chosen: &mut Option<usize>,
+) {
+    let mut made: Vec<&str> = Vec::new();
+    for &(i, c) in commands {
+        let Some(name) = c.menu.get(depth) else {
+            let tip = match c.hint.as_str() {
+                "" => format!("A command of the plugin {}", c.plugin_name),
+                hint => format!("{hint}\nA command of the plugin {}", c.plugin_name),
+            };
+            if ui.button(&c.title).on_hover_text(tip).clicked() {
+                *chosen = Some(i);
+                ui.close();
+            }
+            continue;
+        };
+        if made.contains(&name.as_str()) {
+            continue;
+        }
+        made.push(name);
+        let inside: Vec<(usize, &PluginCommand)> =
+            commands.iter().filter(|(_, d)| d.menu.get(depth) == Some(name)).copied().collect();
+        ui.menu_button(name, |ui| nested_commands(ui, &inside, depth + 1, chosen));
+    }
 }
 
 /// The action that runs `command` on `selected` (what its menu was opened
@@ -1076,6 +1110,7 @@ impl Moonglow {
                     key_id: format!("{}/{}", p.manifest.id, c.id),
                     key: c.key.clone(),
                     targets: c.targets.clone(),
+                    menu: c.menu.clone(),
                 })
             })
             .collect()
@@ -2264,7 +2299,9 @@ fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
                 format!(" (right-click: {})", names.join(", "))
             }
         };
-        let title = c.title.trim_end_matches('…');
+        // (Its submenus' names before its title: Make › Crafting › Workbench.)
+        let title = c.path_title();
+        let title = title.trim_end_matches('…');
         ui.label(format!("Command: {title}{menus}")).on_hover_text(&c.hint);
     }
     for c in &m.checks {

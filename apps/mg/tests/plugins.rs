@@ -52,6 +52,7 @@ fn plugins_are_listed_and_checked() {
         json!({
             "id": "fix-tags", "title": "Fix Creature Tags",
             "hint": "Upper-case every creature's tag", "key": null, "for": [],
+            "menu": [],
         })
     );
     assert_eq!(tags["checks"][0]["severity"], "warning");

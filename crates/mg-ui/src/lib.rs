@@ -986,7 +986,9 @@ pub struct Moonglow {
     /// they are drawn (a menu's, its submenu's), the menu open, and
     /// whether Alt was used with something else since it went down.
     pub(crate) menu_keys: commands::MenuKeys,
-    pub(crate) menu_row: [usize; 2],
+    /// (One count for each level of submenu open: a plugin's commands
+    /// nest as deep as its manifest says.)
+    pub(crate) menu_row: Vec<usize>,
     pub(crate) menu_open: Option<usize>,
     pub(crate) menu_alt_spoiled: bool,
     /// Whether the pointer was over an area's view when one was last
@@ -1290,7 +1292,7 @@ impl Moonglow {
             maximized: HashMap::new(),
             tab_buttons: Vec::new(),
             menu_keys: Default::default(),
-            menu_row: [0, 0],
+            menu_row: vec![0],
             menu_open: None,
             menu_alt_spoiled: false,
             area_hovered: false,
@@ -3720,7 +3722,7 @@ impl Moonglow {
                 plugins::register_keys(&mut draft.keymap, &commands);
                 draft.plugin_commands = commands
                     .into_iter()
-                    .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
+                    .map(|c| (c.key_id.clone(), format!("{}: {}", c.plugin_name, c.path_title())))
                     .collect();
                 // The enabled plugins' checks, for Options › Verify.
                 draft.plugin_checks = (self.enabled_plugins().into_iter())
