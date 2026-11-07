@@ -399,6 +399,12 @@ pub struct AreaView {
     scene: Option<AreaScene>,
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
+    /// The ARE and GIT `model` was read from: what an edit changed of
+    /// them is read again, not the whole area (`refresh`).
+    read_from: Option<(Gff, Gff)>,
+    /// How many times the area was read whole (for tests: an edit of some
+    /// of its objects reads only those).
+    pub whole_reads: usize,
     /// How many times the ARE's lists had been rewritten then
     /// ([`mg_edit::Workspace::rewrites`]).
     rewrites: Option<u64>,
@@ -984,6 +990,8 @@ impl AreaView {
             reading: None,
             textures_drawn: 0,
             revision: None,
+            read_from: None,
+            whole_reads: 0,
             rewrites: None,
             tileset: None,
             terrain: None,
@@ -2200,6 +2208,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     if view.revision == Some(ws.revision()) {
         return;
     }
+    let was = view.revision;
     view.revision = Some(ws.revision());
     // (Read anew: so is its picture drawn.)
     view.drawn = None;
@@ -2209,6 +2218,50 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         crate::trace::note(format!("area {area}: {what} ({:.0?} in)", started.elapsed()));
     };
     step(&format!("reading at revision {}", ws.revision()));
+    // What the edits since touched (the workspace says): of its objects
+    // alone, those read again, the rest kept; nothing of the area (another
+    // resource edited), nothing. Read whole, an area of a thousand objects
+    // took 4 to 15 ms at every edit (`frame_perf`'s `refresh_parts`),
+    // noticed in busy areas.
+    if view.scene.is_some()
+        && view.model.is_some()
+        && let Some(touched) = was.and_then(|r| ws.touched_since(r))
+        && let Some(changed) =
+            AreaModel::touched_objects(&touched, &ResKey::new(view.area, ResType::ARE), &view.git())
+    {
+        if changed.is_empty() {
+            step("nothing of it changed");
+            return;
+        }
+        let mut model = view.model.take().expect("checked above");
+        // (Moved, turned, tagged or locked alone: their looks kept, and
+        // their scene's models with them.)
+        let objects = |placed: bool| -> Vec<(ObjectKind, usize)> {
+            changed.iter().filter(|(_, only)| *only == placed).map(|(o, _)| *o).collect()
+        };
+        let (placed, read) = (objects(true), objects(false));
+        let at = match ws.doc(&view.git()) {
+            Ok(git) => {
+                model.place_objects(&git.root, &placed);
+                model.read_objects(&game, &git.root, &read)
+            }
+            Err(e) => {
+                step(&format!("its GIT can't be read: {e}"));
+                view.model = Some(model);
+                view.error = Some(e.to_string());
+                return;
+            }
+        };
+        step(&format!("{} of its objects read again", changed.len()));
+        if let Some(g) = &mut view.ground {
+            g.update(&game, &model);
+        }
+        if let (Some(s), Some(vp)) = (&mut view.scene, &app.viewport) {
+            s.update_objects(&vp.gpu, &game, &model, &at);
+        }
+        show(app, view, &game, model, false, false);
+        return;
+    }
     let are_key = ResKey::new(view.area, ResType::ARE);
     // (Its tiles laid out anew since, not painted where they are.)
     let rewrites = ws.rewrites(&are_key);
@@ -2229,6 +2282,35 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         "tileset {tileset_ref}, GIT {}",
         if ws.doc(&view.git()).is_ok() { "read" } else { "none" }
     ));
+    // Only some of its objects changed (an object moved, turned, edited
+    // in its Properties; or nothing of the area at all, another resource
+    // edited): those read again, the rest kept. Read whole, an area of a
+    // thousand objects took 4 to 15 ms at every edit (`frame_perf`'s
+    // `refresh_parts`), noticed in busy areas.
+    if view.scene.is_some()
+        && view.model.is_some()
+        && let Some((was_are, was_git)) = &view.read_from
+        && *was_are == are
+        && let Some(changed) = AreaModel::changed_objects(&was_git.root, &git.root)
+    {
+        let mut model = view.model.take().expect("checked above");
+        if changed.is_empty() {
+            step("nothing of it changed");
+            view.model = Some(model);
+            return;
+        }
+        let at = model.read_objects(&game, &git.root, &changed);
+        step(&format!("{} of its objects read again", changed.len()));
+        if let Some(g) = &mut view.ground {
+            g.update(&game, &model);
+        }
+        if let (Some(s), Some(vp)) = (&mut view.scene, &app.viewport) {
+            s.update_objects(&vp.gpu, &game, &model, &at);
+        }
+        view.read_from = Some((are, git));
+        show(app, view, &game, model, false, false);
+        return;
+    }
     // The first reading, and a reading again of its models and textures
     // (Reload Resources), where the window is kept going: on a thread.
     // (An edit reads the area here: what it changed is shown at once, its
@@ -2242,6 +2324,9 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         let (gpu, game, ctx) = (vp.gpu.clone(), game.clone(), ctx.clone());
         // (Kept here too, to read here if no thread can be had.)
         let (are, git) = (are.clone(), git.clone());
+        // (What the thread reads it from.)
+        view.read_from = Some((are.clone(), git.clone()));
+        view.whole_reads += 1;
         let work = move || {
             let set = mg_area::tileset(&game, tileset_ref).map_err(|e| e.to_string());
             let terrain = set.as_ref().ok().map(|t| {
@@ -2280,6 +2365,8 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(&game, &are.root, &git.root, tileset);
+    view.read_from = Some((are.clone(), git.clone()));
+    view.whole_reads += 1;
     step(&format!(
         "model read: {} by {} tiles, {} objects, tileset {}",
         model.width,

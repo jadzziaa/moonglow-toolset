@@ -525,6 +525,35 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
     assert_eq!(undo(h).as_deref(), Some("Move"), "{what}: the drag moved the selection");
     h.state_mut().actions.push(Action::Undo);
     h.run_steps(2);
+    // A command moving it every few frames (as a script, a plugin or the
+    // arrow keys' nudges might): the frames that read the area again.
+    let selected = h.state().area_views[&area].selection.first().copied();
+    if let Some((kind, index)) = selected {
+        let git = ResKey::new(area, ResType::GIT);
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        let x = h
+            .state_mut()
+            .ws
+            .as_mut()
+            .and_then(|w| w.doc(&git).ok()?.root.list(kind.list())?.get(index)?.float("XPosition"))
+            .unwrap_or(0.0);
+        let f = frames(h, rect, Pointer::Moves, r.count, |app, n| {
+            if n % 6 == 0 {
+                let edit = mg_edit::Edit::SetField {
+                    key: git,
+                    path: path.clone(),
+                    label: "XPosition".into(),
+                    value: Some(mg_gff::Value::Float(x + 0.01 * n as f32)),
+                };
+                app.actions.push(Action::Apply(mg_edit::Command::new("Nudge", vec![edit])));
+            }
+        });
+        said(r, &what, "moved by a command every 6 frames", &f);
+        while undo(h).as_deref() == Some("Nudge") {
+            h.state_mut().actions.push(Action::Undo);
+            h.run_steps(1);
+        }
+    }
     // E held on it, repeating as a held key does (about 30 a second): each
     // turns the selection as the ring's drag does.
     let every = 5;
@@ -1087,6 +1116,124 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
 fn on_cpu() -> Option<Duration> {
     let stat = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
     stat.split_whitespace().next()?.parse().ok().map(Duration::from_nanos)
+}
+
+/// What reading an area again after a command costs, in the campaign's
+/// most crowded areas: read whole (its model from its ARE and GIT, its
+/// ground and its scene, as `area_view::refresh` did after every edit),
+/// and with one object moved, that object alone read again with its
+/// ground and scene (as it does now, the workspace telling it what
+/// changed: moved, its look kept; its look changed, read again), and the
+/// GIT compared with what was read (its fallback, where the workspace
+/// can't tell). Medians of a few runs, the models loaded already.
+/// `REFRESH_KINDS=1` times reading the first object of each kind alone. By hand: `cargo test --release -p mg-ui --test frame_perf --
+/// --ignored --nocapture refresh_parts`.
+#[test]
+#[ignore]
+fn refresh_parts() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let path = root.join("data/nwm").join(CAMPAIGN);
+    if !path.is_file() {
+        println!("skipped: {CAMPAIGN} isn't installed");
+        return;
+    }
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs);
+    app.open_module(&path);
+    let game = app.game.clone().unwrap();
+    let gpu = app.viewport.as_ref().unwrap().gpu.clone();
+    let ws = app.ws.as_mut().unwrap();
+    let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+    let count = |g: &mg_gff::Gff| -> usize {
+        mg_area::ObjectKind::ALL.iter().map(|k| g.root.list(k.list()).map_or(0, <[_]>::len)).sum()
+    };
+    let mut read: Vec<(ResRef, mg_gff::Gff, mg_gff::Gff)> = areas
+        .into_iter()
+        .filter_map(|a| {
+            let are = ws.doc(&ResKey::new(a, ResType::ARE)).ok()?.clone();
+            let git = ws.doc(&ResKey::new(a, ResType::GIT)).ok()?.clone();
+            Some((a, are, git))
+        })
+        .collect();
+    read.sort_by_key(|r| std::cmp::Reverse(count(&r.2)));
+    let median = |mut v: Vec<Duration>| {
+        v.sort();
+        v[v.len() / 2]
+    };
+    for (area, are, git) in read.into_iter().take(3) {
+        let tileset_ref = are.root.resref("Tileset").unwrap_or(ResRef::EMPTY);
+        let set = mg_area::tileset(&game, tileset_ref).ok();
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, set.as_ref());
+        let mut ground = mg_area::walk::Ground::new(&game, &model);
+        let mut scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let (mut m, mut g, mut sc) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..5 {
+            let t = Instant::now();
+            let model = mg_area::AreaModel::read(&game, &are.root, &git.root, set.as_ref());
+            m.push(t.elapsed());
+            let t = Instant::now();
+            ground.update(&game, &model);
+            g.push(t.elapsed());
+            let t = Instant::now();
+            scene.update(&gpu, &game, &model);
+            sc.push(t.elapsed());
+        }
+        // One object moved.
+        let mut moved = git.clone();
+        let kind = mg_area::ObjectKind::ALL
+            .into_iter()
+            .find(|k| moved.root.list(k.list()).is_some_and(|l| !l.is_empty()))
+            .unwrap();
+        let o = &mut moved.root.list_mut(kind.list()).unwrap()[0];
+        let x = o.float("XPosition").unwrap_or(0.0);
+        o.set("XPosition", mg_gff::Value::Float(x + 1.0));
+        let changed = vec![(kind, 0)];
+        let (mut one, mut placed, mut compare) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..5 {
+            // Moved (its look kept), and its look changed (read again).
+            let mut model = model.clone();
+            let t = Instant::now();
+            model.place_objects(&moved.root, &changed);
+            ground.update(&game, &model);
+            placed.push(t.elapsed());
+            let t = Instant::now();
+            let at = model.read_objects(&game, &moved.root, &changed);
+            ground.update(&game, &model);
+            scene.update_objects(&gpu, &game, &model, &at);
+            one.push(t.elapsed());
+            let t = Instant::now();
+            let found = mg_area::AreaModel::changed_objects(&git.root, &moved.root).unwrap();
+            compare.push(t.elapsed());
+            assert_eq!(found, changed);
+        }
+        // (Each kind's first object read alone: what one costs.)
+        if std::env::var_os("REFRESH_KINDS").is_some() {
+            for k in mg_area::ObjectKind::ALL {
+                if moved.root.list(k.list()).is_some_and(|l| !l.is_empty()) {
+                    let mut model = model.clone();
+                    let t = Instant::now();
+                    model.read_objects(&game, &moved.root, &[(k, 0)]);
+                    println!("      {k:?} 0: {:.2} ms", ms(t.elapsed()));
+                }
+            }
+        }
+        println!(
+            "  area {area} ({} objects, {} tiles): read whole: model {:6.2} ms, ground {:5.2} ms, \
+             scene {:5.2} ms; its first {kind:?} moved {:5.2} ms, its look changed {:5.2} ms \
+             (the GIT compared, where the workspace can't tell: {:5.2} ms)",
+            count(&git),
+            model.tiles.len(),
+            ms(median(m)),
+            ms(median(g)),
+            ms(median(sc)),
+            ms(median(placed)),
+            ms(median(one)),
+            ms(median(compare)),
+        );
+    }
 }
 
 /// A campaign's views: the module with nothing else open, each editor on

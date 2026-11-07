@@ -478,6 +478,27 @@ impl AreaScene {
         self.update_grass(gpu, game, area, &area.grass);
     }
 
+    /// The objects at `at` (their places in `area.objects`) shown anew,
+    /// the rest as they were: after an edit of those alone
+    /// ([`crate::AreaModel::read_objects`]). [`AreaScene::update`] shows
+    /// every object anew (a thousand took most of a millisecond).
+    pub fn update_objects(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel, at: &[usize]) {
+        if self.objects.len() != area.objects.len() {
+            self.update(gpu, game, area);
+            return;
+        }
+        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let load = |name: &str| models.load(name);
+        let mut missing = Vec::new();
+        for &i in at {
+            let Some(o) = area.objects.get(i) else { continue };
+            self.objects[i] = shown(gpu, &mut self.object_cache, o, &load, &mut missing);
+        }
+        self.missing.extend(missing);
+        self.missing.sort();
+        self.missing.dedup();
+    }
+
     /// Grows `growing` (what grows on each surface material: the area's
     /// own, [`AreaModel::grass`], or settings being tried out) on
     /// `area`'s tiles: each tile model's grass is made once, until what

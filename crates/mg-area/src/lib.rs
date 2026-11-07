@@ -572,6 +572,22 @@ impl Lighting {
     }
 }
 
+/// The fields of a placed object that change nothing of what it looks
+/// like (what the game draws it with): where it stands and how it turns,
+/// its tag and the area editor's lock. [`AreaModel::touched_objects`]
+/// tells edits of these alone.
+pub const PLACED_ONLY: &[&str] = &[
+    "XPosition",
+    "YPosition",
+    "ZPosition",
+    "XOrientation",
+    "YOrientation",
+    "ZOrientation",
+    "Bearing",
+    "Tag",
+    LOCKED,
+];
+
 /// An area as the editor shows it.
 #[derive(Debug, Clone)]
 pub struct AreaModel {
@@ -723,6 +739,131 @@ impl AreaModel {
     /// The door hooks at `p` (within 5 cm).
     pub fn hooks_at(&self, p: Vec3) -> impl Iterator<Item = &DoorHook> {
         self.hooks.iter().filter(move |h| (h.position - p).length() < 0.05)
+    }
+
+    /// The objects of a GIT (its root struct) that differ from `was`, by
+    /// kind and place in its list, where nothing else of the area that
+    /// the model reads from it differs: no list longer or shorter (an
+    /// object added, taken out or moved in its list), no other field (the
+    /// area's sounds and music, its grass). `None` where something else
+    /// differs: the area is to be read whole ([`AreaModel::read`]).
+    pub fn changed_objects(was: &Struct, now: &Struct) -> Option<Vec<(ObjectKind, usize)>> {
+        // (Its fields but the objects' lists.)
+        fn others(g: &Struct) -> Vec<&mg_gff::Field> {
+            let list = |f: &&mg_gff::Field| {
+                ObjectKind::ALL.iter().any(|k| f.label.as_bytes() == k.list().as_bytes())
+            };
+            g.fields.iter().filter(|f| !list(f)).collect()
+        }
+        if was.id != now.id || others(was) != others(now) {
+            return None;
+        }
+        let mut changed = Vec::new();
+        for kind in ObjectKind::ALL {
+            let (a, b) = (was.list(kind.list()), now.list(kind.list()));
+            // (A list there in one and not the other, even empty: whole.)
+            if a.is_some() != b.is_some() {
+                return None;
+            }
+            let (a, b) = (a.unwrap_or(&[]), b.unwrap_or(&[]));
+            if a.len() != b.len() {
+                return None;
+            }
+            changed.extend(
+                a.iter().zip(b).enumerate().filter(|(_, (x, y))| x != y).map(|(i, _)| (kind, i)),
+            );
+        }
+        Some(changed)
+    }
+
+    /// The objects of the area whose GIT is `git` that the edits
+    /// `touched` changed (a field of one, at any depth: an item of its
+    /// inventory, a variable, where it stands), as
+    /// [`mg_edit::Workspace::touched_since`] tells them; none for edits
+    /// of other resources. `None` where anything else of the area was
+    /// touched (its ARE `are`, an object put in or taken out, the GIT's
+    /// own fields, the GIT set whole): the area is to be read whole.
+    ///
+    /// Each with whether only where it stands, its turn, its tag or its
+    /// lock changed ([`PLACED_ONLY`]): what [`AreaModel::place_objects`]
+    /// reads again, its look kept (a creature's took up to 2 ms to put
+    /// together again).
+    pub fn touched_objects(
+        touched: &[mg_edit::Touched],
+        are: &ResKey,
+        git: &ResKey,
+    ) -> Option<Vec<((ObjectKind, usize), bool)>> {
+        let mut changed: Vec<((ObjectKind, usize), bool)> = Vec::new();
+        for t in touched {
+            if t.key == *are {
+                return None;
+            }
+            if t.key != *git {
+                continue;
+            }
+            // (An object's own struct, or one inside it.)
+            let Some(mg_edit::Step::Item(list, index)) = t.path.0.first() else { return None };
+            let kind = ObjectKind::ALL.into_iter().find(|k| k.list() == list.as_str())?;
+            if t.whole {
+                return None;
+            }
+            let placed = t.path.0.len() == 1 && PLACED_ONLY.contains(&t.label.as_str());
+            match changed.iter_mut().find(|(o, _)| *o == (kind, *index)) {
+                Some((_, only)) => *only &= placed,
+                None => changed.push(((kind, *index), placed)),
+            }
+        }
+        Some(changed)
+    }
+
+    /// Reads again where the objects `moved` of the GIT `git` stand, how
+    /// they turn, their tags and locks, as [`AreaModel::read`] would; what
+    /// they look like is kept (none of these fields changes it).
+    /// Returns their places in [`AreaModel::objects`].
+    pub fn place_objects(&mut self, git: &Struct, moved: &[(ObjectKind, usize)]) -> Vec<usize> {
+        let mut at = Vec::with_capacity(moved.len());
+        for &(kind, index) in moved {
+            let Some(s) = git.list(kind.list()).and_then(|l| l.get(index)) else { continue };
+            let Some(i) = self.objects.iter().position(|o| o.kind == kind && o.index == index)
+            else {
+                continue;
+            };
+            let o = &mut self.objects[i];
+            let (preview, problem, laid) = (o.preview.take(), o.problem.take(), o.laid);
+            *o = AreaObject { preview, problem, laid, ..AreaObject::placed(kind, index, s) };
+            at.push(i);
+        }
+        at
+    }
+
+    /// Reads again the objects `changed` of the GIT `git` (as
+    /// [`AreaModel::changed_objects`] finds them): the model is then as
+    /// [`AreaModel::read`] would read it, the rest kept as it was. An area
+    /// of thousands of objects reads one moved in well under a millisecond,
+    /// where read whole it took tens.
+    /// Returns their places in [`AreaModel::objects`].
+    pub fn read_objects(
+        &mut self,
+        game: &GameData,
+        git: &Struct,
+        changed: &[(ObjectKind, usize)],
+    ) -> Vec<usize> {
+        let mut at = Vec::with_capacity(changed.len());
+        for &(kind, index) in changed {
+            let Some(s) = git.list(kind.list()).and_then(|l| l.get(index)) else { continue };
+            let read = AreaObject::read(game, kind, index, s);
+            match self.objects.iter().position(|o| o.kind == kind && o.index == index) {
+                Some(i) => {
+                    self.objects[i] = read;
+                    at.push(i);
+                }
+                None => {
+                    at.push(self.objects.len());
+                    self.objects.push(read);
+                }
+            }
+        }
+        at
     }
 
     /// The object `index` of the GIT list of `kind`.

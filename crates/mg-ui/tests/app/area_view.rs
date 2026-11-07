@@ -1140,6 +1140,99 @@ fn copy_cut_and_paste_objects() {
     assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
 }
 
+/// An edit of some of an area's objects reads only those again, not the
+/// whole area (which took 4 to 15 ms at every edit in an area of a
+/// thousand objects: noticed in busy areas, the owner's report), and the
+/// view is then as reading it whole gives it: a move, a tag, undo and
+/// redo of them, an edit of another resource (nothing read); an object
+/// put in or taken out, and the area's own properties, read it whole.
+#[test]
+fn an_edit_of_some_objects_reads_only_those_again() {
+    use mg_edit::{Command, Edit, GffPath};
+    let Some((mut h, area)) = area_harness("read-only-those") else { return };
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let are = ResKey::new(area, ResType::ARE);
+    let reads = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].whole_reads;
+    // The view's objects against the area read whole from the module now.
+    let as_whole = |h: &mut Harness<'_, Moonglow>| {
+        let app = h.state_mut();
+        let game = app.game.clone().unwrap();
+        let ws = app.ws.as_mut().unwrap();
+        let are = ws.doc(&are).unwrap().clone();
+        let git = ws.doc(&git).unwrap().clone();
+        let set = are.root.resref("Tileset").and_then(|r| mg_area::tileset(&game, r).ok());
+        let whole = mg_area::AreaModel::read(&game, &are.root, &git.root, set.as_ref());
+        let view = &h.state().area_views[&area];
+        assert!(view.model.as_ref().unwrap().objects == whole.objects, "as read whole");
+    };
+    let apply = |h: &mut Harness<'_, Moonglow>, label: &str, edits: Vec<Edit>| {
+        h.state_mut().actions.push(mg_ui::Action::Apply(Command::new(label, edits)));
+        h.run_steps(2);
+    };
+    let field = |i: usize, label: &str, value: mg_gff::Value| Edit::SetField {
+        key: git,
+        path: GffPath::root().item("WaypointList", i),
+        label: label.into(),
+        value: Some(value),
+    };
+    let before = reads(&h);
+    apply(&mut h, "Move", vec![field(1, "XPosition", mg_gff::Value::Float(33.0))]);
+    apply(&mut h, "Tag", vec![field(0, "Tag", mg_gff::Value::String(b"MG_ONE".to_vec()))]);
+    as_whole(&mut h);
+    let o = h.state().area_views[&area]
+        .model
+        .as_ref()
+        .unwrap()
+        .object(mg_area::ObjectKind::Waypoint, 1)
+        .unwrap()
+        .position;
+    assert!((o.x - 33.0).abs() < 1e-4, "{o}");
+    for action in [mg_ui::Action::Undo, mg_ui::Action::Undo, mg_ui::Action::Redo] {
+        h.state_mut().actions.push(action);
+        h.run_steps(2);
+        as_whole(&mut h);
+    }
+    // Another resource edited: nothing of the area read.
+    let script = ResKey::parse("mg_other", ResType::NSS).unwrap();
+    apply(
+        &mut h,
+        "Script",
+        vec![Edit::SetResource { key: script, data: Some(b"void main() {}\n".to_vec()) }],
+    );
+    assert_eq!(reads(&h), before, "none of these read the area whole");
+    // A waypoint put in, and the area's own name: read whole.
+    let copy = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone()
+    };
+    apply(
+        &mut h,
+        "Add",
+        vec![Edit::InsertItem {
+            key: git,
+            path: GffPath::root(),
+            list: "WaypointList".into(),
+            index: 2,
+            item: copy,
+        }],
+    );
+    assert_eq!(reads(&h), before + 1, "an object put in");
+    as_whole(&mut h);
+    apply(
+        &mut h,
+        "Name",
+        vec![Edit::SetField {
+            key: are,
+            path: GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"MG_AREA".to_vec())),
+        }],
+    );
+    assert_eq!(reads(&h), before + 2, "the area's own");
+    as_whole(&mut h);
+}
+
 /// A paste shows its ghost as soon as Ctrl+V is pressed, the pointer
 /// still (it was drawn only once the pointer moved), and Q and E turn it
 /// before it is put down, about where it goes, as they turn a blueprint

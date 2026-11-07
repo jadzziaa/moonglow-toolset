@@ -28,3 +28,9 @@ touches:
 - kittest steps frames whether or not a repaint was asked for, so a missing `request_repaint` (the paste's ghost after Ctrl+V) can't be caught by a UI test.
 - Tests that press Q/E must wait for the commit: `rest_turn_keys(h, area)` in tests/app/common.rs.
 - `frame_perf`'s `Pointer::Keys` presses a key every N frames; "turned by E held" sits beside the drag timing.
+
+## Later the same day: the read itself made incremental
+- `Workspace::touched_since(rev)` says what each change touched (key, struct path, label, whole); `changed_at(key)` when a resource last changed. derive/adopt are "unknown": callers fall back.
+- `area_view::refresh` asks it before cloning anything: only object-list items touched → `AreaModel::touched_objects` → `place_objects` (placement/tag/lock labels, `PLACED_ONLY`: look kept, no scene work) or `read_objects` + `AreaScene::update_objects`; nothing of this area → nothing. Fallback where the workspace can't tell: compare the GIT with `read_from` (`changed_objects`, ~1 ms per thousand objects). Anything else → full read (`whole_reads` counts them, for tests).
+- Creatures are the expensive objects (0.2-2.3 ms each to compose their look); everything else reads in microseconds. `frame_perf refresh_parts` (by hand) times it all; REFRESH_KINDS=1 per kind.
+- What remains of a command's frame is the area's redraw (as a drag frame), not reading.

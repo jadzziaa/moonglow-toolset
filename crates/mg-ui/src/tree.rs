@@ -270,8 +270,10 @@ pub(crate) enum Read {
 /// What an area's placed objects would be read from now ([`Read`]).
 fn read_of(ws: &Workspace, area: ResRef) -> Read {
     let git = ResKey::new(area, ResType::GIT);
+    // (Open: as it changed last, not as the module did: an edit of
+    // another resource leaves its list as it is.)
     if ws.loaded(&git).is_some() {
-        return Read::Revision(ws.revision());
+        return Read::Revision(ws.changed_at(&git));
     }
     ws.module.get(&git).map_or(Read::Data(0, 0), |d| Read::Data(d.as_ptr() as usize, d.len()))
 }

@@ -134,7 +134,33 @@ pub struct Workspace {
     rewrites: HashMap<ResKey, u64>,
     /// The resources as opened or last saved ([`Workspace::saved`]).
     saved: Module,
+    /// What the edits being run touched, until the revision moves.
+    touching: Vec<Touched>,
+    /// What each of the last revisions touched ([`Workspace::touched_since`]),
+    /// by the revision it made; `None` where that is not known (the module
+    /// changed outside the edit history: [`Workspace::derive`],
+    /// [`Workspace::adopt`]).
+    touched: std::collections::VecDeque<(u64, Option<Vec<Touched>>)>,
+    /// The revision each resource was last touched at, and the last one
+    /// made outside the edit history ([`Workspace::changed_at`]).
+    last_touched: HashMap<ResKey, u64>,
+    outside: u64,
 }
+
+/// What an edit touched ([`Workspace::touched_since`]): the resource, the
+/// struct in it (a field set there, an item put into or taken out of one
+/// of its lists), and the field or list's label; or the resource as a
+/// whole (set or removed, `whole`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Touched {
+    pub key: ResKey,
+    pub path: GffPath,
+    pub label: String,
+    pub whole: bool,
+}
+
+/// How many revisions back [`Workspace::touched_since`] can tell.
+const TOUCHED_KEPT: usize = 64;
 
 /// A module's resources alone, sharing their data.
 fn resources_of(module: &Module) -> Module {
@@ -175,7 +201,66 @@ impl Workspace {
             changes_since_save: 0,
             revision: first_revision(),
             rewrites: HashMap::new(),
+            touching: Vec::new(),
+            touched: std::collections::VecDeque::new(),
+            last_touched: HashMap::new(),
+            outside: 0,
         }
+    }
+
+    /// The revision at which resource `key` last changed (an edit of it,
+    /// or a change made outside the edit history, which may have changed
+    /// any): what a view of it alone can keep what it made by, rather
+    /// than the module's [`Workspace::revision`], which every edit of any
+    /// resource moves.
+    pub fn changed_at(&self, key: &ResKey) -> u64 {
+        self.last_touched.get(key).copied().unwrap_or(0).max(self.outside)
+    }
+
+    /// What the module's changes since `revision` (an earlier
+    /// [`Workspace::revision`]) touched, in the order made: commands,
+    /// their amendments, undo and redo alike. `None` where that isn't
+    /// known: too far back, or a change made outside the edit history
+    /// since. For a view of a resource to read again only what changed of
+    /// it (an area's objects), and nothing for another's change.
+    pub fn touched_since(&self, revision: u64) -> Option<Vec<Touched>> {
+        if revision == self.revision {
+            return Some(Vec::new());
+        }
+        // (Each change moves the revision by one, and is kept: the one
+        // after `revision` must be among those kept.)
+        let first = self.touched.front()?.0;
+        if revision >= self.revision || revision + 1 < first {
+            return None;
+        }
+        let mut out = Vec::new();
+        for (r, t) in &self.touched {
+            if *r > revision {
+                out.extend(t.as_ref()?.iter().cloned());
+            }
+        }
+        Some(out)
+    }
+
+    /// The revision moves on: what the edits run touched is kept for
+    /// [`Workspace::touched_since`] (`known`: `None` where it isn't known).
+    fn moved(&mut self, known: bool) {
+        self.revision += 1;
+        let touched = std::mem::take(&mut self.touching);
+        for t in &touched {
+            self.last_touched.insert(t.key, self.revision);
+        }
+        if !known {
+            self.outside = self.revision;
+        }
+        self.touched.push_back((self.revision, known.then_some(touched)));
+        while self.touched.len() > TOUCHED_KEPT {
+            self.touched.pop_front();
+        }
+    }
+
+    fn touch(&mut self, key: &ResKey, path: &GffPath, label: &str, whole: bool) {
+        self.touching.push(Touched { key: *key, path: path.clone(), label: label.into(), whole });
     }
 
     /// A number that changes whenever the module does (through commands),
@@ -330,7 +415,7 @@ impl Workspace {
         self.undo.push((next_step(), inverse));
         self.redo.clear();
         self.changes_since_save += 1;
-        self.revision += 1;
+        self.moved(true);
         Ok(())
     }
 
@@ -346,7 +431,7 @@ impl Workspace {
         // Undo reverts the amendment first, then the command.
         let earlier = std::mem::replace(&mut last.edits, inverse.edits);
         last.edits.extend(earlier);
-        self.revision += 1;
+        self.moved(true);
         Ok(())
     }
 
@@ -364,7 +449,7 @@ impl Workspace {
         let label = forward.label.clone();
         self.redo.push((step, forward));
         self.changes_since_save -= 1;
-        self.revision += 1;
+        self.moved(true);
         Ok(Some(label))
     }
 
@@ -381,7 +466,7 @@ impl Workspace {
             }
         };
         self.changes_since_save -= 1;
-        self.revision += 1;
+        self.moved(true);
         Ok(Some(label))
     }
 
@@ -399,7 +484,7 @@ impl Workspace {
         let label = inverse.label.clone();
         self.undo.push((step, inverse));
         self.changes_since_save += 1;
-        self.revision += 1;
+        self.moved(true);
         Ok(Some(label))
     }
 
@@ -414,6 +499,8 @@ impl Workspace {
                     for inv in inverses.into_iter().rev().flatten() {
                         let _ = self.run_edit(&inv);
                     }
+                    // (Nothing changed: nothing touched.)
+                    self.touching.clear();
                     return Err(err);
                 }
             }
@@ -431,6 +518,7 @@ impl Workspace {
                 // the undo copy must include them.
                 self.write_back(key)?;
                 self.docs.remove(key);
+                self.touch(key, &GffPath::root(), "", true);
                 let old = self.module.get(key).map(<[u8]>::to_vec);
                 match data {
                     Some(d) => self.module.set(*key, d.clone()),
@@ -444,6 +532,7 @@ impl Workspace {
             Edit::SetField { key, path, label, value: None }
                 if let Some(back) = self.removed_in_place(key, path, label)? =>
             {
+                self.touch(key, path, label, false);
                 let s = self.struct_at(key, path)?;
                 let old = s.remove(label);
                 if path.0.is_empty() && matches!(old, Some(Value::List(_))) {
@@ -452,6 +541,7 @@ impl Workspace {
                 Ok(back)
             }
             Edit::SetField { key, path, label, value } => {
+                self.touch(key, path, label, false);
                 let s = self.struct_at(key, path)?;
                 let old = s.get(label).cloned();
                 let list = |v: &Option<Value>| matches!(v, Some(Value::List(_)));
@@ -481,6 +571,7 @@ impl Workspace {
                 }])
             }
             Edit::InsertItem { key, path, list, index, item } => {
+                self.touch(key, path, list, false);
                 let s = self.struct_at(key, path)?;
                 // (A list made for the item goes again with it.)
                 let made = s.get(list).is_none();
@@ -513,6 +604,7 @@ impl Workspace {
                 }])
             }
             Edit::RemoveItem { key, path, list, index } => {
+                self.touch(key, path, list, false);
                 let s = self.struct_at(key, path)?;
                 let items = s.list_mut(list).filter(|l| *index < l.len()).ok_or_else(|| {
                     EditError::Invalid {
@@ -679,7 +771,7 @@ impl Workspace {
         // (They are read again from what `make` left.)
         self.docs.clear();
         self.edited.clear();
-        self.revision += 1;
+        self.moved(false);
         Ok(made)
     }
 
@@ -721,7 +813,7 @@ impl Workspace {
             self.undo.clear();
             self.redo.clear();
         }
-        self.revision += 1;
+        self.moved(false);
         Ok(dropped)
     }
 
@@ -754,6 +846,82 @@ mod tests {
         g.root.items_mut(&git::CREATURE_LIST).push(c);
         m.set_gff(key("area", ResType::GIT), &g).unwrap();
         Workspace::new(m)
+    }
+
+    /// What the changes since a revision touched: each command's, undo's
+    /// and redo's edits, by resource and place (a field's struct, a
+    /// list's); nothing for the revision itself; unknown (`None`) past a
+    /// change made outside the history, a failed command touching nothing,
+    /// and too far back to tell.
+    #[test]
+    fn what_changes_since_a_revision_touched() {
+        let mut ws = workspace();
+        let git = key("area", ResType::GIT);
+        let at = GffPath::root().item("Creature List", 0);
+        let tag = |v: &str| Edit::SetField {
+            key: git,
+            path: at.clone(),
+            label: "Tag".into(),
+            value: Some(Value::String(v.as_bytes().to_vec())),
+        };
+        let start = ws.revision();
+        assert_eq!(ws.touched_since(start), Some(Vec::new()));
+        let ifo_key = key("module", ResType::IFO);
+        let (git_was, ifo_was) = (ws.changed_at(&git), ws.changed_at(&ifo_key));
+        ws.apply(Command::new("tag", vec![tag("A")])).unwrap();
+        // (When each changed last: the GIT now, the IFO as it was.)
+        assert_eq!(ws.changed_at(&git), ws.revision());
+        assert_ne!(ws.changed_at(&git), git_was);
+        assert_eq!(ws.changed_at(&ifo_key), ifo_was);
+        let one = Touched { key: git, path: at.clone(), label: "Tag".into(), whole: false };
+        assert_eq!(ws.touched_since(start), Some(vec![one.clone()]));
+        let after = ws.revision();
+        ws.undo().unwrap();
+        ws.redo().unwrap();
+        assert_eq!(ws.touched_since(after), Some(vec![one.clone(), one.clone()]), "undo, redo");
+        assert_eq!(ws.touched_since(start).map(|t| t.len()), Some(3));
+        // A creature put in: the list at the root.
+        let made = Edit::InsertItem {
+            key: git,
+            path: GffPath::root(),
+            list: "Creature List".into(),
+            index: 1,
+            item: mg_gff::Struct::new(4),
+        };
+        let was = ws.revision();
+        ws.apply(Command::new("add", vec![made])).unwrap();
+        let t = ws.touched_since(was).unwrap();
+        assert_eq!((t[0].path.is_root(), t[0].label.as_str()), (true, "Creature List"));
+        // A command that fails touches nothing, and moves nothing.
+        let was = ws.revision();
+        let bad = Edit::SetField {
+            key: git,
+            path: GffPath::root().item("Creature List", 9),
+            label: "Tag".into(),
+            value: None,
+        };
+        assert!(ws.apply(Command::new("bad", vec![tag("B"), bad])).is_err());
+        assert_eq!(ws.revision(), was);
+        assert_eq!(ws.touched_since(was), Some(Vec::new()));
+        // A whole resource.
+        let ifo = key("module", ResType::IFO);
+        ws.apply(Command::new("set", vec![Edit::SetResource { key: ifo, data: None }])).unwrap();
+        assert!(ws.touched_since(was).unwrap()[0].whole);
+        // Made outside the history: not known past it, and any resource
+        // may have changed.
+        let before = ws.revision();
+        ws.derive(|_| ()).unwrap();
+        assert_eq!(ws.changed_at(&key("anything", ResType::NSS)), ws.revision());
+        assert_eq!(ws.touched_since(before), None);
+        assert_eq!(ws.touched_since(start), None);
+        assert_eq!(ws.touched_since(ws.revision()), Some(Vec::new()));
+        // Too far back.
+        let was = ws.revision();
+        for n in 0..TOUCHED_KEPT + 1 {
+            ws.apply(Command::new("tag", vec![tag(&n.to_string())])).unwrap();
+        }
+        assert_eq!(ws.touched_since(was), None);
+        assert_eq!(ws.touched_since(ws.revision() - 3).map(|t| t.len()), Some(3));
     }
 
     /// A document given to look at is read, not edited, and gives way to
