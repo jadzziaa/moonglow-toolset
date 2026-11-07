@@ -220,6 +220,10 @@ the module is opened again from its file.
   and brings its row into view; the keys stay with the tab. Off, the
   tree stays where it is and marks only the area in front, as Aurora's
   does. Show in Module Tree on a tab's menu goes to it either way.
+- **Hide empty groups in the module tree** (off): the tree's groups with
+  nothing in them (Scripts (0)) and the kinds of object an area has none
+  of (Doors (0)) are left out; off, they are listed, as Aurora lists
+  them. A hidden group's New is in the Wizards and Tools menus.
 - **Open Properties as tabs of one window**: on by default. A
   blueprint's or a placed object's Properties open as a tab of the window
   Properties are open in already; off, each in a window of its own. A

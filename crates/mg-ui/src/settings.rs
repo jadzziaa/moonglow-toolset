@@ -603,6 +603,10 @@ pub struct Settings {
     /// Aurora: its tree follows nothing else); off, it goes to the tab's
     /// resource, whatever kind.
     pub tree_stays: bool,
+    /// Options > General: the module tree leaves out its groups with
+    /// nothing in them (Scripts (0)) and an area's kinds with nothing
+    /// placed (Doors (0)); off, as Aurora lists them all.
+    pub tree_hides_empty: bool,
     /// Options > General: each Properties window (a blueprint's, a placed
     /// object's) opens in a window of its own (off: as a tab of the
     /// window one is open in already).

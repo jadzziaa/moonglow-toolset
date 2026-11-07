@@ -378,6 +378,8 @@ fn contents_ui(
     keys: &mut ContentKeys,
     // The plugins' commands for right-click menus.
     commands: &[crate::plugins::PluginCommand],
+    // Kinds with nothing placed left out (Options › General).
+    hide_empty: bool,
 ) -> bool {
     // (Of one kind: Properties opens them together.)
     let one_kind =
@@ -403,7 +405,7 @@ fn contents_ui(
                 format!("{} ({})", kind.label(), rows.len())
             };
             if shown.is_empty() {
-                if !filtered {
+                if !filtered && !hide_empty {
                     ui.weak(title);
                 }
                 continue;
@@ -1072,6 +1074,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // The object selected is still to be gone to, next frame.
     let mut object_waits = false;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
+    let hide_empty = app.settings.tree_hides_empty;
     let filter = filter.clone();
     // (Marked while its tab is the one chosen.)
     let module = ui.selectable_label(app.tree_marked == Some(module_row()), "Module Properties");
@@ -1150,6 +1153,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     }
     for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
         listed += all.len();
+        // A group with nothing in it, left out (Options › General: Hide
+        // empty groups, a builder's ask). (While the Filter has something
+        // typed, the groups are as it leaves them.)
+        if hide_empty && all.is_empty() && filter.is_empty() {
+            continue;
+        }
         // (An area stays for what is placed in it, too, opened out or not:
         // every area's objects are read while the Filter has something
         // typed, below.)
@@ -1366,6 +1375,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     chosen,
                                     &mut keys,
                                     &menu_commands,
+                                    hide_empty,
                                 );
                                 picked = keys.picked.or(picked);
                                 together |= keys.together;

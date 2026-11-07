@@ -120,6 +120,7 @@ pub struct OptionsDraft {
     pub close_cancels: bool,
     pub tree_opens_area: bool,
     pub tree_follows_tabs: bool,
+    pub tree_hides_empty: bool,
     pub dialogs_together: bool,
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
@@ -274,6 +275,7 @@ impl OptionsDraft {
             close_cancels: s.close_cancels,
             tree_opens_area: !s.tree_keeps_areas_closed,
             tree_follows_tabs: !s.tree_stays,
+            tree_hides_empty: s.tree_hides_empty,
             dialogs_together: !s.dialogs_own_windows,
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
@@ -384,6 +386,7 @@ impl OptionsDraft {
             close_cancels: self.close_cancels,
             tree_keeps_areas_closed: !self.tree_opens_area,
             tree_stays: !self.tree_follows_tabs,
+            tree_hides_empty: self.tree_hides_empty,
             dialogs_own_windows: !self.dialogs_together,
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
@@ -778,6 +781,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  group opened and the row brought into view, the keys left with \
                                  the tab; off, the tree stays where it is and marks the area in \
                                  front only, as Aurora does",
+                            );
+                            ui.checkbox(
+                                &mut draft.tree_hides_empty,
+                                "Hide empty groups in the module tree",
+                            )
+                            .on_hover_text(
+                                "Groups with nothing in them (Scripts (0)) and the kinds of \
+                                 object an area has none of (Doors (0)) are left out of the \
+                                 module tree (the Wizards and Tools menus make what a hidden \
+                                 group's New would)",
                             );
                             ui.checkbox(
                                 &mut draft.properties_together,

@@ -243,7 +243,9 @@ away again); `mg areas` and `mg info` say the same of it.
 
 **What is placed in an area:** the arrow before an area opens it out to
 its objects, kind by kind as Aurora lists them (Creatures, Doors,
-Encounters…), sorted by name (its tag, without one). Waypoints are listed
+Encounters…; a kind with nothing placed, and a group of the tree with
+nothing in it, are left out with Tools › Options › General › **Hide
+empty groups in the module tree**), sorted by name (its tag, without one). Waypoints are listed
 by tag instead, as Aurora lists them (they often share a name, and their
 tags are what scripts and transitions go by); the pointer resting on a
 row shows the other. Click an object to go to it in the area's view,

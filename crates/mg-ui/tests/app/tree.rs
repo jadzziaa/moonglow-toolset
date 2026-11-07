@@ -1463,6 +1463,35 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
     assert!((lifts[0] - 2.0).abs() < 0.05, "lift {lifts:?}");
 }
 
+/// Options › General › Hide empty groups leaves the module tree's groups
+/// with nothing in them out, and an area's kinds with nothing placed
+/// (Carcerian's ask on Discord, 2026-11-06); off, they are listed as
+/// Aurora lists them.
+#[test]
+fn empty_groups_are_hidden_when_asked() {
+    let Some((mut h, _area)) = area_harness("tree-hide-empty") else { return };
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    let empty = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let rows = h.query_all_by_label_contains(" (0)");
+        let mut labels: Vec<String> = rows.filter_map(|n| n.accesskit_node().label()).collect();
+        labels.sort();
+        labels.dedup();
+        labels
+    };
+    let listed = empty(&h);
+    assert!(listed.contains(&"Doors (0)".to_string()), "an area's kind: {listed:?}");
+    assert!(listed.contains(&"Conversations (0)".to_string()), "a group: {listed:?}");
+    h.state_mut().settings.tree_hides_empty = true;
+    h.run_steps(3);
+    assert_eq!(empty(&h), Vec::<String>::new());
+    assert!(h.query_by_label("Waypoints (2)").is_some(), "what has something stays");
+    assert!(h.query_by_label_contains("Areas (").is_some());
+    h.state_mut().settings.tree_hides_empty = false;
+    h.run_steps(3);
+    assert_eq!(empty(&h), listed);
+}
+
 /// Adjust Location… on a placed object's row of the module tree selects
 /// it in the area's view and opens Adjust Location for it, as the area
 /// view's menu does (Carcerian's ask on Discord, 2026-11-06).
