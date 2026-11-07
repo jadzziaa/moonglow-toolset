@@ -522,6 +522,10 @@ fn the_game_s_shaders_notice_can_be_hidden_on_this_driver() {
         mg_testkit::gpu::hold();
         eprintln!("{}", picture(&mut h, "notice_hidden_options").display());
     }
+    // (Under Appearance, below the page's first sections.)
+    // (Scrolling is animated: run until it is there.)
+    h.get_by_label("Show Again").scroll_to_me();
+    h.run();
     h.get_by_label("Show Again").click();
     h.run_steps(2);
     h.get_by_label("OK").click();

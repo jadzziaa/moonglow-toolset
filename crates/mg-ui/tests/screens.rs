@@ -1297,6 +1297,42 @@ fn export_to_an_archive_there() {
     eprintln!("{}", dir.join("export-there.png").display());
 }
 
+/// Every page of the Options window whole (a window tall enough not to
+/// scroll), to look at how each is laid out in its sections.
+#[test]
+#[ignore]
+fn options_pages_whole() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-options-whole");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    use mg_ui::OptionsPage as P;
+    // Each page from its top, then scrolled to its later headings.
+    for (page, name, later) in [
+        (P::Folders, "folders", &["Sending files"][..]),
+        (P::Area, "area", &["Editing"][..]),
+        (P::General, "general", &["Windows and tabs", "Warnings", "Troubleshooting"][..]),
+        (P::ScriptEditor, "script-editor", &["External editor", "Font and colors"][..]),
+        (P::ConversationEditor, "conversation-editor", &["Links"][..]),
+    ] {
+        h.state_mut().options.as_mut().unwrap().page = page;
+        h.run();
+        shoot(&mut h, &dir, name);
+        for heading in later {
+            h.get_by_label(heading).scroll_to_me();
+            h.run();
+            let file = format!("{name}-{}", heading.to_lowercase().replace(' ', "-"));
+            shoot(&mut h, &dir, &file);
+        }
+    }
+    eprintln!("{}", dir.display());
+}
+
 #[test]
 #[ignore]
 fn options_window() {

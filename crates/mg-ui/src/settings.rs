@@ -572,7 +572,7 @@ pub struct Settings {
     pub no_autosave: bool,
     /// Every so many minutes (`None`: [`AUTOSAVE_MINUTES`]).
     pub autosave_minutes: Option<u32>,
-    /// Options > General: Reload haks, override and development when they
+    /// Options > Folders: Reload haks, override and development when they
     /// change, off (on by default; Moonglow's).
     #[serde(default)]
     pub no_auto_reload: bool,
@@ -652,13 +652,13 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
-    /// Options > General: Read Steam Workshop content, as the game
+    /// Options > Folders: Read Steam Workshop content, as the game
     /// started through Steam reads it. Off by default, as Aurora: an item
     /// subscribed to for play is not the module's (builders' asks; the
     /// setting was `no_workshop`, on by default, until 1.38, and is read
     /// anew, so it is off for everyone until turned on).
     pub read_workshop: bool,
-    /// Options > General: Read userpatch.ini's haks, as the game reads
+    /// Options > Folders: Read userpatch.ini's haks, as the game reads
     /// them. Off by default, as Aurora (the same reason).
     pub read_userpatch: bool,
     /// Options > Folders: Follow nwn.ini's folder aliases, unticked (a

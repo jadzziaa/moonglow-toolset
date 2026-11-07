@@ -3,18 +3,22 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T07:56:06Z }
 ---
 
 # Options
 
 **Tools › Options…** has Aurora's pages (and Moonglow's own Updates),
-in a window that docks and tabs with the others. **OK** applies the changes; the module stays open.
+in a window that docks and tabs with the others. Each page groups its
+options under headings, as this chapter does: Aurora's own first in
+each, in its order, then Moonglow's. **OK** applies the changes; the module stays open.
 **Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop and userpatch switches or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
 ## Folders
+
+### Game installation
 
 - **Neverwinter Nights installation**: the game's folder (with `data/`
   and `bin/` in it). Moonglow reads the game's data from here.
@@ -40,6 +44,51 @@ the module is opened again from its file.
   home folder's, as a shell takes it; one that doesn't exist is said under
   the field and in the log as the game data loads, as nothing is found
   there.
+
+### Game content
+
+- **Read Steam Workshop content**: off by default, as in Aurora: an item
+  you subscribed to for play is not your module's, and a module that
+  needs it works only for players who have it too. On, the Steam
+  Workshop items you are subscribed to are read with the game's data, as
+  the game started through Steam reads them: each item's `override`
+  under your own, its haks and talk tables found by name, its
+  `portraits`, `ambient` and `music` under your own and over the
+  game's (an item's module is opened as any module, by File › Open).
+  Changing it reads the game's data again. `mg --workshop` reads them
+  too.
+- **Read userpatch.ini's haks**: off by default, as in Aurora, for the
+  same reason. On, the haks your
+  `userpatch.ini` names (`PatchFile000=…` and on, the highest number
+  winning), from the `patch` folder in your user folder (or the folder
+  `nwn.ini` names as `PATCH`), are read under the module and its haks
+  and over `override`, as the game reads them (measured in the game's
+  server): the HD Pack and the like show in the area view and the
+  previews. Aurora doesn't read them; `mg --userpatch` does. Their own
+  files are not checked as the module's custom content. Changing it
+  reads the game's data again.
+
+  What only your own content provides, a player has only if they have
+  the same: so Verify warns of each reference only userpatch.ini's
+  haks, your `override` folder or a Workshop item satisfies ("only in
+  userpatch.ini's haks", "only in your override folder", "only in a
+  Steam Workshop item"), and of a custom talk table found first there
+  (the game reads one from there too, and a player without it can't
+  load the module). Content you keep in `override` on purpose need not
+  fill Verify's report: Options › Verify's **Also leave out** takes
+  `references:override` (or `references:userpatch`,
+  `references:workshop`, all three as `references:local`), as `mg verify
+  --skip` does. Music and ambient sounds in these haks are read as any of
+  their resources, as the game reads them.
+- **Reload haks, override and development when they change**: on by
+  default. Moonglow is told by the system when they change (it checks
+  every few seconds where it can't be) and rereads what changed
+  (see [Build, verify and test](09-build-and-test.md)). The same switch
+  has a nasher project's own files, a module folder's and a `.mod` read
+  again when another program changes them (see [Modules](03-modules.md)).
+
+### Sending files
+
 - **Scratch folder**: where **To Scratch** (the script editor, the area
   view) and **Export › Copy to Scratch Folder** (the module tree) copy a script
   with its compiled script, or an area, as loose files. Empty: asked for
@@ -54,12 +103,23 @@ the module is opened again from its file.
 
 ## Area
 
+### View
+
 - **Background Color** of the area viewer (Custom, or the default).
 - **Show Encounter Spawnpoint Markers**, and their **Height** and
   **Width**: at each spawn point, the game's marker (see-through), a post
   of that size, and an arrow the way what spawns there faces.
+- **Show Door Orientation Arrows**.
 - **Show stores as $ signs**: the game's marker for a store, rather
   than an arrow along its facing.
+- **Show the turning and tilt rings around selected objects**: the ring
+  that turns the selection when dragged round, and the two that tilt
+  its models, with the arrows that move it along one axis, while Shift
+  is held (see [Areas](04-areas.md)). On by
+  default.
+
+### Graphics
+
 - **Shadows quality**: how the area view draws the game's shadows (its
   **◑ Shadows**; also chosen in that button's menu, see
   [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
@@ -99,12 +159,9 @@ the module is opened again from its file.
   another program's window has the focus, for watching an area on one
   screen while working in another program. Off, they hold still until
   Moonglow's window has the focus again, which spares the GPU.
-- **Show the turning and tilt rings around selected objects**: the ring
-  that turns the selection when dragged round, and the two that tilt
-  its models, with the arrows that move it along one axis, while Shift
-  is held (see [Areas](04-areas.md)). On by
-  default.
-- **Show Door Orientation Arrows**.
+
+### Editing
+
 - **Lights of any color and reach, written into a hak** (off by
   default): Moonglow's own. On, the area's **Add Light Here** and the
   palette's **☀ Lights** offer **Custom Light…** (see
@@ -129,6 +186,8 @@ the module is opened again from its file.
 
 ## General
 
+### Saving and exporting
+
 - **Create backups of modules**: each save also keeps the module as it
   was in `<name>.BackupMod`.
 - **Build module on save**: run Build Module (with its defaults) before
@@ -140,13 +199,8 @@ the module is opened again from its file.
   tree that something else packs). The `.mod`
   that was there is kept as its `.BackupMod` (with backups on). A nasher
   project is not packed this way: it has **Build › Pack** *file*.
-- **A .mod with its folder beside it** (Ask which to open): a `.mod`
-  opened with a folder of its name beside it (`mymodule.mod` and
-  `mymodule/`, a module directory as Aurora keeps one) asks whether to
-  open the folder or the `.mod`, as Aurora asks; **Open the folder**
-  opens the folder without asking (Aurora's Always open module
-  directories), **Open the .mod** the `.mod`. See
-  [Modules](03-modules.md#opening-and-saving).
+- **Keep a recovery copy of unsaved work every … minutes** (5 by
+  default; see [Modules](03-modules.md)).
 - **Exporting to an archive there** (Ask: append or overwrite): File ›
   Export… to an `.erf` that is there already asks whether to append to
   it or overwrite it, as Aurora asks; **Append to it** adds the
@@ -154,10 +208,42 @@ the module is opened again from its file.
   it holds kept), **Overwrite it** replaces it with an archive of the
   resources alone. The question's **Always do this** sets it too. See
   [Modules](03-modules.md#import-and-export).
+
+### Opening modules
+
+- **A .mod with its folder beside it** (Ask which to open): a `.mod`
+  opened with a folder of its name beside it (`mymodule.mod` and
+  `mymodule/`, a module directory as Aurora keeps one) asks whether to
+  open the folder or the `.mod`, as Aurora asks; **Open the folder**
+  opens the folder without asking (Aurora's Always open module
+  directories), **Open the .mod** the `.mod`. See
+  [Modules](03-modules.md#opening-and-saving).
+- **Open a module on the area opened last**: on by default; the first
+  time, the first area the module tree lists (see
+  [Modules](03-modules.md)).
+- **Open a module with the tabs it had when it was closed**: on by
+  default. The areas, scripts, blueprints, conversations, side editors
+  (a hak, a 2DA, a tileset) and tools open when a module was closed open
+  again with it, in their order and places (windows split and where
+  they were), the one in front in front, each view as it was left (an
+  area's camera, a model view's, a script's scroll, cursor and
+  bookmarks, a conversation's selection, bookmarks and folds, the talk
+  table's line, a Properties window's page, a hak's selection, a 2DA's
+  cell, a tileset's page and tile, Advanced Search's conditions); kept in
+  Moonglow's data folder, not in the module (see
+  [Modules](03-modules.md)). With none kept, the module opens
+  on the area opened last, as above. Off, a module's tabs are neither
+  kept nor opened again.
+
+### Testing
+
 - **Minimize Toolset on test module**.
 - **Start a Steam copy of the game through Steam for a test** (on):
   off, the game's program is started on its own, without Steam's overlay
   or Workshop content (see [Build, verify and test](09-build-and-test.md)).
+
+### Appearance
+
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
 - **Light theme**: dark text on light, rather than the dark theme.
@@ -200,37 +286,13 @@ the module is opened again from its file.
   says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,
   `metal`), when set, decides over this setting (and is kept as the
   setting is): a way out if the one chosen doesn't start.
-- **Open a module on the area opened last**: on by default; the first
-  time, the first area the module tree lists (see
-  [Modules](03-modules.md)).
-- **Open a module with the tabs it had when it was closed**: on by
-  default. The areas, scripts, blueprints, conversations, side editors
-  (a hak, a 2DA, a tileset) and tools open when a module was closed open
-  again with it, in their order and places (windows split and where
-  they were), the one in front in front, each view as it was left (an
-  area's camera, a model view's, a script's scroll, cursor and
-  bookmarks, a conversation's selection, bookmarks and folds, the talk
-  table's line, a Properties window's page, a hak's selection, a 2DA's
-  cell, a tileset's page and tile, Advanced Search's conditions); kept in
-  Moonglow's data folder, not in the module (see
-  [Modules](03-modules.md)). With none kept, the module opens
-  on the area opened last, as above. Off, a module's tabs are neither
-  kept nor opened again.
-- **Show the object selected in an area in the module tree**: on by
-  default. An object selected in an area's view opens its area out in
-  the module tree and goes to its row there, as Aurora does; off, the
-  tree goes to it only where its area is opened out already (the arrow
-  beside the area's row), and an area left closed stays closed.
-- **Show the tab chosen in the module tree**: on by default. A tab
-  clicked, reached by the keys or opened marks its resource (a script,
-  conversation, blueprint, area…) in the module tree, opens its group
-  and brings its row into view; the keys stay with the tab. Off, the
-  tree stays where it is and marks only the area in front, as Aurora's
-  does. Show in Module Tree on a tab's menu goes to it either way.
-- **Hide empty groups in the module tree** (off): the tree's groups with
-  nothing in them (Scripts (0)) and the kinds of object an area has none
-  of (Doors (0)) are left out; off, they are listed, as Aurora lists
-  them. A hidden group's New is in the Wizards and Tools menus.
+
+### Windows and tabs
+
+- **Ask before the window is closed**: on by default. The window's
+  close button asks before Moonglow closes where nothing is unsaved (with
+  unsaved changes it asks about those, as always); File › Exit closes
+  without this question.
 - **Open Properties as tabs of one window**: on by default. A
   blueprint's or a placed object's Properties open as a tab of the window
   Properties are open in already; off, each in a window of its own. A
@@ -254,29 +316,39 @@ the module is opened again from its file.
   window of tabs (Properties, conversations, scripts…) moves by its tab
   bar alone, so a click that misses a control doesn't move it; on, any
   part of it that isn't a control moves it too.
-- **Ask before the window is closed**: on by default. The window's
-  close button asks before Moonglow closes where nothing is unsaved (with
-  unsaved changes it asks about those, as always); File › Exit closes
-  without this question.
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
   through a pane's tabs in the order they were last used, for as long
   as Ctrl is held (one press: back to the tab before); off, to the next
   tab as they lie. Each pane and window keeps its own order: a tab that
   comes to the front of a window while you work elsewhere (a script
   opened from a field's Edit) counts as used there.
-- **Write a debug log**: what Moonglow does, step by step, in
-  the `logs` folder of its data folder, a file for each start; on
-  unless you switch it off (see
-  [Troubleshooting](13-troubleshooting.md)).
+
+### Module tree and palettes
+
+- **Show the object selected in an area in the module tree**: on by
+  default. An object selected in an area's view opens its area out in
+  the module tree and goes to its row there, as Aurora does; off, the
+  tree goes to it only where its area is opened out already (the arrow
+  beside the area's row), and an area left closed stays closed.
+- **Show the tab chosen in the module tree**: on by default. A tab
+  clicked, reached by the keys or opened marks its resource (a script,
+  conversation, blueprint, area…) in the module tree, opens its group
+  and brings its row into view; the keys stay with the tab. Off, the
+  tree stays where it is and marks only the area in front, as Aurora's
+  does. Show in Module Tree on a tab's menu goes to it either way.
+- **List areas and blueprints by name** in the module tree, rather than
+  by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
+  tree and the palettes). Areas are by name in Find Instance and the
+  area transition's destinations too.
+- **Hide empty groups in the module tree** (off): the tree's groups with
+  nothing in them (Scripts (0)) and the kinds of object an area has none
+  of (Doors (0)) are left out; off, they are listed, as Aurora lists
+  them. A hidden group's New is in the Wizards and Tools menus.
 - **List a blueprint's categories alphabetically**: a blueprint's
   Category list in alphabetical order, rather than in the palette's
   (the order Palette › Categories… gives them): case and accents aside
   (`Árboles` beside `arboles`, not after `z`), and a group's own
   categories (`Oficios / Herrero`) together under it.
-- **List areas and blueprints by name** in the module tree, rather than
-  by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
-  tree and the palettes). Areas are by name in Find Instance and the
-  area transition's destinations too.
 - **Show challenge ratings in the creature palette**: on by default.
 - **Show armor and cloaks on a woman**: an armor's or a cloak's model on
   a woman's body, and an armor's inventory icon as a woman's inventory
@@ -285,48 +357,10 @@ the module is opened again from its file.
   Preview and the item's Properties, whose Appearance page's **Shown
   on** changes it too. Off by default: a man's. A creature's own
   Inventory page shows the icons of its Gender, as the game does.
-- **Read Steam Workshop content**: off by default, as in Aurora: an item
-  you subscribed to for play is not your module's, and a module that
-  needs it works only for players who have it too. On, the Steam
-  Workshop items you are subscribed to are read with the game's data, as
-  the game started through Steam reads them: each item's `override`
-  under your own, its haks and talk tables found by name, its
-  `portraits`, `ambient` and `music` under your own and over the
-  game's (an item's module is opened as any module, by File › Open).
-  Changing it reads the game's data again. `mg --workshop` reads them
-  too.
-- **Read userpatch.ini's haks**: off by default, as in Aurora, for the
-  same reason. On, the haks your
-  `userpatch.ini` names (`PatchFile000=…` and on, the highest number
-  winning), from the `patch` folder in your user folder (or the folder
-  `nwn.ini` names as `PATCH`), are read under the module and its haks
-  and over `override`, as the game reads them (measured in the game's
-  server): the HD Pack and the like show in the area view and the
-  previews. Aurora doesn't read them; `mg --userpatch` does. Their own
-  files are not checked as the module's custom content. Changing it
-  reads the game's data again.
 
-  What only your own content provides, a player has only if they have
-  the same: so Verify warns of each reference only userpatch.ini's
-  haks, your `override` folder or a Workshop item satisfies ("only in
-  userpatch.ini's haks", "only in your override folder", "only in a
-  Steam Workshop item"), and of a custom talk table found first there
-  (the game reads one from there too, and a player without it can't
-  load the module). Content you keep in `override` on purpose need not
-  fill Verify's report: Options › Verify's **Also leave out** takes
-  `references:override` (or `references:userpatch`,
-  `references:workshop`, all three as `references:local`), as `mg verify
-  --skip` does. Music and ambient sounds in these haks are read as any of
-  their resources, as the game reads them.
-- **Reload haks, override and development when they change**: on by
-  default. Moonglow is told by the system when they change (it checks
-  every few seconds where it can't be) and rereads what changed
-  (see [Build, verify and test](09-build-and-test.md)). The same switch
-  has a nasher project's own files, a module folder's and a `.mod` read
-  again when another program changes them (see [Modules](03-modules.md)).
-- **Keep a recovery copy of unsaved work every … minutes** (5 by
-  default; see [Modules](03-modules.md)).
-- Warnings: **Show reserved Blueprint ResRef namespace warning** (a
+### Warnings
+
+- **Show reserved Blueprint ResRef namespace warning** (a
   blueprint named like the game's, `nw_` or `x0_` to `x3_`), **Show
   standard resource overwrite warning** (the module adds a resource the
   game has), **Show resource in Hak Pak warning** (a hak has a resource
@@ -337,10 +371,17 @@ the module is opened again from its file.
   **Show invalid creature spell assignment warning** and **Show creature
   inventory warning** (see [Blueprints](05-blueprints.md)).
 
+### Troubleshooting
+
+- **Write a debug log**: what Moonglow does, step by step, in
+  the `logs` folder of its data folder, a file for each start; on
+  unless you switch it off (see
+  [Troubleshooting](13-troubleshooting.md)).
+
 ## Script Editor
 
-- **Code Templates Directory**: your own templates, listed with the
-  game's.
+### Compiling
+
 - **Automatically Compile Scripts on Save**: a script's own Save, and
   saving the module, compile the scripts whose text they save; so is a
   script another program saved in the module's folder or nasher
@@ -352,6 +393,28 @@ the module is opened again from its file.
   compiled a moment after you stop typing, and its first error shows
   under the toolbar, its line underlined (see [Scripts](07-scripts.md)).
   Off, there is no check and no line kept for it.
+- **External Script Compiler**: a compiler program to use in place of the
+  built-in one (empty: the built-in one, which is the game's and
+  Aurora's own). Compile in the script editor, Compile All Scripts, the
+  build and what is compiled before a test or an export go through it.
+  Errors as you type stay the built-in compiler's.
+- **Its arguments** (shown once a compiler is chosen): how the program is
+  run. Empty, Moonglow uses the usual line for the program, by its name:
+  `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
+  the empty field, and resting the pointer on it lists the places
+  Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
+  scratch folder the scripts to compile and the module's scripts they
+  include, however indirectly, are written to), `{out}` (the
+  folder the compiled scripts are read from), `{game}`, `{user}` and
+  `{haks}` (the module's haks, comma-separated: a hak whose path has a
+  comma in it can't be passed so, and the compile says which). An option whose place
+  has nothing to give is left out. Generate Debug Information adds `-g`
+  to the usual lines.
+
+### Editing
+
+- **Code Templates Directory**: your own templates, listed with the
+  game's.
 - **Indent with** Spaces (the default) or Tabs, and **Indent width**
   (4): what Tab puts in, and Shift+Tab takes off, in a script with no
   indented line to go by (one that has some is indented as it is: see
@@ -361,6 +424,9 @@ the module is opened again from its file.
   as a tab of the window scripts are open in already; off, each in a
   window of its own. (Scripts docked in the main pane open there either
   way.)
+
+### External editor
+
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the
@@ -379,45 +445,39 @@ the module is opened again from its file.
   in Moonglow's editor too, which is how the external editor's saves
   come back; so does one Moonglow holds unsaved text of, and a new one
   (New Script, Save As) until File › Save writes its file.
-- **External Script Compiler**: a compiler program to use in place of the
-  built-in one (empty: the built-in one, which is the game's and
-  Aurora's own). Compile in the script editor, Compile All Scripts, the
-  build and what is compiled before a test or an export go through it.
-  Errors as you type stay the built-in compiler's.
-- **Its arguments** (shown once a compiler is chosen): how the program is
-  run. Empty, Moonglow uses the usual line for the program, by its name:
-  `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
-  the empty field, and resting the pointer on it lists the places
-  Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
-  scratch folder the scripts to compile and the module's scripts they
-  include, however indirectly, are written to), `{out}` (the
-  folder the compiled scripts are read from), `{game}`, `{user}` and
-  `{haks}` (the module's haks, comma-separated: a hak whose path has a
-  comma in it can't be passed so, and the compile says which). An option whose place
-  has nothing to give is left out. Generate Debug Information adds `-g`
-  to the usual lines.
+
+### Font and colors
+
 - The editor's **font size**, syntax **colors** and **Background**
   (the theme's unless Custom is ticked), with a preview. **Reset to
   defaults** sets these back; it leaves the indentation alone.
 
 ## Conversation Editor
 
+### Editing
+
 - **Show popup when creating a new text entry**: a new line asks for its
   text first.
-- **Open conversations as tabs of one window**: on by default. A
-  conversation opens as a tab of the window one is open in already; off,
-  each in a window of its own.
 - **Show speaker name before text**, and the **NPC** and **Player** text
   colors (by default red and blue, darker in the light theme, where a
   link's lines are a darker gray too, so that they stand out against
   white as they do against the dark theme's black).
+- **Open conversations as tabs of one window**: on by default. A
+  conversation opens as a tab of the window one is open in already; off,
+  each in a window of its own.
+- **Automatically backup the conversation files** every … minutes.
+
+### Text
+
 - **Font size**: the size of the conversation editor's text (its lines,
   its buttons, the fields under them, and the lists and right-click
   menus opened from it), apart from the rest of the window; **Default**
   goes back to the window's own.
+
+### Links
+
 - **Paste Link Options** and **Drag Link Options**: whether Paste As
   Link and Ctrl + drag link the source to the destination or the reverse.
-- **Automatically backup the conversation files** every … minutes.
 
 ## Sounds
 
