@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.15.2" date="2026-11-08">
+      <description>
+        <p>A project's commands are given MOONGLOW_MG, the path of the mg
+        that came with Moonglow.</p>
+      </description>
+    </release>
     <release version="3.15.1" date="2026-11-07">
       <description>
         <p>The blueprint wizards no longer freeze at Assign Palette
