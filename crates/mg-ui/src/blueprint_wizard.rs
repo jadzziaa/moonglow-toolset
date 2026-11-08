@@ -525,10 +525,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     && w.kind != BlueprintKind::Waypoint
                     && let Some(name) = w.category.and_then(|id| category_name(&nodes, id, game))
                 {
-                    w.name = (1..)
-                        .map(|n| blueprints::default_name(&name, n))
-                        .find(|s| !key_taken(app, &blueprints::resref_named(s, &naming, |_| false)))
-                        .expect("a free name");
+                    w.name = blueprints::suggested_name(&name, &naming, |r| key_taken(app, r));
                 }
             }
             Step::Name => {

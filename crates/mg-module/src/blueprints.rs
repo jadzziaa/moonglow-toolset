@@ -54,6 +54,31 @@ pub fn resref_named(name: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool
         .expect("a free resref")
 }
 
+/// The name the blueprint wizards suggest for a blueprint in `category`:
+/// "Category 001", "Category 002"…, the first whose resref is free. Where
+/// the name's resref doesn't follow its number (a category named with
+/// other characters than letters, digits and spaces makes `blueprint001`,
+/// as Aurora's wizards do; or every number's taken), the first: its
+/// resref is numbered to a free one as the blueprint is made. (It looked
+/// on for a free one for ever: Northwind's report, the Placeable Wizard
+/// frozen at Assign Palette Category once `blueprint001` was taken.)
+pub fn suggested_name(category: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool) -> String {
+    let mut last = None;
+    for n in 1..=999 {
+        let name = default_name(category, n);
+        let resref = resref_named(&name, naming, |_| false);
+        if !taken(&resref) {
+            return name;
+        }
+        // (The number doesn't reach the resref: no other will be free.)
+        if last == Some(resref) {
+            break;
+        }
+        last = Some(resref);
+    }
+    default_name(category, 1)
+}
+
 /// A blueprint's tag for a name: its letters, digits and underscores.
 pub fn tag(name: &str) -> String {
     crate::new::tag_for(name)
@@ -498,6 +523,24 @@ pub fn make_magical(game: &GameData, g: &mut Gff, magic: Magical) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The name suggested for a blueprint in a category: the first whose
+    /// resref is free; where the name's resref doesn't follow its number
+    /// (a category named with an `&`: `blueprint001`, as
+    /// Aurora's), the first, at once (Northwind's report: with that resref
+    /// taken, the Placeable Wizard froze at Assign Palette Category).
+    #[test]
+    fn a_suggested_name_is_found_whatever_the_category() {
+        let naming = Naming::default();
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        assert_eq!(suggested_name("Chairs", &naming, |x| *x == r("chairs001")), "Chairs 002");
+        assert_eq!(suggested_name("Chairs", &naming, |_| false), "Chairs 001");
+        let blueprint001 = |x: &ResRef| *x == r("blueprint001");
+        assert_eq!(resref_named("Doors & Gates 007", &naming, |_| false), r("blueprint001"));
+        assert_eq!(suggested_name("Doors & Gates", &naming, blueprint001), "Doors & Gates 001");
+        // Every number's resref taken: the first still, at once.
+        assert_eq!(suggested_name("Chairs", &naming, |_| true), "Chairs 001");
+    }
 
     fn r(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()

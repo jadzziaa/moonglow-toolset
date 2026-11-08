@@ -2003,6 +2003,31 @@ fn store_wizard_makes_aurora_s_store() {
     assert!(h.state().blueprint_wizard.is_none());
 }
 
+/// Northwind's freeze: every name in a category with an `&` (the standard
+/// placeable palette's "Parks & Nature", "Containers & Switches"...)
+/// becomes `blueprint001`, so once one was made, the wizard looked for a
+/// free name for ever on reaching Assign Palette Category.
+#[test]
+fn placeable_wizard_names_a_second_blueprint_in_a_category_with_an_ampersand() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("placeable-ampersand") else { return };
+    for made in ["blueprint001", "blueprint002"] {
+        h.state_mut().blueprint_wizard =
+            Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Placeable));
+        h.run();
+        h.get_by_label("Parks & Nature").click();
+        h.run();
+        h.get_by_label("Next >").click();
+        h.run();
+        assert!(h.query_all_by_value("Parks & Nature 001").next().is_some());
+        h.get_by_label("Finish").click();
+        h.run();
+        assert!(h.state().blueprint_wizard.is_none());
+        let g = module_gff(&mut h, made, ResType::UTP).expect("the placeable");
+        assert_eq!(g.root.integer("PaletteID"), Some(11), "{made}");
+    }
+}
+
 #[test]
 fn sound_wizard_steps_through_timing_positioning_and_waves() {
     use mg_module::palette::BlueprintKind;
