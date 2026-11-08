@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.17.0" date="2026-11-08">
+      <description>
+        <p>Lists take typed letters, the Appearance Gallery places by
+        click, and the area view works more like Aurora's: Alt + drag
+        raises the selection, Shift + right click steps a tile, Q and E
+        turn what is dragged.</p>
+      </description>
+    </release>
     <release version="3.16.0" date="2026-11-08">
       <description>
         <p>A tint shows as it is picked, plugins get a color picker
