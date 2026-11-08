@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.16.0" date="2026-11-08">
+      <description>
+        <p>A tint shows as it is picked, plugins get a color picker
+        (plugin API 0.8), a project can hide tilesets from the pickers,
+        and resizing a file dialog no longer crashes Moonglow on
+        macOS.</p>
+      </description>
+    </release>
     <release version="3.15.2" date="2026-11-08">
       <description>
         <p>A project's commands are given MOONGLOW_MG, the path of the mg
