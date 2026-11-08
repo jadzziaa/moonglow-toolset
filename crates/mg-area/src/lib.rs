@@ -851,19 +851,33 @@ impl AreaModel {
         let mut at = Vec::with_capacity(changed.len());
         for &(kind, index) in changed {
             let Some(s) = git.list(kind.list()).and_then(|l| l.get(index)) else { continue };
-            let read = AreaObject::read(game, kind, index, s);
-            match self.objects.iter().position(|o| o.kind == kind && o.index == index) {
-                Some(i) => {
-                    self.objects[i] = read;
-                    at.push(i);
-                }
-                None => {
-                    at.push(self.objects.len());
-                    self.objects.push(read);
-                }
-            }
+            at.push(self.read_object(game, kind, index, s));
         }
         at
+    }
+
+    /// Reads the object `index` of the GIT list of `kind` again from `s`
+    /// (its struct, or another made of it: one with the variables a color
+    /// being picked gives it), as [`AreaModel::read`] would; its place in
+    /// [`AreaModel::objects`].
+    pub fn read_object(
+        &mut self,
+        game: &GameData,
+        kind: ObjectKind,
+        index: usize,
+        s: &Struct,
+    ) -> usize {
+        let read = AreaObject::read(game, kind, index, s);
+        match self.objects.iter().position(|o| o.kind == kind && o.index == index) {
+            Some(i) => {
+                self.objects[i] = read;
+                i
+            }
+            None => {
+                self.objects.push(read);
+                self.objects.len() - 1
+            }
+        }
     }
 
     /// The object `index` of the GIT list of `kind`.

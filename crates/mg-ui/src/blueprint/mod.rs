@@ -35,7 +35,7 @@ mod replacements;
 mod situated;
 mod sound;
 pub(crate) mod store;
-mod tint;
+pub(crate) mod tint;
 mod trigger;
 mod visuals;
 mod waypoint;

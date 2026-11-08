@@ -934,3 +934,79 @@ pub(crate) fn number_beside<'h>(
     on.sort_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x));
     on.into_iter().nth(n).unwrap_or_else(|| panic!("no number beside {label}"))
 }
+
+/// Puts a dynamic chest at 12, 20 in the area of `git`, first of its
+/// placeables, tinted white (The Domains of Dread's `tdod_tint`), as one
+/// command: for the tests of a tint being picked.
+pub(crate) fn place_tinted_chest(app: &mut Moonglow, git: ResKey) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+    let chest = Gff::read(&data).unwrap().root;
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+    let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+    item.set("Static", mg_gff::Value::Byte(0));
+    let mut v = mg_gff::Struct::new(0);
+    v.set("Name", mg_gff::Value::String(b"tdod_tint".to_vec()));
+    v.set("Type", mg_gff::Value::Dword(3));
+    v.set("Value", mg_gff::Value::String(b"#ffffff".to_vec()));
+    item.set("VarTable", mg_gff::Value::List(vec![v]));
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item,
+    };
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+}
+
+/// The tint the area view draws the first placeable of `area` with (its
+/// whole object's, `tdod_tint`), as the renderer is given it.
+pub(crate) fn drawn_tint(h: &Harness<'_, Moonglow>, area: ResRef) -> Option<Vec<f32>> {
+    let view = h.state().area_views.get(&area)?;
+    let chest = view.model.as_ref()?.object(mg_area::ObjectKind::Placeable, 0)?;
+    let values = &chest.preview.as_ref()?.base.material_values;
+    values.iter().find(|v| v.material.is_none()).and_then(|v| match &v.value {
+        mg_image::mtr::Param::Float(f) => Some(f.clone()),
+        mg_image::mtr::Param::Int(_) => None,
+    })
+}
+
+/// Drags across a color picker's square under the swatch at `well` (just
+/// opened), from `from` to `to` points along it, a frame a step, and
+/// lets go: the picker stays open.
+pub(crate) fn drag_picker(h: &mut Harness<'_, Moonglow>, well: egui::Rect, from: f32, to: f32) {
+    let point = |x: f32| egui::pos2(well.left() + 20.0 + x, well.bottom() + 120.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(egui::Event::PointerMoved(point(from)));
+    h.event(button(point(from), true));
+    h.run();
+    for i in 1..=10 {
+        h.event(egui::Event::PointerMoved(point(from + (to - from) * i as f32 / 10.0)));
+        h.run();
+    }
+    h.event(button(point(to), false));
+    h.run_steps(3);
+}
+
+/// A click away from everything at `at`, as one closes a popup with.
+pub(crate) fn click_away(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+}

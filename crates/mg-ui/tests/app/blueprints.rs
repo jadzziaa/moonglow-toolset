@@ -1496,6 +1496,68 @@ fn visuals_page_of_a_placed_placeable_lists_its_model_s_textures() {
     assert!(placed(&mut h).get("TextureReplace").is_none());
 }
 
+/// A placed placeable's tint picked on its Variables page (a builder's
+/// report: dragged across the swatch's picker, the window froze at each
+/// step, a command a step): while the picker is open the area view draws
+/// the color being picked, no command made; as it closes, one command
+/// sets it.
+#[test]
+fn a_tint_being_picked_is_drawn_and_set_once_as_the_picker_closes() {
+    let Some((mut h, area)) = area_harness("tint-picking") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    place_tinted_chest(h.state_mut(), git);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Variables");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    h.run_steps(4);
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path: path.clone() }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(700.0, 500.0));
+    }
+    h.run_steps(4);
+    let set = |h: &mut Harness<'_, Moonglow>| -> String {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&git).unwrap().root.clone();
+        let chest = path.get(&root).unwrap();
+        String::from_utf8_lossy(chest.list("VarTable").unwrap()[0].string("Value").unwrap())
+            .into_owned()
+    };
+    let depth = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().undo_depth();
+    let white = vec![1.0, 1.0, 1.0, 1.0];
+    assert_eq!(drawn_tint(&h, area), Some(white.clone()), "white, as set");
+    let undo = depth(&h);
+    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    drag_picker(&mut h, well, 0.0, 80.0);
+    assert_eq!(depth(&h), undo, "no command while picked");
+    assert_eq!(set(&mut h), "#ffffff", "not set yet");
+    let picked = drawn_tint(&h, area).expect("drawn with a tint");
+    assert_ne!(picked, white, "the color being picked, drawn");
+    // Closed (a click away from it): set, one command, as drawn.
+    click_away(&mut h, egui::pos2(900.0, 700.0));
+    assert_eq!(depth(&h), undo + 1, "one command");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Edit variables"));
+    assert_ne!(set(&mut h), "#ffffff");
+    assert_eq!(drawn_tint(&h, area), Some(picked.clone()), "drawn as set");
+    // The Visuals page's Tint section: the same, its whole object's swatch.
+    h.get_by_label("Visuals").click();
+    h.run_steps(3);
+    let undo = depth(&h);
+    let well = h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).next().unwrap();
+    let well_rect = well.rect();
+    well.click();
+    h.run_steps(3);
+    drag_picker(&mut h, well_rect, 80.0, 20.0);
+    assert_eq!(depth(&h), undo, "no command while picked");
+    let again = drawn_tint(&h, area).expect("drawn with a tint");
+    assert_ne!(again, picked, "the Tint section's color being picked, drawn");
+    click_away(&mut h, egui::pos2(900.0, 700.0));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tint"));
+    assert_eq!(depth(&h), undo + 1, "one command");
+    assert_eq!(drawn_tint(&h, area), Some(again), "drawn as set");
+}
+
 #[test]
 fn classes_page_sets_domains_and_associates() {
     let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_copy", ResType::UTC) else {

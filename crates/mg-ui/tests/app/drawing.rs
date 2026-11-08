@@ -1849,3 +1849,87 @@ fn a_builders_tinted_placeables_and_wallpaper_draw_tinted() {
     let differ = (0..3).map(|c| (wallpaper[c] - wallpaper_after[c]).abs()).sum::<f32>();
     assert!(differ > 15.0, "the wallpaper as made: {wallpaper:?} then {wallpaper_after:?}");
 }
+
+/// The builder's tinted rug (as above: `MG_TINT_MODULE`, `MG_TEST_USER`),
+/// its tint picked on its Variables page: while the swatch's picker is
+/// dragged across, the area view draws the rug in the color being picked
+/// (a builder's report: it showed only once set, a command at each step
+/// of the drag). Pictures in `target/test-output/ui-tint-picking/`.
+#[test]
+#[ignore]
+fn a_tint_being_picked_draws_on_the_rug() {
+    let Some(module) = std::env::var_os("MG_TINT_MODULE").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: MG_TINT_MODULE names no module");
+        return;
+    };
+    let (Some(root), Some(rs)) = (mg_testkit::nwn_root(), gpu()) else { return };
+    let dir = mg_testkit::scratch_dir("ui-tint-picking");
+    let path = dir.join("trial.mod");
+    std::fs::copy(&module, &path).unwrap();
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    let install = mg_resman::GameInstall::new(&root, user, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(true);
+    app.open_module(&path);
+    let area = ResRef::from_str("tt_room").unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let rug = mg_edit::GffPath::root().item("Placeable List", 0);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    app.blueprint_pages.insert((git, rug.clone()), "Variables");
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: rug.clone() }));
+    let mut h = area_gpu_harness(app, rs, 1400.0, 800.0);
+    h.run_steps(3);
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path: rug.clone() }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(840.0, 120.0)).set_size(egui::vec2(540.0, 420.0));
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(mg_ui::area_view::Orbit {
+        target: glam::Vec3::new(8.0, 12.0, 0.0),
+        yaw: 270f32.to_radians(),
+        pitch: 55f32.to_radians(),
+        distance: 10.0,
+    });
+    h.run_steps(3);
+    until_the_game_draws(&mut h);
+    let ppp = h.ctx.pixels_per_point();
+    let middle = glam::Vec3::new(5.6, 12.0, 0.0);
+    let look = |h: &mut Harness<'_, Moonglow>, name: &str| -> [f32; 3] {
+        h.run_steps(3);
+        until_the_game_draws(h);
+        let img = h.render().unwrap();
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        let at = screen(h, area, middle);
+        let c = mean_around(&img, ppp, at, 6.0);
+        eprintln!("{name}: the rug {c:?}");
+        c
+    };
+    let before = look(&mut h, "before");
+    // (The first of its colors: `tdod_tint`.)
+    let swatch = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).next().unwrap().rect()
+    };
+    let well = swatch(&h);
+    h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).next().unwrap().click();
+    h.run_steps(3);
+    // Across the picker's square toward its red corner, the button held.
+    let point = |x: f32, y: f32| egui::pos2(well.left() + 20.0 + x, well.bottom() + 60.0 + y);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(egui::Event::PointerMoved(point(0.0, 0.0)));
+    h.event(button(point(0.0, 0.0), true));
+    for i in 1..=10 {
+        h.event(egui::Event::PointerMoved(point(i as f32 * 3.0, i as f32 * 2.0)));
+        h.run();
+    }
+    let picking = look(&mut h, "picking");
+    h.event(button(point(30.0, 20.0), false));
+    h.run_steps(2);
+    let differ = (0..3).map(|c| (before[c] - picking[c]).abs()).sum::<f32>();
+    assert!(differ > 15.0, "drawn as picked: {before:?} then {picking:?}");
+}

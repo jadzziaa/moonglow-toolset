@@ -1238,6 +1238,200 @@ fn refresh_parts() {
 
 /// A campaign's views: the module with nothing else open, each editor on
 /// its largest resource, the palettes and lists, a menu, and areas.
+/// A placed placeable's tint set again and again from its Properties
+/// window's Variables page, as dragging its color swatch does (the
+/// owner's report: laggy, as if the whole module were walked at each
+/// change): each frame after the command, timed, in the campaign's area
+/// with the most objects. `TINT_PAGE=Visuals` with the Visuals page shown.
+#[test]
+#[ignore]
+fn tint_edits() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    // (`TINT_MODULE`, `TINT_USER`: a builder's module, opened from a copy,
+    // and the user folder with its haks.)
+    let path = match std::env::var_os("TINT_MODULE") {
+        // (A project's folder is taken as it is: a copy made for it.)
+        Some(m) if std::path::Path::new(&m).is_dir() => m.into(),
+        Some(m) => {
+            let copy = mg_testkit::scratch_dir("frame-tint").join("module.mod");
+            std::fs::copy(&m, &copy).unwrap();
+            copy
+        }
+        None => root.join("data/nwm").join(CAMPAIGN),
+    };
+    if !path.exists() {
+        println!("skipped: {} isn't there", path.display());
+        return;
+    }
+    let user = std::env::var_os("TINT_USER").map(std::path::PathBuf::from);
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, user, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let ws = app.ws.as_mut().unwrap();
+    let keys: Vec<ResKey> = ws.module.keys_of(ResType::GIT).copied().collect();
+    let placeables = |ws: &mut mg_edit::Workspace, k: &ResKey| {
+        let count = |g: &mg_gff::Struct| -> usize {
+            mg_area::ObjectKind::ALL.iter().map(|o| g.list(o.list()).map_or(0, <[_]>::len)).sum()
+        };
+        ws.doc(k).ok().map(|d| count(&d.root)).unwrap_or(0)
+    };
+    // (A placeable whose model takes a tint, where one is placed: the
+    // area with the most placeables first.)
+    let mut keys = keys;
+    keys.sort_by_key(|k| std::cmp::Reverse(placeables(ws, k)));
+    let game = app.game.clone().unwrap();
+    let tintable = keys.iter().find_map(|k| {
+        let doc = ws.doc(k).ok()?;
+        let list = doc.root.list("Placeable List")?;
+        let i = list.iter().position(|p| !mg_preview::tintable_materials(&game, p).is_empty())?;
+        Some((*k, i))
+    });
+    println!("  a tintable placeable: {tintable:?}");
+    // (None placed: a copy of the busiest area's first placeable, of the
+    // first appearance whose model takes one, put at the end of its list.)
+    let (git, index, setup) = match tintable {
+        Some((git, index)) => (git, index, None),
+        None => {
+            let git = keys[0];
+            let doc = ws.doc(&git).unwrap();
+            let list = doc.root.list("Placeable List").unwrap();
+            let mut copy = list[0].clone();
+            let rows = game.table("placeables").map(|t| t.len()).unwrap_or(0);
+            let row = (0..rows).find(|&r| {
+                copy.set("Appearance", Value::Dword(r as u32));
+                !mg_preview::tintable_materials(&game, &copy).is_empty()
+            });
+            println!("  placed: appearance {row:?}");
+            copy.set("Appearance", Value::Dword(row.unwrap_or(0) as u32));
+            copy.set("Static", Value::Byte(0));
+            let index = list.len();
+            let insert = Edit::InsertItem {
+                key: git,
+                path: GffPath::root(),
+                list: "Placeable List".into(),
+                index,
+                item: copy,
+            };
+            (git, index, Some(Command::new("Place", vec![insert])))
+        }
+    };
+    if let Some(cmd) = setup {
+        app.actions.push(Action::Apply(cmd));
+    }
+    let area = git.resref;
+    let path = GffPath::root().item("Placeable List", index);
+    let page = std::env::var("TINT_PAGE").unwrap_or_else(|_| "Variables".into());
+    let page: &'static str = Box::leak(page.into_boxed_str());
+    app.blueprint_pages.insert((git, path.clone()), page);
+    let mut h = harness(app, rs);
+    open(&mut h, Tab::Area(area));
+    h.run_steps(20);
+    open(&mut h, Tab::Instance { area, path: path.clone() });
+    h.run_steps(10);
+    // (Its other variables kept, as the page keeps them.)
+    let others: Vec<Struct> = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(&git).unwrap();
+        let list = path.get(&doc.root).and_then(|s| s.list("VarTable")).unwrap_or(&[]);
+        let tint = |v: &&Struct| v.string("Name").is_some_and(|n| n.starts_with(b"tdod_tint"));
+        list.iter().filter(|v| !tint(v)).cloned().collect()
+    };
+    let tinted = |i: usize| {
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(b"tdod_tint".to_vec()));
+        v.set("Type", Value::Dword(3));
+        v.set("Value", Value::String(format!("#{:02x}4d8f", (i * 8) % 256).into_bytes()));
+        let edit = Edit::SetField {
+            key: git,
+            path: path.clone(),
+            label: "VarTable".into(),
+            value: Some(Value::List(others.iter().cloned().chain([v]).collect())),
+        };
+        Action::Apply(Command::new("Edit variables", vec![edit]))
+    };
+    let rect = rect_of(h.state(), &Tab::Area(area)).unwrap_or(egui::Rect::EVERYTHING);
+    // (`TINT_SHOT`: pictures of it, here.)
+    let shots = || mg_testkit::scratch_dir("frame-tint-shot");
+    println!(
+        "  the area's rect {rect:?}, the window's {:?}",
+        rect_of(h.state(), &Tab::Instance { area, path: path.clone() })
+    );
+    if std::env::var_os("TINT_SHOT").is_some() {
+        let dir = shots();
+        h.render().unwrap().save(dir.join("before.png")).unwrap();
+    }
+    let quiet = frames(&mut h, rect, Pointer::Away, 40, |_, _| {});
+    // The page's own swatch: a tint row added, its picker opened and
+    // dragged across, a frame a step (`TINT_DRAG`).
+    if std::env::var_os("TINT_DRAG").is_some() {
+        h.state_mut().actions.push(tinted(0));
+        h.run_steps(4);
+        let well = h
+            .get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell)
+            .next()
+            .expect("the tint's swatch")
+            .rect();
+        h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).next().unwrap().click();
+        h.run_steps(3);
+        if std::env::var_os("TINT_SHOT").is_some() {
+            let dir = shots();
+            h.render().unwrap().save(dir.join("picker.png")).unwrap();
+        }
+        // (The picker's square under the swatch: its middle row.)
+        let at = |x: f32| egui::pos2(well.left() + 20.0 + x, well.bottom() + 120.0);
+        h.event(egui::Event::PointerMoved(at(0.0)));
+        h.event(egui::Event::PointerButton {
+            pos: at(0.0),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+        let undo_before = h.state().ws.as_ref().unwrap().undo_depth();
+        let mut steps = Vec::new();
+        for i in 1..=40 {
+            h.event(egui::Event::PointerMoved(at(i as f32 * 4.0)));
+            let t = Instant::now();
+            h.run_steps(1);
+            steps.push(t.elapsed());
+        }
+        h.event(egui::Event::PointerButton {
+            pos: at(160.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+        let made = h.state().ws.as_ref().unwrap().undo_depth() - undo_before;
+        let mut s = steps.clone();
+        s.sort();
+        println!(
+            "  dragging the page's swatch: a step {:.2} ms (median), {:.2} worst; {made} commands",
+            ms(s[s.len() / 2]),
+            ms(*s.last().unwrap())
+        );
+        if std::env::var_os("TINT_SHOT").is_some() {
+            let dir = shots();
+            h.render().unwrap().save(dir.join("after.png")).unwrap();
+        }
+    }
+    // A command each frame, as a drag across the swatch's picker made.
+    let dragged = frames(&mut h, rect, Pointer::Away, 40, |app, n| app.actions.push(tinted(n)));
+    let med = |mut v: Vec<Duration>| {
+        v.sort();
+        (ms(v[v.len() / 2]), ms(*v.last().unwrap()))
+    };
+    println!("{area} ({page} page): (median, worst) ms");
+    for (what, f) in [("quiet", quiet), ("a tint's command each frame", dragged)] {
+        println!("  {what}: ui {:?}, gpu {:?}", med(f.ui), med(f.gpu));
+    }
+}
+
 #[test]
 #[ignore]
 fn frames_at_144() {

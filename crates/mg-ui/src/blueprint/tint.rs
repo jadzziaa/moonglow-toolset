@@ -50,13 +50,16 @@ pub(super) fn section(f: &mut Form<'_>, ui: &mut Ui) {
         rows.push((m.clone(), format!("{}{m}", tint::TINT_PREFIX), own));
     }
     let mut set: Option<(String, Option<String>)> = None;
+    let mut picking: Option<(String, [u8; 3])> = None;
     egui::Grid::new(f.id("Tint")).num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
         for (i, (label, local, own)) in rows.iter().enumerate() {
             crate::widgets::field_label(ui, label).on_hover_text(format!("The variable {local}"));
             // (A material without its own shows the whole object's.)
             let shown = own.or(if i == 0 { None } else { tints.all });
-            if let Some(rgb) = picker(f, ui, local, shown) {
-                set = Some((local.clone(), Some(tint::format(rgb))));
+            match picker(f, ui, local, shown) {
+                Picked::Set(rgb) => set = Some((local.clone(), Some(tint::format(rgb)))),
+                Picked::Picking(rgb) => picking = Some((local.clone(), rgb)),
+                Picked::Not => {}
             }
             match (own, i) {
                 (Some(c), _) => ui.monospace(tint::format(c.map(|v| (v * 255.0).round() as u8))),
@@ -75,11 +78,28 @@ pub(super) fn section(f: &mut Form<'_>, ui: &mut Ui) {
         let what = if value.is_some() { "Tint" } else { "Clear tint" };
         set_local(f, what, &local, value.as_deref());
     }
+    // (While it is picked, the area views draw it: `var_preview`.)
+    if let Some((local, rgb)) = picking {
+        let value = tint::format(rgb);
+        for (key, path, list) in with_local_each(f, &local, Some(&value)) {
+            f.app.var_preview_next.push((key, path, list));
+        }
+    }
+}
+
+/// What a swatch's picker did this frame.
+enum Picked {
+    Not,
+    /// Open, at this color, which isn't set yet.
+    Picking([u8; 3]),
+    /// Closed on this color, to be set.
+    Set([u8; 3]),
 }
 
 /// A color's swatch and picker: what is picked once the picker closes
-/// (one command, as the area's colors are set).
-fn picker(f: &Form<'_>, ui: &mut Ui, local: &str, shown: Option<[f32; 3]>) -> Option<[u8; 3]> {
+/// (one command, as the area's colors are set), and what is being picked
+/// while it is open.
+fn picker(f: &Form<'_>, ui: &mut Ui, local: &str, shown: Option<[f32; 3]>) -> Picked {
     let id = f.id(&format!("Tint#{local}"));
     let pending_id = id.with("pending");
     let pending: Option<[u8; 3]> = ui.data(|d| d.get_temp(pending_id));
@@ -97,11 +117,14 @@ fn picker(f: &Form<'_>, ui: &mut Ui, local: &str, shown: Option<[f32; 3]>) -> Op
     if changed {
         ui.data_mut(|d| d.insert_temp(pending_id, rgb));
     }
-    if !open && let Some(v) = ui.data(|d| d.get_temp::<[u8; 3]>(pending_id)) {
-        ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
-        return Some(v);
+    match (open, ui.data(|d| d.get_temp::<[u8; 3]>(pending_id))) {
+        (true, Some(v)) => Picked::Picking(v),
+        (false, Some(v)) => {
+            ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
+            Picked::Set(v)
+        }
+        (_, None) => Picked::Not,
     }
-    None
 }
 
 /// The model's tintable materials ([`mg_preview::tintable_materials`]),
@@ -120,26 +143,41 @@ fn tintable(ui: &Ui, game: &Arc<mg_rules::GameData>, utp: &Struct) -> Arc<Vec<St
 /// Sets a string local (or takes it out: `None`) on each object edited,
 /// each keeping its other variables.
 fn set_local(f: &mut Form<'_>, what: &str, name: &str, value: Option<&str>) {
+    let edits: Vec<Edit> = (with_local_each(f, name, value).into_iter())
+        .map(|(key, path, list)| {
+            let value = Some(Value::List(list));
+            Edit::SetField { key, path, label: "VarTable".into(), value }
+        })
+        .collect();
+    if !edits.is_empty() {
+        f.app.actions.push(Action::Apply(Command::new(what, edits)));
+    }
+}
+
+/// Each object edited's VarTable with the string local `name` set to
+/// `value` (or taken out), of those it changes.
+fn with_local_each(
+    f: &mut Form<'_>,
+    name: &str,
+    value: Option<&str>,
+) -> Vec<(ResKey, GffPath, Vec<Struct>)> {
     let targets: Vec<(ResKey, GffPath)> = f.targets().map(|(k, p)| (k, p.clone())).collect();
-    let mut edits = Vec::new();
+    let mut out = Vec::new();
     for (key, path) in targets {
         let Some(Ok(doc)) = f.app.ws.as_mut().map(|ws| ws.doc(&key)) else { continue };
         let Some(s) = path.get(&doc.root) else { continue };
         let list = s.list("VarTable").unwrap_or(&[]);
         let changed = with_local(list, name, value);
         if changed != list {
-            let value = Some(Value::List(changed));
-            edits.push(Edit::SetField { key, path, label: "VarTable".into(), value });
+            out.push((key, path, changed));
         }
     }
-    if !edits.is_empty() {
-        f.app.actions.push(Action::Apply(Command::new(what, edits)));
-    }
+    out
 }
 
 /// A VarTable with the string local `name` (any case) set to `value`, or
 /// taken out; the others as they were.
-fn with_local(list: &[Struct], name: &str, value: Option<&str>) -> Vec<Struct> {
+pub(crate) fn with_local(list: &[Struct], name: &str, value: Option<&str>) -> Vec<Struct> {
     let mut out = list.to_vec();
     let named =
         |v: &Struct| v.string("Name").is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()));

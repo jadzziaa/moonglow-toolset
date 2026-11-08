@@ -190,14 +190,25 @@ fn colored(r: &VarRow) -> bool {
 }
 
 /// A color's swatch and picker for a value of `"#rrggbb"` (white while it
-/// is none), which a color chosen writes.
+/// is none), which a color chosen writes. While its picker is open it
+/// says so ([`picking`]): the Variables page sets what was picked once
+/// it closes, one command, and shows it meanwhile.
 fn color_swatch(ui: &mut Ui, value: &mut String) {
     let mut rgb = mg_rules::tint::parse_bytes(value).unwrap_or([255; 3]);
+    let popup = ui.auto_id_with("popup");
     let r = crate::color_button::edit_srgb(ui, &mut rgb)
         .on_hover_text("The color, written as #rrggbb (red, green and blue in hexadecimal)");
     if r.changed() {
         *value = mg_rules::tint::format(rgb);
     }
+    if egui::Popup::is_id_open(ui.ctx(), popup) {
+        ui.ctx().data_mut(|d| d.insert_temp(picking(), true));
+    }
+}
+
+/// Where a Variables list's color picker says it is open this frame.
+fn picking() -> egui::Id {
+    egui::Id::new("variables-color-picking")
 }
 
 /// The Variables window: a VarTable list.
@@ -446,25 +457,35 @@ impl VarTableEdit {
     /// For several objects edited together: the command that sets what
     /// was changed here on each, each keeping its other variables.
     fn merged(&self, app: &mut Moonglow) -> Action {
+        let label = self.target.label.clone();
+        let edits = (self.each_merged(app).into_iter())
+            .map(|(key, path, merged)| Edit::SetField {
+                key,
+                path,
+                label: label.clone(),
+                value: Some(Value::List(merged)),
+            })
+            .collect();
+        Action::Apply(Command::new("Edit variables", edits))
+    }
+
+    /// Each object's list as the table's changes make it, its own other
+    /// variables kept: of those it changes.
+    fn each_merged(&self, app: &mut Moonglow) -> Vec<(ResKey, GffPath, Vec<Struct>)> {
         let list = self.list();
         let t = &self.target;
         let targets = std::iter::once((t.key, &t.path)).chain(t.also.iter().map(|(k, p)| (*k, p)));
-        let mut edits = Vec::new();
+        let mut out = Vec::new();
         for (key, path) in targets {
             let Some(Ok(doc)) = app.ws.as_mut().map(|ws| ws.doc(&key)) else { continue };
             let Some(s) = path.get(&doc.root) else { continue };
             let theirs = s.list(&t.label).unwrap_or(&[]);
             let merged = merge_variables(&self.original, &list, theirs);
             if merged != theirs {
-                edits.push(Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: t.label.clone(),
-                    value: Some(Value::List(merged)),
-                });
+                out.push((key, path.clone(), merged));
             }
         }
-        Action::Apply(Command::new("Edit variables", edits))
+        out
     }
 
     /// Why the table cannot be saved, if it cannot.
@@ -1208,7 +1229,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ])
             .min_size([520.0, 220.0])
             .show(&ctx, |ui| {
-                let problem = var_body(app, ui, &mut edit, &mut help, described);
+                let problem = var_body(app, ui, &mut edit, &mut help, (described, false));
                 ui.horizontal(|ui| {
                     if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
                         || (problem.is_none() && crate::widgets::enter(ui))
@@ -1357,13 +1378,15 @@ pub(crate) fn resref_field(
 /// The Variables window's list and its buttons (Add, the sets, the files),
 /// what the project's descriptions say of it and why it can't be set as
 /// it is (returned): drawn in the window, over its OK and Cancel, and as
-/// a Properties window's Variables page ([`variables_page`]).
+/// a Properties window's Variables page ([`variables_page`]). `fit`: the
+/// fields shrink to a narrow page (the window keeps its whole width,
+/// which it is sized to as it opens).
 fn var_body(
     app: &mut Moonglow,
     ui: &mut Ui,
     edit: &mut VarTableEdit,
     help: &mut VarHelp,
-    described: bool,
+    (described, fit): (bool, bool),
 ) -> Option<String> {
     // What the project's descriptions say is wrong (not of the
     // name being typed), a line each under the list.
@@ -1379,8 +1402,18 @@ fn var_body(
     let lines = notes.len().min(VAR_NOTES + 1) as f32;
     // (The list scrolls, over the buttons kept in reach below it.)
     let tall = (ui.available_height() - VAR_FOOT - lines * 18.0).max(100.0);
-    let spare = (ui.available_width() - VAR_NAME_WIDTH - VAR_VALUE_WIDTH - 210.0).max(0.0);
-    let (name_width, value_width) = (VAR_NAME_WIDTH + spare * 0.45, VAR_VALUE_WIDTH + spare * 0.55);
+    // (Wider, the fields share what is spare; narrower, as a Properties
+    // window's page often is, they shrink to it, down to two fifths: the
+    // type, a color's swatch and Delete kept in sight.)
+    let room = ui.available_width() - 210.0;
+    let (name_width, value_width) = if room >= VAR_NAME_WIDTH + VAR_VALUE_WIDTH || !fit {
+        let room = room.max(VAR_NAME_WIDTH + VAR_VALUE_WIDTH);
+        let spare = room - VAR_NAME_WIDTH - VAR_VALUE_WIDTH;
+        (VAR_NAME_WIDTH + spare * 0.45, VAR_VALUE_WIDTH + spare * 0.55)
+    } else {
+        let part = (room / (VAR_NAME_WIDTH + VAR_VALUE_WIDTH)).max(0.4);
+        (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
+    };
     egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.strong("Name");
@@ -1688,10 +1721,11 @@ pub(crate) fn variables_page(
     if let Some(why) = &locked {
         ui.colored_label(ui.visuals().warn_fg_color, format!("{why}: read-only here"));
     }
+    ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
     let problem = ui
         .add_enabled_ui(locked.is_none(), |ui| {
             ui.push_id(("variables-page", target.key, &target.path), |ui| {
-                var_body(app, ui, edit, &mut help, described)
+                var_body(app, ui, edit, &mut help, (described, true))
             })
             .inner
         })
@@ -1701,7 +1735,19 @@ pub(crate) fn variables_page(
     let ctx = ui.ctx().clone();
     sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
     // Set, once nothing is being typed and it can be: read anew after.
+    // While a color is being picked, not yet: the area views show the
+    // object with it (`var_preview`), and it is set, one command, as the
+    // picker closes. (Dragged across the picker, a command a frame: as
+    // many steps of Undo, and the object read again at each, a builder's
+    // report.)
     let as_read = VarTableEdit::new(target, list).list();
+    let picking = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
+    if picking && locked.is_none() && problem.is_none() && edit.list() != as_read {
+        let each = edit.each_merged(app);
+        app.var_preview_next.extend(each);
+        app.var_pages.insert(id, page);
+        return;
+    }
     if locked.is_none() && !typing && problem.is_none() && edit.list() != as_read {
         let action = if edit.target.also.is_empty() {
             edit.target.command("Edit variables", Value::List(edit.list()))

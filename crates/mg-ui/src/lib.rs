@@ -890,6 +890,13 @@ pub struct Moonglow {
     /// The Variables pages of the open Properties windows: each object's
     /// list as being edited there (`widgets::variables_page`).
     pub(crate) var_pages: HashMap<(ResKey, mg_edit::GffPath), widgets::VarPage>,
+    /// Objects' variables as a color is being picked for them, not yet
+    /// set (a picker open: the Variables page's swatch, the Tint
+    /// section's): the area views draw the objects so, and the command is
+    /// made as the picker closes. What the windows ask for in a frame
+    /// ([`Moonglow::var_preview_next`]) is drawn from the next.
+    pub var_preview: Vec<(ResKey, mg_edit::GffPath, Vec<mg_gff::Struct>)>,
+    pub(crate) var_preview_next: Vec<(ResKey, mg_edit::GffPath, Vec<mg_gff::Struct>)>,
     pub picker: Option<widgets::Picker>,
     /// Resources chosen in the picker, by the field that asked.
     pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
@@ -1259,6 +1266,8 @@ impl Moonglow {
             custom_tlk: None,
             var_edit: None,
             var_pages: HashMap::new(),
+            var_preview: Vec::new(),
+            var_preview_next: Vec::new(),
             picker: None,
             picked: HashMap::new(),
             viewed: HashMap::new(),
@@ -1436,6 +1445,8 @@ impl Moonglow {
         self.trace_frame(ui);
         // (Pressed by the window it was for, in the frame it was asked.)
         self.escape_cancel = None;
+        // (A color being picked, as the windows asked in the frame before.)
+        self.var_preview = std::mem::take(&mut self.var_preview_next);
         let female = self.settings.armor_on_woman;
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
         widgets::install_fonts(ui.ctx());

@@ -405,6 +405,10 @@ pub struct AreaView {
     /// How many times the area was read whole (for tests: an edit of some
     /// of its objects reads only those).
     pub whole_reads: usize,
+    /// The objects drawn with variables a color being picked gives them
+    /// ([`Moonglow::var_preview`]), and the workspace's revision they were
+    /// read at.
+    var_previewed: (Vec<(mg_edit::GffPath, Vec<mg_gff::Struct>)>, Option<u64>),
     /// How many times the ARE's lists had been rewritten then
     /// ([`mg_edit::Workspace::rewrites`]).
     rewrites: Option<u64>,
@@ -992,6 +996,7 @@ impl AreaView {
             revision: None,
             read_from: None,
             whole_reads: 0,
+            var_previewed: (Vec::new(), None),
             rewrites: None,
             tileset: None,
             terrain: None,
@@ -2182,6 +2187,46 @@ struct Read {
 /// the window kept going ([`Moonglow::background_jobs`]: the desktop
 /// app), on a thread of its own: the view shows it once it is read, its
 /// models as their textures are ([`mg_render::Renderer::textures_apart`]).
+/// Draws the objects a color is being picked for with it
+/// ([`Moonglow::var_preview`]: the Variables page's swatch, the Tint
+/// section's), each read again from its struct with those variables, as
+/// an edit of them reads it; and those no longer picked for as they are.
+/// No command is made: the window makes one as its picker closes.
+fn preview_variables(app: &mut Moonglow, view: &mut AreaView) {
+    let git_key = view.git();
+    let wanted: Vec<(mg_edit::GffPath, Vec<mg_gff::Struct>)> = (app.var_preview.iter())
+        .filter(|(k, _, _)| *k == git_key)
+        .map(|(_, p, l)| (p.clone(), l.clone()))
+        .collect();
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.clone()) else { return };
+    let revision = Some(ws.revision());
+    let (was, at) = &view.var_previewed;
+    if *was == wanted && (wanted.is_empty() || *at == revision) {
+        return;
+    }
+    let (Some(model), Ok(git)) = (view.model.as_mut(), ws.doc(&git_key)) else { return };
+    let mut paths: Vec<&mg_edit::GffPath> = was.iter().map(|(p, _)| p).collect();
+    paths.extend(wanted.iter().map(|(p, _)| p).filter(|p| !was.iter().any(|(w, _)| w == *p)));
+    let mut read = Vec::new();
+    for path in paths {
+        let [mg_edit::Step::Item(list, index)] = path.0.as_slice() else { continue };
+        let (Some(kind), Some(s)) = (ObjectKind::from_list(list.as_str()), path.get(&git.root))
+        else {
+            continue;
+        };
+        let mut s = s.clone();
+        if let Some((_, vars)) = wanted.iter().find(|(p, _)| p == path) {
+            s.set("VarTable", mg_gff::Value::List(vars.clone()));
+        }
+        read.push(model.read_object(&game, kind, *index, &s));
+    }
+    if let (Some(scene), Some(vp)) = (&mut view.scene, &app.viewport) {
+        scene.update_objects(&vp.gpu, &game, model, &read);
+    }
+    view.drawn = None;
+    view.var_previewed = (wanted, revision);
+}
+
 fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     // (The first reading going on: taken once done.)
     if let Some(reading) = &view.reading {
@@ -2605,6 +2650,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view
     });
     refresh(app, &mut view, ui.ctx());
+    preview_variables(app, &mut view);
     crate::trace::changed(&format!("area {area} view"), || {
         format!(
             "in {:?}; error {:?}; model {}; tileset {}; ground {}; scene {}; camera {}; \

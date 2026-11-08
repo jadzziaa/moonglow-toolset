@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T21:22:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
 ---
 
 # Blueprints
@@ -560,7 +560,10 @@ Shared parts:
   location's variable (which only scripts set) is shown as it is and
   kept. A string that holds a color (`#rrggbb`), or a tint's variable
   (`tdod_tint…`, an area's `tdod_wallpaper`), has a color swatch beside
-  it: pick a color there, and its text is the color's. A placed object's opens from its right-click menu too, in
+  it: pick a color there, and its text is the color's. On the page, a
+  color is set as its picker closes, one step of Undo, and while it is
+  being picked the area view draws a placed object with it (its tint
+  shown as you drag across the picker). A placed object's opens from its right-click menu too, in
   the area or the module tree. **Variable sets** carry variables from
   one object to another, in any module. **Save Set…** keeps them under a
   name; **Save to File…** saves them as a set file (`.vars.json`)
@@ -675,7 +678,8 @@ Shared parts:
     the strength, 0 for the material as made). **Whole object** colors
     every such material, and each material's own row colors that one
     over it. Each has a color swatch: click it to pick a color (set when
-    the picker closes, as one undoable step), or paste one (`#2a4d8f`,
+    the picker closes, as one undoable step; while it is open, the area
+    view draws a placed placeable in the color being picked), or paste one (`#2a4d8f`,
     `42, 77, 143`) with the pointer on it. What is set is a local
     variable, `tdod_tint` for the whole object and `tdod_tint_<mtr>` for
     a material (`"#rrggbb"`), which the module's script reads; **Clear**
