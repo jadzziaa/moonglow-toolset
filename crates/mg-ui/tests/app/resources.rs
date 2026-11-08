@@ -1198,7 +1198,7 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     // module's (GitHub issue 18's rule). Typed in, the field's own.
     let find =
         egui_kittest::kittest::by().predicate(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
-            n.placeholder() == Some("name or .type")
+            n.placeholder() == Some("🔍 name or .type")
         });
     h.get(find.clone()).click();
     h.run();

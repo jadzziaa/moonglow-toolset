@@ -2541,7 +2541,7 @@ fn hover_list_row(
     // (A long list's: its Filter field, at once above or below the box.
     // A short list's rows are all in sight.)
     let filter = h
-        .query_all_by(|n| n.placeholder() == Some("Filter"))
+        .query_all_by(|n| n.placeholder() == Some("🔍 Filter"))
         .map(|n| n.rect())
         .find(|r| (r.left() - list.left()).abs() < 20.0);
     let in_sight = |r: egui::Rect| match filter {
@@ -3189,7 +3189,7 @@ fn viewed_blueprint_typing() {
             h.get_all_by_value("NW_WAYPOINT001").next().unwrap().click();
         } else {
             let find =
-                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
             h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
         }
         h.run_steps(2);
@@ -3478,7 +3478,7 @@ fn store_chosen_item() {
     h.run_steps(3);
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 800.0));
     h.run_steps(3);
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("nw_maarcl002");
@@ -8567,7 +8567,7 @@ fn area_properties_audio_dropdown() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     // The Filter field's width, and the widest row's under it.
     let widths = |h: &Harness<'_, Moonglow>| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -8656,7 +8656,7 @@ fn appearance_dropdown_frames() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     let filter =
         |h: &Harness<'_, Moonglow>| h.get(egui_kittest::kittest::by().predicate(hint)).rect();
     // (The click opens it in a pass that measures it, unseen.)

@@ -402,7 +402,7 @@ fn opening_select_texture() {
         scrolled[scrolled.len() / 2],
         scrolled.last().unwrap()
     );
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     h.step();
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("wood");

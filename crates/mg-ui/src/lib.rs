@@ -4,7 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
-mod appearance_gallery;
+pub mod appearance_gallery;
 mod area_audio;
 mod area_grass;
 mod area_props;

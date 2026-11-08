@@ -752,7 +752,12 @@ pub(crate) fn step_tiles(
 /// The tile's next variant among those that fit, in Aurora's order; with
 /// `back`, the one before. Not a group's tile (unless they are free to
 /// edit).
-fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), back: bool) {
+pub(crate) fn next_variant(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    (x, y): (u32, u32),
+    back: bool,
+) {
     let Some(g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
     if g.locked(&tools.index, x, y) {

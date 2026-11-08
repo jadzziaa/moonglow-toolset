@@ -1615,7 +1615,7 @@ fn frames_at_144_in_a_persistent_world() {
     // Its picker on the custom palette, searched for what all 8,000 have:
     // every blueprint folded into the tree, every match drawn.
     if click(&mut h, "Custom Palette") {
-        let found = egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("Find"));
+        let found = egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("🔍 Find"));
         if let Some(find) = h.query_all(found).last() {
             find.click();
             h.run_steps(2);

@@ -1232,7 +1232,7 @@ impl AreaView {
     }
 
     /// The object under the pointer.
-    pub(crate) fn pick(&self, pos: Pos2) -> Option<usize> {
+    pub fn pick(&self, pos: Pos2) -> Option<usize> {
         let (model, scene, ray) = (self.model.as_ref()?, self.scene.as_ref()?, self.ray(pos)?);
         // (By the models themselves: a click through the empty part of a
         // wide box reaches what is behind it.)
@@ -1761,6 +1761,12 @@ impl AreaView {
         arrows
     }
 
+    /// The axis (0 east, 1 north, 2 up) of the selection's arrow whose
+    /// head `pos` is on, where the arrows are shown (Shift held).
+    pub fn arrow_axis_at(&self, pos: Pos2) -> Option<usize> {
+        self.axis_arrow_at(pos).map(|a| a.axis)
+    }
+
     /// The arrow whose head `pos` is on.
     fn axis_arrow_at(&self, pos: Pos2) -> Option<AxisArrow> {
         self.axis_arrows(self.model.as_ref()?).into_iter().find(|arrow| {
@@ -2025,8 +2031,10 @@ impl AreaView {
         }
     }
 
-    /// Where each selected object stands and turns with the drag applied.
-    fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
+    /// Where each selected object stands and turns with the drag applied
+    /// (and Q and E's turning under way): its place in the model's
+    /// objects, position and turn.
+    pub fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
         let moves = |d: &Drag| {
             !matches!(
@@ -2079,10 +2087,28 @@ impl AreaView {
         let middle = self.middle(model);
         // (An outline on its own turns about its middle, not its position.)
         let own = |o: &mg_area::AreaObject| o.kind.has_outline().then(|| pivot(o).truncate());
+        // Q and E pressed while it is dragged: their turning with it, as
+        // it would turn where it stands, carried along (a turn's drag
+        // turns it already). Seen as it goes, and part of the drag's
+        // command: an owner's report, it waited until the keys rested.
+        let turning: Vec<(usize, Vec3, f32)> = match drag {
+            Drag::Turn { .. } | Drag::Spin { .. } => Vec::new(),
+            _ => self.key_turned(),
+        };
+        let with_turn = |(i, p, r): (usize, Vec3, f32)| match turning.iter().find(|t| t.0 == i) {
+            Some(&(_, tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
+            None => (i, p, r),
+        };
         self.selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
                 match drag {
+                    // (An X or Y arrow keeps the height: a builder's
+                    // report, it followed the ground, which put a raised
+                    // placeable back on the walkmesh.)
+                    Drag::Move { offset, .. } if locked.is_some() => {
+                        (i, (o.position.truncate() + offset).extend(o.position.z), o.rotation)
+                    }
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
                     Drag::Turn { angle } | Drag::Spin { angle, .. } => (
                         i,
@@ -2102,6 +2128,7 @@ impl AreaView {
                     | Drag::Pan => (i, o.position, o.rotation),
                 }
             })
+            .map(with_turn)
             .collect()
     }
 }
@@ -3149,6 +3176,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         "Placing the start location: click to put it here, facing the way the view looks \
          (Shift + click: and again); right click or Escape: stop"
             .to_string()
+    } else if let Some(taken) = &app.palette.placing_appearance {
+        format!(
+            "Placing {}: click to put it here (Shift + click: place more); Q and E turn it; right \
+             click or Escape: stop",
+            taken.name
+        )
     } else if let Some(light) = app.palette.placing_light {
         let name = light_of_row(app, light).map(|l| l.name);
         format!(
@@ -3207,8 +3240,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         format!("{} objects selected", view.selection.len())
     } else {
         "Click to select, drag to move or to select in a box, Alt + right drag to turn, \
-         Alt + drag on the selection to raise it; Ctrl + drag or Alt + drag elsewhere moves \
-         the view, Ctrl + right drag turns it."
+         Alt + drag to raise the selection; Ctrl + drag moves the view (Alt + drag too, with \
+         nothing selected), Ctrl + right drag turns it."
             .to_string()
     };
     ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
@@ -4932,6 +4965,23 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         crate::terrain_mode::tool_keys(app, ui, view);
     }
+    // Shift + right click on the ground: the tile there steps to the next
+    // that fits, in any mode, as Aurora's does (a builder's ask: it took
+    // Select Tiles), and no menu opens. On an object, its menu as ever;
+    // Select Tiles does it itself.
+    if !read_only
+        && !view.tile_mode
+        && shift
+        && !command
+        && response.secondary_clicked()
+        && view.terrain.is_some()
+        && let Some(pos) = response.interact_pointer_pos()
+        && view.pick(pos).is_none()
+        && let Some(tile) = crate::tile_select::tile_at(view, pos)
+    {
+        crate::tile_select::next_variant(app, view, tile, false);
+        return;
+    }
     if crate::terrain_mode::input(app, ui, view, response) {
         // A right click with a brush that has none of its own: the tile
         // menu, the brush kept (Aurora's right click puts it down; here
@@ -5059,6 +5109,21 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         return;
     }
 
+    // Placing an appearance taken from the Appearance Gallery by a click:
+    // a placeable of it where a click puts it (its ghost showing where),
+    // as a drag from there does; Shift + click places another.
+    if let Some(taken) = app.palette.placing_appearance.clone().filter(|_| !read_only) {
+        if cancelled(ui, response) {
+            app.palette.placing_appearance = None;
+            view.ghost = None;
+        } else if response.clicked() {
+            drop_appearance(app, view, response, &taken);
+            if !shift {
+                app.palette.placing_appearance = None;
+            }
+        }
+        return;
+    }
     // Placing a light (the palette's Lights): where a click puts it, as
     // the menu's Add Light Here.
     if let Some(row) = app.palette.placing_light.filter(|_| !read_only) {
@@ -5140,9 +5205,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     view.outline.clear();
 
-    // Selection. (A click on a ring or an arrow with nothing under it
-    // leaves the selection be; with an object under it, it picks that.)
-    // A click on the start location's marker selects it, alone.
+    // Selection. (A click on a ring, an arrow or another handle of the
+    // selection leaves it be, even with an object behind the handle: a
+    // builder's report, a press on an arrow that didn't move far enough
+    // to drag selected the placeable behind it.) A click on the start
+    // location's marker selects it, alone.
     if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
         && view.pick(pos).is_none()
@@ -5152,12 +5219,12 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.start_selected = true;
     } else if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
-        && (view.pick(pos).is_some()
-            || !(view.spawn_arrow_at(pos).is_some()
-                || view.spawn_foot_at(pos).is_some()
-                || view.ring_at(pos).is_some_and(|_| !shift)
-                || (shift && view.tilt_ring_at(pos).is_some())
-                || (shift && view.axis_arrow_at(pos).is_some())))
+        && !(view.spawn_arrow_at(pos).is_some()
+            || view.spawn_foot_at(pos).is_some()
+            || view.ring_at(pos).is_some_and(|_| !shift)
+            || (shift && view.tilt_ring_at(pos).is_some())
+            || (shift && view.axis_arrow_at(pos).is_some())
+            || (shift && view.scale_handle_at(pos).is_some()))
     {
         let hit = view.pick(pos).and_then(|i| {
             let o = &view.model.as_ref()?.objects[i];
@@ -5291,11 +5358,12 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 angle: 0.0,
             })
         } else if alt {
-            // On the selection: it is raised or lowered; elsewhere the
-            // camera moves (GitHub issue 25: Alt + drag anywhere raised
-            // the selection, and did nothing with none).
-            let on_selection = hit.is_some_and(|i| view.selected(i));
-            Some(if on_selection && !read_only { Drag::Lift { by: 0.0 } } else { Drag::Pan })
+            // With a selection, it is raised or lowered wherever the drag
+            // begins, as Aurora's Alt + drag does (a builder's ask: it
+            // took a press on the selection); with none, the camera moves
+            // (GitHub issue 25), as Ctrl + drag moves it always.
+            let raises = !view.selection.is_empty() && !read_only;
+            Some(if raises { Drag::Lift { by: 0.0 } } else { Drag::Pan })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
@@ -5507,6 +5575,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     _ => "Move",
                 };
                 view.drag = None;
+                // (Q and E's turning during it is in its moves: one command.)
+                if !matches!(drag, Drag::Turn { .. } | Drag::Spin { .. }) {
+                    view.key_turn = None;
+                }
                 commit_moves(app, view, &moved, label);
             }
             None => {}
@@ -5996,7 +6068,9 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     // An appearance dragged from the Placeable Gallery: the placeable it
     // would place (kept under a name of its own, no blueprint's).
     type Appearance = crate::appearance_gallery::DraggedAppearance;
-    let appearance = egui::DragAndDrop::payload::<Appearance>(ui.ctx());
+    // (Or taken by a click to place, the gallery's.)
+    let appearance = egui::DragAndDrop::payload::<Appearance>(ui.ctx())
+        .or_else(|| app.palette.placing_appearance.clone().map(std::sync::Arc::new));
     let unnamed = appearance
         .as_ref()
         .and_then(|a| ResKey::parse(&format!("plc_app_{}", a.row), ResType::UTP));
@@ -6571,7 +6645,11 @@ fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &
             _ => false,
         })
     });
-    if rest <= 0.0 || k.selection != view.selection || other {
+    // (Not while the selection is dragged: the drag's command takes it.)
+    let dragging = view
+        .drag
+        .is_some_and(|d| matches!(d, Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. }));
+    if (rest <= 0.0 && !dragging) || k.selection != view.selection || other {
         commit_key_turn(app, view, false);
     } else {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));

@@ -658,7 +658,7 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(3);
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("300  "))
         .map(|n| n.rect().center().y)

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
 ---
 
 # Blueprints
@@ -245,12 +245,20 @@ The palette's buttons:
   head, colors, phenotype and what it wears, in each appearance; else a
   plain body), those that are only an effect (flames,
   sparks, shafts of light) too. It is a tab like any other: it opens in a
-  window of its own, and can be docked beside the area or maximized. Click
-  a picture to give it to the objects of that kind selected in the area
-  shown; the tab stays open to try another. Drag a picture into the area's view to
-  place a placeable of that appearance there (it shows see-through where
-  it would go): a plain, static one named
-  for the appearance, of no blueprint. **Find** narrows it by name, and the
+  window of its own, and can be docked beside the area or maximized. A
+  click on a placeable's picture takes it to place, as the palette's
+  click does: it shows see-through where it would go as the pointer
+  moves over the area's view, Q and E turn it, and a click there places a
+  plain, static placeable of that appearance, named for it and of no
+  blueprint (Shift + click: another; right click or Escape: stop). Drag a
+  picture into the area's view to place one the same way. A creature's
+  or a door's picture, clicked, is given to the objects of that kind
+  selected in the area shown; a placeable's is given from its right-click
+  menu, **Give to the Selection**. The tab stays open to try another. A
+  **double click** makes a blueprint of the appearance: the Placeable or
+  Door Wizard (the Creature Wizard for a creature) opens with it, named
+  for it, and the blueprint's Properties open after, as for a palette's
+  blueprint. **Find** narrows it by name, and the
   slider sets how large the pictures are at least: they grow to fill the
   tab's width (the palette's Gallery has the same slider, and the size is
   kept). A model the palettes don't offer can be chosen here. A picture
@@ -290,7 +298,12 @@ The palette's buttons:
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search, and a
-  described variable's ▾ of its values. The lists of commands (Add
+  described variable's ▾ of its values. Open, or with its box clicked,
+  a list of choices takes letters too, as lists do on every desktop
+  (a long list types into its Filter field instead): a letter goes to
+  the first choice that begins with it, the same letter again to the
+  next, and letters typed together to the one that begins with them all
+  (after a second's rest, typing begins anew). The lists of commands (Add
   hak…) and of ticks (a 2DA's flags) take them too:
   Down opens one, Up and Down (Home, End) go along its rows, and Enter or
   Space does what a click there does (a command closes the list; a tick
@@ -951,10 +964,14 @@ Area Transition page, picks where it leads, as Aurora's does: choose the
 **Target Area**, then click a door (a blue square) or a waypoint (a green
 dot) on its map ([Minimaps](04-areas.md#minimaps); the one under the
 pointer named beside it), or in the lists of its doors and waypoints
-with tags beside the map. **OK** (or a double click) sets **Destination
-Tag** to its tag and **Destination is a** to Door or Waypoint, one step
-to undo; Cancel changes nothing. The window opens on the area of the
-destination set, where there is one.
+with tags beside the map, each by its tag (which the transition names)
+with its name beside it. The areas are listed by name; **Both**,
+**Doors** and **Waypoints** choose what the map and the lists show; and
+the window's edges are dragged to size it, the lists taking the room.
+**OK** (or a double click) sets **Destination Tag** to its tag and
+**Destination is a** to Door or Waypoint, one step to undo; Cancel
+changes nothing. The window opens on the area of the destination set,
+where there is one.
 
 Ticking **Static** on a placed placeable takes its visual transform off
 (its scale, rotations and offsets from Adjust Location or the rings), as

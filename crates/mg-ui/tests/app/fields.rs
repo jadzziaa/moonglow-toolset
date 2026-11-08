@@ -1692,7 +1692,7 @@ fn a_dropdown_opens_at_what_is_chosen() {
     open(&mut h);
     // The chosen row is in the list's window, a little under its Filter
     // field (the list has hundreds of rows before "Chest").
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     let in_sight = |h: &Harness<'_, Moonglow>| {
         let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
         let row = h
@@ -1741,7 +1741,7 @@ fn an_open_dropdown_keeps_its_width() {
     // (Measured from the first frame that draws it: `run` would step past
     // a frame that grew.)
     h.step();
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     // The Filter field's width, and a row's (its highlight) under it.
     let widths = |h: &Harness<'_, Moonglow>, row: &str| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -1805,7 +1805,7 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
     // Escape clears what is typed, the list still open; Escape again
     // closes it, the appearance as it was.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_some(), "open");

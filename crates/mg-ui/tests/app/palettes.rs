@@ -2193,11 +2193,14 @@ fn the_palette_replaces_the_selected_object() {
 }
 
 /// The Placeable Gallery (Tools, and the palette's All Appearances…) is
-/// open without a placeable's Properties: a click on a picture gives its
-/// appearance to the placeables selected in the area. Models that are
-/// only an effect have pictures too.
+/// open without a placeable's Properties: a click on a picture takes the
+/// appearance to place, as the palette's click does (the owner's ask), its
+/// ghost over the area and a click there placing it; a picture's menu
+/// gives it to the placeables selected in the area; a double click makes
+/// a blueprint of it with the Placeable Wizard. Models that are only an
+/// effect have pictures too.
 #[test]
-fn the_placeable_gallery_gives_the_selection_an_appearance() {
+fn the_placeable_gallery_places_gives_and_makes_an_appearance() {
     use mg_area::ObjectKind;
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("placeable-gallery") else { return };
@@ -2224,11 +2227,11 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
         app.actions.push(mg_ui::Action::PlaceableGallery);
     }
     h.run_steps(5);
-    assert!(h.query_by_label_contains("Select placeables in an area").is_some());
+    assert!(h.query_by_label_contains("A click takes a placeable to place").is_some());
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
     h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Flame".into();
     h.run_steps(40);
-    assert!(h.query_by_label_contains("1 placeable selected in the area").is_some());
+    assert!(h.query_by_label_contains("right click to give the 1 placeable selected").is_some());
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-placeable-gallery").join("gallery.png")).unwrap();
     let appearance = |h: &mut Harness<'_, Moonglow>| {
@@ -2236,20 +2239,26 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
         let git = ws.doc(&git_key).unwrap();
         git.root.list("Placeable List").unwrap()[0].integer("Appearance").unwrap()
     };
-    let was = appearance(&mut h);
-    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
-    let flame = h.get_all_by_label("Flame").find(tile).expect("a flame's picture");
-    flame.click();
-    h.run_steps(3);
-    let now = appearance(&mut h);
-    assert_ne!(now, was, "the chest is a flame");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Appearance"));
-    // Dragged into the area's view (beside the gallery's window), a picture
-    // places a placeable of that appearance there.
     let count = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().len()
     };
+    let was = appearance(&mut h);
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
+    // Its menu: given to the selection.
+    h.get_all_by_label("Flame").find(tile).expect("a flame's picture").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Give to the Selection").click();
+    h.run_steps(3);
+    let now = appearance(&mut h);
+    assert_ne!(now, was, "the chest is a flame");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Appearance"));
+    // A click: taken to place, nothing changed yet; a click in the area
+    // places it there.
+    h.get_all_by_label("Flame").find(tile).unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().palette.placing_appearance.is_some(), "taken to place");
+    assert_eq!(count(&mut h), 1);
     let from = h.get_all_by_label("Flame").find(tile).unwrap().rect().center();
     let window = h
         .state()
@@ -2276,6 +2285,17 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
         .map(|(x, y)| screen(&h, area, glam::Vec3::new(x, y, 0.0)))
         .find(|p| !window.expand(8.0).contains(*p) && pane.contains(*p))
         .expect("ground beside the gallery");
+    h.hover_at(to);
+    h.run_steps(3);
+    let ghost = h.state().area_views[&area].ghost_shown.clone().expect("its ghost, at once");
+    assert_eq!(ghost.kind, ObjectKind::Placeable);
+    press(&h, to, true, egui::Modifiers::NONE);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 2, "placed with a click");
+    assert!(h.state().palette.placing_appearance.is_none(), "put down after one");
+    // Dragged into the area's view (beside the gallery's window), a picture
+    // places a placeable of that appearance there.
     h.hover_at(from);
     h.run_steps(1);
     press(&h, from, true, egui::Modifiers::NONE);
@@ -2289,11 +2309,36 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
     assert_eq!(ghost.kind, ObjectKind::Placeable);
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
-    assert_eq!(count(&mut h), 2, "a second placeable");
+    assert_eq!(count(&mut h), 3, "a third placeable");
     let ws = h.state_mut().ws.as_mut().unwrap();
-    let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[1].clone();
-    assert_eq!(placed.integer("Appearance"), Some(now), "of the flame dragged");
-    assert_eq!(placed.integer("Static"), Some(1));
+    let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    for placed in &list[1..] {
+        assert_eq!(placed.integer("Appearance"), Some(now), "of the flame");
+        assert_eq!(placed.integer("Static"), Some(1));
+    }
+    // A double click: the Placeable Wizard, making a blueprint of it.
+    // (Both clicks in one frame: the harness gives each event it queues a
+    // frame of its own, a quarter of a second, past a double click's time;
+    // and a while after the clicks before, or it is a triple.)
+    let at = h.get_all_by_label("Flame").find(tile).unwrap().rect().center();
+    h.hover_at(at);
+    h.run_steps(60);
+    for pressed in [true, false, true, false] {
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.run_steps(3);
+    let w = h.state().blueprint_wizard.clone().expect("the Placeable Wizard");
+    assert_eq!(w.kind, mg_module::palette::BlueprintKind::Placeable);
+    assert!(
+        w.given.iter().any(|(l, v)| *l == "Appearance" && *v == mg_gff::Value::Dword(now as u32))
+    );
+    assert!(w.name.contains("Flame"), "named for it: {}", w.name);
 }
 
 /// The palette's pictures of items are kept by the body armor is shown on

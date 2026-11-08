@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T11:34:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
 ---
 
 # Areas
@@ -299,7 +299,7 @@ Options › Keyboard):
 | --- | --- |
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
-| Alt + middle drag, or Alt + drag begun off the selection | move the camera (Alt + drag on the selection raises or lowers it) |
+| Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora) |
 | Alt + middle click | look at the ground clicked: the camera's focus goes there at once, at the ground's height (on its walkmesh, else on the tile's floor), its distance, turn and tilt kept, as Alt + middle click in Blender; a click on the sky or off the area does nothing |
 | Wheel, or a pinch on a touchpad | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
 | Sideways scroll (a tilted wheel, a second wheel, two fingers sideways on a touchpad) | move the camera left and right, as the screen has it |
@@ -421,9 +421,11 @@ slowly, as it does with nothing selected that takes a scale.
 selected object: red to the east, green to the north and blue upward.
 Take an arrow's head and lead it along: the object moves along that axis
 alone, however the pointer strays, with its place on the axis shown in
-meters. East and north keep it as high above the ground as it was, and
-**Snap** snaps along the axis; up raises or lowers it, as Alt + drag
-does. They move the object itself, so they work for static placeables
+meters. East and north keep its height as it is (a raised placeable
+stays where it was raised, whatever the ground below), and **Snap**
+snaps along the axis; up raises or lowers it, as Alt + drag does. A
+click or a drag on a handle (an arrow, a ring, the scale handle) is the
+handle's, even where another object lies behind it. They move the object itself, so they work for static placeables
 too; creatures stand on the ground and have no blue arrow. An arrow
 pointing at the camera (the blue one, from straight above) is led up and
 down the screen.
@@ -1180,7 +1182,9 @@ the Eraser does (Aurora's Delete takes the tile alone, leaving the rest
 of the group: Moonglow does so with **Allow editing tiles of groups and
 features** on). **Shift + right click** steps the tile under the pointer
 through every tile that fits, each of its turns and then the next tile's
-(Aurora's order, as Refine Tile steps). Ctrl+C and Ctrl+V copy and paste
+(Aurora's order, as Refine Tile steps); it does so in object mode too,
+and with a tile brush in hand, on the ground where no object is, as
+Aurora's does (no menu opens then). Ctrl+C and Ctrl+V copy and paste
 tiles.
 
 A right click on a tile opens the **tile menu**: **Next Tile

@@ -3,11 +3,12 @@
 
 use crate::common::*;
 
-/// GitHub issue 25: Alt + left drag off the selection moves the camera,
-/// the ground following the pointer, and moves nothing in the area; on
-/// the selection it raises it, as before.
+/// GitHub issue 25: Alt + left drag with nothing selected moves the
+/// camera, the ground following the pointer, and moves nothing in the
+/// area. With a selection it raises it wherever the drag begins, as
+/// Aurora's does (a builder's ask: it took a press on the selection).
 #[test]
-fn alt_and_a_drag_off_the_selection_moves_the_camera() {
+fn alt_and_a_drag_moves_the_camera_or_raises_the_selection() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("alt-pan") else { return };
     let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
@@ -38,15 +39,16 @@ fn alt_and_a_drag_off_the_selection_moves_the_camera() {
     let moved = orbit(&h).target - before.target;
     assert!((moved.x + 6.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
     assert_eq!(revision(&h), changed, "nothing in the area moved");
-    // A waypoint selected, the drag begun off it: the camera again, and
-    // the waypoint stays.
+    // A waypoint selected, the drag begun off it: the waypoint raised, the
+    // camera where it was.
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Waypoint, 0)];
     h.run_steps(2);
     let before = orbit(&h);
     drag(&mut h, Vec3::new(5.0, 30.0, 0.0), Vec3::new(5.0, 34.0, 0.0));
-    assert!((orbit(&h).target - before.target).length() > 2.0, "panned");
-    assert_eq!(revision(&h), changed, "the waypoint stays");
+    assert!((orbit(&h).target - before.target).length() < 1e-3, "not panned");
+    assert_ne!(revision(&h), changed, "the waypoint raised");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise"));
 }
 
 /// GitHub issue 26: a sideways scroll pans the area's view left and right
@@ -4250,6 +4252,156 @@ fn a_click_passes_a_locked_object_by_to_the_one_behind_it() {
     assert_eq!(click(&mut h), [(Waypoint, 1)], "the one behind the locked one");
 }
 
+/// Q and E while a placeable is dragged (the owner's report: it stuttered
+/// and lagged): the turn is seen with the drag at once, nothing is made a
+/// command while the button is held, however long the keys rest, and the
+/// drag and the turn are one command as it is let go.
+#[test]
+fn q_and_e_turn_what_is_being_dragged() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("drag-and-turn") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    settle(&mut h);
+    let chest = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let o = ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[0].clone();
+        let f = |l: &str| o.float(l).unwrap_or(0.0);
+        (Vec3::new(f("X"), f("Y"), f("Z")), f("Bearing"))
+    };
+    let (at, bearing) = chest(&mut h);
+    let undo = h.state().ws.as_ref().unwrap().undo_depth();
+    let from = screen(&h, area, at + Vec3::Z * 0.3);
+    let to = screen(&h, area, at + Vec3::new(4.0, 0.0, 0.3));
+    h.hover_at(from);
+    h.run_steps(2);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 8.0));
+        h.run_steps(1);
+    }
+    for _ in 0..3 {
+        h.key_press(egui::Key::E);
+        h.run_steps(1);
+    }
+    let shown = h.state().area_views[&area].dragged();
+    assert_eq!(shown.len(), 1, "the chest, dragged");
+    let turned = shown[0].2 - bearing;
+    assert!(turned.abs() > 0.1, "the turn seen with the drag: {turned}");
+    // The keys at rest past their wait, the button still held: nothing yet.
+    h.state_mut().area_views.get_mut(&area).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    for k in 5..=8 {
+        h.hover_at(from + (to - from) * (k as f32 / 8.0));
+        h.run_steps(1);
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), undo, "no command while held");
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), undo + 1, "one command");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    let (now, facing) = chest(&mut h);
+    assert!((now - at).truncate().length() > 2.0, "moved: {at} to {now}");
+    assert!((facing - bearing - turned).abs() < 1e-3, "turned as shown: {facing}");
+    assert!(!h.state().area_views[&area].key_turning(), "the turn went with the drag");
+}
+
+/// The move arrows (Shift held) of a raised placeable, a builder's
+/// reports: a click on an arrow with another placeable behind it keeps
+/// the selection (it picked the one behind), and a drag of the east arrow
+/// moves it east alone, at its height (it was put back on the ground).
+#[test]
+fn a_move_arrow_wins_over_what_is_behind_it_and_keeps_the_height() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("arrow-keeps-height") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    settle(&mut h);
+    // The chest raised 2 m, and a second one just east of it, behind the
+    // first's east arrow.
+    let set = |h: &mut Harness<'_, Moonglow>, label: &str, v: f32| {
+        let edit = mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("Placeable List", 0),
+            label: label.into(),
+            value: Some(mg_gff::Value::Float(v)),
+        };
+        h.state_mut()
+            .actions
+            .push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        settle(h);
+    };
+    set(&mut h, "Z", 2.0);
+    place_tinted_chest(h.state_mut(), git);
+    settle(&mut h);
+    set(&mut h, "X", 13.2);
+    set(&mut h, "Z", 2.0);
+    let view = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    // The first chest (now second in the list) selected.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 1)];
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(3);
+    let first = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let o = ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[1].clone();
+        Vec3::new(o.float("X").unwrap(), o.float("Y").unwrap(), o.float("Z").unwrap())
+    };
+    let at = first(&mut h);
+    // A point on its east arrow with the other chest behind it.
+    let (centre, east) = (screen(&h, area, at), screen(&h, area, at + Vec3::X * 2.0));
+    let way = (east - centre).normalized();
+    // (Its head's far end: clear of the scale handle near its foot.)
+    let on_arrow = (1..400).rev().map(|k| centre + way * k as f32).find(|&p| {
+        let v = &h.state().area_views[&area];
+        v.arrow_axis_at(p) == Some(0)
+    });
+    let on_arrow = on_arrow.expect("its east arrow");
+    // The second chest under that point, on the ground below the arrow.
+    let along = (on_arrow.x - centre.x) / (east.x - centre.x) * 2.0;
+    set(&mut h, "X", at.x + along);
+    set(&mut h, "Z", 0.0);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(3);
+    let behind = h.state().area_views[&area].pick(on_arrow);
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    assert_eq!(behind.map(|i| model.objects[i].index), Some(0), "the other chest behind it");
+    // Clicked: the selection kept.
+    h.hover_at(on_arrow);
+    h.run_steps(2);
+    press(&h, on_arrow, true, egui::Modifiers::SHIFT);
+    press(&h, on_arrow, false, egui::Modifiers::SHIFT);
+    h.run_steps(3);
+    assert_eq!(view(&h), vec![(mg_area::ObjectKind::Placeable, 1)], "the selection kept");
+    // (Long enough after the click not to be a double click.)
+    h.run_steps(40);
+    // Dragged east: east alone, at its height. (Shift held throughout.)
+    let to = on_arrow + way * 60.0;
+    let shift = egui::Modifiers::SHIFT;
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: shift,
+    };
+    h.event(egui::Event::ModifiersChanged(shift));
+    h.hover_at(on_arrow);
+    h.run_steps(1);
+    h.event(button(on_arrow, true));
+    for k in 1..=5 {
+        h.hover_at(on_arrow + (to - on_arrow) * (k as f32 / 5.0));
+    }
+    h.run_steps(1);
+    h.event(button(to, false));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let now = first(&mut h);
+    assert!(now.x - at.x > 0.5, "moved east: {at} to {now}");
+    assert!((now.y - at.y).abs() < 1e-3, "not north: {at} to {now}");
+    assert!((now.z - 2.0).abs() < 1e-3, "at its height: {now}");
+}
+
 #[test]
 fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;
@@ -5210,10 +5362,58 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
 }
 
+/// A list takes letters (a builder's report: a long one could only be
+/// scrolled through): open, or with its box clicked, a letter goes to the
+/// first choice that begins with it, the same letter again to the next,
+/// and letters typed together go to the one that begins with them all.
+#[test]
+fn a_dropdown_goes_to_what_is_typed() {
+    use mg_ui::area_view::Fade;
+    let Some((mut h, area)) = area_harness("typed-dropdown") else { return };
+    settle(&mut h);
+    let fade = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].fade;
+    assert_eq!(fade(&h), Fade::Never);
+    // (Its box, by what it shows: an icon or "Fade Geometry:" before it.)
+    let fade_box = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_role(egui::accesskit::Role::ComboBox)
+            .find(|n| {
+                let node = n.accesskit_node();
+                let text = format!("{:?} {:?}", node.label(), node.value());
+                text.contains("Never") || text.contains("Fade")
+            })
+            .expect("the Fade Geometry box")
+            .rect()
+            .center()
+    };
+    let at = fade_box(&h);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("a".into()));
+    h.run_steps(2);
+    assert_eq!(fade(&h), Fade::Always, "the first beginning with A");
+    h.event(egui::Event::Text("o".into()));
+    h.run_steps(2);
+    assert_eq!(fade(&h), Fade::Always, "nothing begins with AO: as it was");
+    // After a rest: anew.
+    h.run_steps(90);
+    h.event(egui::Event::Text("O".into()));
+    h.run_steps(2);
+    assert_eq!(fade(&h), Fade::Objects, "Object Mode Only, case aside");
+    h.run_steps(90);
+    h.event(egui::Event::Text("n".into()));
+    h.run_steps(2);
+    assert_eq!(fade(&h), Fade::Never);
+}
+
 /// Setup Area Transition picks the door or waypoint a transition leads
 /// to on its area's map, as Aurora's `TdlgAreaTransition` does: a click
 /// on a waypoint's dot takes it, OK sets Destination Tag and its type;
-/// what is clicked in the lists and canceled changes nothing.
+/// what is clicked in the lists and canceled changes nothing. Its lists
+/// name each one beside its tag, and show doors, waypoints or both (a
+/// builder's report: no way to tell them by kind, and their names
+/// missing).
 #[test]
 fn setup_area_transition_picks_on_the_target_area_s_map() {
     let prepare = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
@@ -5248,7 +5448,16 @@ fn setup_area_transition_picks_on_the_target_area_s_map() {
     // Clicked in a list and canceled: nothing changes.
     h.get_by_label("Setup Area Transition…").click();
     h.run_steps(3);
-    h.get_by_label("WP_WEST").click();
+    let west = h.get_by_label_contains("WP_WEST").accesskit_node().label().unwrap_or_default();
+    assert!(west.len() > "WP_WEST".len(), "its name beside its tag: {west:?}");
+    // Doors alone: no waypoint listed; then both again.
+    h.get_by_label("Doors").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("WP_WEST").is_none(), "doors alone");
+    assert!(h.query_by_label("Available Waypoints:").is_none());
+    h.get_by_label("Both").click();
+    h.run_steps(2);
+    h.get_by_label_contains("WP_WEST").click();
     h.run_steps(1);
     h.get_by_label("Leads to the waypoint tagged WP_WEST");
     h.get_all_by_label("Cancel").last().unwrap().click();

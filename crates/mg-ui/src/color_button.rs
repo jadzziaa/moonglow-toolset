@@ -48,6 +48,16 @@ pub fn parse(text: &str) -> Option<Color32> {
     ))
 }
 
+/// `c` as #rrggbb (#rrggbbaa where the color has an alpha), in lower case.
+fn hex_of(c: Color32, alpha: Alpha) -> String {
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    if alpha == Alpha::Opaque {
+        format!("#{r:02x}{g:02x}{b:02x}")
+    } else {
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+    }
+}
+
 /// The text the picker's 📋 copies for `c`.
 fn text_of(c: Color32, alpha: Alpha) -> String {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
@@ -123,6 +133,33 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
                 button.mark_changed();
             }
             ui.horizontal(|ui| {
+                // The color as #rrggbb, to read, type or paste into (an
+                // owner's ask): it follows the picker, and a color typed
+                // there sets it.
+                let hex_id = popup_id.with("hex");
+                let shown = hex_of(Color32::from(hsva), alpha);
+                let mut text: String = ui.data(|d| d.get_temp(hex_id)).unwrap_or(shown);
+                let field = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut text)
+                            .desired_width(if alpha == Alpha::Opaque { 70.0 } else { 90.0 })
+                            .font(egui::TextStyle::Monospace),
+                    )
+                    .on_hover_text("The color as #rrggbb: type or paste one here");
+                if field.changed()
+                    && let Some(mut c) = parse(&text)
+                {
+                    if alpha == Alpha::Opaque {
+                        c = Color32::from_rgb(c.r(), c.g(), c.b());
+                    }
+                    hsva = Hsva::from(c);
+                    button.mark_changed();
+                }
+                if field.has_focus() {
+                    ui.data_mut(|d| d.insert_temp(hex_id, text));
+                } else {
+                    ui.data_mut(|d| d.remove::<String>(hex_id));
+                }
                 if ui
                     .button("Paste Color")
                     .on_hover_text(

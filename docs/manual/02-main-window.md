@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T07:56:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
 ---
 
 # The main window
@@ -590,6 +590,8 @@ the Options' colors) opens a picker. Its 📋 copies the color's values
 (`158, 151, 211`), and **Paste Color** under it, or **Ctrl+V** while it is
 open or the pointer is on the swatch, takes one from the clipboard:
 `158, 151, 211`, `#9e97d3`, `rgb(158, 151, 211)`, or values from 0 to 1.
+Beside Paste Color, the color's hex code (`#9e97d3`) follows the picker
+as it is dragged; type or paste a color there and the picker takes it.
 The swatch's right-click menu has **Copy Color** and **Paste Color** too.
 
 ## The palette

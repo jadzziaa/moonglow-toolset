@@ -829,7 +829,7 @@ fn new_nui_window_asks_for_its_name() {
     h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
     h.run();
     let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.placeholder() == Some("Type a command's name")
+        n.placeholder() == Some("🔍 Type a command's name")
     };
     h.get(egui_kittest::kittest::by().predicate(hint)).type_text("New NUI Window");
     h.run();

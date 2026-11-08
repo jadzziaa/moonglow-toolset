@@ -1229,7 +1229,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ])
             .min_size([520.0, 220.0])
             .show(&ctx, |ui| {
+                ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
                 let problem = var_body(app, ui, &mut edit, &mut help, (described, false));
+                // (A color being picked: the area views draw it, as the
+                // page has them; OK sets it, Cancel leaves it as it was.)
+                let picked = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
+                if picked && problem.is_none() {
+                    let each = edit.each_merged(app);
+                    app.var_preview_next.extend(each);
+                }
                 ui.horizontal(|ui| {
                     if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
                         || (problem.is_none() && crate::widgets::enter(ui))
@@ -2410,6 +2418,9 @@ fn find_here(ui: &egui::Ui, here: bool) -> bool {
     here && !ui.ctx().egui_wants_keyboard_input() && crate::keys::find_pressed(ui.ctx())
 }
 
+/// What a search field's hint begins with.
+pub(crate) const SEARCH_GLASS: &str = "🔍";
+
 /// A list's search field: what it looks in said in the field while it is
 /// empty (`hint`), a button to clear it, and its keys (GitHub issue 12):
 /// Find's (Ctrl+F) go to it where the caller says
@@ -2501,6 +2512,13 @@ impl<'a> SearchField<'a> {
                 let button = ui.data(|d| d.get_temp::<f32>(button_id)).unwrap_or(26.0);
                 let button = if clear { button } else { 0.0 };
                 let room = width.unwrap_or(ui.available_width() - button).max(60.0);
+                // (Every search field as the palette's and the module
+                // tree's: the glass before what it looks in, an owner's
+                // ask.)
+                let hint = match hint.starts_with(SEARCH_GLASS) {
+                    true => hint.to_string(),
+                    false => format!("{SEARCH_GLASS} {hint}").trim_end().to_string(),
+                };
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut *text)
                         .id(id)
@@ -3573,6 +3591,20 @@ impl<'a> RowChoice<'a> {
                 .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
             pick = stepped.map(|row| (row != NO_ROW).then_some(row));
         }
+        // Letters typed to a short list (a long one types into its Filter):
+        // the first row whose name begins with them.
+        if pick.is_none() && !long {
+            let rows: Vec<Option<&mg_rules::Choice>> =
+                none.map(|_| None).into_iter().chain(in_order().iter().map(Some)).collect();
+            let names = |i: usize| match rows[i] {
+                Some(c) => text(c, numbered).into_owned(),
+                None => none.unwrap_or_default().to_string(),
+            };
+            let at = rows.iter().position(|c| c.map(|c| c.row as i64) == current);
+            if let Some(i) = typed_to(ui, r, names, rows.len(), at) {
+                pick = Some(rows[i].map(|c| c.row as i64));
+            }
+        }
         let mut response = list.response;
         if let Some(hover) = hover {
             response = response.on_hover_text(hover);
@@ -3780,16 +3812,30 @@ impl Dropdown {
         options: &[T],
         text: impl Fn(&T) -> S,
     ) -> egui::Response {
-        self.show_with(
+        let reveal_id = self.salt.with("reveal typed");
+        let reveal = ui.data_mut(|d| d.remove_temp::<bool>(reveal_id)).unwrap_or(false);
+        let r = self.show_with(
             ui,
             current,
             || options.to_vec(),
             |ui, current| {
                 for o in options {
-                    ui.selectable_value(current, o.clone(), text(o));
+                    let row = ui.selectable_value(current, o.clone(), text(o));
+                    if reveal && o == current {
+                        row.scroll_to_me(Some(egui::Align::Center));
+                    }
                 }
             },
-        )
+        );
+        // Letters typed to it: the first whose name begins with them.
+        let names = |i: usize| text(&options[i]).into().text().to_string();
+        let at = options.iter().position(|o| o == current);
+        if let Some(i) = typed_to(ui, &r, names, options.len(), at) {
+            *current = options[i].clone();
+            ui.data_mut(|d| d.insert_temp(reveal_id, true));
+            ui.ctx().request_repaint();
+        }
+        r
     }
 
     /// [`show`](Self::show) with the list's own rows (`rows`: drawn while
@@ -3901,6 +3947,67 @@ impl Dropdown {
     ) -> egui::InnerResponse<Option<R>> {
         self.combo.show_ui(ui, contents)
     }
+}
+
+/// How long letters typed to a list go together, seconds: after a rest,
+/// what is typed begins anew.
+const TYPED_REST: f64 = 1.0;
+
+/// Letters typed to a list whose box `r` has the keys or whose list is
+/// open: the option (of `count`, named by `names`, `at` the one chosen)
+/// whose name begins with what was typed, case aside, as lists take
+/// letters on every desktop (a builder's report: a long one could only
+/// be scrolled through). The same letter again goes to the next that
+/// begins with it; what is typed after a rest of [`TYPED_REST`] begins
+/// anew. The letters are taken: nothing else reads them.
+fn typed_to(
+    ui: &mut Ui,
+    r: &egui::Response,
+    names: impl Fn(usize) -> String,
+    count: usize,
+    at: Option<usize>,
+) -> Option<usize> {
+    let open = egui::ComboBox::is_open(ui.ctx(), r.id);
+    if count == 0 || !(open || r.has_focus()) {
+        return None;
+    }
+    let typed: String = ui.input_mut(|i| {
+        let mut typed = String::new();
+        i.events.retain(|e| match e {
+            egui::Event::Text(t) if !t.chars().any(char::is_control) => {
+                typed.push_str(t);
+                false
+            }
+            _ => true,
+        });
+        typed
+    });
+    if typed.is_empty() {
+        return None;
+    }
+    let id = r.id.with("typed");
+    let now = ui.input(|i| i.time);
+    let (mut so_far, last): (String, f64) =
+        ui.data(|d| d.get_temp(id)).unwrap_or((String::new(), f64::MIN));
+    if now - last > TYPED_REST {
+        so_far.clear();
+    }
+    so_far.push_str(&typed.to_lowercase());
+    ui.data_mut(|d| d.insert_temp(id, (so_far.clone(), now)));
+    let begins = |i: usize, with: &str| names(i).trim_start().to_lowercase().starts_with(with);
+    // (One letter typed again and again: the next with it, round.)
+    let mut letters = so_far.chars();
+    let first = letters.next()?;
+    let repeated = letters.all(|c| c == first);
+    let (with, from) = if repeated {
+        (first.to_string(), at.map_or(0, |a| a + 1))
+    } else {
+        (so_far.clone(), at.unwrap_or(0))
+    };
+    let order = (0..count).map(|k| (from + k) % count);
+    let found = order.clone().find(|&i| begins(i, &with));
+    // (Typed on past what begins with it: from the first again.)
+    found.or_else(|| (0..count).find(|&i| begins(i, &so_far)))
 }
 
 /// Where [`Dropdown::show_menu`]'s keys are: the box (last drawn), its

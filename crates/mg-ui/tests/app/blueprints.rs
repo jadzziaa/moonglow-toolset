@@ -296,7 +296,7 @@ fn an_item_property_s_spells_have_a_filter() {
     h.run();
     // Opened at the chosen spell (far down the list: Aid, Barkskin… come
     // first), under the Filter field.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("Cure Light Wounds"))
         .map(|n| n.rect().center().y)
@@ -372,6 +372,49 @@ fn trigger_editor_sets_the_type_and_trap() {
     h.get_by_label("Is Trapped").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("TrapFlag"), Some(1 - trapped));
+}
+
+/// A short list of a table's rows takes letters too (the encounter's
+/// Difficulty, encdifficulty.2da: Very Easy, Easy, Normal, Hard,
+/// Impossible): its box clicked, H goes to Hard; after a rest, V to Very
+/// Easy.
+#[test]
+fn a_short_row_list_goes_to_what_is_typed() {
+    let Some((mut h, key)) = blueprint_harness("nw_verminbeet", "encounter_typed", ResType::UTE)
+    else {
+        return;
+    };
+    settle(&mut h);
+    let index = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("DifficultyIndex");
+    let names = ["Very Easy", "Easy", "Normal", "Hard", "Impossible"];
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_role(egui::accesskit::Role::ComboBox)
+            .find(|n| {
+                let node = n.accesskit_node();
+                let text = format!("{:?} {:?}", node.label(), node.value());
+                names.iter().any(|d| text.contains(d))
+            })
+            .expect("the Difficulty box")
+            .rect()
+            .center()
+    };
+    let at = shown(&h);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("h".into()));
+    h.run_steps(3);
+    assert_eq!(index(&mut h), Some(3), "Hard");
+    h.run_steps(90);
+    let at = shown(&h);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("v".into()));
+    h.run_steps(3);
+    assert_eq!(index(&mut h), Some(0), "Very Easy");
 }
 
 #[test]
@@ -763,7 +806,8 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(2);
     // (Typed into its Filter: frames are stepped, as the preview plays.)
-    let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let filter =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
     h.get(egui_kittest::kittest::by().predicate(filter)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
@@ -1205,7 +1249,7 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
     h.get_by_label("Select Texture");
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(&mut h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(&pick);
@@ -1311,7 +1355,7 @@ fn select_texture_leaves_the_interface_out() {
     h.run();
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(&mut h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("po_hezrou_h");
@@ -1556,6 +1600,94 @@ fn a_tint_being_picked_is_drawn_and_set_once_as_the_picker_closes() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tint"));
     assert_eq!(depth(&h), undo + 1, "one command");
     assert_eq!(drawn_tint(&h, area), Some(again), "drawn as set");
+}
+
+/// A placed placeable's tint set in the Variables window (the owner's
+/// report: not drawn, even after OK): drawn while its swatch's picker is
+/// open, as the page draws it, and as set once OK sets it; Cancel leaves
+/// it as it was.
+#[test]
+fn a_tint_set_in_the_variables_window_is_drawn() {
+    use mg_ui::widgets::{FieldTarget, VarTableEdit};
+    let Some((mut h, area)) = area_harness("tint-window") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    place_tinted_chest(h.state_mut(), git);
+    h.run_steps(4);
+    let white = vec![1.0, 1.0, 1.0, 1.0];
+    assert_eq!(drawn_tint(&h, area), Some(white.clone()));
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        let list = {
+            let ws = h.state_mut().ws.as_mut().unwrap();
+            let root = ws.doc(&git).unwrap().root.clone();
+            path.get(&root).unwrap().list("VarTable").unwrap().to_vec()
+        };
+        let target = FieldTarget::new(git, path.clone(), "VarTable");
+        h.state_mut().var_edit = Some(VarTableEdit::new(target, &list));
+        settle(h);
+    };
+    open(&mut h);
+    let undo = h.state().ws.as_ref().unwrap().undo_depth();
+    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    drag_picker(&mut h, well, 0.0, 80.0);
+    let picked = drawn_tint(&h, area).expect("drawn with a tint");
+    assert_ne!(picked, white, "drawn while picked");
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), undo, "nothing set yet");
+    // The picker closed, then OK: set, and drawn as set.
+    click_away(&mut h, egui::pos2(5.0, 5.0));
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), undo + 1);
+    assert_eq!(drawn_tint(&h, area), Some(picked.clone()), "drawn as set");
+    // Picked again and canceled: as it was.
+    open(&mut h);
+    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    drag_picker(&mut h, well, 80.0, 10.0);
+    assert_ne!(drawn_tint(&h, area), Some(picked.clone()));
+    click_away(&mut h, egui::pos2(5.0, 5.0));
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(drawn_tint(&h, area), Some(picked), "as it was");
+}
+
+/// The color picker's Hex field (the owner's ask): it shows the color as
+/// #rrggbb, and a color typed there sets the picker (and so the tint
+/// drawn), the command made as the picker closes.
+#[test]
+fn a_color_typed_into_the_picker_s_hex_field_is_taken() {
+    let Some((mut h, area)) = area_harness("picker-hex") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    place_tinted_chest(h.state_mut(), git);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Variables");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    h.run_steps(4);
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path: path.clone() }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(700.0, 500.0));
+    }
+    settle(&mut h);
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    // (The row's own field shows it too: the picker's is the last.)
+    let hex = |h: &Harness<'_, Moonglow>, v: &str| h.get_all_by_value(v).count();
+    assert!(hex(&h, "#ffffff") >= 2, "the picker's field shows the color");
+    h.get_all_by_value("#ffffff").last().unwrap().click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("#ff0000".into()));
+    h.run_steps(3);
+    assert_eq!(drawn_tint(&h, area), Some(vec![1.0, 0.0, 0.0, 1.0]), "drawn as typed");
+    click_away(&mut h, egui::pos2(900.0, 700.0));
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let root = ws.doc(&git).unwrap().root.clone();
+    let var = &path.get(&root).unwrap().list("VarTable").unwrap()[0];
+    assert_eq!(var.string("Value"), Some(&b"#ff0000"[..]));
 }
 
 #[test]
@@ -3952,7 +4084,7 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
         app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(store)));
     }
     h.run_steps(3);
-    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
     h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
     h.run();
     h.event(egui::Event::Text("torch".into()));

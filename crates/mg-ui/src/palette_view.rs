@@ -101,6 +101,10 @@ pub struct PaletteView {
     /// A light is about to be placed: its placeables.2da row. A click in
     /// an area's view puts one there.
     pub placing_light: Option<usize>,
+    /// An appearance taken from the Appearance Gallery to place (a click
+    /// on a placeable's picture there): its ghost follows the pointer, and
+    /// a click in an area's view puts a placeable of it there.
+    pub placing_appearance: Option<crate::appearance_gallery::DraggedAppearance>,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The tile chosen last among a terrain's or crosser's pictures (the
@@ -447,6 +451,7 @@ impl Default for PaletteView {
             placing_start: false,
             lights: false,
             placing_light: None,
+            placing_appearance: None,
             tile_brush: None,
             tile_choice: None,
             area: None,

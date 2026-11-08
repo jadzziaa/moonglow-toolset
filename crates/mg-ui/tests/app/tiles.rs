@@ -2856,6 +2856,45 @@ fn only_changed(before: &[mg_gff::Struct], after: &[mg_gff::Struct], changed: &[
     }
 }
 
+/// Shift + right click on the ground steps the tile there to the next
+/// that fits in object mode too, as Aurora's does (a builder's ask: it
+/// took Select Tiles): that tile alone, one step of Undo, and no menu;
+/// a right click without Shift opens the menu as before.
+#[test]
+fn shift_and_a_right_click_steps_a_tile_in_object_mode() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("shift-right-tile") else { return };
+    settle(&mut h);
+    assert!(!h.state().area_views[&area].tile_mode, "object mode");
+    let list = tile_list(&mut h, area);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    let right = |h: &mut Harness<'_, Moonglow>, modifiers: egui::Modifiers| {
+        for pressed in [true, false] {
+            h.event_modifiers(
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers,
+                },
+                modifiers,
+            );
+        }
+        h.run_steps(3);
+    };
+    right(&mut h, egui::Modifiers::SHIFT);
+    assert_eq!(undo_label(&h).as_deref(), Some("Next tile"));
+    only_changed(&list, &tile_list(&mut h, area), &[5]);
+    assert!(h.query_by_label_contains("Tile Properties").is_none(), "no menu");
+    // Without Shift: the menu, the tile as it is.
+    let stepped = tile_list(&mut h, area);
+    right(&mut h, egui::Modifiers::NONE);
+    assert!(h.query_by_label_contains("Tile Properties").is_some(), "the menu");
+    assert_eq!(tile_list(&mut h, area), stepped);
+}
+
 /// The tiles palette's Exact tile switch (#29): shown beside List and
 /// Gallery, off at first and remembered; on, a tile chosen in the Gallery
 /// goes in alone where it is clicked (or dragged), as it is, turned as the

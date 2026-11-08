@@ -140,6 +140,9 @@ pub struct BlueprintWizard {
     pub item_level: Option<u8>,
     pub item_quality: Option<u8>,
     pub seed: u64,
+    /// Fields the blueprint is made with, over the wizard's own (the
+    /// appearance an Appearance Gallery's double click gives it).
+    pub given: Vec<(&'static str, mg_gff::Value)>,
 }
 
 impl BlueprintWizard {
@@ -165,7 +168,21 @@ impl BlueprintWizard {
             item_level: None,
             item_quality: None,
             seed: fastrand::u64(..),
+            given: Vec::new(),
         }
+    }
+
+    /// The wizard making its blueprint with `fields` (an appearance), named
+    /// `name` where that isn't empty (the name typed: it doesn't follow
+    /// the category), its Properties opened after.
+    pub fn given(mut self, fields: Vec<(&'static str, mg_gff::Value)>, name: &str) -> Self {
+        self.given = fields;
+        if !name.trim().is_empty() {
+            self.name = name.trim().to_string();
+            self.named = true;
+        }
+        self.launch = true;
+        self
     }
 
     fn page(&self) -> Step {
@@ -242,6 +259,9 @@ impl BlueprintWizard {
             }
             BlueprintKind::Creature => unreachable!("the Creature Wizard's own window"),
         };
+        for (label, value) in &self.given {
+            g.root.set(label, value.clone());
+        }
         let tag = self.tag.trim();
         if !tag.is_empty() {
             g.root.set("Tag", mg_gff::Value::String(crate::text::encode(tag)));

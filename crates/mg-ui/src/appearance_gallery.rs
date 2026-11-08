@@ -20,7 +20,7 @@ use crate::{Action, Moonglow};
 /// An appearance dragged from the gallery (dropped in an area view, a
 /// placeable with it is placed there): its placeables.2da row and name.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct DraggedAppearance {
+pub struct DraggedAppearance {
     pub row: usize,
     pub name: String,
 }
@@ -207,15 +207,27 @@ pub(crate) fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
 }
 
+/// What was done to the gallery's pictures this frame: the row clicked,
+/// double-clicked, or given to the selection from its menu.
+#[derive(Debug, Default)]
+struct Clicked {
+    click: Option<i64>,
+    double: Option<i64>,
+    give: Option<i64>,
+}
+
 /// The grid: Find, the pictures' size, and the kind's rows as pictures,
-/// opening at `current` (the row chosen, highlighted). The row clicked.
-pub(crate) fn grid(
+/// opening at `current` (the row chosen, highlighted; or `taking`, the
+/// one taken to place). What was clicked; `give`: whether a picture's menu
+/// offers to give it to the selection.
+fn grid(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
     state: &mut Gallery,
-    current: Option<i64>,
+    (current, taking): (Option<i64>, Option<i64>),
     dressed: Option<u64>,
-) -> Option<i64> {
+    give: bool,
+) -> Option<Clicked> {
     let kind = state.kind;
     let game = app.game.clone()?;
     let (name, cols) = kind.table();
@@ -239,7 +251,7 @@ pub(crate) fn grid(
     let needle = mg_core::text::Needle::new(&state.filter);
     let rows: Vec<&mg_rules::Choice> = all.iter().filter(|c| needle.finds(&c.text)).collect();
     let ready = &app.thumbnails;
-    let (mut shown, mut pick) = (Vec::new(), None);
+    let (mut shown, mut pick) = (Vec::new(), Clicked::default());
     let gap = 4.0;
     // (The room less the scroll bar's.)
     let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
@@ -266,7 +278,7 @@ pub(crate) fn grid(
                         Some(k) => ready.made(k),
                         None => Some(None),
                     };
-                    let chosen = current == Some(c.row as i64);
+                    let chosen = current == Some(c.row as i64) || taking == Some(c.row as i64);
                     let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, chosen, made);
                     if let (true, Some(k)) = (seen, key) {
                         shown.push(k);
@@ -283,8 +295,18 @@ pub(crate) fn grid(
                         );
                     }
                     let r = r.on_hover_text(about);
-                    if r.clicked() {
-                        pick = Some(c.row as i64);
+                    if r.double_clicked() {
+                        pick.double = Some(c.row as i64);
+                    } else if r.clicked() {
+                        pick.click = Some(c.row as i64);
+                    }
+                    if give {
+                        r.context_menu(|ui| {
+                            if ui.button("Give to the Selection").clicked() {
+                                pick.give = Some(c.row as i64);
+                                ui.close();
+                            }
+                        });
                     }
                     // Dragged into an area's view: a placeable of it there.
                     if kind == Kind::Placeable && r.drag_started() {
@@ -300,7 +322,7 @@ pub(crate) fn grid(
     // (Those in sight: kept while they are, and made if they aren't yet,
     // a few a frame.)
     app.thumbnails.show(shown);
-    pick
+    Some(pick)
 }
 
 /// The objects a gallery gives appearances to: their document, their
@@ -350,6 +372,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if one.is_none() {
         state.target = None;
     }
+    // (Opened on its own, for placeables: a click takes one to place.)
+    let places = one.is_none() && kind == Kind::Placeable;
     let chosen = if one.is_none() { selected(app, kind) } else { None };
     let (current, dressed) = match (&one, &chosen) {
         (Some((_, _, now, dressed)), _) => (*now, *dressed),
@@ -368,12 +392,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 state.target = None;
             }
         }
+        // (Placeables, opened on their own: a click takes one to place, as
+        // the palette's does; the selection is given one from a picture's
+        // menu.)
+        (None, Some((_, list, ..))) if places => {
+            let them = if list.len() == 1 { "it" } else { "them" };
+            ui.label(format!(
+                "A click takes a placeable to place; right click to give the {} selected {them}",
+                kind.noun(list.len())
+            ));
+        }
         (None, Some((_, list, ..))) => {
             let them = if list.len() == 1 { "it" } else { "them" };
             ui.label(format!(
                 "{} selected in the area: a click gives {them} the appearance",
                 kind.noun(list.len())
             ));
+        }
+        _ if places => {
+            ui.weak("A click takes a placeable to place in an area; a double click makes a blueprint of it");
         }
         _ => {
             ui.weak(format!(
@@ -382,7 +419,31 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             ));
         }
     });
-    let pick = grid(app, ui, &mut state, current, dressed).filter(|row| Some(*row) != current);
+    let taking = app.palette.placing_appearance.as_ref().map(|a| a.row as i64);
+    let clicked = grid(app, ui, &mut state, (current, taking), dressed, places && chosen.is_some())
+        .unwrap_or_default();
+    // A double click: a blueprint of it, by its kind's wizard, its
+    // Properties opened after (as a palette's blueprint opens them).
+    if let Some(row) = clicked.double {
+        start_wizard(app, kind, row);
+    }
+    // Opened on its own, a placeable's click takes it to place (again:
+    // put down).
+    if places && let Some(row) = clicked.click {
+        let name = (app.game.as_deref())
+            .and_then(|g| g.choices(kind.table().0, kind.table().1).ok())
+            .and_then(|all| all.into_iter().find(|c| c.row as i64 == row).map(|c| c.text))
+            .unwrap_or_else(|| row.to_string());
+        app.palette.placing_appearance = match taking == Some(row) {
+            true => None,
+            false => Some(DraggedAppearance { row: row as usize, name }),
+        };
+    }
+    let pick = match places {
+        true => clicked.give,
+        false => clicked.click.or(clicked.give),
+    }
+    .filter(|row| Some(*row) != current);
     let set = |key: ResKey, path: GffPath, row: i64| -> Vec<Edit> {
         kind.fields(row)
             .into_iter()
@@ -407,6 +468,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         app.actions.push(Action::Apply(Command::new("Appearance", edits)));
     }
     app.placeable_gallery = Some(state);
+}
+
+/// A blueprint of appearance `row` of `kind`, made by its kind's wizard
+/// (the Placeable or Door Wizard, the Creature Wizard), named for it, its
+/// Properties opened after.
+fn start_wizard(app: &mut Moonglow, kind: Kind, row: i64) {
+    use mg_module::palette::BlueprintKind;
+    if kind == Kind::Creature {
+        let appearance = row as u16;
+        let w = crate::creature_wizard::CreatureWizard { appearance, ..Default::default() };
+        app.creature_wizard = Some(w);
+        return;
+    }
+    let name = (app.game.as_deref())
+        .and_then(|g| g.choices(kind.table().0, kind.table().1).ok())
+        .and_then(|all| all.into_iter().find(|c| c.row as i64 == row).map(|c| c.text))
+        .unwrap_or_default();
+    let of = if kind == Kind::Door { BlueprintKind::Door } else { BlueprintKind::Placeable };
+    let w = crate::blueprint_wizard::BlueprintWizard::new(of).given(kind.fields(row), &name);
+    app.blueprint_wizard = Some(w);
 }
 
 #[cfg(test)]

@@ -396,6 +396,8 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
 struct Destination {
     area: mg_core::ResRef,
     tag: String,
+    /// Its name, as the module tree shows it (empty without one).
+    name: String,
     /// As `LinkedToFlags`: 1 a door, 2 a waypoint.
     flags: i64,
     /// Where it stands in its area, metres.
@@ -404,6 +406,7 @@ struct Destination {
 
 /// Doors and waypoints with tags in the module's areas, by area.
 fn destinations(f: &mut Form<'_>) -> Vec<Destination> {
+    let game = f.app.game.clone();
     let Some(ws) = f.app.ws.as_mut() else { return Vec::new() };
     let gits: Vec<_> = ws.module.keys_of(ResType::GIT).copied().collect();
     let mut out = Vec::new();
@@ -417,7 +420,8 @@ fn destinations(f: &mut Form<'_>) -> Vec<Destination> {
                 if !tag.is_empty() {
                     let p = mg_module::instances::placement_of(restype, s).0.position;
                     let at = glam::Vec2::new(p[0], p[1]);
-                    out.push(Destination { area: key.resref, tag, flags, at });
+                    let name = crate::tree::blueprint_name(game.as_deref(), s).trim().to_string();
+                    out.push(Destination { area: key.resref, tag, name, flags, at });
                 }
             }
         }
@@ -437,6 +441,8 @@ struct TransitionPick {
     area: Option<mg_core::ResRef>,
     map: Option<crate::minimap::Map>,
     chosen: Option<(String, i64)>,
+    /// Which the map and lists show: doors (1), waypoints (2), or both (0).
+    showing: i64,
 }
 
 /// The side of Setup Area Transition's map, points.
@@ -459,12 +465,21 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
     areas.dedup();
     let names: std::collections::HashMap<mg_core::ResRef, String> =
         areas.iter().map(|a| (*a, crate::tabs::area_label(f.app, *a))).collect();
+    // (By name, as the module tree lists them: a builder's report, they
+    // were by ResRef.)
+    areas.sort_by_cached_key(|a| names.get(a).map(|n| n.to_lowercase()));
     let name = |a: &Option<mg_core::ResRef>| {
         a.map_or_else(String::new, |a| names.get(&a).cloned().unwrap_or_else(|| a.to_string()))
     };
     let ctx = ui.ctx().clone();
     let (mut ok, mut cancel) = (false, false);
-    let window = crate::widgets::modal(&ctx, "Setup Area Transition").id(pick_id.with("modal"));
+    // (Sized as the builder drags its edges: the lists take what the map
+    // leaves.)
+    let window = crate::widgets::modal(&ctx, "Setup Area Transition")
+        .id(pick_id.with("modal"))
+        .resizable(true)
+        .default_size([TRANSITION_MAP + 360.0, TRANSITION_MAP + 140.0])
+        .min_size([TRANSITION_MAP + 200.0, TRANSITION_MAP + 100.0]);
     window.show(&ctx, |ui| {
         if areas.is_empty() {
             ui.weak("No doors or waypoints with tags in the module's areas");
@@ -476,9 +491,17 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                 .selected_text(name(&state.area))
                 .width(260.0)
                 .show(ui, &mut state.area, &options, name);
+            ui.separator();
+            // Doors, waypoints, or both, on the map and in the lists.
+            for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
+                ui.selectable_value(&mut state.showing, showing, label);
+            }
         });
-        let here: Vec<Destination> =
-            state.destinations.iter().filter(|d| Some(d.area) == state.area).cloned().collect();
+        let showing = state.showing;
+        let here: Vec<Destination> = (state.destinations.iter())
+            .filter(|d| Some(d.area) == state.area && (showing == 0 || d.flags == showing))
+            .cloned()
+            .collect();
         let is = |d: &Destination, chosen: &Option<(String, i64)>| {
             chosen.as_ref().is_some_and(|(t, k)| *t == d.tag && *k == d.flags)
         };
@@ -542,14 +565,43 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
             ui.vertical(|ui| {
                 egui::ScrollArea::vertical()
                     .id_salt(pick_id.with("lists"))
-                    .max_height(TRANSITION_MAP)
-                    .min_scrolled_width(200.0)
+                    .max_height(ui.available_height().max(TRANSITION_MAP) - 60.0)
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for (flags, title) in [(1, "Available Doors:"), (2, "Available Waypoints:")]
                         {
+                            if showing != 0 && showing != flags {
+                                continue;
+                            }
                             ui.strong(title);
                             for d in here.iter().filter(|d| d.flags == flags) {
-                                let r = ui.selectable_label(is(d, &state.chosen), &d.tag);
+                                // (Its tag, which the transition names,
+                                // and its name beside.)
+                                let mut text = egui::text::LayoutJob::default();
+                                let body = egui::TextFormat::default();
+                                text.append(
+                                    &d.tag,
+                                    0.0,
+                                    egui::TextFormat {
+                                        color: ui.visuals().text_color(),
+                                        font_id: egui::TextStyle::Body.resolve(ui.style()),
+                                        ..body.clone()
+                                    },
+                                );
+                                if !d.name.is_empty() && d.name != d.tag {
+                                    text.append(
+                                        &format!("  {}", d.name),
+                                        0.0,
+                                        egui::TextFormat {
+                                            color: ui.visuals().weak_text_color(),
+                                            font_id: egui::TextStyle::Body.resolve(ui.style()),
+                                            ..body
+                                        },
+                                    );
+                                }
+                                let r = ui
+                                    .selectable_label(is(d, &state.chosen), text)
+                                    .on_hover_text(format!("Tag {}", d.tag));
                                 if r.clicked() {
                                     state.chosen = Some((d.tag.clone(), d.flags));
                                 }
@@ -626,6 +678,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
                 chosen: now.map(|d| (d.tag, d.flags)),
                 destinations,
                 map: None,
+                showing: 0,
             };
             ui.data_mut(|d| d.insert_temp(pick_id, state));
         }

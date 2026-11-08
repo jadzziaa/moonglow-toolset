@@ -1972,7 +1972,7 @@ fn open_script_s_escape_clears_the_name_then_closes() {
         h.state().script_tools.open_script.as_ref().map(|w| w.filter.clone())
     };
     let field =
-        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find by name");
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find by name");
     h.get(egui_kittest::kittest::by().predicate(field)).type_text("hel");
     h.run_steps(2);
     assert_eq!(filter(&h).as_deref(), Some("hel"));
@@ -2150,7 +2150,7 @@ fn open_script_opens_the_scripts_selected_together() {
     // While a name is typed in its field, they are the field's: Ctrl+A
     // selects its text, not the scripts.
     (h.get_all_by_role(egui::accesskit::Role::TextInput))
-        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
+        .find(|n| n.accesskit_node().placeholder() == Some("🔍 Find by name"))
         .expect("the name field")
         .click();
     h.run_steps(2);

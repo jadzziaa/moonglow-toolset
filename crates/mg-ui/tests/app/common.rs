@@ -299,11 +299,21 @@ pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, glyph: &str, name: &st
 pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     // ("Find" is a list's search: the palette's says what it looks in.)
     let palette = "🔍 Search name, tag, resref";
+    // (A search field's hint begins with the glass: given with or without.)
+    let glassed = format!("🔍 {}", hint.trim_start_matches("🔍 "));
     let has = |h: &Harness<'_, Moonglow>, hint: &str| {
         let by = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
         h.query_all(egui_kittest::kittest::by().predicate(by)).next().is_some()
     };
-    let hint = if hint == "Find" && !has(h, hint) { palette } else { hint };
+    let hint = if has(h, hint) {
+        hint
+    } else if has(h, &glassed) {
+        glassed.as_str()
+    } else if hint == "Find" {
+        palette
+    } else {
+        hint
+    };
     let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(h);
