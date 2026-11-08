@@ -28,6 +28,11 @@ pub struct AreaWizard {
     /// Not yet shown: its tileset list starts at the top (not where the
     /// last one was left).
     fresh: bool,
+    /// The tilesets the project hides (`[tilesets] hidden`), left out of
+    /// the list unless `show_hidden`.
+    pub hidden: Vec<mg_core::ResRef>,
+    /// Show Hidden Tilesets: off as the wizard opens.
+    pub show_hidden: bool,
 }
 
 impl AreaWizard {
@@ -43,7 +48,26 @@ impl AreaWizard {
             launch_properties: false,
             open_viewer: true,
             fresh: true,
+            hidden: Vec::new(),
+            show_hidden: false,
         }
+    }
+
+    /// The wizard with the tilesets the project hides (`patterns`, its
+    /// `[tilesets] hidden`) left out of its list; the first shown chosen.
+    pub fn hiding(mut self, patterns: &mg_module::project_file::Patterns) -> AreaWizard {
+        self.hidden = (self.tilesets.iter())
+            .map(|t| t.resref)
+            .filter(|r| patterns.matches(&r.to_string()))
+            .collect();
+        self.selected = self.tilesets.iter().position(|t| self.shows(t));
+        self
+    }
+
+    /// Whether the list shows `t`: a tileset not hidden, or every one
+    /// with Show Hidden Tilesets on.
+    fn shows(&self, t: &TilesetChoice) -> bool {
+        self.show_hidden || !self.hidden.contains(&t.resref)
     }
 
     fn spec(&self) -> Option<AreaSpec> {
@@ -109,12 +133,39 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     list.show(ui, |ui| {
                         ui.set_width(280.0);
                         for (i, t) in w.tilesets.iter().enumerate() {
-                            if ui.selectable_label(w.selected == Some(i), &t.name).clicked() {
+                            if !w.shows(t) {
+                                continue;
+                            }
+                            let mut label = ui.selectable_label(w.selected == Some(i), &t.name);
+                            if w.hidden.contains(&t.resref) {
+                                label = label.on_hover_text(format!(
+                                    "{}: hidden by the project (moonglow.toml's [tilesets])",
+                                    t.resref
+                                ));
+                            }
+                            if label.clicked() {
                                 w.selected = Some(i);
                             }
                         }
                     });
                 });
+                // The project's hidden tilesets, to reach all the same.
+                if !w.hidden.is_empty() {
+                    let label = format!("Show hidden tilesets ({})", w.hidden.len());
+                    if ui
+                        .checkbox(&mut w.show_hidden, label)
+                        .on_hover_text(
+                            "Tilesets the project's moonglow.toml hides ([tilesets] hidden): \
+                             still in the game, and areas on them open as any other",
+                        )
+                        .changed()
+                        && !w.show_hidden
+                        && let Some(i) = w.selected
+                        && !w.shows(&w.tilesets[i])
+                    {
+                        w.selected = w.tilesets.iter().position(|t| w.shows(t));
+                    }
+                }
                 ui.add_space(6.0);
                 ui.label("Size");
                 ui.horizontal(|ui| {

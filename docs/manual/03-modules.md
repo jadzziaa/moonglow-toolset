@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T10:40:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:58:05Z }
 ---
 
 # Modules
@@ -731,6 +731,9 @@ scripts = ["j_ai_*", "tdod_exec_*"] # run by ExecuteScript by a name made as it 
 blueprints = ["tdod_spawn_*"]       # made by CreateObject so
 conversations = []
 
+[tilesets]                          # the tilesets builders pick from
+hidden = ["zcn01", "ttf01", "z*"]   # left out of the Area Wizard's list
+
 [pack]                              # a nasher project's Pack
 compile_models = true               # models kept as text go in compiled
 
@@ -801,6 +804,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
 | `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
 | `[used] scripts`, `conversations`, `blueprints` | what [Unused](09-build-and-test.md#what-counts-as-used) (Build Module, `mg verify --unused`) counts as used though nothing in the module names it: a script `ExecuteScript` runs by a name made as it runs (`"j_ai_" + sMode`), a blueprint `CreateObject` makes so (any type, by its ResRef), a conversation so started. Build Module's **Mark as Used** and **Counted as Used** write it, and `mg used`; the rest of the file is kept as written. Aurora never touches the file | none |
+| `[tilesets] hidden` | tilesets, by resref or glob (`["zcn01", "z*"]`, whatever their case), that the [Area Wizard](04-areas.md) and Change Tileset leave out of their lists: another version of a set the team would rather builders didn't pick (the game's, its EE facelift, a hak's copy). They stay in the game's load order, and an area on one opens, draws and is named as any other; **Show hidden tilesets** in either window lists them all the same (off as it opens), and Change Tileset always lists the area's own. Since Moonglow 3.16.0 | every tileset listed |
 | `[pack] compile_models` | a nasher project's **Build › Pack** (and `mg build`) compiles the models kept as text (ASCII `.mdl`) into the target's file on the way in, as **Compile Models** does a hak's: each against its supermodel from the project, its haks or the game; one that can't be (errors in its text, its supermodel found nowhere) goes in as the text it is, and the log says why. The project's sources stay text | the models go in as text |
 | `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |

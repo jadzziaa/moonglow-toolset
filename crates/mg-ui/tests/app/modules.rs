@@ -197,6 +197,79 @@ fn a_first_save_builds_once_and_not_when_called_off() {
     assert_eq!(builds(&h), 1, "{:?}", h.state().log.entries);
 }
 
+/// A project's `[tilesets] hidden` (The Domains of Dread's ask: four
+/// versions of a set listed, one wanted): the Area Wizard leaves them out,
+/// its first shown chosen, and Show Hidden Tilesets brings them back; an
+/// area made on one is the module's as any other. Change Tileset leaves
+/// them out too, but for the area's own.
+#[test]
+fn a_project_s_hidden_tilesets_are_left_out_of_the_pickers() {
+    let root = mg_testkit::corpus!();
+    let rules = "[tilesets]\nhidden = [\"tic01\", \"TCN*\"]\n";
+    let dir = project_folder("ui-hidden-tilesets", &[("moonglow.toml", rules)]);
+    let mut app = game_app(&root, None);
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+    settle(&mut h);
+    let wizard = |h: &Harness<'_, Moonglow>| match &h.state().wizard {
+        Some(mg_ui::wizards::Wizard::NewArea(w)) => w.clone(),
+        _ => panic!("the Area Wizard is open"),
+    };
+    let w = wizard(&h);
+    let named =
+        |r: &str| w.tilesets.iter().find(|t| t.resref.to_string() == r).unwrap().name.clone();
+    let (castle, city) = (named("tic01"), named("tcn01"));
+    assert!(
+        w.hidden.len() >= 2
+            && w.hidden.iter().all(|r| {
+                let r = r.to_string();
+                r == "tic01" || r.starts_with("tcn")
+            })
+    );
+    assert!(h.query_by_label(&castle).is_none(), "{castle} hidden");
+    assert!(h.query_by_label(&city).is_none(), "{city} hidden");
+    let chosen = &w.tilesets[w.selected.unwrap()];
+    assert!(!w.hidden.contains(&chosen.resref), "the first shown chosen");
+    // Shown: chosen, and made.
+    if std::env::var_os("MG_SHOT").is_some() {
+        mg_testkit::gpu::hold();
+        let shot = mg_testkit::scratch_dir("ui-hidden-tilesets-shot");
+        h.render().unwrap().save(shot.join("wizard.png")).unwrap();
+    }
+    h.get_by_label_contains("Show hidden tilesets").click();
+    h.run();
+    assert!(wizard(&h).show_hidden);
+    // (Down the list, out of its sight: chosen as a click does.)
+    let castle_at = w.tilesets.iter().position(|t| t.name == castle);
+    if let Some(mg_ui::wizards::Wizard::NewArea(w)) = &mut h.state_mut().wizard {
+        w.selected = castle_at;
+    }
+    h.run();
+    h.get_by_label("Create").click();
+    h.run_steps(3);
+    let made = (h.state().ws.as_ref().unwrap().module.keys_of(ResType::ARE)).find_map(|k| {
+        let ws = h.state().ws.as_ref().unwrap();
+        let data = ws.module.get(k)?;
+        let are = mg_gff::Gff::read(data).ok()?;
+        (are.root.resref("Tileset")?.to_string() == "tic01").then_some(k.resref)
+    });
+    let made = made.expect("an area on the hidden tileset");
+    // Change Tileset on it: the hidden ones out, but for its own.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(made)));
+    h.run_steps(3);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Change Tileset…").click();
+    h.run_steps(2);
+    let d = h.state().change_tileset.as_ref().expect("the window is open");
+    assert_eq!(d.from.to_string(), "tic01");
+    assert!(d.hidden.iter().any(|r| r.to_string() == "tic01") && !d.show_hidden);
+    h.get_by_label_contains("Show hidden tilesets");
+}
+
 #[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();

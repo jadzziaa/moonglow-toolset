@@ -3653,8 +3653,10 @@ impl Moonglow {
             Action::AreaWizard => {
                 let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
                 let areas = ws.module.keys_of(ResType::ARE).count();
-                self.wizard =
-                    Some(Wizard::NewArea(AreaWizard::new(mg_module::new::tilesets(game), areas)));
+                // (Those the project hides left out of its list.)
+                let hidden = &ws.module.project_file.hidden_tilesets;
+                let wizard = AreaWizard::new(mg_module::new::tilesets(game), areas).hiding(hidden);
+                self.wizard = Some(Wizard::NewArea(wizard));
             }
             Action::NewArea(spec) => self.new_area(&spec),
             Action::SaveThen(next) => {

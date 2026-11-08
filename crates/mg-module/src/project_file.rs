@@ -646,6 +646,11 @@ pub struct ProjectFile {
     pub store: Option<StoreRules>,
     /// `[used]`: what the Unused report counts as used.
     pub used: UsedRules,
+    /// `[tilesets] hidden`: the tilesets (resrefs, globs) the Area Wizard
+    /// and Change Tileset leave out of their lists, unless the builder
+    /// shows them; they stay in the game's load order, and an area on one
+    /// opens as any other.
+    pub hidden_tilesets: Patterns,
     /// `[pack]`: what Pack does on the way in.
     pub pack: PackRules,
     /// `[lights]`: lights made as content.
@@ -1277,6 +1282,18 @@ impl ProjectFile {
                         }
                     }
                 }
+                ("tilesets", false) => {
+                    for e in r.section(entry) {
+                        match e.0.get_ref().as_ref() {
+                            "hidden" => {
+                                if let Some(p) = r.patterns(e) {
+                                    self.hidden_tilesets = p;
+                                }
+                            }
+                            _ => r.unknown(section, e),
+                        }
+                    }
+                }
                 ("claims", false) => self.read_claim_rules(&mut r, entry),
                 ("talk", false) => self.read_talk_rules(&mut r, entry),
                 ("bake", false) => self.read_bake_rules(&mut r, entry),
@@ -1346,7 +1363,7 @@ impl ProjectFile {
                 }
                 (
                     "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands"
-                    | "pack" | "talk" | "palette" | "bake",
+                    | "pack" | "talk" | "palette" | "bake" | "tilesets",
                     true,
                 ) => r.warn(
                     key.span().start,
@@ -2652,6 +2669,25 @@ keeper_variable = "tdod_store"
         assert!(p.nwsync_upload.is_none());
         assert!(p.warnings[0].contains("[nwsync] is not read beside a module"), "{:?}", p.warnings);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `[tilesets] hidden` names tilesets by resref or glob, whatever
+    /// their case; the team's alone.
+    #[test]
+    fn hidden_tilesets_are_named_by_resref_or_glob() {
+        let p = read("[tilesets]\nhidden = [\"zcn01\", \"TTF01\", \"z*\"]\nshown = []\n");
+        assert_eq!(p.warnings, ["moonglow.toml:3: \"shown\" is not a key of [tilesets]"]);
+        let h = &p.hidden_tilesets;
+        assert!(h.matches("zcn01") && h.matches("ttf01") && h.matches("zdg01"));
+        assert!(!h.matches("tcn01") && !h.matches("ttr01"));
+        assert!(read("[tilesets]\n").hidden_tilesets.is_empty());
+        let mut p = ProjectFile::default();
+        p.apply(".moonglow/user.toml", "[tilesets]\nhidden = [\"x\"]\n", true);
+        assert!(p.hidden_tilesets.is_empty());
+        assert_eq!(
+            p.warnings,
+            [".moonglow/user.toml:1: [tilesets] is the team's: it goes in moonglow.toml"]
+        );
     }
 
     /// `[used]` reads scripts, conversations and blueprints by name or

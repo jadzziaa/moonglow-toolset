@@ -198,6 +198,10 @@ pub struct TilesetDraft {
     /// The area's tileset now.
     pub from: ResRef,
     pub choices: Vec<mg_module::new::TilesetChoice>,
+    /// The tilesets the project hides (`[tilesets] hidden`): left out of
+    /// the list unless `show_hidden`, but for the area's own.
+    pub hidden: Vec<ResRef>,
+    pub show_hidden: bool,
     /// The tileset chosen.
     pub to: ResRef,
     /// The mapping for `to` (made when it is chosen), and the new tileset's
@@ -214,11 +218,16 @@ pub(crate) fn open_change_tileset(app: &mut Moonglow, area: ResRef) {
     let Ok(are) = ws.doc(&ResKey::new(area, ResType::ARE)) else { return };
     let from = are.root.resref("Tileset").unwrap_or(ResRef::EMPTY);
     let choices = mg_module::new::tilesets(game);
+    let patterns = &ws.module.project_file.hidden_tilesets;
+    let hidden =
+        (choices.iter()).map(|c| c.resref).filter(|r| patterns.matches(&r.to_string())).collect();
     app.change_tileset = Some(TilesetDraft {
         area,
         from,
         to: from,
         choices,
+        hidden,
+        show_hidden: false,
         mapping: None,
         terrains: Vec::new(),
         crossers: Vec::new(),
@@ -270,7 +279,12 @@ fn tileset_window(app: &mut Moonglow, ctx: &egui::Context) {
         };
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "Tileset");
-            let all: Vec<ResRef> = d.choices.iter().map(|c| c.resref).collect();
+            // (The project's hidden ones left out, but for the area's own
+            // and the one chosen.)
+            let all: Vec<ResRef> = (d.choices.iter())
+                .map(|c| c.resref)
+                .filter(|r| d.show_hidden || !d.hidden.contains(r) || *r == d.from || *r == d.to)
+                .collect();
             crate::widgets::dropdown("change-tileset").selected_text(name(d.to)).show(
                 ui,
                 &mut d.to,
@@ -278,6 +292,13 @@ fn tileset_window(app: &mut Moonglow, ctx: &egui::Context) {
                 |r| name(*r),
             );
         });
+        if !d.hidden.is_empty() {
+            let label = format!("Show hidden tilesets ({})", d.hidden.len());
+            ui.checkbox(&mut d.show_hidden, label).on_hover_text(
+                "Tilesets the project's moonglow.toml hides ([tilesets] hidden): still in the \
+                 game, and areas on them open as any other",
+            );
+        }
         ui.weak(
             "The area's tiles are laid anew in this tileset, its layout kept where the tileset \
              has the terrain: each terrain and crosser becomes the one below, the tileset's \
