@@ -1908,6 +1908,10 @@ fn nwsync_upload(
         if let Some(root) = project {
             c.env("MOONGLOW_PROJECT", root);
         }
+        // (This mg, for a script that runs it, as the window gives its own.)
+        if let Ok(mg) = std::env::current_exe().and_then(std::fs::canonicalize) {
+            c.env("MOONGLOW_MG", mg);
+        }
         let status = c.status().with_context(|| format!("running {text}"))?;
         if !status.success() {
             let before = if sent.is_empty() {

@@ -292,7 +292,28 @@ pub(crate) fn shell(text: &str, root: &Path, input: bool) -> Command {
     if std::env::var_os("GIT_TERMINAL_PROMPT").is_none() {
         c.env("GIT_TERMINAL_PROMPT", "0");
     }
+    // (The command-line tools that came with this window, for a script
+    // that runs them: a merge driver it names, on Windows where the
+    // installer puts no mg on PATH.)
+    if let Some(mg) = mg_executable() {
+        c.env("MOONGLOW_MG", mg);
+    }
     c
+}
+
+/// The `mg` that came with this window: beside its program in every
+/// package (the AppImage's `usr/bin`, the Flatpak's `/app/bin`, the macOS
+/// app's `Contents/MacOS`, the Windows install's folder), `mg.exe` on
+/// Windows, as an absolute path; none where it isn't there (a build of
+/// the window alone).
+pub(crate) fn mg_executable() -> Option<PathBuf> {
+    mg_beside(&std::env::current_exe().ok()?)
+}
+
+fn mg_beside(exe: &Path) -> Option<PathBuf> {
+    let exe = std::fs::canonicalize(exe).ok()?;
+    let mg = exe.with_file_name(if cfg!(windows) { "mg.exe" } else { "mg" });
+    mg.is_file().then_some(mg)
 }
 
 /// A pipe's bytes as text, a line each (its line end taken off): as
@@ -871,6 +892,32 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         allow_and_run(app, &ask);
     } else if cancel || !open {
         app.project_commands.ask = None;
+    }
+}
+
+#[cfg(test)]
+mod mg_tests {
+    use super::*;
+
+    /// Commands are given the `mg` beside the window's program, where
+    /// there is one.
+    #[test]
+    fn a_command_is_given_the_mg_beside_the_window() {
+        let dir = mg_testkit::scratch_dir("mg-beside");
+        let mg = dir.join(if cfg!(windows) { "mg.exe" } else { "mg" });
+        let window = dir.join(if cfg!(windows) { "moonglow.exe" } else { "moonglow" });
+        std::fs::write(&window, b"").unwrap();
+        assert_eq!(mg_beside(&window), None, "none there");
+        std::fs::write(&mg, b"").unwrap();
+        let found = mg_beside(&window).expect("beside it");
+        assert!(found.is_absolute());
+        assert_eq!(found, std::fs::canonicalize(&mg).unwrap());
+        // As the shell's environment has it (none beside a test binary).
+        let given = shell("exit 0", &dir, false)
+            .get_envs()
+            .find(|(k, _)| *k == "MOONGLOW_MG")
+            .and_then(|(_, v)| v.map(PathBuf::from));
+        assert_eq!(given, mg_executable());
     }
 }
 

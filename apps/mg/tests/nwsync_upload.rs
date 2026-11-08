@@ -61,4 +61,12 @@ fn a_pruned_repository_is_mirrored_by_rsync() {
     // A dry run sends nothing.
     let (ok, j) = crate::mg_json(&["nwsync-prune", r, "--dry-run", "--upload", "exit 3"]);
     assert!(ok && j["uploaded"] == serde_json::json!([]), "{j}");
+
+    // The command is given this mg, for a script that runs it.
+    let said = dir.join("mg.txt");
+    let command = format!("printf '%s\\n' \"$MOONGLOW_MG\" > {}", shell_quoted(&said));
+    let (ok, j) = crate::mg_json(&["nwsync-prune", r, "--upload", &command]);
+    assert!(ok, "{j}");
+    let mg = std::fs::canonicalize(env!("CARGO_BIN_EXE_mg")).unwrap();
+    assert_eq!(std::fs::read_to_string(&said).unwrap().trim_end(), mg.to_str().unwrap());
 }

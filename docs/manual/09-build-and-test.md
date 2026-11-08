@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T07:13:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T10:40:09Z }
 ---
 
 # Build, verify and test
@@ -208,7 +208,8 @@ rsync, rclone and `aws s3 sync` send only the files that aren't on the
 server yet: the data of a manifest already there isn't sent again.
 
 A script of your own gets `MOONGLOW_NWSYNC_FOLDER` (the folder),
-`MOONGLOW_NWSYNC_PART` (the part) and, in a project, `MOONGLOW_PROJECT`.
+`MOONGLOW_NWSYNC_PART` (the part), `MOONGLOW_MG` (the `mg` that came
+with Moonglow) and, in a project, `MOONGLOW_PROJECT`.
 **Upload after publishing and after removing unused data** runs it at
 the end of each (not after a Cancel or an error). After **Remove Unused
 Data** it sends the manifests before the data, and not `latest` (which

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T06:23:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T10:40:09Z }
 ---
 
 # Modules
@@ -577,8 +577,13 @@ git config merge.mg-gff.name "Moonglow GFF merge"
 git config merge.mg-gff.driver "mg merge-gff %O %A %B --path %P"
 ```
 
-(`mg` must be on the PATH, or named with its whole path. `git config
---global` sets it up for all your repositories at once.) Then `git
+(`mg` must be on the PATH, or named with its whole path: on Windows,
+whose installer doesn't put it on the PATH, `mg.exe` in Moonglow's
+folder. A project's command, such as a team's update script, is given
+that path as `MOONGLOW_MG`, and can name the driver for its own merges
+with `git -c merge.mg-gff.driver="'$MOONGLOW_MG' merge-gff %O %A %B
+--path %P"`. `git config --global` sets it up for all your repositories
+at once.) Then `git
 merge`, `git pull`, `git rebase` and `git cherry-pick` merge these files
 with it.
 
@@ -1341,7 +1346,11 @@ Choosing one:
    areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
-   folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
+   folder), `MOONGLOW_BUILDER` (your code, where you have one) and
+   `MOONGLOW_MG` set. `MOONGLOW_MG` is the whole path of the `mg` that
+   came with Moonglow (`mg.exe` in its folder on Windows, whose installer
+   doesn't put it on `PATH`), for a script that runs it: a Git merge
+   driver it names, such as `mg merge-gff`.
    Its output comes into the log as it is written (its errors in the
    warning color), and into the window that shows while it runs, which
    keeps to its last line as more comes; a line it has begun and not
