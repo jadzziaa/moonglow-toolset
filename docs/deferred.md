@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T05:42:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1006,8 +1006,19 @@ File › Project. What is left:
 - **Run only here: the macOS app, and an update installed from the app
   on Windows and macOS** (GitHub issue 28's install, built 2026-11-02:
   [the design](update-install-proposal.md)):
-  - The app and disk image are built by CI but have never been run on a
-    Mac. (S, needs a Mac)
+  - The app and disk image are built by CI and run by a builder on
+    macOS since 3.15 (a report of 2026-11-08: resizing the Open dialog
+    aborted Moonglow). That crash is winit's (rust-windowing/winit#3992:
+    a native file dialog runs its own loop inside the frame, and an
+    event it brought made winit panic where nothing can unwind); winit
+    0.30.13 is vendored with the event kept for after the frame instead
+    (`vendor/winit/MOONGLOW.md`), checked here by compiling it for macOS
+    and by CI's macOS build, not by running it: it waits on the
+    reporter's word that a resized dialog no longer crashes. The lasting
+    way, should winit not fix it, is file dialogs that don't block the
+    frame (asked for and answered a frame later), which touches the 63
+    places that ask for a file: beyond what was asked. (S, waits on the
+    reporter)
   - Installing an update on a Mac (the disk image's app copied out with
     `hdiutil attach` and `ditto`, swapped in as Moonglow closes, started
     with `open -n`) and on Windows (the installer run silently with
@@ -1016,11 +1027,6 @@ File › Project. What is left:
     steps are unit tests here (`mg_update::install`), the AppImage's and
     the zip's swap run on scratch copies; none was run on the system it
     is for. (S, needs a Mac and a Windows machine)
-  - The first signed release: until the owner makes the key and commits
-    `packaging/minisign.pub` (`packaging/README.md`, Signing a release),
-    builds carry no key and install nothing (the page link, as before).
-    Then one release installed by the app over the one before it, from
-    GitHub, which no test here reaches. (S, waits on the owner's key)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 

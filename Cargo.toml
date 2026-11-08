@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
+# (Vendored crates patched below, which aren't Moonglow's to lint or
+# format.)
+exclude = ["vendor/winit"]
 
 [workspace.package]
 # The release: the version of the two programs (apps/mg, apps/moonglow),
@@ -166,3 +169,13 @@ inherits = "release"
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+# winit 0.30.13 with one change, on macOS: an event that comes while
+# another is being handled is kept and handled after it, where winit
+# panicked and the app aborted (rust-windowing/winit#3992). A native file
+# dialog runs its own loop inside Moonglow's frame, and resizing it (or a
+# drag from Finder over the window) brought such an event: a builder's
+# report, the Open dialog resized. Dropped once winit fixes it, or eframe
+# moves to a winit that has. `vendor/winit/MOONGLOW.md` says what changed.
+[patch.crates-io]
+winit = { path = "vendor/winit" }
