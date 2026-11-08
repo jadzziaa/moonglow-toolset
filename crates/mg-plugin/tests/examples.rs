@@ -94,6 +94,7 @@ fn every_example_registers_what_it_declares() {
             "example.hello",
             "example.house-rules",
             "example.module-overview",
+            "example.pick-tint",
             "example.set-local",
             "example.store-markup",
             "example.store-wizard",
@@ -331,6 +332,72 @@ fn store_markup_sets_what_its_form_says() {
 /// API 0.4: commands for what was right-clicked. A local variable set on
 /// a placed object and a blueprint (one of that name replaced), the
 /// game's blueprint left alone; and an area's objects counted.
+/// A color field (API 0.8): the form asks for a color, starting from the
+/// placeable's own, which the window draws on the placeables while it is
+/// picked (its `variable`); what comes back, `"#rrggbb"`, is set.
+#[test]
+fn pick_tint_asks_for_a_color_and_sets_it() {
+    use mg_core::ResRef;
+    use mg_plugin::{FieldKind, Selected, Selection};
+    use mg_rules::ObjectKind;
+    let plugin = example("pick-tint");
+    let mut m = module();
+    let mut git = Gff::new(*b"GIT ");
+    let mut rug = Struct::new(9);
+    rug.set("Tag", Value::String(b"RUG".to_vec()));
+    let mut var = Struct::new(0);
+    var.set("Name", Value::String(b"tdod_tint".to_vec()));
+    var.set("Type", Value::Dword(3));
+    var.set("Value", Value::String(b"#2a4d8f".to_vec()));
+    rug.set("VarTable", Value::List(vec![var]));
+    git.root.set("Placeable List", Value::List(vec![rug]));
+    m.set_gff(key("tavern.git"), &git).unwrap();
+    let area = ResRef::from_str("tavern").unwrap();
+    let selection = Selection {
+        selected: vec![Selected::Object { area, kind: ObjectKind::Placeable, index: 0 }],
+        ..Default::default()
+    };
+    let host = Rc::new(TestHost::default());
+    let values = BTreeMap::from([("tint".to_string(), serde_json::json!("#ff0000"))]);
+    host.answers.borrow_mut().push_back(Some(Answer::Values(values)));
+    let outcome =
+        run_command(&plugin, "pick-tint", Input { selection, ..input(&m) }, host.clone()).unwrap();
+    let Question::Form { fields, .. } = &host.asked.borrow()[0] else { panic!("no form") };
+    assert_eq!(
+        fields[0].kind,
+        FieldKind::Color { default: [0x2a, 0x4d, 0x8f], variable: Some("tdod_tint".into()) }
+    );
+    assert_eq!(outcome.label, "Tint #ff0000");
+    let mut ws = Workspace::new(m);
+    ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();
+    let g = ws.doc(&key("tavern.git")).unwrap();
+    let vars = g.root.list("Placeable List").unwrap()[0].list("VarTable").unwrap();
+    assert_eq!(vars.len(), 1, "replaced");
+    assert_eq!(vars[0].string("Value"), Some(&b"#ff0000"[..]));
+}
+
+/// A color field's default is `"#rrggbb"`; anything else is said.
+#[test]
+fn a_color_field_s_default_is_checked() {
+    let dir = mg_testkit::scratch_dir("plugin-color-default");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"t.color\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.8\"\nlicense = \"MIT\"\n\n\
+         [command]\nid = \"go\"\ntitle = \"Go\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"go\", function(ctx)\n  \
+         ctx.ui:form({ fields = { { id = \"c\", type = \"color\", default = \"blue\" } } })\nend)\n",
+    )
+    .unwrap();
+    let plugin = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let e = run_command(&plugin, "go", input(&module()), host).unwrap_err();
+    assert!(e.to_string().contains("\"#rrggbb\", not \"blue\""), "{e}");
+}
+
 #[test]
 fn set_local_acts_on_the_selection() {
     use mg_core::ResRef;

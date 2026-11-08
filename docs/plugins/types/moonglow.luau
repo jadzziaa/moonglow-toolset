@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.7, for editors that check
+-- The types of Moonglow's plugin API, version 0.8, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -29,11 +29,14 @@ export type Finding = {
 export type FormField = {
     id: string,
     label: string?,
-    type: ("text" | "number" | "check" | "choice")?,
+    type: ("text" | "number" | "check" | "choice" | "color")?,
     default: any?,
     min: number?,
     max: number?,
     choices: { string }?,
+    -- A color's (API 0.8): the string variable the objects are drawn with
+    -- while it is picked.
+    variable: string?,
 }
 
 export type Form = { title: string?, fields: { FormField } }
@@ -351,7 +354,7 @@ export type Element = string | {
 
 local mg = {}
 
-mg.api = "0.7"
+mg.api = "0.8"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.

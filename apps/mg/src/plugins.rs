@@ -150,6 +150,17 @@ impl CliHost {
                             json!(choices[*default])
                         }
                     },
+                    (FieldKind::Color { default, .. }, g) => {
+                        let c = match g.map(|g| mg_plugin::color_of(g).ok_or(g)) {
+                            None => *default,
+                            Some(Ok(c)) => c,
+                            Some(Err(g)) => {
+                                fault(format!("{g:?} is not a color, #rrggbb"));
+                                *default
+                            }
+                        };
+                        json!(mg_plugin::color_text(c))
+                    }
                 };
                 values.insert(f.id.clone(), value);
             }

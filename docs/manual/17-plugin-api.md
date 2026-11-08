@@ -3,12 +3,12 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels, ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:19:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.7. The API is
+Everything a plugin's code can use, for plugin API 0.8. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,7 +29,7 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.7"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.8"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
@@ -612,10 +612,28 @@ A form's **field** is a table:
 | --- | --- |
 | `id` | The key its value comes back under. Needed, and different for each. |
 | `label` | What it is called in the form; else its id. |
-| `type` | `"text"` (as when left out), `"number"`, `"check"` or `"choice"`. |
-| `default` | What it starts with: text, a number, true or false, or one of the choices. |
+| `type` | `"text"` (as when left out), `"number"`, `"check"`, `"choice"` or (since API 0.8) `"color"`. |
+| `default` | What it starts with: text, a number, true or false, one of the choices, or a color as `"#rrggbb"` (white when left out). |
 | `min`, `max` | A number's limits. |
 | `choices` | A choice's options, a list of texts; needed for one. Its value is the text chosen. |
+| `variable` | A color's (API 0.8): the name of a string variable. While the color is being picked (its picker open), the placed objects the command was run on are drawn in the area with that variable set to it, as the Variables page's picker draws them (The Domains of Dread's `tdod_tint`); nothing is set by it, and the plugin sets what it chose once the form comes back. |
+
+A color's value is `"#rrggbb"`, in lower case: the color the swatch's
+picker (the one the Properties windows have) was left at.
+
+```lua
+local answers = ctx.ui:form({
+  title = "Tint",
+  fields = {
+    { id = "tint", label = "Color", type = "color", default = "#2a4d8f", variable = "tdod_tint" },
+  },
+})
+-- answers.tint is "#rrggbb", or answers is nil: closed without OK.
+```
+
+The example plugin `pick-tint` (in `docs/plugins/examples`) is such a
+command in a placed placeable's right-click menu: it starts from the
+placeable's own `tdod_tint` and sets what was picked.
 
 A `file`, and a `folder`: what the user chose, and nothing else of
 their disk. A file in a folder is named by its path from the folder,

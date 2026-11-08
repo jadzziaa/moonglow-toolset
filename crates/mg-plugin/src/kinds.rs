@@ -234,6 +234,11 @@ fn default_to(kind: &mut FieldKind, v: &serde_json::Value) {
                 *default = i;
             }
         }
+        FieldKind::Color { default, .. } => {
+            if let Some(c) = v.as_str().and_then(crate::color_of) {
+                *default = c;
+            }
+        }
     }
 }
 

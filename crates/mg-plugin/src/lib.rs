@@ -243,6 +243,13 @@ pub enum FieldKind {
         choices: Vec<String>,
         default: usize,
     },
+    /// A color (API 0.8), its value `"#rrggbb"`. `variable`: a string
+    /// variable the objects the job was given are drawn with, set to the
+    /// color, while it is being picked (nothing is set by it).
+    Color {
+        default: [u8; 3],
+        variable: Option<String>,
+    },
 }
 
 impl FieldKind {
@@ -253,8 +260,26 @@ impl FieldKind {
             FieldKind::Number { default, .. } => serde_json::json!(default),
             FieldKind::Check { default } => serde_json::json!(default),
             FieldKind::Choice { choices, default } => serde_json::json!(choices[*default]),
+            FieldKind::Color { default, .. } => serde_json::json!(color_text(*default)),
         }
     }
+}
+
+/// A color as a color field gives it: `"#rrggbb"`, in lower case.
+pub fn color_text([r, g, b]: [u8; 3]) -> String {
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+/// A color from `"#rrggbb"` (the `#` may be left out, any case), as a
+/// color field takes one; `None` for anything else.
+pub fn color_of(text: &str) -> Option<[u8; 3]> {
+    let t = text.trim();
+    let hex = t.strip_prefix('#').unwrap_or(t);
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+    Some([byte(0)?, byte(2)?, byte(4)?])
 }
 
 /// Something a plugin asks of the user.

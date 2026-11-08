@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:19:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,33 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.8
+
+In Moonglow 3.16.0. Only an addition: a plugin written for 0.7 or
+before runs as it is. A plugin that uses a color field says
+`api = "0.8"`, so that an older Moonglow refuses it with the reason
+rather than failing at the form.
+
+- A form's field (`ctx.ui:form`, a wizard's page) may be a **color**:
+  `type = "color"`, its `default` and its value `"#rrggbb"`. Its swatch
+  opens the picker the Properties windows have (paste a color into it,
+  copy one out). With `variable`, the name of a string variable, the
+  placed objects the command was run on are drawn in the area with that
+  variable set to the color while it is being picked, as the Variables
+  page draws a tint being picked; nothing is set until the plugin sets
+  it. `mg plugin run` takes one as `--answer ID=#rrggbb`. The example
+  `pick-tint` is a right-click command that picks a placeable's
+  `tdod_tint`.
+
+  ```lua
+  local answers = ctx.ui:form({
+    title = "Tint",
+    fields = {
+      { id = "tint", label = "Color", type = "color", default = "#2a4d8f", variable = "tdod_tint" },
+    },
+  })
+  ```
 
 ## 0.7
 

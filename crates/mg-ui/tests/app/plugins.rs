@@ -733,6 +733,60 @@ fn a_plugin_asks_in_its_job_s_window() {
     assert_eq!(tag_of(&mut h, &key), "NPC_GATE_GUARD");
 }
 
+/// API 0.8: a form's color field (the example `pick-tint`, run on a
+/// placed placeable): its swatch's picker, the color drawn on the
+/// placeable while it is picked (the field's `variable`) and nothing set;
+/// OK, and the plugin sets it.
+#[test]
+fn a_plugin_s_color_field_is_drawn_on_the_objects_while_picked() {
+    let Some((mut h, area)) = area_harness("plugin-color") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.pick-tint", true);
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
+    h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Area(area));
+    h.state_mut().background_jobs = true;
+    h.run();
+    h.state_mut().run_plugin_command("example.pick-tint", "pick-tint");
+    let started = std::time::Instant::now();
+    while h.query_by_label("Pick tint: Tint").is_none() && h.query_by_label("Color").is_none() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "no form");
+    }
+    h.run_steps(3);
+    assert!(h.get_all_by_label("#ffffff").next().is_some(), "the placeable's own, first");
+    let white = vec![1.0, 1.0, 1.0, 1.0];
+    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    drag_picker(&mut h, well, 0.0, 80.0);
+    let picked = drawn_tint(&h, area).expect("drawn with a tint");
+    assert_ne!(picked, white, "the color being picked, drawn");
+    assert_eq!(variables(&mut h, &git, Some(("Placeable List", 0))), ["tdod_tint = #ffffff"]);
+    click_away(&mut h, egui::pos2(5.0, 700.0));
+    h.get_by_label("OK").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(3);
+    let set = variables(&mut h, &git, Some(("Placeable List", 0)));
+    assert_eq!(set.len(), 1);
+    assert_ne!(set[0], "tdod_tint = #ffffff", "set as picked");
+    assert!(h.state().ws.as_ref().unwrap().can_undo().is_some_and(|l| l.starts_with("Tint #")));
+    assert_eq!(drawn_tint(&h, area), Some(picked), "drawn as set");
+    // (The window's work on its threads done before the GPU goes.)
+    h.state_mut().background_jobs = false;
+    settle(&mut h);
+}
+
 #[test]
 fn the_plugin_console_runs_what_is_typed() {
     let Some((mut h, key)) = plugin_harness("ui-plugin-console", false) else { return };

@@ -787,9 +787,25 @@ pub(crate) fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
                     wanted.and_then(|w| choices.iter().position(|c| *c == w)).unwrap_or(0);
                 FieldKind::Choice { choices, default }
             }
+            "color" => {
+                let default = match f.get::<Option<String>>("default")? {
+                    None => [255; 3],
+                    Some(text) => match crate::color_of(&text) {
+                        Some(c) => c,
+                        None => {
+                            return fail(format!(
+                                "the color {id:?}'s default is \"#rrggbb\", not {text:?}"
+                            ));
+                        }
+                    },
+                };
+                let variable = f.get::<Option<String>>("variable")?.filter(|v| !v.is_empty());
+                FieldKind::Color { default, variable }
+            }
             other => {
                 return fail(format!(
-                    "a form's field is \"text\", \"number\", \"check\" or \"choice\", not {other:?}"
+                    "a form's field is \"text\", \"number\", \"check\", \"choice\" or \
+                     \"color\", not {other:?}"
                 ));
             }
         };

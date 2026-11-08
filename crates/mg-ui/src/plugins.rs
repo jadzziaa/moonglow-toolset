@@ -1806,6 +1806,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
         app.plugins.form = None;
         return false;
     };
+    let mut picked = None;
     match &question {
         Question::Message(text) => {
             ui.label(text);
@@ -1831,7 +1832,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             if !title.is_empty() {
                 crate::widgets::section_heading(ui, title);
             }
-            form_grid(ui, fields, values);
+            picked = form_grid(ui, fields, values);
             ui.add_space(6.0);
             let mut done = None;
             ui.horizontal(|ui| {
@@ -1884,7 +1885,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 ui.label(&page.text);
             }
             ui.add_space(6.0);
-            form_grid(ui, &page.fields, values);
+            picked = form_grid(ui, &page.fields, values);
             if let Some(error) = &page.error {
                 ui.add_space(4.0);
                 ui.colored_label(ui.visuals().error_fg_color, error);
@@ -1932,6 +1933,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             });
         }
     }
+    preview_picked(app, picked);
     true
 }
 
@@ -1950,8 +1952,32 @@ fn form_values<'a>(
     &mut app.plugins.form.get_or_insert_with(|| (question.clone(), Vec::new())).1
 }
 
-/// A form's fields, each with its label, and what was typed into them.
-fn form_grid(ui: &mut egui::Ui, fields: &[mg_plugin::FormField], values: &mut [serde_json::Value]) {
+/// A form's color being picked for a variable (a color field's
+/// `variable`, API 0.8): the job's placed objects (those selected, as the
+/// window is held while it runs) drawn with it set to the color, as the
+/// Variables page's picker draws them; nothing is set.
+fn preview_picked(app: &mut Moonglow, picking: Option<(String, [u8; 3])>) {
+    let Some((variable, rgb)) = picking else { return };
+    let value = mg_plugin::color_text(rgb);
+    for s in app.plugin_selection() {
+        let mg_plugin::Selected::Object { .. } = s else { continue };
+        let (key, path) = s.place();
+        let Some(Ok(doc)) = app.ws.as_mut().map(|ws| ws.doc(&key)) else { continue };
+        let Some(o) = path.get(&doc.root) else { continue };
+        let list = o.list("VarTable").unwrap_or(&[]);
+        let set = crate::blueprint::tint::with_local(list, &variable, Some(&value));
+        app.var_preview_next.push((key, path, set));
+    }
+}
+
+/// A form's fields, each with its label, and what was typed into them;
+/// a color being picked for a variable (its field's `variable`).
+fn form_grid(
+    ui: &mut egui::Ui,
+    fields: &[mg_plugin::FormField],
+    values: &mut [serde_json::Value],
+) -> Option<(String, [u8; 3])> {
+    let mut picking = None;
     egui::Grid::new("plugin-form").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (f, value) in fields.iter().zip(values.iter_mut()) {
             crate::widgets::field_label(ui, &f.label);
@@ -1979,10 +2005,29 @@ fn form_grid(ui: &mut egui::Ui, fields: &[mg_plugin::FormField], values: &mut [s
                         .show(ui, &mut chosen, choices, Clone::clone);
                     *value = serde_json::json!(chosen);
                 }
+                FieldKind::Color { default, variable } => {
+                    let mut rgb = value.as_str().and_then(mg_plugin::color_of).unwrap_or(*default);
+                    ui.horizontal(|ui| {
+                        let open = ui
+                            .push_id(("plugin-form-color", &f.id), |ui| {
+                                let popup = ui.auto_id_with("popup");
+                                crate::color_button::edit_srgb(ui, &mut rgb)
+                                    .on_hover_text("Pick the color");
+                                egui::Popup::is_id_open(ui.ctx(), popup)
+                            })
+                            .inner;
+                        ui.monospace(mg_plugin::color_text(rgb));
+                        if open && let Some(v) = variable {
+                            picking = Some((v.clone(), rgb));
+                        }
+                    });
+                    *value = serde_json::json!(mg_plugin::color_text(rgb));
+                }
             }
             ui.end_row();
         }
     });
+    picking
 }
 
 /// Tools › Plugins: the plugins installed, each to enable; where they are

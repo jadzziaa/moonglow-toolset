@@ -3,7 +3,7 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:04:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
 ---
 
 # Plugins: for authors
@@ -43,6 +43,10 @@ What a plugin author needs besides the manual:
     menus of objects and areas (API 0.4), run on what was clicked: a
     local variable set on the objects or blueprints selected, and an
     area's objects counted.
+  - [`pick-tint`](examples/pick-tint): a color field (API 0.8). A
+    placed placeable's right-click command that asks for its tint
+    (The Domains of Dread's `tdod_tint`), drawn on the placeables while
+    it is picked, and sets it.
   - [`creature-report`](examples/creature-report): reading the game's
     data (a 2DA and the talk table).
   - [`creature-sheet`](examples/creature-sheet): an exporter and an
