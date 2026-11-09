@@ -300,6 +300,42 @@ pub struct Made {
     removed: Vec<((ResKey, GffPath, String), usize)>,
 }
 
+/// A list: its resource, the path of its struct and its label, as Verify
+/// read them.
+type ListAt = (ResKey, GffPath, String);
+
+/// The items one fix took out so far, by their list: their places as
+/// Verify read them. A fix's edits run one after another, so an edit
+/// after a removal has its places as the removal left them: these turn
+/// them back.
+#[derive(Debug, Default)]
+struct Removed(HashMap<ListAt, Vec<usize>>);
+
+impl Removed {
+    /// The place Verify read of what is at `index` of the list now.
+    fn index_then(&self, at: &ListAt, index: usize) -> usize {
+        let mut earlier = self.0.get(at).cloned().unwrap_or_default();
+        earlier.sort_unstable();
+        earlier.into_iter().fold(index, |then, gone| then + usize::from(gone <= then))
+    }
+
+    /// The path Verify read of what is at `path` now.
+    fn path_then(&self, key: &ResKey, path: &GffPath) -> GffPath {
+        let mut then = GffPath::root();
+        for step in &path.0 {
+            let step = match step {
+                Step::Field(_) => step.clone(),
+                Step::Item(list, i) => {
+                    let at = (*key, then.clone(), list.clone());
+                    Step::Item(list.clone(), self.index_then(&at, *i))
+                }
+            };
+            then.0.push(step);
+        }
+        then
+    }
+}
+
 /// What a Verify's fixes were worked out on: each resource one of them
 /// touches, as Verify read it. A fix is made only while each of its
 /// resources is as it was then, or has changed since only by fixes of the
@@ -353,35 +389,52 @@ impl Guard {
             format!("{key}: another fix took out what this fixes: run Verify again for a fix")
         };
         let mut edits = Vec::new();
+        // (The fix's own edits run one after another: what it took out
+        // before an edit moves that edit's places too.)
+        let mut own = Removed::default();
         for e in &fix.edits {
             let key = *e.key();
-            let path_now = |path: &GffPath| self.path_now(&key, path).ok_or_else(|| gone(&key));
-            let before = |path: &GffPath, list: &str, index: usize| {
-                let r = self.removed.get(&(key, path.clone(), list.to_string()));
-                r.map_or(0, |r| r.iter().filter(|i| **i < index).count())
+            let path_now =
+                |then: &GffPath| self.path_now(&own, &key, then).ok_or_else(|| gone(&key));
+            // How many items before place `index` (as Verify read it) of a
+            // list are out: other fixes', and this one's so far.
+            let before = |at: &ListAt, index: usize| {
+                let below = |r: Option<&Vec<usize>>| {
+                    r.map_or(0, |r| r.iter().filter(|i| **i < index).count())
+                };
+                below(self.removed.get(at)) + below(own.0.get(at))
             };
             edits.push(match e {
                 Edit::SetField { path, label, value, .. } => {
+                    let then = own.path_then(&key, path);
                     // (A list set whole, which held an item taken out:
                     // set as it was, it would put the item back.)
-                    if self.removed.contains_key(&(key, path.clone(), label.clone())) {
+                    if self.removed.contains_key(&(key, then.clone(), label.clone())) {
                         return Err(gone(&key));
                     }
-                    let path_then = path;
-                    let path = path_now(path_then)?;
+                    let path = path_now(&then)?;
                     Edit::SetField { key, path, label: label.clone(), value: value.clone() }
                 }
                 Edit::RemoveItem { path, list, index, .. } => {
-                    let r = self.removed.get(&(key, path.clone(), list.clone()));
-                    if r.is_some_and(|r| r.contains(index)) {
+                    let at = (key, own.path_then(&key, path), list.clone());
+                    let then = own.index_then(&at, *index);
+                    if self.removed.get(&at).is_some_and(|r| r.contains(&then)) {
                         return Err(gone(&key));
                     }
-                    let index = index - before(path, list, *index);
-                    Edit::remove_item(key, path_now(path)?, list.clone(), index)
+                    let now = Edit::remove_item(
+                        key,
+                        path_now(&at.1)?,
+                        list.clone(),
+                        then - before(&at, then),
+                    );
+                    own.0.entry(at).or_default().push(then);
+                    now
                 }
                 Edit::InsertItem { path, list, index, item, .. } => {
-                    let index = index - before(path, list, *index);
-                    Edit::insert_item(key, path_now(path)?, list.clone(), index, item.clone())
+                    let at = (key, own.path_then(&key, path), list.clone());
+                    let then = own.index_then(&at, *index);
+                    let index = then - before(&at, then);
+                    Edit::insert_item(key, path_now(&at.1)?, list.clone(), index, item.clone())
                 }
                 Edit::SetResource { .. } => e.clone(),
             });
@@ -390,20 +443,23 @@ impl Guard {
     }
 
     /// Where a path Verify read leads now that fixes took items out (none:
-    /// through one taken out).
-    fn path_now(&self, key: &ResKey, path: &GffPath) -> Option<GffPath> {
+    /// through one another fix took out): `own` holds what the fix being
+    /// made took out itself so far.
+    fn path_now(&self, own: &Removed, key: &ResKey, path: &GffPath) -> Option<GffPath> {
         let (mut then, mut now) = (GffPath::root(), GffPath::root());
         for step in &path.0 {
             let step_now = match step {
                 Step::Field(_) => step.clone(),
                 Step::Item(list, i) => {
-                    match self.removed.get(&(*key, then.clone(), list.clone())) {
-                        Some(r) if r.contains(i) => return None,
-                        Some(r) => {
-                            Step::Item(list.clone(), i - r.iter().filter(|x| *x < i).count())
-                        }
-                        None => step.clone(),
+                    let at = (*key, then.clone(), list.clone());
+                    let others = self.removed.get(&at);
+                    if others.is_some_and(|r| r.contains(i)) {
+                        return None;
                     }
+                    let below = |r: Option<&Vec<usize>>| {
+                        r.map_or(0, |r| r.iter().filter(|x| *x < i).count())
+                    };
+                    Step::Item(list.clone(), i - below(others) - below(own.0.get(&at)))
                 }
             };
             then.0.push(step.clone());
@@ -430,11 +486,17 @@ impl Guard {
             made.seen.push((key, was));
         }
         if follows {
+            // (Each place as Verify read it, not as the edit has it: the
+            // second of a fix's two removals at one place took out the
+            // item after the first's.)
+            let mut own = Removed::default();
             for e in &fix.edits {
                 if let Edit::RemoveItem { key, path, list, index } = e {
-                    let at = (*key, path.clone(), list.clone());
-                    self.removed.entry(at.clone()).or_default().push(*index);
-                    made.removed.push((at, *index));
+                    let at = (*key, own.path_then(key, path), list.clone());
+                    let then = own.index_then(&at, *index);
+                    own.0.entry(at.clone()).or_default().push(then);
+                    self.removed.entry(at.clone()).or_default().push(then);
+                    made.removed.push((at, then));
                 }
             }
         }
@@ -572,6 +634,70 @@ mod tests {
         assert_eq!(git, [var("rooms", 6), var("lit", 1)]);
         assert!(ws.doc(&key("inn.are")).unwrap().root.get("VarTable").is_none());
         assert_eq!(ws.can_undo(), Some("Move the variables to the GIT"));
+    }
+
+    /// A fix that takes two items out one after the other at one place (a
+    /// plugin's "remove 3, remove 3" for items 3 and 4): the places noted
+    /// are those Verify read, so a fix on the second of them is refused
+    /// and one on a later item follows to where that item is (it was let
+    /// through onto the object two places on).
+    #[test]
+    fn a_fix_s_removals_one_after_another_are_followed_by_the_others() {
+        let mut m = module();
+        let git = key("inn.git");
+        let mut g = m.gff(&git).unwrap().unwrap();
+        let tags = ["P0", "P1", "P2", "P3", "P4", "P5", "P6"];
+        g.root.set("Placeable List", Value::List(tags.iter().map(|t| tagged(t)).collect()));
+        m.set_gff(git, &g).unwrap();
+        let remove = |index| Edit::remove_item(git, GffPath::root(), "Placeable List", index);
+        let fix = |label: &str, edits| Fix { label: label.into(), edits, asks: None };
+        let retag = |index: usize| {
+            let path = GffPath::root().item("Placeable List", index);
+            let value = Some(Value::String(b"NEW".to_vec()));
+            fix("Retag", vec![Edit::SetField { key: git, path, label: "Tag".into(), value }])
+        };
+        let two = fix("Remove two", vec![remove(3), remove(3)]);
+        let (on_third, on_fourth, on_fifth) = (retag(3), retag(4), retag(5));
+        let (take_fourth, take_last) = (fix("Take", vec![remove(4)]), fix("Take", vec![remove(6)]));
+        // (One that takes item 1 out and then sets what was item 2.)
+        let own_path = {
+            let path = GffPath::root().item("Placeable List", 1);
+            let value = Some(Value::String(b"TWO".to_vec()));
+            let set = Edit::SetField { key: git, path, label: "Tag".into(), value };
+            fix("Take and set", vec![remove(1), set])
+        };
+        let all = [&two, &on_third, &on_fourth, &on_fifth, &take_fourth, &take_last, &own_path];
+        let mut guard = Guard::new(&m, all);
+        let mut ws = Workspace::new(m);
+        let now = guard.check(&mut ws, &two).unwrap();
+        assert_eq!(now, two, "its own places are as it has them");
+        ws.apply(now.command()).unwrap();
+        let made = guard.made(&mut ws, &two);
+        let tags_now = |ws: &mut Workspace| -> Vec<String> {
+            let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap();
+            list.iter().map(|p| String::from_utf8_lossy(p.string("Tag").unwrap()).into()).collect()
+        };
+        assert_eq!(tags_now(&mut ws), ["P0", "P1", "P2", "P5", "P6"]);
+        for gone in [&on_third, &on_fourth, &take_fourth] {
+            let err = guard.check(&mut ws, gone).unwrap_err();
+            assert!(err.contains("another fix took out"), "{err}");
+        }
+        // The fifth is two places up, and so is the last.
+        let now = guard.check(&mut ws, &on_fifth).unwrap();
+        assert_eq!(now, retag(3));
+        assert_eq!(guard.check(&mut ws, &take_last).unwrap().edits, [remove(4)]);
+        // A fix's own later edit keeps its place as the fix has it, less
+        // what the others took out before it.
+        let now = guard.check(&mut ws, &own_path).unwrap();
+        assert_eq!(now, own_path);
+        ws.apply(now.command()).unwrap();
+        guard.made(&mut ws, &own_path);
+        assert_eq!(tags_now(&mut ws), ["P0", "TWO", "P5", "P6"]);
+        assert_eq!(guard.check(&mut ws, &take_last).unwrap().edits, [remove(3)]);
+        assert!(guard.check(&mut ws, &retag(1)).is_err(), "item 1 is out");
+        // What the first noted is taken back by the places Verify read.
+        guard.unmade(&made);
+        assert_eq!(guard.removed.values().cloned().collect::<Vec<_>>(), [vec![1]]);
     }
 
     #[test]
