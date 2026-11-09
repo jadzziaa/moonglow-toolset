@@ -148,6 +148,16 @@ impl Default for Module {
     }
 }
 
+/// [`Module::area_list_settled`]'s two `module.ifo`s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettledAreaList {
+    /// The module's own, with the areas added: what the module holds now.
+    pub module: Arc<[u8]>,
+    /// The one its file stands for, with the areas added: what a save
+    /// compares with.
+    pub read: Arc<[u8]>,
+}
+
 impl Module {
     /// An empty, unsaved module.
     pub fn new() -> Module {
@@ -884,21 +894,33 @@ impl Module {
     /// A nasher project's area list settled again after its files changed
     /// outside Moonglow (areas a pull added that `module.ifo` doesn't list
     /// yet are listed after the others, as when the project is opened,
-    /// unless its `removeUnusedAreas` is off), counted as read: its
-    /// `module.ifo` as it is now, for the workspace to take as one changed
-    /// outside (`Workspace::adopt`, which puts it in the module); `None`
-    /// where nothing changed. The module itself is left as it is.
-    pub fn area_list_settled(&mut self) -> Option<Arc<[u8]>> {
+    /// unless its `removeUnusedAreas` is off): its `module.ifo` as it is
+    /// now with them, for the workspace to take, and the one its file
+    /// stands for with them, which counts as read from now on (the list's
+    /// change is written only with other changes to `module.ifo`). The two
+    /// differ where `module.ifo` has changes not yet saved, which a save
+    /// must still write: they were lost when the module's own counted as
+    /// read. `None` where nothing changed. The module itself is left as
+    /// it is.
+    pub fn area_list_settled(&mut self) -> Option<SettledAreaList> {
         let project = self.project.as_mut()?;
         let info = Module::info_key();
-        let was = self.resources.get(&info)?.clone();
         let mut these: nasher::Resources = (self.resources.iter())
             .filter(|(k, _)| k.restype == ResType::ARE || **k == info)
             .map(|(k, v)| (*k, v.clone()))
             .collect();
-        project.settle_area_list(&mut these);
-        let now = these.get(&info)?;
-        (!Arc::ptr_eq(&was, now)).then(|| now.clone())
+        let module = project.area_list_of(&these, true)?;
+        // What the file stands for, where the module has moved on from it.
+        let unsaved = project.as_read(&info).filter(|r| *r != &these[&info][..]).map(Arc::from);
+        let read = match unsaved {
+            Some(read) => {
+                these.insert(info, read);
+                project.area_list_of(&these, false)?
+            }
+            None => module.clone(),
+        };
+        project.stands_for(&info, read.clone());
+        Some(SettledAreaList { module, read })
     }
 
     /// Puts the locks kept apart from a nasher project's files

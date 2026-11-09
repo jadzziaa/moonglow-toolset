@@ -840,11 +840,24 @@ impl Project {
     /// The change counts as read, so it is written only with other changes
     /// to `module.ifo`.
     pub(crate) fn settle_area_list(&mut self, resources: &mut Resources) {
+        let Some(bytes) = self.area_list_of(resources, true) else { return };
+        let info_key = crate::Module::info_key();
+        resources.insert(info_key, bytes.clone());
+        if let Some(s) = self.sources.get_mut(&info_key) {
+            s.resource = bytes;
+        }
+    }
+
+    /// `resources`' `module.ifo` with the areas it doesn't list added to
+    /// its list ([`Project::settle_area_list`]); `None` where it lists
+    /// them all, or the project keeps unlisted areas out. `warn`: said
+    /// among the project's warnings.
+    pub(crate) fn area_list_of(&mut self, resources: &Resources, warn: bool) -> Option<Arc<[u8]>> {
         if !self.settings.remove_unused_areas {
-            return;
+            return None;
         }
         let info_key = crate::Module::info_key();
-        let Some(Ok(mut info)) = resources.get(&info_key).map(|b| Gff::read(b)) else { return };
+        let mut info = resources.get(&info_key).map(|b| Gff::read(b))?.ok()?;
         let listed: Vec<ResRef> = info
             .root
             .items(&ifo::MOD_AREA_LIST)
@@ -857,7 +870,7 @@ impl Project {
             .map(|k| k.resref)
             .collect();
         if added.is_empty() {
-            return;
+            return None;
         }
         added.sort();
         let list = info.root.items_mut(&ifo::MOD_AREA_LIST);
@@ -866,16 +879,13 @@ impl Project {
             s.write(&ifo::mod_area_list::AREA_NAME, *a);
             list.push(s);
         }
-        self.warnings.push(format!(
-            "module.ifo: areas added to the area list: {}",
-            added.iter().map(|r| r.to_string()).collect::<Vec<_>>().join(", ")
-        ));
-        let Ok(bytes) = info.to_bytes() else { return };
-        let bytes: Arc<[u8]> = Arc::from(bytes);
-        resources.insert(info_key, bytes.clone());
-        if let Some(s) = self.sources.get_mut(&info_key) {
-            s.resource = bytes;
+        if warn {
+            self.warnings.push(format!(
+                "module.ifo: areas added to the area list: {}",
+                added.iter().map(|r| r.to_string()).collect::<Vec<_>>().join(", ")
+            ));
         }
+        Some(Arc::from(info.to_bytes().ok()?))
     }
 
     /// A resource's source file contents. An area's objects' lock byte
@@ -1436,6 +1446,62 @@ mod tests {
         let (changes, _) = m.outside().unwrap();
         let again = changes.iter().find(|c| c.key == script).unwrap();
         assert_eq!(again.resource.as_deref(), Some(&b"void main() { int four, more; }\n"[..]));
+    }
+
+    /// A pull that adds an area has it listed in `module.ifo`, and the
+    /// listed file counts as read. Where Module Properties had changes
+    /// not yet saved, the module's own `module.ifo` counted as read with
+    /// them, and the next Save passed it over: the changes were gone at
+    /// the next open (the review of November 2026, P1).
+    #[test]
+    fn an_area_added_outside_leaves_unsaved_module_properties_to_be_saved() {
+        let root = scratch("outside-area-unsaved-ifo");
+        module().save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let info = Module::info_key();
+        let tag =
+            |m: &Module| m.gff(&info).unwrap().unwrap().root.string("Mod_Tag").map(<[u8]>::to_vec);
+        // Module Properties changed, not saved.
+        let mut ifo = m.gff(&info).unwrap().unwrap();
+        ifo.root.set("Mod_Tag", mg_gff::Value::String(b"CHANGED".to_vec()));
+        m.set(info, ifo.to_bytes().unwrap());
+        // An area's files added outside, taken as the window takes them.
+        for ext in ["are", "git"] {
+            let from = root.join(format!("src/a1.{ext}.json"));
+            std::fs::copy(from, root.join(format!("src/pulled.{ext}.json"))).unwrap();
+        }
+        let (changes, _) = m.outside().unwrap();
+        assert_eq!(changes.len(), 2);
+        for c in &changes {
+            m.took(c);
+            m.set(c.key, c.resource.clone().unwrap());
+        }
+        let settled = m.area_list_settled().expect("the area is listed");
+        assert_ne!(settled.module, settled.read, "the module's has the change, the file's not");
+        m.set(info, settled.module);
+        assert_eq!(tag(&m).as_deref(), Some(&b"CHANGED"[..]));
+        m.save().unwrap();
+        let again = Module::open(&root).unwrap();
+        assert_eq!(tag(&again).as_deref(), Some(&b"CHANGED"[..]), "saved with the area list");
+        let listed = again.gff(&info).unwrap().unwrap();
+        let areas: Vec<_> = (listed.root.items(&ifo::MOD_AREA_LIST).iter())
+            .filter_map(|a| a.try_read(&ifo::mod_area_list::AREA_NAME))
+            .map(|r| r.to_string())
+            .collect();
+        assert!(areas.contains(&"pulled".to_string()), "{areas:?}");
+
+        // With nothing unsaved the two are one, and a save writes nothing
+        // of it (the list's change waits for another).
+        std::fs::copy(root.join("src/a1.are.json"), root.join("src/more.are.json")).unwrap();
+        std::fs::copy(root.join("src/a1.git.json"), root.join("src/more.git.json")).unwrap();
+        let mut m = again;
+        let (changes, _) = m.outside().unwrap();
+        for c in &changes {
+            m.took(c);
+            m.set(c.key, c.resource.clone().unwrap());
+        }
+        let settled = m.area_list_settled().unwrap();
+        assert_eq!(settled.module, settled.read);
     }
 
     /// Where the system named the files that changed (a watch), only they

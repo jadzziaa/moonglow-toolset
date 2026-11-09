@@ -1,0 +1,8 @@
+newmodel kid
+setsupermodel kid base
+beginmodelgeom kid
+node dummy kid
+  parent NULL
+endnode
+endmodelgeom kid
+donemodel kid

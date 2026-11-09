@@ -577,9 +577,20 @@ impl Moonglow {
         let added_area =
             changes.iter().any(|c| c.key.restype == ResType::ARE && c.resource.is_some());
         let mut keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
-        if added_area && let Some(info) = ws.module.area_list_settled() {
+        // (Flushed first: `module.ifo` as its editors have it is what the
+        // list is settled on, and what stays to be saved.)
+        if added_area && let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+        } else if added_area && let Some(settled) = ws.module.area_list_settled() {
             let key = mg_module::Module::info_key();
-            if let Err(e) = ws.adopt(&[(key, Some(info))]) {
+            // (What the file stands for counts as saved; Module Properties'
+            // changes not yet saved stay the module's, to be written.)
+            let mine = (settled.module != settled.read).then_some(settled.module);
+            let taken = ws.adopt(&[(key, Some(settled.read))]).and_then(|_| match mine {
+                Some(mine) => ws.derive(|m| m.set(key, mine)),
+                None => Ok(()),
+            });
+            if let Err(e) = taken {
                 self.log.error(e.to_string());
             }
             keys.push(key);
