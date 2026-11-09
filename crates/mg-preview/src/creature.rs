@@ -390,7 +390,10 @@ pub(crate) fn dressed(
 /// applies whatever the model names; and for one that is missing, the
 /// game's fallbacks: the part's own name → phenotype 0 → human of the
 /// same gender → human male; then the same from the texture's name.
-fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn plt_fallbacks(
+    lk: &Lookup<'_>,
+    model: &str,
+) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks.
     let named = |name: &str| -> Vec<String> {
         let Some((prefix, rest)) = name.split_once('_') else { return Vec::new() };

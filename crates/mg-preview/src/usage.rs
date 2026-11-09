@@ -895,7 +895,7 @@ impl<'a> Walk<'a> {
                         if ResKey::parse(&name, ResType::MDL)
                             .is_some_and(|k| self.rm().contains(&k))
                         {
-                            self.gather.add_model(&name);
+                            self.body_part(&name);
                         }
                     }
                 }
@@ -982,8 +982,9 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// An item's models (`placed`: as it lies, drawn already) and their
-    /// icons; armor's parts and a cloak as anyone may wear them.
+    /// An item's models (`placed`: it lies in an area, and what it lies as
+    /// is gathered already) and their icons; armor's parts and a cloak as
+    /// anyone may wear them.
     fn item(&mut self, s: &Struct, placed: bool) {
         let base = s.integer("BaseItem").unwrap_or(-1);
         let mut armor = false;
@@ -1024,7 +1025,13 @@ impl<'a> Walk<'a> {
         }
         let Ok(p) = crate::item(self.game, s) else { return };
         let p = crate::replaced(p, s);
-        if !placed {
+        // (One that lies as something else, a cloak folded, is drawn as
+        // this once it is picked up and worn: its cloakmodel.2da texture.)
+        let lies_as_another = || {
+            (std::iter::once(&p.base).chain(&p.parts))
+                .any(|part| armor_part(&part.model.to_ascii_lowercase()).is_some())
+        };
+        if !placed || lies_as_another() {
             self.gather.preview(&p);
         }
         for part in std::iter::once(&p.base).chain(&p.parts) {
@@ -1067,7 +1074,8 @@ impl<'a> Walk<'a> {
     }
 
     /// A part worn (`chest001`, `cloak_001`): its model for every gender,
-    /// part-based race and phenotype that has one, once.
+    /// part-based race and phenotype that has one, with the textures the
+    /// game draws on it, once.
     fn worn(&mut self, part: &str) {
         if !self.parts.insert(part.to_string()) {
             return;
@@ -1080,10 +1088,23 @@ impl<'a> Walk<'a> {
                 for ph in &phenotypes {
                     let variant = format!("p{g}{r}{ph}_{part}");
                     if ResKey::parse(&variant, ResType::MDL).is_some_and(|k| rm.contains(&k)) {
-                        self.gather.add_model(&variant);
+                        self.body_part(&variant);
                     }
                 }
             }
+        }
+    }
+
+    /// A body part's model (a head, an armor's part) and what the game
+    /// draws on it, as a creature's preview has it: the textures its
+    /// meshes name and, whatever they name, the part's own PLT (or its
+    /// fallbacks': phenotype 0's, the human's), which a mesh with `bitmap
+    /// NULL` takes too ([`crate::creature::plt_fallbacks`]).
+    fn body_part(&mut self, model: &str) {
+        self.gather.add_model(model);
+        let lk = crate::Lookup { game: self.game };
+        for texture in crate::creature::plt_fallbacks(&lk, model).values() {
+            self.gather.add_texture(mg_image::plt::split_colors(texture).0);
         }
     }
 
@@ -1512,6 +1533,75 @@ mod tests {
             assert_eq!(from.get(&key(n)).map(|f| f.to_string()).as_deref(), Some("a1.are"), "{n}");
         }
         assert_eq!(from.get(&key("mg_flag2.tga")), None);
+    }
+
+    /// A worn part and a creation-screen head are used with the texture
+    /// the game draws on them, not only the one their meshes name: a head
+    /// whose mesh has `bitmap NULL` with the PLT of its name, an elf's
+    /// chest whose mesh names the human's with the elf's own PLT, and a
+    /// cloak lying in an area with its cloakmodel.2da texture. They were
+    /// listed unused beside their models (the review's M6).
+    #[test]
+    fn a_part_s_own_texture_is_used_with_its_model() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(
+            key("appearance.2da"),
+            table("   LABEL MODELTYPE RACE\n0 Human P H\n1 Elf P E\n"),
+        );
+        stock.insert(key("racialtypes.2da"), table(" Label Appearance PlayerRace\n0 Human 0 1\n"));
+        stock.insert(
+            key("baseitems.2da"),
+            table(
+                " label ItemClass ModelType DefaultModel\n0 sword WSwSs 2 ****\n\
+                 1 armor AArmor 3 ****\n2 cloak Cloak 1 ****\n",
+            ),
+        );
+        stock
+            .insert(key("cloakmodel.2da"), table(" LABEL MODEL TEXTURE\n0 none 1 1\n1 Mine 3 7\n"));
+        let mut content = MemContainer::new();
+        content.insert(key("pmh0_head123.mdl"), model("pmh0_head123", "NULL"));
+        content.insert(key("pme0_chest009.mdl"), model("pme0_chest009", "pmh0_chest009"));
+        content.insert(key("pmh0_cloak_003.mdl"), model("pmh0_cloak_003", "cloak_001"));
+        let textures = [
+            "pmh0_head123.plt",
+            "pme0_chest009.plt",
+            "pmh0_chest009.plt",
+            "cloak_007.plt",
+            "pmh0_head124.plt",
+            "cloak_008.plt",
+        ];
+        for n in textures {
+            content.insert(key(n), &b"plt"[..]);
+        }
+        // A store with the armor, and a cloak lying in an area.
+        let mut armor = Struct::new(0);
+        armor.set("BaseItem", Value::Int(1));
+        armor.set("ArmorPart_Torso", Value::Byte(9));
+        let mut page = Struct::new(0);
+        page.set("ItemList", Value::List(vec![armor]));
+        let mut shop = Gff::new(*b"UTM ");
+        shop.root.set("StoreList", Value::List(vec![page]));
+        let mut cloak = Struct::new(0);
+        cloak.set("BaseItem", Value::Int(2));
+        cloak.set("ModelPart1", Value::Byte(1));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(mg_rules::ObjectKind::Item.list(), Value::List(vec![cloak]));
+        let resources =
+            vec![("shop.utm", shop.to_bytes().unwrap()), ("a1.git", git.to_bytes().unwrap())];
+        let (_, from) = walked(resources, content, stock);
+        let reached = |n: &str| from.get(&key(n)).map(|f| f.to_string());
+        assert_eq!(reached("pmh0_head123.mdl").as_deref(), Some("racialtypes.2da"));
+        assert_eq!(reached("pmh0_head123.plt").as_deref(), Some("racialtypes.2da"));
+        for n in ["pme0_chest009.mdl", "pme0_chest009.plt", "pmh0_chest009.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        for n in ["pmh0_cloak_003.mdl", "cloak_007.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("a1.git"), "{n}");
+        }
+        // (A head and a cloak row nothing has.)
+        assert_eq!(reached("pmh0_head124.plt"), None);
+        assert_eq!(reached("cloak_008.plt"), None);
     }
 
     /// What the walk followed only since the deferred sprint: a creature's

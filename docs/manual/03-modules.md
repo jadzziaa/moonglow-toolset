@@ -1585,7 +1585,12 @@ the game's script), and what that names in turn:
   and their inventory icons (an armor's, its parts' layers, a man's and
   a woman's), a weapon's hits and the model of its **Visual Effect**
   property; armor's parts and cloaks for every gender, part-based race
-  and phenotype that has a model of them, as anyone may wear them.
+  and phenotype that has a model of them, as anyone may wear them. A
+  part's model comes with the texture the game draws on it, which need
+  not be the one its mesh names: the PLT of the part's own name
+  (`pme0_chest009.plt` on an elf's chest whose mesh names the human's,
+  or on a head whose mesh names none), and a cloak's `cloakmodel.2da`
+  texture, also where the cloak lies in an area.
 - **A model's own files**: walkmeshes, textures (the DDS or TGA the game
   picks, and a PLT), materials and TXIs and what they name, its
   emitters' models and its supermodels.
@@ -1612,7 +1617,7 @@ the game's script), and what that names in turn:
   normal and large, unless a hak changes it), every head and the body
   parts the screen offers: part 1 of each, and part 2 of the chest,
   biceps, forearms and shins (its tattoos; the same for every race, and
-  read from no table); those races' portraits and the players' voice
+  read from no table), each with its texture as above; those races' portraits and the players' voice
   sets (soundset.2da's type 0).
 
 Each hak resource is then **used** (reached, and this hak's copy is the
