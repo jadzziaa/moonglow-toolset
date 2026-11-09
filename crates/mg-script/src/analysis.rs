@@ -745,18 +745,27 @@ impl Index {
         if new == decl.name {
             return Err("the new name is the old one".into());
         }
-        let places = self.references(decl, files, sources);
+        // The declaration was taken a while ago (a Rename window stays up
+        // while its script is edited): where it is no longer the name at
+        // its place, there is nothing to rename.
+        let changed = || format!("{} changed since it was chosen: choose it again", decl.name);
+        let Some(f) = self.file(&decl.at.file, sources) else { return Err(changed()) };
+        if f.text.get(decl.at.span.clone()) != Some(decl.name.as_str()) {
+            return Err(changed());
+        }
         if decl.kind == DeclKind::Member {
             // (Taken where the struct has a member of that name.)
-            let f = self.file(&decl.at.file, sources).expect("indexed");
-            let st = (f.outline.structs.iter())
+            let Some(st) = (f.outline.structs.iter())
                 .find(|s| s.members.iter().any(|m| m.span == decl.at.span))
-                .expect("the member's struct");
+            else {
+                return Err(changed());
+            };
             if st.members.iter().any(|m| m.name == new) {
                 return Err(format!("{new} is already a member of struct {}", st.name));
             }
-            return Ok(places);
+            return Ok(self.references(decl, files, sources));
         }
+        let places = self.references(decl, files, sources);
         let mut checked = HashSet::new();
         for p in &places {
             let taken = match decl.kind {
@@ -1004,6 +1013,35 @@ mod tests {
         assert_eq!((refs.len(), in_uses), (4, 3), "{refs:?}");
         assert_eq!(idx.rename(&declared, "vWhere", &files, &mut src).unwrap().len(), 4);
         assert!(idx.rename(&declared, "inner", &files, &mut src).is_err(), "taken in the struct");
+    }
+
+    /// A declaration taken before its script changed (the Rename window
+    /// stays up while the editor is typed in) is refused, not a panic: a
+    /// line added above a member's struct, the struct gone with the name
+    /// still at the place, the declaring file gone.
+    #[test]
+    fn rename_refuses_a_declaration_that_changed() {
+        const S: &str = "struct S { int a; };\nvoid main() { struct S s; s.a = 1; }\n";
+        let mut src = |name: &str| (name == "nwscript").then(|| Arc::from(NWS));
+        let mut idx = Index::new();
+        idx.set("s", Arc::from(S));
+        let files = vec!["s".to_string()];
+        let member = idx.declaration_at("s", at(S, "s.a", 0) + 2, &mut src).unwrap();
+        assert_eq!((member.kind, member.at.span.clone()), (DeclKind::Member, 15..16));
+        assert_eq!(idx.rename(&member, "b", &files, &mut src).unwrap().len(), 2);
+        let local = idx.declaration_at("s", at(S, "s;", 0), &mut src).unwrap();
+        assert_eq!(local.kind, DeclKind::Local);
+        idx.set("s", Arc::from(format!("// A line above.\n{S}")));
+        for d in [&member, &local] {
+            let e = idx.rename(d, "b", &files, &mut src).unwrap_err();
+            assert!(e.contains("changed since it was chosen"), "{e}");
+        }
+        // (The member's place still reads `a`, in no struct.)
+        idx.set("s", Arc::from("int aaaaaaaaaaaaaaaaaaaa;\n"));
+        let e = idx.rename(&member, "b", &files, &mut src).unwrap_err();
+        assert!(e.contains("changed since it was chosen"), "{e}");
+        idx.forget("s");
+        assert!(idx.rename(&member, "b", &files, &mut src).is_err());
     }
 
     #[test]
