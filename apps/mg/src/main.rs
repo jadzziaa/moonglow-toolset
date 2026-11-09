@@ -3539,7 +3539,11 @@ fn run(cli: &Cli) -> Result<Output> {
             // A story is a conversation of its own; a text export goes
             // back into the conversation it came from.
             let format = Format::of(file);
-            let g = if let Some(read) = format.and_then(|f| f.read(&source)) {
+            // (What a story does not say of the conversation it replaces,
+            // its end scripts among them, stays as that one has it.)
+            let replaced = m.gff(&key).and_then(Result::ok);
+            let g = if let Some(read) = format.and_then(|f| f.read_over(&source, replaced.as_ref()))
+            {
                 read.map_err(|e| anyhow::anyhow!("{e}"))?
             } else if let Some(format) =
                 format.filter(|f| f.reads() == mg_module::dialog_io::Reads::Text)
