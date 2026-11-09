@@ -4034,6 +4034,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     bail!("{k} is not in the module");
                 }
             }
+            // (Asked for each placed object and each item held: a set, not
+            // the list gone through for each.)
+            let is_wanted: std::collections::HashSet<ResKey> = wanted.iter().copied().collect();
             let mut out = Output::default();
             let game = game_data_in(&gi, &m, &mut out)?;
             let only = area
@@ -4054,7 +4057,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     mg_module::instances::with_placing(&game, Some(&m), |placing, read| {
                         let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
                             let k = ResKey::new(r, t);
-                            if wanted.contains(&k) { read(k) } else { None }
+                            if is_wanted.contains(&k) { read(k) } else { None }
                         };
                         // The items the area's objects hold (in chests, creatures'
                         // packs and hands, stores, bags) first, then the objects.
