@@ -183,11 +183,7 @@ impl File {
             let Some(body) = f.body.clone() else { continue };
             // Parameters: in the declaration before the body, each a name
             // after a type.
-            let head: Vec<&Token> = sig
-                .iter()
-                .copied()
-                .filter(|t| t.span.start >= f.name_span.end && t.span.end <= body.start)
-                .collect();
+            let head = within(&sig, f.name_span.end..body.start);
             for (k, t) in head.iter().enumerate() {
                 if t.kind != TokenKind::Ident || k == 0 {
                     continue;
@@ -251,13 +247,19 @@ impl File {
     }
 }
 
+/// The tokens of `sig` (a file's, in order) that lie within `range`:
+/// found by where the range begins and ends, not by a pass over the file
+/// for every function of it (a script of 14,000 lines and 400 functions
+/// was 90 million steps an index).
+fn within<'a, 'b>(sig: &'a [&'b Token], range: Range<usize>) -> &'a [&'b Token] {
+    let from = sig.partition_point(|t| t.span.start < range.start);
+    let to = sig.partition_point(|t| t.span.end <= range.end);
+    &sig[from..to.max(from)]
+}
+
 /// Locals declared in a function body, each scoped to its block.
 fn body_locals(text: &str, sig: &[&Token], body: Range<usize>) -> Vec<Local> {
-    let toks: Vec<&Token> = sig
-        .iter()
-        .copied()
-        .filter(|t| t.span.start >= body.start && t.span.end <= body.end)
-        .collect();
+    let toks = within(sig, body.clone());
     let s = |i: usize| toks.get(i).map_or("", |t| &text[t.span.clone()]);
     // Each `{`'s matching `}` end.
     let mut block_end = HashMap::new();
@@ -1042,6 +1044,40 @@ mod tests {
         assert!(e.contains("changed since it was chosen"), "{e}");
         idx.forget("s");
         assert!(idx.rename(&member, "b", &files, &mut src).is_err());
+    }
+
+    /// A long script of many functions is indexed in the time its length
+    /// takes, with every function's parameters and locals found.
+    #[test]
+    fn a_script_of_many_functions_is_indexed_at_once() {
+        let mut text = String::new();
+        for f in 0..400 {
+            text.push_str(&format!(
+                "int F{f}(int nA{f}, object oB)\n{{\n    int nSum{f} = nA{f};\n"
+            ));
+            for line in 0..30 {
+                text.push_str(&format!(
+                    "    nSum{f} = nSum{f} + {line} * GetLocalInt(oB, \"x\");\n"
+                ));
+            }
+            text.push_str(&format!("    {{ float fIn{f}; }}\n    return nSum{f};\n}}\n"));
+        }
+        let text: Arc<str> = Arc::from(text);
+        let started = std::time::Instant::now();
+        let file = File::new(text.clone());
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_millis(250), "{took:?}");
+        assert_eq!(file.locals.len(), 400 * 4);
+        for f in [0, 199, 399] {
+            let of = |name: String| file.locals.iter().find(|l| l.name == name).unwrap();
+            let (a, sum, inner) =
+                (of(format!("nA{f}")), of(format!("nSum{f}")), of(format!("fIn{f}")));
+            assert_eq!((a.kind, a.ty.as_str()), (DeclKind::Parameter, "int"));
+            assert_eq!((sum.kind, sum.ty.as_str()), (DeclKind::Local, "int"));
+            assert!(a.scope.contains(&sum.decl.start) && sum.scope.contains(&inner.decl.start));
+            assert!(inner.scope.end < sum.scope.end, "the inner block's own scope");
+            assert!(text[a.scope.clone()].starts_with('{') && text[a.scope.clone()].ends_with('}'));
+        }
     }
 
     #[test]
