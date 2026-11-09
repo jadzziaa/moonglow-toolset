@@ -145,14 +145,31 @@ pub fn value_from_json(json: &Json, codepage: Codepage) -> Result<Value, JsonErr
     field_read(field, codepage, "")
 }
 
+/// A struct's id: signed, as nwn_gff writes them, or unsigned; an error
+/// for a number that is neither (cut to 32 bits it would be another id).
+fn struct_id(v: &Json, path: &str) -> Result<u32, JsonError> {
+    match as_int(v, path)? {
+        id @ -0x8000_0000..0 => Ok(id as i32 as u32),
+        id => id.try_into().or_else(|_| err(path, "__struct_id out of range")),
+    }
+}
+
+/// A localized string's talk-table line: -1 for none, else a line's
+/// number; an error for any other (`4294967296` cut to 32 bits is line 0).
+fn strref_read(v: &Json, path: &str) -> Result<StrRef, JsonError> {
+    match as_int(v, path)? {
+        -1 => Ok(StrRef::NONE),
+        id => match u32::try_from(id) {
+            Ok(id) => Ok(StrRef(id)),
+            Err(_) => err(path, format!("id {id} out of range (-1 for none, or a line's number)")),
+        },
+    }
+}
+
 fn struct_read(obj: &Map<String, Json>, cp: Codepage, path: &str) -> Result<Struct, JsonError> {
     let id = match obj.get("__struct_id") {
         None => ROOT_STRUCT_ID,
-        // Signed, as nwn_gff writes them, or unsigned.
-        Some(v) => match as_int(v, path)? {
-            id @ -0x8000_0000..0 => id as i32 as u32,
-            id => id.try_into().or_else(|_| err(path, "__struct_id out of range"))?,
-        },
+        Some(v) => struct_id(v, path)?,
     };
     let mut s = Struct::new(id);
     for (label, field) in obj {
@@ -225,12 +242,12 @@ fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Va
             };
             // The strref used to live next to "value"; nwn_gff still reads it there.
             let mut ls = LocString::from_strref(match field.get("id") {
-                Some(id) => StrRef(as_int(id, fpath)? as u32),
+                Some(id) => strref_read(id, fpath)?,
                 None => StrRef::NONE,
             });
             for (k, v) in entries {
                 if k == "id" {
-                    ls.strref = StrRef(as_int(v, fpath)? as u32);
+                    ls.strref = strref_read(v, fpath)?;
                     continue;
                 }
                 let Ok(key) = k.parse::<u32>() else {
@@ -249,7 +266,7 @@ fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Va
             let mut child = struct_read(o, cp, fpath)?;
             if !o.contains_key("__struct_id") {
                 child.id = match field.get("__struct_id") {
-                    Some(v) => as_int(v, fpath)? as i64 as u32,
+                    Some(v) => struct_id(v, fpath)?,
                     None => 0,
                 };
             }
@@ -559,6 +576,37 @@ mod tests {
         assert_eq!(j["V"]["value64"], "AQID");
         let back = from_json(&j, Codepage::WINDOWS_1252).unwrap();
         assert_eq!(back, g);
+    }
+
+    /// A talk-table line or a struct's id past 32 bits (or below what a
+    /// signed one holds) is an error that names the field, not the number
+    /// its low 32 bits make: `4294967296` was line 0, `-2` line 4294967294.
+    #[test]
+    fn ids_out_of_range_are_errors() {
+        let read = |field: Json| {
+            from_json(&json!({"__data_type": "GFF ", "N": field}), Codepage::default())
+        };
+        let name = |id: i64| json!({"type": "cexolocstring", "value": {"id": id, "0": "a"}});
+        let legacy = |id: i64| json!({"type": "cexolocstring", "id": id, "value": {}});
+        for make in [&name as &dyn Fn(i64) -> Json, &legacy] {
+            for (id, strref) in [(-1, StrRef::NONE), (0, StrRef(0)), (4_294_967_295, StrRef::NONE)]
+            {
+                let g = read(make(id)).unwrap();
+                assert_eq!(g.root.locstring("N").unwrap().strref, strref, "{id}");
+            }
+            for id in [4_294_967_296, -2, i64::MIN] {
+                let e = read(make(id)).unwrap_err().to_string();
+                assert!(e.contains('N') && e.contains("out of range"), "{id}: {e}");
+            }
+        }
+        let child = |id: i64| json!({"type": "struct", "__struct_id": id, "value": {}});
+        for (id, read_as) in [(-1, u32::MAX), (7, 7), (4_294_967_295, u32::MAX)] {
+            assert_eq!(read(child(id)).unwrap().root.child("N").unwrap().id, read_as, "{id}");
+        }
+        for id in [4_294_967_296, -2_147_483_649] {
+            let e = read(child(id)).unwrap_err().to_string();
+            assert!(e.contains('N') && e.contains("out of range"), "{id}: {e}");
+        }
     }
 
     #[test]
