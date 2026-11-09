@@ -496,8 +496,11 @@ pub fn whole(text: &str) -> Option<i64> {
 
 /// What a constant's expression comes to: whole numbers and the names
 /// in `known`, with `| & ^ ~ << >> + - *` and brackets, as NWScript
-/// reads them. `None` for anything else.
+/// reads them. `None` for anything else, and for one nested deeper than
+/// 64 brackets and signs (no constant is; a crafted one of thousands
+/// overflowed the stack).
 fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
+    const MOST_NESTED: usize = 64;
     #[derive(Clone, Debug, PartialEq)]
     enum Tok {
         Num(i64),
@@ -523,7 +526,12 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
         rest = rest[end..].trim_start();
     }
     // Lowest first: | ^ & shifts, + and -, *, then a sign or ~ and brackets.
-    fn level(toks: &[Tok], at: &mut usize, depth: usize) -> Option<i64> {
+    // (`nested`: the brackets and signs it is within, which a constant
+    // of a crafted script may have thousands of, each a call deeper.)
+    fn level(toks: &[Tok], at: &mut usize, depth: usize, nested: usize) -> Option<i64> {
+        if nested > MOST_NESTED {
+            return None;
+        }
         const LEVELS: [&[&str]; 6] = [&["|"], &["^"], &["&"], &["<<", ">>"], &["+", "-"], &["*"]];
         if depth == LEVELS.len() {
             return match toks.get(*at)? {
@@ -533,13 +541,13 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
                 }
                 Tok::Op("(") => {
                     *at += 1;
-                    let v = level(toks, at, 0)?;
+                    let v = level(toks, at, 0, nested + 1)?;
                     (toks.get(*at) == Some(&Tok::Op(")"))).then(|| *at += 1)?;
                     Some(v)
                 }
                 Tok::Op(op @ ("-" | "~" | "+")) => {
                     *at += 1;
-                    let v = level(toks, at, depth)?;
+                    let v = level(toks, at, depth, nested + 1)?;
                     Some(match *op {
                         "-" => v.checked_neg()?,
                         "~" => !v & 0xFFFF_FFFF,
@@ -549,12 +557,12 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
                 Tok::Op(_) => None,
             };
         }
-        let mut left = level(toks, at, depth + 1)?;
+        let mut left = level(toks, at, depth + 1, nested)?;
         while let Some(Tok::Op(op)) = toks.get(*at)
             && LEVELS[depth].contains(op)
         {
             *at += 1;
-            let right = level(toks, at, depth + 1)?;
+            let right = level(toks, at, depth + 1, nested)?;
             left = match *op {
                 "|" => left | right,
                 "^" => left ^ right,
@@ -569,7 +577,7 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
         Some(left)
     }
     let mut at = 0;
-    let value = level(&toks, &mut at, 0)?;
+    let value = level(&toks, &mut at, 0, 0)?;
     (at == toks.len()).then_some(value)
 }
 
@@ -1070,6 +1078,20 @@ require = "Cures"
         assert_eq!(evaluate("~0 & A", &known), Some(0x10));
         assert_eq!((evaluate("A | C", &known), evaluate("A |", &known)), (None, None));
         assert_eq!((evaluate("GetX()", &known), evaluate("(A", &known)), (None, None));
+        // Brackets and signs without end (a crafted script's constant, read
+        // on a worker's small stack): no value, and no stack overflow.
+        let deep = |open: &str, close: &str, n: usize| {
+            evaluate(&format!("{}1{}", open.repeat(n), close.repeat(n)), &[])
+        };
+        assert_eq!(
+            (deep("(", ")", 60), deep("-", "", 60), deep("~", "", 2)),
+            (Some(1), Some(1), Some(1))
+        );
+        let small = std::thread::Builder::new().stack_size(256 * 1024);
+        let run = small.spawn(move || {
+            [deep("(", ")", 100_000), deep("-", "", 100_000), evaluate(&"(".repeat(100_000), &[])]
+        });
+        assert_eq!(run.unwrap().join().unwrap(), [None, None, None]);
         assert_eq!(damage.named("0x0030").as_deref(), Some("DAMAGE_ACID | DAMAGE_COLD"));
         assert_eq!(damage.named("0x0050").as_deref(), Some("DAMAGE_ACID | 0x40"));
         assert_eq!(damage.flags_cell(0x30, None).as_deref(), Some("0x0030"));
