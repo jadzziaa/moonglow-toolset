@@ -712,6 +712,13 @@ builder's own is not read (the log says so): `[claims]`, `[commands]`,
 folder's or a nasher project's. Without the file, Moonglow does what it
 does for any module.
 
+The file is UTF-8 text, as is `.moonglow/user.toml`. One with a
+character typed in another encoding (a comment saved as Windows-1252,
+say) is read all the same, and the log names the line. What writes
+into the file (Mark as Used, a plugin's setting, your builder code,
+the lines for typed text) refuses to until it is saved as UTF-8:
+written back as it was read, that character would be lost for good.
+
 ```toml
 [make_static]                       # Make Placeables Static leaves dynamic:
 keep_variables = ["tdod_*"]         # a placeable with a variable so named

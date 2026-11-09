@@ -250,13 +250,10 @@ pub(crate) fn invalid(e: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
 }
 
-/// A file's text read for editing (none there: empty).
+/// A file's text read for editing (none there: empty); an error for one
+/// that is not UTF-8 ([`crate::project_file::text_to_rewrite`]).
 pub(crate) fn document(path: &Path, name: &str) -> std::io::Result<toml_edit::DocumentMut> {
-    let text = match std::fs::read(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
-    };
+    let text = crate::project_file::text_to_rewrite(path, name)?;
     text.parse::<toml_edit::DocumentMut>().map_err(|e| {
         let line = e.span().map_or(1, |s| crate::project_file::line_of(&text, s.start));
         invalid(format!("{name}:{line}: {} (mend it first)", e.message().trim()))

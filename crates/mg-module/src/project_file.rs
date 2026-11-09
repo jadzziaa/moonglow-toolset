@@ -962,15 +962,26 @@ impl ProjectFile {
         let files = std::iter::once((path.clone(), false)).chain(user.map(|u| (u, true)));
         for (file, own) in files {
             let file = &file;
+            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { place.team_name() };
             let source = match std::fs::read(file) {
-                Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Ok(bytes) => {
+                    // (Read all the same; what changes the file would put
+                    // U+FFFD there for good, and refuses to: said now.)
+                    if let Some(line) = not_utf8_at(&bytes) {
+                        p.warnings.push(format!(
+                            "{name}:{line}: the file is not UTF-8 text here (a character typed \
+                             in another encoding): it is read without it, and Moonglow does not \
+                             change the file until it is saved as UTF-8"
+                        ));
+                    }
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => {
                     p.errors.push(format!("{}: {e}", file.display()));
                     continue;
                 }
             };
-            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { place.team_name() };
             // (One made by hand: its folder would be committed for all.)
             if own && !root.join(USER_DIR).join(".gitignore").exists() {
                 p.warnings.push(format!(
@@ -1727,11 +1738,7 @@ impl ProjectFile {
             return Err(invalid(format!("the code \"{}\": {problem}", code.unwrap_or(""))));
         }
         let path = Self::user_path(root);
-        let text = match std::fs::read(&path) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(e),
-        };
+        let text = text_to_rewrite(&path, &format!("{USER_DIR}/{USER_FILE}"))?;
         let code = code.map(str::to_ascii_lowercase);
         let text = with_code(&text, code.as_deref()).map_err(invalid)?;
         Self::write_user(root, &text)
@@ -1812,16 +1819,40 @@ impl ProjectFile {
     ) -> std::io::Result<()> {
         let invalid = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, e);
         let path = place.team();
-        let text = match std::fs::read(&path) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(e),
-        };
+        let text = text_to_rewrite(&path, &place.team_name())?;
         let value = lines.map(|l| format!("\"{l}\""));
         let text = with_value_in(&place.team_name(), &text, "talk", "lines", value.as_deref())
             .map_err(invalid)?;
         crate::write_replacing(&path, text.as_bytes())
     }
+}
+
+/// The line of the first byte of `bytes` that is not UTF-8 text (a
+/// character typed in Windows-1252, say); `None` for text that is.
+pub(crate) fn not_utf8_at(bytes: &[u8]) -> Option<usize> {
+    let e = std::str::from_utf8(bytes).err()?;
+    Some(1 + bytes[..e.valid_up_to()].iter().filter(|b| **b == b'\n').count())
+}
+
+/// The text of a project's file (`name`, as messages name it) that a
+/// command is to change and write back (none there: empty). An error for
+/// one that is not UTF-8 throughout: it can be read with U+FFFD in place
+/// of what is not, but written back so, every such byte (the `é` of a
+/// comment typed in Windows-1252) would be U+FFFD for good.
+pub(crate) fn text_to_rewrite(path: &Path, name: &str) -> std::io::Result<String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(e) => return Err(e),
+    };
+    String::from_utf8(bytes).map_err(|e| {
+        let line = not_utf8_at(e.as_bytes()).unwrap_or(1);
+        let said = format!(
+            "{name}:{line}: the file is not UTF-8 text here, and is not changed (save it as \
+             UTF-8 first)"
+        );
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, said)
+    })
 }
 
 /// A builder's file with its `[builder] code` set to `code` (or taken
@@ -2765,6 +2796,40 @@ keeper_variable = "tdod_store"
         m.save().unwrap();
         let m = crate::Module::open(&path).unwrap();
         assert_eq!(m.project_file.used.conversations.globs, ["chat_*"]);
+    }
+
+    /// A project's file that is not UTF-8 throughout (a comment typed in
+    /// Windows-1252) is read, with a warning; nothing that changes a file
+    /// writes it, which would put U+FFFD for every such byte for good.
+    #[test]
+    fn a_file_that_is_not_utf_8_is_read_and_never_rewritten() {
+        let dir = mg_testkit::scratch_dir("project-file-not-utf8");
+        let team = b"[tags]\n# Jos\xe9's\nunique = [\"A_*\"]\n";
+        let own = b"# caf\xe9\n[builder]\ncode = \"ab\"\n";
+        std::fs::write(dir.join(FILE_NAME), team).unwrap();
+        std::fs::create_dir_all(dir.join(USER_DIR)).unwrap();
+        std::fs::write(dir.join(USER_DIR).join(".gitignore"), "*\n").unwrap();
+        std::fs::write(ProjectFile::user_path(&dir), own).unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(p.tags.unique.matches("A_1") && p.user.builder_code.as_deref() == Some("ab"));
+        let said = p.warnings.join("\n");
+        assert!(said.contains(&format!("{FILE_NAME}:2: the file is not UTF-8")), "{said}");
+        assert!(said.contains(&format!("{USER_DIR}/{USER_FILE}:1: ")), "{said}");
+        let place = Place::folder(&dir);
+        let lines = crate::talk_range::Lines::parse("100-200").ok();
+        let refused = [
+            ProjectFile::set_used(&place, "scripts", "ai_*", true),
+            ProjectFile::set_talk_lines(&place, lines),
+            ProjectFile::set_builder_code(&dir, Some("cd")),
+            crate::project_plugins::set_setting(&dir, false, "t.r", "max", None),
+            crate::project_plugins::set_setting(&dir, true, "t.r", "max", None),
+        ];
+        for r in refused {
+            let e = r.unwrap_err().to_string();
+            assert!(e.contains("is not UTF-8 text") && e.contains("is not changed"), "{e}");
+        }
+        assert_eq!(std::fs::read(dir.join(FILE_NAME)).unwrap(), team);
+        assert_eq!(std::fs::read(ProjectFile::user_path(&dir)).unwrap(), own);
     }
 
     /// `[talk]`: the lines typed text takes, the map and each builder's
