@@ -4011,6 +4011,12 @@ impl Dropdown {
                     contents(ui, &mut keys);
                     if keys.rows == 0 {
                         ui.weak("Nothing matches the filter");
+                        // (Enter with nothing found chooses nothing: the
+                        // list stays, its field with the keys, where it
+                        // closed as if a row had been taken.)
+                        if keys.pressed.take().is_some() {
+                            ui.memory_mut(|m| m.request_focus(field_id));
+                        }
                     }
                 });
                 if filter.is_empty() && !ui.is_sizing_pass() {

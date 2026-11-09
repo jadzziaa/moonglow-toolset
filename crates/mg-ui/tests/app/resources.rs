@@ -1038,6 +1038,10 @@ fn add_hak_filters_a_long_list() {
     h.event(egui::Event::Text("nothing".into()));
     h.run_steps(3);
     assert!(shown(&h, "Nothing matches the filter"));
+    // (Enter with nothing found leaves the list open: nothing is chosen.)
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(shown(&h, "Nothing matches the filter"), "still open");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(shown(&h, "cep_01"), "cleared, still open");
