@@ -286,7 +286,22 @@ pub fn plan(
     let row = match had {
         Some(row) => row,
         None => {
-            while table.len() < first_row.unwrap_or(0) {
+            // The row it would take: held to the last the game can use
+            // before the table is padded to it.
+            let next = table.len().max(first_row.unwrap_or(0));
+            let last = crate::bake::LAST_ROW as usize;
+            if next > last {
+                let why = match first_row {
+                    Some(first) if first > last => format!("the project's first_row is {first}"),
+                    _ => format!("placeables.2da has {} rows", table.len()),
+                };
+                return Err(format!(
+                    "a light would take row {next} of placeables.2da, past row {last}, the last \
+                     the game can use ({why}): it carries an object's row as a 16-bit number and \
+                     would draw another row's model"
+                ));
+            }
+            while table.len() < next {
                 table.add_row();
             }
             let row = table.add_row();
@@ -497,6 +512,23 @@ mod tests {
         assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
         let p = plan(&rm, cp, spec, new_hak(&dir, "lights").unwrap(), None).unwrap();
         assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
+    }
+
+    /// A light's row is one the game can carry (16 bits): a first row past
+    /// 65535 is refused before the table is padded to it (the review's V8:
+    /// four billion rows were added, or row 70000 written, which the game
+    /// draws as row 4464), and the last row itself is taken.
+    #[test]
+    fn a_row_past_the_last_the_game_carries_is_refused() {
+        let dir = mg_testkit::scratch_dir("mg-lights-last-row");
+        let rm = game(&[("game", priority::KEY, Some(table(&["A **** a **** 1 0 0"])))]);
+        let (cp, spec) = (Codepage::default(), LightSpec::default());
+        let new = || new_hak(&dir, "lights").unwrap();
+        for first in [65536, 70000, 4_000_000_000] {
+            let e = plan(&rm, cp, spec, new(), Some(first)).unwrap_err();
+            assert!(e.contains("past row 65535") && e.contains("first_row"), "{e}");
+        }
+        assert_eq!(plan(&rm, cp, spec, new(), Some(65535)).unwrap().row, 65535);
     }
 
     /// A development folder above the haks with its own table: a new hak
