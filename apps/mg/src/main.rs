@@ -3026,6 +3026,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 let dir = dir.expect("one or the other");
                 std::path::absolute(&dir).unwrap_or(dir)
             });
+            // (Before anything is made in it: not the player's own folder.)
+            if let Some(dir) = &server_dir {
+                serve::refuse_dir(&gi, dir, None)?;
+            }
             let dev_dir = match (dev_dir, &server_dir) {
                 (Some(dir), _) => dir.clone(),
                 (None, Some(server)) => server.join("development"),

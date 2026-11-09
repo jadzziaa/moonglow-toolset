@@ -432,7 +432,8 @@ void main()
 - `--driver none` puts nothing into the copy: the module runs its tests
   itself (from NWNX's start script, say) and calls `TestsDone()`.
 - `--dir`, `--env`, `--preload` and the arguments after `--` are `mg
-  serve`'s.
+  serve`'s. Your own NWN folder as `--dir` is refused, before anything
+  is written there.
 
 What the include writes to the log is its format 1 (`MG_TEST_FORMAT`):
 `MG_TEST PASS name` and `MG_TEST FAIL name :: detail`.
@@ -485,7 +486,8 @@ it reads only at its start.
   scratch user directory whose `development` folder is the one written
   into: `--dir`, `--port`, `--player-password`, `--dm-password`,
   `--admin-password`, `--env`, `--preload` and the arguments after `--`
-  are `mg serve`'s, and so is what you type. The passwords not given are
+  are `mg serve`'s, and so is what you type (your own NWN folder as
+  `--dir` is refused, before anything is written there). The passwords not given are
   random ones, and the player and DM passwords are printed when the
   server starts (a `passwords` event with `--json`), as `mg serve`
   prints them. Started again, the server keeps its port and its
