@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ctrl::{self, flags};
+use crate::keywords::{LISTS, NAMED_LISTS, is_number};
 use crate::{
     AabbEntry, AnimMesh, AnimMeshSets, AnimNode, Animation, Classification, Controller, Dangly,
     EMITTER_FLAGS, Emitter, Face, Light, MdlError, Mesh, MeshExtra, Model, Node, NodeKind,
@@ -114,11 +115,6 @@ fn lines(text: &str) -> Vec<Line<'_>> {
         .collect()
 }
 
-fn is_number(w: &str) -> bool {
-    let b = w.as_bytes();
-    matches!(b.first(), Some(b'0'..=b'9' | b'-' | b'+' | b'.')) && w.parse::<f32>().is_ok()
-}
-
 fn num(w: Option<&&str>) -> f32 {
     w.and_then(|w| w.parse::<f32>().ok()).unwrap_or(0.0)
 }
@@ -144,39 +140,6 @@ fn resname(w: Option<&&str>) -> Option<String> {
     let w = w?.to_ascii_lowercase();
     (!w.is_empty() && w != "null").then_some(w)
 }
-
-/// Keywords followed by a count and that many lines.
-const LISTS: &[&str] = &[
-    "verts",
-    "tverts",
-    "tverts0",
-    "tverts1",
-    "tverts2",
-    "tverts3",
-    "faces",
-    "normals",
-    "tangents",
-    "colors",
-    "weights",
-    "constraints",
-    "animverts",
-    "animtverts",
-    "flarepositions",
-    "flaresizes",
-    "flarecolorshifts",
-    "texturenames",
-    "multimaterial",
-    "qbone_ref_inv",
-    "tbone_ref_inv",
-    "boneconstantindices",
-    "texindices1",
-    "texindices2",
-    "texindices3",
-    "mirrorlist",
-];
-
-/// Lists whose lines start with a name, not a number (counts are trusted).
-const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
 /// The most values a key has in a compiled model (the byte that counts
 /// them keeps four bits for it); a Bézier key has its two handles besides.

@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::keywords;
+use crate::keywords::{self, is_number};
 use crate::outline::words;
 
 /// Every line's words, as [`words`] splits them, split once: the checks
@@ -135,10 +135,6 @@ impl Lint {
     fn push(&mut self, line: usize, severity: Severity, message: impl Into<String>) {
         self.out.push(Diagnostic { line, severity, message: message.into() });
     }
-}
-
-fn is_number(w: &str) -> bool {
-    w.parse::<f32>().is_ok()
 }
 
 /// Checks a model's text.
@@ -412,7 +408,7 @@ fn node_line(
         {
             l.push(at, Severity::Warning, format!("{key} says {c}, {} follow", rows.len()));
         }
-        if !keyed && declared.is_none() && key != "aabb" {
+        if !keyed && declared.is_none() {
             l.push(at, Severity::Warning, format!("{key} needs a count"));
         }
         if in_anim {
@@ -699,6 +695,39 @@ mod tests {
 
     fn messages(text: &str) -> Vec<(usize, Severity, String)> {
         check(text).into_iter().map(|d| (d.line, d.severity, d.message)).collect()
+    }
+
+    /// The rows the linter says follow a list's keyword are the rows the
+    /// reader takes: one rule of what begins a row (`inf` and `nan` are
+    /// words to the reader, numbers to `f32`'s own reading, by which the
+    /// linter counted them), and one table of the keywords that are lists
+    /// (`vertexindices` was the linter's alone: the review's M16).
+    #[test]
+    fn the_rows_counted_are_the_rows_read() {
+        let model = |list: &str| {
+            format!(
+                "newmodel box\nsetsupermodel box NULL\nclassification character\n\
+                 setanimationscale 1\nbeginmodelgeom box\nnode dummy box\n  parent NULL\nendnode\n\
+                 node trimesh plane\n  parent box\n  bitmap tex\n{list}endnode\n\
+                 endmodelgeom box\ndonemodel box\n"
+            )
+        };
+        for (end, rows) in [("inf 0 0", 2), ("nan 0 0", 2), ("+1 0 0", 3), (".5 0 0", 3)] {
+            let text = model(&format!("  verts 3\n    0 0 0\n    1 0 0\n    {end}\n"));
+            let (read, map) = crate::ascii::read_mapped(text.as_bytes()).unwrap();
+            assert_eq!(read.nodes[1].mesh().unwrap().vertices.len(), 0, "no faces: none drawn");
+            let said_by_reader = map.notes.iter().any(|n| n.message == "verts: 2 of 3 rows");
+            let said = format!("verts says 3, {rows} follow");
+            let said_by_linter = messages(&text).iter().any(|(_, _, m)| *m == said);
+            assert_eq!((said_by_reader, said_by_linter), (rows == 2, rows == 2), "{end}");
+        }
+        // A list of the linter's table alone was a keyword and loose rows
+        // to the reader: its rows are the list's to both.
+        let text = model("  vertexindices 3\n    0\n    1\n  verts 1\n    0 0 0\n");
+        let (_, map) = crate::ascii::read_mapped(text.as_bytes()).unwrap();
+        assert!(map.notes.iter().any(|n| n.message == "vertexindices: 2 of 3 rows"), "{map:?}");
+        let said = messages(&text);
+        assert!(said.iter().any(|(_, _, m)| m == "vertexindices says 3, 2 follow"), "{said:?}");
     }
 
     const GOOD: &str = "newmodel box\nsetsupermodel box NULL\nclassification character\n\
