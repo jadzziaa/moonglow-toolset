@@ -436,13 +436,21 @@ impl Lattice {
 
     /// The lattice a grid of placed tiles describes, and the cells whose
     /// tile disagrees with an earlier neighbour about a shared corner or
-    /// edge (their own values win). `None` if a tile is not in the tileset.
+    /// edge (their own values win). `None` if a tile is not in the tileset,
+    /// or if there are fewer tiles than the size asks for: the size is a
+    /// number a file gives, and nothing is made that large before the
+    /// tiles are counted (so an area a side of which is 0 has no lattice
+    /// either, unless both are).
     pub fn from_tiles(
         index: &TileIndex,
         width: u32,
         height: u32,
         tiles: &[Placement],
     ) -> Option<(Lattice, Vec<(u32, u32)>)> {
+        let cells = (width as usize).checked_mul(height as usize)?;
+        if tiles.len() < cells || (cells == 0 && (width != 0 || height != 0)) {
+            return None;
+        }
         let fill = Corner { terrain: Terrain(0), height: 0 };
         let mut lattice = Lattice::new(width, height, fill);
         let mut set_corners = vec![false; lattice.corners.len()];
@@ -451,7 +459,7 @@ impl Lattice {
         let mut mismatches = Vec::new();
         for y in 0..height {
             for x in 0..width {
-                let cell = index.cell(*tiles.get((y * width + x) as usize)?)?;
+                let cell = index.cell(*tiles.get(y as usize * width as usize + x as usize)?)?;
                 let mut bad = false;
                 for (i, (cx, cy)) in
                     [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)].into_iter().enumerate()
@@ -640,6 +648,25 @@ mod tests {
         lattice.set_corner(1, 1, Corner { terrain: b, height: 0 });
         let err = fill(&index, &lattice, &mut fastrand::Rng::with_seed(1)).unwrap_err();
         assert_eq!(err, TilesError::NoTile { x: 0, y: 0 });
+    }
+
+    /// A size no list of tiles stands behind (an ARE's `Width` and
+    /// `Height` are whatever the file says) makes no lattice, and is
+    /// refused before anything of that size is allocated.
+    #[test]
+    fn a_size_without_its_tiles_makes_no_lattice() {
+        let index = TileIndex::new(&set());
+        let one = Placement { tile: 0, orientation: 0, height: 0 };
+        assert!(Lattice::from_tiles(&index, u32::MAX, u32::MAX, &[]).is_none());
+        assert!(Lattice::from_tiles(&index, 100_000, 100_000, &[one]).is_none());
+        assert!(Lattice::from_tiles(&index, i32::MAX as u32, i32::MAX as u32, &[one]).is_none());
+        assert!(Lattice::from_tiles(&index, u32::MAX, 0, &[]).is_none());
+        assert!(Lattice::from_tiles(&index, 0, 100_000, &[one]).is_none());
+        assert!(paint::Grid::new(&index, u32::MAX, u32::MAX, Vec::new()).is_none());
+        assert!(paint::Grid::new(&index, 100_000, 100_000, vec![one]).is_none());
+        // An area of no tiles is still one, and a list may run on.
+        assert!(Lattice::from_tiles(&index, 0, 0, &[]).is_some());
+        assert!(Lattice::from_tiles(&index, 1, 1, &[one, one]).is_some());
     }
 
     /// Corners run to the width and height, cells to one less: past them

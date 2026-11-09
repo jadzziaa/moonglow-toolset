@@ -137,7 +137,8 @@ impl Grid {
 
     /// Where cell (x, y)'s tile is in the list; `None` outside the grid.
     fn slot(&self, x: u32, y: u32) -> Option<usize> {
-        self.lattice.has_cell(x, y).then(|| (y * self.lattice.width() + x) as usize)
+        (self.lattice.has_cell(x, y))
+            .then(|| y as usize * self.lattice.width() as usize + x as usize)
     }
 
     /// Whether the tile in cell (x, y) is a group's, which changes only
