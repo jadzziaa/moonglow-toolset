@@ -292,3 +292,34 @@ fn a_gff_s_json_has_no_notes_among_its_fields() {
     let (ok, info) = crate::json_out(crate::mg_alone().args(["--json", "info", c]));
     assert!(ok && info["notes"][0].as_str().unwrap().contains("module folder beside it"), "{info}");
 }
+
+/// `mg tlk-import --json` says `saved` when the table was written, not
+/// whenever it was not a dry run: a table's own export changes no line,
+/// and a pipeline that commits or signs what was saved has nothing to.
+#[test]
+fn tlk_import_says_whether_the_table_was_written() {
+    let dir = mg_testkit::scratch_dir("mg-tlk-import-saved");
+    let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+    let (table, lines) = (at("words.tlk"), at("words.json"));
+    let mut tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    tlk.entries.push(mg_tlk::TlkEntry::text("Hello"));
+    std::fs::write(&table, tlk.to_bytes().unwrap()).unwrap();
+    let mg = |args: &[&str]| crate::quiet_json_out(crate::mg_alone().arg("--json").args(args));
+    assert!(mg(&["tlk-export", &table, &lines]).0);
+    let written = || std::fs::metadata(&table).unwrap().modified().unwrap();
+    let before = (std::fs::read(&table).unwrap(), written());
+    let (ok, r) = mg(&["tlk-import", &table, &lines]);
+    assert!(ok && r["changed"] == 0 && r["added"] == 0, "{r}");
+    assert_eq!(r["saved"], false, "{r}");
+    assert_eq!((std::fs::read(&table).unwrap(), written()), before, "not written again");
+    // A line changed: saved, but for a dry run.
+    let changed = std::fs::read_to_string(&lines).unwrap().replace("Hello", "Hello there");
+    std::fs::write(&lines, changed).unwrap();
+    let (ok, r) = mg(&["tlk-import", &table, &lines, "--dry-run"]);
+    assert!(ok && r["changed"] == 1 && r["saved"] == false, "{r}");
+    let (ok, r) = mg(&["tlk-import", &table, &lines]);
+    assert!(ok && r["changed"] == 1 && r["saved"] == true, "{r}");
+    // A table the import makes is saved, lines or none.
+    let (ok, r) = mg(&["tlk-import", &at("new.tlk"), &lines]);
+    assert!(ok && r["saved"] == true && dir.join("new.tlk").is_file(), "{r}");
+}

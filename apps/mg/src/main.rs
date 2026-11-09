@@ -3506,7 +3506,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 _ => anyhow::bail!("the file must end .json or .csv"),
             }
             .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-            if !dry_run && (changed > 0 || added > 0 || !table.is_file()) {
+            // (A table no line of which changed is not written again.)
+            let saved = !dry_run && (changed > 0 || added > 0 || !table.is_file());
+            if saved {
                 t.save().map_err(|e| anyhow::anyhow!("{e}"))?;
             }
             let mut out = Output::new(json!({
@@ -3514,11 +3516,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 "changed": changed,
                 "added": added,
                 "lines": t.len(),
-                "saved": !dry_run,
+                "saved": saved,
             }));
             out.line(format!(
                 "{changed} lines changed, {added} added{}",
-                if *dry_run { " (nothing written)" } else { "" }
+                if saved { "" } else { " (nothing written)" }
             ));
             out
         }
