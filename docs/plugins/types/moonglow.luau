@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.8, for editors that check
+-- The types of Moonglow's plugin API, version 0.9, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -26,6 +26,10 @@ export type Finding = {
     fix: Fix?,
 }
 
+-- A choice's option: its text, or (API 0.9) its text and the color of
+-- the swatch drawn before it. The field's value is the text.
+export type ChoiceOption = string | { text: string, color: string? }
+
 export type FormField = {
     id: string,
     label: string?,
@@ -33,7 +37,7 @@ export type FormField = {
     default: any?,
     min: number?,
     max: number?,
-    choices: { string }?,
+    choices: { ChoiceOption }?,
     -- A color's (API 0.8): the string variable the objects are drawn with
     -- while it is picked.
     variable: string?,
@@ -280,6 +284,10 @@ export type Context = {
     selection: { Selected },
     -- The area or editor in front, if any (API 0.4).
     open: Selected?,
+    -- The values of the panel's fields, by field id, for a command run
+    -- from the panel (its button, or a field set); empty for a command run
+    -- from anywhere else (API 0.9).
+    values: { [string]: any },
     module: Module,
     game: Game,
     edit: Edit,
@@ -339,9 +347,10 @@ export type PanelItem = string | {
 }
 
 -- What a panel shows (API 0.6): each element a table with its type, or
--- text alone.
+-- text alone. A field (API 0.9) is a form's, its kind its `kind` and what
+-- it shows its `value`; its `command` runs when the user sets it.
 export type Element = string | {
-    type: "heading" | "text" | "value" | "separator" | "button" | "list",
+    type: "heading" | "text" | "value" | "separator" | "button" | "list" | "field",
     text: string?,
     weak: boolean?,
     color: ("warning" | "error")?,
@@ -350,11 +359,19 @@ export type Element = string | {
     command: string?,
     on: (Entry | { Entry })?,
     items: { PanelItem }?,
+    -- A field's (API 0.9).
+    id: string?,
+    kind: ("text" | "number" | "check" | "choice" | "color")?,
+    value: any?,
+    min: number?,
+    max: number?,
+    choices: { ChoiceOption }?,
+    variable: string?,
 }
 
 local mg = {}
 
-mg.api = "0.8"
+mg.api = "0.9"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.

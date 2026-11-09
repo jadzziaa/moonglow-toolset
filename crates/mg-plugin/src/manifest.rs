@@ -9,10 +9,10 @@ pub use mg_module::project_plugins::SettingValue;
 use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.8";
+pub const API: &str = "0.9";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 8] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"];
+pub const APIS: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1454,8 +1454,8 @@ severity = "error"
         }
         let e = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.6\"")).unwrap_err();
         assert!(e.contains("plugin API 0.7") && e.contains("\"fix-tags\""), "{e}");
-        let later = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.9\"")).unwrap_err();
-        assert!(later.contains("0.9"), "{later}");
+        let later = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.10\"")).unwrap_err();
+        assert!(later.contains("0.10"), "{later}");
     }
 
     /// API 0.5: a command for placed objects alone or blueprints alone,

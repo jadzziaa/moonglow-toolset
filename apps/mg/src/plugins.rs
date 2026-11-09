@@ -143,11 +143,13 @@ impl CliHost {
                         }
                     },
                     (FieldKind::Choice { choices, default }, g) => match g {
-                        None => json!(choices[*default]),
-                        Some(g) if choices.contains(g) => json!(g),
+                        None => json!(choices[*default].text),
+                        Some(g) if choices.iter().any(|c| c.text == *g) => json!(g),
                         Some(g) => {
-                            fault(format!("{g:?} is not one of {}", choices.join(", ")));
-                            json!(choices[*default])
+                            let texts: Vec<&str> =
+                                choices.iter().map(|c| c.text.as_str()).collect();
+                            fault(format!("{g:?} is not one of {}", texts.join(", ")));
+                            json!(choices[*default].text)
                         }
                     },
                     (FieldKind::Color { default, .. }, g) => {

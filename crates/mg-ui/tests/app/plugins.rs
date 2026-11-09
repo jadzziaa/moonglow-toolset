@@ -699,9 +699,15 @@ fn a_plugin_asks_in_its_job_s_window() {
         // (The window settles where it stands before it is clicked.)
         h.run_steps(3);
     };
-    // The form, as the plugin described it, with its defaults.
+    // The form, as the plugin described it, with its defaults; the
+    // window headed by the command's title alone (API 0.9), which is the
+    // form's too, said once; the plugin's name on hover (the log has both).
     wait_for(&mut h, "Prefix Tags");
-    h.get_by_label("Forms: Prefix Tags");
+    assert_eq!(h.get_all_by_label("Prefix Tags").count(), 1);
+    assert!(h.query_by_label("Forms: Prefix Tags").is_none());
+    h.get_by_label("Prefix Tags").hover();
+    h.run_steps(60);
+    h.get_by_label_contains("From the plugin Forms");
     h.get_by_label("At most");
     assert!(h.get_all_by_value("NPC_").next().is_some(), "the prefix's default");
     h.get_by_label("OK").click();
@@ -736,7 +742,10 @@ fn a_plugin_asks_in_its_job_s_window() {
 /// API 0.8: a form's color field (the example `pick-tint`, run on a
 /// placed placeable): its swatch's picker, the color drawn on the
 /// placeable while it is picked (the field's `variable`) and nothing set;
-/// OK, and the plugin sets it.
+/// OK, and the plugin sets it. Its job's window (API 0.9) is headed by
+/// the command's title alone ("Tint", the form's title said once), and
+/// leaves the window behind it undimmed: drawn to pictures, before and
+/// with the form, the window about it is the same.
 #[test]
 fn a_plugin_s_color_field_is_drawn_on_the_objects_while_picked() {
     let Some((mut h, area)) = area_harness("plugin-color") else { return };
@@ -751,14 +760,32 @@ fn a_plugin_s_color_field_is_drawn_on_the_objects_while_picked() {
     h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Area(area));
     h.state_mut().background_jobs = true;
     h.run();
+    let pictures = mg_testkit::scratch_dir("ui-plugin-color-window");
+    let before = h.render().expect("render");
+    before.save(pictures.join("before.png")).unwrap();
     h.state_mut().run_plugin_command("example.pick-tint", "pick-tint");
     let started = std::time::Instant::now();
-    while h.query_by_label("Pick tint: Tint").is_none() && h.query_by_label("Color").is_none() {
+    while h.query_by_label("Color").is_none() {
         h.run_steps(1);
         std::thread::sleep(std::time::Duration::from_millis(5));
         assert!(started.elapsed() < std::time::Duration::from_secs(20), "no form");
     }
     h.run_steps(3);
+    assert_eq!(h.get_all_by_label("Tint").count(), 1, "the window's heading, once");
+    assert!(h.query_by_label("Pick tint: Tint").is_none(), "not the plugin's name with it");
+    let with = h.render().expect("render");
+    with.save(pictures.join("form.png")).unwrap();
+    eprintln!("the form: {}", pictures.join("form.png").display());
+    // (The module tree, the palette, the log: about the window, not
+    // under it.)
+    let window = h.get_by_label("Color").rect();
+    for (x, y) in [(60, 400), (950, 400), (550, 720)] {
+        let at = egui::pos2(x as f32, y as f32);
+        assert!(!window.expand(200.0).contains(at), "{at:?} is under the window {window:?}");
+        let ppp = with.width() as f32 / h.ctx.content_rect().width();
+        let (px, py) = ((x as f32 * ppp) as u32, (y as f32 * ppp) as u32);
+        assert_eq!(with.get_pixel(px, py), before.get_pixel(px, py), "dimmed at {at:?}");
+    }
     assert!(h.get_all_by_label("#ffffff").next().is_some(), "the placeable's own, first");
     let white = vec![1.0, 1.0, 1.0, 1.0];
     let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();

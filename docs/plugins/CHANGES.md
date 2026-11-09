@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,49 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.9
+
+In Moonglow 3.18.0. Only an addition: a plugin written for 0.8 or
+before runs as it is, and has nothing to change. A plugin that uses
+what is new says `api = "0.9"`, so that an older Moonglow refuses it
+with the reason rather than failing in its panel.
+
+- A panel's **fields**: an element `{ type = "field", kind = …, id,
+  label, value, … }`, a form's field in a panel (`kind` is what a form's
+  field's `type` is: `"text"`, `"number"`, `"check"`, `"choice"`,
+  `"color"`; `value` is what it shows; `min`, `max`, `choices` and a
+  color's `variable` as a form's). Moonglow keeps each field's value, by
+  its id, while the panel is drawn again: the field takes the `value`
+  the handler gives when it is not the one it gave the last time, and
+  otherwise keeps what the user set. A color's `variable` draws the
+  color on the placed objects selected while its picker is open, as a
+  form's does. With `command`, one of the plugin's commands, the field
+  runs it when the user sets it: a color when its picker closes, text
+  when it is left, a number when it is let go, a check or a choice at
+  once. The example `tint-panel` is a panel whose color field shows the
+  tint of the placeable selected and sets it.
+
+  ```lua
+  mg.panel("tint", function(ctx)
+    return {
+      { type = "field", kind = "color", id = "tint", label = "Tint",
+        value = "#2a4d8f", variable = "tdod_tint", command = "set-tint" },
+    }
+  end)
+  ```
+
+- `ctx.values`: a command run from a panel (its button, a list's item,
+  a field set) gets the panel's fields' values, by field id, as a form's
+  come back. Run from anywhere else (a menu, a key, a fix, `mg plugin
+  run`), and in every other handler, it is an empty table. A plugin's
+  own test gives a command's with `values = { … }`.
+- A choice's options (a form's and a panel's) may be `{ text =
+  "Crimson", color = "#a01010" }`: a swatch of the color is drawn before
+  the text, in the list and in the box. Its value is still the text.
+- The window of a plugin's job (its questions and forms) is headed by
+  the command's title alone (`Tint`, not `Pick tint: Tint`; the plugin's
+  name shows on hover), and no longer dims the window behind it.
 
 ## 0.8
 

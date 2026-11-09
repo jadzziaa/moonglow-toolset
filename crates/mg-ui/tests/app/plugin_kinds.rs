@@ -354,3 +354,143 @@ fn a_plugin_s_panel_opens_again_with_its_module() {
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&tab).is_none());
 }
+
+/// The tint of a placeable of an area's GIT (`tdod_tint`), if it has one.
+fn tint_of(h: &mut Harness<'_, Moonglow>, git: &ResKey, i: usize) -> Option<String> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let g = ws.doc(git).unwrap();
+    let vars = g.root.list("Placeable List").unwrap()[i].list("VarTable").unwrap_or_default();
+    (vars.iter())
+        .find(|v| v.string("Name") == Some(&b"tdod_tint"[..]))
+        .map(|v| String::from_utf8_lossy(v.string("Value").unwrap()).into_owned())
+}
+
+/// An area with two tinted chests (the first white, the second crimson),
+/// the example `tint-panel` enabled and its panel open, the first chest
+/// selected (in the area's view, the pane last clicked in).
+fn tint_panel(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (mut h, area) = area_harness(name)?;
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    place_tinted_chest(h.state_mut(), git);
+    h.run_steps(2);
+    let path = mg_edit::GffPath::root().item("Placeable List", 1).item("VarTable", 0);
+    let crimson = mg_edit::Edit::SetField {
+        key: git,
+        path,
+        label: "Value".into(),
+        value: Some(mg_gff::Value::String(b"#a01010".to_vec())),
+    };
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::Apply(mg_edit::Command::new("Crimson", vec![crimson])));
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.tint-panel", true);
+    h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Area(area));
+    select_chest(&mut h, area, 0);
+    let tab = Tab::PluginPanel { plugin: "example.tint-panel".into(), panel: "tint".into() };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+    settle(&mut h);
+    h.run_steps(2);
+    Some((h, area))
+}
+
+/// The chest `i` of the area selected in its view, and the panel drawn
+/// again for it.
+fn select_chest(h: &mut Harness<'_, Moonglow>, area: ResRef, i: usize) {
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, i)];
+    settle(h);
+    h.run_steps(2);
+}
+
+/// What the panel's color field shows (its `#rrggbb` beside the swatch).
+fn shown_tint(h: &Harness<'_, Moonglow>) -> String {
+    let state = h.state().plugins.panels.values().next().unwrap();
+    state.fields["tint"].value.as_str().unwrap().to_string()
+}
+
+/// API 0.9: a panel's color field (the example `tint-panel`) shows the
+/// selected placeable's own tint and follows the selection; while its
+/// picker is open the color is drawn on the placeable (its `variable`) and
+/// nothing is set; when the picker closes its command sets it (ctx.values),
+/// one step of Undo, and the panel shows it; Undo, and it shows the old
+/// tint again. The window is drawn to pictures, before and while picking.
+#[test]
+fn a_plugin_s_panel_field_follows_the_selection_and_sets_the_tint() {
+    let Some((mut h, area)) = tint_panel("plugin-tint-panel") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let pictures = mg_testkit::scratch_dir("ui-plugin-tint-panel");
+    h.render().expect("render").save(pictures.join("panel.png")).unwrap();
+    eprintln!("the panel: {}", pictures.join("panel.png").display());
+    assert_eq!(shown_tint(&h), "#ffffff", "the first chest's own");
+    assert!(h.get_all_by_label("#ffffff").next().is_some());
+    h.get_by_value("Custom");
+    // Another chest selected: its tint, and its tint's name.
+    select_chest(&mut h, area, 1);
+    assert_eq!(shown_tint(&h), "#a01010");
+    assert!(h.get_all_by_label("#a01010").next().is_some());
+    h.get_by_value("Crimson");
+    select_chest(&mut h, area, 0);
+    assert_eq!(shown_tint(&h), "#ffffff", "and back");
+    let before = undo(&h);
+
+    // Picked: drawn on the chest, nothing set.
+    let white = vec![1.0, 1.0, 1.0, 1.0];
+    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    drag_picker(&mut h, well, 0.0, 80.0);
+    h.render().expect("render").save(pictures.join("picking.png")).unwrap();
+    let picked = drawn_tint(&h, area).expect("drawn with a tint");
+    assert_ne!(picked, white, "the color being picked, drawn");
+    assert_eq!(tint_of(&mut h, &git, 0).as_deref(), Some("#ffffff"), "nothing set");
+    assert_eq!(undo(&h), before);
+    let color = shown_tint(&h);
+    assert_ne!(color, "#ffffff");
+
+    // The picker closed (a click on the panel): its command, one step.
+    let away = h.get_by_label_contains("Tint panel").rect().center();
+    click_away(&mut h, away);
+    settle(&mut h);
+    h.run_steps(2);
+    assert_eq!(tint_of(&mut h, &git, 0), Some(color.clone()), "set as picked");
+    assert_eq!(tint_of(&mut h, &git, 1).as_deref(), Some("#a01010"), "only on the one selected");
+    assert_eq!(undo(&h), Some(format!("Tint {color}")));
+    assert_eq!(drawn_tint(&h, area), Some(picked), "drawn as set");
+    assert_eq!(shown_tint(&h), color, "the panel shows it");
+    // Undo: the old tint, in the panel too (it gives another value).
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    h.run_steps(2);
+    assert_eq!(tint_of(&mut h, &git, 0).as_deref(), Some("#ffffff"));
+    assert_eq!(undo(&h), before, "one step");
+    assert_eq!(shown_tint(&h), "#ffffff");
+}
+
+/// API 0.9: a panel's choice whose options have colors (the example's
+/// named tints): each drawn with its swatch, in the list and in the box;
+/// a choice made runs its command with the panel's values, and the panel
+/// follows. The open list is drawn to a picture.
+#[test]
+fn a_plugin_s_panel_choice_has_swatches_and_runs_its_command_when_changed() {
+    let Some((mut h, area)) = tint_panel("plugin-tint-choice") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let pictures = mg_testkit::scratch_dir("ui-plugin-tint-choice");
+    h.get_by_value("Custom").click();
+    h.run_steps(3);
+    for name in ["Crimson", "Forest", "Night blue", "Bone"] {
+        h.get_by_label(name);
+    }
+    h.render().expect("render").save(pictures.join("choice.png")).unwrap();
+    eprintln!("the named tints: {}", pictures.join("choice.png").display());
+    h.get_by_label("Forest").click();
+    settle(&mut h);
+    h.run_steps(2);
+    assert_eq!(tint_of(&mut h, &git, 0).as_deref(), Some("#2f6b2a"));
+    assert_eq!(undo(&h).as_deref(), Some("Tint #2f6b2a"));
+    assert_eq!(shown_tint(&h), "#2f6b2a", "the color field follows");
+    h.get_by_value("Forest");
+    h.render().expect("render").save(pictures.join("chosen.png")).unwrap();
+}

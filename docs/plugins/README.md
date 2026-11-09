@@ -3,12 +3,12 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
 ---
 
 # Plugins: for authors
 
-Plugins are experimental: the plugin API is at 0.6, and a later release
+Plugins are experimental: the plugin API is at 0.9, and a later release
 may change it ([`CHANGES.md`](CHANGES.md) lists each change).
 
 What a plugin author needs besides the manual:
@@ -47,6 +47,12 @@ What a plugin author needs besides the manual:
     placed placeable's right-click command that asks for its tint
     (The Domains of Dread's `tdod_tint`), drawn on the placeables while
     it is picked, and sets it.
+  - [`tint-panel`](examples/tint-panel): a panel's fields (API 0.9).
+    The same tint picked in a pane that stays open and follows the
+    selection: a color field showing the selected placeable's
+    `tdod_tint`, drawn on it while it is picked and set by the field's
+    command when the picker closes (`ctx.values`), and a choice of named
+    tints, each with its swatch; tests of its own.
   - [`creature-report`](examples/creature-report): reading the game's
     data (a 2DA and the talk table).
   - [`creature-sheet`](examples/creature-sheet): an exporter and an
@@ -75,7 +81,7 @@ The manual has the rest: [Plugins](../manual/15-plugins.md) (for the
 people who use them), [Writing plugins](../manual/16-writing-plugins.md)
 and the [Plugin API reference](../manual/17-plugin-api.md). The design
 and its reasons are in the [proposal](../plugin-proposal.md); what is
-planned beyond API 0.6 is in the [deferred list](../deferred.md)
+planned beyond API 0.9 is in the [deferred list](../deferred.md)
 (Automation).
 
 To check a plugin, run its own tests, try a command without the window,

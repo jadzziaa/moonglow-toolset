@@ -7,8 +7,12 @@
 //! whose pages are its questions, in the job's window. A panel's code runs
 //! beside the window, never in a frame and not as a job: on a thread of
 //! its own, one render at a time, within [`mg_plugin::PANEL_BUDGET`]; the
-//! frame draws what it last returned, data.
+//! frame draws what it last returned, data. A panel's fields (API 0.9)
+//! keep their values here, by field id, across its renders: what the user
+//! set stays until its code gives another value, and the commands the
+//! panel runs get them (`ctx.values`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -73,6 +77,29 @@ pub struct PanelState {
     pub took: Option<Duration>,
     /// How many times its code has been run.
     pub drawn: usize,
+    /// Its fields' values, by field id (API 0.9).
+    pub fields: BTreeMap<String, FieldValue>,
+}
+
+/// A panel's field's value as the window keeps it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldValue {
+    /// What the panel's code gave it last.
+    pub given: serde_json::Value,
+    /// What it shows: what was given, or what the user made it since.
+    pub value: serde_json::Value,
+    /// What it was last set to (its command run with it), or given.
+    set: serde_json::Value,
+    /// What was selected when the user began at it (its picker opened,
+    /// the keyboard in it): what its color is drawn on while it is
+    /// picked, and its command runs on.
+    on: Option<Vec<Selected>>,
+}
+
+impl FieldValue {
+    fn given(given: serde_json::Value) -> FieldValue {
+        FieldValue { given: given.clone(), value: given.clone(), set: given, on: None }
+    }
 }
 
 impl Default for PanelState {
@@ -88,6 +115,7 @@ impl Default for PanelState {
             began: None,
             took: None,
             drawn: 0,
+            fields: BTreeMap::new(),
         }
     }
 }
@@ -101,6 +129,35 @@ impl PanelState {
     /// Whether it waits for the edits to stop, to be drawn again.
     pub fn waiting(&self) -> bool {
         self.quiet_at.is_some()
+    }
+
+    /// What its code returned, taken in: a field takes the value its code
+    /// gave where that is not the one it gave last (what the user set
+    /// stays otherwise), unless the user is at it; those it no longer
+    /// shows are forgotten.
+    fn took(&mut self, shown: Result<Shown, String>) {
+        if let Ok(shown) = &shown {
+            let mut ids = Vec::new();
+            for e in &shown.elements {
+                let Element::Field { field, .. } = e else { continue };
+                let given = field.kind.default_value();
+                ids.push(field.id.clone());
+                match self.fields.get(&field.id) {
+                    Some(v) if v.on.is_some() || v.given == given => {}
+                    _ => {
+                        self.fields.insert(field.id.clone(), FieldValue::given(given));
+                    }
+                }
+            }
+            self.fields.retain(|id, _| ids.contains(id));
+        }
+        self.shown = Some(shown);
+    }
+
+    /// Its fields' values, by field id: what a command it runs gets as
+    /// `ctx.values`.
+    pub fn values(&self) -> BTreeMap<String, serde_json::Value> {
+        self.fields.iter().map(|(id, v)| (id.clone(), v.value.clone())).collect()
     }
 }
 
@@ -371,7 +428,7 @@ impl Moonglow {
                         match result {
                             // (Stopped for the game's data: drawn again.)
                             Err(PluginError::Canceled(_)) => state.stale = true,
-                            r => state.shown = Some(r.map_err(|e| e.to_string())),
+                            r => state.took(r.map_err(|e| e.to_string())),
                         }
                     }
                     Err(TryRecvError::Empty) => {}
@@ -448,7 +505,7 @@ impl Moonglow {
             let shown = mg_plugin::run_panel(&plugin, &panel, input, Rc::new(host));
             if let Some(state) = self.plugins.panels.get_mut(&key) {
                 state.took = state.began.map(|b| b.elapsed());
-                state.shown = Some(shown.map_err(|e| e.to_string()));
+                state.took(shown.map_err(|e| e.to_string()));
             }
             return;
         }
@@ -507,6 +564,9 @@ impl Moonglow {
     }
 }
 
+/// A color being picked for a variable: the variable, and the color.
+type Picking = (String, [u8; 3]);
+
 /// A panel's tab's title: its manifest's, while its plugin is enabled.
 pub(crate) fn panel_title(app: &Moonglow, plugin: &str, panel: &str) -> String {
     (app.enabled_plugins().into_iter())
@@ -541,6 +601,15 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
     let shown = app.plugins.panels.get(&key).and_then(|s| s.shown.clone());
     let mut chosen: Option<(String, Vec<Selected>)> = None;
     let mut open: Option<Selected> = None;
+    // Its fields' values, drawn into (and put back after); what is
+    // selected now, which a field the user begins at keeps; a color being
+    // picked, and what on.
+    let mut fields =
+        app.plugins.panels.get_mut(&key).map(|s| std::mem::take(&mut s.fields)).unwrap_or_default();
+    let has_fields = (shown.as_ref().and_then(|s| s.as_ref().ok()))
+        .is_some_and(|s| s.elements.iter().any(|e| matches!(e, Element::Field { .. })));
+    let now = if has_fields { app.plugin_selection() } else { Vec::new() };
+    let mut picked: Option<(Picking, Vec<Selected>)> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &shown {
         None => {
             ui.weak("Drawing…");
@@ -580,6 +649,38 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
                             chosen = Some((command.clone(), on.clone()));
                         }
                     }
+                    Element::Field { field, command } => {
+                        let v = fields
+                            .entry(field.id.clone())
+                            .or_insert_with(|| FieldValue::given(field.kind.default_value()));
+                        ui.horizontal(|ui| {
+                            crate::widgets::field_label(ui, &field.label);
+                            let drawn = crate::plugins::field_widget(
+                                ui,
+                                ("panel-field", &field.id),
+                                field,
+                                &mut v.value,
+                            );
+                            if drawn.editing && v.on.is_none() {
+                                v.on = Some(now.clone());
+                            }
+                            if let Some(p) = drawn.picking {
+                                picked = Some((p, v.on.clone().unwrap_or_else(|| now.clone())));
+                            }
+                            // Set to another value: its command, on what was
+                            // selected when the user began at it.
+                            if drawn.set && v.value != v.set {
+                                v.set = v.value.clone();
+                                if let Some(c) = command {
+                                    let on = v.on.clone().unwrap_or_else(|| now.clone());
+                                    chosen = Some((c.clone(), on));
+                                }
+                            }
+                            if !drawn.editing {
+                                v.on = None;
+                            }
+                        });
+                    }
                     Element::List(items) => {
                         ui.push_id(("panel-list", i), |ui| {
                             for item in items {
@@ -616,11 +717,21 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
             }
         }
     });
-    // A button's command, on what it names, else on what is selected.
+    let values: BTreeMap<String, serde_json::Value> =
+        fields.iter().map(|(id, v)| (id.clone(), v.value.clone())).collect();
+    if let Some(state) = app.plugins.panels.get_mut(&key) {
+        state.fields = fields;
+    }
+    // A color being picked, drawn on the objects it is for.
+    if let Some((picking, on)) = picked {
+        crate::plugins::preview_picked_on(app, Some(picking), &on);
+    }
+    // A button's command (or an item's, or a field's), on what it names,
+    // else on what is selected, with the fields' values.
     if let Some((command, on)) = chosen {
         let selected = if on.is_empty() { app.plugin_selection() } else { on };
         let (plugin, command) = (plugin.to_string(), command);
-        app.actions.push(Action::RunPluginCommand { plugin, command, selected });
+        app.actions.push(Action::RunPluginCommand { plugin, command, selected, values });
     }
     if let Some(s) = open {
         app.open_selected(&s);

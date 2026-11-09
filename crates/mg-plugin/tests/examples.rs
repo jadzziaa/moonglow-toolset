@@ -99,7 +99,8 @@ fn every_example_registers_what_it_declares() {
             "example.store-markup",
             "example.store-wizard",
             "example.tag-conventions",
-            "example.tileset-import"
+            "example.tileset-import",
+            "example.tint-panel"
         ]
     );
 }
@@ -374,6 +375,221 @@ fn pick_tint_asks_for_a_color_and_sets_it() {
     let vars = g.root.list("Placeable List").unwrap()[0].list("VarTable").unwrap();
     assert_eq!(vars.len(), 1, "replaced");
     assert_eq!(vars[0].string("Value"), Some(&b"#ff0000"[..]));
+}
+
+/// A panel's fields (API 0.9), the example `tint-panel`: its own tests
+/// pass (the selected placeable's tint in a color field with its
+/// `variable` and its command, a choice of named tints each with its
+/// swatch, and the commands run with the panel's values, `ctx.values`);
+/// and what its panel returns is read as the window draws it.
+#[test]
+fn tint_panel_shows_the_tint_in_its_fields_and_sets_it() {
+    use mg_core::ResRef;
+    use mg_plugin::{Choice, Element, FieldKind, Selected, Selection};
+    use mg_rules::ObjectKind;
+    let plugin = example("tint-panel");
+    assert_eq!(plugin.manifest.api, "0.9");
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
+    assert_eq!(results.len(), 7, "{results:#?}");
+    assert!(results.iter().all(|r| r.passed()), "{results:#?}");
+    assert!(mg_plugin::test_faults(&plugin).is_empty());
+
+    let mut m = module();
+    let mut git = Gff::new(*b"GIT ");
+    let mut rug = Struct::new(9);
+    rug.set("Tag", Value::String(b"RUG".to_vec()));
+    let mut var = Struct::new(0);
+    var.set("Name", Value::String(b"tdod_tint".to_vec()));
+    var.set("Type", Value::Dword(3));
+    var.set("Value", Value::String(b"#A01010".to_vec()));
+    rug.set("VarTable", Value::List(vec![var]));
+    git.root.set("Placeable List", Value::List(vec![rug]));
+    m.set_gff(key("tavern.git"), &git).unwrap();
+    let area = ResRef::from_str("tavern").unwrap();
+    let selection = Selection {
+        selected: vec![Selected::Object { area, kind: ObjectKind::Placeable, index: 0 }],
+        ..Default::default()
+    };
+    let host = Rc::new(TestHost::default());
+    let shown =
+        mg_plugin::run_panel(&plugin, "tint", Input { selection, ..input(&m) }, host).unwrap();
+    let fields: Vec<_> = (shown.elements.iter())
+        .filter_map(|e| match e {
+            Element::Field { field, command } => Some((field, command.as_deref())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fields.len(), 2);
+    let (tint, command) = &fields[0];
+    assert_eq!(
+        (tint.id.as_str(), tint.label.as_str(), *command),
+        ("tint", "Tint", Some("set-tint"))
+    );
+    assert_eq!(
+        tint.kind,
+        FieldKind::Color { default: [0xa0, 0x10, 0x10], variable: Some("tdod_tint".into()) }
+    );
+    let (named, command) = &fields[1];
+    assert_eq!(*command, Some("set-preset"));
+    let FieldKind::Choice { choices, default } = &named.kind else { panic!("{named:?}") };
+    assert_eq!(choices[0], Choice::text("Custom"), "text alone: no swatch");
+    assert_eq!(choices[1], Choice { text: "Crimson".into(), color: Some([0xa0, 0x10, 0x10]) });
+    assert_eq!(choices.len(), 5);
+    assert_eq!(*default, 1, "its own, by its text");
+    assert_eq!(named.kind.default_value(), serde_json::json!("Crimson"));
+
+    // The manual shows its code as it is.
+    let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    for (file, line) in [
+        ("plugin.cfg", "hint = \"The tint of the placed placeables selected\""),
+        ("main.luau", "            kind = \"color\","),
+        ("main.luau", "            variable = VARIABLE,"),
+        ("main.luau", "            command = \"set-tint\","),
+        ("main.luau", "mg.command(\"set-tint\", function(ctx)"),
+        ("main.luau", "    if not ctx.values.tint then"),
+    ] {
+        let text = std::fs::read_to_string(plugin.dir.join(file)).unwrap();
+        assert!(text.lines().any(|l| l == line), "{file} lacks {line:?}");
+        assert!(guide.contains(line), "the manual lacks {file}'s line {line:?}");
+    }
+}
+
+/// `ctx.values` is the values a command is run with, by field id as a
+/// form's come back; a command run from anywhere else gets an empty table.
+#[test]
+fn ctx_values_is_what_the_command_is_run_with() {
+    let dir = mg_testkit::scratch_dir("plugin-ctx-values");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"t.values\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.9\"\nlicense = \"MIT\"\n\n\
+         [command]\nid = \"go\"\ntitle = \"Go\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"go\", function(ctx)\n  \
+         local n = 0\n  for _ in ctx.values do n += 1 end\n  \
+         ctx.log:info(`{n} {ctx.values.tint} {ctx.values.count} {ctx.values.on}`)\nend)\n",
+    )
+    .unwrap();
+    let plugin = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    run_command(&plugin, "go", input(&module()), host.clone()).unwrap();
+    let values = BTreeMap::from([
+        ("tint".to_string(), serde_json::json!("#ff8000")),
+        ("count".to_string(), serde_json::json!(3.5)),
+        ("on".to_string(), serde_json::json!(true)),
+    ]);
+    run_command(&plugin, "go", Input { values, ..input(&module()) }, host.clone()).unwrap();
+    assert_eq!(host.log.borrow().as_slice(), ["0 nil nil nil", "3 #ff8000 3.5 true"]);
+}
+
+/// What a panel's field is held to: a `kind`, its `value` (not a form's
+/// `default`), an id of its own, a command the manifest declares; a
+/// choice's options text or `{ text, color }` with a color `"#rrggbb"`.
+#[test]
+fn a_panel_s_fields_are_checked() {
+    let dir = mg_testkit::scratch_dir("plugin-panel-fields");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"t.fields\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.9\"\nlicense = \"MIT\"\n\n\
+         [panel]\nid = \"p\"\ntitle = \"P\"\n\n[command]\nid = \"go\"\ntitle = \"Go\"\n",
+    )
+    .unwrap();
+    let cases: [(&str, &str); 7] = [
+        (r##"{ type = "field", id = "a", value = "x" }"##, "kind = \"text\""),
+        (r##"{ type = "field", kind = "text", id = "a", default = "x" }"##, "not default"),
+        (r##"{ type = "field", kind = "slider", id = "a" }"##, "not \"slider\""),
+        (
+            r##"{ type = "field", kind = "check", id = "a" }, { type = "field", kind = "text", id = "a" }"##,
+            "two fields \"a\"",
+        ),
+        (
+            r##"{ type = "field", kind = "check", id = "a", command = "nope" }"##,
+            "no command \"nope\"",
+        ),
+        (
+            r##"{ type = "field", kind = "choice", id = "a", choices = { { color = "#ff0000" } } }"##,
+            "{ text = \"…\", color = \"#rrggbb\" }",
+        ),
+        (
+            r##"{ type = "field", kind = "choice", id = "a", choices = { { text = "Red", color = "red" } } }"##,
+            "\"Red\"'s color is \"#rrggbb\", not \"red\"",
+        ),
+    ];
+    for (elements, said) in cases {
+        std::fs::write(
+            dir.join("main.luau"),
+            format!(
+                "local mg = require(\"@moonglow\")\nmg.panel(\"p\", function(ctx) return {{ {elements} }} end)\n\
+                 mg.command(\"go\", function(ctx) end)\n"
+            ),
+        )
+        .unwrap();
+        let plugin = Plugin::load(&dir).unwrap();
+        let host = Rc::new(TestHost::default());
+        let e = mg_plugin::run_panel(&plugin, "p", input(&module()), host).unwrap_err();
+        assert!(e.to_string().contains(said), "{elements}: {e}");
+    }
+    // Each kind, its value as given, its command; texts as a test reads them.
+    std::fs::write(
+        dir.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.panel(\"p\", function(ctx) return {\n  \
+         { type = \"field\", kind = \"text\", id = \"t\", label = \"Name\", value = \"Rug\", command = \"go\" },\n  \
+         { type = \"field\", kind = \"number\", id = \"n\", value = 4, min = 1, max = 9 },\n  \
+         { type = \"field\", kind = \"check\", id = \"c\", label = \"On\", value = true },\n  \
+         { type = \"field\", kind = \"color\", id = \"k\", label = \"Tint\", value = \"#FF8000\" },\n  \
+         { type = \"field\", kind = \"choice\", id = \"h\", label = \"Hue\", choices = { \"Red\", { text = \"Blue\", color = \"#0000ff\" } }, value = \"Blue\" },\n\
+         } end)\nmg.command(\"go\", function(ctx) end)\n",
+    )
+    .unwrap();
+    let plugin = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let shown = mg_plugin::run_panel(&plugin, "p", input(&module()), host).unwrap();
+    assert_eq!(shown.texts(), ["Name: Rug", "n: 4", "On: true", "Tint: #ff8000", "Hue: Blue"]);
+    let mg_plugin::Element::Field { command, .. } = &shown.elements[0] else { panic!() };
+    assert_eq!(command.as_deref(), Some("go"));
+    let mg_plugin::Element::Field { command, .. } = &shown.elements[1] else { panic!() };
+    assert_eq!(*command, None);
+}
+
+/// A form's choice may have swatches too (API 0.9): an option `{ text,
+/// color }`, its value the text.
+#[test]
+fn a_form_s_choice_may_have_swatches() {
+    use mg_plugin::{Choice, FieldKind};
+    let dir = mg_testkit::scratch_dir("plugin-form-swatches");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"t.swatches\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.9\"\nlicense = \"MIT\"\n\n\
+         [command]\nid = \"go\"\ntitle = \"Go\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"go\", function(ctx)\n  \
+         local a = ctx.ui:form({ fields = { { id = \"h\", type = \"choice\", default = \"Blue\", \
+         choices = { \"Red\", { text = \"Blue\", color = \"#0000FF\" } } } } })\n  \
+         ctx.log:info(a.h)\nend)\n",
+    )
+    .unwrap();
+    let plugin = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let values = BTreeMap::from([("h".to_string(), serde_json::json!("Red"))]);
+    host.answers.borrow_mut().push_back(Some(Answer::Values(values)));
+    run_command(&plugin, "go", input(&module()), host.clone()).unwrap();
+    let Question::Form { fields, .. } = &host.asked.borrow()[0] else { panic!("no form") };
+    assert_eq!(
+        fields[0].kind,
+        FieldKind::Choice {
+            choices: vec![
+                Choice::text("Red"),
+                Choice { text: "Blue".into(), color: Some([0, 0, 255]) }
+            ],
+            default: 1,
+        }
+    );
+    assert_eq!(host.log.borrow().as_slice(), ["Red"]);
 }
 
 /// A color field's default is `"#rrggbb"`; anything else is said.

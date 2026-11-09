@@ -240,7 +240,7 @@ pub enum FieldKind {
     },
     /// One of these; the default is its place in them.
     Choice {
-        choices: Vec<String>,
+        choices: Vec<Choice>,
         default: usize,
     },
     /// A color (API 0.8), its value `"#rrggbb"`. `variable`: a string
@@ -259,9 +259,31 @@ impl FieldKind {
             FieldKind::Text { default } => serde_json::json!(default),
             FieldKind::Number { default, .. } => serde_json::json!(default),
             FieldKind::Check { default } => serde_json::json!(default),
-            FieldKind::Choice { choices, default } => serde_json::json!(choices[*default]),
+            FieldKind::Choice { choices, default } => serde_json::json!(choices[*default].text),
             FieldKind::Color { default, .. } => serde_json::json!(color_text(*default)),
         }
+    }
+}
+
+/// One of a choice field's options: its text (what the field's value is
+/// when it is chosen) and the color of the swatch drawn before it (API
+/// 0.9), if it has one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice {
+    pub text: String,
+    pub color: Option<[u8; 3]>,
+}
+
+impl Choice {
+    /// An option of text alone.
+    pub fn text(text: impl Into<String>) -> Choice {
+        Choice { text: text.into(), color: None }
+    }
+}
+
+impl From<&str> for Choice {
+    fn from(text: &str) -> Choice {
+        Choice::text(text)
     }
 }
 
@@ -393,13 +415,24 @@ pub struct Input {
     /// as long as it takes (until it is canceled). An event that runs at
     /// once, within what the user is doing, has [`EVENT_BUDGET`].
     pub budget: Option<std::time::Duration>,
+    /// The values of the panel's fields a command is run from (its button,
+    /// or a field set; API 0.9), by field id, as a form's come back
+    /// (`ctx.values`): empty for a command run from anywhere else.
+    pub values: BTreeMap<String, serde_json::Value>,
 }
 
 impl Input {
     /// A job's input with nothing selected or open, and the plugin's
     /// settings at their defaults.
     pub fn new(module: Module, game: Option<Arc<GameData>>) -> Input {
-        Input { module, game, selection: Selection::default(), settings: None, budget: None }
+        Input {
+            module,
+            game,
+            selection: Selection::default(),
+            settings: None,
+            budget: None,
+            values: BTreeMap::new(),
+        }
     }
 }
 
@@ -890,7 +923,7 @@ pub fn run_panel(
     kinds::run_panel(plugin, decl, input, host)
 }
 
-pub use kinds::{Element, Item, MAX_ELEMENTS, MAX_TEXT, PANEL_BUDGET, Shown, Tone};
+pub use kinds::{Element, Item, MAX_ELEMENTS, MAX_TEXT, PANEL_BUDGET, Shown, Tone, value_text};
 
 /// Runs code typed into the plugin console on a module, with `mg` (the
 /// API) and `ctx` (as a command's handler gets it) at hand: what it

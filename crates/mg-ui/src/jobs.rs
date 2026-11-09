@@ -78,7 +78,14 @@ type Finish = Box<dyn FnOnce(&mut Moonglow, Made)>;
 
 /// A job under way.
 pub struct Job {
+    /// What the log calls it (a plugin's: its name and the command's
+    /// title).
     pub title: String,
+    /// A plugin's job: its window's heading (the command's title alone)
+    /// and the plugin's name, shown on hover; its window leaves the
+    /// window behind it as it is, not dimmed, for a color being picked to
+    /// be judged through it.
+    pub(crate) plugin: Option<(String, String)>,
     progress: Arc<Progress>,
     thread: JoinHandle<Made>,
     finish: Finish,
@@ -247,6 +254,7 @@ impl Moonglow {
         };
         self.job = Some(Job {
             title,
+            plugin: None,
             progress,
             thread,
             finish: Box::new(move |app, made| {
@@ -289,14 +297,27 @@ impl Moonglow {
 }
 
 /// The running job's window: its name, how far it is, and Cancel. Nothing
-/// else takes input while it shows.
+/// else takes input while it shows. A plugin's is headed by its command's
+/// title, and leaves the window behind it undimmed.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(job) = &app.job else { return };
     let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
+    let plugin = job.plugin.clone();
     let command = crate::project_commands::running(app);
-    egui::Modal::new(egui::Id::new("job")).show(ctx, |ui| {
+    let mut modal = egui::Modal::new(egui::Id::new("job"));
+    if plugin.is_some() {
+        modal = modal.backdrop_color(egui::Color32::TRANSPARENT);
+    }
+    modal.show(ctx, |ui| {
         ui.set_width(if command { 640.0 } else { 320.0 });
-        ui.heading(&title);
+        match &plugin {
+            Some((heading, name)) => {
+                ui.heading(heading).on_hover_text(format!("From the plugin {name}"));
+            }
+            None => {
+                ui.heading(&title);
+            }
+        }
         // A plugin waiting on the user shows its question here.
         if crate::plugins::question_ui(app, ui) {
             return;

@@ -1,0 +1,81 @@
+{
+  "__data_type": "GIT ",
+  "Placeable List": {
+    "type": "list",
+    "value": [
+      {
+        "__struct_id": 9,
+        "Tag": {
+          "type": "cexostring",
+          "value": "RUG"
+        },
+        "TemplateResRef": {
+          "type": "resref",
+          "value": "plc_rug"
+        },
+        "VarTable": {
+          "type": "list",
+          "value": [
+            {
+              "__struct_id": 0,
+              "Name": {
+                "type": "cexostring",
+                "value": "tdod_tint"
+              },
+              "Type": {
+                "type": "dword",
+                "value": 3
+              },
+              "Value": {
+                "type": "cexostring",
+                "value": "#2a4d8f"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "__struct_id": 9,
+        "Tag": {
+          "type": "cexostring",
+          "value": "CRATE"
+        },
+        "TemplateResRef": {
+          "type": "resref",
+          "value": "plc_crate"
+        },
+        "VarTable": {
+          "type": "list",
+          "value": [
+            {
+              "__struct_id": 0,
+              "Name": {
+                "type": "cexostring",
+                "value": "tdod_tint"
+              },
+              "Type": {
+                "type": "dword",
+                "value": 3
+              },
+              "Value": {
+                "type": "cexostring",
+                "value": "#a01010"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "__struct_id": 9,
+        "Tag": {
+          "type": "cexostring",
+          "value": "BARREL"
+        },
+        "TemplateResRef": {
+          "type": "resref",
+          "value": "plc_barrel"
+        }
+      }
+    ]
+  }
+}
