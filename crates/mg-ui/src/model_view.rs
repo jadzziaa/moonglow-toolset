@@ -58,6 +58,18 @@ impl mg_render::Assets for GameAssets {
         mg_render::Assets::texture(&self.0.resman, name)
     }
 
+    fn texture_kept(
+        &self,
+        name: &str,
+        kept: &mg_render::Palettes,
+    ) -> Option<mg_render::LoadedTexture> {
+        mg_render::Assets::texture_kept(&self.0.resman, name, kept)
+    }
+
+    fn takes_colors(&self, name: &str) -> bool {
+        mg_render::Assets::takes_colors(&self.0.resman, name)
+    }
+
     fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
         mg_render::Assets::material(&self.0.resman, name)
     }

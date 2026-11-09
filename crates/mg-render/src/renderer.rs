@@ -526,6 +526,8 @@ pub struct Renderer {
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
+    /// The PLTs' palettes, kept while the textures are.
+    palettes: Arc<crate::Palettes>,
     /// When the materials and textures were last drawn, and how much of
     /// what isn't drawn lately is kept ([`kept`]).
     kept: kept::Kept,
@@ -716,7 +718,12 @@ fn cols(m: Mat4) -> [[f32; 4]; 4] {
 /// faces `name0`…`name5`), and what its TXI says of it; `None` where there
 /// is none, or where the GPU won't take it (said, as
 /// [`crate::guard::note_gpu_error`]: drawn as one that is missing).
-fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEntry> {
+fn load_texture(
+    gpu: &Gpu,
+    assets: &dyn Assets,
+    name: &str,
+    palettes: &crate::Palettes,
+) -> Option<TextureEntry> {
     if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
         let faces: Option<Vec<mg_image::Texture>> =
             (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
@@ -738,7 +745,7 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
             });
         }
     }
-    let mut t = assets.texture(name)?;
+    let mut t = assets.texture_kept(name, palettes)?;
     // What the rippling procedure makes of the picture where it doesn't
     // ripple it: of a DDS, a flat gray (the client loses its picture);
     // with `distort 0`, the channels scaled and moved.
@@ -850,6 +857,9 @@ struct TextureReader {
     /// dropped. (Shared with the threads.)
     era: u64,
     eras: Arc<std::sync::atomic::AtomicU64>,
+    /// The PLTs' palettes the threads keep, made anew as the textures
+    /// are forgotten.
+    palettes: Arc<std::sync::Mutex<Arc<crate::Palettes>>>,
 }
 
 impl std::fmt::Debug for TextureReader {
@@ -874,11 +884,12 @@ impl TextureReader {
         let (give, read) = std::sync::mpsc::channel();
         let asked = Arc::new(std::sync::Mutex::new(asked));
         let eras = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let palettes: Arc<std::sync::Mutex<Arc<crate::Palettes>>> = Arc::default();
         let mut started = 0;
         for n in 0..reader_threads() {
             let (gpu, assets, asked, give) =
                 (gpu.clone(), assets.clone(), asked.clone(), give.clone());
-            let (waker, eras) = (waker.clone(), eras.clone());
+            let (waker, eras, palettes) = (waker.clone(), eras.clone(), palettes.clone());
             let spawned = std::thread::Builder::new().name(format!("moonglow textures {n}")).spawn(
                 move || {
                     loop {
@@ -894,10 +905,11 @@ impl TextureReader {
                             continue;
                         }
                         let era = eras.load(std::sync::atomic::Ordering::Relaxed);
+                        let kept = palettes.lock().map(|p| p.clone()).unwrap_or_default();
                         // (A texture that breaks what reads it is none, as
                         // a model that does is left out.)
                         let entry = crate::guard::guarded(&name, || {
-                            load_texture(&gpu, assets.as_ref(), &name).map(Arc::new)
+                            load_texture(&gpu, assets.as_ref(), &name, &kept).map(Arc::new)
                         })
                         .flatten();
                         if give.send((name, era, entry)).is_err() {
@@ -924,6 +936,7 @@ impl TextureReader {
             taken: 0,
             era: 0,
             eras,
+            palettes,
         })
     }
 
@@ -932,6 +945,9 @@ impl TextureReader {
         self.era += 1;
         self.eras.store(self.era, std::sync::atomic::Ordering::Relaxed);
         self.asked.clear();
+        if let Ok(mut palettes) = self.palettes.lock() {
+            *palettes = Arc::default();
+        }
     }
 }
 
@@ -1411,6 +1427,7 @@ impl Renderer {
                 std::array::from_fn(|_| face.clone())
             })),
             textures: HashMap::new(),
+            palettes: Arc::default(),
             kept: Default::default(),
             slots: HashMap::new(),
             materials: HashMap::new(),
@@ -1439,6 +1456,7 @@ impl Renderer {
             r.forget();
         }
         self.textures.clear();
+        self.palettes = Arc::default();
         self.slots.clear();
         self.valued.clear();
         self.materials.clear();
@@ -1892,8 +1910,10 @@ impl Renderer {
             named.as_ref().map(|n| {
                 let renamed = inst.textures.as_ref().and_then(|t| t.get(n)).cloned();
                 let n = renamed.unwrap_or_else(|| n.clone());
+                // (In its colors where it takes them: a plain DDS or TGA
+                // is one texture for every set of colors.)
                 match (i, inst.plt_colors) {
-                    (0, Some(c)) => crate::assets::colored_name(&n, c),
+                    (0, Some(c)) if assets.takes_colors(&n) => crate::assets::colored_name(&n, c),
                     _ => n,
                 }
             })
@@ -2013,7 +2033,10 @@ impl Renderer {
         }
         // (A texture that breaks what reads it is none, as on the threads
         // that read them apart.)
-        let entry = crate::guard::guarded(name, || load_texture(gpu, assets, name).map(Arc::new));
+        let palettes = self.palettes.clone();
+        let entry = crate::guard::guarded(name, || {
+            load_texture(gpu, assets, name, &palettes).map(Arc::new)
+        });
         let entry = stamped(&entry.flatten());
         self.textures.insert(name.to_string(), entry.clone());
         entry

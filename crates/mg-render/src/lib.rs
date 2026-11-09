@@ -25,7 +25,7 @@ mod views;
 mod volume;
 pub mod watch;
 
-pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
+pub use assets::{Assets, LoadedTexture, NoAssets, Palettes, colored_name, split_colors};
 pub use game::ShaderStats;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};

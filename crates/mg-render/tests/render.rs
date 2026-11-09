@@ -1049,6 +1049,68 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     assert!(red(first) && blue(second) && red(again), "{first:?} {second:?} {again:?}");
 }
 
+/// A texture that takes no colors (a plain DDS or TGA: a custom head) is
+/// one texture however many differently colored instances wear it (it was
+/// read and uploaded once for every set of colors that asked for it,
+/// under a name with the colors in it); a PLT is one a set of colors.
+#[test]
+fn a_plain_texture_is_kept_once_for_every_set_of_colors() {
+    let Some(gpu) = gpu() else { return };
+    /// `plain` takes no colors; the others do, each set its own picture
+    /// (asked for by the name with the colors in it).
+    struct Parts(TestAssets);
+    impl mg_render::Assets for Parts {
+        fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+            let (base, colors) = mg_render::split_colors(name);
+            // (As the load order's: a plain texture whatever colors are
+            // asked for, a PLT in them.)
+            match (base, colors) {
+                ("plain", _) => self.0.texture("plain"),
+                ("plt", Some(c)) => self.0.texture(if c[0] == 1 { "red" } else { "blue" }),
+                _ => None,
+            }
+        }
+        fn takes_colors(&self, name: &str) -> bool {
+            name != "plain"
+        }
+    }
+    let mut assets = TestAssets::default();
+    assets.solid("plain", [0, 255, 0, 255]);
+    assets.solid("red", [255, 0, 0, 255]);
+    assets.solid("blue", [0, 0, 255, 255]);
+    let assets = Parts(assets);
+    let head = |texture: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(texture.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let lit = AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z };
+    for (texture, textures, left, right) in [("plain", 1, 1, 1), ("plt", 2, 0, 2)] {
+        let model = head(texture);
+        let worn = |x: f32, color: u8| Instance {
+            plt_colors: Some([color; 10]),
+            ..Instance::new(model.clone(), Mat4::from_translation(Vec3::new(x, 0.0, 0.0)))
+        };
+        let scene =
+            Scene { instances: vec![worn(-1.5, 1), worn(1.5, 2)], area: lit, ..Default::default() };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 32);
+        assert_eq!(r.texture_memory().textures, textures, "{texture}");
+        // (Each drawn in its own: channel `left` and `right` the brightest.)
+        let brightest = |p: [u8; 4]| (0..3).max_by_key(|&c| p[c]).unwrap();
+        let (l, rt) = (image.pixel(25, 16), image.pixel(39, 16));
+        assert_eq!((brightest(l), brightest(rt)), (left, right), "{texture}: {l:?} {rt:?}");
+    }
+}
+
 #[test]
 fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
     let Some(gpu) = gpu() else { return };
