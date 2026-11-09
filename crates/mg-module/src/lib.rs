@@ -669,10 +669,17 @@ impl Module {
             let _ = std::fs::remove_file(&tmp);
             return Err(e);
         }
-        if path.exists() {
-            keep_previous(path).map_err(io(&sibling(path, ".bak")))?;
+        // (The new archive's file does not stay behind, holding the room,
+        // when the old one cannot be kept or the move fails.)
+        let placed = match path.exists() {
+            true => keep_previous(path).map(|_| ()).map_err(io(&sibling(path, ".bak"))),
+            false => Ok(()),
         }
-        std::fs::rename(&tmp, path).map_err(io(path))
+        .and_then(|()| std::fs::rename(&tmp, path).map_err(io(path)));
+        if placed.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        placed
     }
 
     /// Writes the module into a folder, a file a resource: those that
@@ -1030,13 +1037,24 @@ pub(crate) fn left_writing(path: &Path) -> bool {
 /// (one there before goes), before a new one is moved into its place: a
 /// second name for the same file where the disk can give one (no copy of
 /// a hak of gigabytes), else a copy. Where it is kept.
+///
+/// The backup there before is replaced only by a whole new one: the link
+/// or the copy is made beside it (`name.ext.bak.moonglow-tmp`) and moved
+/// over it. A copy that fails (a disk without hard links, nearly full)
+/// leaves the old backup as it was, not gone or cut short.
 pub(crate) fn keep_previous(path: &Path) -> std::io::Result<PathBuf> {
     let backup = sibling(path, ".bak");
-    let _ = std::fs::remove_file(&backup);
-    if std::fs::hard_link(path, &backup).is_err() {
-        std::fs::copy(path, &backup)?;
-    }
-    Ok(backup)
+    let tmp = sibling(&backup, WRITING);
+    let _ = std::fs::remove_file(&tmp);
+    let made = match std::fs::hard_link(path, &tmp) {
+        Ok(()) => Ok(()),
+        Err(_) => std::fs::copy(path, &tmp).map(|_| ()),
+    };
+    let kept = made.and_then(|()| std::fs::rename(&tmp, &backup));
+    // (Gone already, moved; still there after a failure, and where it
+    // and the backup are two names of one file, which a move leaves.)
+    let _ = std::fs::remove_file(&tmp);
+    kept.map(|()| backup)
 }
 
 pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
@@ -1207,6 +1225,50 @@ mod tests {
         m.save().unwrap();
         assert_eq!(script(&path).as_deref(), Some(&b"again"[..]));
         assert_eq!(script(&dir.join("test.mod.bak")).as_deref(), Some(&b"changed"[..]));
+    }
+
+    /// A save whose backup cannot be made leaves no temporary file behind
+    /// (the new archive's, which held the room on a full disk), the module
+    /// as it was, and a backup that is there whole: the old one is
+    /// replaced only by a new one that was made.
+    #[test]
+    fn a_backup_that_fails_leaves_no_temporary_file_and_the_old_backup() {
+        let dir = mg_testkit::scratch_dir("mg-module-backup-fails");
+        let path = dir.join("test.mod");
+        let mut m = sample();
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let first = std::fs::read(&path).unwrap();
+        // (The backup's place taken by a folder with a file in it: nothing
+        // can be moved over it.)
+        let backup = dir.join("test.mod.bak");
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("kept"), b"x").unwrap();
+        m.set(key("script", ResType::NSS), &b"changed"[..]);
+        assert!(m.save().is_err());
+        let left: Vec<String> = (std::fs::read_dir(&dir).unwrap().flatten())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(WRITING))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), first);
+        assert!(backup.join("kept").is_file());
+
+        // A backup there is replaced by a whole one, and stays when the
+        // file to keep cannot be read (here: is not there).
+        let file = dir.join("a.hak");
+        std::fs::write(&file, b"one").unwrap();
+        let kept = keep_previous(&file).unwrap();
+        // (A new file is moved into its place, as every save does.)
+        write_replacing(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"one");
+        // (Kept twice with nothing between: the same file under both names.)
+        keep_previous(&file).unwrap();
+        keep_previous(&file).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"two");
+        assert!(!sibling(&kept, WRITING).exists());
+        std::fs::remove_file(&file).unwrap();
+        assert!(keep_previous(&file).is_err());
+        assert_eq!(std::fs::read(&kept).unwrap(), b"two", "the backup there stays");
     }
 
     /// A Save As into a project that fails leaves the module where it was:
