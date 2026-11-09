@@ -14,7 +14,7 @@
 //! form of their own, and kept where each one's scope says.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
@@ -408,6 +408,7 @@ pub(crate) fn run_on(command: &PluginCommand, selected: Vec<mg_plugin::Selected>
         plugin: command.plugin.clone(),
         command: command.command.clone(),
         selected,
+        values: Default::default(),
     }
 }
 
@@ -1280,6 +1281,19 @@ impl Moonglow {
         command: &str,
         selected: Vec<mg_plugin::Selected>,
     ) {
+        self.run_plugin_command_with(plugin, command, selected, BTreeMap::new());
+    }
+
+    /// [`run_plugin_command_on`](Self::run_plugin_command_on) from a
+    /// plugin's panel (API 0.9): `values`, its fields' by id, are the
+    /// command's `ctx.values`.
+    pub fn run_plugin_command_with(
+        &mut self,
+        plugin: &str,
+        command: &str,
+        selected: Vec<mg_plugin::Selected>,
+        values: BTreeMap<String, serde_json::Value>,
+    ) {
         let selection = mg_plugin::Selection {
             selected,
             open: self.plugin_open(),
@@ -1299,7 +1313,7 @@ impl Moonglow {
         let settings = Some(self.plugin_settings(&plugin));
         let keeper = plugin.clone();
         let run = move |input: Input, host: Rc<dyn Host>| {
-            let input = Input { selection, settings, ..input };
+            let input = Input { selection, settings, values, ..input };
             mg_plugin::run_command(&plugin, &command, input, host)
         };
         self.run_plugin(name, title, false, None, Some(keeper), run);
@@ -1526,8 +1540,12 @@ impl Moonglow {
         let job_name = name.clone();
         self.plugins.form = None;
         self.plugins.ask = ask;
+        // (Another job under way: this one does not start.)
+        let starts = self.job.is_none();
+        let heading = title.trim_end_matches('…').trim_end_matches("...").trim().to_string();
+        let plugin_name = name.clone();
         self.start_job(
-            format!("{name}: {}", title.trim_end_matches('…')),
+            format!("{name}: {heading}"),
             move |job| {
                 let host = Rc::new(JobHost {
                     progress: job.progress.clone(),
@@ -1551,6 +1569,11 @@ impl Moonglow {
                 }
             },
         );
+        // Its window is headed by the command's title, the plugin's name
+        // on hover (the log names both).
+        if let Some(job) = self.job.as_mut().filter(|_| starts) {
+            job.plugin = Some((heading, plugin_name));
+        }
         if !self.busy() {
             self.plugins.ask = None;
         }
@@ -1828,8 +1851,10 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             });
         }
         Question::Form { title, fields } => {
+            // (Its title is the window's heading already, the command's.)
+            let heading = app.job.as_ref().and_then(|j| j.plugin.as_ref()).map(|p| p.0.clone());
             let values = form_values(app, &question, fields);
-            if !title.is_empty() {
+            if !title.is_empty() && heading.as_deref() != Some(title.as_str()) {
                 crate::widgets::section_heading(ui, title);
             }
             picked = form_grid(ui, fields, values);
@@ -1876,9 +1901,13 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             });
         }
         Question::Page(page) => {
+            // (Not again under the window's heading, the wizard's title.)
+            let window = app.job.as_ref().and_then(|j| j.plugin.as_ref()).map(|p| p.0.clone());
             let values = form_values(app, &question, &page.fields);
             let heading = if page.title.is_empty() { &page.wizard } else { &page.title };
-            crate::widgets::section_heading(ui, heading);
+            if window.as_deref() != Some(heading.trim_end_matches('…').trim()) {
+                crate::widgets::section_heading(ui, heading);
+            }
             ui.weak(format!("Page {} of {}", page.step, page.steps));
             if !page.text.is_empty() {
                 ui.add_space(4.0);
@@ -1957,9 +1986,22 @@ fn form_values<'a>(
 /// window is held while it runs) drawn with it set to the color, as the
 /// Variables page's picker draws them; nothing is set.
 fn preview_picked(app: &mut Moonglow, picking: Option<(String, [u8; 3])>) {
+    if picking.is_some() {
+        let on = app.plugin_selection();
+        preview_picked_on(app, picking, &on);
+    }
+}
+
+/// [`preview_picked`] on the placed objects of `on` (a panel's color
+/// field's, API 0.9: those selected when its picker opened).
+pub(crate) fn preview_picked_on(
+    app: &mut Moonglow,
+    picking: Option<(String, [u8; 3])>,
+    on: &[mg_plugin::Selected],
+) {
     let Some((variable, rgb)) = picking else { return };
     let value = mg_plugin::color_text(rgb);
-    for s in app.plugin_selection() {
+    for s in on {
         let mg_plugin::Selected::Object { .. } = s else { continue };
         let (key, path) = s.place();
         let Some(Ok(doc)) = app.ws.as_mut().map(|ws| ws.doc(&key)) else { continue };
@@ -1981,53 +2023,152 @@ fn form_grid(
     egui::Grid::new("plugin-form").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (f, value) in fields.iter().zip(values.iter_mut()) {
             crate::widgets::field_label(ui, &f.label);
-            match &f.kind {
-                FieldKind::Text { .. } => {
-                    let mut text = value.as_str().unwrap_or_default().to_string();
-                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
-                    *value = serde_json::json!(text);
-                }
-                FieldKind::Number { min, max, .. } => {
-                    let mut n = value.as_f64().unwrap_or_default();
-                    let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
-                    ui.add(egui::DragValue::new(&mut n).range(range));
-                    *value = serde_json::json!(n);
-                }
-                FieldKind::Check { .. } => {
-                    let mut on = value.as_bool().unwrap_or_default();
-                    ui.checkbox(&mut on, "");
-                    *value = serde_json::json!(on);
-                }
-                FieldKind::Choice { choices, .. } => {
-                    let mut chosen = value.as_str().unwrap_or_default().to_string();
-                    crate::widgets::dropdown(("plugin-form", &f.id))
-                        .selected_text(chosen.clone())
-                        .show(ui, &mut chosen, choices, Clone::clone);
-                    *value = serde_json::json!(chosen);
-                }
-                FieldKind::Color { default, variable } => {
-                    let mut rgb = value.as_str().and_then(mg_plugin::color_of).unwrap_or(*default);
-                    ui.horizontal(|ui| {
-                        let open = ui
-                            .push_id(("plugin-form-color", &f.id), |ui| {
-                                let popup = ui.auto_id_with("popup");
-                                crate::color_button::edit_srgb(ui, &mut rgb)
-                                    .on_hover_text("Pick the color");
-                                egui::Popup::is_id_open(ui.ctx(), popup)
-                            })
-                            .inner;
-                        ui.monospace(mg_plugin::color_text(rgb));
-                        if open && let Some(v) = variable {
-                            picking = Some((v.clone(), rgb));
-                        }
-                    });
-                    *value = serde_json::json!(mg_plugin::color_text(rgb));
-                }
+            let drawn = field_widget(ui, ("plugin-form", &f.id), f, value);
+            if drawn.picking.is_some() {
+                picking = drawn.picking;
             }
             ui.end_row();
         }
     });
     picking
+}
+
+/// What a field (a form's, or a panel's) was this frame.
+#[derive(Debug, Default)]
+pub(crate) struct FieldDrawn {
+    /// A color being picked for a variable (its `variable`), and the color.
+    pub picking: Option<(String, [u8; 3])>,
+    /// The user is at it: its picker open, the keyboard in it, a number
+    /// being dragged.
+    pub editing: bool,
+    /// What the user did sets it (a panel's field's `command`, API 0.9):
+    /// a color's picker closed (or a color pasted on its swatch), text
+    /// or a number let go, a check or a choice changed.
+    pub set: bool,
+}
+
+/// A field's widget, its value `value` (as the field gives it back:
+/// text, a number, true or false, a choice's text, a color's
+/// `"#rrggbb"`), its ids from `salt`.
+pub(crate) fn field_widget(
+    ui: &mut egui::Ui,
+    salt: impl egui::AsIdSalt,
+    f: &mg_plugin::FormField,
+    value: &mut serde_json::Value,
+) -> FieldDrawn {
+    let mut drawn = FieldDrawn::default();
+    ui.push_id(salt, |ui| match &f.kind {
+        FieldKind::Text { .. } => {
+            let mut text = value.as_str().unwrap_or_default().to_string();
+            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
+            drawn.editing = r.has_focus();
+            drawn.set = r.lost_focus();
+            *value = serde_json::json!(text);
+        }
+        FieldKind::Number { min, max, .. } => {
+            let mut n = value.as_f64().unwrap_or_default();
+            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
+            let r = ui.add(egui::DragValue::new(&mut n).range(range));
+            drawn.editing = r.dragged() || r.has_focus();
+            drawn.set = r.drag_stopped() || r.lost_focus() || (r.changed() && !drawn.editing);
+            *value = serde_json::json!(n);
+        }
+        FieldKind::Check { .. } => {
+            let mut on = value.as_bool().unwrap_or_default();
+            drawn.set = ui.checkbox(&mut on, "").changed();
+            *value = serde_json::json!(on);
+        }
+        FieldKind::Choice { choices, .. } => {
+            let mut chosen = value.as_str().unwrap_or_default().to_string();
+            let was = chosen.clone();
+            choice_box(ui, &mut chosen, choices);
+            drawn.set = chosen != was;
+            *value = serde_json::json!(chosen);
+        }
+        FieldKind::Color { default, variable } => {
+            let mut rgb = value.as_str().and_then(mg_plugin::color_of).unwrap_or(*default);
+            ui.horizontal(|ui| {
+                let (open, changed) = ui
+                    .push_id("color", |ui| {
+                        let popup = ui.auto_id_with("popup");
+                        let r = crate::color_button::edit_srgb(ui, &mut rgb)
+                            .on_hover_text("Pick the color");
+                        (egui::Popup::is_id_open(ui.ctx(), popup), r.changed())
+                    })
+                    .inner;
+                ui.monospace(mg_plugin::color_text(rgb));
+                if open && let Some(v) = variable {
+                    drawn.picking = Some((v.clone(), rgb));
+                }
+                // (Its picker closed this frame: it was open the last.)
+                let was_open_id = ui.id().with("color-open");
+                let was_open = ui.data(|d| d.get_temp::<bool>(was_open_id)).unwrap_or(false);
+                ui.data_mut(|d| d.insert_temp(was_open_id, open));
+                drawn.editing = open;
+                drawn.set = !open && (was_open || changed);
+            });
+            *value = serde_json::json!(mg_plugin::color_text(rgb));
+        }
+    });
+    drawn
+}
+
+/// How wide a choice's swatch is (API 0.9), and the room its text leaves
+/// before it.
+const SWATCH: f32 = 12.0;
+const SWATCH_ROOM: f32 = SWATCH + 6.0;
+
+/// A choice's dropdown: its options' texts, each with its swatch where it
+/// has a color (API 0.9), in the list and in the box.
+fn choice_box(ui: &mut egui::Ui, chosen: &mut String, choices: &[mg_plugin::Choice]) {
+    let texts: Vec<String> = choices.iter().map(|c| c.text.clone()).collect();
+    if choices.iter().all(|c| c.color.is_none()) {
+        crate::widgets::dropdown("choice").selected_text(chosen.clone()).show(
+            ui,
+            chosen,
+            &texts,
+            Clone::clone,
+        );
+        return;
+    }
+    // (Every text after the room for a swatch, those without one too, so
+    // that they line up.)
+    let room = |ui: &egui::Ui, text: &str| -> egui::WidgetText {
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let mut job = egui::text::LayoutJob::default();
+        job.append(text, SWATCH_ROOM, egui::TextFormat::simple(font, egui::Color32::PLACEHOLDER));
+        job.into()
+    };
+    let color = |text: &str| choices.iter().find(|c| c.text == text).and_then(|c| c.color);
+    let r = crate::widgets::dropdown("choice").selected_text(room(ui, chosen)).show_with(
+        ui,
+        chosen,
+        || texts.clone(),
+        |ui, current| {
+            for c in choices {
+                let row = ui.selectable_value(current, c.text.clone(), room(ui, &c.text));
+                if let Some(rgb) = c.color {
+                    swatch(ui, row.rect, rgb);
+                }
+            }
+        },
+    );
+    if let Some(rgb) = color(chosen) {
+        swatch(ui, r.rect, rgb);
+    }
+}
+
+/// A choice's swatch, at the left of a row (or of the box) `rect`, in the
+/// room its text leaves.
+fn swatch(ui: &egui::Ui, rect: egui::Rect, [r, g, b]: [u8; 3]) {
+    let left = rect.left() + ui.spacing().button_padding.x;
+    let at = egui::Rect::from_min_size(
+        egui::pos2(left, rect.center().y - SWATCH / 2.0),
+        egui::vec2(SWATCH, SWATCH),
+    );
+    ui.painter().rect_filled(at, 2.0, egui::Color32::from_rgb(r, g, b));
+    let stroke = ui.visuals().widgets.noninteractive.fg_stroke;
+    ui.painter().rect_stroke(at, 2.0, (1.0, stroke.color), egui::StrokeKind::Inside);
 }
 
 /// Tools › Plugins: the plugins installed, each to enable; where they are

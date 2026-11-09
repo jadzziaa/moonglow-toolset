@@ -269,6 +269,9 @@ pub enum Action {
         plugin: String,
         command: String,
         selected: Vec<mg_plugin::Selected>,
+        /// The values of the fields of the panel it is run from, by field
+        /// id (`ctx.values`; API 0.9): empty from anywhere else.
+        values: std::collections::BTreeMap<String, serde_json::Value>,
     },
     /// Runs a plugin's exporter, importer or wizard (API 0.6), or shows
     /// its panel (or, shown, closes it).
@@ -4083,8 +4086,8 @@ impl Moonglow {
                 _ => self.export_minimaps(areas, notes),
             },
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
-            Action::RunPluginCommand { plugin, command, selected } => {
-                self.run_plugin_command_on(&plugin, &command, selected);
+            Action::RunPluginCommand { plugin, command, selected, values } => {
+                self.run_plugin_command_with(&plugin, &command, selected, values);
             }
             Action::RunPluginEntry { kind, plugin, id } => {
                 self.run_plugin_entry(kind, &plugin, &id);
@@ -5399,6 +5402,7 @@ impl Moonglow {
                 plugin: asks.plugin.clone(),
                 command: asks.command.clone(),
                 selected,
+                values: Default::default(),
             });
             return;
         }

@@ -1002,7 +1002,8 @@ fn run_after(app: &mut Moonglow, ui: &Ui, after: AfterText) {
         AfterText::Plugin { plugin, command } => {
             if app.ws.is_some() {
                 let selected = app.plugin_selection();
-                app.actions.push(Action::RunPluginCommand { plugin, command, selected });
+                let values = Default::default();
+                app.actions.push(Action::RunPluginCommand { plugin, command, selected, values });
             }
         }
         AfterText::Project(name) => app.actions.push(Action::ProjectCommand(name)),

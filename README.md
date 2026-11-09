@@ -103,7 +103,7 @@ Moonglow's later work follows what builders have long asked of Aurora
 - **Plugins (experimental):** a team's own commands and checks, written
   in Luau and run in a sandbox; their edits are one step of Undo, and
   their checks run with Verify Module, in the window and in a build
-  pipeline. The plugin API is at 0.6 and may still change.
+  pipeline. The plugin API is at 0.9 and may still change.
 
 ![The script editor with a script from the original campaign](docs/images/script.png)
 

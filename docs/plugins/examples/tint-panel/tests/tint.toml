@@ -1,0 +1,63 @@
+# The plugin's own tests: `mg plugin test docs/plugins/examples/tint-panel`.
+# A panel's test says what it shows (`shows`: each part of one of its
+# texts; a field's as its label and the value it is given); a command's
+# test gives the panel's values it is run with (`values`, its ctx.values).
+module = "module"
+
+[[test]]
+name = "nothing selected: what to select"
+panel = "tint"
+shows = ["Select placed placeables in an area."]
+
+[[test]]
+name = "the first placeable's own tint, and its name"
+panel = "tint"
+select = ["tavern.git/Placeable List[0]"]
+shows = ["Placeables: 1", "Tint: #2a4d8f", "Named: Night blue"]
+
+[[test]]
+name = "a tint of a name"
+panel = "tint"
+select = ["tavern.git/Placeable List[1]", "tavern.git/Placeable List[2]"]
+shows = ["Placeables: 2", "Tint: #a01010", "Named: Crimson"]
+
+[[test]]
+name = "a placeable not tinted: white, of no name"
+panel = "tint"
+select = ["tavern.git/Placeable List[2]"]
+shows = ["Tint: #ffffff", "Named: Custom"]
+
+[[test]]
+name = "the color field's command sets the tint it was set to, one replaced"
+command = "set-tint"
+select = ["tavern.git/Placeable List[0]", "tavern.git/Placeable List[2]"]
+values = { tint = "#ff8000", preset = "Night blue" }
+[[test.field]]
+resource = "tavern.git"
+field = "/Placeable List[0]/VarTable[0]/Value"
+value = "#ff8000"
+[[test.field]]
+resource = "tavern.git"
+field = "/Placeable List[0]/VarTable[1]"
+absent = true
+[[test.field]]
+resource = "tavern.git"
+field = "/Placeable List[2]/VarTable[0]/Value"
+value = "#ff8000"
+
+[[test]]
+name = "the named tint's command sets its color"
+command = "set-preset"
+select = ["tavern.git/Placeable List[0]"]
+values = { tint = "#2a4d8f", preset = "Forest" }
+[[test.field]]
+resource = "tavern.git"
+field = "/Placeable List[0]/VarTable[0]/Value"
+value = "#2f6b2a"
+
+[[test]]
+name = "run from the Plugins menu, with no panel's values: nothing"
+command = "set-tint"
+select = ["tavern.git/Placeable List[0]"]
+edits = 0
+log = ["Pick the tint in its panel"]

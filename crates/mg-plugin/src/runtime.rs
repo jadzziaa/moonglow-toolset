@@ -106,6 +106,9 @@ pub(crate) struct Shared {
     pub(crate) rng: RefCell<fastrand::Rng>,
     /// What is selected and open in the window.
     selection: Selection,
+    /// The values of the panel's fields the command was run from
+    /// (`ctx.values`; API 0.9).
+    values: std::collections::BTreeMap<String, serde_json::Value>,
     /// The plugin's settings, their values as the job goes (what it set
     /// read back), and what it set.
     decls: RefCell<Vec<crate::SettingDecl>>,
@@ -763,56 +766,96 @@ pub(crate) fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
     let mut out = Vec::new();
     for field in fields.sequence_values::<Table>() {
         let f = field?;
-        let id: String = f.get("id")?;
-        let label = f.get::<Option<String>>("label")?.unwrap_or_else(|| id.clone());
-        let kind = match f.get::<Option<String>>("type")?.as_deref().unwrap_or("text") {
-            "text" => {
-                FieldKind::Text { default: f.get::<Option<String>>("default")?.unwrap_or_default() }
+        let kind = f.get::<Option<String>>("type")?;
+        let field = form_field(&f, kind.as_deref().unwrap_or("text"), "default")?;
+        if out.iter().any(|o: &FormField| o.id == field.id) {
+            return fail(format!("a form has two fields {:?}", field.id));
+        }
+        out.push(field);
+    }
+    Ok(out)
+}
+
+/// A field from its table: a form's (its kind its `type`, what it starts
+/// with its `default`), or a panel's (API 0.9: its `kind`, and its
+/// `value`). `start` is the key of what it starts with.
+pub(crate) fn form_field(f: &Table, kind: &str, start: &str) -> mlua::Result<FormField> {
+    let id: String = match f.get::<LuaValue>("id")? {
+        LuaValue::String(s) => s.to_str()?.to_string(),
+        _ => return fail("a field has an id, its value's key: { id = \"…\", … }"),
+    };
+    let label = f.get::<Option<String>>("label")?.unwrap_or_else(|| id.clone());
+    let kind = match kind {
+        "text" => FieldKind::Text { default: f.get::<Option<String>>(start)?.unwrap_or_default() },
+        "number" => FieldKind::Number {
+            default: f.get::<Option<f64>>(start)?.unwrap_or(0.0),
+            min: f.get("min")?,
+            max: f.get("max")?,
+        },
+        "check" => FieldKind::Check { default: f.get::<Option<bool>>(start)?.unwrap_or(false) },
+        "choice" => {
+            let choices = choices_of(&id, f.get("choices")?)?;
+            if choices.is_empty() {
+                return fail(format!("the choice {id:?} has no choices"));
             }
-            "number" => FieldKind::Number {
-                default: f.get::<Option<f64>>("default")?.unwrap_or(0.0),
-                min: f.get("min")?,
-                max: f.get("max")?,
-            },
-            "check" => {
-                FieldKind::Check { default: f.get::<Option<bool>>("default")?.unwrap_or(false) }
-            }
-            "choice" => {
-                let choices: Vec<String> = f.get("choices")?;
-                if choices.is_empty() {
-                    return fail(format!("the choice {id:?} has no choices"));
-                }
-                let wanted = f.get::<Option<String>>("default")?;
-                let default =
-                    wanted.and_then(|w| choices.iter().position(|c| *c == w)).unwrap_or(0);
-                FieldKind::Choice { choices, default }
-            }
-            "color" => {
-                let default = match f.get::<Option<String>>("default")? {
-                    None => [255; 3],
-                    Some(text) => match crate::color_of(&text) {
-                        Some(c) => c,
+            let wanted = f.get::<Option<String>>(start)?;
+            let default =
+                wanted.and_then(|w| choices.iter().position(|c| c.text == w)).unwrap_or(0);
+            FieldKind::Choice { choices, default }
+        }
+        "color" => {
+            let default = match f.get::<Option<String>>(start)? {
+                None => [255; 3],
+                Some(text) => match crate::color_of(&text) {
+                    Some(c) => c,
+                    None => {
+                        return fail(format!(
+                            "the color {id:?}'s {start} is \"#rrggbb\", not {text:?}"
+                        ));
+                    }
+                },
+            };
+            let variable = f.get::<Option<String>>("variable")?.filter(|v| !v.is_empty());
+            FieldKind::Color { default, variable }
+        }
+        other => {
+            return fail(format!(
+                "a field is \"text\", \"number\", \"check\", \"choice\" or \"color\", not \
+                 {other:?}"
+            ));
+        }
+    };
+    Ok(FormField { id, label, kind })
+}
+
+/// A choice's options: each its text, or (API 0.9) `{ text = "Crimson",
+/// color = "#a01010" }`, the color of the swatch drawn before it.
+fn choices_of(id: &str, given: Option<Table>) -> mlua::Result<Vec<crate::Choice>> {
+    let mut out = Vec::new();
+    let Some(given) = given else { return Ok(out) };
+    let shape = "an option is text, or { text = \"…\", color = \"#rrggbb\" }";
+    for c in given.sequence_values::<LuaValue>() {
+        out.push(match c? {
+            LuaValue::String(s) => crate::Choice::text(s.to_str()?.to_string()),
+            LuaValue::Table(t) => {
+                let Some(text) = t.get::<Option<String>>("text")? else {
+                    return fail(format!("the choice {id:?}: {shape}"));
+                };
+                let color = match t.get::<Option<String>>("color")? {
+                    None => None,
+                    Some(c) => match crate::color_of(&c) {
+                        Some(c) => Some(c),
                         None => {
                             return fail(format!(
-                                "the color {id:?}'s default is \"#rrggbb\", not {text:?}"
+                                "the choice {id:?}: {text:?}'s color is \"#rrggbb\", not {c:?}"
                             ));
                         }
                     },
                 };
-                let variable = f.get::<Option<String>>("variable")?.filter(|v| !v.is_empty());
-                FieldKind::Color { default, variable }
+                crate::Choice { text, color }
             }
-            other => {
-                return fail(format!(
-                    "a form's field is \"text\", \"number\", \"check\", \"choice\" or \
-                     \"color\", not {other:?}"
-                ));
-            }
-        };
-        if out.iter().any(|o: &FormField| o.id == id) {
-            return fail(format!("a form has two fields {id:?}"));
-        }
-        out.push(FormField { id, label, kind });
+            _ => return fail(format!("the choice {id:?}: {shape}")),
+        });
     }
     Ok(out)
 }
@@ -1095,6 +1138,12 @@ pub(crate) fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Res
         chosen.raw_seti(i + 1, selected(lua, sh, s)?)?;
     }
     ctx.set("selection", chosen)?;
+    // (Each as a form gives it back; none: an empty table.)
+    let values = lua.create_table()?;
+    for (k, v) in &sh.values {
+        values.set(k.as_str(), lua.to_value(v)?)?;
+    }
+    ctx.set("values", values)?;
     if let Some(open) = &sh.selection.open {
         let entry = selected(lua, sh, open)?;
         // (Several edited together: each, the first being `open` itself.)
@@ -1513,6 +1562,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         who: who.to_string(),
         rng: RefCell::new(fastrand::Rng::new()),
         selection: input.selection,
+        values: input.values,
         decls: RefCell::default(),
         settings: RefCell::new(input.settings.unwrap_or_default()),
         settings_set: RefCell::default(),
@@ -2187,7 +2237,7 @@ pub(crate) fn api_names() -> Vec<String> {
         }
         // What is selected and open (an empty list here, and nothing
         // open), and the fields of each.
-        out.extend(["ctx.selection", "ctx.open"].map(String::from));
+        out.extend(["ctx.selection", "ctx.open", "ctx.values"].map(String::from));
         // The settings (none here) and their method.
         out.extend(["ctx.settings", "ctx.settings:set"].map(String::from));
         out.extend(SELECTED.map(String::from));

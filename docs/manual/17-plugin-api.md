@@ -1,14 +1,14 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels, ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.8. The API is
+Everything a plugin's code can use, for plugin API 0.9. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,7 +29,7 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.8"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.9"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
@@ -203,10 +203,41 @@ or text alone (a `text`). Moonglow draws them; the panel never draws.
 | `separator` | none |
 | `button` | `text`, `hint`, `command` (one of the plugin's commands, by its id) and `on` (an entry, or a list of them; left out, what is selected when it is clicked) |
 | `list` | `items`: each text, or a table with `text`, `hint`, `open` (an entry: a click opens it, an object in its area, a resource in its editor) and `command` and `on` (a click runs the command) |
+| `field` | A form's field (since API 0.9): `id`, `label`, `kind` (`"text"`, `"number"`, `"check"`, `"choice"` or `"color"`, as a form's field's `type`), `value` (what it shows), `min`, `max`, `choices`, `variable` (as a form's) and `command` (one of the plugin's commands, run when the user sets it) |
 
 An entry is as `ctx.selection` has one (`{ resource = "tavern.git",
 path = "/Creature List[0]" }`), or its text (`"tavern.git/Creature
-List[0]"`, `"guard.utc"`). The handler runs when the panel opens, by its
+List[0]"`, `"guard.utc"`).
+
+A panel's **field** stays as the user leaves it: Moonglow keeps its
+value, by its id, across the handler's runs. When the handler gives a
+`value` other than the one it gave the last time (the tint of another
+placeable now selected), the field takes it; else what the user set
+stays. (A form's `default` is a panel field's `value`: a field given a
+`default` is an error.) Each field's id is its own in the panel. A field
+with a `command` runs it when the user sets the field to another value:
+a color when its picker closes (or a color is pasted on its swatch),
+text when the user leaves it (or presses Enter), a number when it is let
+go, a check or a choice at once. The command runs as a button's does,
+on what was selected when the user began at the field, one step of
+Undo. A color field's `variable` draws the color on the placed objects
+selected while its picker is open, as a form's does; nothing is set
+until its command sets it. Every command the panel runs (a button's, a
+list item's, a field's) gets the values of all its fields in
+`ctx.values`, by field id, as a form's come back.
+
+```lua
+mg.panel("tint", function(ctx)
+  return {
+    { type = "field", kind = "color", id = "tint", label = "Tint",
+      value = "#2a4d8f", variable = "tdod_tint", command = "set-tint" },
+  }
+end)
+
+mg.command("set-tint", function(ctx)
+  local tint = ctx.values.tint   -- "#rrggbb"; nil when not run from the panel
+end)
+``` The handler runs when the panel opens, by its
 **Refresh**, after a job of its plugin's ends (a command, an import, a
 wizard), and as its manifest's `refresh` says: after each change of the
 module (`"edits"`: an edit, Undo, Redo; edits one after another, a
@@ -220,7 +251,11 @@ which ask and edit as commands do. It has 250 milliseconds, past which
 it is stopped and says so; it shows at most 2,000 elements (a list's
 items counted each) and 1,000 characters a text, the rest cut, saying
 so. A panel is not in `mg`, which has no window to show it in; a
-plugin's own tests hold what it shows (`shows`).
+plugin's own tests hold what it shows (`shows`; a field's as its label
+and the value it is given, `Tint: #2a4d8f`), and give a command the
+values a panel would (`values`). The example `tint-panel` (in
+`docs/plugins/examples`) is a panel whose color field follows the
+placeable selected and sets its tint.
 
 ## `ctx.selection`, `ctx.open`
 
@@ -232,6 +267,7 @@ whole module anyway.
 | | |
 | --- | --- |
 | `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree (or of each of the rows chosen), an area, the tiles selected in an area's view (since API 0.5), every blueprint of a palette's category or every resource of a group of the module tree (since 0.5), what a Properties window edits (its tab's menu; since 0.5), the script open (the script editor's menu; since 0.5), or what a row of Find References or of Advanced Search is on (the ticked ones, where it is one of them; since 0.5). From the Plugins menu, the Command Palette or a key: what is chosen in the pane last clicked in (the module tree, a palette, an area's view: its objects, or in tile mode its tiles; since 0.5), else the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
+| `ctx.values` | The values of the fields of the panel the command was run from (a button's, a list item's or a field's command; since API 0.9), by field id, as a form's come back: text, a number, true or false, a choice's text, a color as `"#rrggbb"`. An empty table for a command run from anywhere else (a menu, a key, a fix, `mg plugin run`), and in every other handler. |
 | `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`); a copy the resource browser opened as one layer has it (an overridden copy, read-only), that resource with its type as `kind` and its `layer`. Several edited together in one Properties window: the first, with `together` listing them all (since API 0.5). |
 
 An entry:
@@ -615,7 +651,7 @@ A form's **field** is a table:
 | `type` | `"text"` (as when left out), `"number"`, `"check"`, `"choice"` or (since API 0.8) `"color"`. |
 | `default` | What it starts with: text, a number, true or false, one of the choices, or a color as `"#rrggbb"` (white when left out). |
 | `min`, `max` | A number's limits. |
-| `choices` | A choice's options, a list of texts; needed for one. Its value is the text chosen. |
+| `choices` | A choice's options; needed for one. Each is text, or (since API 0.9) `{ text = "Crimson", color = "#a01010" }`: its text, with a swatch of that color drawn before it, in the list and in the box. Its value is the text chosen. |
 | `variable` | A color's (API 0.8): the name of a string variable. While the color is being picked (its picker open), the placed objects the command was run on are drawn in the area with that variable set to it, as the Variables page's picker draws them (The Domains of Dread's `tdod_tint`); nothing is set by it, and the plugin sets what it chose once the form comes back. |
 
 A color's value is `"#rrggbb"`, in lower case: the color the swatch's
@@ -735,11 +771,10 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 ## What the API doesn't have yet
 
 Plugins can't yet react to the selection changed (but a panel's
-`refresh`), an area opened or a field typed into, warn of a paste or
-refuse one, add their own editors, draw in the area view or a panel,
-take text in a panel, be offered in File › Open by a file's type, change
-what is
-selected, write files other than haks and those of a folder the user
+`refresh`), an area opened or a field typed into (but a panel's field's
+`command`), warn of a paste or refuse one, add their own editors, draw
+in the area view or a panel, be offered in File › Open by a file's type,
+change what is selected, write files other than haks and those of a folder the user
 chose, or read a file a setting's path names. These are planned for later versions of the API; what
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

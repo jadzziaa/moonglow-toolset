@@ -1,0 +1,21 @@
+{
+  "__data_type": "IFO ",
+  "Mod_Name": {
+    "type": "cexolocstring",
+    "value": {
+      "0": "Tint panel fixture"
+    }
+  },
+  "Mod_Area_list": {
+    "type": "list",
+    "value": [
+      {
+        "__struct_id": 6,
+        "Area_Name": {
+          "type": "resref",
+          "value": "tavern"
+        }
+      }
+    ]
+  }
+}

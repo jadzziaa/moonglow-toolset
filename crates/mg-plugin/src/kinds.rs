@@ -8,7 +8,9 @@
 //! - A wizard's pages are asked one at a time ([`Question::Page`]); they
 //!   only read, and its `finish` edits.
 //! - A panel's handler returns what the panel shows, as data ([`Shown`]),
-//!   which the window draws; it only reads, within [`PANEL_BUDGET`].
+//!   which the window draws; it only reads, within [`PANEL_BUDGET`]. Its
+//!   fields (API 0.9) are a form's, whose values the window keeps and
+//!   hands to the commands it runs (`ctx.values`).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -18,11 +20,12 @@ use std::rc::Rc;
 use mlua::{Function, LuaSerdeExt, Table, Value as LuaValue};
 
 use crate::runtime::{
-    Shared, This, about, context, fail, failed, form_fields, handler, shared, start,
+    Shared, This, about, context, fail, failed, form_field, form_fields, handler, shared, start,
 };
 use crate::{
-    Answer, ExporterDecl, FieldKind, FolderWrite, Host, ImporterDecl, Input, Level, MAX_FILE,
-    Outcome, Page, PanelDecl, Plugin, PluginError, Question, Selected, WizardDecl, is_file_name,
+    Answer, ExporterDecl, FieldKind, FolderWrite, FormField, Host, ImporterDecl, Input, Level,
+    MAX_FILE, Outcome, Page, PanelDecl, Plugin, PluginError, Question, Selected, WizardDecl,
+    is_file_name,
 };
 
 /// How long a panel's handler may run before it is stopped: it runs
@@ -230,7 +233,7 @@ fn default_to(kind: &mut FieldKind, v: &serde_json::Value) {
             }
         }
         FieldKind::Choice { choices, default } => {
-            if let Some(i) = v.as_str().and_then(|t| choices.iter().position(|c| c == t)) {
+            if let Some(i) = v.as_str().and_then(|t| choices.iter().position(|c| c.text == t)) {
                 *default = i;
             }
         }
@@ -401,7 +404,7 @@ pub enum Tone {
 }
 
 /// Something a panel shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Element {
     Heading(String),
     Text {
@@ -423,6 +426,15 @@ pub enum Element {
         on: Vec<Selected>,
     },
     List(Vec<Item>),
+    /// A field, as a form's (API 0.9): its value what the handler gave
+    /// (the field's `default`), which the window keeps, by the field's
+    /// id, until the handler gives another; `command`, one of the
+    /// plugin's commands, run when the user sets it, with the panel's
+    /// values (`ctx.values`).
+    Field {
+        field: FormField,
+        command: Option<String>,
+    },
 }
 
 /// An item of a panel's list: a click opens `open`, or runs `command` on
@@ -438,7 +450,7 @@ pub struct Item {
 
 /// What a panel shows: its elements, and how many it returned past
 /// [`MAX_ELEMENTS`] (cut) and whether texts were cut short.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Shown {
     pub elements: Vec<Element>,
     pub cut: usize,
@@ -447,7 +459,8 @@ pub struct Shown {
 
 impl Shown {
     /// Every text it shows (a heading's, a value's label and text, a
-    /// button's, an item's), for a plugin's test.
+    /// button's, an item's, a field's label and the value it was given),
+    /// for a plugin's test.
     pub fn texts(&self) -> Vec<String> {
         let mut out = Vec::new();
         for e in &self.elements {
@@ -456,10 +469,28 @@ impl Shown {
                 Element::Value { label, text } => out.push(format!("{label}: {text}")),
                 Element::Button { text, .. } => out.push(text.clone()),
                 Element::List(items) => out.extend(items.iter().map(|i| i.text.clone())),
+                Element::Field { field, .. } => out.push(format!(
+                    "{}: {}",
+                    field.label,
+                    value_text(&field.kind.default_value())
+                )),
                 Element::Separator => {}
             }
         }
         out
+    }
+}
+
+/// A field's value as text: text as it is, a number (a whole one without
+/// its `.0`), `true` or `false`.
+pub fn value_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => match n.as_f64() {
+            Some(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", f as i64),
+            _ => n.to_string(),
+        },
+        other => other.to_string(),
     }
 }
 
@@ -509,12 +540,14 @@ fn elements(list: &Table, manifest: &crate::Manifest) -> mlua::Result<Shown> {
     let command = |c: Option<String>| -> mlua::Result<Option<String>> {
         match c {
             Some(c) if !manifest.commands.iter().any(|d| d.id == c) => fail(format!(
-                "a panel's button runs one of the plugin's commands: the manifest declares no \
-                 command {c:?}"
+                "a panel's button (or field) runs one of the plugin's commands: the manifest \
+                 declares no command {c:?}"
             )),
             c => Ok(c),
         }
     };
+    // (Each field's id, its value's key: its own in the panel.)
+    let mut ids: Vec<String> = Vec::new();
     for value in list.sequence_values::<LuaValue>() {
         let value = value?;
         if count >= MAX_ELEMENTS {
@@ -553,6 +586,30 @@ fn elements(list: &Table, manifest: &crate::Manifest) -> mlua::Result<Shown> {
                 text: text(t.get("text")?, &mut shown),
             },
             "separator" => Element::Separator,
+            "field" => {
+                if t.contains_key("default")? {
+                    return fail(
+                        "a panel's field gives what it shows as its value (value = …), not \
+                         default: the field takes it each time the panel gives another",
+                    );
+                }
+                let Some(kind) = t.get::<Option<String>>("kind")? else {
+                    return fail(
+                        "a panel's field says what it takes: { type = \"field\", kind = \
+                         \"text\" (or \"number\", \"check\", \"choice\", \"color\"), … }",
+                    );
+                };
+                let mut field = form_field(&t, &kind, "value")?;
+                if ids.contains(&field.id) {
+                    return fail(format!("a panel has two fields {:?}", field.id));
+                }
+                ids.push(field.id.clone());
+                field.label = text(Some(field.label), &mut shown);
+                if let FieldKind::Text { default } = &mut field.kind {
+                    *default = text(Some(std::mem::take(default)), &mut shown);
+                }
+                Element::Field { field, command: command(t.get("command")?)? }
+            }
             "button" => {
                 let Some(c) = command(t.get("command")?)? else {
                     return fail("a panel's button runs a command: { command = \"…\" }");
@@ -601,8 +658,8 @@ fn elements(list: &Table, manifest: &crate::Manifest) -> mlua::Result<Shown> {
             }
             other => {
                 return fail(format!(
-                    "a panel's element is a heading, text, value, separator, button or list, \
-                     not {other:?}"
+                    "a panel's element is a heading, text, value, separator, button, list or \
+                     field, not {other:?}"
                 ));
             }
         };

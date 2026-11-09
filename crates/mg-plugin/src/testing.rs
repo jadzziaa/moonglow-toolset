@@ -171,6 +171,10 @@ struct Test {
     /// A form's values, by field id; the other fields take their defaults.
     #[serde(default)]
     answers: BTreeMap<String, toml::Value>,
+    /// A command's `ctx.values` (API 0.9), by field id, as the fields of
+    /// the panel it is run from give them.
+    #[serde(default)]
+    values: BTreeMap<String, toml::Value>,
     /// The answer to a question (`ctx.ui:confirm`): yes or no.
     #[serde(default)]
     yes: bool,
@@ -896,12 +900,15 @@ fn held(
         ("to", t.to.is_some() && !matches!(run, Run::Export(_))),
         ("content", !t.content.is_empty() && !matches!(run, Run::Export(_))),
         ("shows", !t.shows.is_empty() && !matches!(run, Run::Panel(_))),
+        ("values", !t.values.is_empty() && !matches!(run, Run::Command(_))),
     ];
     if let Some((key, _)) = theirs.iter().find(|(_, wrong)| *wrong) {
-        return vec![format!(
-            "{key} is for {}",
-            if *key == "shows" { "a panel" } else { "an export" }
-        )];
+        let what = match *key {
+            "shows" => "a panel",
+            "values" => "a command (ctx.values, a panel's fields' values)",
+            _ => "an export",
+        };
+        return vec![format!("{key} is for {what}")];
     }
     if matches!(run, Run::Builtin(_)) {
         let theirs = [
@@ -943,8 +950,19 @@ fn held(
         Ok(s) => s,
         Err(e) => return vec![e],
     };
-    let input =
-        Input { selection, settings: Some(settings), ..Input::new(module.clone(), game.clone()) };
+    let mut values = BTreeMap::new();
+    for (id, v) in &t.values {
+        match toml_json(v) {
+            Ok(v) => values.insert(id.clone(), v),
+            Err(e) => return vec![format!("values: {id}: {e}")],
+        };
+    }
+    let input = Input {
+        selection,
+        settings: Some(settings),
+        values,
+        ..Input::new(module.clone(), game.clone())
+    };
     let codepage = fixture.data.codepage().for_language(Language::ENGLISH);
     // Moonglow's checks that count talk-table strings, with none to count.
     if let Run::Builtin(b) = &run

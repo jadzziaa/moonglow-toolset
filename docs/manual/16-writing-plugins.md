@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
 ---
 
 # Writing plugins
@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.8): it may change in a
+The plugin API is **experimental** (version 0.9): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
@@ -233,7 +233,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The plugin's name for programs, the same wherever it is installed: `author.plugin-name`, in lower-case letters, digits, `.`, `-` and `_`. Settings and keys are kept under it, so don't change it between versions. |
 | `name` | Needed. Its name for people. |
 | `version` | Needed. The plugin's own version, as you number it. |
-| `api` | Needed. The plugin API it was written for: `"0.8"`, or an earlier one (`"0.7"`, `"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
+| `api` | Needed. The plugin API it was written for: `"0.9"`, or an earlier one (`"0.8"`, `"0.7"`, `"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
 | `description` | One or two sentences on what it does, shown in Manage Plugins. |
 | `author` | Who wrote it. Repeat the line for each author. |
@@ -923,6 +923,58 @@ reference](17-plugin-api.md#exporters-importers-wizards-and-panels)). A
 panel is not in `mg`; its tests (`panel = "overview"`, `shows = […]`)
 run with `mg plugin test`.
 
+### Fields
+
+A panel may have fields, as a form's (since API 0.9), that stay open:
+a tint picked beside the area, following what is selected, rather than
+in a form that closes on OK. The `tint-panel` example shows the tint
+(The Domains of Dread's `tdod_tint`) of the placeable selected:
+
+```ini
+[panel]
+id = "tint"
+title = "Tint"
+hint = "The tint of the placed placeables selected"
+refresh = "edits, selection"
+```
+
+```lua
+        {
+            type = "field",
+            kind = "color",
+            id = "tint",
+            label = "Tint",
+            value = tint,
+            variable = VARIABLE,
+            command = "set-tint",
+        },
+```
+
+A field's `type` is `"field"`, and its `kind` is what a form's field's
+`type` is (`"text"`, `"number"`, `"check"`, `"choice"`, `"color"`); its
+`value` is what it shows. Moonglow keeps what the user sets in it, by
+its id, while the panel is drawn again; when the handler gives another
+`value` than the last time (another placeable selected, of another
+tint), the field takes that. While the color's picker is open, the
+placeables selected are drawn with `variable` set to it, as a form's
+color field draws them. When the user sets the field (here, the picker
+closes on another color), its `command` runs, with every field's value
+in `ctx.values`, by id:
+
+```lua
+mg.command("set-tint", function(ctx)
+    local chosen = placeables(ctx)
+    if not ctx.values.tint then
+```
+
+Run from anywhere else (the Plugins menu, a key), `ctx.values` is
+empty. The command's edits are its own step of Undo, and the panel is
+drawn again after it, showing the tint as it is now. A choice's options
+may carry a color, a swatch drawn before each (`{ text = "Crimson",
+color = "#a01010" }`; a form's too); its value is still the text. A
+command's test gives it the panel's values with `values = { tint =
+"#ff8000" }`.
+
 ## Checks
 
 A check returns its findings, each naming a resource:
@@ -1275,6 +1327,7 @@ A test (`[[test]]`) has a `name` and runs one thing:
 | `builtin` | One of Moonglow's own checks, by its id (`tag-unique`), in place of the plugin's (since Moonglow 2.3.0); several, in a list, or `"all"` (since Moonglow 2.13.0). |
 | `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. For objects placed or pasted, the objects (`ctx.event.objects`). |
 | `answers` | A form's values by field id (`answers = { sell = 200 }`); the other fields take their defaults. |
+| `values` | For a command: its `ctx.values`, as the fields of the panel it is run from would give them (`values = { tint = "#ff8000" }`; since API 0.9). |
 | `yes` | The answer to `ctx.ui:confirm` (else no). |
 | `files` | The files and folders the plugin gets where it asks for one, in order, from the test file's folder. |
 | `changed` | An event's resources: those a module saved changed, those a save writes, or those made (`resource-created`, which needs them). None: all of the fixture's (of a save with `was`: those that differ). |
@@ -1296,7 +1349,7 @@ and says what is to come of it (each key may be left out):
 | `haks` | What the job puts into haks, by hak, every resource in any order (since Moonglow 3.3.0): `haks = { tiles = ["tiles.set", "grass.tga"] }`. Nothing is written. |
 | `written` | The files the job writes into folders the user chose (`folder:write`, or an export's `out:write`), by their names, every one in any order (since 3.3.0). Nothing is written. |
 | `content` | For an export: what the files it writes have, by name, each text part of the file (`content = { "creatures.csv" = ["guard,gate_guard"] }`; since API 0.6). |
-| `shows` | For a panel: texts it shows, each part of one of its texts (a value's as `Areas: 1`, a button's, a list item's; since API 0.6). |
+| `shows` | For a panel: texts it shows, each part of one of its texts (a value's as `Areas: 1`, a button's, a list item's; since API 0.6; a field's as its label and the value it is given, `Tint: #2a4d8f`, since API 0.9). |
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |
 | `set` | The settings the command or event sets (`ctx.settings:set`), each with the value it ends with: `set = { code = "cd" }`. |

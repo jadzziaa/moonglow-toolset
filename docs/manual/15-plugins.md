@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:19:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
 ---
 
 # Plugins
@@ -15,9 +15,9 @@ plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.7) may change in a later release as the people who
+plugin API (version 0.9) may change in a later release as the people who
 write plugins try it. A plugin written for an earlier version of the API still
-runs (0.2 to 0.7 only added to it); one written for a version this
+runs (0.2 to 0.9 only added to it); one written for a version this
 Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
 or the plugin, needs an update. What you build with plugins, and what
 you miss, is welcome on the
@@ -241,7 +241,10 @@ view, or else on the blueprints selected in the palette.
 A command needs a module open. It runs as other long work does
 ([Long work](09-build-and-test.md)): a window names it, shows how far it
 is, and has **Cancel**. If it asks something, the question is in that
-window. When it is done, the log says what it changed:
+window. A plugin's window is headed by the command's title alone (its
+plugin's name shows when you point at it), and leaves the window behind
+it as it is, not dimmed, so that a color being picked in it can be
+judged on the area. When it is done, the log says what it changed:
 
 ```text
 Tag conventions: Fix Creature Tags changed 12 resources (Edit › Undo takes it back)
@@ -286,9 +289,17 @@ hides each (a tick beside those shown), and the Command Palette finds
 them by name (since plugin API 0.6). A panel opens in a window, which
 you may dock beside the area or the palettes as any window, and it is
 reopened with the module's other windows. It shows what its plugin
-says, in Moonglow's own headings, text, lists and buttons: a list's
-item opens what it names, and a button runs one of the plugin's
-commands, with its own step of Undo. **Refresh** draws it again; it is
+says, in Moonglow's own headings, text, lists, buttons and fields: a
+list's item opens what it names, and a button runs one of the plugin's
+commands, with its own step of Undo. A field (since plugin API 0.9) is
+a form's (text, a number, a tick, a choice, a color) that stays: what
+you set in it stays until the plugin shows another value there (the
+tint of another placeable you select, say), and a field may run one of
+the plugin's commands when you set it (a color when its picker closes,
+text or a number when you leave it, a tick or a choice at once), with
+its own step of Undo. A color field may show the color on the objects
+selected while its picker is open, as a form's does; a choice may show
+a swatch beside each of its options. **Refresh** draws it again; it is
 drawn again by itself after the plugin's commands, and, if its plugin
 says so, after each change of the module (once you stop, while you drag
 or type) or when what is selected changes. Its plugin's code runs beside the window, so a panel never
