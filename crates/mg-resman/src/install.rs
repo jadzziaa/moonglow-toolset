@@ -61,15 +61,16 @@ impl GameInstall {
     /// `PatchFile000=name` and on, the highest number winning, as the game
     /// reads them. The folder is `nwn.ini`'s `[Alias]` `PATCH=`, else
     /// `patch/` in the user directory. Empty without the file, or with
-    /// [`GameInstall::userpatch`] off.
+    /// [`GameInstall::userpatch`] off. A name is a hak's as a module's is
+    /// ([`crate::file_name_text`], [`crate::named_file`]): its bytes are
+    /// the file's, on Linux a `ñ` written as 0xF1 the file named with
+    /// that byte, and one with a folder in it is no file's.
     pub fn userpatch_haks(&self) -> Vec<(String, Option<PathBuf>)> {
         let Some(user) = self.user_dir.as_ref().filter(|_| self.userpatch) else {
             return Vec::new();
         };
-        let read = |name: &str| {
-            std::fs::read(user.join(name)).map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        };
-        let Ok(ini) = read("userpatch.ini") else { return Vec::new() };
+        let Ok(ini) = std::fs::read(user.join("userpatch.ini")) else { return Vec::new() };
+        let ini = crate::file_name_text(&ini);
         let folder = self.user_folder("patch").unwrap_or_else(|| user.join("patch"));
         let mut haks: Vec<(u32, String)> = ini_section(&ini, "patch")
             .into_iter()
@@ -82,7 +83,8 @@ impl GameInstall {
         haks.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
         haks.into_iter()
             .map(|(_, name)| {
-                let path = Some(folder.join(format!("{name}.hak"))).filter(|p| p.is_file());
+                let file = crate::named_file(&name, "hak");
+                let path = file.map(|f| folder.join(f)).filter(|p| p.is_file());
                 (name, path)
             })
             .collect()
@@ -985,6 +987,26 @@ mod install_tests {
         let found: Vec<_> =
             install.userpatch_haks().into_iter().filter(|(_, p)| p.is_some()).collect();
         assert_eq!(found, [("high".into(), Some(patches.join("high.hak")))]);
+        // A name's bytes are its file's, as a module's hak's are: on Linux
+        // `se\xF1or` is the file with the byte 0xF1, not the one named in
+        // UTF-8; and a name with a folder in it is no file's.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let byte = patches.join(std::ffi::OsStr::from_bytes(b"se\xF1or.hak"));
+            hak(&byte, "byte");
+            hak(&dir.join("outside.hak"), "outside");
+            std::fs::write(
+                user.join("userpatch.ini"),
+                b"[Patch]\nPatchFile000=se\xF1or\nPatchFile001=../outside\n",
+            )
+            .unwrap();
+            let found = install.userpatch_haks();
+            assert_eq!(
+                found,
+                [("../outside".to_string(), None), ("se\u{f1}or".to_string(), Some(byte))]
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
