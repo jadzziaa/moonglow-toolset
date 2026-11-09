@@ -236,9 +236,11 @@ impl GameInstall {
 
     /// The file of the hak `name` (without `.hak`, as
     /// [`crate::file_name_text`] reads a module's) the game opens: the
-    /// first of [`GameInstall::hak_dirs`] that has [`crate::named_file`].
+    /// first of [`GameInstall::hak_dirs`] that has [`crate::named_file`]
+    /// (none for a name with a folder in it: nothing outside the hak
+    /// folders is a module's hak).
     pub fn find_hak(&self, name: &str) -> Option<PathBuf> {
-        let file = crate::named_file(name, "hak");
+        let file = crate::named_file(name, "hak")?;
         self.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
     }
 
@@ -289,7 +291,7 @@ impl GameInstall {
         else {
             return None;
         };
-        let file = crate::named_file(&other, "hak");
+        let file = crate::named_file(&other, "hak")?;
         dirs.iter().map(|d| d.join(&file)).find(|p| p.is_file())
     }
 
@@ -298,6 +300,9 @@ impl GameInstall {
     /// found, and where a file of its name in another case is there, that
     /// file and what to do.
     pub fn hak_not_found(&self, name: &str) -> String {
+        if !crate::is_file_name(name) {
+            return format!("hak {name} not found: {}", crate::NO_FILE_NAME);
+        }
         match self.hak_in_other_case(name) {
             Some(file) => format!(
                 "hak {name} not found: the game opens a hak only by its exact name, and {} has \

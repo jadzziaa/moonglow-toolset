@@ -300,7 +300,13 @@ pub(crate) fn prepare(
         let _ = std::fs::remove_file(target.with_extension("mod.bak"));
     }
     for hak in &haks {
-        let to = dir.join("hak").join(mg_resman::named_file(hak, "hak"));
+        // (A name with a folder in it is placed nowhere: `../x` would be
+        // a file outside the server's hak folder.)
+        let Some(file) = mg_resman::named_file(hak, "hak") else {
+            notes.push(format!("warning: {}", gi.hak_not_found(hak)));
+            continue;
+        };
+        let to = dir.join("hak").join(file);
         match gi.find_hak(hak) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}
@@ -309,7 +315,10 @@ pub(crate) fn prepare(
         }
     }
     if let Some(tlk) = tlk {
-        let file = mg_resman::named_file(&tlk, "tlk");
+        let Some(file) = mg_resman::named_file(&tlk, "tlk") else {
+            notes.push(format!("warning: talk table {tlk} not found: {}", mg_resman::NO_FILE_NAME));
+            return Ok((name, notes));
+        };
         let to = dir.join("tlk").join(&file);
         if let Some(own) = own_tlk {
             let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
@@ -702,6 +711,40 @@ mod tests {
         let made =
             mg_tlk::Tlk::read(&std::fs::read(server.join("tlk/mytlk.tlk")).unwrap()).unwrap();
         assert_eq!(made.entries[0].text, b"Changed");
+    }
+
+    /// A module whose hak and talk table are named with a folder in
+    /// them (`../x`): nothing is placed outside the server's `hak` and
+    /// `tlk` folders, and each is said not to be found.
+    #[test]
+    fn a_hak_named_with_a_folder_is_placed_nowhere() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let dir = mg_testkit::scratch_dir("mg-serve-hak-outside");
+        let user = dir.join("user");
+        for sub in ["hak", "tlk"] {
+            std::fs::create_dir_all(user.join(sub)).unwrap();
+        }
+        // (Where `<user>/hak/../x.hak` and `<user>/tlk/../y.tlk` are.)
+        std::fs::write(user.join("x.hak"), b"not the module's").unwrap();
+        std::fs::write(user.join("y.tlk"), b"not the module's").unwrap();
+        let gi = GameInstall::new(&root, Some(user.clone()), "en");
+        assert_eq!(gi.find_hak("../x"), None);
+        let mut m = mg_module::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        let mut hak = mg_gff::Struct::new(8);
+        hak.set("Mod_Hak", mg_gff::Value::String(b"../x".to_vec()));
+        info.root.set("Mod_HakList", mg_gff::Value::List(vec![hak]));
+        info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"../y".to_vec()));
+        m.set_info(&info).unwrap();
+        let module = dir.join("outside.mod");
+        m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+        let server = dir.join("server");
+        let (_, notes) = prepare(&gi, &module, &server, None).unwrap();
+        assert!(!server.join("x.hak").exists() && !server.join("y.tlk").exists());
+        let warned =
+            |what: &str| notes.iter().any(|n| n.contains(what) && n.contains("folder separator"));
+        assert!(warned("hak ../x not found") && warned("talk table ../y not found"), "{notes:?}");
+        assert_eq!(std::fs::read(user.join("x.hak")).unwrap(), b"not the module's");
     }
 
     #[test]

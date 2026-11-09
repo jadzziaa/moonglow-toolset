@@ -27,8 +27,8 @@ pub use container::{
     Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
 };
 pub use file_name::{
-    CASE_IGNORED, Listed, differs_in_case, file_name_bytes, file_name_text, listed, name_of_file,
-    named_file,
+    CASE_IGNORED, Listed, NO_FILE_NAME, differs_in_case, file_name_bytes, file_name_text,
+    is_file_name, listed, name_of_file, named_file,
 };
 pub use install::{GameInstall, default_user_dir};
 

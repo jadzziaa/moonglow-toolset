@@ -207,7 +207,14 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         // A listed hak the game finds elsewhere (its data, the Workshop) isn't
         // ours to write: one made in the hak folder would hide it.
         Some(hak) => {
-            let path = folder.join(mg_resman::named_file(hak, "hak"));
+            let Some(file) = mg_resman::named_file(hak, "hak") else {
+                app.log.error(format!(
+                    "{hak} can't take pictures ({}): choose a new hak",
+                    mg_resman::NO_FILE_NAME
+                ));
+                return None;
+            };
+            let path = folder.join(file);
             if !path.is_file() {
                 app.log.error(format!(
                     "{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose \

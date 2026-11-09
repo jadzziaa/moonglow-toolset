@@ -1484,7 +1484,10 @@ module's name, or take the name off the list and add the file. Windows'
 file system (and macOS's, as it usually is) takes a name in another case
 for the same file, so there the game finds it, and Moonglow doesn't warn;
 a module made there may still not load on a Linux server, so name haks in
-lower case.
+lower case. A hak or a talk table named with a folder separator, a colon
+or a control character (`../x`, `C:\haks\x`) names no file in the hak or
+`tlk` folders: Moonglow and `mg` open nothing for it, wherever such a
+path would lead, and say that it is not found and why.
 - **Choose** a row with a click; Ctrl + click adds or takes out a row,
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots

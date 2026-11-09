@@ -38,21 +38,38 @@ pub fn file_name_bytes(name: &str) -> Vec<u8> {
     NAMES.encode_lossy(name)
 }
 
+/// Whether `name` (a hak's or a talk table's, as a module names it) can
+/// be a file's in a folder: no folder separator, drive colon or control
+/// character, as [`mg_core::ResRef::is_file_name`] has it for a resource.
+/// A module's IFO is a file someone else made: `../../x` or `/abs/x`
+/// joined to the hak folder is a file outside it.
+pub fn is_file_name(name: &str) -> bool {
+    !name.chars().any(|c| matches!(c, '/' | '\\' | ':') || c.is_ascii_control())
+}
+
+/// What is said of a name that [`is_file_name`] refuses, after the name.
+pub const NO_FILE_NAME: &str =
+    "its name has a folder separator, a colon or a control character in it, which no file's has";
+
 /// The name of the file the game opens for `name` with the extension
 /// `ext` (`hak`, `tlk`): `<name>.<ext>`, on Linux and macOS the name's own
-/// bytes.
-pub fn named_file(name: &str, ext: &str) -> OsString {
+/// bytes. `None` for a name that is no file's in a folder
+/// ([`is_file_name`]): it is joined to none, and its file is not found.
+pub fn named_file(name: &str, ext: &str) -> Option<OsString> {
+    if !is_file_name(name) {
+        return None;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
         let mut bytes = file_name_bytes(name);
         bytes.push(b'.');
         bytes.extend_from_slice(ext.as_bytes());
-        OsStr::from_bytes(&bytes).to_os_string()
+        Some(OsStr::from_bytes(&bytes).to_os_string())
     }
     #[cfg(not(unix))]
     {
-        OsString::from(format!("{name}.{ext}"))
+        Some(OsString::from(format!("{name}.{ext}")))
     }
 }
 
@@ -138,11 +155,11 @@ mod tests {
     fn a_file_is_its_name_s_bytes() {
         use std::os::unix::ffi::OsStrExt;
         let cp = file_name_text(b"mg_\xf1hak");
-        assert_eq!(named_file(&cp, "hak").as_bytes(), b"mg_\xf1hak.hak");
-        assert_eq!(named_file(&cp, "tlk").as_bytes(), b"mg_\xf1hak.tlk");
+        assert_eq!(named_file(&cp, "hak").unwrap().as_bytes(), b"mg_\xf1hak.hak");
+        assert_eq!(named_file(&cp, "tlk").unwrap().as_bytes(), b"mg_\xf1hak.tlk");
         let utf8 = file_name_text("mg_ñhak".as_bytes());
-        assert_eq!(named_file(&utf8, "hak").as_bytes(), "mg_ñhak.hak".as_bytes());
-        assert_eq!(named_file("plain", "hak"), OsStr::new("plain.hak"));
+        assert_eq!(named_file(&utf8, "hak").unwrap().as_bytes(), "mg_ñhak.hak".as_bytes());
+        assert_eq!(named_file("plain", "hak").unwrap(), OsStr::new("plain.hak"));
         // And back: a file's name is the module's.
         assert_eq!(name_of_file(OsStr::from_bytes(b"mg_\xf1hak")), cp);
         assert_eq!(name_of_file(OsStr::new("mg_ñhak")), utf8);
@@ -151,9 +168,22 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn a_file_is_its_name_s_text() {
-        assert_eq!(named_file("mg_ñhak", "hak"), OsStr::new("mg_ñhak.hak"));
+        assert_eq!(named_file("mg_ñhak", "hak").unwrap(), OsStr::new("mg_ñhak.hak"));
         assert_eq!(name_of_file(OsStr::new("mg_ñhak")), "mg_ñhak");
         assert_eq!(file_name_bytes(&name_of_file(OsStr::new("mg_ñhak"))), b"mg_\xf1hak");
+    }
+
+    /// A name that would leave the folder it is joined to is no file's:
+    /// a module's hak `../../x` opens nothing.
+    #[test]
+    fn a_name_with_a_folder_in_it_names_no_file() {
+        for name in ["../../x", "/abs/x", "a/b", "a\\b", "c:x", "C:\\haks\\x", "a\tb", "a\0b"] {
+            assert!(!is_file_name(name), "{name:?}");
+            assert_eq!(named_file(name, "hak"), None, "{name:?}");
+        }
+        for name in ["plain", "x..y", "..", "two words", "mg_ñhak", &file_name_text(b"mg_\xf1")] {
+            assert!(is_file_name(name) && named_file(name, "tlk").is_some(), "{name:?}");
+        }
     }
 
     /// Only ASCII letters' case: `ñ` and `Ñ` are other bytes, not another
