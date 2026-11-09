@@ -1573,16 +1573,13 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             fold = fold.or(Some(true));
         }
         ui.separator();
-        if ui.selectable_label(!gallery, "☰").on_hover_text("List: the brushes by name").clicked()
+        if ui.selectable_label(!gallery, "☰").on_hover_text("Show the brushes by name").clicked()
         {
             app.settings.palette_gallery = false;
         }
         if ui
             .selectable_label(gallery, crate::icons::GALLERY)
-            .on_hover_text(
-                "Gallery: each terrain's and crosser's tiles as pictures under it, to choose \
-                 one by eye",
-            )
+            .on_hover_text("Show each terrain's and crosser's tiles as pictures, to choose by eye")
             .clicked()
         {
             app.settings.palette_gallery = true;
@@ -1594,13 +1591,8 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             app.palette.tile_brush.as_ref().is_some_and(|b| matches!(b.brush, Brush::Tile(_)));
         if gallery || tile_chosen {
             ui.toggle_value(&mut app.settings.exact_tiles, EXACT_TILE).on_hover_text(
-                "Exact tile: a tile chosen from the pictures goes in alone, exactly as chosen \
-                 (a right click in the area turns it), at the height of the tile it replaces. \
-                 The tiles around aren't adjusted to it: no neighbor, corner terrain, height or \
-                 crosser changes, so it may not meet them. Not the Features and Groups pictures, \
-                 placed whole as ever (Tile Properties' All tiles puts in a piece of one). Off: \
-                 the tiles around fit themselves \
-                 to it",
+                "Put a tile chosen from the pictures in alone. The tiles around aren't changed to \
+                 fit.",
             );
         }
         if gallery {
@@ -1690,10 +1682,9 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 /// The tiles palette's Select Tiles: the area view's tile mode (its
 /// toolbar's Select Tiles, F10), on or off, beside the tools.
 fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
-    let r = ui.selectable_label(*at.tile_mode, at.select_tiles.as_str()).on_hover_text(
-        "Select tiles rather than objects (the area view's Select Tiles): a click selects \
-         a tile, a drag a box of them; a right click opens the tile menu",
-    );
+    let r = ui
+        .selectable_label(*at.tile_mode, at.select_tiles.as_str())
+        .on_hover_text("Select tiles rather than objects. Right-click a tile for its menu.");
     if r.clicked() {
         *at.tile_mode = !*at.tile_mode;
         if *at.tile_mode {
@@ -1983,45 +1974,28 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         _ => label.to_string(),
     };
     let tip = match brush {
-        Brush::Refine => Some(
-            "Click a tile: the next tile that fits there, in Aurora's order (each tile's turns, \
-             then the next tile's: its appearance and its rotation change together, as Shift + \
-             right click steps them). With a tile chosen in the Gallery: that tile, where it fits",
-        ),
-        Brush::Appearance { back: false } => Some(
-            "Click a tile: another tile of its kind (its terrain and crossers), turned as it was \
-             where that fits",
-        ),
-        Brush::Appearance { back: true } => Some("Click a tile: a step back through them"),
-        Brush::Rotate => Some(
-            "Click a tile: a quarter turn counter-clockwise (Shift: clockwise), where it still \
-             fits its neighbors; its lights stay",
-        ),
-        Brush::Crosser(_) => Some(
-            "Click near a side of a tile: it goes on that edge (a doorway in a wall). Drag: it \
-             follows the pointer through the tiles it passes (Shift + drag: round a rectangle). \
-             Right click where it lies: it goes from that tile",
-        ),
+        Brush::Refine => Some("Click a tile for the next tile that fits there, in Aurora's order"),
+        Brush::Appearance { back: false } => {
+            Some("Click a tile for another tile of its kind, turned as it was")
+        }
+        Brush::Appearance { back: true } => Some("Click a tile to step back through them"),
+        Brush::Rotate => {
+            Some("Click a tile to turn it a quarter counter-clockwise (Shift: clockwise)")
+        }
+        Brush::Crosser(_) => Some("Click near a tile's side to put it on that edge, or drag"),
         _ => None,
     };
     let tip = tip.map(|tip| match brush {
-        Brush::Appearance { .. } | Brush::Rotate => format!(
-            "{tip}. With tiles selected (Select Tiles): a click steps every selected tile at \
-             once, each on its own, the selection kept; click again to step them again"
-        ),
-        Brush::Refine => format!(
-            "{tip}. With tiles selected (Select Tiles): a click refines them, as a drag over \
-             them would (the first the next tile that fits, the others of its kind made that \
-             tile too; with a tile chosen in the Gallery, that tile wherever it fits), the \
-             selection kept"
-        ),
+        Brush::Appearance { .. } | Brush::Rotate => {
+            format!("{tip}. With tiles selected, a click steps every one")
+        }
+        Brush::Refine => format!("{tip}. With tiles selected, a click refines them"),
         _ => tip.to_string(),
     });
     let tip = tip.or_else(|| {
         (brush == Brush::Eraser).then(|| {
-            "Click a tile: the crossers on its edges go, and a group or a feature goes whole \
-             (Shift + click: its next variant). With tiles selected (Select Tiles): a click \
-             deletes them, as Delete does, the selection kept"
+            "Click a tile to remove its crossers, or a whole group. With tiles selected, a \
+             click deletes them"
                 .to_string()
         })
     });
@@ -2113,9 +2087,7 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
                 if let Some(Some(id)) = made {
                     ui.image(egui::load::SizedTexture::new(id, egui::vec2(180.0, 180.0)));
                 }
-                ui.weak(
-                    "Click to place it (right click in the area turns it), or drag it into the area",
-                );
+                ui.weak("Click to place it, or drag it into the area. Right-click turns it.");
             });
         }
     });
@@ -2175,8 +2147,7 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
                     ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
                 }
                 ui.weak(if at.exact {
-                    "Click to place it alone (Exact tile: its neighbors are left as they are), \
-                     double-click for its view, or drag it into the area"
+                    "Click to place it alone, double-click for its view, or drag it into the area"
                 } else {
                     "Click to paint with it, double-click for its view, or drag it into the area"
                 });

@@ -1773,9 +1773,8 @@ impl Moonglow {
             crate::widgets::dialog(ui.ctx(), "Hak Pak Conflict Analysis", &mut open)
                 .default_size([600.0, 400.0])
                 .show(ui.ctx(), |ui| {
-                    let tip = "Which of the haks' resources the module reaches (its areas, \
-                               objects, scripts and what they name), hak by hak, in the game a \
-                               player has: for cutting a release to what is used";
+                    let tip =
+                        "Which haks' resources the module uses, hak by hak, to trim a release";
                     let asked = ui
                         .add_enabled(!busy, egui::Button::new("What the Module Uses"))
                         .on_hover_text(tip)
@@ -3073,7 +3072,7 @@ impl Moonglow {
                             let all = ui
                                 .add(egui::Button::new(format!("Fix All ({n})")).small())
                                 .on_hover_text(format!(
-                                    "Every finding of {check} that has a fix, as one step of Undo"
+                                    "Fix every finding of {check} that has a fix, as one Undo step"
                                 ));
                             if all.clicked() {
                                 fix_all = Some(check.clone());

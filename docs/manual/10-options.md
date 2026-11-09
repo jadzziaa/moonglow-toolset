@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:41:00Z }
 ---
 
 # Options
@@ -12,7 +12,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
 in a window that docks and tabs with the others. Each page groups its
 options under headings, as this chapter does: Aurora's own first in
 each, in its order, then Moonglow's. **OK** applies the changes; the module stays open.
-**Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop and userpatch switches or a language the game has installed (the Language page)
+**Cancel**, closing the window or Escape discards them. Only another game or user folder, the folder aliases, Workshop and userpatch switches or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
@@ -530,9 +530,9 @@ What **Build › Verify Module** reports, in groups to leave out (a hak's
 tileset errors you are not going to fix, say, that hide the rest):
 **Missing references**, **Tilesets**, **Models and materials**,
 **2DAs**, **Objects' and areas' 2DA rows and variables**, **Talk table
-and archives** and **Plugins' checks**. Hover over one for the checks it
-holds; the arrow beside it lists them, each to leave out alone (by the
-id `mg checks` gives it: hover over one for what it holds to be true).
+and archives** and **Plugins' checks**. The arrow beside one lists the
+checks it holds, each to leave out alone (by the id `mg checks` gives
+it: hover over one for what it holds to be true).
 Under **Missing references** are the categories of Build Module's
 Missing Resources (the references the module's creatures make, its
 doors'…), and under **Plugins' checks** each enabled plugin's checks.

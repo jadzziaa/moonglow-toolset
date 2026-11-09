@@ -92,13 +92,12 @@ impl Pairs {
 const CHEST_SLOT: u32 = 0x2;
 
 /// Why a PLT texture has no replacement to pick.
-const PLT_WHY: &str = "A PLT texture, drawn in the object's colors: a replacement draws \
-    it with the texture picked instead, as it is, as the game does (a creature's head \
-    replaced so in the client)";
+const PLT_WHY: &str = "A PLT, drawn in the object's colors. The replacement draws its texture as \
+                       it is.";
 
 /// Why a texture with a name longer than a resref has no replacement.
-const TOO_LONG: &str = "The model names it by more than 16 characters: a replacement names \
-    the texture by a resref, of at most 16, so it can't name this one";
+const TOO_LONG: &str = "The model names it with more than 16 characters, which a replacement can't \
+                        name";
 
 /// Said of an entry whose texture or animation the object's models don't have.
 const NOT_IN_THE_MODEL: &str = "not in the model";
@@ -256,8 +255,7 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 if row.of_model.is_none() {
                     ui.weak(format!("({NOT_IN_THE_MODEL})")).on_hover_text(
-                        "A replacement of a texture the object's models don't have: kept as \
-                         it is",
+                        "Its models don't have this texture. The replacement is kept as it is.",
                     );
                 } else if plt.is_some() {
                     ui.weak("PLT").on_hover_text(PLT_WHY);
@@ -552,14 +550,12 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
             crate::appearance_gallery::size_slider(f.app, ui);
             let all = textures.count(state.interface);
             ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
-                "DDS and TGA textures of the game, the haks and the module (no \
-                    PLTs: the game replaces textures with simple ones alone)",
+                "The game's, the haks' and the module's DDS and TGA textures, not PLTs",
             );
             let interface = ui.checkbox(&mut state.interface, "Interface textures too");
             if interface
                 .on_hover_text(
-                    "List the interface's pictures too: icons, portraits, load screens, the \
-                     area map's tiles and the GUI's own, which no model is drawn with",
+                    "Also list icons, portraits, load screens and other interface pictures",
                 )
                 .changed()
             {

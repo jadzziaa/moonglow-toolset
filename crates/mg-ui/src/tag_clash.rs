@@ -302,9 +302,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ui
                     .checkbox(&mut dont, "Don't warn again")
                     .on_hover_text(
-                        "Turns off Options › General › Show duplicate tags warning after a \
-                         paste or a copy, where it can be turned on again. Tags a project's \
-                         moonglow.toml wants unique are still warned of",
+                        "Turn off the duplicate tags warning (Options › General turns it on again)",
                     )
                     .changed()
                 {
@@ -325,18 +323,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 retag_them = ui
                     .add_enabled(can, egui::Button::new("Retag"))
                     .on_hover_text(
-                        "Gives each new object its tag with a number (LAMP_2), unique in the \
-                         module: one step to undo",
+                        "Give each new object a numbered tag, unique in the module (LAMP_2)",
                     )
                     .clicked()
                     || (can && crate::widgets::enter(ui));
                 if !clash.more.is_empty() {
                     retag_all = ui
                         .button("Retag All")
-                        .on_hover_text(
-                            "Retags the copy's objects of the tags only counted too: each copy \
-                             of the area's objects a tag of its own",
-                        )
+                        .on_hover_text("Retag every copied object too, each with a tag of its own")
                         .clicked();
                 }
                 keep = ui.button("Keep Tags").clicked();

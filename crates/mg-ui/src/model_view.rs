@@ -1103,8 +1103,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         let tip = "Light the model with its own light nodes";
         tools.checkbox_word(ui, &mut view.model_lights, glyph::LIGHTS, "Lights", tip);
         let mut shadow = app.settings.model_shadows();
-        let tip = "The model casts the sun's shadow on a ground under it, the ground itself \
-                   unseen (as an area's ground takes a creature's shadow)";
+        let tip = "Cast the sun's shadow on an unseen ground under the model";
         if tools.checkbox_word(ui, &mut shadow, crate::icons::SHADOWS, "Shadow", tip).changed() {
             app.settings.model_shadows = Some(shadow);
         }
@@ -1115,9 +1114,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
                 &mut shaders,
                 crate::icons::SHADERS,
                 "Shaders",
-                "Draw with the game's own shaders, compiled from the game and the module's haks: \
-                 a material's custom shaders (swaying grass and leaves, flowing water) and the \
-                 game's lit shaders; off, with Moonglow's own (in every 3D view)",
+                "Draw with the game's own shaders. Off, with Moonglow's own (every 3D view).",
             )
             .changed()
         {
@@ -1135,9 +1132,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
                 ui,
                 glyph::EXPORT,
                 "Export Files…",
-                "Write the files the game draws this with into a folder: its models, their \
-                 walkmeshes, textures and materials, from the haks and wherever else they are \
-                 (the game's own are left out, unless all of it is the game's)",
+                "Write the models, textures and materials it is drawn with into a folder",
             )
             .clicked();
     });

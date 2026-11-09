@@ -354,10 +354,8 @@ fn magic_ui(ui: &mut Ui, w: &mut BlueprintWizard, game: &GameData) {
     let offered = w.base_item.is_some_and(|b| item_wizard::offered(game, b));
     w.magical &= offered;
     ui.add_space(6.0);
-    ui.add_enabled(offered, egui::Checkbox::new(&mut w.magical, "Magical")).on_hover_text(
-        "Make this a magical item: random properties for the item level and quality, from the \
-         toolset's tables for its kind of item",
-    );
+    ui.add_enabled(offered, egui::Checkbox::new(&mut w.magical, "Magical"))
+        .on_hover_text("Give the item random magic properties for its level and quality");
     ui.add_enabled_ui(w.magical, |ui| {
         egui::Grid::new("item-wizard-magic").num_columns(2).spacing([40.0, 2.0]).show(ui, |ui| {
             crate::widgets::field_label(ui, "Item Level")

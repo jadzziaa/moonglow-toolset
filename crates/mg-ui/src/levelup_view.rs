@@ -104,7 +104,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             let picked = w.chosen == Some(class);
                             let r = ui
                                 .selectable_label(picked, &c.text)
-                                .on_hover_text("Select a Class to add");
+                                .on_hover_text("Select a class to add");
                             if r.clicked() {
                                 w.chosen = Some(class);
                             }
@@ -134,10 +134,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
                         ui.label(name(*class));
                         crate::widgets::spin_draft(ui, level, (*had).max(1)..=60, 1.0, |d| d)
-                            .on_hover_text("Adjust the Level of this Class");
+                            .on_hover_text("Adjust the level of this class");
                         // Classes the creature has stay.
                         if *had == 0
-                            && ui.small_button("✖").on_hover_text("Remove this Class").clicked()
+                            && ui.small_button("✖").on_hover_text("Remove this class").clicked()
                         {
                             remove = Some(i);
                         }

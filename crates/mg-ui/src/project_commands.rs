@@ -732,9 +732,9 @@ pub(crate) fn job_ui(app: &mut Moonglow, ui: &mut Ui) {
             sent = Some(std::mem::take(&mut input.text));
             r.request_focus();
         }
-        let hide = ui.checkbox(&mut input.hidden, "Hide").on_hover_text(
-            "Shows dots for what is typed, and keeps it out of the output (a password)",
-        );
+        let hide = ui
+            .checkbox(&mut input.hidden, "Hide")
+            .on_hover_text("Show dots for what is typed and keep it out of the output");
         // (The keys back in the line, to type in it.)
         if hide.changed() {
             r.request_focus();
@@ -817,10 +817,9 @@ pub(crate) fn has_output(app: &Moonglow) -> bool {
 /// What File › Project's entry for a command says on hover.
 pub(crate) fn tip(c: &ProjectCommand) -> String {
     match &c.run {
-        Some(run) if !c.writes => format!(
-            "Saves the module, runs {run} in the project's folder (the haks kept open: the \
-             project says it writes none of the module's files), and reads its files again"
-        ),
+        Some(run) if !c.writes => {
+            format!("Saves the module and runs {run} in the project's folder, the haks kept open")
+        }
         Some(run) => format!(
             "Saves the module, runs {run} in the project's folder, and reads its files again"
         ),

@@ -14,11 +14,8 @@ use mg_rules::{GameData, ObjectKind};
 use crate::{Action, Moonglow, Tab};
 
 /// What Make Placeables Static does, for its menu items.
-const STATIC_TIP: &str = "Sets Static on the placeables that lose nothing by it: the game loads and \
-    draws static placeables more cheaply. Left dynamic: those that are Useable, are tilted, \
-    scaled or moved by a visual transform, have a script, a conversation, a trap, an \
-    inventory or an animation switched on, or have variables, or the project's moonglow.toml \
-    says so";
+const STATIC_TIP: &str = "Set Static on the placeables that lose nothing by it, which the game \
+                          draws faster";
 
 /// The tree's groups: the module's own kinds of resource, then each
 /// kind of blueprint (`mg_rules::ObjectKind`'s order and names), then the
@@ -121,9 +118,8 @@ fn list_area(ws: &Workspace, area: ResRef) -> Option<mg_edit::Command> {
 }
 
 /// What the mark of an area its module's list leaves out says.
-pub(crate) const UNLISTED_TIP: &str = "The module's area list (Mod_Area_list) doesn't name this \
-    area: the game doesn't load it, and nothing in the game can reach it. Add it back with the \
-    module's area list, or delete the area if it is left over.";
+pub(crate) const UNLISTED_TIP: &str = "The module's area list doesn't name this area, so the game \
+                                       never loads it";
 
 /// A localized string's text as the tree and the area lists show it: in
 /// the editing language, else as the game shows it (its talk-table
@@ -501,8 +497,8 @@ fn contents_ui(
                     let several = chosen.is_some_and(|c| c.contains(&(*kind, index)));
                     let is_marked =
                         marked.is_some_and(|m| m.1 == index) || at_object == Some(index) || several;
-                    let how = "Click to go to it in the area; double-click for its Properties; \
-                               Ctrl or Shift and a click to choose several; right-click for more";
+                    let how = "Click to go to it in the area, double-click for its Properties. \
+                               Right-click for more.";
                     let tip = if object.tip.is_empty() {
                         how.to_string()
                     } else {
@@ -578,9 +574,8 @@ fn contents_ui(
                             let mut b = ui.button(label);
                             if asked == Asked::Export {
                                 b = b.on_hover_text(
-                                    "Write it into an archive (.erf) as a blueprint of its own, \
-                                     with the items it holds, as Add to Palette makes one: for \
-                                     another module's Import",
+                                    "Write it into an .erf as a blueprint, with its items, for \
+                                     another module",
                                 );
                             }
                             if b.clicked() {
@@ -1543,11 +1538,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 && ui
                                     .button("Export Model Files…")
                                     .on_hover_text(
-                                        "Write the files the game draws the area with into a \
-                                         folder: its tileset, its tiles' models, walkmeshes and \
-                                         textures, its skybox, and the models of what is placed in \
-                                         it, from the haks and wherever else they are (the game's \
-                                         own are left out, unless all of it is the game's)",
+                                        "Write the tileset, models and textures the area is drawn \
+                                         with into a folder",
                                     )
                                     .clicked()
                             {
@@ -2080,11 +2072,7 @@ fn story_items(ui: &mut Ui, keys: &[ResKey], actions: &mut Vec<Action>) {
     let each = if keys.len() == 1 { "It" } else { "Each" };
     for (format, word) in crate::dialog_export::FORMATS {
         let ext = format.extensions()[0];
-        let tip = format!(
-            "{each} as {} into a folder, as the conversation editor's Export writes it \
-             (NAME.{ext})",
-            format.name()
-        );
+        let tip = format!("{each} as {} into a folder (NAME.{ext})", format.name());
         if ui.button(format!("Export as {word}…")).on_hover_text(tip).clicked() {
             actions.push(Action::ExportConversations { keys: keys.to_vec(), format });
             ui.close();
@@ -2099,15 +2087,9 @@ fn story_items(ui: &mut Ui, keys: &[ResKey], actions: &mut Vec<Action>) {
 fn minimap_items(ui: &mut Ui, areas: &[ResRef], actions: &mut Vec<Action>) {
     let (what, tip) = match areas {
         [_] => ("Minimap", "The area's map as the game shows it, as a PNG"),
-        _ => (
-            "Minimaps",
-            "Each area's map as the game shows it, as a PNG named after it (NAME.png), into a \
-             folder",
-        ),
+        _ => ("Minimaps", "Each area's map as the game shows it, as NAME.png in a folder"),
     };
-    let notes = " with each map note the game's map shows (a waypoint's, enabled) marked by \
-                 the game's own pin, where the game marks it (the game's map draws no text of \
-                 the note, so none is drawn)";
+    let notes = " with its map notes' pins";
     for (label, tip, notes) in [
         (format!("Export {what}…"), tip.to_string(), false),
         (format!("Export {what} with Map Notes…"), format!("{tip},{notes}"), true),
@@ -2159,8 +2141,7 @@ fn several_menu(
             actions.push(Action::ExportDialog(keys.to_vec()));
             ui.close();
         }
-        let files = "Write them into a folder (a script with its compiled script, an area with \
-                     its .git and .gic)";
+        let files = "Write them into a folder as loose files";
         if ui.button("Export as Files…").on_hover_text(files).clicked() {
             let keys = keys.to_vec();
             actions.push(Action::ExportFiles { keys, dependencies: false, scratch: false });
@@ -2177,7 +2158,7 @@ fn several_menu(
         }
         story_items(ui, keys, actions);
     });
-    let delete = "Delete them from the module, as one step (asked first, with what names them)";
+    let delete = "Delete them from the module in one step, asked first";
     if ui.button("Delete…").on_hover_text(delete).clicked() {
         actions.push(Action::DeleteChosenDialog(keys.to_vec()));
         ui.close();

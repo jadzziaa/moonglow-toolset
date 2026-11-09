@@ -460,8 +460,8 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         if mixed {
             ui.colored_label(ui.visuals().warn_fg_color, super::MIXED).on_hover_text(
-                "The stores edited together differ here: this shows the first one's. A mode \
-                 clicked moves each store's items to it",
+                "The stores differ here: this shows the first one's. A mode clicked applies to \
+                 each.",
             );
         }
         ui.vertical(|ui| {

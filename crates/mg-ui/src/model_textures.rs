@@ -312,8 +312,7 @@ fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
                 let cut = ResRef::cut(&row.name).map(|r| r.to_string().to_ascii_lowercase());
                 if let Some(cut) = cut.filter(|c| *c != row.name) {
                     ui.weak(format!("(read as {cut})")).on_hover_text(
-                        "A name longer than 16 characters: the game cuts it to 16 and draws \
-                         the texture of that name",
+                        "The game cuts a name longer than 16 characters, and draws that texture",
                     );
                 }
             });

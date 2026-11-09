@@ -308,9 +308,7 @@ pub(super) fn resize_handles(
                 vertical: y,
             });
         }
-        response.on_hover_text(
-            "Drag to resize. Release to apply; Esc cancels. One Undo restores the previous size.",
-        );
+        response.on_hover_text("Drag to resize, Esc to cancel. One Undo restores the size.");
     }
 }
 

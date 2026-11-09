@@ -806,14 +806,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             if ui
                 .button("Keep Moonglow's")
-                .on_hover_text("Your changes stay; the next Save writes them over the files")
+                .on_hover_text("Your changes stay, and the next Save writes them over the files")
                 .clicked()
             {
                 answer = Some(Answer::Ours);
             }
             if ui
                 .button("Take the Files'")
-                .on_hover_text("The files are read again; your unsaved changes to them are lost")
+                .on_hover_text("Read the files again. Your unsaved changes to them are lost.")
                 .clicked()
             {
                 answer = Some(Answer::Theirs);

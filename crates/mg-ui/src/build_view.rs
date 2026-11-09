@@ -275,8 +275,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 /// Why Mark as Used can't be: the module has no folder.
 const NO_PLACE: &str = "Save the module first: the project file is kept beside it";
 
-const MARK_HOVER: &str = "Count it as used from now on (for a script ExecuteScript runs by a name \
-    made as it runs): its name goes in the project file's [used], which Aurora leaves alone";
+const MARK_HOVER: &str = "Count it as used from now on (kept in the project file's [used])";
 
 /// The `[used]` keys, and what Counted as Used calls each.
 const USED_KINDS: [(&str, &str); 3] =

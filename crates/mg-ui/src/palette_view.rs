@@ -781,12 +781,11 @@ pub(crate) fn fold_icons(
 ) -> Option<bool> {
     use crate::keys::Cmd;
     let mut fold = None;
-    let expand = keymap.titled(&format!("Expand All: open every {what}"), Cmd::ExpandAll, ui.ctx());
+    let expand = keymap.titled(&format!("Open every {what}"), Cmd::ExpandAll, ui.ctx());
     if ui.small_button("⏷").on_hover_text(expand).clicked() {
         fold = Some(true);
     }
-    let collapse =
-        keymap.titled(&format!("Collapse All: close every {what}"), Cmd::CollapseAll, ui.ctx());
+    let collapse = keymap.titled(&format!("Close every {what}"), Cmd::CollapseAll, ui.ctx());
     if ui.small_button("⏶").on_hover_text(collapse).clicked() {
         fold = Some(false);
     }
@@ -839,9 +838,7 @@ fn start_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
          position): a blue ring with a red arrow in the area's view.",
     );
     ui.add_space(4.0);
-    let tip = "On: a click in an area's view puts the start location there, facing the way the \
-               view looks (Shift + click: and stays on); a right click or Escape over the view \
-               puts it down";
+    let tip = "On, a click in an area's view puts the start location there";
     ui.toggle_value(&mut view.placing_start, "Place the Start Location").on_hover_text(tip);
     ui.add_space(4.0);
     let at = app.ws.as_mut().and_then(|ws| {
@@ -882,8 +879,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         ui.weak("The game's placeables.2da has none (no game data?).");
         return;
     }
-    let tip = "Chosen: a click in an area's view puts this light there, a little above the \
-               ground (Shift + click: and more); a right click or Escape over the view stops";
+    let tip = "Chosen, a click in an area's view puts this light there (Shift+click: more)";
     for light in &lights {
         let on = view.placing_light == Some(light.row);
         if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
@@ -908,11 +904,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         let area = view.area.filter(|a| app.area_views.contains_key(a));
         let r = ui
             .add_enabled(area.is_some(), egui::Button::new("Custom Light…"))
-            .on_hover_text(
-                "A light of the color, reach and shadows you choose, written into a hak you \
-                 choose (the window says what, before it writes); then click in the area to put \
-                 it there",
-            )
+            .on_hover_text("Make a light of your color and reach in a hak, then click to place it")
             .on_disabled_hover_text("Open an area first");
         if r.clicked()
             && let Some(area) = area
@@ -1005,21 +997,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Type::Prefabs,
             PREFABS,
             "Prefabs",
-            "Groups of placed objects saved under a name (a camp, a furnished room), to place \
-             again in any area or module",
+            "Groups of objects saved under a name, to place again in any module",
         ));
         types.push((
             Type::Lights,
             LIGHTS,
             "Lights",
-            "The game's invisible lights, seven colors: click one, then click in an area to put \
-             it there (no custom content)",
+            "The game's invisible lights: click one, then click in an area",
         ));
         types.push((
             Type::Start,
             START,
             "Start Location",
-            "Where a player's character enters the module: click in an area to put it there",
+            "Click in an area to put the start location there",
         ));
         let mut chosen = None;
         // Larger than the text beside them (a line's height, about a
@@ -1036,7 +1026,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
                 for (t, glyph, name, tip) in &types {
                     let tip =
-                        if tip.is_empty() { name.to_string() } else { format!("{name}: {tip}") };
+                        if tip.is_empty() { name.to_string() } else { format!("{name}\n{tip}") };
                     let icon = egui::RichText::new(*glyph).size(size);
                     if ui.selectable_label(now == *t, icon).on_hover_text(tip).clicked() {
                         chosen = Some(*t);
@@ -1222,16 +1212,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // that have them (the others are lists, whichever is chosen).
         let pictures = pictured(view.kind);
         let shown = app.settings.palette_gallery && pictures;
-        if ui.selectable_label(!shown, "☰").on_hover_text("List: the blueprints by name").clicked()
+        if ui.selectable_label(!shown, "☰").on_hover_text("Show the blueprints by name").clicked()
         {
             app.settings.palette_gallery = false;
         }
         ui.add_enabled_ui(pictures, |ui| {
             if ui
                 .selectable_label(shown, crate::icons::GALLERY)
-                .on_hover_text("Gallery: the blueprints as pictures, to choose by eye")
+                .on_hover_text("Show the blueprints as pictures, to choose by eye")
                 .on_disabled_hover_text(
-                    "Gallery: creatures, doors, items, placeables and waypoints have pictures",
+                    "Only creatures, doors, items, placeables and waypoints have pictures",
                 )
                 .clicked()
             {
@@ -1248,10 +1238,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.menu_button("More", |ui| {
             if ui
                 .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
-                .on_hover_text(
-                    "Add, rename and remove the categories this module's blueprints of this \
-                     kind go in",
-                )
+                .on_hover_text("Add, rename and remove this module's categories for this kind")
                 .clicked()
             {
                 categories = Some(view.kind);
@@ -1260,9 +1247,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             if ui
                 .add_enabled(app.ws.is_some(), egui::Button::new("Refresh Palette"))
                 .on_hover_text(
-                    "The module's custom palette of this kind made anew from its blueprints and \
-                     its haks', as Aurora's Refresh Palette and Build's Palettes make it (Undo \
-                     takes it back)",
+                    "Make the module's custom palette anew from its blueprints and its haks'",
                 )
                 .clicked()
             {
@@ -1274,8 +1259,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 && ui
                     .button("All Appearances…")
                     .on_hover_text(
-                        "The Placeable Gallery: every placeable appearance as a picture; a \
-                         click gives it to the placeables selected in the area",
+                        "Every placeable appearance as a picture, to give to the selected \
+                         placeables",
                     )
                     .clicked()
             {
@@ -1284,9 +1269,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
         })
         .response
-        .on_hover_text(
-            "More: the module's categories, Refresh Palette, every placeable appearance",
-        );
+        .on_hover_text("The module's categories, Refresh Palette and every placeable appearance");
         if shown {
             // (A slider doesn't wrap of itself: on a row of its own where
             // this one has no room for it.)
@@ -1322,15 +1305,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if !offered.is_empty() {
         ui.horizontal_wrapped(|ui| {
             ui.label("Group by").on_hover_text(
-                "The palette's categories, or a grouping the project's moonglow.toml gives                  ([palette.*]): a blueprint shows under each of its groups, Other last",
+                "The palette's categories, or a grouping from the project's moonglow.toml \
+                 ([palette.*])",
             );
             let options: Vec<Option<usize>> =
                 std::iter::once(None).chain((0..offered.len()).map(Some)).collect();
             let text = |o: &Option<usize>| o.map_or("Category", |i| offered[i].title.as_str());
             let mut pick = by;
-            crate::widgets::dropdown(("palette-group-by", kind))
-                .selected_text(text(&by))
-                .show(ui, &mut pick, &options, |o| text(o).to_string());
+            crate::widgets::dropdown(("palette-group-by", kind)).selected_text(text(&by)).show(
+                ui,
+                &mut pick,
+                &options,
+                |o| text(o).to_string(),
+            );
             if pick != by {
                 match pick {
                     Some(i) => {
@@ -2185,8 +2172,8 @@ impl Tree<'_> {
                 if ui
                     .button("Replace Selected with This")
                     .on_hover_text(
-                        "The objects of this type selected in the area become ones of this \
-                         blueprint, where they stand",
+                        "Make the selected objects of this type ones of this blueprint, where they \
+                         stand",
                     )
                     .clicked()
                 {
@@ -2196,9 +2183,8 @@ impl Tree<'_> {
                 if ui
                     .button("Replace Selected, Keeping Tags and Scripts")
                     .on_hover_text(
-                        "The objects of this type selected in the area become ones of this \
-                         blueprint, where they stand, each keeping its own tag, name, scripts \
-                         and variables (a placeholder keeps what the scripts know it by)",
+                        "As Replace Selected with This, keeping each one's tag, name, scripts and \
+                         variables",
                     )
                     .clicked()
                 {
@@ -2239,11 +2225,9 @@ impl Tree<'_> {
                     n => format!("Update Instances of {n}"),
                 };
                 let tip = if keys.len() == 1 {
-                    "Make the objects placed from it again from it. Ctrl+click or Shift+click \
-                     chooses several blueprints to update together; Edit › Update All \
-                     Instances… updates the whole module's"
+                    "Remake the objects placed from it. Ctrl+click chooses several blueprints."
                 } else {
-                    "Make the objects placed from them again from them"
+                    "Remake the objects placed from them"
                 };
                 if ui.button(text).on_hover_text(tip).clicked() {
                     picks.push(Pick::UpdateInstances(keys));
@@ -2262,8 +2246,8 @@ impl Tree<'_> {
                 && ui
                     .button("Remove from Palette")
                     .on_hover_text(
-                        "Take its entry out of the module's palette: the blueprint isn't the \
-                         module's, and stays where it is (Build's Palettes lists a hak's again)",
+                        "Take its entry out of the module's palette. The blueprint stays where it \
+                         is.",
                     )
                     .clicked()
             {
@@ -2492,10 +2476,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let save = ui
         .add_enabled(chosen > 0, egui::Button::new("Save Selection as Prefab…"))
         .on_hover_text("The objects selected in the area shown, kept as a prefab")
-        .on_disabled_hover_text(
-            "Select the objects in an area first (a click, Ctrl+click for more, or a box \
-             dragged around them)",
-        );
+        .on_disabled_hover_text("Select objects in an area first");
     if save.clicked()
         && let Some(area) = area
     {
@@ -2581,7 +2562,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         Ok(holds) => ui.label(holds),
                         Err(e) => ui.colored_label(ui.visuals().error_fg_color, e),
                     };
-                    ui.weak("Click, then click in the area to place it; right-click for more");
+                    ui.weak("Click, then click in the area to place it. Right-click for more.");
                 });
                 if r.clicked() {
                     app.actions.push(Action::PlacePrefab(name.clone()));

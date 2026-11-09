@@ -296,16 +296,11 @@ pub const TOOLBAR: [Option<(Id, &str, &str, &str)>; 16] = [
         Id::GoToStart,
         "🏃",
         "Start",
-        "Go to Start Location: opens the area the module starts in, at the start location",
+        "Open the area the module starts in, at the start location",
     )),
     Some((Id::Resources, "🔍", "Resources", "Resource browser")),
     Some((Id::Palettes, "📦", "Palettes", "Blueprint palettes")),
-    Some((
-        Id::PreviewWindow,
-        "👁",
-        "Preview",
-        "Show Preview Window: the blueprint chosen in the palette",
-    )),
+    Some((Id::PreviewWindow, "👁", "Preview", "Show the blueprint chosen in the palette")),
     None,
     Some((Id::CompileAll, "⚙", "Compile", "Compile all scripts")),
     Some((Id::Verify, "✔", "Verify", "Verify the module")),
@@ -374,14 +369,11 @@ impl Id {
             Id::ImportFiles => (
                 "import-files",
                 "Import Files…",
-                "Scripts, blueprints, conversations, areas… as loose files (name.ext), as Export \
-                 as Files writes them",
+                "Loose files (name.ext), as Export as Files writes them",
             ),
-            Id::ImportFolder => (
-                "import-folder",
-                "Import Folder…",
-                "The files of a folder and of the folders in it, as Import Files takes them",
-            ),
+            Id::ImportFolder => {
+                ("import-folder", "Import Folder…", "Every file in a folder and its subfolders")
+            }
             Id::Export => ("export", "Export…", ""),
             Id::ImportConversation => (
                 "import-conversation",
@@ -396,14 +388,12 @@ impl Id {
             Id::BuilderCode => (
                 "builder-code",
                 "Builder Code…",
-                "Your own code, which the ResRefs proposed for new areas, blueprints and copies \
-                 begin with (kept in the project, out of version control)",
+                "Your own code, which new ResRefs begin with (kept out of version control)",
             ),
             Id::ClaimsTable => (
                 "claims-table",
                 "Claims Table…",
-                "Whose each area is (the project's claims table): claim, release, hand on or take \
-                 over a claim",
+                "Who has claimed each area: claim, release, hand on or take over one",
             ),
             Id::ResizeArea => ("resize-area", "Resize Area…", ""),
             Id::RotateArea => ("rotate-area", "Rotate Area…", ""),
@@ -412,14 +402,12 @@ impl Id {
             Id::EditAreasTogether => (
                 "edit-areas-together",
                 "Edit Areas Together…",
-                "Choose several areas (by name, tileset, interior, underground…) and set their \
-                 lighting, fog, weather, music, scripts and variables at once",
+                "Set the lighting, fog, weather, music and scripts of several areas at once",
             ),
             Id::UpdateAllInstances => (
                 "update-all-instances",
                 "Update All Instances…",
-                "Make every object placed from one of the module's blueprints again from it, \
-                 where it stands (a window lists them first)",
+                "Remake every placed object from its blueprint, where it stands. Lists them first.",
             ),
             Id::ReplaceText => (
                 "replace-text",
@@ -434,18 +422,18 @@ impl Id {
             Id::AdvancedSearch => (
                 "advanced-search",
                 "Advanced Search…",
-                "Blueprints and placed objects by their variables, item properties, classes, \
-                 feats, spells, skills, appearance, scripts or any field",
+                "Find blueprints and placed objects by their variables, properties, classes or any \
+                 field",
             ),
             Id::IndentToTabs => (
                 "convert-indent-tabs",
                 "Convert Indentation to Tabs",
-                "The script in front: each line's indentation made tabs (one step to undo)",
+                "Make each line's indentation tabs, in the script in front",
             ),
             Id::IndentToSpaces => (
                 "convert-indent-spaces",
                 "Convert Indentation to Spaces",
-                "The script in front: each line's indentation made spaces (one step to undo)",
+                "Make each line's indentation spaces, in the script in front",
             ),
             Id::AreaWizard => ("area-wizard", "Area Wizard…", ""),
             Id::CreatureWizard => ("creature-wizard", "Creature Wizard…", ""),
@@ -465,9 +453,7 @@ impl Id {
             Id::OpenTable => (
                 "open-2da",
                 "2DA File…",
-                "Edit a 2DA: the module's tables and its project's or folder's .2da files are \
-                 listed, whatever folder they are in, and Browse… takes a file anywhere (a \
-                 hak's or the game's table: Edit… in the resource browser)",
+                "Edit one of the module's or project's 2DAs, or a .2da file anywhere",
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::NewNui => ("new-nui", "New NUI Window…", "Create a game UI window and its scripts"),
@@ -475,7 +461,8 @@ impl Id {
             Id::PlaceableGallery => (
                 "placeable-gallery",
                 "Appearance Gallery…",
-                "Every placeable's, creature's and door's appearance as a picture; a click gives it to what is selected",
+                "Every placeable, creature and door appearance as a picture, to give to the \
+                 selection",
             ),
             Id::Resources => ("resources", "Resource Browser", ""),
             Id::NewTileset => ("new-tileset", "New Tileset…", "A new .set file to fill"),
@@ -497,8 +484,7 @@ impl Id {
             Id::CompileModels => (
                 "compile-models",
                 "Compile Models",
-                "Compile the module's own models kept as text (ASCII), each against its \
-                 supermodel from the module, its haks or the game",
+                "Compile the module's ASCII models against their supermodels",
             ),
             Id::BuildModule => ("build-module", "Build Module…", ""),
             Id::PublishNwsync => (
@@ -510,8 +496,8 @@ impl Id {
             Id::RoundTrip => (
                 "round-trip",
                 "Round-Trip Check",
-                "Save a copy of the module, read it back and write each GFF and 2DA anew: what \
-                 doesn't come back as it was is said in the log (the module is not touched)",
+                "Write each GFF and 2DA of a copy anew and log what changes. The module is \
+                 untouched.",
             ),
             Id::GoToStart => (
                 "go-to-start",
@@ -532,8 +518,7 @@ impl Id {
             Id::TakeInLeftOut => (
                 "take-in-left-out",
                 "Add Left-Out Files to nasher.cfg",
-                "Files in the project's sources that its include leaves out (nasher won't pack \
-                 them): an include line for their kinds is added, and they are read",
+                "Add include lines for the source files nasher.cfg leaves out, and read them",
             ),
             Id::AreaStatistics => ("area-statistics", "Area Statistics", ""),
             Id::Plugins => (
@@ -544,7 +529,7 @@ impl Id {
             Id::InstallPlugin => (
                 "install-plugin",
                 "Install Plugin from File…",
-                "Install a plugin from its archive (a zip); it is off until you enable it",
+                "Install a plugin from its zip archive. It stays off until you enable it.",
             ),
             Id::Manual => ("manual", "User Manual", ""),
             Id::CommandPalette => {
@@ -562,7 +547,7 @@ impl Id {
             Id::MaximizeWindow => (
                 "maximize-window",
                 "Maximize Window",
-                "The window of the tab in front over the whole of Moonglow's, or back",
+                "Fill Moonglow's window with the tab in front, or restore it",
             ),
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
@@ -570,10 +555,10 @@ impl Id {
             Id::NextPane => (
                 "next-pane",
                 "Next Pane",
-                "The arrow keys to the next of the module tree, the middle and the palettes",
+                "Give the arrow keys to the next pane: tree, middle or palettes",
             ),
             Id::PreviousPane => {
-                ("previous-pane", "Previous Pane", "The arrow keys to the pane before")
+                ("previous-pane", "Previous Pane", "Give the arrow keys to the pane before")
             }
             Id::ViewTree => ("view-tree", "Module Tree", "Show the module tree, or fold it away"),
             Id::ViewPalettes => {
@@ -593,7 +578,7 @@ impl Id {
             Id::ResetLayout => (
                 "reset-layout",
                 "Reset Layout",
-                "The tree, the palettes and the log shown where they are at first",
+                "Put the tree, the palettes and the log back where they started",
             ),
         };
         (id.into(), label.into(), hint)
@@ -1590,8 +1575,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     }
                 })
                 .on_disabled_hover_text(
-                    "The commands a project names in its moonglow.toml ([commands]): its update \
-                     and submit scripts. A module folder or nasher project with them.",
+                    "The update and submit commands a project's moonglow.toml names ([commands])",
                 );
             }
             Item::Recent => {

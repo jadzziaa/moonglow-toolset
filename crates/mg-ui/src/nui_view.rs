@@ -247,7 +247,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             &taken,
             [
                 "Imports every window, replacing these",
-                "Imports the windows the module doesn't have, and leaves those it has as they are",
+                "Imports only the windows the module doesn't have",
             ],
         );
         if let Some(answer) = answer {
@@ -839,14 +839,13 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
         use crate::icons::editor as glyph;
         ui.with_layout(layout, |ui| {
             let r = ui.button(tools.word(glyph::IMPORT, "Import…"));
-            let tip = "Brings NUI windows into the module from files: .jui files (with their \
-                       settings and event script beside them) and ERF or zip archives of them";
+            let tip = "Bring NUI windows into the module from .jui files or ERF and zip archives";
             if tools.named(r, "Import…", tip, None).clicked() {
                 app.actions.push(Action::ImportNui);
             }
             let r = ui.button(tools.word(glyph::EXPORT, "Export…"));
-            let tip = "Builds the window, then exports it with its settings, its opener include \
-                       and its compiled event script";
+            let tip = "Build the window, then export it with its settings, opener include and \
+                       event script";
             if tools.named(r, "Export…", tip, None).clicked() {
                 app.actions.push(Action::GenerateNui { name: name.to_owned(), export: true });
             }
@@ -854,9 +853,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                 .fill(ui.visuals().selection.bg_fill);
             let r = ui.add_enabled(checked.errors == 0, build);
             let tip = match checked.errors {
-                0 => "Checks the opener include and compiles the event script. The window opens \
-                      from a script of yours: How to open it… shows what to write."
-                    .to_string(),
+                0 => "Check the opener include and compile the event script".to_string(),
                 n => format!(
                     "Fix the {} first: the list under the tabs shows them",
                     count(n, "error")

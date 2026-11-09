@@ -2829,8 +2829,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             &mut view.show_start,
             icons::START,
             "Start",
-            "Show the start location's marker (a blue ring with a red arrow). To set it: \
-             right-click the ground, Set Start Location Here",
+            "Show the start location's marker, a blue ring with a red arrow",
         );
         if tools.button(ui, icons::SHOW_ALL, "All", "Show All").clicked() {
             view.show = [true; 9];
@@ -2854,8 +2853,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut view.lit,
                 icons::LIGHTING,
                 "Lighting",
-                "Use the area's lighting; off, everything is evenly lit (for working in dark \
-                 areas)",
+                "Use the area's lighting. Off, everything is evenly lit.",
             )
             .changed()
         {
@@ -2885,10 +2883,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 .selected_text(fade)
                 .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
                 .on_hover_text(
-                    "Fade Geometry: tiles without the parts that fade in the game to show a \
-                     character behind them (roofs, upper walls), to see and place what is under \
-                     them: never, while working on objects (not with Select Tiles or a terrain \
-                     brush), or always",
+                    "Hide the roofs and upper walls the game fades, to see what is under them",
                 );
             fits.after(ui, &r);
             if view.fade != before {
@@ -2902,8 +2897,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut animated,
                 icons::ANIMATIONS,
                 "Animations",
-                "Creatures and other placed objects play their animations; off, they hold \
-                 still (in every area view)",
+                "Play placed objects' animations, in every area view. Off, they hold still.",
             )
             .changed()
         {
@@ -2916,9 +2910,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut grass,
                 icons::GRASS,
                 "Grass",
-                "Grass wherever the view shows grass ground, thinned far off (the game grows \
-                 it near the camera alone): the tileset's, and the area's own (Area Properties \
-                 › Grass); in every area view",
+                "Draw the tileset's and the area's own grass, in every area view",
             )
             .changed()
         {
@@ -2929,9 +2921,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             &mut app.settings.tile_border,
             icons::TILE_BORDER,
             "Tile Border",
-            "Past the area's edge, what the game draws there: the tileset's edge tiles, five \
-             deep and darkened, carrying on the area's terrain, roads and streams (the game's \
-             Enable Tile Border); off, nothing, as in Aurora (in every area view)",
+            "Draw the tileset's edge tiles past the area's edge, as the game does",
         );
         let mut shaders = app.game_shaders();
         if tools
@@ -2940,9 +2930,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut shaders,
                 icons::SHADERS,
                 "Shaders",
-                "Draw with the game's own shaders, compiled from the game and the module's haks: \
-                 a material's custom shaders (swaying grass and leaves, flowing water) and the \
-                 game's lit shaders; off, with Moonglow's own (in every 3D view)",
+                "Draw with the game's own shaders. Off, with Moonglow's own (every 3D view).",
             )
             .changed()
         {
@@ -2955,8 +2943,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut view.minimap,
                 icons::MINIMAP,
                 "Minimap",
-                "The area's map in the view's corner, as the game's map draws it, with where the \
-                 camera looks: click or drag on it to look there",
+                "Show the area's map in a corner: click or drag on it to look there",
             )
             .changed()
         {
@@ -2977,8 +2964,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 &mut view.sound_ranges,
                 icons::SOUND_RANGES,
                 "Sound Ranges",
-                "Where each placed sound is heard: at full volume inside the inner circle, not \
-                 at all outside the outer one",
+                "Show each placed sound's circles: full volume inside, silent outside",
             )
             .changed()
         {
@@ -2999,7 +2985,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             let r = crate::widgets::dropdown("snap-grid")
                 .selected_text(grid(app.settings.snap_grid))
                 .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
-                .on_hover_text("Snap: moved and placed objects snap to this grid");
+                .on_hover_text("Moved and placed objects snap to this grid");
             fits.after(ui, &r);
         }
         if !tools.hides("Turn") {
@@ -3031,7 +3017,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                     },
                 )
                 .on_hover_text(
-                    "Turn: turned objects snap to this angle; Q and E turn by it (15° when free)",
+                    "The angle turned objects snap to, and Q and E turn by (15° when free)",
                 );
             fits.after(ui, &r);
         }
@@ -3040,17 +3026,14 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             &mut app.settings.turn_together,
             icons::TOGETHER,
             "Together",
-            "Several objects selected turn about their middle as one, keeping their places \
-             among themselves; off, each turns where it stands",
+            "Turn several selected objects about their middle as one. Off, each turns in place.",
         );
         tools.toggle(
             ui,
             &mut app.settings.place_onto_objects,
             icons::ONTO_OBJECTS,
             "Onto Objects",
-            "What is placed from the palette goes onto the top of the placeable or door under \
-             the pointer (a book on a table, a skull on an altar), up to 2 m above the ground; \
-             off, on the ground. Drop onto Object (Shift+G) sets what is selected so after",
+            "Place onto the placeable or door under the pointer, not the ground",
         );
         if !tools.hides("Walkmesh…") {
             walkmesh_button(ui, view, tools);
@@ -3078,8 +3061,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
         }
         let tip = app.keymap.titled(
-            "Paint the placeables chosen in the palette (Ctrl + click for several) onto the \
-             ground: scattered in a circle, or in a row",
+            "Paint the placeables chosen in the palette onto the ground, scattered or in a row",
             crate::keys::Cmd::PaintPlaceables,
             ui.ctx(),
         );
@@ -3108,8 +3090,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
-            "the area as it is now (its .are, .git and .gic), with the module's blueprints, \
-             scripts and conversations it uses",
+            "the area and the blueprints, scripts and conversations it uses",
         );
         if tools.button(ui, icons::TO_SCRATCH, "To Scratch", &tip).clicked() {
             app.actions.push(Action::ExportFiles {
@@ -3127,8 +3108,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                     ui,
                     icons::PREFABS,
                     &prefab,
-                    "Keep the selected objects as a group, under a name, to place again in any \
-                     area or module (the palette's Prefabs, or Edit › Prefabs)",
+                    "Keep the selected objects as a group, to place again in any module",
                 )
                 .clicked()
         {
@@ -4262,19 +4242,18 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::
         ui,
         egui::Button::selectable(on, label),
         "Walkmesh…",
-        "Click: the ground's walkmesh (Render AABB Nodes), walkable faces green. Hold, or \
-         right-click: the ground's and the objects' to choose from",
+        "Show the ground's walkmesh. Hold or right-click to choose which walkmeshes.",
     );
     let (clicked, menu) = held_menu(ui, &r);
     if clicked {
         (view.walkmesh, view.object_walkmesh) = (!on, false);
     }
     menu.show(|ui| {
-        ui.checkbox(&mut view.walkmesh, "Ground Walkmesh")
-            .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
+        ui.checkbox(&mut view.walkmesh, "Ground Walkmesh").on_hover_text(
+            "The ground's walkmesh, walkable faces green (Aurora's Render AABB Nodes)",
+        );
         ui.checkbox(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
-            "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables \
-             orange, doors blue (in their open or closed state)",
+            "Where placeables and doors keep creatures out: placeables orange, doors blue",
         );
     });
 }
@@ -4331,9 +4310,7 @@ fn shadows_button(
         ui,
         egui::Button::selectable(on, tools.label(crate::icons::SHADOWS, "Shadows")),
         "Shadows",
-        "Click: the shadows the game draws, where the area has them (Area Properties › Sun and \
-         Moon Shadows, as dark as its Shadow Opacity), or none. Hold, or right-click: which \
-         to draw (the sun's and moon's, creatures', lights')",
+        "Show the game's shadows. Hold or right-click to choose which.",
     );
     let (clicked, menu) = held_menu(ui, &r);
     if clicked {
@@ -4346,17 +4323,13 @@ fn shadows_button(
     }
     menu.show(|ui| {
         ui.checkbox(&mut view.shadows, "Sun and Moon Shadows").on_hover_text(
-            "The sun's by day and the moon's at night, where the area has them: cast by the \
-             tiles and static placeables, falling on the tiles and static placeables",
+            "The sun's by day and the moon's at night, cast by tiles and static placeables",
         );
         ui.checkbox(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
-            "Creatures, dynamic placeables and doors cast the sun's and moon's shadows too, as \
-             the game's Creature Shadow Detail at Best has them (at Fast or Off they cast none)",
+            "Creatures, doors and dynamic placeables cast shadows too, as at the game's best detail",
         );
         ui.checkbox(&mut view.light_shadows, "Light Shadows").on_hover_text(
-            "Where the area has no sun's or moon's shadows at the time, each creature casts one \
-             from the nearest light that casts them (a light node with `shadow 1` and a radius \
-             of 10 m or more: a placeable's light), as in the game",
+            "Creatures cast shadows from the nearest light that casts them, without sun or moon",
         );
         ui.separator();
         ui.horizontal(|ui| {
@@ -7059,8 +7032,7 @@ fn editing_items(
             if ui
                 .add_enabled(any, egui::Button::new("Drop onto Object (Shift+G)"))
                 .on_hover_text(
-                    "Set each selected object on the placeable or door below it (a skull on an \
-                     altar, a book on a table), up to 2 m above it; else on the ground",
+                    "Set each selected object on the placeable or door below it, else on the ground",
                 )
                 .clicked()
             {
@@ -7072,9 +7044,7 @@ fn editing_items(
             if ui
                 .add_enabled(any, egui::Button::new(label))
                 .on_hover_text(
-                    "Raise the selection onto the next flat surface above the first object \
-                     selected: a placeable's top (a stall's counter), a floor, a bridge; the \
-                     others move with it",
+                    "Raise the selection onto the next flat surface above it, such as a counter",
                 )
                 .clicked()
             {
@@ -7085,8 +7055,7 @@ fn editing_items(
             if ui
                 .add_enabled(any, egui::Button::new(label))
                 .on_hover_text(
-                    "Lower the selection onto the next flat surface below the first object \
-                     selected, down to the ground; the others move with it",
+                    "Lower the selection onto the next flat surface below it, down to the ground",
                 )
                 .clicked()
             {
@@ -7096,9 +7065,7 @@ fn editing_items(
             if ui
                 .add_enabled(any, egui::Button::new("Random Facing"))
                 .on_hover_text(
-                    "Turn each selected object to face a way of its own, at random (trees and \
-                     rocks placed in a row no longer all face alike); by the snap angle, if one \
-                     is set",
+                    "Turn each selected object to a random facing, by the snap angle if one is set",
                 )
                 .clicked()
             {
@@ -7132,9 +7099,8 @@ fn editing_items(
         && ui
             .button("Make Dynamic")
             .on_hover_text(
-                "Clears Static, so that the placeable's model can be tilted and scaled. \
-                 A static placeable is part of the scenery: the game draws it and finds \
-                 paths around it more cheaply",
+                "Clear Static, so the model can be tilted and scaled. Static placeables draw \
+                 faster.",
             )
             .clicked()
     {
@@ -7147,8 +7113,8 @@ fn editing_items(
         && ui
             .button("Make Static")
             .on_hover_text(
-                "Sets Static: part of the scenery, which can't be used, tilted or scaled \
-                 (its visual transform goes, as in Aurora)",
+                "Set Static: scenery that can't be used, tilted or scaled. Its visual transform \
+                 goes.",
             )
             .clicked()
     {
@@ -7205,7 +7171,7 @@ fn editing_items(
     if ui
         .add_enabled(any, egui::Button::new("Lock"))
         .on_hover_text(
-            "Clicks and boxes pass locked objects by (Unlock All, on the area, frees them)",
+            "Clicks and boxes pass over locked objects. Unlock All, on the area, frees them.",
         )
         .clicked()
     {
@@ -7324,8 +7290,8 @@ fn editing_items(
                     if ui
                         .button("Custom Light…")
                         .on_hover_text(
-                            "A light of the color, reach and shadows you choose, written into a \
-                             hak you choose (the window says what, before it writes)",
+                            "Make a light of your color, reach and shadows, written into a hak you \
+                             choose",
                         )
                         .clicked()
                     {
@@ -7337,8 +7303,8 @@ fn editing_items(
             })
             .response
             .on_hover_text(
-                "An invisible placeable that lights what is around it, a little above the \
-                 ground: move and raise it as any placeable. The game's own, no custom content",
+                "An invisible placeable that lights what is around it. The game's own, no custom \
+                 content.",
             );
         }
         // Lights Moonglow made, selected: other settings (another row).
@@ -7425,9 +7391,7 @@ fn editing_items(
                 && ui
                     .button("Export as Blueprint…")
                     .on_hover_text(
-                        "Write it into an archive (.erf) as a blueprint of its own, with the \
-                         items it holds, as Add to Palette makes one: for another module's \
-                         Import",
+                        "Write it into an .erf as a blueprint, with its items, for another module",
                     )
                     .clicked()
             {
@@ -7440,10 +7404,7 @@ fn editing_items(
             }
         })
         .response
-        .on_hover_text(
-            "Kept to place again: Add to Palette and Export as Blueprint… (one object), Save \
-             as Prefab… (what is selected)",
-        );
+        .on_hover_text("Keep objects to place again, as a blueprint or a prefab");
     });
     if let Some((ObjectKind::Creature, index)) = single
         && let Some(at) = view.menu_at
@@ -7487,10 +7448,7 @@ fn editing_items(
         // looks (Aurora places it from the palette).
         if ui
             .button("Set Start Location Here")
-            .on_hover_text(
-                "Where a player's character enters the module, facing the way the view looks \
-                 (the blue ring with the red arrow)",
-            )
+            .on_hover_text("Players enter the module here, facing the way the view looks")
             .clicked()
         {
             set_start_location(app, view, at, view_facing(view));
@@ -7507,7 +7465,7 @@ fn editing_items(
             ),
             (
                 "Test From Here, Choose Character",
-                "As Test From Here, with the character chosen in the game's character selection",
+                "As Test From Here, choosing the character in the game",
                 true,
             ),
         ];

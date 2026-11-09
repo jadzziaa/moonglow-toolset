@@ -182,8 +182,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         a.uneven = 0;
                     }
                     crate::widgets::field_label(ui, "Animation Speed").on_hover_text(
-                        "How fast the model's animations play: 1 as made, 2 twice as fast \
-                         (the script's OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED)",
+                        "How fast the model's animations play: 1 as made, 2 twice as fast",
                     );
                     let r = crate::widgets::spin_draft(ui, &mut a.speed, 0.0..=100.0, 0.1, |d| {
                         d.speed(0.01).max_decimals(2)

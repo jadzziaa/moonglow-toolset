@@ -326,8 +326,7 @@ pub(crate) enum Pressed {
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
     let tips = [
         "Close the window: its changes are kept",
-        "Close the window and set back what was changed in it since it was opened, as one step \
-         that Undo takes back",
+        "Close the window and set back its changes, as one Undo step",
     ];
     ok_cancel_saying(ui, egui::Id::new(first), viewed, tips)
 }
@@ -603,8 +602,7 @@ pub(crate) fn entry_mark(ui: &mut Ui, having: usize, total: usize) {
     }
     let text = format!("{MIXED} {having} of {total}");
     ui.colored_label(ui.visuals().warn_fg_color, text).on_hover_text(format!(
-        "{having} of the {total} edited together have it: a change to it is made to those that \
-         have it; added, it is added to the others"
+        "{having} of the {total} have it. A change goes to those, an addition to the rest."
     ));
 }
 
@@ -776,10 +774,7 @@ impl Form<'_> {
     pub(crate) fn gallery_button(&mut self, ui: &mut Ui, kind: crate::appearance_gallery::Kind) {
         if ui
             .button("Gallery…")
-            .on_hover_text(
-                "The Appearance Gallery: every appearance as a picture, from this one on. Click \
-                 one to give it to this object",
-            )
+            .on_hover_text("Every appearance as a picture, from this one on. Click one to give it.")
             .clicked()
         {
             let gallery = crate::appearance_gallery::Gallery::of(kind, self.key, self.path.clone());
@@ -806,17 +801,17 @@ impl Form<'_> {
             let text = egui::RichText::new(problem.to_string()).color(ui.visuals().error_fg_color);
             let why = match kind {
                 _ if problem.problem.is_part() => {
-                    "The game draws the rest without it: choose another number for the part, \
-                     or add the model to a hak"
+                    "The game draws the rest without it. Pick another part, or add its model to a \
+                     hak."
                 }
                 // (The game draws no waypoint: its flag is the toolset's.)
                 mg_rules::ObjectKind::Waypoint => {
-                    "The area view draws no flag for it: choose another appearance, or add the \
-                     model to a hak"
+                    "The area view draws no flag. Pick another appearance or add the model to a \
+                     hak."
                 }
                 _ => {
-                    "The game draws nothing for it, and Aurora's area view may crash on it: \
-                     choose another appearance, or add the model to a hak"
+                    "The game draws nothing for it, and Aurora may crash. Pick another, or add the \
+                     model."
                 }
             };
             ui.add(egui::Label::new(text).wrap()).on_hover_text(why);
@@ -1682,7 +1677,7 @@ impl Form<'_> {
         }
         let r = ui
             .button("Update Instances")
-            .on_hover_text("Update all instances created from this Blueprint");
+            .on_hover_text("Update all instances created from this blueprint");
         if r.clicked() {
             let keys = self.targets().map(|(k, _)| k).collect();
             self.app.update_instances_of(keys);
@@ -1711,7 +1706,7 @@ impl Form<'_> {
         let mut text = crate::widgets::ResRefText(&mut *buf);
         let r = ui
             .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(160.0))
-            .on_hover_text("Edit the Blueprint ResRef");
+            .on_hover_text("Edit the blueprint ResRef");
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
@@ -2079,8 +2074,8 @@ const MIXED_LIMIT: usize = 64;
 pub(crate) const MIXED: &str = "≠";
 
 /// The tip of [`MIXED`].
-const MIXED_TIP: &str = "The objects edited together differ here: this shows the first one's. \
-    What you set is set on each";
+const MIXED_TIP: &str = "The objects differ here: this shows the first one's. What you set goes to \
+                         each.";
 
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.

@@ -462,7 +462,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         );
     })
     .response
-    .on_hover_text("A part takes the armor's color where it has none of its own (*: it has).");
+    .on_hover_text("Parts without a color of their own take the armor's (*: has its own)");
     ui.data_mut(|d| d.insert_temp(id, part));
     egui::Grid::new(("uti-part-colors", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,
@@ -779,10 +779,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             ui.selectable_value(on, true, "Female");
         })
         .response
-        .on_hover_text(
-            "The body the item's model is shown on, and whose inventory icon is shown, here, \
-             in inventories and in the palette (Options › General); the item is the same",
-        );
+        .on_hover_text("The body the item is shown on, here, in inventories and in the palette");
     }
     match kind {
         // Composite: bottom, middle, top, each a shape and a colour (the

@@ -333,8 +333,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.weak("Top overrides lower").on_hover_text(
-                "Where two haks have a resource of the same name, the game takes the one \
-                 from the hak higher in this list",
+                "Where two haks have the same resource, the game takes the higher one's",
             );
         });
     });
@@ -386,18 +385,16 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                         Some(mg_resman::Listed::Missing) => {
                             let warn = ui.visuals().warn_fg_color;
                             ui.colored_label(warn, "not found").on_hover_text(
-                                "No hak of this name is in the hak folders: the game will not \
-                                 load the module until there is, or it is removed here",
+                                "No hak of this name is in the hak folders: the game won't load \
+                                 the module",
                             );
                         }
                         Some(mg_resman::Listed::OtherCase(file)) => {
                             let warn = ui.visuals().warn_fg_color;
                             ui.colored_label(warn, format!("not found: the file is {file}.hak"))
                                 .on_hover_text(format!(
-                                    "The game opens a hak only by its exact name, and on Linux \
-                                     {file}.hak, in another case, is another file: the game \
-                                     will not load the module. Rename the file to {h}.hak, or \
-                                     remove {h} here and add {file}"
+                                    "The game needs the hak's exact name, case and all. Rename \
+                                     {file}.hak to {h}.hak, or attach {file}."
                                 ));
                         }
                         Some(mg_resman::Listed::Found) | None => {}
@@ -550,8 +547,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         if ui
             .button("Add Haks and Talk Table…")
             .on_hover_text(
-                "Haks and a talk table from anywhere: copied into your hak and tlk folders \
-                 and attached to the module in one step",
+                "Copy haks and a talk table from anywhere into your folders and attach them",
             )
             .clicked()
         {
@@ -573,7 +569,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             let can_down = high.is_some_and(|h| h + 1 < n);
             if ui
                 .add_enabled(can_down, egui::Button::new("⏷"))
-                .on_hover_text("Move the haks chosen down (Alt + Down)")
+                .on_hover_text("Move the haks chosen down (Alt+Down)")
                 .clicked()
             {
                 move_to = high.map(|h| h + 2);
@@ -581,7 +577,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             let can_up = low.is_some_and(|l| l > 0);
             if ui
                 .add_enabled(can_up, egui::Button::new("⏶"))
-                .on_hover_text("Move the haks chosen up (Alt + Up)")
+                .on_hover_text("Move the haks chosen up (Alt+Up)")
                 .clicked()
             {
                 move_to = low.map(|l| l - 1);
@@ -714,8 +710,8 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
             (None, _) => "Save the module first: the range is kept in its project's file".into(),
             (_, Err(e)) => e.clone(),
             (Some(_), Ok(_)) => format!(
-                "Keep it in {file} ([talk] lines), which every builder of the project and mg \
-                 tlk-alloc read; empty: the table's end"
+                "Kept in {file} ([talk] lines) for every builder of the project. Empty: the \
+                 table's end."
             ),
         };
         if ui

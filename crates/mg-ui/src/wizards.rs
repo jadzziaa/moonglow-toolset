@@ -155,8 +155,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if ui
                         .checkbox(&mut w.show_hidden, label)
                         .on_hover_text(
-                            "Tilesets the project's moonglow.toml hides ([tilesets] hidden): \
-                             still in the game, and areas on them open as any other",
+                            "Tilesets the project's moonglow.toml hides. Areas on them still open \
+                             as usual.",
                         )
                         .changed()
                         && !w.show_hidden

@@ -977,10 +977,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         Query::Tag(t) => _ = ui.heading(format!("Tag “{t}”")),
         Query::StrRef(n) => {
-            ui.heading(format!("Talk-table line {n}")).on_hover_text(
-                "Where the module's blueprints, areas, conversations, palettes, soundsets, \
-                 2DAs and scripts name this line, and its haks' 2DAs",
-            );
+            ui.heading(format!("Talk-table line {n}"))
+                .on_hover_text("Where the module and its haks' 2DAs name this line");
         }
     });
     // (Which tables that run it are the module's own, to open.)
@@ -1042,10 +1040,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.add_space(8.0);
             ui.label(format!("Run by the game, from its 2DAs ({}):", refs.run.len()))
                 .on_hover_text(
-                    "Cells of the tables the game runs scripts from (a spell's impact script, \
-                     an area of effect's, a state's, a trap's, a disease's, a poison's), as the \
-                     module sees them: its own 2DAs and its haks' over the game's; and of the \
-                     module's own tables whose description says a column holds a script",
+                    "Cells of the 2DAs the game runs scripts from, as the module sees them",
                 );
             for (r, own) in refs.run.iter().zip(&own_tables) {
                 if out_of_sight(ui) {
@@ -1063,11 +1058,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         if !refs.hak_cells.is_empty() {
             ui.add_space(8.0);
-            ui.label(format!("In the haks' 2DAs ({}):", refs.hak_cells.len())).on_hover_text(
-                "Cells of the module's haks' tables, in the columns known to hold a talk-table \
-                 line (a class's name, a feat's, a spell's…): each hak's own copy, the one the \
-                 game reads and those under it",
-            );
+            ui.label(format!("In the haks' 2DAs ({}):", refs.hak_cells.len()))
+                .on_hover_text("Cells of the haks' 2DAs in columns that hold a talk-table line");
             for c in &refs.hak_cells {
                 if out_of_sight(ui) {
                     continue;
@@ -1082,9 +1074,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         if !refs.mentions.is_empty() {
             ui.add_space(8.0);
-            ui.label(format!("Spelled out in scripts ({}):", refs.mentions.len())).on_hover_text(
-                "Strings in scripts with this name: the script may use it, or mean something else",
-            );
+            ui.label(format!("Spelled out in scripts ({}):", refs.mentions.len()))
+                .on_hover_text("Strings in scripts with this name, which may or may not mean it");
             for m in &refs.mentions {
                 if out_of_sight(ui) {
                     continue;
@@ -1380,31 +1371,44 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
             }
             let mentions = draft.counted.map_or(0, |(_, m)| m);
             match draft.counted {
-                _ if draft.from.restype == ResType::JUI => _ = ui.label(
-                    "Its settings and its scripts are renamed with it, and the scripts that \
+                _ if draft.from.restype == ResType::JUI => {
+                    _ = ui.label(
+                        "Its settings and its scripts are renamed with it, and the scripts that \
                      open it are pointed at the new name.",
-                ),
-                None => _ = ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.weak("Looking for what names it…");
-                }),
+                    )
+                }
+                None => {
+                    _ = ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.weak("Looking for what names it…");
+                    })
+                }
                 Some((0, _)) => _ = ui.label("Nothing else in the module names it."),
-                Some((n, _)) => _ = ui.label(format!(
-                    "{} in the module {} it; they will name the new one.",
-                    places(n),
-                    if n == 1 { "names" } else { "name" }
-                )),
+                Some((n, _)) => {
+                    _ = ui.label(format!(
+                        "{} in the module {} it; they will name the new one.",
+                        places(n),
+                        if n == 1 { "names" } else { "name" }
+                    ))
+                }
             }
             if mentions > 0 {
                 ui.checkbox(
                     &mut draft.literals,
                     format!(
                         "Also change the {} spelling “{}” in scripts",
-                        if mentions == 1 { "string".to_string() } else { format!("{mentions} strings") },
+                        if mentions == 1 {
+                            "string".to_string()
+                        } else {
+                            format!("{mentions} strings")
+                        },
                         draft.from.resref
                     ),
                 )
-                .on_hover_text("Strings like ExecuteScript(\"name\") or CreateObject(…, \"name\", …); a string may also mean something else, so check them in Find References first");
+                .on_hover_text(
+                    "Strings such as ExecuteScript(\"name\"), which may mean something \
+                                else. Check them in Find References.",
+                );
             }
             match &problem {
                 Some((p, true)) => _ = ui.colored_label(ui.visuals().warn_fg_color, p),

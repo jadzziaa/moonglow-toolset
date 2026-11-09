@@ -268,9 +268,8 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
 /// Beside an object's faction field of 0 (what Verify's `pc-faction`
 /// warns of).
 const PC_FACTION_WARNING: &str = "⚠ The PC faction: the players' alone";
-const PC_FACTION_HOVER: &str = "Faction 0 is the player characters'. The game puts a creature \
-    of it in Hostile; creatures regard a placeable or door of it as they regard players. Give \
-    it another faction (Verify warns of it: pc-faction).";
+const PC_FACTION_HOVER: &str = "Faction 0 is the players' own: the game puts a creature of it in \
+                                Hostile. Pick another.";
 
 /// Beside a number that stands for something: its name, in a list to
 /// choose another by name (a row of the table, a faction, an animation);

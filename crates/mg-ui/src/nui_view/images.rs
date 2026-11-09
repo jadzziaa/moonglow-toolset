@@ -475,8 +475,8 @@ pub(super) fn page(
                     egui::Button::new(format!("Move module images into {target}")),
                 )
                 .on_hover_text(
-                    "This window's pictures leave the module for the hak; Undo brings them back, \
-                     the hak keeps them",
+                    "Move this window's pictures from the module into the hak. Undo brings them \
+                     back.",
                 )
                 .on_disabled_hover_text("None of this window's pictures is in the module")
                 .clicked()

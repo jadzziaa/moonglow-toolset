@@ -448,7 +448,8 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
                         .map_or_else(|| "never saved".to_string(), |p| p.display().to_string());
                     ui.strong(&c.note.name).on_hover_text(place);
                     ui.label(age(c.note.time));
-                    if ui.button("Recover").on_hover_text("Open it; save to keep it").clicked() {
+                    if ui.button("Recover").on_hover_text("Open it, and save to keep it").clicked()
+                    {
                         recover = Some(i);
                     }
                     if ui.button("Discard").on_hover_text("Throw the unsaved work away").clicked() {

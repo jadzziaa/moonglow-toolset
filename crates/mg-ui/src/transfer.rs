@@ -111,14 +111,8 @@ const UNSAVED: &str = "the import replaces it in the module, but its editor keep
 /// What To Scratch's hover says: where it copies `what`, or that it asks.
 pub(crate) fn scratch_tip(scratch: Option<&std::path::Path>, what: &str) -> String {
     match scratch {
-        Some(d) => format!(
-            "Copy {what} into the scratch folder, {} (Tools › Options › Folders changes it)",
-            d.display()
-        ),
-        None => format!(
-            "Copy {what} into a scratch folder: asked for once, then kept (Tools › Options › \
-             Folders)"
-        ),
+        Some(d) => format!("Copy {what} into the scratch folder, {}", d.display()),
+        None => format!("Copy {what} into a scratch folder, asked for once"),
     }
 }
 
@@ -1159,8 +1153,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Description");
                 ui.text_edit_singleline(&mut draft.comments).on_hover_text(
-                    "What the export is made from follows it in the archive: the module's git \
-                     commit, Moonglow's version and the module's name (Import shows it)",
+                    "The module's git commit, Moonglow's version and name go with it (Import shows \
+                     them)",
                 );
             });
             ui.horizontal(|ui| {
@@ -1173,8 +1167,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui
                     .add_enabled(!draft.selected.is_empty(), egui::Button::new(files))
                     .on_hover_text(
-                        "Loose files in a folder (name.ext), as they are in the module: a \
-                         script with its compiled .ncs, an area with its .git and .gic",
+                        "Write them into a folder as loose files, as they are in the module",
                     )
                     .clicked()
                 {

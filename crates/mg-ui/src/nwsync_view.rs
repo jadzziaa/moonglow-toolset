@@ -360,7 +360,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     browse = ui.button("Browse…").clicked();
                 });
                 ui.checkbox(&mut p.with_module, "With the module itself").on_hover_text(
-                    "For a single-player module players download whole; not for a persistent world",
+                    "For a single-player module players download whole, not a persistent world",
                 );
                 if p.with_module {
                     ui.horizontal(|ui| {
@@ -434,15 +434,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 prune = ui
                     .add_enabled(!busy, egui::Button::new("Remove Unused Data"))
                     .on_hover_text(
-                        "Take away the data files no manifest in the folder names, written more \
-                         than two weeks ago, as nwn_nwsync_prune does. Delete the manifests you \
-                         no longer serve (manifests/HASH and HASH.json) first.",
+                        "Delete data files no manifest names, older than two weeks. Remove old \
+                         manifests first.",
                     )
                     .clicked();
-                let tip = "Run the upload command once for each part of the folder, in turn: the \
-                           data, then the manifests, then latest (after Remove Unused Data: the \
-                           manifests, then the data), so that the web server never serves a \
-                           manifest whose data isn't there yet";
+                let tip = "Run the upload command for the data, then the manifests, then latest";
                 send = ui
                     .add_enabled(!busy && command.is_some(), egui::Button::new("Upload"))
                     .on_hover_text(tip)

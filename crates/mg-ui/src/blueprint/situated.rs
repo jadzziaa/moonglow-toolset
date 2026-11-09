@@ -126,8 +126,7 @@ pub(super) fn faction(f: &mut Form<'_>, ui: &mut Ui, what: &str, label: &str) {
     let mut list = crate::widgets::row_choice(f.id(label), &choices, current).width(220.0);
     if current == mg_rules::objects::PC_FACTION {
         list = list.shown(PC_FACTION_SHOWN).hover_text(
-            "Faction 0 is the players' own: the game puts a creature of it in Hostile, and \
-             creatures regard a placeable, door or trigger of it as they regard players. Pick \
+            "Faction 0 is the players' own: the game puts a creature of it in Hostile. Pick \
              another.",
         );
     }

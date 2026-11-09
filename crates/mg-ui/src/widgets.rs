@@ -762,7 +762,7 @@ pub(crate) const VARIABLE_SETS: SetKind<Vec<VarRow>> = SetKind {
     shelf: crate::var_sets::SHELF,
     title: "Variable Sets",
     none_yet: "No variable sets saved yet: Save Set… in the Variables window keeps one.",
-    from_file_tip: "Add the variables of set files (.vars.json) anywhere, one or several",
+    from_file_tip: "Add the variables of set files (.vars.json) anywhere",
     load: crate::var_sets::load,
     describe: |rows| crate::var_sets::describe(rows),
 };
@@ -771,8 +771,7 @@ pub(crate) const PARAMETER_SETS: SetKind<crate::param_sets::ParamSet> = SetKind 
     shelf: crate::param_sets::SHELF,
     title: "Parameter Sets",
     none_yet: "No parameter sets saved yet: Save Set… beside a script's parameters keeps one.",
-    from_file_tip: "Add the script and parameters of set files (.params.json) anywhere, one or \
-                    several",
+    from_file_tip: "Add the script and parameters of set files (.params.json) anywhere",
     load: crate::param_sets::load,
     describe: crate::param_sets::describe,
 };
@@ -860,10 +859,7 @@ pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
     if let Some(dir) = dir
         && ui
             .button("Open Sets Folder")
-            .on_hover_text(
-                "Open the folder the sets are kept in, to copy them in or out or edit them by \
-                 hand",
-            )
+            .on_hover_text("Open the folder the sets are kept in, to copy or edit them")
             .clicked()
     {
         open_folder(ui.ctx(), dir, log);
@@ -929,8 +925,7 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
         if ui
             .button("Open Folder")
             .on_hover_text(format!(
-                "Open the folder in the file manager (it is made if it is not there): sets \
-                 are JSON files, NAME{}, to copy in or out or edit by hand",
+                "Open the folder in the file manager. Sets are JSON files, NAME{}.",
                 shelf.suffix
             ))
             .clicked()
@@ -1083,14 +1078,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui
                     .add_enabled(male.is_some() && !others, egui::Button::new("Move to Talk Table"))
                     .on_hover_text(format!(
-                        "Adds the {name} text as a new line of the module's talk table, and \
-                         names it here by its StrRef"
+                        "Add the {name} text to the module's talk table and name it here by StrRef"
                     ))
                     .on_disabled_hover_text(match others {
                         true => format!(
-                            "The string has text in another language than the talk table's \
-                             ({name}): the game shows that text before a talk-table line, to \
-                             every player. Remove it first"
+                            "Its text in a language other than {name} would show before the line. \
+                             Remove it first."
                         ),
                         false => format!("The string has no {name} text to move"),
                     })
@@ -1596,10 +1589,7 @@ fn var_body(
         // object or blueprint, in any module, or a message.
         if ui
             .add_enabled(!edit.rows.is_empty(), egui::Button::new("Copy Set"))
-            .on_hover_text(
-                "Copy these variables to the clipboard, as a set file's text: Paste \
-                 Set adds them to another object's or blueprint's, in any module",
-            )
+            .on_hover_text("Copy these variables, for Paste Set on another object or blueprint")
             .clicked()
         {
             ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
@@ -1608,9 +1598,7 @@ fn var_body(
         if ui
             .button("Paste Set")
             .on_hover_text(
-                "Add the variables copied to the clipboard (Copy Set, or a set \
-                 file's text) as Add Set adds a saved set: same names take their \
-                 types and values",
+                "Add the variables on the clipboard. Same names take their types and values.",
             )
             .clicked()
         {
@@ -1627,10 +1615,7 @@ fn var_body(
         }
         save_file = ui
             .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save to File…"))
-            .on_hover_text(
-                "Save these variables as a set file (.vars.json) where you choose: \
-                 to share, or to keep with a module",
-            )
+            .on_hover_text("Save these variables as a .vars.json file, to share")
             .clicked();
     });
     // (Several at once, in the order chosen: a later file's
@@ -1841,9 +1826,8 @@ pub(crate) fn loc_shown(
     }
     match crate::text::elsewhere(ls) {
         Some((language, text)) => {
-            let why = "This text is in another language: there is none in the language edited \
-                       (Options › Language). Typing here gives it text in that language; … has \
-                       every language's";
+            let why = "This text is in another language. Typing here gives it text in the one \
+                       edited.";
             (text, Some((language.name().unwrap_or("another language").to_string(), why)))
         }
         // (A StrRef the talk table lacks is still named.)

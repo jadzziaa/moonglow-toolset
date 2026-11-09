@@ -197,9 +197,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             browser.stale = true;
         }
         ui.checkbox(&mut browser.show_copies, "Overridden copies").on_hover_text(
-            "Under each resource, the copies of it lower in the load order (another hak's, \
-             override's, the game's), which the one above overrides: each can be opened, \
-             read, copied to the module and saved",
+            "Also list each resource's copies lower in the load order, which it overrides",
         );
     });
     let count = browser.filtered().len();
@@ -250,9 +248,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if ui
             .add_enabled(narrowed, egui::Button::new(format!("Export {found} as Files…")))
             .on_hover_text(
-                "The resources listed, as loose files in a folder (name.ext), as the load \
-                 order has them; the overridden copies listed each in a folder of its layer's \
-                 (hak_name/name.ext). Choose a type or type part of a name first.",
+                "Write the listed resources into a folder as loose files. Narrow the list first.",
             )
             .clicked()
         {
@@ -408,11 +404,8 @@ pub(crate) fn table_homes(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<Ed
         for (name, path) in haks_with(app, key) {
             let open = app.haks.iter().any(|d| d.hak.path.as_deref() == Some(&path));
             let tip = match open {
-                true => "The hak's own table: saved into the hak, which its Save writes",
-                false => {
-                    "The hak's own table: the hak is opened in the hak editor, the table is \
-                     saved into it, and the hak's Save writes its file"
-                }
+                true => "Saves the table into the hak. The hak's Save writes its file.",
+                false => "Opens the hak in the hak editor and saves the table into it",
             };
             if ui.button(format!("The Table of {name}.hak")).on_hover_text(tip).clicked() {
                 out = Some(EditTable::InHak(path));
@@ -461,8 +454,7 @@ pub(crate) fn open_table(app: &mut Moonglow, key: ResKey, home: EditTable) -> Op
 fn hak_table_button(app: &Moonglow, ui: &mut Ui, key: ResKey, layer: &str) -> Option<EditTable> {
     let name = layer.strip_prefix("hak:")?;
     let (_, path) = haks_with(app, key).into_iter().find(|(n, _)| n == name)?;
-    let tip = "The hak's own table: the hak is opened in the hak editor (if it isn't), the \
-               table is saved into it, and the hak's Save writes its file";
+    let tip = "Opens the hak in the hak editor if needed, and saves the table into it";
     let edit = ui.button(format!("Edit in {name}.hak")).on_hover_text(tip).clicked();
     edit.then_some(EditTable::InHak(path))
 }
@@ -861,9 +853,8 @@ pub(crate) fn two_da(
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut browser.raw_strrefs, "StrRefs as numbers").on_hover_text(
-            "Name, Description and other StrRef columns show their text unless this is on",
-        );
+        ui.checkbox(&mut browser.raw_strrefs, "StrRefs as numbers")
+            .on_hover_text("Show StrRef columns as numbers, not their text");
         if layered {
             let label = |i: Option<usize>| match i {
                 None => "All rows".to_string(),

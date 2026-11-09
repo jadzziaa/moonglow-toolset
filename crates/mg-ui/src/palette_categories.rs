@@ -361,8 +361,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     egui::Button::new("Name by StrRef"),
                 )
                 .on_hover_text(
-                    "Names the one chosen by that talk-table line, as the game's own categories \
-                     are: each player sees it in their language",
+                    "Name the one chosen by that talk-table line, shown in each player's language",
                 )
                 .clicked()
                 && let (Some(path), Some(n)) = (&chosen, typed)
@@ -377,13 +376,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 chosen.is_some() && movable && !w.name.trim().is_empty(),
                 egui::Button::new("Move Name to Talk Table"),
             )
-            .on_hover_text(
-                "Adds the name typed to the module's talk table as a new line, and names the one \
-                 chosen by it: translate the line in the talk table's other languages",
-            )
+            .on_hover_text("Add the name to the module's talk table and name the one chosen by it")
             .on_disabled_hover_text(
-                "Needs the module's own talk table (Module Properties › Custom Content), a name \
-                 typed and one chosen",
+                "Needs the module's own talk table, a name typed and one chosen",
             )
             .clicked()
             && let Some(path) = &chosen
@@ -479,8 +474,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if ui
                 .add_enabled(w.own, egui::Button::new("Use the Game's Categories"))
                 .on_hover_text(
-                    "Drop the module's own categories. Blueprints in a category the game \
-                         lacks leave the palette until given another",
+                    "Drop the module's own categories. Blueprints in one the game lacks leave the \
+                     palette.",
                 )
                 .clicked()
             {

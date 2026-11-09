@@ -480,8 +480,7 @@ pub(super) fn find_in_palette_button(ui: &mut Ui, found: bool) -> bool {
     ui.add_enabled(found, egui::Button::new("Find in Palette"))
         .on_hover_text("Choose the item's blueprint in the palette on the left")
         .on_disabled_hover_text(
-            "The item's blueprint isn't in either palette. It may have been removed, or come \
-             from a hak the module doesn't use.",
+            "The item's blueprint is in neither palette. It may be gone, or in an unused hak.",
         )
         .clicked()
 }
@@ -673,9 +672,8 @@ pub(super) fn item_list(
                         if ui
                             .button("Properties")
                             .on_hover_text(
-                                "The item's properties: a placed object's item is its own; a \
-                                 blueprint's is its blueprint (the module's to edit, the \
-                                 game's to look at)",
+                                "Open the item's properties (a blueprint's item opens its \
+                                 blueprint)",
                             )
                             .clicked()
                         {
