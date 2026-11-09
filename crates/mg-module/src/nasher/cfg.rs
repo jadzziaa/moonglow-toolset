@@ -13,12 +13,51 @@ fn bad(file: &Path, message: impl Into<String>) -> ModuleError {
     ModuleError::Source { name: file.display().to_string(), message: message.into() }
 }
 
+/// A `nasher.cfg` as text to change by line and write back. One that is
+/// not UTF-8 throughout (nasher reads it by its bytes, and so does
+/// [`Package::read`]) is read a character a byte, so that every line
+/// Moonglow does not touch is written back as the bytes it was.
+pub(super) struct FileText {
+    pub(super) text: String,
+    /// Read a character a byte: not UTF-8.
+    by_byte: bool,
+}
+
+impl FileText {
+    pub(super) fn read(path: &Path) -> std::io::Result<FileText> {
+        Ok(match String::from_utf8(std::fs::read(path)?) {
+            Ok(text) => FileText { text, by_byte: false },
+            Err(e) => FileText {
+                text: e.as_bytes().iter().map(|&b| char::from(b)).collect(),
+                by_byte: true,
+            },
+        })
+    }
+
+    /// `text` (the file's, changed) as the bytes to write: UTF-8 for a
+    /// file that was; else a byte a character, and a character Moonglow
+    /// added that no byte holds as UTF-8.
+    pub(super) fn bytes(&self, text: &str) -> Vec<u8> {
+        if !self.by_byte {
+            return text.as_bytes().to_vec();
+        }
+        let mut out = Vec::with_capacity(text.len());
+        for c in text.chars() {
+            match u8::try_from(u32::from(c)) {
+                Ok(b) => out.push(b),
+                Err(_) => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+            }
+        }
+        out
+    }
+}
+
 /// The sections of a file in `nasher.cfg`'s format, in order: each one's
 /// name, the line it starts on, and its `key = value` pairs (a key may
 /// repeat). For other files written the same way (a plugin's manifest).
 pub fn sections(text: &str) -> Result<Vec<Section>, String> {
     let mut out: Vec<Section> = Vec::new();
-    for (line, event) in parse_events(text)? {
+    for (line, event) in parse_events(text.as_bytes())? {
         match event {
             Event::Section(name) => out.push(Section { name, line, pairs: Vec::new() }),
             Event::Pair(key, value) => match out.last_mut() {
@@ -53,9 +92,10 @@ enum Event {
     Pair(String, String),
 }
 
-/// Reads parsecfg text into events.
-fn parse_events(text: &str) -> Result<Vec<(usize, Event)>, String> {
-    let b = text.as_bytes();
+/// Reads parsecfg text into events. The text as bytes, as Nim reads it: a
+/// file need not be UTF-8 (a description typed in Windows-1252), and what
+/// is not is read with U+FFFD in its place.
+fn parse_events(b: &[u8]) -> Result<Vec<(usize, Event)>, String> {
     let mut i = 0;
     let mut line = 1;
     let mut events = Vec::new();
@@ -426,15 +466,23 @@ impl Target {
         Ok(())
     }
 
-    /// The target's source files: what its `include` globs find under
-    /// `root`, less what its `exclude` globs find, without repeats.
     /// Whether the target's sources take in the file `path` (there or not):
     /// an include finds it and no exclude does.
     pub fn covers(&self, root: &Path, path: &Path) -> bool {
-        self.includes.iter().any(|p| super::glob::covers(root, p, path))
-            && !self.excludes.iter().any(|p| super::glob::covers(root, p, path))
+        self.covers_under(root).covers(path)
     }
 
+    /// The target's sources under `root`, made ready to be asked of many
+    /// files ([`Target::covers`] of each compiles every pattern again).
+    pub fn covers_under(&self, root: &Path) -> Covers {
+        let made = |patterns: &[String]| -> Vec<glob::Cover> {
+            patterns.iter().map(|p| glob::Cover::new(root, p)).collect()
+        };
+        Covers { includes: made(&self.includes), excludes: made(&self.excludes) }
+    }
+
+    /// The target's source files: what its `include` globs find under
+    /// `root`, less what its `exclude` globs find, without repeats.
     pub fn source_files(&self, root: &Path) -> Result<Vec<PathBuf>, String> {
         let mut excluded = std::collections::HashSet::new();
         for p in &self.excludes {
@@ -474,6 +522,26 @@ impl Target {
     }
 }
 
+/// A target's sources under a root ([`Target::covers_under`]).
+#[derive(Debug, Clone)]
+pub struct Covers {
+    includes: Vec<glob::Cover>,
+    excludes: Vec<glob::Cover>,
+}
+
+impl Covers {
+    /// Whether the sources take in the file `path` (there or not): an
+    /// include finds it and no exclude does.
+    pub fn covers(&self, path: &Path) -> bool {
+        self.includes.iter().any(|p| p.covers(path)) && !self.excluded(path)
+    }
+
+    /// Whether an exclude finds `path`: left out on purpose.
+    pub fn excluded(&self, path: &Path) -> bool {
+        self.excludes.iter().any(|p| p.covers(path))
+    }
+}
+
 /// A nasher package: its root folder and targets, the default first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
@@ -496,15 +564,27 @@ impl Package {
     /// environment.
     pub fn read(root: &Path) -> Result<Package, ModuleError> {
         let path = Self::config_path(root);
-        let text = std::fs::read_to_string(&path)
+        // (Its bytes, not text: nasher reads a file that is not UTF-8
+        // throughout, a comment typed in Windows-1252, and so does this.)
+        let bytes = std::fs::read(&path)
             .map_err(|source| ModuleError::Io { path: path.clone(), source })?;
-        Self::parse(root, &text, &|k| std::env::var(k).ok()).map_err(|m| bad(&path, m))
+        Self::parse_bytes(root, &bytes, &|k| std::env::var(k).ok()).map_err(|m| bad(&path, m))
     }
 
     /// Parses `nasher.cfg` text, as nasher does.
     pub fn parse(
         root: &Path,
         text: &str,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Package, String> {
+        Self::parse_bytes(root, text.as_bytes(), env)
+    }
+
+    /// [`Package::parse`] of a file's bytes, which need not be UTF-8: what
+    /// is not is read with U+FFFD in its place.
+    pub fn parse_bytes(
+        root: &Path,
+        text: &[u8],
         env: &dyn Fn(&str) -> Option<String>,
     ) -> Result<Package, String> {
         let mut targets: Vec<Target> = Vec::new();
@@ -739,8 +819,8 @@ impl Settings {
     pub fn read(root: &Path) -> Settings {
         let mut s = Settings::default();
         for file in Self::global_path().into_iter().chain([root.join(".nasher/user.cfg")]) {
-            if let Ok(text) = std::fs::read_to_string(&file) {
-                s.apply(&text);
+            if let Ok(text) = std::fs::read(&file) {
+                s.apply_bytes(&text);
             }
         }
         s
@@ -748,6 +828,11 @@ impl Settings {
 
     /// Applies one settings file's keys over these.
     pub fn apply(&mut self, text: &str) {
+        self.apply_bytes(text.as_bytes());
+    }
+
+    /// [`Settings::apply`] of a file's bytes, which need not be UTF-8.
+    fn apply_bytes(&mut self, text: &[u8]) {
         let Ok(events) = parse_events(text) else { return };
         for (_, e) in events {
             let Event::Pair(key, value) = e else { continue };
@@ -905,7 +990,8 @@ default = true
     #[test]
     fn strings_and_symbols_read_as_parsecfg_reads_them() {
         let events = parse_events(
-            "a = plain value  # comment\nb: \"q\\x41\\t\\\"\"\nc = r\"C:\\dir\"\nd = \"\"\"\nlong\n\"\"\"\n--e:f\nbare\n",
+            "a = plain value  # comment\nb: \"q\\x41\\t\\\"\"\nc = r\"C:\\dir\"\nd = \"\"\"\nlong\n\"\"\"\n--e:f\nbare\n"
+                .as_bytes(),
         )
         .unwrap();
         let pairs: Vec<(String, String)> = events
@@ -924,6 +1010,34 @@ default = true
             ("bare", ""),
         ];
         assert_eq!(pairs, want.map(|(k, v)| (k.to_string(), v.to_string())));
+    }
+
+    /// A file that is not UTF-8 throughout (a description typed in
+    /// Windows-1252) is read, as nasher reads it, and a line added to it
+    /// leaves its other bytes as they were.
+    #[test]
+    fn a_file_that_is_not_utf_8_is_read_and_kept() {
+        let root = mg_testkit::scratch_dir("mg-nasher-cfg-bytes");
+        let cfg = b"# M\xf3dulo\n[package]\ndescription = \"M\xf3dulo de pruebas\"\n[target]\n\
+                    name = \"m\"\nfile = \"m.mod\"\ninclude = \"src/**/*\"\n";
+        std::fs::write(Package::config_path(&root), cfg).unwrap();
+        let package = Package::read(&root).unwrap();
+        assert_eq!(package.targets[0].name, "m");
+        assert_eq!(package.targets[0].includes, ["src/**/*"]);
+        // As text to edit by line, and back: the same bytes.
+        let text = FileText::read(&Package::config_path(&root)).unwrap();
+        assert_eq!(text.bytes(&text.text), cfg);
+        let added = format!("{}exclude = \"src/caf\u{e9}/\u{17e}/**\"\n", text.text);
+        let written = text.bytes(&added);
+        assert!(written.starts_with(cfg));
+        // (What is added is written a byte a character where one holds
+        // it, as the file's own are read; else as UTF-8.)
+        assert!(written.ends_with(b"exclude = \"src/caf\xe9/\xc5\xbe/**\"\n"));
+        // One that is UTF-8 stays so.
+        let utf8 = "# M\u{f3}dulo\n[target]\nname = \"m\"\n";
+        std::fs::write(Package::config_path(&root), utf8).unwrap();
+        let text = FileText::read(&Package::config_path(&root)).unwrap();
+        assert_eq!((text.text.as_str(), text.bytes(utf8)), (utf8, utf8.as_bytes().to_vec()));
     }
 
     #[test]

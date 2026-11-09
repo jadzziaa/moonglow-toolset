@@ -132,12 +132,20 @@ impl PluginRules {
 /// What is wrong with a folder named for the project's plugins: it is to
 /// be inside the project (no absolute path, no `..`).
 pub fn folder_problem(folder: &str) -> Option<String> {
-    let f = folder.trim().replace('\\', "/");
+    inside_problem(folder, "folder")
+}
+
+/// What is wrong with a path the project's file names (`what`: a
+/// `folder`, a `file`): it is to be inside the project (no absolute
+/// path, no `..`). The one rule for every path the file names: the file
+/// comes with a checkout.
+pub(crate) fn inside_problem(path: &str, what: &str) -> Option<String> {
+    let f = path.trim().replace('\\', "/");
     if f.is_empty() {
         return Some("empty".into());
     }
     if f.starts_with('/') || f.contains(':') {
-        return Some("it is to be a folder of the project, from its root".into());
+        return Some(format!("it is to be a {what} of the project, from its root"));
     }
     if f.split('/').any(|p| p == "..") {
         return Some("it is to be inside the project (no ..)".into());
@@ -250,13 +258,10 @@ pub(crate) fn invalid(e: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
 }
 
-/// A file's text read for editing (none there: empty).
+/// A file's text read for editing (none there: empty); an error for one
+/// that is not UTF-8 ([`crate::project_file::text_to_rewrite`]).
 pub(crate) fn document(path: &Path, name: &str) -> std::io::Result<toml_edit::DocumentMut> {
-    let text = match std::fs::read(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
-    };
+    let text = crate::project_file::text_to_rewrite(path, name)?;
     text.parse::<toml_edit::DocumentMut>().map_err(|e| {
         let line = e.span().map_or(1, |s| crate::project_file::line_of(&text, s.start));
         invalid(format!("{name}:{line}: {} (mend it first)", e.message().trim()))

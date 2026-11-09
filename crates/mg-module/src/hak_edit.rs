@@ -10,7 +10,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -212,6 +211,9 @@ impl Hak {
 
     /// Opens an archive.
     pub fn open(path: &Path) -> Result<Hak, String> {
+        // (What a save that a crash cut short left beside it, once old.)
+        crate::left_writing(&crate::sibling(path, crate::WRITING));
+        crate::left_writing(&crate::sibling(&crate::sibling(path, ".bak"), crate::WRITING));
         let archive = ErfContainer::open(path).map_err(|e| e.to_string())?;
         let items = archive
             .index()
@@ -581,7 +583,9 @@ impl Hak {
         match &item.source {
             Source::Archive => {
                 let a = self.archive.as_ref().ok_or("no archive")?;
-                a.read(&item.key).map(Cow::into_owned).map_err(|e| e.to_string())
+                // (Wherever it lies in the file: a hak past 2 GiB is split by
+                // taking out what the game cannot reach.)
+                a.read_anywhere(&item.key).map(Cow::into_owned).map_err(|e| e.to_string())
             }
             Source::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
             Source::Bytes(b) => Ok(b.to_vec()),
@@ -640,25 +644,16 @@ impl Hak {
         header.build_day = day;
         let entries: Vec<_> =
             self.items.iter().map(|i| (i.key.resref, i.key.restype, i.size)).collect();
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        let part = path.with_extension("part");
-        let write = || -> Result<(), String> {
-            let file =
-                std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
-            let mut w = std::io::BufWriter::new(file);
-            mg_erf::write_streamed(&mut w, &header, &entries, |i| {
+        // (Beside it under the one name Moonglow writes files by, a
+        // resource at a time, then moved over it: `x.hak` and `x.erf` no
+        // longer share `x.part`.)
+        crate::write_replacing_with(&path, |w| {
+            mg_erf::write_streamed(w, &header, &entries, |i| {
                 self.read(&self.items[i]).map(Cow::Owned).map_err(std::io::Error::other)
             })
-            .map_err(|e| e.to_string())?;
-            w.flush().map_err(|e| e.to_string())
-        };
-        if let Err(e) = write() {
-            let _ = std::fs::remove_file(&part);
-            return Err(e);
-        }
-        std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))
+        })
+        .map_err(|e| format!("{}: {e}", path.display()))?;
         let archive = ErfContainer::open(&path).map_err(|e| e.to_string())?;
         for item in &mut self.items {
             item.source = Source::Archive;
@@ -864,7 +859,7 @@ mod tests {
         let out = dir.join("out");
         assert_eq!(back.extract(&[mdl], &out).unwrap(), 1);
         assert_eq!(std::fs::read(out.join("plc_chair.mdl")).unwrap(), b"model 2");
-        assert!(!dir.join("mine.part").exists());
+        assert!(!dir.join("mine.hak.moonglow-tmp").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1007,6 +1002,61 @@ mod tests {
         write_into(&path, vec![(key("two"), Source::Bytes(b"2"[..].into()))]).unwrap();
         assert_eq!(std::fs::read(dir.join("k.hak.bak")).unwrap(), first);
         assert_eq!(Hak::open(&path).unwrap().items().len(), 2);
+    }
+
+    /// A hak past 2 GiB, which the game cannot read the end of, is split
+    /// by taking out what lies past the mark: the editor reads it there
+    /// (a load order does not, as the game). The file is sparse: its
+    /// header by hand, 2 GiB of nothing, then the second resource.
+    #[cfg(unix)]
+    #[test]
+    fn a_resource_past_2_gib_is_read_extracted_and_saved() {
+        use std::io::{Seek, SeekFrom, Write};
+        let dir = mg_testkit::scratch_dir("mg-hak-past-limit");
+        let path = dir.join("big.hak");
+        let far: u32 = (1 << 31) + 16;
+        let mut head = Vec::new();
+        head.extend_from_slice(b"HAK V1.0");
+        // (No description; two entries; keys at 160, the list at 208.)
+        for n in [0u32, 0, 2, 160, 160, 208, 126, 1, 0xffff_ffff] {
+            head.extend_from_slice(&n.to_le_bytes());
+        }
+        head.resize(160, 0);
+        for (id, name) in [b"near", b"away"].into_iter().enumerate() {
+            let mut resref = [0u8; 16];
+            resref[..4].copy_from_slice(name);
+            head.extend_from_slice(&resref);
+            head.extend_from_slice(&(id as u32).to_le_bytes());
+            head.extend_from_slice(&ResType::TXT.0.to_le_bytes());
+            head.extend_from_slice(&[0, 0]);
+        }
+        for (offset, size) in [(224u32, 4u32), (far, 3)] {
+            head.extend_from_slice(&offset.to_le_bytes());
+            head.extend_from_slice(&size.to_le_bytes());
+        }
+        head.extend_from_slice(b"near");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&head).unwrap();
+        file.seek(SeekFrom::Start(u64::from(far))).unwrap();
+        file.write_all(b"far").unwrap();
+        drop(file);
+
+        let (near, away) = (key_for("near.txt").unwrap(), key_for("away.txt").unwrap());
+        let mut hak = Hak::open(&path).unwrap();
+        assert_eq!(hak.data(away).unwrap(), b"far");
+        let out = dir.join("out");
+        assert_eq!(hak.extract(&[away], &out), Ok(1));
+        assert_eq!(std::fs::read(out.join("away.txt")).unwrap(), b"far");
+        // A load order reads as the game does: not past the mark.
+        assert!(hak.contents().read(&away).is_err());
+        // The first half taken out, the rest is saved: within reach now.
+        hak.remove(&[near]);
+        let small = dir.join("small.hak");
+        hak.save(Some(&small)).unwrap();
+        assert!(std::fs::metadata(&small).unwrap().len() < 1024);
+        let hak = Hak::open(&small).unwrap();
+        assert!(hak.past_read_limit().is_empty());
+        assert_eq!(hak.contents().read(&away).unwrap().as_ref(), b"far");
     }
 
     #[test]

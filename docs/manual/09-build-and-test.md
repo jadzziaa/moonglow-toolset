@@ -342,7 +342,9 @@ crash Aurora with an access violation that names nothing:
 | A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
 
 Moonglow reads a hak over 2 GiB as the game does: files that start past
-the mark are listed but can't be opened. Move them to another hak.
+the mark are listed but can't be opened. Move them to another hak: the
+[hak editor](03-modules.md#the-hak-editor) reads them where they lie, to extract them
+or to save the hak without the others.
 
 A blueprint's problems are warnings, since they matter once it's placed;
 a placed object's are errors. A hak that hides the game's own longer

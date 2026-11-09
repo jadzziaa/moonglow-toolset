@@ -351,7 +351,10 @@ unpacking or packing between the toolset and git.
 
 - **Open a project:** **File › Open Folder…** and choose the project's
   folder (the one with `nasher.cfg`). Moonglow edits the target that packs
-  a module (the default target if it does).
+  a module (the default target if it does). A `nasher.cfg` that is not
+  UTF-8 throughout (a description typed in Windows-1252) opens too, as
+  nasher reads it, and a line Moonglow adds to it leaves every other
+  byte of it as it was.
 - **Save** writes only the files of the resources you changed, exactly as
   `nasher unpack` would, so `git diff` shows your changes and nothing
   else:
@@ -370,7 +373,10 @@ unpacking or packing between the toolset and git.
   an `exclude` leaves out is left be). **Build › Add Left-Out Files to
   nasher.cfg** adds a line for their kinds beside the include they lie
   under (`include = "src/**/*.{jui,txt}"`), and they are read: nasher
-  packs them from then on too.
+  packs them from then on too. The line goes into the sources of the
+  target you edit (the package's, where the target has no includes of
+  its own); where it would not take the files in, nothing is written
+  and the log says so.
 - **A file that can't be read** (JSON broken by a merge's conflict
   markers, say) is left out of the module, and the log says so: the rest
   of the project opens. Mend or delete it; a save never writes over it,
@@ -710,6 +716,13 @@ builder's own is not read (the log says so): `[claims]`, `[commands]`,
 folder's or a nasher project's. Without the file, Moonglow does what it
 does for any module.
 
+The file is UTF-8 text, as is `.moonglow/user.toml`. One with a
+character typed in another encoding (a comment saved as Windows-1252,
+say) is read all the same, and the log names the line. What writes
+into the file (Mark as Used, a plugin's setting, your builder code,
+the lines for typed text) refuses to until it is saved as UTF-8:
+written back as it was read, that character would be lost for good.
+
 ```toml
 [make_static]                       # Make Placeables Static leaves dynamic:
 keep_variables = ["tdod_*"]         # a placeable with a variable so named
@@ -816,12 +829,12 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[bake] rows` | the placeables.2da rows [Bake Walkmesh to Transform](#baked-walkmeshes) takes (`"16500-16999"`), at most 65535 (the last row the game can carry); a bake never takes a row the game's table holds already | the command isn't offered |
 | `[bake] hak` | the hak (its name; `.hak` may be left out) the baked models (`.mdl`, `.pwk`) go into, in your user folder's `hak`; the first bake puts it at the top of the module's hak list | the command isn't offered |
 | `[bake] names` | what baked models' names begin with (letters, digits and `_`, at most 12: four digits follow) | `"mgbk_"` |
-| `[bake] rows_file` | the rows file, beside the project file, which the project's build reads | `"baked_rows.toml"` |
+| `[bake] rows_file` | the rows file, beside the project file (inside the project), which the project's build reads | `"baked_rows.toml"` |
 | `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Options › Language (off by default) |
 | `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
-| `[talk] map` | `mg tlk-alloc`'s map, from the project's root: the lines it gives keys (in use or retired) are never taken | none |
+| `[talk] map` | `mg tlk-alloc`'s map, from the project's root, inside it: the lines it gives keys (in use or retired) are never taken | none |
 | `[talk.builders]` | each builder's own part of the lines, by their code (`ab = "100000-109999"`); a builder without one takes from `lines` past every builder's part | everyone takes from `lines` |
-| `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
+| `[claims] file` | the team's [claims table](#claimed-areas), from the project's root, inside it | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
@@ -840,7 +853,11 @@ Store](04-areas.md#setup-store), [claimed areas](#claimed-areas) and
 file and line, and the rest is read: a key or a section it doesn't know,
 a value of the wrong kind (`moonglow.toml:12: "colour" is not a key of
 [store]`). A file that is no TOML at all is an error, by line, and its
-rules are left out until it is mended.
+rules are left out until it is mended. A file the project file names
+(the claims table, the talk table's map, a grouping's `from`, the
+bake's rows file) is to be inside the project: an absolute path or one
+with `..` is said the same way, and that file is neither read nor
+written.
 
 **Each builder's own settings** go in `.moonglow/user.toml` in the same
 folder, never in the file the team shares. Moonglow makes the folder
@@ -948,7 +965,7 @@ order = "name"                 # its groups by name
 | `title` | the grouping's name in Group by | its id, as a title (`kind`: Kind) |
 | `types` | the blueprint types (extensions) whose palettes offer it; one it leaves out shows its categories alone | every type |
 | `words_of` | a regular expression whose first group in brackets is the part of a name its words are taken from: with names like `Tavern: Table 2 (N2E)`, the part after the colon, before the brackets (so that "after HAM", the pack a fern was made after, isn't a ham). A name it doesn't match gives its words whole | the whole name |
-| `from` | a file beside `moonglow.toml` of lists a tool writes (below), read with it and again when it changes | none |
+| `from` | a file beside `moonglow.toml` (inside the project) of lists a tool writes (below), read with it and again when it changes | none |
 | `order` | `"name"`: the groups by name, those of the rules and those of the list alike, case and accents aside, as the palettes sort names (Other still last) | `"file"`: the groups `moonglow.toml` gives first, in its order, then those only the list names, in its |
 | `group` `name` | the group's name (not `Other`, which holds the blueprints no group takes) | (a group needs one) |
 | `group` `types` | the grouping's palettes the group is offered in, narrower than the grouping's | all of the grouping's |
@@ -1874,8 +1891,10 @@ folder's files, subfolders included, to look over and save.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. It warns when
-  resources would start past 2 GiB, which the game can't read. Saving the
-  module saves open haks too.
+  resources would start past 2 GiB, which the game can't read. The hak
+  editor itself reads all of such a hak: extract the resources past the
+  mark, or remove the others and use **Save As…**, to split it in two.
+  Saving the module saves open haks too.
 - **Reloading:** saving a hak the module uses reads it again.
 - **The game's own haks** (in its `data/hk`) aren't written: **Save As…**
   keeps your changes in a copy.
@@ -2156,7 +2175,13 @@ In the 2DA editor, a described table says so under its buttons, and:
   hexadecimal or decimal) or chosen from the other table's rows by name;
 - **Find** looks through the names shown as well as the values;
 - the file is read again when it changes, so the description and the
-  table can be written side by side.
+  table can be written side by side;
+- a column or a rule the description gets wrong (a `kind` mistyped, a
+  list without values) is said under the buttons by its line (`line 12:
+  column Damage: "flag" is no kind…`) and left out, and the other
+  columns are described all the same. Verify Module, `mg 2da-check` and
+  a plugin take no such description: they say the first mistake, by its
+  line, and check nothing by it until it is mended.
 
 Where the description is looked for:
 
@@ -2359,6 +2384,10 @@ plugin reads a description with `mg.twoda.describe`
   resource "(open, with unsaved changes)" and, ticked, warns that the
   editor keeps your changes and saving them writes over what was
   imported (the log says it again). This goes for Import… too.
+- **A name that is no file's**: an `.erf`'s resource whose name has a
+  `/`, a `\` or a `:` in it (another tool's making) is left out and
+  listed with the rest that is not imported, as a loose file of such a
+  name is. A module kept as files could not keep it.
 - `mg import MODULE PATH…` does the same from a terminal: an `.erf`
   alone, or files and folders ([Command-line tools](11-command-line.md)).
 

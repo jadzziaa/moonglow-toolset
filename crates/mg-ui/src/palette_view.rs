@@ -512,7 +512,7 @@ pub fn copy_resref_named(
     taken: &dyn Fn(&str) -> bool,
 ) -> Option<ResRef> {
     let stem = naming.strip(from).trim_end_matches(|c: char| c.is_ascii_digit());
-    naming.numbered(&stem[..stem.len().min(13)], 1, taken)
+    naming.numbered(mg_module::palette_add::first_chars(stem, 13), 1, taken)
 }
 
 /// Opens one of the game's blueprints to look at (the module's own of

@@ -48,6 +48,12 @@ fn content_file(name: &str) -> Option<&str> {
         return None;
     }
     let file = name.rsplit(['/', '\\']).next().filter(|f| !f.is_empty())?;
+    // (What [`mg_core::ResRef::is_file_name`] refuses in a resource's
+    // name: joined to the user's folder on Windows, `D:x.hak` is a file in
+    // drive D's current folder and `a.hak:b.hak` a stream of `a.hak`.)
+    if file.chars().any(|c| c == ':' || c.is_control()) {
+        return None;
+    }
     let ext = Path::new(file).extension()?.to_string_lossy().to_ascii_lowercase();
     matches!(ext.as_str(), "hak" | "tlk").then_some(file)
 }
@@ -229,7 +235,9 @@ pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
             There::Same => false,
         })
         .collect();
-    let part = |p: &Placement| p.to.with_extension("part");
+    // (Each beside its place under the one name Moonglow writes files by:
+    // with the extension changed, `x.hak` and `x.erf` shared `x.part`.)
+    let part = |p: &Placement| crate::sibling(&p.to, crate::WRITING);
     for p in &go {
         let dir = p.to.parent().expect("in a folder");
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -327,6 +335,12 @@ mod tests {
             ("Content/tlk/z_text.tlk", "text"),
             ("Content/readme.txt", "read me"),
             ("../z_evil.hak", "evil"),
+            // (On Windows a name with a drive's colon is written in that
+            // drive's current folder, and `a.hak:b.hak` into a stream of
+            // `a.hak`: neither is a file's name in the user folder.)
+            ("D:evil.hak", "x"),
+            ("Content/a.hak:b.hak", "x"),
+            ("Content/z_\u{7}bell.hak", "x"),
         ] {
             zip.start_file(name, options).unwrap();
             zip.write_all(data.as_bytes()).unwrap();
@@ -382,7 +396,10 @@ mod tests {
         let p = placements(&user.join("hak"), &user.join("tlk"), &[odd]).unwrap();
         let e = copy(&p, false).unwrap_err();
         assert!(e.contains("z_odd.hak") && !e.contains("has no"), "{e}");
-        assert!(!user.join("hak/z_odd.hak").exists() && !user.join("hak/z_odd.part").exists());
+        assert!(
+            !user.join("hak/z_odd.hak").exists()
+                && !user.join("hak/z_odd.hak.moonglow-tmp").exists()
+        );
     }
 
     /// The archive fixtures (`tests/fixtures/archives`), our own text in
@@ -459,7 +476,7 @@ mod tests {
             assert!(
                 std::fs::read_dir(user.join("hak"))
                     .unwrap()
-                    .all(|f| { f.unwrap().path().extension().is_none_or(|e| e != "part") })
+                    .all(|f| { f.unwrap().path().extension().is_none_or(|e| e != "moonglow-tmp") })
             );
         }
     }

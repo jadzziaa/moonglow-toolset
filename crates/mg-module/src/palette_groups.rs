@@ -360,9 +360,7 @@ impl Groupings {
                             }
                         }
                     }
-                    "from" => {
-                        g.from = r.text(k).map(|f| f.trim().to_string()).filter(|f| !f.is_empty())
-                    }
+                    "from" => g.from = r.file_inside(k).filter(|f| !f.is_empty()),
                     "group" => read_groups(r, k, &mut g),
                     "order" => match r.text(k).as_deref().map(str::trim) {
                         Some("name") => g.by_name = true,

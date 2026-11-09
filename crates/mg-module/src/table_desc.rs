@@ -496,8 +496,11 @@ pub fn whole(text: &str) -> Option<i64> {
 
 /// What a constant's expression comes to: whole numbers and the names
 /// in `known`, with `| & ^ ~ << >> + - *` and brackets, as NWScript
-/// reads them. `None` for anything else.
+/// reads them. `None` for anything else, and for one nested deeper than
+/// 64 brackets and signs (no constant is; a crafted one of thousands
+/// overflowed the stack).
 fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
+    const MOST_NESTED: usize = 64;
     #[derive(Clone, Debug, PartialEq)]
     enum Tok {
         Num(i64),
@@ -523,7 +526,12 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
         rest = rest[end..].trim_start();
     }
     // Lowest first: | ^ & shifts, + and -, *, then a sign or ~ and brackets.
-    fn level(toks: &[Tok], at: &mut usize, depth: usize) -> Option<i64> {
+    // (`nested`: the brackets and signs it is within, which a constant
+    // of a crafted script may have thousands of, each a call deeper.)
+    fn level(toks: &[Tok], at: &mut usize, depth: usize, nested: usize) -> Option<i64> {
+        if nested > MOST_NESTED {
+            return None;
+        }
         const LEVELS: [&[&str]; 6] = [&["|"], &["^"], &["&"], &["<<", ">>"], &["+", "-"], &["*"]];
         if depth == LEVELS.len() {
             return match toks.get(*at)? {
@@ -533,13 +541,13 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
                 }
                 Tok::Op("(") => {
                     *at += 1;
-                    let v = level(toks, at, 0)?;
+                    let v = level(toks, at, 0, nested + 1)?;
                     (toks.get(*at) == Some(&Tok::Op(")"))).then(|| *at += 1)?;
                     Some(v)
                 }
                 Tok::Op(op @ ("-" | "~" | "+")) => {
                     *at += 1;
-                    let v = level(toks, at, depth)?;
+                    let v = level(toks, at, depth, nested + 1)?;
                     Some(match *op {
                         "-" => v.checked_neg()?,
                         "~" => !v & 0xFFFF_FFFF,
@@ -549,12 +557,12 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
                 Tok::Op(_) => None,
             };
         }
-        let mut left = level(toks, at, depth + 1)?;
+        let mut left = level(toks, at, depth + 1, nested)?;
         while let Some(Tok::Op(op)) = toks.get(*at)
             && LEVELS[depth].contains(op)
         {
             *at += 1;
-            let right = level(toks, at, depth + 1)?;
+            let right = level(toks, at, depth + 1, nested)?;
             left = match *op {
                 "|" => left | right,
                 "^" => left ^ right,
@@ -569,7 +577,7 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
         Some(left)
     }
     let mut at = 0;
-    let value = level(&toks, &mut at, 0)?;
+    let value = level(&toks, &mut at, 0, 0)?;
     (at == toks.len()).then_some(value)
 }
 
@@ -711,37 +719,149 @@ fn cell_text(v: &toml::Value) -> Option<String> {
     }
 }
 
+/// Where a description's parts are written, for the lines its messages
+/// name.
+struct Lines<'s> {
+    source: &'s str,
+    file: Option<toml::Spanned<toml::de::DeTable<'s>>>,
+}
+
+impl<'s> Lines<'s> {
+    fn new(source: &'s str) -> Lines<'s> {
+        Lines { source, file: toml::de::DeTable::parse(source).ok() }
+    }
+
+    /// The line of the key at `path` (`columns`, a column's name, a key
+    /// of it), or of as much of the path as is there.
+    fn key(&self, path: &[&str]) -> usize {
+        let mut line = 1;
+        let mut table = self.file.as_ref().map(|f| f.get_ref());
+        for part in path {
+            let Some(t) = table else { break };
+            let Some((k, v)) = t.iter().find(|(k, _)| k.get_ref() == *part) else { break };
+            line = crate::project_file::line_of(self.source, k.span().start);
+            table = match v.get_ref() {
+                toml::de::DeValue::Table(t) => Some(t),
+                _ => None,
+            };
+        }
+        line
+    }
+
+    /// The line of rule `i` (from 0).
+    fn rule(&self, i: usize) -> usize {
+        let rules = (self.file.as_ref())
+            .and_then(|f| f.get_ref().iter().find(|(k, _)| k.get_ref() == "rules"));
+        let at = rules.and_then(|(_, v)| match v.get_ref() {
+            toml::de::DeValue::Array(a) => a.get(i).map(|r| r.span().start),
+            _ => None,
+        });
+        at.map_or_else(|| self.key(&["rules"]), |at| crate::project_file::line_of(self.source, at))
+    }
+}
+
+/// How a description's mistakes are taken: the first an error
+/// ([`Description::parse`]), or each a note and the rest read
+/// ([`Description::read`]); either way by its line.
+struct Said<'s> {
+    keep: bool,
+    lines: Lines<'s>,
+}
+
+impl Said<'_> {
+    /// A column or a rule that cannot be read.
+    fn mistake(&self, notes: &mut Vec<String>, line: usize, message: String) -> Result<(), String> {
+        let message = format!("line {line}: {message}");
+        if !self.keep {
+            return Err(message);
+        }
+        notes.push(message);
+        Ok(())
+    }
+
+    /// What is not understood and leaves the rest as it reads.
+    fn note(&self, notes: &mut Vec<String>, line: usize, message: String) {
+        notes.push(if self.keep { format!("line {line}: {message}") } else { message });
+    }
+}
+
+/// A column's mistake: the key of it that is wrong (none: the column
+/// itself), and what is.
+type Mistake = (&'static str, String);
+
 impl Description {
     /// Reads a description. `script` reads a script's source by name
-    /// (without `.nss`), for the lists that are a script's constants.
+    /// (without `.nss`), for the lists that are a script's constants. A
+    /// column or a rule that cannot be read is an error, by its line
+    /// (`line 12: column Damage: "flag" is no kind…`), and nothing is
+    /// described: what a check of the tables wants.
     pub fn parse(
         source: &str,
         script: &dyn Fn(&str) -> Option<Vec<u8>>,
     ) -> Result<Description, String> {
+        Self::read_as(source, script, false)
+    }
+
+    /// [`Description::parse`] for the builder at work on the table: a
+    /// column or a rule that cannot be read is a note by its line and is
+    /// left out, and the rest of the description is read (one `kind`
+    /// mistyped among forty columns left none of them described). Only a
+    /// file that is no TOML at all is an error. Every note begins with
+    /// its line.
+    pub fn read(
+        source: &str,
+        script: &dyn Fn(&str) -> Option<Vec<u8>>,
+    ) -> Result<Description, String> {
+        Self::read_as(source, script, true)
+    }
+
+    fn read_as(
+        source: &str,
+        script: &dyn Fn(&str) -> Option<Vec<u8>>,
+        keep: bool,
+    ) -> Result<Description, String> {
         let file: toml::Table = source.parse().map_err(|e| format!("{e}"))?;
+        let said = Said { keep, lines: Lines::new(source) };
         let mut d = Description { rows: text(&file, "rows"), ..Default::default() };
         d.tables = patterns(&file);
         for key in file.keys() {
             if !["rows", "columns", "rules", "tables"].contains(&key.as_str()) {
-                d.notes.push(format!("\"{key}\" is not a key this reads"));
+                let line = said.lines.key(&[key]);
+                said.note(&mut d.notes, line, format!("\"{key}\" is not a key this reads"));
             }
         }
+        let none = toml::Table::new();
         let columns = match file.get("columns") {
-            Some(toml::Value::Table(t)) => t.clone(),
-            Some(_) => return Err("\"columns\" is not a table of columns".to_string()),
-            None => toml::Table::new(),
+            Some(toml::Value::Table(t)) => t,
+            Some(_) => {
+                let message = "\"columns\" is not a table of columns".to_string();
+                said.mistake(&mut d.notes, said.lines.key(&["columns"]), message)?;
+                &none
+            }
+            None => &none,
         };
-        for (name, column) in &columns {
+        for (name, column) in columns {
             let Some(c) = column.as_table() else {
-                return Err(format!("column {name}: not a table ([columns.{name}])"));
+                let message = format!("column {name}: not a table ([columns.{name}])");
+                said.mistake(&mut d.notes, said.lines.key(&["columns", name]), message)?;
+                continue;
             };
-            let kind = d.kind(name, c, script)?;
-            d.columns.push((name.clone(), Column { kind, note: text(c, "note") }));
+            match d.kind(name, c, script, &said) {
+                Ok(kind) => d.columns.push((name.clone(), Column { kind, note: text(c, "note") })),
+                Err((key, message)) => {
+                    let line = said.lines.key(&["columns", name, key]);
+                    said.mistake(&mut d.notes, line, message)?;
+                }
+            }
         }
-        let rules = match file.get("rules") {
-            Some(toml::Value::Array(a)) => a.clone(),
-            Some(_) => return Err("\"rules\" is not a list ([[rules]])".to_string()),
-            None => Vec::new(),
+        let rules: &[toml::Value] = match file.get("rules") {
+            Some(toml::Value::Array(a)) => a,
+            Some(_) => {
+                let message = "\"rules\" is not a list ([[rules]])".to_string();
+                said.mistake(&mut d.notes, said.lines.key(&["rules"]), message)?;
+                &[]
+            }
+            None => &[],
         };
         for (i, rule) in rules.iter().enumerate() {
             let at = i + 1;
@@ -754,10 +874,11 @@ impl Description {
                     d.rules.push(Rule { column, is, require: require.to_string() });
                 }
                 _ => {
-                    return Err(format!(
+                    let message = format!(
                         "rule {at}: it reads `when = {{ column = \"…\", is = \"…\" }}` and \
                          `require = \"…\"`"
-                    ));
+                    );
+                    said.mistake(&mut d.notes, said.lines.rule(i), message)?;
                 }
             }
         }
@@ -769,7 +890,8 @@ impl Description {
         name: &str,
         c: &toml::Table,
         script: &dyn Fn(&str) -> Option<Vec<u8>>,
-    ) -> Result<Kind, String> {
+        said: &Said,
+    ) -> Result<Kind, Mistake> {
         let int = |key: &str| c.get(key).and_then(|v| v.as_integer());
         let float = |key: &str| {
             c.get(key).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
@@ -784,16 +906,18 @@ impl Description {
             "row" => match text(c, "table") {
                 Some(table) => Kind::Row(table.trim_end_matches(".2da").to_ascii_lowercase()),
                 None => {
-                    return Err(format!("column {name}: a row of which table? (table = \"…\")"));
+                    let message = format!("column {name}: a row of which table? (table = \"…\")");
+                    return Err(("kind", message));
                 }
             },
             "list" | "flags" => {
-                let entries = self.entries(name, c, script)?;
+                let entries = self.entries(name, c, script, said)?;
                 if entries.is_empty() {
-                    return Err(format!(
+                    let message = format!(
                         "column {name}: no values (values = {{ NAME = 1 }}, or constants = \
                          \"script\" with prefix = \"…\")"
-                    ));
+                    );
+                    return Err(("kind", message));
                 }
                 match kind.as_str() {
                     "list" => Kind::List {
@@ -802,20 +926,22 @@ impl Description {
                     },
                     _ => {
                         if let Some(e) = entries.iter().find(|e| whole(&e.value).is_none()) {
-                            return Err(format!(
+                            let message = format!(
                                 "column {name}: the flag {} is not a whole number ({})",
                                 e.name, e.value
-                            ));
+                            );
+                            return Err(("values", message));
                         }
                         Kind::Flags { entries }
                     }
                 }
             }
             other => {
-                return Err(format!(
+                let message = format!(
                     "column {name}: \"{other}\" is no kind (text, int, float, list, flags, row, \
                      strref)"
-                ));
+                );
+                return Err(("kind", message));
             }
         })
     }
@@ -827,19 +953,23 @@ impl Description {
         name: &str,
         c: &toml::Table,
         script: &dyn Fn(&str) -> Option<Vec<u8>>,
-    ) -> Result<Vec<Entry>, String> {
+        said: &Said,
+    ) -> Result<Vec<Entry>, Mistake> {
         let mut entries: Vec<Entry> = Vec::new();
         match c.get("values") {
             Some(toml::Value::Table(values)) => {
                 for (n, v) in values {
                     let Some(value) = cell_text(v) else {
-                        return Err(format!("column {name}: the value of {n} is not a value"));
+                        let message = format!("column {name}: the value of {n} is not a value");
+                        return Err(("values", message));
                     };
                     entries.push(Entry { name: n.clone(), value });
                 }
             }
             Some(_) => {
-                return Err(format!("column {name}: values are written {{ NAME = 1, OTHER = 2 }}"));
+                let message =
+                    format!("column {name}: values are written {{ NAME = 1, OTHER = 2 }}");
+                return Err(("values", message));
             }
             None => {}
         }
@@ -847,7 +977,10 @@ impl Description {
             let prefix = text(c, "prefix").unwrap_or_default();
             let from = from.trim_end_matches(".nss");
             let Some(source) = script(from) else {
-                return Err(format!("column {name}: the script {from} was not found"));
+                return Err((
+                    "constants",
+                    format!("column {name}: the script {from} was not found"),
+                ));
             };
             let (found, unread) = constants_in(&source, &prefix, false, script);
             for e in found {
@@ -856,11 +989,13 @@ impl Description {
                 }
             }
             if unread > 0 {
-                self.notes.push(format!(
+                let message = format!(
                     "column {name}: {unread} of {from}'s values that begin {prefix} are not \
                      numbers that can be worked out (a global given by a function as the \
                      script runs: no const can be, the compiler refuses it), and are left out"
-                ));
+                );
+                let line = said.lines.key(&["columns", name, "constants"]);
+                said.note(&mut self.notes, line, message);
             }
         }
         entries.sort_by(|a, b| match (whole(&a.value), whole(&b.value)) {
@@ -1070,6 +1205,20 @@ require = "Cures"
         assert_eq!(evaluate("~0 & A", &known), Some(0x10));
         assert_eq!((evaluate("A | C", &known), evaluate("A |", &known)), (None, None));
         assert_eq!((evaluate("GetX()", &known), evaluate("(A", &known)), (None, None));
+        // Brackets and signs without end (a crafted script's constant, read
+        // on a worker's small stack): no value, and no stack overflow.
+        let deep = |open: &str, close: &str, n: usize| {
+            evaluate(&format!("{}1{}", open.repeat(n), close.repeat(n)), &[])
+        };
+        assert_eq!(
+            (deep("(", ")", 60), deep("-", "", 60), deep("~", "", 2)),
+            (Some(1), Some(1), Some(1))
+        );
+        let small = std::thread::Builder::new().stack_size(256 * 1024);
+        let run = small.spawn(move || {
+            [deep("(", ")", 100_000), deep("-", "", 100_000), evaluate(&"(".repeat(100_000), &[])]
+        });
+        assert_eq!(run.unwrap().join().unwrap(), [None, None, None]);
         assert_eq!(damage.named("0x0030").as_deref(), Some("DAMAGE_ACID | DAMAGE_COLD"));
         assert_eq!(damage.named("0x0050").as_deref(), Some("DAMAGE_ACID | 0x40"));
         assert_eq!(damage.flags_cell(0x30, None).as_deref(), Some("0x0030"));
@@ -1272,5 +1421,60 @@ require = "Cures"
         );
         assert!(bad("[[rules]]\nrequire = \"A\"").contains("rule 1"));
         assert!(!bad("[columns").is_empty());
+        // By its line: the key that is wrong, else the column's or the
+        // rule's own.
+        assert!(bad("# mine\n[columns.A]\nnote = \"x\"\nkind = \"bits\"").starts_with("line 4: "));
+        assert!(
+            bad("[columns.A]\nkind = \"int\"\n\n[columns.B]\nkind = \"row\"")
+                .starts_with("line 5: ")
+        );
+        assert!(
+            bad("[columns.A]\nkind = \"list\"\nconstants = \"nowhere\"").starts_with("line 3: ")
+        );
+        assert!(bad("[columns]\nA = 3\n").starts_with("line 2: column A: not a table"));
+        let rules = "[[rules]]\nwhen = { column = \"A\", is = 1 }\nrequire = \"B\"\n\n[[rules]]\n\
+                     require = \"A\"\n";
+        let line: usize = bad(rules)["line ".len()..].split(':').next().unwrap().parse().unwrap();
+        assert!((5..=6).contains(&line), "{}", bad(rules));
+    }
+
+    /// For the builder at work on a table, one column mistyped among
+    /// many is a note by its line and the rest is described (none was).
+    #[test]
+    fn a_description_read_for_its_builder_keeps_what_reads() {
+        let text = "extra = 1\n\n[columns.Level]\nkind = \"int\"\nmin = 0\n\n[columns.Damage]\n\
+                    kind = \"flag\"\n\n[columns.Shape]\nkind = \"list\"\nvalues = { Sphere = 0 }\n\n\
+                    [[rules]]\nrequire = \"Level\"\n\n[[rules]]\nwhen = { column = \"Shape\", is = 0 }\n\
+                    require = \"Level\"\n";
+        assert!(
+            Description::parse(text, &script).unwrap_err().starts_with("line 8: column Damage")
+        );
+        let d = Description::read(text, &script).unwrap();
+        let names: Vec<&str> = d.columns.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["Level", "Shape"]);
+        assert_eq!(d.column("level").unwrap().kind, Kind::Int { min: Some(0), max: None });
+        assert_eq!(d.rules.len(), 1);
+        assert_eq!(d.notes.len(), 3, "{:?}", d.notes);
+        assert_eq!(d.notes[0], "line 1: \"extra\" is not a key this reads");
+        assert!(
+            d.notes[1].starts_with("line 8: column Damage: \"flag\" is no kind"),
+            "{:?}",
+            d.notes
+        );
+        assert!(
+            d.notes[2].starts_with("line 1") && d.notes[2].contains(": rule 1: "),
+            "{:?}",
+            d.notes
+        );
+        // One with nothing wrong reads the same either way, and what is
+        // no TOML is an error either way.
+        let strict = Description::parse(DESCRIPTION, &script).unwrap();
+        let kept = Description::read(DESCRIPTION, &script).unwrap();
+        assert_eq!(
+            (&kept.columns, &kept.rules, &kept.rows),
+            (&strict.columns, &strict.rules, &strict.rows)
+        );
+        assert!(Description::read("[columns", &script).is_err());
+        assert!(Description::read("columns = 3\nrules = 4\n", &script).unwrap().notes.len() == 2);
     }
 }
