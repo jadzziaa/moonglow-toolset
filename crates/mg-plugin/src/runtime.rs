@@ -129,11 +129,6 @@ impl Budget {
         self.keep(bytes)?;
         Ok(Charge { of: self.clone(), bytes: std::cell::Cell::new(bytes) })
     }
-
-    #[cfg(test)]
-    pub(crate) fn used(&self) -> usize {
-        self.used.get()
-    }
 }
 
 /// Bytes of a job's [`Budget`], given back when this is dropped.
@@ -1664,6 +1659,18 @@ pub(crate) fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<S
 }
 
 fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+    shared_holding(files, who, input, host, Rc::default())
+}
+
+/// [`shared_in`] for a job within another (a check's fixes), which
+/// counts what the host holds for it to the other's budget.
+fn shared_holding(
+    files: Source,
+    who: &str,
+    input: Input,
+    host: &Rc<dyn Host>,
+    budget_held: Rc<Budget>,
+) -> Rc<Shared> {
     let game = input.game.as_deref().map_or(CODEPAGE, |g| g.text_codepage());
     GAME_CODEPAGE.with(|c| c.set(game));
     let deadline = input.budget.map(|b| std::time::Instant::now() + b);
@@ -1676,7 +1683,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         haks: RefCell::new(Vec::new()),
         held_bytes: std::cell::Cell::new(0),
         held: RefCell::new(None),
-        budget_held: Rc::default(),
+        budget_held,
         folders: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),
@@ -1790,7 +1797,7 @@ fn event_table(
     key: Option<ResKey>,
     objects: &[Selected],
     said: &Rc<RefCell<Vec<crate::Said>>>,
-    records: &Rc<RefCell<Vec<FixRecord>>>,
+    records: &Rc<RefCell<Fixes>>,
 ) -> mlua::Result<Table> {
     let event = lua.create_table()?;
     let kind = happened.kind;
@@ -1929,7 +1936,7 @@ pub(crate) fn run_event(
         sh.no_set
             .set(Some("a resource saving's handler only reads: ctx.settings:set is not for it"));
     }
-    let records: Rc<RefCell<Vec<FixRecord>>> = Rc::default();
+    let records: Rc<RefCell<Fixes>> = Rc::default();
     let said: Rc<RefCell<Vec<crate::Said>>> = Rc::default();
     let label_of = |made: LuaValue| -> mlua::Result<Option<String>> {
         Ok(match made {
@@ -1993,16 +2000,49 @@ pub(crate) fn run_event(
     })
 }
 
-/// A fix a check records (`ctx.fix`): what its button says, and the job
-/// its edits go into, made at its first edit on a copy of the module as
-/// the check reads it (so that the check goes on reading the module as it
-/// is, and each fix starts from it).
+/// A fix a check records (`ctx.fix`): what its button says, and the edits
+/// made through it.
 struct FixRecord {
     label: String,
-    job: Option<Rc<Shared>>,
+    edits: Vec<Edit>,
     /// For a fix that asks: the plugin's command its button runs, and on
     /// what (a resource and where in it; none: the finding's resource).
     asks: Option<(String, Option<(ResKey, GffPath)>)>,
+}
+
+/// The fixes a check (or a resource saving's handler) records, and the
+/// job their edits are made in: one copy of the module as the check reads
+/// it, made at the first edit of a fix, for all of them (so that the check
+/// goes on reading the module as it is). Each fix starts from the module
+/// as it is: the copy has the edits of one fix at a time ([`turn_to`]),
+/// not a copy of the module a fix.
+#[derive(Default)]
+struct Fixes {
+    records: Vec<FixRecord>,
+    job: Option<Rc<Shared>>,
+    /// The fix whose edits the job's copy has now.
+    current: Option<usize>,
+}
+
+/// Makes the copy of the module the fixes edit that of fix `n`: the
+/// module as the check reads it with that fix's edits so far, those of
+/// the fix it had before taken back.
+fn turn_to(fixes: &RefCell<Fixes>, job: &Shared, n: usize) -> mlua::Result<()> {
+    let mut all = fixes.borrow_mut();
+    if all.current == Some(n) {
+        return Ok(());
+    }
+    let mut ws = job.ws.borrow_mut();
+    all.current = None;
+    while ws.can_undo().is_some() {
+        ws.undo().or_else(fail)?;
+    }
+    let edits = all.records[n].edits.clone();
+    if !edits.is_empty() {
+        ws.apply(Command::new("plugin", edits)).or_else(fail)?;
+    }
+    all.current = Some(n);
+    Ok(())
 }
 
 /// The methods of a fix: those of `ctx.edit`, as the reference writes them.
@@ -2021,11 +2061,7 @@ pub(crate) const FIX_NAMES: [&str; 10] = [
 
 /// `ctx.fix(label)`: a fix to give a finding, which records the edits made
 /// through it (its methods are `ctx.edit`'s) and makes none.
-fn fix_maker(
-    lua: &Lua,
-    sh: &Rc<Shared>,
-    records: &Rc<RefCell<Vec<FixRecord>>>,
-) -> mlua::Result<Function> {
+fn fix_maker(lua: &Lua, sh: &Rc<Shared>, records: &Rc<RefCell<Fixes>>) -> mlua::Result<Function> {
     let (sh, records) = (sh.clone(), records.clone());
     lua.create_function(move |lua, (label, options): (String, Option<Table>)| {
         if label.trim().is_empty() {
@@ -2054,34 +2090,51 @@ fn fix_maker(
                 Some((command, on))
             }
         };
-        let n = records.borrow().len();
-        records.borrow_mut().push(FixRecord { label: label.clone(), job: None, asks });
+        let n = records.borrow().records.len();
+        records.borrow_mut().records.push(FixRecord {
+            label: label.clone(),
+            edits: Vec::new(),
+            asks,
+        });
         let fix = lua.create_table()?;
         fix.set("label", label)?;
         let meta = lua.create_table()?;
         meta.set("__fix", n)?;
-        // Its methods are made at the first one used (a copy of the module
-        // for each fix that edits).
+        // Its methods are made at the first one used (and the copy of the
+        // module the fixes edit, at the first of them all): each makes
+        // its edit on the copy as this fix has it, and the edit is the
+        // fix's.
         let (sh, records) = (sh.clone(), records.clone());
         meta.set(
             "__index",
             lua.create_function(move |lua, (fix, name): (Table, LuaValue)| {
                 let job = {
                     let mut all = records.borrow_mut();
-                    let record = &mut all[n];
-                    record
-                        .job
+                    all.job
                         .get_or_insert_with(|| {
                             let module = sh.ws.borrow().module.clone();
                             let input = Input::new(module, sh.game.clone());
-                            shared_in(Source::Nothing, &sh.who, input, &sh.host)
+                            let held = sh.budget_held.clone();
+                            shared_holding(Source::Nothing, &sh.who, input, &sh.host, held)
                         })
                         .clone()
                 };
                 let methods = editor(lua, &job)?;
                 for pair in methods.pairs::<String, Function>() {
                     let (k, f) = pair?;
-                    fix.raw_set(k, f)?;
+                    let (records, job) = (records.clone(), job.clone());
+                    let method = lua.create_function(move |_, args: mlua::MultiValue| {
+                        turn_to(&records, &job, n)?;
+                        let made = f.call::<mlua::MultiValue>(args);
+                        records.borrow_mut().records[n].edits.append(&mut job.edits.borrow_mut());
+                        // (The method's own error, not one of a call within
+                        // a call.)
+                        made.map_err(|e| match e {
+                            mlua::Error::CallbackError { cause, .. } => Arc::unwrap_or_clone(cause),
+                            e => e,
+                        })
+                    })?;
+                    fix.raw_set(k, method)?;
                 }
                 fix.raw_get::<LuaValue>(name)
             })?,
@@ -2095,7 +2148,7 @@ fn fix_maker(
 /// only if it edits (`what`: what it was given as, for the error), or (a
 /// finding's, `about` its resource; `plugin` the plugin) runs a command.
 fn fix_of(
-    records: &RefCell<Vec<FixRecord>>,
+    records: &RefCell<Fixes>,
     given: LuaValue,
     what: &str,
     asking: Option<(&Manifest, ResKey)>,
@@ -2108,7 +2161,7 @@ fn fix_of(
                 None => None,
             };
             let all = records.borrow();
-            let Some(record) = n.and_then(|n| all.get(n)) else {
+            let Some(record) = n.and_then(|n| all.records.get(n)) else {
                 return fail(format!("{what} is one made with ctx.fix(label)"));
             };
             if let Some((command, on)) = &record.asks {
@@ -2122,7 +2175,7 @@ fn fix_of(
                         "{what}: the manifest declares no command {command:?} for it to run"
                     ));
                 }
-                if record.job.as_ref().is_some_and(|j| !j.edits.borrow().is_empty()) {
+                if !record.edits.is_empty() {
                     return fail(format!(
                         "{what}: a fix that asks runs its command, and edits none"
                     ));
@@ -2138,10 +2191,9 @@ fn fix_of(
                     }),
                 }));
             }
-            let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
-            Ok(edits.filter(|e| !e.is_empty()).map(|edits| Fix {
+            Ok((!record.edits.is_empty()).then(|| Fix {
                 label: record.label.clone(),
-                edits,
+                edits: record.edits.clone(),
                 asks: None,
             }))
         }
@@ -2157,7 +2209,7 @@ pub(crate) fn run_check(
 ) -> Result<Vec<Found>, PluginError> {
     let sh = shared(plugin, input, &host);
     sh.no_set.set(Some("a check only reads: ctx.settings:set is for commands and events"));
-    let records: Rc<RefCell<Vec<FixRecord>>> = Rc::default();
+    let records: Rc<RefCell<Fixes>> = Rc::default();
     let run = || -> mlua::Result<Vec<Found>> {
         let lua = start(Some(&plugin.manifest.entry), &sh)?;
         let f = handler(&lua, "mg.checks", "check", &decl.id)?;

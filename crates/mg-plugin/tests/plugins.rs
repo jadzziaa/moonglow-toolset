@@ -247,6 +247,68 @@ fn a_check_s_fixes_are_recorded_apart() {
     assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
+/// A check that gives every finding a fix makes one copy of the module
+/// for them all, not one a fix: 2,000 fixes on a module of 20,000
+/// resources take a moment (four seconds and more, with a copy each), each
+/// still from the module as it is, whatever the order their edits are
+/// made in.
+#[test]
+fn many_fixes_share_one_copy_of_the_module() {
+    let dir = mg_testkit::scratch_dir("plugin-many-fixes");
+    let manifest = "[plugin]\nid = \"test.many\"\nname = \"Many\"\nversion = \"1.0.0\"\napi = \"0.4\"\nlicense = \"MIT\"\ndescription = \"d\"\n\n[check]\nid = \"tags\"\ntitle = \"Tags\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("tags", function(ctx)
+            local found, fixes = {}, {}
+            for i = 1, 2000 do
+                local name = `c{i}.utc`
+                local fix = ctx.fix("Upper-case this tag")
+                fix:set(name, "Tag", `TAG{i}`)
+                fixes[i] = fix
+                table.insert(found, { resource = name, message = "lower case", fix = fix })
+            end
+            -- Back to earlier ones, turn about: each has its own edits
+            -- only (the list it adds to has its own item, not the other's).
+            for round = 1, 2 do
+                for _, i in { 1, 2 } do
+                    local at = fixes[i]:insert("c1.utc", "/ClassList", { __struct_id = 2 })
+                    assert(at == round - 1, `fix {i}, round {round}: at {at}`)
+                end
+            end
+            assert(ctx.module:gff("c1.utc").Tag == "tag")
+            return found
+        end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut g = Gff::new(*b"UTC ");
+    g.root.set("Tag", Value::String(b"tag".to_vec()));
+    let bytes = g.to_bytes().unwrap();
+    for i in 1..=20_000 {
+        m.set(key(&format!("c{i}.utc")), bytes.clone());
+    }
+    let host = Rc::new(TestHost::default());
+    let started = std::time::Instant::now();
+    let found = run_check(&p, "tags", Input::new(m.clone(), None), host).unwrap();
+    let took = started.elapsed();
+    assert_eq!(found.len(), 2000);
+    let edits = |n: usize| found[n].fix.as_ref().unwrap().edits.clone();
+    assert_eq!((edits(0).len(), edits(1).len(), edits(2).len()), (3, 3, 1));
+    assert!(matches!(&edits(1)[0], Edit::SetField { key: k, .. } if *k == key("c2.utc")));
+    assert!(
+        matches!(&edits(1)[2], Edit::InsertItem { key: k, index: 1, .. } if *k == key("c1.utc"))
+    );
+    // Each applies to the module as it is.
+    for n in [0, 1, 1999] {
+        let mut ws = Workspace::new(m.clone());
+        ws.apply(found[n].fix.as_ref().unwrap().command()).unwrap();
+    }
+    assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+}
+
 /// A plugin's test holds what the job writes outside the module (the
 /// haks it puts resources into, the files it writes into a folder),
 /// writing none of it.
