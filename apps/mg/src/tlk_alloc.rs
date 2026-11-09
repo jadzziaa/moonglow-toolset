@@ -223,17 +223,21 @@ pub(crate) fn run(a: &Args<'_>) -> Result<Output> {
         );
     }
     let changed = lines.len();
+    // The map first, then the table: a table written whose keys the map
+    // does not know would have those keys given new lines by the next run
+    // (strings renumbered); a map ahead of the table has the next run
+    // write the lines it lacks. Each whole or not at all.
+    if differs(&map_path, &map_text) {
+        crate::write_bytes_whole(&map_path, map_text.as_bytes())?;
+    }
     if !lines.is_empty() || !a.table.is_file() {
         table.import(lines).map_err(|e| anyhow!(e))?;
         table.save().map_err(|e| anyhow!(e))?;
     }
-    if differs(&map_path, &map_text) {
-        std::fs::write(&map_path, &map_text).with_context(|| map_path.display().to_string())?;
-    }
     if let Some((path, text)) = &constants
         && differs(path, text)
     {
-        std::fs::write(path, text).with_context(|| path.display().to_string())?;
+        crate::write_bytes_whole(path, text.as_bytes())?;
     }
     for (key, line) in &plan.added {
         out.line(format!("+ {key}: line {line} ({})", line | mg_core::StrRef::CUSTOM_FLAG));

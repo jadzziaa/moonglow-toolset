@@ -151,3 +151,30 @@ fn new_keys_pass_over_the_project_s_typed_lines() {
     ]);
     assert!(ok && r["added"][0]["line"] == 1, "{r}");
 }
+
+/// The map is written before the table: where it can't be (its folder
+/// takes no new file), the table is not written either. A table written
+/// whose keys the map does not know had those keys given other lines by
+/// the next run.
+#[cfg(unix)]
+#[test]
+fn a_map_that_cannot_be_written_leaves_the_table_unwritten() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = mg_testkit::scratch_dir("mg-tlk-alloc-map");
+    let locked = dir.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+    let (table, names) = (at("tdod.tlk"), at("names.toml"));
+    let map = locked.join("map.json");
+    std::fs::write(&names, "[feat.cleave]\nname = \"Great Cleave\"\n").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // (Who may write anywhere, the administrator, is not held by it.)
+    let held = std::fs::write(locked.join("probe"), b"").is_err();
+    let (ok, r) = mg(&["tlk-alloc", &table, "--from", &names, "--map", map.to_str().unwrap()]);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if !held {
+        return;
+    }
+    assert!(!ok && r["error"].as_str().unwrap().contains("map.json"), "{r}");
+    assert!(!dir.join("tdod.tlk").exists(), "the table was written without its map");
+}

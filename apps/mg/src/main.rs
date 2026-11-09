@@ -23,7 +23,7 @@ mod watch;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use mg_core::{Codepage, ResType, StrRef};
-use mg_erf::{Erf, ErfWriter};
+use mg_erf::Erf;
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, ResKey, ResMan};
@@ -2164,6 +2164,42 @@ fn path_text(p: &Path) -> String {
     p.display().to_string()
 }
 
+/// Writes a file whole or not at all: `fill` writes it into a file beside
+/// `path` (`<name>.moonglow-tmp`), which is flushed to the disk and then
+/// put in `path`'s place. A failure on the way (a full disk, a file that
+/// can't be read, the command stopped) leaves what was at `path` as it
+/// was, never a part of the new. (As `mg_module`'s `write_replacing`,
+/// for a file that is streamed.)
+pub(crate) fn write_whole(
+    path: &Path,
+    fill: impl FnOnce(&mut io::BufWriter<std::fs::File>) -> Result<()>,
+) -> Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).with_context(|| path_text(parent))?;
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".moonglow-tmp");
+    let tmp = path.with_file_name(name);
+    let written = (|| -> Result<()> {
+        let mut file = io::BufWriter::new(std::fs::File::create(&tmp)?);
+        fill(&mut file)?;
+        let file = file.into_inner().map_err(io::IntoInnerError::into_error)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written.with_context(|| path_text(path))
+}
+
+/// [`write_whole`] for a file's bytes at hand.
+pub(crate) fn write_bytes_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_whole(path, |file| Ok(file.write_all(bytes)?))
+}
+
 /// Compile results: errors as lines and as JSON; warnings as notes, each
 /// once (an include's is every includer's) with how many scripts it was
 /// met in, and as JSON.
@@ -2217,7 +2253,9 @@ fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
         Cmd::Ls { archive } => {
-            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
+            // (Mapped, not read: a hak is gigabytes, and its names are in
+            // its first pages.)
+            let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
@@ -2230,7 +2268,8 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Unpack { archive, out: dir } => {
-            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
+            // (Mapped: each resource is read as it is written out.)
+            let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
             std::fs::create_dir_all(dir)?;
             for e in &erf.entries {
@@ -2247,7 +2286,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 archive.extension().and_then(|e| e.to_str()).unwrap_or("erf").to_ascii_uppercase();
             let mut file_type = [b' '; 4];
             file_type[..ext.len().min(4)].copy_from_slice(&ext.as_bytes()[..ext.len().min(4)]);
-            let mut w = ErfWriter::new(file_type);
+            let header = mg_erf::Header { file_type, ..Default::default() };
             let mut paths: Vec<PathBuf> =
                 std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
             paths.sort();
@@ -2295,23 +2334,37 @@ fn run(cli: &Cli) -> Result<Output> {
                     );
                 }
             }
+            // Each file by its size, read when its turn comes to be
+            // written (a hak can be gigabytes: none of it is held), into a
+            // file beside the archive that takes its place when it is
+            // whole (a failure half way leaves the archive that was).
+            let mut entries = Vec::new();
+            let mut sources: Vec<Result<Vec<u8>, &Path>> = Vec::new();
             for p in paths.iter().filter(|p| p.is_file()) {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
                 let key = resource_key(name)?;
-                let data = match compiled.remove(&key) {
-                    Some(binary) => binary,
-                    None => std::fs::read(p)?,
+                let source = match compiled.remove(&key) {
+                    Some(binary) => Ok(binary),
+                    None => Err(p.as_path()),
                 };
-                w.add(key.resref, key.restype, data)?;
+                let size = match &source {
+                    Ok(binary) => binary.len() as u64,
+                    Err(p) => std::fs::metadata(p).with_context(|| path_text(p))?.len(),
+                };
+                entries.push((key.resref, key.restype, size));
+                sources.push(source);
             }
-            // Streamed: a hak can be gigabytes.
-            let mut file = io::BufWriter::new(std::fs::File::create(archive)?);
-            w.write_to(&mut file)?;
-            file.flush()?;
-            let past = w.past_read_limit();
+            write_whole(archive, |file| {
+                mg_erf::write_streamed(file, &header, &entries, |i| match &sources[i] {
+                    Ok(binary) => Ok(std::borrow::Cow::Borrowed(&binary[..])),
+                    Err(p) => std::fs::read(p).map(std::borrow::Cow::Owned),
+                })?;
+                Ok(())
+            })?;
+            let past = mg_erf::past_read_limit(&header, &entries);
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
-                "files": w.len(),
+                "files": entries.len(),
                 "past_read_limit": past.iter().map(|(r, t)| format!("{r}.{t}")).collect::<Vec<_>>(),
                 "models_compiled": made,
                 "models_left_as_text": left
@@ -2320,7 +2373,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     .collect::<Vec<_>>(),
                 "model_notes": said,
             }));
-            out.note(format!("packed {} files", w.len()));
+            out.note(format!("packed {} files", entries.len()));
             if *compile_models {
                 out.note(format!("compiled {} models kept as text", made.len()));
             }
@@ -4090,10 +4143,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let (path, bytes, models) =
                 m.target_archive_with(&lookup)?.context("not a nasher project")?;
             let path = output.clone().unwrap_or(path);
-            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-                std::fs::create_dir_all(dir)?;
-            }
-            std::fs::write(&path, bytes)?;
+            // (Whole or not at all: a build interrupted leaves the last
+            // good module, not half of this one.)
+            write_bytes_whole(&path, &bytes)?;
             let left = match compile["unchanged"].as_u64().unwrap_or(0) {
                 0 => String::new(),
                 n => format!(" ({n} as they were when last compiled)"),
@@ -5869,6 +5921,27 @@ fn gff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file is written whole or not at all: one that fails half way
+    /// leaves what was there, and nothing beside it.
+    #[test]
+    fn a_file_is_written_whole_or_not_at_all() {
+        let dir = mg_testkit::scratch_dir("mg-write-whole");
+        let path = dir.join("out/built.mod");
+        write_bytes_whole(&path, b"the last good build").unwrap();
+        let failed = write_whole(&path, |file| {
+            file.write_all(b"half of the ne")?;
+            bail!("the disk is full")
+        });
+        let why = format!("{:#}", failed.unwrap_err());
+        assert!(why.contains("built.mod") && why.contains("the disk is full"), "{why}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"the last good build");
+        let beside = |dir: &Path| std::fs::read_dir(dir).unwrap().count();
+        assert_eq!(beside(&dir.join("out")), 1, "no temporary file left");
+        write_whole(&path, |file| Ok(file.write_all(b"the new build")?)).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"the new build");
+        assert_eq!(beside(&dir.join("out")), 1);
+    }
 
     /// A module's codepage is found once a run for its haks, however
     /// often a command asks, and is what reading it afresh gives; a

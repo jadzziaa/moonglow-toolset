@@ -675,3 +675,36 @@ fn an_event_s_handler_gets_what_happened() {
     assert!(bad.is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A folder's files are written whole, each in the place of the one of
+/// its name: nothing is left beside them, and a link of that name (to a
+/// file of the folder) is replaced, not written through.
+#[test]
+fn a_folder_s_files_are_written_whole() {
+    let dir = scratch("folder-whole");
+    std::fs::write(dir.join("a.txt"), "old").unwrap();
+    let files = vec![("a.txt".to_string(), b"new".to_vec()), ("b.txt".to_string(), b"b".to_vec())];
+    let write = mg_plugin::FolderWrite { dir: dir.clone(), files };
+    assert_eq!(write.write().unwrap(), (1, 1));
+    assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"new");
+    let names = || {
+        let mut names: Vec<String> = (std::fs::read_dir(&dir).unwrap().flatten())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(names(), ["a.txt", "b.txt"]);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(dir.join("a.txt"), dir.join("link.txt")).unwrap();
+        let files = vec![("link.txt".to_string(), b"mine".to_vec())];
+        let write = mg_plugin::FolderWrite { dir: dir.clone(), files };
+        assert_eq!(write.write().unwrap(), (0, 1));
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"new", "written through the link");
+        assert!(!dir.join("link.txt").symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(dir.join("link.txt")).unwrap(), b"mine");
+        assert_eq!(names(), ["a.txt", "b.txt", "link.txt"]);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

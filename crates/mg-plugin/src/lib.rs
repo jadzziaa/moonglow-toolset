@@ -655,10 +655,30 @@ pub fn is_file_name(name: &str) -> bool {
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
 }
 
+/// Writes `data` to `path` whole or not at all: into a file beside it
+/// (hidden, `.<name>.moonglow-tmp`), flushed to the disk, then put in its
+/// place. A failure leaves the file that was there, never a part of the
+/// new; and what is put in the place of a link is the file, not what the
+/// link leads to. (As `mg_module`'s `write_replacing`.)
+fn write_whole(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = path.with_file_name(format!(".{name}.moonglow-tmp"));
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        std::io::Write::write_all(&mut f, data)?;
+        f.sync_all()
+    });
+    let placed = written.and_then(|()| std::fs::rename(&tmp, path));
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    placed
+}
+
 impl FolderWrite {
     /// Writes the files into the folder: how many were new and how many
     /// replaced. A name that is a link out of the folder, or a folder, is
-    /// refused, and then nothing is written.
+    /// refused, and then nothing is written. Each file is written whole or
+    /// not at all, in the place of the one of its name.
     pub fn write(&self) -> Result<(usize, usize), String> {
         let root = self.dir.canonicalize().map_err(|e| format!("{}: {e}", self.dir.display()))?;
         let mut replaced = 0;
@@ -676,7 +696,7 @@ impl FolderWrite {
             }
         }
         for (name, bytes) in &self.files {
-            std::fs::write(root.join(name), bytes).map_err(|e| format!("{name}: {e}"))?;
+            write_whole(&root.join(name), bytes).map_err(|e| format!("{name}: {e}"))?;
         }
         Ok((self.files.len() - replaced, replaced))
     }
