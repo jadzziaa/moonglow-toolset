@@ -190,6 +190,15 @@ impl Drop for Done {
     }
 }
 
+/// Where a copy's module lives, by its note.
+fn location_of(note: &Note, place: &Path) -> ModuleLocation {
+    if note.folder {
+        ModuleLocation::Folder(place.to_path_buf())
+    } else {
+        ModuleLocation::Archive(place.to_path_buf())
+    }
+}
+
 impl Moonglow {
     /// Where the open module's copy goes (with no folder: no copies).
     pub(crate) fn recovery_archive(&self) -> Option<(PathBuf, Note)> {
@@ -426,15 +435,22 @@ impl Moonglow {
                     m.location = None;
                 }
             },
-            _ => {
-                m.location = copy.note.module.clone().map(|p| {
-                    if copy.note.folder {
-                        ModuleLocation::Folder(p)
-                    } else {
-                        ModuleLocation::Archive(p)
-                    }
-                });
-            }
+            // The module where it lives, with the recovered resources: it
+            // knows its own files (a folder's, which a save compares with
+            // and deletes from; an archive's, which the look outside
+            // watches). The copy's archive took their place: a folder then
+            // refused the save for the files the copy no longer has, and
+            // the copy itself, rewritten by the autosave, was watched as
+            // the module's file.
+            (Some(place), None) if place.exists() => match Module::open(place) {
+                Ok(mut home) => {
+                    home.adopt_resources(m);
+                    m = home;
+                }
+                // (No longer a module that reads: saved over, from the copy.)
+                Err(_) => m.location = Some(location_of(&copy.note, place)),
+            },
+            _ => m.location = copy.note.module.as_deref().map(|p| location_of(&copy.note, p)),
         }
         self.use_module(m);
         if let Some(ws) = &mut self.ws {
@@ -592,6 +608,45 @@ mod tests {
         let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
         let copy = find(&dir.join("recovery")).into_iter().next()?;
         Module::open(&copy.archive).ok()?.get(&key).map(<[u8]>::to_vec)
+    }
+
+    /// A recovered module took the copy for its file: a module folder
+    /// then refused the save ("the folder holds resources that are not the
+    /// module's") where the recovered work had deleted or renamed one
+    /// (the review of November 2026, S7).
+    #[test]
+    fn a_recovered_folder_module_saves_into_its_folder() {
+        let dir = mg_testkit::scratch_dir("ui-recover-folder");
+        let folder = dir.join("m");
+        let (hello, other) = (
+            mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap(),
+            mg_resman::ResKey::parse("other", mg_core::ResType::NSS).unwrap(),
+        );
+        let mut m = Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.set(hello, b"void main() {}".to_vec());
+        m.set(other, b"void main() {}".to_vec());
+        m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+        assert!(folder.join("other.nss").is_file());
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.recovery_dir = Some(dir.join("recovery"));
+        app.open_module(&folder);
+        // A resource deleted, another changed; then the crash.
+        let edits = vec![
+            mg_edit::Edit::SetResource { key: other, data: None },
+            mg_edit::Edit::SetResource { key: hello, data: Some(b"// kept".to_vec()) },
+        ];
+        app.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", edits)).unwrap();
+        app.write_recovery().unwrap();
+        let copy = find(&dir.join("recovery")).remove(0);
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.recovery_dir = Some(dir.join("recovery"));
+        app.recover(&copy);
+        assert!(app.ws.as_ref().unwrap().is_modified());
+        app.save(None);
+        assert!(!app.has_unsaved_work(), "{:?}", app.log.entries);
+        assert!(!folder.join("other.nss").exists(), "deleted with the save");
+        assert_eq!(std::fs::read(folder.join("hello.nss")).unwrap(), b"// kept");
     }
 
     /// Save As (and a new module's first save) left the copy made under
