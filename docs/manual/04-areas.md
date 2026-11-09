@@ -155,7 +155,8 @@ palette's Gallery is 🖼, the Grid ⊞.
   wall, as the game's do (with the switch off too). On by default. The programs are compiled
   while the view goes on, the first time an area needs them (a fraction
   of a second each), and kept in Moonglow's cache folder for the next
-  time: until they are ready, what they draw is drawn with Moonglow's own
+  time (one not read for a month, as those of an older release soon
+  are, is removed from it): until they are ready, what they draw is drawn with Moonglow's own
   shader, so an area may change its look a moment after it opens. What
   a module's areas drew with is remembered (in the cache folder too) and
   made again as the module opens the next time, so an area opened after

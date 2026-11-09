@@ -11,8 +11,19 @@
 //! in the user's cache folder. An entry that is cut short, damaged, of
 //! another format or of another program is passed over and written anew;
 //! reading one never panics.
+//!
+//! The folder is shared (the toolset's window and `mg`, Moonglow Viewer,
+//! each of its own release), and a new release names every program anew,
+//! so what no program reads any longer is removed: an entry is marked as
+//! used when it is read (its file's time, a day at the least between
+//! marks), and one not used for [`KEEP`] is removed when the cache is
+//! opened ([`ProgramCache::new`]). By its age and not by its release:
+//! another program's entries are another release's, and are in use.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 use mg_core::bin::{Reader, WriteLe};
 
@@ -25,6 +36,16 @@ use crate::{Program, ShaderError};
 const FORMAT: u32 = 4;
 
 const MAGIC: &[u8; 8] = b"MGSHDSPV";
+
+/// How long an entry no program has read is kept.
+const KEEP: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// How old an entry's mark of use is before a read renews it.
+const MARK: Duration = Duration::from_secs(24 * 3600);
+
+/// The folders opened by this process, each cleared of its old entries
+/// once.
+static OPENED: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
 /// A folder of compiled programs.
 #[derive(Debug, Clone)]
@@ -56,9 +77,50 @@ fn fnv128(parts: &[&[u8]]) -> u128 {
 }
 
 impl ProgramCache {
-    /// The cache in `dir` (made when the first entry is written).
+    /// The cache in `dir` (made when the first entry is written). The
+    /// first time a process opens a folder, the entries in it that no
+    /// program has read for [`KEEP`] are removed.
     pub fn new(dir: impl Into<PathBuf>) -> ProgramCache {
-        ProgramCache { dir: dir.into() }
+        let cache = ProgramCache { dir: dir.into() };
+        let first = OPENED.lock().is_ok_and(|mut opened| opened.insert(cache.dir.clone()));
+        if first {
+            cache.prune(SystemTime::now());
+        }
+        cache
+    }
+
+    /// Removes the entries (and what a write that was cut off left
+    /// beside them) not used for [`KEEP`] before `now`; how many. Only
+    /// files named as the cache names its own are touched.
+    fn prune(&self, now: SystemTime) -> usize {
+        let Ok(files) = std::fs::read_dir(&self.dir) else { return 0 };
+        let mut removed = 0;
+        for file in files.flatten() {
+            let name = file.file_name();
+            let own = name.to_str().and_then(|n| n.split_once('.')).is_some_and(|(key, ext)| {
+                key.len() == 32
+                    && key.bytes().all(|b| b.is_ascii_hexdigit())
+                    && (ext == "spv" || ext.strip_prefix("tmp").is_some_and(digits))
+            });
+            let used = file.metadata().and_then(|m| m.modified());
+            let old = used.is_ok_and(|t| now.duration_since(t).is_ok_and(|age| age > KEEP));
+            if own && old && std::fs::remove_file(file.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    /// Marks an entry read as used now, where its mark is older than
+    /// [`MARK`] (a write a day for an entry in use, not one a read).
+    fn mark(path: &Path) {
+        let now = SystemTime::now();
+        let marked = std::fs::metadata(path).and_then(|m| m.modified());
+        if marked.is_ok_and(|t| now.duration_since(t).is_ok_and(|age| age > MARK))
+            && let Ok(file) = std::fs::File::options().write(true).open(path)
+        {
+            let _ = file.set_modified(now);
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -90,6 +152,7 @@ impl ProgramCache {
             && let Some((words, io)) = read_entry(&bytes, key, a)
             && let Ok(p) = crate::from_words(a, &words, &io)
         {
+            Self::mark(&path);
             return Ok((p, Cached::Hit));
         }
         let (words, io) = crate::to_words(a)?;
@@ -109,6 +172,7 @@ impl ProgramCache {
         if let Ok(bytes) = std::fs::read(&path)
             && read_entry(&bytes, key, a).is_some()
         {
+            Self::mark(&path);
             return Ok(Cached::Hit);
         }
         let words = crate::glsl::compile(a)?;
@@ -129,6 +193,10 @@ impl ProgramCache {
             let _ = std::fs::remove_file(&tmp);
         })
     }
+}
+
+fn digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// An entry's bytes: the magic, the key, the stage and the text's length,
@@ -291,6 +359,66 @@ void main ()
         assert_eq!(cache.check(&c).unwrap(), Cached::Miss);
         assert_eq!(cache.check(&c).unwrap(), Cached::Hit);
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 3);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// What no program has read for a month is removed when the cache is
+    /// opened: every release names each program anew, and the old ones'
+    /// entries stayed for good (245 MB on the machine this was written
+    /// on; the review's M9). An entry read is marked as used, so one in
+    /// use stays however long ago it was written, whichever release (or
+    /// program: Moonglow Viewer shares the folder) wrote it; and nothing
+    /// that is not the cache's own is touched.
+    #[test]
+    fn entries_not_read_for_a_month_are_removed_when_the_cache_is_opened() {
+        let d = dir("pruned");
+        // (Made without opening it: the folder is cleared once a process.)
+        let cache = ProgramCache { dir: d.clone() };
+        let a = assembled();
+        cache.compile(&a).unwrap();
+        let entry = cache.path(ProgramCache::key(&a));
+        let aged = |path: &Path, days: u64| {
+            let then = SystemTime::now() - Duration::from_secs(days * 24 * 3600);
+            std::fs::File::options().write(true).open(path).unwrap().set_modified(then).unwrap();
+        };
+        let age = |path: &Path| {
+            let at = std::fs::metadata(path).unwrap().modified().unwrap();
+            SystemTime::now().duration_since(at).unwrap()
+        };
+        // Another release's entry, a write cut off, and files of someone
+        // else's: all 40 days old. And another release's entry of last week.
+        let old = d.join(format!("{:032x}.spv", 7));
+        let cut = d.join(format!("{:032x}.tmp4242", 8));
+        let recent = d.join(format!("{:032x}.spv", 9));
+        let foreign = [d.join("notes.txt"), d.join("abc.spv"), d.join(format!("{:032x}.bak", 7))];
+        for f in [&old, &cut, &recent].into_iter().chain(&foreign) {
+            std::fs::write(f, b"x").unwrap();
+            aged(f, if *f == recent { 7 } else { 40 });
+        }
+        // This one written 40 days ago and read since: marked as used.
+        aged(&entry, 40);
+        assert_eq!(cache.compile(&a).unwrap().1, Cached::Hit);
+        assert!(age(&entry) < Duration::from_secs(3600), "marked: {:?}", age(&entry));
+        // (One marked within the day is not written again.)
+        aged(&recent, 0);
+        let before = std::fs::metadata(&entry).unwrap().modified().unwrap();
+        assert_eq!(cache.check(&a).unwrap(), Cached::Hit);
+        assert_eq!(std::fs::metadata(&entry).unwrap().modified().unwrap(), before);
+        aged(&recent, 7);
+        // Opened: the two old ones go.
+        let opened = ProgramCache::new(&d);
+        assert!(!old.exists() && !cut.exists());
+        assert!(entry.exists() && recent.exists());
+        assert!(foreign.iter().all(|f| f.exists()));
+        assert_eq!(opened.compile(&a).unwrap().1, Cached::Hit);
+        // And once a process: a second opening looks at nothing.
+        std::fs::write(&old, b"x").unwrap();
+        aged(&old, 40);
+        let _ = ProgramCache::new(&d);
+        assert!(old.exists());
+        assert_eq!(opened.prune(SystemTime::now()), 1);
+        // A folder that is not there is no error.
+        assert_eq!(ProgramCache::new(d.join("none")).prune(SystemTime::now()), 0);
         let _ = std::fs::remove_dir_all(&d);
     }
 
