@@ -308,7 +308,13 @@ impl<'a> Bin<'a> {
         } else if node_flags & flags::ANIM != 0 {
             MeshExtra::Anim(AnimMesh { sample_period: self.f32(n + 0x270)? })
         } else if node_flags & flags::AABB != 0 {
-            MeshExtra::Aabb(self.aabb(self.u32(n + 0x270)? as usize)?)
+            // No tree where the pointer is null (a walkmesh without faces,
+            // as Moonglow's compiler writes it): offset 0 is the model's
+            // header, not an entry.
+            MeshExtra::Aabb(match self.u32(n + 0x270)? as usize {
+                0 => Vec::new(),
+                root => self.aabb(root)?,
+            })
         } else {
             MeshExtra::None
         };
@@ -909,6 +915,37 @@ mod tests {
         let model = read(&many_keys_of_the_same_floats(200_003, 1, 3)).unwrap();
         assert_eq!(model.animations[0].nodes[0].controllers.len(), 200_001);
         assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    }
+
+    /// A walkmesh node whose tree pointer is 0 has no tree: the model's
+    /// header, which is what lies at offset 0, was read as its first
+    /// entry, with the bytes of the model's name as its children's
+    /// places (a model of a long name didn't read at all). None of the
+    /// 42,782 walkmesh nodes of the game's and a builder's compiled
+    /// models has one; Moonglow's own compiler writes it for a walkmesh
+    /// without faces (the review's M12).
+    #[test]
+    fn a_walkmesh_with_a_null_tree_has_no_entries() {
+        let tree = |name: &str| {
+            let mut file = Out(compiled_by_the_game());
+            let n = 12 + 0x200;
+            file.u32(n + 0x6C, flags::HEADER | flags::MESH | flags::AABB);
+            file.u32(n + 0x270, 0);
+            file.name(12 + 0x08, name);
+            let model = read(&file.0).unwrap();
+            let MeshExtra::Aabb(tree) = &model.nodes[1].mesh().unwrap().extra else { panic!() };
+            tree.clone()
+        };
+        assert_eq!(tree("probe"), []);
+        assert_eq!(tree("a_model_of_a_name_of_thirty_two"), []);
+        // And as the compiler writes one: a walkmesh without faces.
+        let text = "newmodel m\nbeginmodelgeom m\nnode dummy m\nparent NULL\nendnode\n\
+                    node aabb floor\nparent m\nendnode\nendmodelgeom m\ndonemodel m\n";
+        let compiled = crate::compile::compile(text.as_bytes(), &Default::default()).unwrap();
+        let back = read(&compiled.binary).unwrap();
+        assert_eq!(back.nodes[1].mesh().unwrap().extra, MeshExtra::Aabb(Vec::new()));
+        let again = crate::Model::read(crate::decompile(&compiled.binary).unwrap().as_bytes());
+        assert_eq!(again.unwrap().nodes[1].mesh().unwrap().extra, MeshExtra::Aabb(Vec::new()));
     }
 
     #[test]
