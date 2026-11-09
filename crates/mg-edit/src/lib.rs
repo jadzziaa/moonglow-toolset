@@ -593,21 +593,26 @@ impl Workspace {
             Edit::InsertItem { key, path, list, index, item } => {
                 self.touch(key, path, list, false);
                 let s = self.struct_at(key, path)?;
-                // (A list made for the item goes again with it.)
+                let invalid = |message: String| EditError::Invalid { key: *key, message };
+                // (A list made for the item goes again with it. Nothing is
+                // made before the edit is known to go through: a refused
+                // one leaves the struct as it was.)
                 let made = s.get(list).is_none();
+                let len = match s.get(list) {
+                    None => 0,
+                    Some(Value::List(items)) => items.len(),
+                    Some(_) => return Err(invalid(format!("{path}/{list} is not a list"))),
+                };
+                if *index > len {
+                    return Err(invalid(format!("{path}/{list}: no position {index}")));
+                }
                 if made {
+                    if Label::new(list).is_err() {
+                        return Err(invalid(format!("label {list:?} is too long")));
+                    }
                     s.set(list, Value::List(Vec::new()));
                 }
-                let items = s.list_mut(list).ok_or_else(|| EditError::Invalid {
-                    key: *key,
-                    message: format!("{path}/{list} is not a list"),
-                })?;
-                if *index > items.len() {
-                    return Err(EditError::Invalid {
-                        key: *key,
-                        message: format!("{path}/{list}: no position {index}"),
-                    });
-                }
+                let items = s.list_mut(list).expect("a list, or just made");
                 items.insert(*index, item.clone());
                 if path.0.is_empty() {
                     self.rewritten(key);
@@ -667,11 +672,13 @@ impl Workspace {
         }
         let old = s.clone();
         let Some((step, parent)) = path.0.split_last() else {
-            let doc = self.doc_mut(key)?;
-            let bytes = doc
-                .to_bytes()
-                .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-            return Ok(Some(vec![Edit::SetResource { key: *key, data: Some(bytes) }]));
+            // (The resource as the module holds the document, written
+            // back as any edited one is: a file still as it was saved
+            // keeps its own bytes, so the undo gives those back and not
+            // Moonglow's layout of them.)
+            self.write_back(key)?;
+            let data = self.module.get(key).map(<[u8]>::to_vec);
+            return Ok(Some(vec![Edit::SetResource { key: *key, data }]));
         };
         let parent = GffPath(parent.to_vec());
         Ok(Some(match step {
@@ -1469,6 +1476,26 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(*ws.doc(&k).unwrap(), before);
         assert!(ws.can_undo().is_none());
+        // An item for a list the struct has not, at a place an empty list
+        // has not, or under a label no field can have: refused, and no
+        // empty list is left behind (a long label was a panic).
+        let insert = |list: &str, index| {
+            Command::new(
+                "Insert",
+                vec![Edit::insert_item(k, GffPath::root(), list, index, Struct::new(0))],
+            )
+        };
+        for (list, index) in [("No Such List", 1), ("AListNamedTooLongForGff", 0)] {
+            assert!(ws.apply(insert(list, index)).is_err(), "{list} at {index}");
+            assert_eq!(*ws.doc(&k).unwrap(), before, "{list} at {index}");
+            ws.flush().unwrap();
+            assert_eq!(Gff::read(ws.module.get(&k).unwrap()).unwrap(), before);
+        }
+        assert!(ws.can_undo().is_none());
+        // (At its start, the list is made for the item, and goes with it.)
+        ws.apply(insert("No Such List", 0)).unwrap();
+        ws.undo().unwrap();
+        assert_eq!(*ws.doc(&k).unwrap(), before);
     }
 
     #[test]
@@ -1678,5 +1705,42 @@ mod tests {
             .unwrap();
         ws.undo().unwrap();
         assert_eq!(ws.module.get(&one), Some(&one_bytes[..]), "a resource replaced, undone");
+    }
+
+    /// A field of the root that is not its last, removed and put back by
+    /// Undo (which puts the resource back whole, to keep the field's
+    /// place): the file's own bytes again, not Moonglow's layout of them.
+    #[test]
+    fn a_root_field_removed_and_undone_gives_the_bytes_back() {
+        let mut g = Gff::new(*b"ARE ");
+        g.root.set("VarTable", Value::List(vec![Struct::new(0)]));
+        g.root.set("Width", Value::Int(4));
+        let mut bytes = g.to_bytes().unwrap();
+        bytes.extend_from_slice(&[0; 8]);
+        let k = key("one", ResType::ARE);
+        let mut m = Module::new();
+        m.set(k, bytes.clone());
+        let mut ws = Workspace::new(m);
+        let remove = |label: &str| {
+            let (path, label) = (GffPath::root(), label.into());
+            Command::new("Remove", vec![Edit::SetField { key: k, path, label, value: None }])
+        };
+        ws.apply(remove("VarTable")).unwrap();
+        ws.flush().unwrap();
+        assert_ne!(ws.module.get(&k), Some(&bytes[..]));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&k), Some(&bytes[..]), "undone");
+        assert_eq!(*ws.doc(&k).unwrap(), g);
+        // After another edit of the document, the undo is the document
+        // as it then was.
+        ws.apply(set_extra(k, Some(Value::Int(3)))).unwrap();
+        ws.apply(remove("VarTable")).unwrap();
+        ws.undo().unwrap();
+        assert_eq!(ws.doc(&k).unwrap().root.int("Extra"), Some(3));
+        assert!(ws.doc(&k).unwrap().root.list("VarTable").is_some());
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&k), Some(&bytes[..]), "both undone");
     }
 }
