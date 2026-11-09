@@ -4069,16 +4069,15 @@ fn run(cli: &Cli) -> Result<Output> {
             remember(&mut out, project, &pass.now);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
             if failed > 0 && !keep_going {
-                // The compiler's messages, then the failure.
-                if cli.json {
-                    out.json = json!({ "compiled": compile, "packed": null });
-                    out.failed = true;
-                    return Ok(out);
+                // The compiler's messages, the notes (a hak not found is
+                // often why), then the failure.
+                if !cli.json {
+                    let all = results.len();
+                    out.note(format!("mg: {failed} of {all} scripts failed to compile"));
                 }
-                for l in &out.text {
-                    println!("{l}");
-                }
-                bail!("{failed} of {} scripts failed to compile", results.len());
+                out.json = json!({ "compiled": compile, "packed": null });
+                out.failed = true;
+                return Ok(out);
             }
             // (The models kept as text compiled on the way in, where the
             // project file's `[pack] compile_models` asks: each against its
