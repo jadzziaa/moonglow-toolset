@@ -228,7 +228,12 @@ pub fn edits(
             }
         }
         Change::RemoveVariable { name } => {
-            let name_bytes = codepage.encode(name).map(|b| b.into_owned()).unwrap_or_default();
+            // (A name the module can't hold names no variable: not those
+            // with no name.)
+            let name_bytes = codepage
+                .encode(name)
+                .ok_or_else(|| format!("{name:?} has characters the module can't hold"))?
+                .into_owned();
             for (o, place) in objects(hits) {
                 let (key, path) = variables_of(&o);
                 let vars = r.get(key, &path).and_then(|s| s.list("VarTable")).unwrap_or(&[]);
@@ -600,6 +605,27 @@ mod tests {
 
     fn gff(m: &Module, name: &str, t: ResType) -> Gff {
         m.gff(&ResKey::new(rr(name), t)).unwrap().unwrap()
+    }
+
+    /// A name the module's codepage cannot hold is refused, as setting
+    /// one is: it was read as no name, and took the variables without a
+    /// name off every object found.
+    #[test]
+    fn a_variable_s_name_the_module_cannot_hold_removes_none() {
+        let mut m = module();
+        let key = ResKey::parse("guard", ResType::UTC).unwrap();
+        let mut utc = gff(&m, "guard", ResType::UTC);
+        utc.root.set("VarTable", Value::List(vec![var("", 1), var("nOld", 2)]));
+        m.set_gff(key, &utc).unwrap();
+        let found = find(&m, Search::Class(4));
+        let hits: Vec<&Hit> = found.iter().collect();
+        let remove = Change::RemoveVariable { name: "\u{438}\u{43c}\u{44f}".into() };
+        let out = edits(&m, &hits, &remove, Codepage::WINDOWS_1252, None);
+        assert!(out.as_ref().is_err_and(|e| e.contains("can't hold")), "{out:?}");
+        // (The variable with no name is still one to remove by it.)
+        let none = Change::RemoveVariable { name: String::new() };
+        let out = edits(&m, &hits, &none, Codepage::WINDOWS_1252, None).unwrap();
+        assert_eq!((out.changed, out.edits.len()), (1, 1));
     }
 
     #[test]
