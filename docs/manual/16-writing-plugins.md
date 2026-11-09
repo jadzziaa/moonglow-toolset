@@ -125,7 +125,7 @@ has no other way to change anything.
 are no files of its own choosing, no network, no other programs, and the
 libraries can't be replaced. What it reaches outside the module, the
 user hands it: a file or a folder they choose for it to read, and a hak
-or that folder if they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory.
+or that folder if they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory, and Moonglow holds up to 512 MB more for it (its tables, pictures, edits and files to write: [Limits](17-plugin-api.md#limits)).
 **Cancel** stops it between any two steps, even in a loop that never
 ends; `pcall` does not catch that.
 

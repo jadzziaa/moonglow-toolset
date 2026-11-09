@@ -85,6 +85,104 @@ impl Source {
     }
 }
 
+/// What a job makes the host hold for it, outside its machine's own
+/// memory (which Luau counts, to [`MEMORY_LIMIT`]): the tables and talk
+/// tables it makes, pictures decoded, edits and files waiting to be
+/// written. Counted in bytes, roughly, and held to [`crate::HELD_LIMIT`]:
+/// a call that would go past it fails, before it takes the memory.
+#[derive(Default)]
+pub(crate) struct Budget {
+    used: std::cell::Cell<usize>,
+    /// The job's machine: what its code let go of is the host's until
+    /// the machine collects it, so it collects before a call is refused.
+    lua: RefCell<Option<mlua::WeakLua>>,
+}
+
+/// What a job is told that made the host hold too much.
+const HELD_TOO_MUCH: &str = "held";
+
+impl Budget {
+    /// `bytes` more, for as long as the job lasts.
+    pub(crate) fn keep(&self, bytes: usize) -> mlua::Result<()> {
+        let fits = || self.used.get().saturating_add(bytes) <= crate::HELD_LIMIT;
+        if !fits() {
+            let lua = self.lua.borrow().as_ref().and_then(mlua::WeakLua::try_upgrade);
+            if let Some(lua) = lua {
+                let _ = lua.gc_collect();
+            }
+        }
+        if !fits() {
+            return Err(mlua::Error::MemoryError(HELD_TOO_MUCH.into()));
+        }
+        self.used.set(self.used.get() + bytes);
+        Ok(())
+    }
+
+    /// `bytes` no longer held (a file written again, the one before it).
+    pub(crate) fn give_back(&self, bytes: usize) {
+        self.used.set(self.used.get().saturating_sub(bytes));
+    }
+
+    /// `bytes` held for as long as what is returned lives (a table's, in
+    /// the functions the plugin has of it).
+    pub(crate) fn hold(self: &Rc<Self>, bytes: usize) -> mlua::Result<Charge> {
+        self.keep(bytes)?;
+        Ok(Charge { of: self.clone(), bytes: std::cell::Cell::new(bytes) })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn used(&self) -> usize {
+        self.used.get()
+    }
+}
+
+/// Bytes of a job's [`Budget`], given back when this is dropped.
+pub(crate) struct Charge {
+    of: Rc<Budget>,
+    bytes: std::cell::Cell<usize>,
+}
+
+impl Charge {
+    /// `bytes` more (what it stands for grew).
+    pub(crate) fn more(&self, bytes: usize) -> mlua::Result<()> {
+        self.of.keep(bytes)?;
+        self.bytes.set(self.bytes.get() + bytes);
+        Ok(())
+    }
+}
+
+impl Drop for Charge {
+    fn drop(&mut self) {
+        self.of.give_back(self.bytes.get());
+    }
+}
+
+/// Roughly the bytes a field's value takes.
+fn weight(v: &Value) -> usize {
+    32 + match v {
+        Value::String(b) | Value::ResRef(b) | Value::Void(b) => b.len(),
+        Value::LocString(s) => s.strings.iter().map(|(_, b)| 16 + b.len()).sum(),
+        Value::Struct(s) => weight_of(s),
+        Value::List(items) => items.iter().map(weight_of).sum(),
+        _ => 0,
+    }
+}
+
+/// Roughly the bytes a struct takes.
+fn weight_of(s: &Struct) -> usize {
+    32 + s.fields.iter().map(|f| 24 + weight(&f.value)).sum::<usize>()
+}
+
+/// Roughly the bytes an edit takes.
+fn edit_weight(e: &Edit) -> usize {
+    64 + match e {
+        Edit::SetField { value, .. } => value.as_ref().map_or(0, weight),
+        Edit::InsertItem { item, .. } => weight_of(item),
+        Edit::RemoveItem { .. } => 0,
+        Edit::SetResource { data, .. } => data.as_ref().map_or(0, Vec::len),
+    }
+}
+
 /// What a job's API works on.
 pub(crate) struct Shared {
     files: Source,
@@ -96,6 +194,8 @@ pub(crate) struct Shared {
     /// and the scratch files of those past them.
     pub(crate) held_bytes: std::cell::Cell<usize>,
     pub(crate) held: RefCell<Option<Arc<crate::Held>>>,
+    /// What the job makes the host hold for it.
+    pub(crate) budget_held: Rc<Budget>,
     /// What the job wants written into folders the user chose.
     pub(crate) folders: RefCell<Vec<crate::FolderWrite>>,
     pub(crate) game: Option<Arc<GameData>>,
@@ -154,6 +254,9 @@ impl Shared {
         if edits.is_empty() {
             return Ok(());
         }
+        // (Held twice: in the job's copy of the module, to be read back
+        // and undone, and for the host.)
+        self.budget_held.keep(2 * edits.iter().map(edit_weight).sum::<usize>())?;
         let applied = self.ws.borrow_mut().apply(Command::new("plugin", edits.clone()));
         match applied {
             Ok(()) => {
@@ -594,7 +697,8 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                 }
                 let table = data.table(&name).or_else(fail)?;
                 let file = ResKey::from_filename(&file).and_then(|k| data.resman.get(&k).ok());
-                crate::tables::twoda(lua, table.clone(), file.map(|f| f.into_owned()))
+                let file = file.map(|f| f.into_owned());
+                crate::tables::twoda(lua, &s.budget_held, table.clone(), file)
             })?,
         )?;
         let s = sh.clone();
@@ -1304,9 +1408,10 @@ fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
             })?,
         )?;
     }
-    mg.set("image", lua.create_function(crate::files::image)?)?;
-    mg.set("twoda", crate::tables::twoda_api(lua, sh.game.clone())?)?;
-    mg.set("tlk", crate::tables::tlk_api(lua)?)?;
+    let held = sh.budget_held.clone();
+    mg.set("image", lua.create_function(move |lua, args| crate::files::image(lua, &held, args))?)?;
+    mg.set("twoda", crate::tables::twoda_api(lua, &sh.budget_held, sh.game.clone())?)?;
+    mg.set("tlk", crate::tables::tlk_api(lua, &sh.budget_held)?)?;
     mg.set("vars", vars_api(lua, sh)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
@@ -1402,6 +1507,7 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
 pub(crate) fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     let lua = Lua::new();
     lua.set_memory_limit(MEMORY_LIMIT)?;
+    *sh.budget_held.lua.borrow_mut() = Some(lua.weak());
     lua.set_named_registry_value("mg.api", api(&lua, sh)?)?;
     lua.set_named_registry_value("mg.modules", lua.create_table()?)?;
     let globals = lua.globals();
@@ -1520,11 +1626,25 @@ fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
     if host.cancelled() {
         return PluginError::Canceled(name.to_string());
     }
-    let message = match &e {
-        mlua::Error::MemoryError(_) => {
-            format!("it ran out of the {} MB a plugin may use", MEMORY_LIMIT >> 20)
+    // (The machine's own memory, or what the host holds for the job:
+    // raised in a function of the API, it comes wrapped.)
+    fn memory(e: &mlua::Error) -> Option<&str> {
+        match e {
+            mlua::Error::MemoryError(what) => Some(what),
+            mlua::Error::CallbackError { cause, .. } | mlua::Error::WithContext { cause, .. } => {
+                memory(cause)
+            }
+            _ => None,
         }
-        other => other.to_string(),
+    }
+    let message = match memory(&e) {
+        Some(HELD_TOO_MUCH) => format!(
+            "it made Moonglow hold more than the {} MB a job may (the tables and pictures it \
+             has, the edits and files it wants written)",
+            crate::HELD_LIMIT >> 20
+        ),
+        Some(_) => format!("it ran out of the {} MB a plugin may use", MEMORY_LIMIT >> 20),
+        None => e.to_string(),
     };
     PluginError::Script { plugin: name.to_string(), message }
 }
@@ -1556,6 +1676,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         haks: RefCell::new(Vec::new()),
         held_bytes: std::cell::Cell::new(0),
         held: RefCell::new(None),
+        budget_held: Rc::default(),
         folders: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),

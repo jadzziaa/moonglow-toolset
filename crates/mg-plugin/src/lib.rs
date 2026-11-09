@@ -790,6 +790,11 @@ pub const MAX_FILE: u64 = 64 << 20;
 /// The most memory a plugin's code may hold, in bytes.
 pub const MEMORY_LIMIT: usize = 256 << 20;
 
+/// The most a job may make Moonglow hold for it besides, in bytes: the
+/// tables and talk tables it makes, the pictures it has decoded, and the
+/// edits and files that wait to be written.
+pub const HELD_LIMIT: usize = 512 << 20;
+
 /// Runs a command of a plugin on a module: the edits it made, to apply as
 /// one command. Nothing is changed here.
 pub fn run_command(

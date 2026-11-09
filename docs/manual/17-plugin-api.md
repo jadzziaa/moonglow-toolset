@@ -756,6 +756,12 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 ## Limits
 
 - A job has 256 MB of memory; past that it fails.
+- What Moonglow holds for a job besides (the tables and talk tables it
+  makes, the pictures it has decoded, the edits it makes and the files
+  it wants written) may be 512 MB more: a call that would go past that
+  fails, and so does the job unless it catches the error. What the
+  plugin no longer has (a table it let go of) does not count.
+- A picture of more than 64 million pixels is not decoded (`mg.image`).
 - The handlers of an event that runs at once, within what the user
   does (a save, a paste, a wizard's Finish), have 5 seconds (Manage
   Plugins sets another); past that

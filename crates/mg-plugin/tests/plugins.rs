@@ -367,6 +367,40 @@ fn memory_has_a_limit() {
     assert!(e.contains("ran out of the 256 MB"), "{e}");
 }
 
+/// What a job makes the host hold for it (a talk table's lines, the edits
+/// it makes) has a limit of its own, which Luau's does not see: a call
+/// that would go past it fails before the memory is taken, and what the
+/// plugin let go of does not count.
+#[test]
+fn what_the_host_holds_for_a_job_has_a_limit() {
+    use mg_plugin::run_console;
+    let run = |code: &str| {
+        let host = Rc::new(TestHost::default());
+        run_console(code, Input::new(module(), None), host).map(|_| ()).map_err(|e| e.to_string())
+    };
+    // One call: a gigabyte of empty lines.
+    let started = std::time::Instant::now();
+    let e = run("mg.tlk.new():set(16777215, \"x\")").unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    // A table within it is made, and tables let go of are given back:
+    // these are 768 MB one after another, never two at once.
+    run("local t = mg.tlk.new() t:set(100000, 'x') assert(t.lines == 100001)").unwrap();
+    run("for i = 1, 12 do local t = mg.tlk.new() t:set(999999, 'x') end").unwrap();
+    // Edits are kept until the job is done: each of these is held twice.
+    let e = run("local big = string.rep('x', 100 * 1024 * 1024)\n\
+                 for i = 1, 5 do ctx.edit:write_bytes(`big{i}.txt`, big) end")
+    .unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+    // And what it caught the error of is still refused.
+    let e = run("local t = mg.tlk.new()\n\
+                 pcall(function() t:set(16777215, 'x') end)\n\
+                 assert(t.lines == 0)\n\
+                 t:set(16777215, 'x')")
+    .unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+}
+
 #[test]
 fn a_bad_edit_fails_where_it_is_made() {
     let host = Rc::new(TestHost::default());

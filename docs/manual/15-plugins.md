@@ -61,7 +61,7 @@ A plugin's code runs in a sandbox. It can:
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond
-the above: the language it is written in is given no means to. It has a limit on memory (256 MB), and
+the above: the language it is written in is given no means to. It has a limit on memory (256 MB of its own, and 512 MB of what Moonglow holds for it), and
 **Cancel** stops it.
 
 A plugin never changes the module itself. What a command hands back is a

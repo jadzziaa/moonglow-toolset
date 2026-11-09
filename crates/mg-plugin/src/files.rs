@@ -240,10 +240,14 @@ fn write(s: &Shared, dir: &Path, name: &str, bytes: Vec<u8>) -> mlua::Result<()>
             .borrow_mut()
             .push(crate::FolderWrite { dir: dir.to_path_buf(), files: Vec::new() });
     }
+    s.budget_held.keep(bytes.len())?;
     let mut folders = s.folders.borrow_mut();
     let files = &mut folders.iter_mut().find(|f| f.dir == dir).expect("added").files;
     match files.iter_mut().find(|(n, _)| n == name) {
-        Some(old) => old.1 = bytes,
+        Some(old) => {
+            s.budget_held.give_back(old.1.len());
+            old.1 = bytes;
+        }
         None => files.push((name.to_string(), bytes)),
     }
     Ok(())
@@ -413,8 +417,13 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
 /// `mg.image(bytes, kind?)`: a PNG, TGA or DDS picture decoded.
 pub(crate) fn image(
     lua: &Lua,
+    held: &Rc<crate::runtime::Budget>,
     (bytes, kind): (mlua::LuaString, Option<String>),
 ) -> mlua::Result<Table> {
+    let (width, height) =
+        size_of(&bytes.as_bytes(), kind.as_deref()).or_else(|e| fail(format!("mg.image: {e}")))?;
+    // (Its pixels are the host's for as long as the plugin has it.)
+    let charge = held.hold(width as usize * height as usize * 4)?;
     let (width, height, data) =
         decode(&bytes.as_bytes(), kind.as_deref()).or_else(|e| fail(format!("mg.image: {e}")))?;
     let t = lua.create_table()?;
@@ -423,6 +432,7 @@ pub(crate) fn image(
     t.set(
         "pixel",
         lua.create_function(move |_, (_, x, y): (This, f64, f64)| {
+            let _held = &charge;
             if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
                 return fail(format!("the picture has no pixel ({x}, {y})"));
             }

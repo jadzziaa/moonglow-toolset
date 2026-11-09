@@ -99,6 +99,7 @@ pub(crate) fn run_export(
             let out = lua.create_table()?;
             out.set("name", name.as_str())?;
             let kept = files.clone();
+            let held = sh.budget_held.clone();
             if decl.folder {
                 out.set(
                 "write",
@@ -112,10 +113,14 @@ pub(crate) fn run_export(
                     if bytes.as_bytes().len() as u64 > MAX_FILE {
                         return fail(format!("{file} is too large to write"));
                     }
+                    held.keep(bytes.as_bytes().len())?;
                     let bytes = bytes.as_bytes().to_vec();
                     let mut all = kept.borrow_mut();
                     match all.iter_mut().find(|(n, _)| *n == file) {
-                        Some(old) => old.1 = bytes,
+                        Some(old) => {
+                            held.give_back(old.1.len());
+                            old.1 = bytes;
+                        }
                         None => all.push((file, bytes)),
                     }
                     Ok(())
@@ -129,7 +134,9 @@ pub(crate) fn run_export(
                         if bytes.as_bytes().len() as u64 > MAX_FILE {
                             return fail(format!("{file} is too large to write"));
                         }
-                        *kept.borrow_mut() = vec![(file.clone(), bytes.as_bytes().to_vec())];
+                        held.keep(bytes.as_bytes().len())?;
+                        let had = kept.replace(vec![(file.clone(), bytes.as_bytes().to_vec())]);
+                        held.give_back(had.iter().map(|(_, b)| b.len()).sum());
                         Ok(())
                     })?,
                 )?;
