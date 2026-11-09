@@ -1581,7 +1581,7 @@ mod tests {
         let read = Settings::read_eframe(&path, key);
         assert!(read.settings.light_theme && !read.settings.no_shadows);
         let kept = read.kept.clone().expect("kept aside");
-        assert_eq!(copies(), [kept.clone()]);
+        assert_eq!(copies(), std::slice::from_ref(&kept));
         assert!(kept.file_name().unwrap().to_string_lossy().starts_with("app.ron.unreadable-"));
         assert_eq!(std::fs::read(&kept).unwrap(), as_it_was);
         let said = read.problem().unwrap();
