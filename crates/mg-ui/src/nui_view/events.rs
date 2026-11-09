@@ -429,7 +429,7 @@ fn insert_menu(ui: &mut Ui, handler: &mg_nui::Handler, s: &Settings) -> Option<S
         s.variants.keys().filter_map(|v| layouts::target_for(s, v)).collect();
     let mut code = None;
     ui.menu_button("Insert…", |ui| {
-        if ui.button("Close window").clicked() {
+        if ui.button("Close Window").clicked() {
             code = with(mg_nui::Action::Close);
         }
         let submenu =
@@ -538,7 +538,7 @@ pub(super) fn editor(
                         ui.weak(target_name(&handler_target(handler), doc));
                     }
                     let key = mg_nui::handler_key(handler);
-                    if ui.button("Edit code").on_hover_text("Open the event script here").clicked()
+                    if ui.button("Edit Code").on_hover_text("Open the event script here").clicked()
                     {
                         state.event_script = Some(EventScript {
                             settings: s.clone(),
@@ -654,7 +654,7 @@ pub(super) fn editor(
                     }
                 },
             );
-            if ui.button("+ Add handler").on_hover_text(explanation(&event)).clicked() {
+            if ui.button("+ Add Handler").on_hover_text(explanation(&event)).clicked() {
                 let element = element(t, &event, doc, s, state);
                 s.handlers.push(mg_nui::Handler::new(event.clone(), element, mg_nui::Action::Code));
             }

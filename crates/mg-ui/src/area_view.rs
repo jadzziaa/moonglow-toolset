@@ -2800,12 +2800,29 @@ fn share_shown(app: &mut Moonglow, view: &AreaView) {
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     let was = (view.show, view.show_start);
     // (Icons only: each glyph alone, its name in its tip.)
-    let tools = crate::icons::Tools::of(&app.settings);
-    ui.horizontal_wrapped(|ui| {
+    // (Those Options › Area › Toolbar hides left out.)
+    let tools = crate::icons::Tools::of_area(&app.settings);
+    let hidden = app.settings.hidden_area_tools.clone();
+    // A right click on the toolbar between its buttons: which it shows (its
+    // rectangle from the frame before, under the buttons).
+    let row_id = ui.id().with("area-toolbar-row");
+    if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(row_id)) {
+        let behind = ui.interact(rect, row_id.with("menu"), egui::Sense::click());
+        behind.context_menu(|ui| {
+            egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
+                toolbar_menu(ui, &mut app.settings.hidden_area_tools, false);
+            });
+        });
+    }
+    let row = ui.horizontal_wrapped(|ui| {
         use crate::icons;
         for kind in ObjectKind::ALL {
             let (on, name) = (&mut view.show[kind.index()], kind.label());
-            tools.toggle(ui, on, icons::object(kind), name, &format!("Show {name}"));
+            if hidden.contains(&icons::area_tool_kind(name)) {
+                continue;
+            }
+            let all = tools.showing_all();
+            all.toggle(ui, on, icons::object(kind), name, &format!("Show {name}"));
         }
         tools.toggle(
             ui,
@@ -2844,7 +2861,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.unlit_areas = !view.lit;
         }
-        shadows_button(ui, view, tools, &mut app.settings.shadow_quality);
+        if !tools.hides("Shadows") {
+            shadows_button(ui, view, tools, &mut app.settings.shadow_quality);
+        }
         let kinds = (view.shadows, view.creature_shadows, view.light_shadows);
         let s = &mut app.settings;
         if kinds != (!s.no_shadows, !s.no_creature_shadows, !s.no_light_shadows) {
@@ -2852,27 +2871,29 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 (!kinds.0, !kinds.1, !kinds.2);
         }
         tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
-        let before = view.fade;
-        // (With Icons only, a glyph for what the list is: its tip says.)
-        let fade = match tools.icons_only {
-            true => format!("{} {}", icons::FADE, view.fade.name()),
-            false => format!("Fade Geometry: {}", view.fade.name()),
-        };
-        let fits = Fits::before(ui, "fade-geometry", &fade);
-        // (The arrow keys step through it once it is clicked, as through
-        // every list of choices.)
-        let r = crate::widgets::dropdown("fade-geometry")
-            .selected_text(fade)
-            .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
-            .on_hover_text(
-                "Fade Geometry: tiles without the parts that fade in the game to show a \
-                 character behind them (roofs, upper walls), to see and place what is under \
-                 them: never, while working on objects (not with Select Tiles or a terrain \
-                 brush), or always",
-            );
-        fits.after(ui, &r);
-        if view.fade != before {
-            app.settings.fade_geometry = view.fade as u8;
+        if !tools.hides("Fade Geometry") {
+            let before = view.fade;
+            // (With Icons only, a glyph for what the list is: its tip says.)
+            let fade = match tools.icons_only {
+                true => format!("{} {}", icons::FADE, view.fade.name()),
+                false => format!("Fade Geometry: {}", view.fade.name()),
+            };
+            let fits = Fits::before(ui, "fade-geometry", &fade);
+            // (The arrow keys step through it once it is clicked, as through
+            // every list of choices.)
+            let r = crate::widgets::dropdown("fade-geometry")
+                .selected_text(fade)
+                .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
+                .on_hover_text(
+                    "Fade Geometry: tiles without the parts that fade in the game to show a \
+                     character behind them (roofs, upper walls), to see and place what is under \
+                     them: never, while working on objects (not with Select Tiles or a terrain \
+                     brush), or always",
+                );
+            fits.after(ui, &r);
+            if view.fade != before {
+                app.settings.fade_geometry = view.fade as u8;
+            }
         }
         let mut animated = !app.settings.still_objects;
         if tools
@@ -2968,46 +2989,52 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let music = &mut app.settings.ambient_music;
         tools.toggle(ui, music, icons::MUSIC, "Music", "Play ambient music in area");
         ui.separator();
-        let snap = if tools.icons_only { icons::SNAP } else { "Snap:" };
-        let grid = |v: Option<u16>| {
-            v.map_or(format!("{snap} off"), |cm| format!("{snap} {} m", f32::from(cm) / 100.0))
-        };
-        let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
-        let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
-        let r = crate::widgets::dropdown("snap-grid")
-            .selected_text(grid(app.settings.snap_grid))
-            .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
-            .on_hover_text("Snap: moved and placed objects snap to this grid");
-        fits.after(ui, &r);
-        let turn = if tools.icons_only { icons::TURN } else { "Turn:" };
-        let angle = |v: Option<u16>| v.map_or(format!("{turn} free"), |a| format!("{turn} {a}°"));
-        let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
-        let angles = [None, Some(5), Some(15), Some(45), Some(90)];
-        let r = crate::widgets::dropdown("snap-angle")
-            .selected_text(angle(app.settings.snap_angle))
-            .show_with(
-                ui,
-                &mut app.settings.snap_angle,
-                || angles.to_vec(),
-                |ui, snap| {
-                    for a in angles {
-                        ui.selectable_value(snap, a, angle(a));
-                    }
-                    // Any other angle, in whole degrees.
-                    ui.horizontal(|ui| {
-                        ui.label("Other");
-                        let mut degrees = snap.unwrap_or(30);
-                        let field = egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
-                        if ui.add(field).changed() {
-                            *snap = Some(degrees);
+        if !tools.hides("Snap") {
+            let snap = if tools.icons_only { icons::SNAP } else { "Snap:" };
+            let grid = |v: Option<u16>| {
+                v.map_or(format!("{snap} off"), |cm| format!("{snap} {} m", f32::from(cm) / 100.0))
+            };
+            let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
+            let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
+            let r = crate::widgets::dropdown("snap-grid")
+                .selected_text(grid(app.settings.snap_grid))
+                .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
+                .on_hover_text("Snap: moved and placed objects snap to this grid");
+            fits.after(ui, &r);
+        }
+        if !tools.hides("Turn") {
+            let turn = if tools.icons_only { icons::TURN } else { "Turn:" };
+            let angle =
+                |v: Option<u16>| v.map_or(format!("{turn} free"), |a| format!("{turn} {a}°"));
+            let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
+            let angles = [None, Some(5), Some(15), Some(45), Some(90)];
+            let r = crate::widgets::dropdown("snap-angle")
+                .selected_text(angle(app.settings.snap_angle))
+                .show_with(
+                    ui,
+                    &mut app.settings.snap_angle,
+                    || angles.to_vec(),
+                    |ui, snap| {
+                        for a in angles {
+                            ui.selectable_value(snap, a, angle(a));
                         }
-                    });
-                },
-            )
-            .on_hover_text(
-                "Turn: turned objects snap to this angle; Q and E turn by it (15° when free)",
-            );
-        fits.after(ui, &r);
+                        // Any other angle, in whole degrees.
+                        ui.horizontal(|ui| {
+                            ui.label("Other");
+                            let mut degrees = snap.unwrap_or(30);
+                            let field =
+                                egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
+                            if ui.add(field).changed() {
+                                *snap = Some(degrees);
+                            }
+                        });
+                    },
+                )
+                .on_hover_text(
+                    "Turn: turned objects snap to this angle; Q and E turn by it (15° when free)",
+                );
+            fits.after(ui, &r);
+        }
         tools.toggle(
             ui,
             &mut app.settings.turn_together,
@@ -3025,7 +3052,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
              the pointer (a book on a table, a skull on an altar), up to 2 m above the ground; \
              off, on the ground. Drop onto Object (Shift+G) sets what is selected so after",
         );
-        walkmesh_button(ui, view, tools);
+        if !tools.hides("Walkmesh…") {
+            walkmesh_button(ui, view, tools);
+        }
         let tip = app.keymap.titled(
             "Select tiles rather than objects (Aurora's Select Terrain)",
             crate::keys::Cmd::SelectTiles,
@@ -3122,6 +3151,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
         }
     });
+    ui.data_mut(|d| d.insert_temp(row_id, row.response.rect));
     // The placeable brush's settings, while Paint is on.
     if app.paint {
         crate::paint_mode::strip(app, ui);
@@ -4175,6 +4205,56 @@ impl Fits {
 /// The toolbar's one button for the walkmeshes: a click shows or hides
 /// the ground's (or hides whichever are shown); held, or right-clicked,
 /// it opens the two to choose from, the ground's and the objects'.
+/// The area toolbar's buttons to show, ticked (its right-click menu, one
+/// to a line, and Options › Area › Toolbar, `wrapped` in rows): `hidden`,
+/// those left out, by name.
+pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped: bool) {
+    use crate::icons::{AREA_TOOLS, area_tool_kind};
+    let mut ticks: Vec<(String, String)> = (ObjectKind::ALL.iter())
+        .map(|k| (area_tool_kind(k.label()), format!("Show {}", k.label())))
+        .collect();
+    // (The play-sounds button by what it does: "Sounds" is a filter's.)
+    ticks.extend(AREA_TOOLS.iter().map(|n| {
+        let label = if *n == "Sounds" { "Play Sounds" } else { n };
+        (n.to_string(), label.to_string())
+    }));
+    let mut tick = |ui: &mut egui::Ui, (id, label): &(String, String)| {
+        let mut shown = !hidden.contains(id);
+        if ui.checkbox(&mut shown, label).changed() {
+            hidden.retain(|h| h != id);
+            if !shown {
+                hidden.push(id.clone());
+            }
+        }
+    };
+    if wrapped {
+        // (Columns as many as the width in sight holds: a page that
+        // scrolls sideways has room without end.)
+        let room = ui.available_width().min(ui.clip_rect().width());
+        let columns = ((room / 180.0) as usize).max(1);
+        egui::Grid::new("area-toolbar-ticks").num_columns(columns).show(ui, |ui| {
+            for (i, t) in ticks.iter().enumerate() {
+                tick(ui, t);
+                if (i + 1) % columns == 0 {
+                    ui.end_row();
+                }
+            }
+        });
+    } else {
+        ui.label(egui::RichText::new("Show on the Toolbar").strong());
+        for (i, t) in ticks.iter().enumerate() {
+            if i == ObjectKind::ALL.len() {
+                ui.separator();
+            }
+            tick(ui, t);
+        }
+        ui.separator();
+    }
+    if ui.button("Show All").on_hover_text("Every button on the area's toolbar").clicked() {
+        hidden.clear();
+    }
+}
+
 fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let on = view.walkmesh || view.object_walkmesh;
     let label = tools.label(crate::icons::WALKMESH, "Walkmesh…");

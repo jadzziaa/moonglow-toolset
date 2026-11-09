@@ -645,7 +645,7 @@ fn an_inventory_s_items_are_added_to_each_and_taken_from_each() {
     let taken = each(&mut h, &keys, items);
     assert!(taken.iter().all(|t| !t.contains(&"nw_wswls001".to_string())), "{taken:?}");
     assert_eq!(taken[1], ["nw_it_torch001"]);
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Remove item"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Remove Item"));
     undo(&mut h);
     // Paste: the item copied, added to each.
     h.state_mut().item_clip = vec![held_entry("nw_it_gem001", 0)];

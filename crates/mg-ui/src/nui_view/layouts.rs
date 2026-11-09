@@ -227,8 +227,8 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
     let id = ui.make_persistent_id("new-layout-draft");
     let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(id));
     ui.horizontal_wrapped(|ui| {
-        let empty = ui.button("+ Add variant").clicked();
-        let copied = copy.filter(|_| ui.button("Copy initial contents").clicked()).cloned();
+        let empty = ui.button("+ Add Variant").clicked();
+        let copied = copy.filter(|_| ui.button("Copy Initial Contents").clicked()).cloned();
         if draft.is_none() && (empty || copied.is_some()) {
             draft = Some(Draft {
                 name: unique("variant", |n| s.variants.contains_key(n)),
@@ -325,7 +325,7 @@ pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
                 widgets::field_label(ui, format!("Editing variant: {name}"));
                 ui.weak(if target.is_empty() { "No target assigned" } else { "Whole window" });
             }
-            if ui.button("Back to main window").clicked() {
+            if ui.button("Back to Main Window").clicked() {
                 edit(state, None);
             }
         });
@@ -340,7 +340,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
         widgets::table_heading(ui, format!("Editing variant: {name}"));
         if let Some(target) = target_for(s, &name) {
             ui.label(format!("Belongs to Swap layout · {target}"));
-            if ui.button("Swap layout properties").clicked() {
+            if ui.button("Swap Layout Properties").clicked() {
                 select_host(state, s, &target);
             }
         }
@@ -351,7 +351,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     let ty = node["type"].as_str().unwrap_or_default();
     if !ty.is_empty() && (ty != "group" || !is_swap(s, node)) {
         if ui
-            .button("Convert to Swap layout")
+            .button("Convert to Swap Layout")
             .on_hover_text(
                 "Wraps it in a Group without a border, whose contents a handler can replace",
             )
@@ -372,7 +372,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
             } else {
                 ui.label(format!("Target: {group}"));
             }
-            if ui.button("Edit initial contents").clicked() {
+            if ui.button("Edit Initial Contents").clicked() {
                 state.selected = format!("{path}/children/0");
             }
             for name in variants(s, &group) {
@@ -469,7 +469,7 @@ mod tests {
         h.get_all_by_label("Group").last().unwrap().click();
         h.run();
         assert!(
-            h.query_by_label("+ Add variant").is_none(),
+            h.query_by_label("+ Add Variant").is_none(),
             "Plain Group must not masquerade as a Swap layout"
         );
         h.get_by_label("Canvas Button · Close").click();
@@ -480,13 +480,13 @@ mod tests {
         let slot = initial.0["root"]["children"].as_array().unwrap().last().unwrap();
         let id = slot["id"].as_str().unwrap();
         assert!(is_swap(&initial.1, slot));
-        h.get_by_label("+ Add variant").click();
+        h.get_by_label("+ Add Variant").click();
         h.run();
         // (The dialog's Cancel, drawn after the one under the editor.)
         h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(read(&h), initial);
-        h.get_by_label("+ Add variant").click();
+        h.get_by_label("+ Add Variant").click();
         h.run();
         h.get_by_label("Horizontal").click();
         h.run();
@@ -500,7 +500,7 @@ mod tests {
             authored.1.handlers.is_empty(),
             "Creating variants must not install a switch event"
         );
-        h.get_by_label("Swap layout properties").click();
+        h.get_by_label("Swap Layout Properties").click();
         h.run();
         h.get_by_label("Edit variant · variant");
         assert_eq!(read(&h), authored, "Returning to the slot must not edit its contents");
@@ -607,7 +607,7 @@ mod tests {
         let rows =
             |h: &Harness<'_, Moonglow>, labels: [&str; 3]| labels.map(|l| h.get_by_label(l).rect());
         let [start, initial, first] =
-            rows(&h, ["Initial contents", "Label · Initial", "Variant · details"]);
+            rows(&h, ["Initial Contents", "Label · Initial", "Variant · details"]);
         assert!(start.top() < initial.top() && initial.top() < first.top());
         assert!(initial.left() > start.left());
         h.get_by_label("Variant · details").click();
@@ -633,7 +633,7 @@ mod tests {
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert_eq!(read(&h), original);
-        h.get_by_label("Back to main window").click();
+        h.get_by_label("Back to Main Window").click();
         h.run();
         h.get_by_label("Canvas Label · Initial");
         assert_eq!(read(&h), original);
@@ -722,7 +722,7 @@ mod tests {
         let before = read(&h);
         h.get_by_label("Canvas Button · Close").click();
         h.run();
-        h.get_by_label("Convert to Swap layout").click();
+        h.get_by_label("Convert to Swap Layout").click();
         h.run();
         let wrapped = read(&h);
         assert_eq!(
@@ -731,7 +731,7 @@ mod tests {
         );
         assert!(wrapped.1.handlers.is_empty());
         assert!(is_swap(&wrapped.1, &wrapped.0["root"]["children"][1]));
-        h.get_by_label("Copy initial contents").click();
+        h.get_by_label("Copy Initial Contents").click();
         h.run();
         h.get_by_label("Create").click();
         h.run();
@@ -757,16 +757,16 @@ mod tests {
         // explicit Layers row (the earlier Group button is the palette).
         h.get_all_by_label("Group").last().unwrap().click();
         h.run();
-        h.get_by_label("Convert to Swap layout").click();
+        h.get_by_label("Convert to Swap Layout").click();
         h.run();
         let converted = read(&h);
-        h.get_by_label("Copy initial contents").click();
+        h.get_by_label("Copy Initial Contents").click();
         h.run();
         // (The dialog's Cancel, drawn after the one under the editor.)
         h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(read(&h), converted);
-        h.get_by_label("Copy initial contents").click();
+        h.get_by_label("Copy Initial Contents").click();
         h.run();
         h.get_by_label("Create").click();
         h.run();
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(settings.variants["variant"], before.0["root"]["children"][0]["children"][0]);
         assert_eq!(doc["root"]["children"][0]["id"], "swap_group");
         assert_eq!(doc["root"]["children"][1], before.0["root"]["children"][1]);
-        h.get_by_label("Back to main window").click();
+        h.get_by_label("Back to Main Window").click();
         h.run();
         assert_eq!(read(&h), (doc, settings));
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();

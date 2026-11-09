@@ -107,17 +107,17 @@ fn cursor_name(v: i64) -> String {
 /// The page: everything (`full`), or only `MiscVisuals` (triggers).
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
     if full {
-        crate::widgets::section_heading(ui, "Texture replacements");
+        crate::widgets::section_heading(ui, "Texture Replacements");
         f.mixed_line(ui, "TextureReplace");
         ui.weak("A texture of the object's models drawn with another (not PLT textures).");
         super::replacements::textures(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
-        crate::widgets::section_heading(ui, "Animation replacements");
+        crate::widgets::section_heading(ui, "Animation Replacements");
         f.mixed_line(ui, "AnimationReplace");
         ui.weak("An animation of the object's model played as another.");
         super::replacements::animations(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
-        crate::widgets::section_heading(ui, "Shader parameters");
+        crate::widgets::section_heading(ui, "Shader Parameters");
         f.mixed_line(ui, "Material");
         ui.weak(
             "Values a material's shader reads (uniforms): only an MTR that names its own \

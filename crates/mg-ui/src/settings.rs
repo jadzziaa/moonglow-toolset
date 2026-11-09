@@ -581,6 +581,10 @@ pub struct Settings {
     /// and the area view's buttons show their glyphs alone, their names
     /// in their tips (the default: Icons and text).
     pub toolbar_icons_only: bool,
+    /// Options › Area › Toolbar: the area view's toolbar's buttons left
+    /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as
+    /// "Show Creatures"). A builder's ask: a toolbar of what is used.
+    pub hidden_area_tools: Vec<String>,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
     pub ui_scale: Option<u16>,

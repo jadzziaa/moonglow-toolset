@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T21:32:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
 ---
 
 # Options
@@ -18,7 +18,7 @@ the module is opened again from its file.
 
 ## Folders
 
-### Game installation
+### Game Installation
 
 - **Neverwinter Nights installation**: the game's folder (with `data/`
   and `bin/` in it). Moonglow reads the game's data from here.
@@ -45,7 +45,7 @@ the module is opened again from its file.
   the field and in the log as the game data loads, as nothing is found
   there.
 
-### Game content
+### Game Content
 
 - **Read Steam Workshop content**: off by default, as in Aurora: an item
   you subscribed to for play is not your module's, and a module that
@@ -87,7 +87,7 @@ the module is opened again from its file.
   has a nasher project's own files, a module folder's and a `.mod` read
   again when another program changes them (see [Modules](03-modules.md)).
 
-### Sending files
+### Sending Files
 
 - **Scratch folder**: where **To Scratch** (the script editor, the area
   view) and **Export › Copy to Scratch Folder** (the module tree) copy a script
@@ -184,9 +184,17 @@ the module is opened again from its file.
   half changed is hard to see and to put right later (Undo does). See
   [Areas](04-areas.md#painting-terrain).
 
+### Toolbar
+
+Which buttons the area's toolbar shows: a tick for each (the objects'
+filters as **Show Creatures**…, the button that plays placed sounds as
+**Play Sounds**), all of them shown at first; **Show All** puts back
+every one. A right click on the toolbar between its buttons opens the
+same list. Moonglow's own (a builder's ask: a toolbar of what is used).
+
 ## General
 
-### Saving and exporting
+### Saving and Exporting
 
 - **Create backups of modules**: each save also keeps the module as it
   was in `<name>.BackupMod`.
@@ -202,7 +210,7 @@ the module is opened again from its file.
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
 
-### Opening modules
+### Opening Modules
 
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
@@ -273,7 +281,7 @@ the module is opened again from its file.
   `metal`), when set, decides over this setting (and is kept as the
   setting is): a way out if the one chosen doesn't start.
 
-### Windows and tabs
+### Windows and Tabs
 
 - **Open Properties as tabs of one window**: on by default. A
   blueprint's or a placed object's Properties open as a tab of the window
@@ -305,7 +313,7 @@ the module is opened again from its file.
   comes to the front of a window while you work elsewhere (a script
   opened from a field's Edit) counts as used there.
 
-### Module tree and palettes
+### Module Tree and Palettes
 
 - **Show the object selected in an area in the module tree**: on by
   default. An object selected in an area's view opens its area out in
@@ -455,7 +463,7 @@ outside Moonglow) always ask.
   window of its own. (Scripts docked in the main pane open there either
   way.)
 
-### External editor
+### External Editor
 
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
@@ -476,7 +484,7 @@ outside Moonglow) always ask.
   come back; so does one Moonglow holds unsaved text of, and a new one
   (New Script, Save As) until File › Save writes its file.
 
-### Font and colors
+### Font and Colors
 
 - The editor's **font size**, syntax **colors** and **Background**
   (the theme's unless Custom is ticked), with a preview. **Reset to

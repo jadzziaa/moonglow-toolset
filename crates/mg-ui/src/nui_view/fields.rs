@@ -246,7 +246,7 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
         elements.remove(i);
     }
     let next = next_option_value(elements);
-    if ui.add_enabled(!combo || next.is_some(), egui::Button::new("+ Add option").small()).clicked()
+    if ui.add_enabled(!combo || next.is_some(), egui::Button::new("+ Add Option").small()).clicked()
     {
         if combo {
             if let Some(next) = next {
@@ -294,7 +294,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                         .default_open(values_simple(item))
                         .show(ui, |ui| {
                             value(ui, item, depth + 1);
-                            if ui.small_button("Remove item").clicked() {
+                            if ui.small_button("Remove Item").clicked() {
                                 remove = Some(i);
                             }
                         });
@@ -303,7 +303,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             if let Some(i) = remove {
                 values.remove(i);
             }
-            if ui.small_button("+ Add item").clicked() {
+            if ui.small_button("+ Add Item").clicked() {
                 values.push(values.last().cloned().unwrap_or(json!("")));
             }
         }
@@ -326,7 +326,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             }
         }
         Value::Null => {
-            ui.menu_button("Set value…", |ui| {
+            ui.menu_button("Set Value…", |ui| {
                 for (label, next) in [
                     ("Text", json!("")),
                     ("Number", json!(0.0)),
@@ -368,7 +368,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 // in the source is shown, and set there.)
                 if !slot.is_object() {
                     ui.weak("Not a series: see Advanced › JUI source.");
-                    if ui.button("Remove series").clicked() {
+                    if ui.button("Remove Series").clicked() {
                         remove = Some(i);
                     }
                     return;
@@ -396,7 +396,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                         slot[field] = value;
                     }
                 }
-                if ui.button("Remove series").clicked() {
+                if ui.button("Remove Series").clicked() {
                     remove = Some(i);
                 }
             });
@@ -404,7 +404,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         if let Some(i) = remove {
             slots.remove(i);
         }
-        if ui.button("+ Add series").clicked() {
+        if ui.button("+ Add Series").clicked() {
             slots.push(json!({
                 "type":0,"legend":"Series","color":{"r":80,"g":180,"b":240,"a":255},
                 "data":[0.0,1.0]
@@ -445,7 +445,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
             } else {
                 ui.horizontal_wrapped(|ui| {
                     ui.add(egui::Label::new(name).wrap());
-                    if ui.small_button("Use row array").clicked() {
+                    if ui.small_button("Use Row Array").clicked() {
                         let b = s.bindings.entry(name.clone()).or_default();
                         b.value = json!([b.value.clone()]);
                     }
@@ -473,23 +473,23 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
                             };
                             if let Some(v) = a.get_mut(row) {
                                 value(ui, v, 0);
-                            } else if ui.small_button("Fill missing cell").clicked() {
+                            } else if ui.small_button("Fill Missing Cell").clicked() {
                                 a.resize(row + 1, Value::Null);
                             }
                         });
                     }
                     ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("Duplicate row").clicked() {
+                        if ui.small_button("Duplicate Row").clicked() {
                             duplicate = Some(row);
                         }
-                        if ui.small_button("Delete row").clicked() {
+                        if ui.small_button("Delete Row").clicked() {
                             remove = Some(row);
                         }
                     });
                 },
             );
         }
-        let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add row")).clicked();
+        let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add Row")).clicked();
         if add || remove.is_some() || duplicate.is_some() {
             for name in arrays {
                 let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut()) else {

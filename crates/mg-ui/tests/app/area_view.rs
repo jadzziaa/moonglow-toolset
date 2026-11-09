@@ -5362,6 +5362,51 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
 }
 
+/// The area toolbar's buttons can be hidden (a builder's ask: a toolbar of
+/// what is used): Options › Area › Toolbar, kept in the settings, and the
+/// toolbar's right-click menu, where they are ticked back.
+#[test]
+fn the_area_toolbar_s_buttons_can_be_hidden() {
+    let Some((mut h, _)) = area_harness("toolbar-hidden") else { return };
+    settle(&mut h);
+    assert!(h.query_all_by_label_contains("Night").count() > 0);
+    // (The module tree names creatures too.)
+    let creatures = h.query_all_by_label_contains("Creatures").count();
+    h.state_mut().settings.hidden_area_tools = vec!["Night".into(), "Show Creatures".into()];
+    h.run_steps(3);
+    assert!(
+        h.query_all_by_label("🌙 Night").count() == 0 && h.query_all_by_label("Night").count() == 0,
+        "Night hidden"
+    );
+    assert_eq!(
+        h.query_all_by_label_contains("Creatures").count(),
+        creatures - 1,
+        "the creatures' filter hidden"
+    );
+    assert!(h.query_all_by_label_contains("Lighting").count() > 0, "the rest stays");
+    // Its right-click menu, between its buttons: Night ticked back.
+    let lighting = h.get_all_by_label_contains("Lighting").next().unwrap().rect();
+    let gap = egui::pos2(lighting.right() + 2.0, lighting.center().y);
+    h.hover_at(gap);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: gap,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Show on the Toolbar");
+    h.get_all_by_label("Night").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.hidden_area_tools, ["Show Creatures"]);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("Night").count() > 0, "Night shown again");
+}
+
 /// A list takes letters (a builder's report: a long one could only be
 /// scrolled through): open, or with its box clicked, a letter goes to the
 /// first choice that begins with it, the same letter again to the next,

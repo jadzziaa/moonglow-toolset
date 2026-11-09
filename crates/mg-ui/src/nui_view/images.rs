@@ -114,7 +114,7 @@ pub(super) fn from_disk(ui: &mut Ui) -> Option<String> {
     let field = ui.make_persistent_id("from-disk");
     let picked = ui.ctx().data_mut(|d| d.remove_temp::<String>(field));
     if ui
-        .button("From disk…")
+        .button("From Disk…")
         .on_hover_text("Add a picture file to the module and use it")
         .clicked()
     {
@@ -401,7 +401,7 @@ pub(super) fn page(
                     if ui
                         .add_enabled(
                             !missing && !is_background,
-                            egui::Button::new("Use as background").small(),
+                            egui::Button::new("Use as Background").small(),
                         )
                         .on_hover_text("Stretched under the window's controls")
                         .on_disabled_hover_text(if is_background {
@@ -418,7 +418,7 @@ pub(super) fn page(
             },
         );
         if ui
-            .button("Add images from disk…")
+            .button("Add Images from Disk…")
             .on_hover_text("Into the module, named as their files")
             .clicked()
         {

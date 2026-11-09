@@ -183,7 +183,7 @@ fn the_update_notice_appears_and_is_dismissed() {
     // (Once: frames go on without asking again.)
     h.run_steps(5);
     assert_eq!(asked.load(Ordering::SeqCst), 1);
-    h.get_by_label("Don't remind me about this version").click();
+    h.get_by_label("Don't Remind Me About This Version").click();
     h.run();
     assert!(h.query_by_label(&told).is_none());
     assert_eq!(h.state().settings.update_skipped.as_deref(), Some("99.0.0"));

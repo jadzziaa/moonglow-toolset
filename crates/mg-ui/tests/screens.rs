@@ -1314,14 +1314,14 @@ fn options_pages_whole() {
     use mg_ui::OptionsPage as P;
     // Each page from its top, then scrolled to its later headings.
     for (page, name, later) in [
-        (P::Folders, "folders", &["Sending files"][..]),
+        (P::Folders, "folders", &["Sending Files"][..]),
         (P::Area, "area", &["Editing"][..]),
         (
             P::General,
             "general",
-            &["Windows and tabs", "Questions", "Warnings", "Troubleshooting"][..],
+            &["Windows and Tabs", "Questions", "Warnings", "Troubleshooting"][..],
         ),
-        (P::ScriptEditor, "script-editor", &["External editor", "Font and colors"][..]),
+        (P::ScriptEditor, "script-editor", &["External Editor", "Font and Colors"][..]),
         (P::ConversationEditor, "conversation-editor", &["Links"][..]),
     ] {
         h.state_mut().options.as_mut().unwrap().page = page;
@@ -1384,7 +1384,7 @@ fn options_window() {
     h.get_by_label("Script Editor").click();
     shoot(&mut h, &dir, "options-script-editor");
     // Further down: the colors, the background and the preview.
-    h.get_by_label("Reset to defaults").scroll_to_me();
+    h.get_by_label("Reset to Defaults").scroll_to_me();
     shoot(&mut h, &dir, "options-script-editor-colors");
     // (A line in the log, beside its Clear.)
     h.state_mut().log.info("Verify: 0 error(s), 0 warning(s)");
@@ -7086,7 +7086,7 @@ fn nui_delete_and_rename() {
     let mut h = nui_harness(app, key, (1100.0, 700.0));
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();

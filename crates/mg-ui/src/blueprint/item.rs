@@ -1103,10 +1103,10 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     if let Some(i) = remove {
         if several {
             let out = lists::remove_property(&targets, lists::property_key(&assigned[i].p));
-            f.apply_each("Remove property", out, "Taken from");
+            f.apply_each("Remove Property", out, "Taken from");
         } else {
             f.app.actions.push(Action::Apply(Command::new(
-                "Remove property",
+                "Remove Property",
                 vec![Edit::remove_item(key, here, "PropertiesList", i)],
             )));
         }

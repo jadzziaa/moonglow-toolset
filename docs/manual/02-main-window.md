@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
 ---
 
 # The main window
@@ -76,7 +76,7 @@ ones without the window); it opens once for each release while
 Moonglow runs, and once
 it is closed a line under the toolbar says so, with **What's New…** (the
 window again),
-**Install Now**, **Later**, **Don't remind me about this version** (a
+**Install Now**, **Later**, **Don't Remind Me About This Version** (a
 later version is told again) and **×** to close it until the next check.
 
 ### Installing an update

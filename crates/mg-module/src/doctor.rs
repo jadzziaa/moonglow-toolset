@@ -53,6 +53,7 @@ pub enum Check {
     MdlRead,
     MdlText,
     MtrName,
+    MtrTexture,
     ShaderCompile,
     ShaderPair,
     TwoDaRow,
@@ -93,7 +94,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 52] = [
+    pub const ALL: [Check; 53] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -109,6 +110,7 @@ impl Check {
         Check::MdlRead,
         Check::MdlText,
         Check::MtrName,
+        Check::MtrTexture,
         Check::ShaderCompile,
         Check::ShaderPair,
         Check::TwoDaRow,
@@ -165,6 +167,7 @@ impl Check {
             Check::MdlRead => "mdl-read",
             Check::MdlText => "mdl-text",
             Check::MtrName => "mtr-name",
+            Check::MtrTexture => "mtr-texture",
             Check::ShaderCompile => "shader-compile",
             Check::ShaderPair => "shader-pair",
             Check::TwoDaRow => "2da-row",
@@ -240,6 +243,7 @@ impl Check {
                 "a model kept as text has nothing the game refuses, misreads or crashes on"
             }
             Check::MtrName => "a material's texture names fit a resource name",
+            Check::MtrTexture => "a material's textures are in the load order",
             Check::ShaderCompile => {
                 "a shader program of the module's content compiles (the game draws one that \
                  doesn't magenta; Moonglow draws with its own shader instead)"
@@ -388,9 +392,11 @@ impl Check {
             | Check::SetData
             | Check::TileFaces
             | Check::MdlRead => Group::Tilesets,
-            Check::MdlText | Check::MtrName | Check::ShaderCompile | Check::ShaderPair => {
-                Group::Models
-            }
+            Check::MdlText
+            | Check::MtrName
+            | Check::MtrTexture
+            | Check::ShaderCompile
+            | Check::ShaderPair => Group::Models,
             Check::TwoDaRow
             | Check::TwoDaRead
             | Check::TwoDaLimit
@@ -1009,7 +1015,7 @@ pub fn examine_groups(
         ResType::TWODA => {
             runs(&[TwoDaRow, TwoDaRead, TwoDaLimit, TwoDaShadow, TwoDaStrRef, TwoDaRef])
         }
-        ResType::MTR => runs(&[MtrName]),
+        ResType::MTR => runs(&[MtrName, MtrTexture]),
         ResType::MDL => runs(&[MdlText]),
         _ => false,
     };
@@ -1923,11 +1929,48 @@ fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
     Some(Some(out))
 }
 
-/// A material: texture names longer than a resource name can be (Aurora's
-/// "Pure virtual function called").
+/// A material (the one the game reads: the load order's): texture names
+/// longer than a resource name can be (Aurora's "Pure virtual function
+/// called"), and textures no layer holds as a `.dds`, `.tga` or `.plt`
+/// (`null` names none), which the game draws without (a builder's report:
+/// a hak's 149 materials named textures a build step had renamed, and
+/// Verify said nothing).
 fn material(d: &mut Doctor, source: &str, key: ResKey) {
     let Ok(data) = d.rm.get(&key) else { return };
     let mtr = mg_image::mtr::Mtr::parse(&data);
+    let held = |t: &str| {
+        mg_core::ResRef::cut(t).is_some_and(|r| {
+            [ResType::DDS, ResType::TGA, ResType::PLT]
+                .into_iter()
+                .any(|kind| d.rm.contains(&ResKey::new(r, kind)))
+        })
+    };
+    let missing: Vec<(usize, String)> = (mtr.textures.iter().enumerate())
+        .filter_map(|(slot, t)| Some((slot, t.as_ref()?.clone())))
+        .filter(|(_, t)| !t.eq_ignore_ascii_case("null") && t.len() <= 16 && !held(t))
+        .collect();
+    if !d.skip.check(Check::MtrTexture) {
+        // (Its texture0, the color, an error: the game draws it without
+        // any. Another slot's, a normal, specular or other map: drawn
+        // without that, a warning.)
+        for (slot, t) in missing {
+            let (severity, without) = match slot {
+                0 => (Severity::Error, "the game draws the material untextured"),
+                _ => (Severity::Warning, "the game draws the material without that map"),
+            };
+            d.push(
+                severity,
+                Check::MtrTexture,
+                source,
+                key,
+                format!("texture{slot}"),
+                format!(
+                    "texture {t} is in no layer of the load order (as .dds, .tga or .plt): \
+                     {without}"
+                ),
+            );
+        }
+    }
     for (slot, t) in mtr.textures.iter().enumerate() {
         if let Some(t) = t
             && t.len() > 16
@@ -4248,6 +4291,63 @@ mod tests {
         fn len(&self) -> usize {
             self.0.len()
         }
+    }
+
+    /// A material's textures are in the load order (a builder's report: a
+    /// hak's materials named textures a build step had renamed, and Verify
+    /// said nothing): one held by any layer (the hak's own, the game's) as
+    /// `.dds`, `.tga` or `.plt` is found, `null` names none, and one held by
+    /// none is an error at its slot. The material the game reads is the
+    /// one judged: a hak's own over the game's.
+    #[test]
+    fn a_material_s_textures_are_in_the_load_order() {
+        let mut game = MemContainer::new();
+        game.insert(key("game_tex", ResType::DDS), vec![0; 16]);
+        game.insert(key("over_mat", ResType::MTR), b"texture0 lost_in_game\n".to_vec());
+        let mut hak = MemContainer::new();
+        let mtr = "texture0 my_tex\ntexture1 game_tex\ntexture2 null\ntexture3 my_mat_n\n\
+                   texture4 my_skin\n";
+        hak.insert(key("my_mat", ResType::MTR), mtr.as_bytes().to_vec());
+        hak.insert(key("bare_mat", ResType::MTR), b"texture0 bare_d\n".to_vec());
+        hak.insert(key("my_tex", ResType::TGA), vec![0; 64]);
+        hak.insert(key("my_skin", ResType::PLT), vec![0; 64]);
+        hak.insert(key("over_mat", ResType::MTR), b"texture0 my_tex\n".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Erf, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine_groups(
+            &Module::new(),
+            &rm,
+            TalkTables::default(),
+            &Skip::NONE,
+            &mut Timings::default(),
+            None,
+        );
+        let found: Vec<(String, String, String)> = (f.iter())
+            .filter(|f| f.check == "mtr-texture")
+            .map(|f| (f.resource.to_string(), f.at.clone(), f.message.clone()))
+            .collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        let of =
+            |m: &str| f.iter().find(|f| f.check == "mtr-texture" && f.resource.to_string() == m);
+        let (bare, map) = (of("bare_mat.mtr").unwrap(), of("my_mat.mtr").unwrap());
+        // (Its color: an error; a map: a warning.)
+        assert_eq!((bare.at.as_str(), bare.severity), ("texture0", Severity::Error));
+        assert!(
+            bare.message.contains("bare_d is in no layer") && bare.message.contains("untextured")
+        );
+        assert_eq!((map.at.as_str(), map.severity), ("texture3", Severity::Warning));
+        assert!(map.message.contains("my_mat_n is in no layer"), "{}", map.message);
+        // Left out, as any check.
+        let skipped = examine_groups(
+            &Module::new(),
+            &rm,
+            TalkTables::default(),
+            &Skip::parse(&["mtr-texture"]).unwrap(),
+            &mut Timings::default(),
+            None,
+        );
+        assert!(skipped.iter().all(|f| f.check != "mtr-texture"));
     }
 
     /// A group left out isn't checked: nothing it would examine is read

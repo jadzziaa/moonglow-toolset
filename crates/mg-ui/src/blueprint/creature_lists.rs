@@ -446,7 +446,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.colored_label(color, statement(&game.spell_warning_text(w)));
             }
             if ui
-                .small_button("Never warn again")
+                .small_button("Never Warn Again")
                 .on_hover_text("Options › General: Show invalid creature spell assignment warning")
                 .clicked()
             {
@@ -868,7 +868,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         }
         if any
             && ui
-                .small_button("Never warn again")
+                .small_button("Never Warn Again")
                 .on_hover_text("Options › General: Show invalid creature spell assignment warning")
                 .clicked()
         {
@@ -1816,7 +1816,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.colored_label(ui.visuals().warn_fg_color, notice);
             if ui
-                .small_button("Never warn again")
+                .small_button("Never Warn Again")
                 .on_hover_text("Options › General: Show creature inventory warning")
                 .clicked()
             {

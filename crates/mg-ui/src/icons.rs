@@ -181,11 +181,74 @@ pub(crate) mod editor {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
     pub(crate) icons_only: bool,
+    /// The area toolbar's buttons left out ([`AREA_TOOLS`], a bit each by
+    /// its place there; none on other toolbars).
+    hidden: u64,
+}
+
+/// The area view's toolbar's buttons that can be hidden (Options › Area ›
+/// Toolbar, the toolbar's right-click menu), by the names they give
+/// [`Tools`]; the objects' filters are [`area_tool_kind`]'s.
+pub(crate) const AREA_TOOLS: [&str; 29] = [
+    "Start",
+    "All",
+    "None",
+    "Night",
+    "Lighting",
+    "Shadows",
+    "Fog",
+    "Fade Geometry",
+    "Animations",
+    "Grass",
+    "Tile Border",
+    "Shaders",
+    "Grid",
+    "Minimap",
+    "Sounds",
+    "Sound Ranges",
+    "Ambient",
+    "Music",
+    "Snap",
+    "Turn",
+    "Together",
+    "Onto Objects",
+    "Walkmesh…",
+    "Select Tiles",
+    "Paint",
+    "Area Properties",
+    "Reorient Camera",
+    "Go to Start Location",
+    "To Scratch",
+];
+
+/// The name an objects' filter of the area toolbar is hidden by: "Show
+/// Creatures" (the play-sounds button is "Sounds").
+pub(crate) fn area_tool_kind(label: &str) -> String {
+    format!("Show {label}")
 }
 
 impl Tools {
     pub(crate) fn of(settings: &crate::Settings) -> Tools {
-        Tools { icons_only: settings.toolbar_icons_only }
+        Tools { icons_only: settings.toolbar_icons_only, hidden: 0 }
+    }
+
+    /// The area view's toolbar's: those its settings hide left out.
+    pub(crate) fn of_area(settings: &crate::Settings) -> Tools {
+        let hidden = (AREA_TOOLS.iter().enumerate())
+            .filter(|(_, n)| settings.hidden_area_tools.iter().any(|h| h == *n))
+            .fold(0, |m, (i, _)| m | 1 << i);
+        Tools { icons_only: settings.toolbar_icons_only, hidden }
+    }
+
+    /// Whether the button named `name` is left out.
+    pub(crate) fn hides(self, name: &str) -> bool {
+        AREA_TOOLS.iter().position(|n| *n == name).is_some_and(|i| self.hidden & 1 << i != 0)
+    }
+
+    /// The same, hiding nothing (the objects' filters, named as buttons
+    /// that may be hidden).
+    pub(crate) fn showing_all(self) -> Tools {
+        Tools { hidden: 0, ..self }
     }
 
     /// A button's text: the glyph and the name, or the glyph alone.
@@ -221,6 +284,9 @@ impl Tools {
         name: &str,
         tip: &str,
     ) -> egui::Response {
+        if self.hides(name) {
+            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
+        }
         self.add(ui, egui::Button::new(self.label(glyph, name)), name, tip)
     }
 
@@ -233,6 +299,9 @@ impl Tools {
         name: &str,
         tip: &str,
     ) -> egui::Response {
+        if self.hides(name) {
+            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
+        }
         let r = ui.toggle_value(on, self.label(glyph, name));
         self.named(r, name, tip, Some(*on))
     }

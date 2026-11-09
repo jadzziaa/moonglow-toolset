@@ -824,7 +824,7 @@ fn a_held_item_s_properties_follow_the_item() {
     h.run_steps(3);
     assert_eq!(held(&mut h)[1].integer("Plot"), Some(1));
     // The one before it removed: the window follows it up the list.
-    apply(&mut h, "Remove item", vec![remove(0)]);
+    apply(&mut h, "Remove Item", vec![remove(0)]);
     assert_eq!(held_window(&h, area, "ITEM_B"), at(0));
     assert!(!shows_tag(&h, "ITEM_C"));
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -855,7 +855,7 @@ fn a_held_item_s_properties_follow_the_item() {
     // deleted).
     open(&mut h, 2);
     held_window(&h, area, "ITEM_B");
-    apply(&mut h, "Remove item", vec![remove(2)]);
+    apply(&mut h, "Remove Item", vec![remove(2)]);
     let open_items = h.state().dock.iter_all_tabs().filter(
         |(_, t)| matches!(t, Tab::Instance { area: a, path } if *a == area && path.0.len() > 1),
     );
@@ -975,7 +975,7 @@ fn a_placed_store_s_items_open_their_properties_and_follow_them() {
     assert!(h.query_all_by_label("Appearance").count() >= 1, "an item's pages");
     // The first of the page's items removed: the window follows.
     let remove = Edit::remove_item(git, page.clone(), "ItemList", 0);
-    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove item", vec![remove])));
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove Item", vec![remove])));
     h.run_steps(4);
     assert_eq!(held_window(&h, area, &tag), page.item("ItemList", 0));
 }
@@ -1286,7 +1286,7 @@ fn a_held_item_s_window_keeps_what_is_typed_as_it_follows() {
     assert!(shows_tag(&h, "ITEM_B_TYPED"), "typed");
     // The item before it taken out: the window follows, still typing.
     let remove = Edit::remove_item(git, chest.clone(), "ItemList", 0);
-    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove item", vec![remove])));
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove Item", vec![remove])));
     h.run_steps(4);
     assert!(shows_tag(&h, "ITEM_B_TYPED"), "still typed where it went");
     let ws = h.state_mut().ws.as_mut().unwrap();

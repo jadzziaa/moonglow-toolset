@@ -104,7 +104,7 @@ fn the_pages_stay_in_one_row_in_a_narrow_window() {
     for width in [1200, 820, 640] {
         let h = creator(app(), [width, 850]);
         let first = h.get_by_label("Design").rect();
-        for label in ["Bindings", "Events & variants", "Event script…", "Advanced"] {
+        for label in ["Bindings", "Events & variants", "Event Script…", "Advanced"] {
             let rect = h.get_by_label(label).rect();
             assert!((rect.center().y - first.center().y).abs() < 0.1, "{width}: {label}: {rect:?}");
             assert!((rect.height() - first.height()).abs() < 0.1, "{width}: {label}: {rect:?}");
@@ -119,19 +119,19 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_by_label("Canvas Label · Label").click();
     h.run();
     let before = document(&h);
-    h.get_by_label("+ New bind for property").click();
+    h.get_by_label("+ New Bind for Property").click();
     h.run();
     // (The dialog's Cancel, drawn after the one under the editor.)
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert_eq!(document(&h), before);
-    h.get_by_label("+ New bind for property").click();
+    h.get_by_label("+ New Bind for Property").click();
     h.run();
     h.get_by_label("Create").click();
     h.run();
     assert_eq!(document(&h)["root"]["children"][0]["value"], json!({"bind":"label_value"}));
     // A bound value offers its change first.
-    h.get_all_by_label("+ Add handler").last().unwrap().click();
+    h.get_all_by_label("+ Add Handler").last().unwrap().click();
     h.run();
     assert_eq!(settings(&h).bindings["label_value"].value, json!("Label"));
     assert!(settings(&h).handlers.iter().any(|r| r.event == "watch"
@@ -156,7 +156,7 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     let script = |h: &Harness<'_, Moonglow>| text(h.state(), script_key);
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     close_script(&mut h, script_key);
     h.get_by_label("Element ID").click();
@@ -224,7 +224,7 @@ fn picture_fields_take_a_file_from_disk() {
     h.run();
     h.get_by_label_contains("Canvas Image").click();
     h.run();
-    h.get_all_by_label("From disk…").next().unwrap().click();
+    h.get_all_by_label("From Disk…").next().unwrap().click();
     h.run();
     h.run();
     let module = &h.state().ws.as_ref().unwrap().module;
@@ -234,7 +234,7 @@ fn picture_fields_take_a_file_from_disk() {
     h.get_by_label("Draw layer 1 · Image").click();
     h.run();
     h.run();
-    h.get_all_by_label("From disk…").last().unwrap().click();
+    h.get_all_by_label("From Disk…").last().unwrap().click();
     h.run();
     h.run();
     assert!(
@@ -287,7 +287,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     h.get_by_label("Images").click();
     h.run();
     let key = ResKey::parse("my_bg", ResType::TGA).unwrap();
-    h.get_by_label("Add images from disk…").click();
+    h.get_by_label("Add Images from Disk…").click();
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
     // Name it in the window: it is listed, and can be the background.
@@ -297,7 +297,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     doc["root"]["children"] = json!([{"type":"image","value":"my_bg","height":40.0}]);
     h.state_mut().ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&doc).unwrap());
     h.run();
-    h.get_by_label("Use as background").click();
+    h.get_by_label("Use as Background").click();
     h.run();
     let doc: Value =
         serde_json::from_slice(h.state().ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap();
@@ -385,7 +385,7 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     // Edit code writes the handlers' sections and opens the script at this one.
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     let text = script(&h);
     assert!(text.contains("// mg:begin click mg_close"));
@@ -396,11 +396,11 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     close_script(&mut h, script_key);
     h.get_by_label("Insert…").click();
     h.run();
-    h.get_by_label("Close window").click();
+    h.get_by_label("Close Window").click();
     h.run();
     assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
     // Event script… opens the whole script; Undo takes the insert back.
-    h.get_by_label("Event script…").click();
+    h.get_by_label("Event Script…").click();
     h.run();
     assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
@@ -419,7 +419,7 @@ fn edit_code_leaves_a_script_written_by_hand_as_it_is() {
     let mut h = creator(app, [1200, 850]);
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     assert_eq!(text(h.state(), script), manual);
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
@@ -434,7 +434,7 @@ fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed
     let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     let written = text(h.state(), script);
     let at = mg_nui::handler_offset(&written, "click mg_close").unwrap();
@@ -448,7 +448,7 @@ fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed
     close_script(&mut h, script);
     h.get_by_label("Insert…").click();
     h.run();
-    h.get_by_label("Close window").click();
+    h.get_by_label("Close Window").click();
     h.run();
     let now = text(h.state(), script);
     assert!(now.contains("int nTyped = 1; "), "what was typed is kept: {now}");
@@ -561,7 +561,7 @@ fn draw_layers_start_unclipped_and_clipping_written_by_hand_is_turned_off() {
     doc["root"]["children"][1]["draw_list_scissor"] = json!(true);
     h.state_mut().ws.as_mut().unwrap().module.set(key, serde_json::to_vec(&doc).unwrap());
     h.run();
-    h.get_all_by_label("Turn it off").next().unwrap().click();
+    h.get_all_by_label("Turn It Off").next().unwrap().click();
     h.run();
     let doc = document(&h);
     assert_eq!(doc["root"]["children"][1]["draw_list_scissor"], false);
@@ -759,11 +759,11 @@ fn a_control_selected_on_the_canvas_is_revealed_in_collapsed_layers() {
         h.get_all_by_label("Button · Close")
             .any(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
     );
-    h.get_by_label("Collapse all").click();
+    h.get_by_label("Collapse All").click();
     h.run();
     assert!(h.query_by_label("Collapse Column").is_none());
     assert!(h.query_by_label("Expand Column").is_none());
-    h.get_by_label("Expand all").click();
+    h.get_by_label("Expand All").click();
     h.run();
     assert!(
         h.get_all_by_label("Button · Close")
@@ -932,7 +932,7 @@ fn deleting_a_window_says_its_script_s_unsaved_text_and_undo_brings_it_back() {
     let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit code").click();
+    h.get_by_label("Edit Code").click();
     h.run();
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
@@ -1856,7 +1856,7 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
     let mut h = events_harness(mg_nui::Action::Close);
     h.get_by_label("Bindings").click();
     h.run();
-    h.get_by_label("+ Create bind").click();
+    h.get_by_label("+ Create Bind").click();
     h.run();
     h.get_by_label("Bind name").click();
     h.run();
@@ -1865,7 +1865,7 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
     h.get_by_label("Create").click();
     h.run();
     let before = settings(&h);
-    h.get_by_label("+ Add handler").click();
+    h.get_by_label("+ Add Handler").click();
     h.run();
     let after = settings(&h);
     assert!(
@@ -1883,7 +1883,7 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
     let mut h = events_harness(mg_nui::Action::Close);
     h.get_by_label("Bindings").click();
     h.run();
-    h.get_by_label("+ Create bind").click();
+    h.get_by_label("+ Create Bind").click();
     h.run();
     h.get_by_label("Bind name").click();
     h.run();
@@ -1891,7 +1891,7 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
     h.run();
     h.get_by_label("Create").click();
     h.run();
-    h.get_by_label("+ Add handler").click();
+    h.get_by_label("+ Add Handler").click();
     h.run();
     h.get_by_label("Name").click();
     h.run();
@@ -1915,7 +1915,7 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
 fn a_drag_in_the_editor_does_not_move_its_window() {
     let mut h = events_harness(mg_nui::Action::Close);
     let place = |h: &Harness<'_, Moonglow>| {
-        (h.get_by_label("Swap layout variants").rect(), h.get_by_label("Bindings").rect())
+        (h.get_by_label("Swap Layout Variants").rect(), h.get_by_label("Bindings").rect())
     };
     let before = place(&h);
     let from = before.0.center();
@@ -1930,7 +1930,7 @@ fn a_drag_in_the_editor_does_not_move_its_window() {
     assert_eq!(place(&h), before);
     h.get_by_label("Bindings").click();
     h.run();
-    h.get_by_label("+ Create bind");
+    h.get_by_label("+ Create Bind");
 }
 
 /// The Creator's Import… brings windows in from the files chosen, as `mg

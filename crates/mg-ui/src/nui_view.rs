@@ -905,7 +905,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                 ui.selectable_value(&mut state.page, Page::Design, "Design");
                 ui.selectable_value(&mut state.page, Page::Bindings, "Bindings");
                 ui.selectable_value(&mut state.page, Page::Events, "Events & variants");
-                if ui.add_enabled(settings.is_ok(), egui::Button::new("Event script…")).clicked()
+                if ui.add_enabled(settings.is_ok(), egui::Button::new("Event Script…")).clicked()
                     && let Ok(s) = settings
                 {
                     state.event_script = Some(events::EventScript {
@@ -938,7 +938,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                     ui.separator();
                     let there = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
                     if let Some(k) = ResKey::parse(&format!("{name}_o"), ResType::NSS)
-                        && ui.add_enabled(there(&k), egui::Button::new("Opener script")).clicked()
+                        && ui.add_enabled(there(&k), egui::Button::new("Opener Script")).clicked()
                     {
                         app.actions.push(Action::OpenResource(k));
                         ui.close();
@@ -1027,7 +1027,7 @@ fn fixes(
     let Checked { window: parsed, settings, .. } = checked;
     if d.message.starts_with("What the player enters here is lost")
         && let (Some(path), Ok(doc), Ok(s)) = (target, parsed, settings)
-        && ui.small_button("Bind it").on_hover_text("Its value becomes a new bind").clicked()
+        && ui.small_button("Bind It").on_hover_text("Its value becomes a new bind").clicked()
     {
         let (mut doc, mut s) = (doc.clone(), s.clone());
         if let Some(node) = doc.pointer_mut(path) {
@@ -1047,7 +1047,7 @@ fn fixes(
     // offered; one written by hand is turned off here.
     if d.path.ends_with("/draw_list_scissor")
         && let (Ok(doc), Ok(s)) = (parsed, settings)
-        && ui.small_button("Turn it off").clicked()
+        && ui.small_button("Turn It Off").clicked()
     {
         let (mut doc, mut s) = (doc.clone(), s.clone());
         let at = d.path.strip_prefix("/views/").and_then(|p| p.split_once('/'));
@@ -1065,7 +1065,7 @@ fn fixes(
     }
     if d.message.starts_with("The mg_close button has no Clicked handler")
         && let Ok(s) = settings
-        && ui.small_button("Add Close handler").clicked()
+        && ui.small_button("Add Close Handler").clicked()
     {
         let mut s = s.clone();
         s.handlers.push(mg_nui::Handler {
@@ -1524,7 +1524,7 @@ fn rearrange(v: &mut Value, selected: &mut String, op: Op) {
 fn repair(ui: &mut Ui, state: &mut State) {
     ui.label(REPAIR);
     ui.horizontal(|ui| {
-        if ui.button("Open JUI source").clicked() {
+        if ui.button("Open JUI Source").clicked() {
             state.page = Page::JuiSource;
         }
         if ui.button("Open Binding JSON").clicked() {
@@ -1634,7 +1634,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                             // It has none: the layout decides; the button gives it one.
                             ui.weak("Automatic");
                             if ui
-                                .small_button("Set size")
+                                .small_button("Set Size")
                                 .on_hover_text("Give it a fixed size instead")
                                 .clicked()
                             {
@@ -2014,7 +2014,7 @@ fn describe_path(doc: &Value, path: &str) -> (Option<String>, String) {
         "actions" => "Events",
         "bindings" => "Binds",
         "settings" => "Window identity",
-        "views" => "Swap layout variants",
+        "views" => "Swap Layout Variants",
         _ => "Window",
     };
     (None, what.into())
@@ -2081,11 +2081,11 @@ fn property(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("…", |ui| {
                     if let Some(name) = &bind {
-                        if ui.button("Use a constant value").clicked() {
+                        if ui.button("Use a Constant Value").clicked() {
                             *value = s.bindings.get(name).map_or(Value::Null, |b| b.value.clone());
                             ui.close();
                         }
-                    } else if can_bind && ui.button("Make dynamic (bind)").clicked() {
+                    } else if can_bind && ui.button("Make Dynamic (Bind)").clicked() {
                         let mut i = 1;
                         while s.bindings.contains_key(&format!("{key}_{i}")) {
                             i += 1;
@@ -2121,19 +2121,19 @@ fn property(
                         || (key == "legend" && ty == "chart_slot");
                     if bind.is_none() && text_property {
                         if value.get("strref").is_some() {
-                            if ui.button("Use typed text").clicked() {
+                            if ui.button("Use Typed Text").clicked() {
                                 *value = json!("");
                                 ui.close();
                             }
                         } else if value.is_string()
-                            && ui.button("Use TLK string (StrRef)").clicked()
+                            && ui.button("Use TLK String (StrRef)").clicked()
                         {
                             *value = json!({"strref":0});
                             ui.close();
                         }
                     }
                     if !matches!(key, "geometry" | "title")
-                        && ui.button("Remove property").clicked()
+                        && ui.button("Remove Property").clicked()
                     {
                         *remove = Some(key.into());
                         ui.close();
@@ -2192,7 +2192,7 @@ fn property(
         ui.weak("0 leaves that limit unrestricted.");
     } else if value.is_null() {
         if let Some(default) = property_default(ty, key) {
-            if ui.button("Set value…").clicked() {
+            if ui.button("Set Value…").clicked() {
                 *value = default;
             }
         } else {
@@ -2444,7 +2444,7 @@ mod tests {
                 header.click();
             }
             h.run();
-            assert!(h.query_by_label("Set value…").is_none(), "{ty}");
+            assert!(h.query_by_label("Set Value…").is_none(), "{ty}");
         }
         let mut node = mg_nui::template("button");
         node["label"] = Value::Null;
@@ -2453,7 +2453,7 @@ mod tests {
         });
         h.run();
         assert!(h.query_by_label("Advanced properties").is_none());
-        h.get_by_label("Set value…").click();
+        h.get_by_label("Set Value…").click();
         h.run();
         assert!(h.query_by_label("Array").is_none());
         drop(h);
@@ -2481,7 +2481,7 @@ mod tests {
             assert!(h.query_by_label("Advanced properties").is_none());
             assert!(h.query_by_label("Size & layout").is_some());
             if before["type"] == "row" {
-                assert_eq!(h.query_all_by_label("Set size").count(), 2);
+                assert_eq!(h.query_all_by_label("Set Size").count(), 2);
             }
             drop(h);
             assert_eq!(node, before, "opening properties must not mutate the document");
@@ -2507,12 +2507,12 @@ mod tests {
         h.run();
         h.get_by_label("…").click();
         h.run();
-        h.get_by_label("Use TLK string (StrRef)").click();
+        h.get_by_label("Use TLK String (StrRef)").click();
         h.run();
         assert_eq!(h.state().0, json!({"strref":0}));
         h.get_by_label("…").click();
         h.run();
-        h.get_by_label("Make dynamic (bind)").click();
+        h.get_by_label("Make Dynamic (Bind)").click();
         h.run();
         assert_eq!(h.state().0, json!({"bind":"value_1"}));
         assert_eq!(h.state().1.bindings["value_1"].value, json!({"strref":0}));

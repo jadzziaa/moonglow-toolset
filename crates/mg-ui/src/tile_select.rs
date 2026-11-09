@@ -1256,7 +1256,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             usize::from(props.main[which])
         };
         let mut keep = true;
-        crate::widgets::dialog(ctx, "Select A Color", &mut keep)
+        crate::widgets::dialog(ctx, "Select a Color", &mut keep)
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {

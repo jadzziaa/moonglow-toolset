@@ -91,7 +91,7 @@ pub(super) fn create_bind(
     ui.push_id("create-bind", |ui| {
         let id = ui.make_persistent_id("create-bind-draft");
         let mut draft = ui.ctx().data_mut(|d| d.get_temp::<BindDraft>(id));
-        if ui.button("+ Create bind").clicked() && draft.is_none() {
+        if ui.button("+ Create Bind").clicked() && draft.is_none() {
             draft = Some(BindDraft::new());
         }
         let mut finish = false;
@@ -166,7 +166,7 @@ pub(super) fn ui(
     script: Option<&str>,
 ) {
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
-        widgets::section_heading(ui, "Swap layout variants");
+        widgets::section_heading(ui, "Swap Layout Variants");
         ui.label(
             "A Swap layout is added in Design; its variants are made and edited in Properties \
              or Layers.",
@@ -181,7 +181,7 @@ pub(super) fn ui(
                     Some(id) => format!("Swap layout · {id}"),
                     None => "No target assigned".into(),
                 });
-                if ui.button("Edit variant").clicked() {
+                if ui.button("Edit Variant").clicked() {
                     state.layout_target = target.unwrap_or_default();
                     layouts::edit(state, Some(name.clone()));
                 }
@@ -295,7 +295,7 @@ pub(super) fn images(
         if row_array {
             ui.weak("Choose individual row images in the list's Row data.");
         }
-        if !node["image_region"].is_object() && ui.button("Add crop region").clicked() {
+        if !node["image_region"].is_object() && ui.button("Add Crop Region").clicked() {
             let name = preview::string(&node[field], s, None);
             let size = assets.picture(&name).map_or(egui::vec2(64.0, 64.0), |p| p.size);
             node["image_region"] = json!({"x":0.0,"y":0.0,"w":size.x,"h":size.y});

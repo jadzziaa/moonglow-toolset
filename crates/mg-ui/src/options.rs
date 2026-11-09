@@ -102,6 +102,8 @@ pub struct OptionsDraft {
     pub graphics_notices_hidden: Vec<crate::settings::GraphicsFailure>,
     pub show_graphics_notices: bool,
     pub toolbar_icons_only: bool,
+    /// The area toolbar's buttons left out ([`Settings::hidden_area_tools`]).
+    pub hidden_area_tools: Vec<String>,
     /// Per cent.
     pub ui_scale: u16,
     pub minimize_on_test: bool,
@@ -263,6 +265,7 @@ impl OptionsDraft {
             graphics_notices_hidden: s.graphics_notices_hidden.clone(),
             show_graphics_notices: false,
             toolbar_icons_only: s.toolbar_icons_only,
+            hidden_area_tools: s.hidden_area_tools.clone(),
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
             test_with_steam: !s.test_without_steam,
@@ -378,6 +381,7 @@ impl OptionsDraft {
                 s.graphics_notices_hidden.clone()
             },
             toolbar_icons_only: self.toolbar_icons_only,
+            hidden_area_tools: self.hidden_area_tools.clone(),
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
             test_without_steam: !self.test_with_steam,
@@ -570,7 +574,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| match draft.page {
                         OptionsPage::Keyboard => keyboard(ui, draft),
                         OptionsPage::Folders => {
-                            crate::widgets::section_heading(ui, "Game installation");
+                            crate::widgets::section_heading(ui, "Game Installation");
                             crate::widgets::field_label(ui, "Neverwinter Nights installation");
                             path_row(ui, &mut draft.game_root, &mut browse, Browse::Game);
                             // (Why not, looked at once per folder: it
@@ -659,7 +663,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 }
                             }
                             ui.add_space(crate::widgets::SECTION_GAP);
-                            crate::widgets::section_heading(ui, "Game content");
+                            crate::widgets::section_heading(ui, "Game Content");
                             ui.checkbox(&mut draft.workshop, "Read Steam Workshop content")
                                 .on_hover_text(
                                     "The Steam Workshop items you are subscribed to (overrides, \
@@ -687,7 +691,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  again",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
-                            crate::widgets::section_heading(ui, "Sending files");
+                            crate::widgets::section_heading(ui, "Sending Files");
                             crate::widgets::field_label(ui, "Scratch folder (To Scratch)");
                             path_row(ui, &mut draft.scratch_dir, &mut browse, Browse::Scratch);
                             ui.weak(
@@ -828,6 +832,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     .color(ui.visuals().warn_fg_color),
                                 );
                             }
+                            ui.add_space(crate::widgets::SECTION_GAP);
+                            crate::widgets::section_heading(ui, "Toolbar");
+                            ui.weak(
+                                "The buttons the area's toolbar shows (right-click the toolbar \
+                                 for the same).",
+                            );
+                            crate::area_view::toolbar_menu(ui, &mut draft.hidden_area_tools, true);
                         }
                         OptionsPage::Verify => verify(ui, draft),
                         OptionsPage::Updates => crate::updates::options_page(
@@ -1070,7 +1081,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  middle open there either way)",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
-                            crate::widgets::section_heading(ui, "External editor");
+                            crate::widgets::section_heading(ui, "External Editor");
                             crate::widgets::field_label(ui, "External Script Editor");
                             path_row(ui, &mut draft.external_editor, &mut browse, Browse::Editor);
                             ui.add_enabled(
@@ -1101,7 +1112,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_disabled_hover_text("With Open scripts in the external editor");
                             ui.add_space(crate::widgets::SECTION_GAP);
-                            crate::widgets::section_heading(ui, "Font and colors");
+                            crate::widgets::section_heading(ui, "Font and Colors");
                             script_style(ui, &mut draft.script_style);
                         }
                     });
@@ -1373,7 +1384,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
         }
         ui.end_row();
     });
-    if ui.button("Reset to defaults").clicked() {
+    if ui.button("Reset to Defaults").clicked() {
         // (The colors and the size: the indentation is not a look.)
         let (indent_tabs, indent_width) = (style.indent_tabs, style.indent_width);
         *style = ScriptStyle { indent_tabs, indent_width, ..ScriptStyle::default() };
@@ -1701,7 +1712,7 @@ fn keys_file_id() -> egui::Id {
 /// Options › General, in sections: Aurora's options first in each, in its
 /// order, then Moonglow's.
 fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
-    crate::widgets::section_heading(ui, "Saving and exporting");
+    crate::widgets::section_heading(ui, "Saving and Exporting");
     ui.checkbox(&mut draft.backups, "Create backups of modules")
         .on_hover_text("Keep the module as it was as <name>.BackupMod at each save");
     ui.checkbox(&mut draft.build_on_save, "Build module on save")
@@ -1726,7 +1737,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         ui.label("minutes");
     });
     ui.add_space(crate::widgets::SECTION_GAP);
-    crate::widgets::section_heading(ui, "Opening modules");
+    crate::widgets::section_heading(ui, "Opening Modules");
     ui.checkbox(&mut draft.last_area, "Open a module on the area opened last")
         .on_hover_text("The first time, on the first area the module tree lists");
     ui.checkbox(&mut draft.reopen_tabs, "Open a module with the tabs it had when it was closed")
@@ -1763,7 +1774,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     toolbar_buttons(ui, draft);
     graphics_backend(ui, draft, drawing_with);
     ui.add_space(crate::widgets::SECTION_GAP);
-    crate::widgets::section_heading(ui, "Windows and tabs");
+    crate::widgets::section_heading(ui, "Windows and Tabs");
     ui.checkbox(&mut draft.properties_together, "Open Properties as tabs of one window")
         .on_hover_text(
             "A blueprint's or a placed object's Properties open as a tab of \
@@ -1786,7 +1797,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
          to the next tab as they lie",
     );
     ui.add_space(crate::widgets::SECTION_GAP);
-    crate::widgets::section_heading(ui, "Module tree and palettes");
+    crate::widgets::section_heading(ui, "Module Tree and Palettes");
     ui.checkbox(
         &mut draft.tree_opens_area,
         "Show the object selected in an area in the module tree",

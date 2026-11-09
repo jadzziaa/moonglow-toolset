@@ -14,6 +14,10 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 * [Findings](findings.md) - What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 
+# Guide
+
+* [Interface text style guide](style-guide.md) - How Moonglow's interface text is written - which text takes title case and which sentence case, how tooltips are kept short, and the spelling - for every change that adds or changes a label, a heading, a tooltip or a message.
+
 # Plan
 
 * [The deferred sprint: a quarter of the list addressed](deferred-sprint.md) - The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each. (draft)

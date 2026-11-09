@@ -203,7 +203,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                             .clicked()
                         {
                             change =
-                                Some(("Remove item", removing(&targets, holder, r), "Taken from"));
+                                Some(("Remove Item", removing(&targets, holder, r), "Taken from"));
                         }
                         if m.having.len() < total
                             && ui

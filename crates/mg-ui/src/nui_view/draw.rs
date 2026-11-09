@@ -667,7 +667,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                     if ui.add_enabled(i + 1 < total, egui::Button::new("Down").small()).clicked() {
                         move_item = Some((i, i + 1));
                     }
-                    if ui.small_button("Remove drawing").clicked() {
+                    if ui.small_button("Remove Drawing").clicked() {
                         remove = Some(i);
                     }
                 });

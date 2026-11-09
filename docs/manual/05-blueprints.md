@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
 ---
 
 # Blueprints
@@ -641,7 +641,7 @@ Shared parts:
   object's look, set from the start. Aurora has no fields for these. The
   game reads them when it loads the object, so no script is needed: a
   field set here works as the script call would.
-  - **Texture replacements**: a texture of the object's model drawn with
+  - **Texture Replacements**: a texture of the object's model drawn with
     another. The page lists the textures its models use, each with its
     picture and what it is drawn as: its meshes' textures, the textures
     of the materials (MTRs) a mesh is drawn with *(material …)*, its
@@ -670,12 +670,12 @@ Shared parts:
       mostly PLTs. What it holds and its helmet and cloak are items'
       models, not listed: the game doesn't replace their textures for
       the creature, by the field or the script call.
-  - **Animation replacements**: an animation played as another. Both
+  - **Animation Replacements**: an animation played as another. Both
     are picked from the animations of the object's model and its
     supermodels (a list with **Filter** when there are many); **Add**
     adds the pair, **Reset** removes one. Names the model lacks are kept
     and shown *(not in the model)*, and **Any name** adds any two.
-  - **Shader parameters**: an integer or four numbers a material's shader
+  - **Shader Parameters**: an integer or four numbers a material's shader
     reads (`SetMaterialShaderUniformInt` and `…Vec4`). They do nothing
     with the stock shaders. The material is an MTR's name, and the game
     passes the values only to a mesh drawn with that MTR when the MTR
@@ -700,7 +700,7 @@ Shared parts:
     the Shaders switch on. A static placeable takes none in the game (the
     client merges it into the tiles as made): the section says so, and
     Verify warns of one (`static-tint`). The variables are where a tint
-    is set: a `tdodTint` stored in **Shader parameters** as well is said
+    is set: a `tdodTint` stored in **Shader Parameters** as well is said
     there, and Verify warns of one a variable also sets (`tint-stored`),
     as the module's script sets the variables' over it.
   - The highlight color, the mouse cursor over the object, its text

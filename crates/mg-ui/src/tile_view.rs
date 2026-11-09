@@ -58,7 +58,7 @@ fn facts(
     if let Some(g) = group {
         ui.weak(format!("A piece of the group {}: placed with it", g.name));
     } else if ui
-        .button("Paint with it")
+        .button("Paint with It")
         .on_hover_text("Choose it in the tiles palette: a click in the area places it")
         .clicked()
     {
@@ -96,7 +96,7 @@ fn facts(
             ui.end_row();
         }
     });
-    section_heading(ui, "The rest");
+    section_heading(ui, "The Rest");
     let yes = |b: bool| if b { "yes" } else { "no" };
     let named = |n: &Option<String>| n.clone().unwrap_or_else(|| "—".into());
     egui::Grid::new(("tile-rest", tileset, tile)).num_columns(2).show(ui, |ui| {

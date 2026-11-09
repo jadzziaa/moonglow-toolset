@@ -714,7 +714,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                         .on_hover_text("What is new in it, and its downloads (opens the browser)");
                 }
                 if ui
-                    .button("Don't remind me about this version")
+                    .button("Don't Remind Me About This Version")
                     .on_hover_text("No notice for this version; a later one is told again")
                     .clicked()
                 {
@@ -814,7 +814,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
                     get(app, r.clone(), false);
                 }
                 if ui
-                    .button("Don't remind me about this version")
+                    .button("Don't Remind Me About This Version")
                     .on_hover_text("No notice for this version; a later one is told again")
                     .clicked()
                 {

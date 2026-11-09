@@ -130,7 +130,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 && ui
                     .add_enabled(
                         rows.is_none_or(|n| n <= 10000),
-                        egui::Button::new("+ New bind for property"),
+                        egui::Button::new("+ New Bind for Property"),
                     )
                     .clicked()
             {

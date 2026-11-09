@@ -786,7 +786,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     // it is opened from, at once. (Opened again, it came up behind it for
     // a frame, and with nothing to draw another, stayed there: the click
     // looked to do nothing.)
-    let picker = egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some("Select A Color")));
+    let picker = egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some("Select a Color")));
     let on_top = |h: &Harness<'_, Moonglow>| {
         h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)) == Some(picker)
     };

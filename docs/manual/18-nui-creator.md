@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-06T11:40:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -139,7 +139,7 @@ contents. Select it and use **Variants** in Properties: edit its initial content
 add an empty variant or copy the initial contents. Variants appear underneath
 that Swap layout in Layers and are edited in place, with the rest of the window
 visible. The breadcrumb returns to that area's properties. Existing controls or
-Groups can be converted with **Convert to Swap layout**.
+Groups can be converted with **Convert to Swap Layout**.
 
 A variant shows when a script sets it: add a handler (a button's **Clicked**,
 say) and **Insert… › Show variant** with the variant, or with **Initial
@@ -178,7 +178,7 @@ is 0.33333334326744080; 2.5 at none is 2). Verify exact spacing, drawing, scroll
 **Advanced › Images** lists the pictures the window shows (its Images, Image
 buttons and draw layers', its variants' too) and where the game finds each:
 the module, a hak, the game, or nowhere (the game then shows its `gui_error`
-picture). **Add images from disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
+picture). **Add Images from Disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
 the file's name is the picture's, shortened to at most 16 letters, digits, `_`
 or `-` when it is longer or has other symbols)
 into the module, to use while you work. Players get custom pictures from a
@@ -193,12 +193,12 @@ new hak. A hak open in the hak editor takes them there: it is saved at once
 (a copy of what it was kept as `.hak.bak`), unless it has other unsaved
 changes, when the log asks you to save it there (and a Move leaves the
 module its pictures until then). Pictures added to the module that the window doesn't show yet are listed
-too, ready to be the background. **Use as background**
+too, ready to be the background. **Use as Background**
 puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can
 change in Draw layers.
 
-**From disk…** beside an Image's, an Image button's or a draw layer's picture
+**From Disk…** beside an Image's, an Image button's or a draw layer's picture
 puts a picture file into the module (named as the file; a name the game can't
 read, over 16 characters or with other symbols, is shortened, and the log says
 to what) and uses it there. A file of a name the module has takes that
@@ -245,7 +245,7 @@ text as a layout.
 Unknown fields and widget types are retained. Duplicate JSON keys are reported
 instead of silently discarding a value.
 Unused null `label`/`value` slots are hidden in the inspector. For a supported
-property, **Set value…** initializes the appropriate type instead of offering
+property, **Set Value…** initializes the appropriate type instead of offering
 arbitrary JSON types. Custom data remains available in **Advanced › JUI source**.
 **Advanced properties** appears only when the selected element has additional
 editable fields; it does not show an empty section for type/version metadata.
@@ -290,7 +290,7 @@ the window's title and geometry; **Insert… › Show variant** adds the call
 that shows one in its Swap layout or the whole window.
 
 To make a fragment anywhere in the layout swappable, select it and choose
-**Convert to Swap layout**. This wraps it in an unbordered Group with a unique
+**Convert to Swap Layout**. This wraps it in an unbordered Group with a unique
 ID, keeping existing child IDs and explicit dimensions. Check the Group's
 size: native Groups do not take their size from their children. Converting
 and each new variant are undoable; neither creates an event.
@@ -333,12 +333,12 @@ inside a JSON string. Another string that happens to spell the name (a
 message, a tag, a local variable's name) is left as it is, and so is the
 name passed through a function of your own.
 
-**Edit code** opens the event script in the script editor at the handler's
-code. **Insert…** adds ready-made code to it: **Close window**, **Set bind**
+**Edit Code** opens the event script in the script editor at the handler's
+code. **Insert…** adds ready-made code to it: **Close Window**, **Set bind**
 (to its current value, written as NWScript reads it: `JsonString("…")`,
 `JsonInt(…)`, `JsonBool(…)`), **Toggle bind** and **Show variant**; a menu
 with nothing to offer is off. After that it is
-ordinary code to change. **Event script…** on the toolbar opens the whole
+ordinary code to change. **Event Script…** on the toolbar opens the whole
 script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
@@ -385,7 +385,7 @@ return of anything else (`return Foo();`) stay as you wrote them, and a
 return the compiler still refuses is said with what the function returns.
 Renaming the window renames the function and the `#include` lines.
 
-Choosing **Initial contents** in Layers returns from a variant to the
+Choosing **Initial Contents** in Layers returns from a variant to the
 original. Switching the edited variant does not change the initial in-game
 content or trigger an event. Use **Interact** on the main window to try it
 locally, then Build and try it in the game with
@@ -487,7 +487,7 @@ The event handler receives the window's events directly; generating does not
 change the module's OnNuiEvent binding. A new window has a **Clicked**
 handler for its Close button whose code closes the window. The `mg_close` ID
 has no built-in behavior: without that handler the button does nothing, and
-the checks say so (**Add Close handler** adds it).
+the checks say so (**Add Close Handler** adds it).
 
 The default opener sends the layout with `NuiCreate`. **Bindings › Client
 delivery › Load JUI from the client by resource name** instead uses
@@ -599,7 +599,7 @@ and the preview follow them.
   nothing in the game: the layers draw past the control either way. On the
   last draw layers of a window it blanks the whole window. So the Creator
   doesn't offer it (its draw layers are written with it off); a JUI that has
-  it on is flagged, an error on the last draw layers, and **Turn it off** in
+  it on is flagged, an error on the last draw layers, and **Turn It Off** in
   the problem list fixes it. The preview doesn't clip. A group's draw
   layers reach past the group out to the window's body, as the game draws
   them.

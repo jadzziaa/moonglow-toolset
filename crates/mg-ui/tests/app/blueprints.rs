@@ -3450,7 +3450,7 @@ fn the_spells_page_warns_about_invalid_assignments() {
     let warning = "This creature has spells assigned to it that are too high for its current \
                    Wizard level.";
     assert!(h.query_by_label(warning).is_some(), "Aurora's warning, without its question");
-    h.get_by_label("Never warn again").click();
+    h.get_by_label("Never Warn Again").click();
     h.run();
     assert!(h.state().settings.no_spell_warning);
     assert!(h.query_by_label(warning).is_none());

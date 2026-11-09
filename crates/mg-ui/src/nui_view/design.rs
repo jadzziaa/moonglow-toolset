@@ -379,10 +379,10 @@ fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
         state.tree_selection.clone_from(&state.selected);
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.small_button("Expand all").clicked() {
+        if ui.small_button("Expand All").clicked() {
             state.collapsed.clear();
         }
-        if ui.small_button("Collapse all").clicked() {
+        if ui.small_button("Collapse All").clicked() {
             state.collapsed.extend(tree_paths(v, &Default::default()));
             state.selected.clear();
         }
@@ -580,7 +580,7 @@ fn swap_rows(
             ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
             if ui
                 .add(
-                    egui::Button::new("Initial contents")
+                    egui::Button::new("Initial Contents")
                         .selected(state.edit_view.is_none())
                         .frame(false),
                 )
@@ -759,7 +759,7 @@ pub(super) fn bindings(
             if !s.bindings.contains_key(name) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} needs an initial value"));
-                    if ui.button("Add value").clicked() {
+                    if ui.button("Add Value").clicked() {
                         s.bindings.insert(name.clone(), Binding::default());
                     }
                 });
@@ -971,7 +971,7 @@ mod tests {
             "+ Add property",
             "Option 1 label",
             "Option 2 label",
-            "+ Add option",
+            "+ Add Option",
             "Property binding",
             "Bind formatting",
             "Events",
@@ -1041,7 +1041,7 @@ mod tests {
             let mut h =
                 Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
             h.run();
-            h.get_by_label("+ Add option").click();
+            h.get_by_label("+ Add Option").click();
             h.run();
             let elements = &h.state().doc["root"]["children"][0]["children"][0]["elements"];
             assert_eq!(elements[0][1], 0);

@@ -177,6 +177,10 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   type and defined with another, which Aurora compiles (Moonglow patches its
   vendored compiler and warns): `--test scripts` allows exactly the scripts
   that warn of it.
+- **Interface text follows [the style guide](docs/style-guide.md)**:
+  title case for titles, headings, tabs, menus and buttons, sentence case
+  for labels, tooltips and messages; a tooltip one short sentence, no
+  semicolons; American English.
 - Moonglow is GPL-3.0: GPL code (the official NWScript compiler, GPL crates)
   may be built in. Game assets, including Beamdog's shaders, are only ever
   loaded from the user's install.

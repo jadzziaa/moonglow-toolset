@@ -598,7 +598,7 @@ pub(super) fn item_list(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Remove").clicked() {
                         edits.push((
-                            "Remove item",
+                            "Remove Item",
                             Edit::remove_item(key, path.clone(), "ItemList", i),
                         ));
                     }
@@ -659,7 +659,7 @@ pub(super) fn item_list(
                         }
                         if ui.button("Remove").clicked() {
                             edits.push((
-                                "Remove item",
+                                "Remove Item",
                                 Edit::remove_item(key, path.clone(), "ItemList", i),
                             ));
                             ui.close();
