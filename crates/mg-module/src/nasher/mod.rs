@@ -151,15 +151,13 @@ impl Conversion {
     /// A GFF resource's NWNT, as `nasher unpack` writes it with `gffFormat
     /// nwnt` (`nwn_nwnt -p truncateFloats`): without the module's `Mod_ID`
     /// and an area's `Version`, as its JSON. A file with a field NWNT can't
-    /// keep (a label with a dot in it) is refused.
+    /// keep ([`mg_gff::nwnt_unkept`]: a label with a dot in it, text with
+    /// a typed `\n`) is refused.
     pub fn to_nwnt_source(&self, restype: ResType, gff: &Gff) -> Result<String, ModuleError> {
-        if let Some(path) = mg_gff::nwnt_unkept_label(&gff.root) {
+        if let Some(unkept) = mg_gff::nwnt_unkept(&gff.root, self.codepage) {
             return Err(ModuleError::Source {
                 name: format!("{restype:?}"),
-                message: format!(
-                    "{path}: NWNT can't keep a label with a dot in it; keep the project's GFF \
-                     files as JSON (gffFormat json)"
-                ),
+                message: format!("{unkept}; keep the project's GFF files as JSON (gffFormat json)"),
             });
         }
         let label = match restype {

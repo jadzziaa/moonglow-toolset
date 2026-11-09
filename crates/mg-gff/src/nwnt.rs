@@ -147,6 +147,59 @@ pub fn nwnt_unkept_label(s: &Struct) -> Option<String> {
     None
 }
 
+/// What NWNT can't keep of `s`, if anything: the first field that
+/// [`from_nwnt`] would not read back as [`to_nwnt`] was given it, as
+/// `path: why`. The format's own limits, which `nwn_nwnt` has too:
+///
+/// - a label with `.`, `$` or `=` in it, or one of the file's own fields
+///   (not a struct's or a list item's) that begins with a space (the
+///   punctuation, and the trimming of a line; `[`, `]` and a space at the
+///   end are read back, a field's name being all that is before its `$`);
+/// - text (a string, a localized string's entry) with a backslash before
+///   `n` or `r`, which reads back as a line break: `nwn_nwnt` escapes line
+///   breaks and no backslash;
+/// - a resource name with a line break in it (written as it is).
+///
+/// `None` if the whole of it can be written and read back.
+pub fn nwnt_unkept(s: &Struct, codepage: Codepage) -> Option<String> {
+    unkept(s, codepage, true)
+}
+
+fn unkept(s: &Struct, codepage: Codepage, root: bool) -> Option<String> {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        if let Some(c) = label.chars().find(|c| ".$=".contains(*c)) {
+            return Some(format!("{label}: NWNT can't keep a label with \"{c}\" in it"));
+        }
+        if root && label.trim_start() != label {
+            return Some(format!("{label:?}: NWNT can't keep a label that begins with a space"));
+        }
+        let escaped = |text: &[u8]| {
+            let text = codepage.decode(text);
+            text.contains("\\n") || text.contains("\\r")
+        };
+        const ESCAPE: &str = "NWNT can't keep text with a backslash before n or r (it reads it \
+                              back as a line break)";
+        let why = match &f.value {
+            Value::String(v) if escaped(v) => Some(ESCAPE.to_string()),
+            Value::LocString(ls) if ls.strings.iter().any(|(_, t)| escaped(t)) => {
+                Some(ESCAPE.to_string())
+            }
+            Value::ResRef(v) if v.iter().any(|b| matches!(b, b'\n' | b'\r')) => {
+                Some("NWNT can't keep a resource name with a line break in it".to_string())
+            }
+            Value::Struct(c) => unkept(c, codepage, false),
+            Value::List(items) => items.iter().find_map(|i| unkept(i, codepage, false)),
+            _ => None,
+        };
+        if let Some(why) = why {
+            let nested = matches!(f.value, Value::Struct(_) | Value::List(_));
+            return Some(format!("{label}{}{why}", if nested { "/" } else { ": " }));
+        }
+    }
+    None
+}
+
 /// Nim's hash of an integer (`hashWangYi1`, Nim 1.4 and after).
 fn nim_hash(x: u64) -> u64 {
     const P0: u64 = 0xa076_1d64_78bd_642f;
@@ -543,6 +596,56 @@ mod tests {
         assert!(refused("data_type = UTI\nN[0] = x").contains("no localized string"));
         assert!(refused("data_type = UTI\nV$Void = !!").contains("base64"));
         assert!(refused("data_type = UTI\nT$CExoString = \u{4e2d}").contains("codepage"));
+    }
+
+    /// What reads back as something else is named: the format's
+    /// punctuation in a label, a typed backslash before `n` or `r` in
+    /// text, a line break in a resource name. Line breaks themselves, a
+    /// backslash before anything else and a backslash before a line
+    /// break are kept.
+    #[test]
+    fn what_nwnt_can_t_keep_is_found() {
+        let cp = Codepage::WINDOWS_1252;
+        let back = |g: &Gff| from_nwnt(&to_nwnt(g, cp, 4), cp);
+        assert_eq!(nwnt_unkept(&sample().root, cp), None);
+        let mut kept = Gff::new(*b"UTI ");
+        kept.root.set("A", Value::String(b"C:\\dir\\x a\nb\\\n\\\r \\".to_vec()));
+        kept.root.set("B", Value::ResRef(b"a\\nb".to_vec()));
+        // (In the order they are written in: sorted.)
+        let mut inner = Struct::new(0);
+        inner.set(" led", Value::Byte(1));
+        kept.root.set("S", Value::Struct(inner));
+        kept.root.set("a[0] ", Value::Byte(1));
+        kept.root.set("b]", Value::String(b"x".to_vec()));
+        assert_eq!(nwnt_unkept(&kept.root, cp), None);
+        assert_eq!(back(&kept).unwrap(), kept);
+
+        let unkept = |label: &str, value: Value| {
+            let mut item = Struct::new(0);
+            item.set(label, value);
+            let mut g = Gff::new(*b"UTI ");
+            g.root.set("L", Value::List(vec![item]));
+            assert!(back(&g).map_or(true, |b| b != g), "{label} reads back the same");
+            nwnt_unkept(&g.root, cp).unwrap_or_else(|| panic!("{label} is not found"))
+        };
+        for text in [&b"a\\nb"[..], b"C:\\new", b"a\\\\rb"] {
+            let why = unkept("Text", Value::String(text.to_vec()));
+            assert!(
+                why.starts_with("L/Text: ") && why.contains("backslash before n or r"),
+                "{why}"
+            );
+        }
+        let name = LocString::from_text(Language::ENGLISH, Gender::Male, b"a\\nb".to_vec());
+        assert!(unkept("Name", Value::LocString(name)).contains("backslash"));
+        assert!(unkept("Ref", Value::ResRef(b"a\nb".to_vec())).contains("resource name"));
+        for label in ["a.b", "a$b", "a=b"] {
+            let why = unkept(label, Value::Byte(1));
+            assert!(why.starts_with("L/") && why.contains("a label"), "{why}");
+        }
+        let mut led = Gff::new(*b"UTI ");
+        led.root.set(" a", Value::Byte(1));
+        assert!(back(&led).unwrap() != led);
+        assert!(nwnt_unkept(&led.root, cp).unwrap().contains("begins with a space"));
     }
 
     #[test]
