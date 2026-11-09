@@ -281,6 +281,14 @@ impl Incoming {
             if !seen.insert(k) {
                 continue;
             }
+            // (As a loose file's name is held to, [`file_key`]: a module
+            // kept as files could not write it, and a project's save
+            // would pass over it.)
+            if !k.resref.is_file_name() {
+                let why = "its name is not a file's (it names a folder)".to_string();
+                out.refused.push(Refused { what: k.to_string(), why });
+                continue;
+            }
             let bytes = erf.data(e).map_err(|e| archive(&e))?.into_owned();
             match gff_problem(&k, &bytes) {
                 Some(why) => out.refused.push(Refused { what: k.to_string(), why }),
@@ -962,6 +970,23 @@ mod tests {
         let s = import_erf(&mut m, &erf, |_| true).unwrap();
         assert_eq!(s.added, [key("good", ResType::UTI)]);
         assert!(!m.contains(&key("bad", ResType::UTI)));
+    }
+
+    /// An archive's resource whose name is no file's (`../x`, `a/b`) is
+    /// refused, as a loose file of that name is: a module folder's save
+    /// failed on it from then on, and a project's passed over it.
+    #[test]
+    fn an_archive_s_resource_named_as_a_folder_is_refused() {
+        let mut w = ErfWriter::new(*b"ERF ");
+        w.add(rr("good"), ResType::NSS, b"void main() {}".to_vec()).unwrap();
+        w.add(rr("../x"), ResType::NSS, b"void main() {}".to_vec()).unwrap();
+        w.add(rr("a/b"), ResType::UTC, Gff::new(*b"UTC ").to_bytes().unwrap()).unwrap();
+        w.add(rr("c:d"), ResType::NSS, b"".to_vec()).unwrap();
+        let incoming = Incoming::archive(&w.to_bytes().unwrap()).unwrap();
+        assert_eq!(incoming.resources.len(), 1);
+        let refused: Vec<&str> = incoming.refused.iter().map(|r| r.what.as_str()).collect();
+        assert_eq!(refused, ["../x.nss", "a/b.utc", "c:d.nss"]);
+        assert!(incoming.refused.iter().all(|r| r.why.contains("not a file's")));
     }
 
     #[test]

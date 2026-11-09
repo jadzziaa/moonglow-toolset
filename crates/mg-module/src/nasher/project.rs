@@ -984,6 +984,8 @@ impl Project {
         // New files the target's sources don't take in: nasher won't pack
         // them, and the project won't read them back.
         let mut uncovered: Vec<PathBuf> = Vec::new();
+        // New resources whose names are no files': not written.
+        let mut unnamed: Vec<String> = Vec::new();
         for (key, bytes) in resources {
             match self.sources.get(key) {
                 // (A compiled script kept without its source has one now:
@@ -1002,7 +1004,16 @@ impl Project {
                     }
                 }
                 None => {
-                    let Some(path) = self.new_file(key) else { continue };
+                    let Some(path) = self.new_file(key) else {
+                        // (The rules discard it, which is the builder's
+                        // word; a name that is no file's is not, and the
+                        // resource would be gone at the next open with
+                        // nothing said.)
+                        if !key.resref.is_file_name() {
+                            unnamed.push(format!("{key:?}"));
+                        }
+                        continue;
+                    };
                     let form = self.new_form(key);
                     if !self.target().covers(&root, &path) {
                         uncovered.push(path.clone());
@@ -1052,6 +1063,18 @@ impl Project {
                 self.target().includes.join(", "),
                 left_out_kinds(&uncovered).join(", "),
                 self.include_for(&uncovered).unwrap_or_default()
+            ));
+        }
+        if !unnamed.is_empty() {
+            unnamed.sort();
+            self.warnings.push(format!(
+                "{}: not written: the name is not a file's (it names a folder), so the project \
+                 cannot keep {}, and the module is without {} when it is opened again. Rename \
+                 or delete {}.",
+                unnamed.join(", "),
+                if unnamed.len() == 1 { "it" } else { "them" },
+                if unnamed.len() == 1 { "it" } else { "them" },
+                if unnamed.len() == 1 { "it" } else { "them" },
             ));
         }
         let wrote_uncovered = !uncovered.is_empty();
@@ -1934,6 +1957,31 @@ mod tests {
         let written = std::fs::read(root.join("nasher.cfg")).unwrap();
         assert!(written.starts_with(b"# M\xf3dulo\r\n[package]\r\n"));
         assert!(Project::open(&root, None).is_ok());
+    }
+
+    /// A resource whose name is no file's (`a/b`, from an archive made by
+    /// another tool) has no file in a project: the save says so, where it
+    /// passed over it without a word and the module was without it at
+    /// the next open. One the rules discard is the builder's own word.
+    #[test]
+    fn a_resource_no_file_can_be_named_after_is_said_at_the_save() {
+        let root = scratch("unnamed");
+        std::fs::write(
+            root.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/**/*\"\n  [package.rules]\n  \
+             \"*.ndb\" = \"/dev/null\"\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let mut m = module();
+        m.save_as(&project_location(&root)).unwrap();
+        m.project.as_mut().unwrap().warnings.clear();
+        m.set(key("a/b", ResType::NSS), b"void main() {}".to_vec());
+        m.set(key("gone", ResType::NDB), b"NDB".to_vec());
+        m.save().unwrap();
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("a/b.nss: not written: the name is not a file's"), "{said:?}");
+        assert!(!root.join("src/a").exists() && !root.join("src/gone.ndb").exists());
     }
 
     #[test]

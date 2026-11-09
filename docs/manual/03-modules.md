@@ -2353,6 +2353,10 @@ plugin reads a description with `mg.twoda.describe`
   resource "(open, with unsaved changes)" and, ticked, warns that the
   editor keeps your changes and saving them writes over what was
   imported (the log says it again). This goes for Import… too.
+- **A name that is no file's**: an `.erf`'s resource whose name has a
+  `/`, a `\` or a `:` in it (another tool's making) is left out and
+  listed with the rest that is not imported, as a loose file of such a
+  name is. A module kept as files could not keep it.
 - `mg import MODULE PATH…` does the same from a terminal: an `.erf`
   alone, or files and folders ([Command-line tools](11-command-line.md)).
 
