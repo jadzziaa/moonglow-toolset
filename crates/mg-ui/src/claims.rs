@@ -35,8 +35,9 @@ pub(crate) struct ClaimsState {
     pub(crate) cleared: bool,
     /// The Protected Area window.
     pub(crate) protected_ask: Option<ProtectedAsk>,
-    /// A change the builder said to make anyway: let through once.
-    let_through: Option<Pass>,
+    /// The changes the builder said to make anyway (those the window
+    /// named): let through once.
+    let_through: Vec<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
     /// The Claims Table window (Edit › Claims Table…).
@@ -83,14 +84,15 @@ fn whose(p: &ProjectFile) -> ClaimsNow {
     (p.claim_table.clone(), p.claims.clone(), p.user.builder_code.clone())
 }
 
-/// A change to a protected area, held until the builder answers.
+/// A change to protected areas, held until the builder answers.
 #[derive(Debug, Clone)]
 pub(crate) struct ProtectedAsk {
-    pub area: ResRef,
-    /// Why it is protected.
-    pub why: String,
-    pub what: Protected,
-    /// What goes ahead if it is changed anyway.
+    /// Every protected area it would change (one command may change
+    /// several: areas chosen together and deleted, a field set on all an
+    /// Advanced Search found), each with why it is protected and what of
+    /// it would change. Never empty.
+    pub changes: Vec<(ResRef, String, Protected)>,
+    /// What goes ahead if they are changed anyway.
     pub then: Action,
 }
 
@@ -169,21 +171,27 @@ fn tag_now(app: &mut Moonglow, area: ResRef) -> Option<Vec<u8>> {
     doc.root.string("Tag").map(<[u8]>::to_vec)
 }
 
-/// What a command changes of a protected area, if it changes any: its
+/// What a command changes of protected areas, each one it changes: its
 /// Tag, its ResRef (a rename: the area goes, another comes), or the area
-/// itself (deleted).
-fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String, Protected)> {
+/// itself (deleted). All of them: the first alone was asked about, and
+/// its answer let the others through unnamed.
+fn protected_changes(app: &mut Moonglow, cmd: &Command) -> Vec<(ResRef, String, Protected)> {
     // (The protected areas' edits, each with why.)
     let candidates: Vec<(&Edit, String)> = {
-        let p = project(app)?;
+        let Some(p) = project(app) else { return Vec::new() };
         let protected = |e: &Edit| {
             let key = e.key();
             (key.restype == ResType::ARE).then(|| p.protected(key.resref)).flatten()
         };
         cmd.edits.iter().filter_map(|e| protected(e).map(|why| (e, why))).collect()
     };
+    let mut out: Vec<(ResRef, String, Protected)> = Vec::new();
     for (e, why) in candidates {
         let area = e.key().resref;
+        // (An area gone or renamed is said once, not its Tag too.)
+        if out.iter().any(|(a, _, w)| *a == area && *w != Protected::Tag) {
+            continue;
+        }
         let new_tag = match e {
             Edit::SetField { path, label, value, .. }
                 if *path == GffPath::root() && label == "Tag" =>
@@ -200,7 +208,9 @@ fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String
                         if k.restype == ResType::ARE && k.resref != area)
                 });
                 let what = if renamed { Protected::ResRef } else { Protected::Deleted };
-                return Some((area, why, what));
+                out.retain(|(a, ..)| *a != area);
+                out.push((area, why, what));
+                continue;
             }
             Edit::SetResource { data: Some(bytes), .. } => {
                 mg_gff::Gff::read(bytes).ok().and_then(|g| g.root.string("Tag").map(<[u8]>::to_vec))
@@ -208,11 +218,11 @@ fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String
             _ => continue,
         };
         // (A Tag set to what it is: no change.)
-        if new_tag != tag_now(app, area) {
-            return Some((area, why, Protected::Tag));
+        if new_tag != tag_now(app, area) && !out.iter().any(|(a, ..)| *a == area) {
+            out.push((area, why, Protected::Tag));
         }
     }
-    None
+    out
 }
 
 /// Whether a command may change the module, as the project's claims
@@ -236,20 +246,22 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
             });
         }
     }
-    if let Some((area, why, what)) = protected_change(app, cmd) {
-        if app.claims.let_through == Some(Pass { area, what }) {
-            app.claims.let_through = None;
-            return Ok(());
-        }
-        app.claims.protected_ask =
-            Some(ProtectedAsk { area, why, what, then: Action::Apply(cmd.clone()) });
-        app.claims.held = true;
-        return Err(EditError::Invalid {
-            key: ResKey::new(area, ResType::ARE),
-            message: format!("not changed yet: {}'s {} is kept: asked first", area, what.noun()),
-        });
+    let changes = protected_changes(app, cmd);
+    let Some(&(area, _, what)) = changes.first() else { return Ok(()) };
+    // (Let through only where the builder was shown every one of them.)
+    let passed = |app: &Moonglow, (area, _, what): &(ResRef, String, Protected)| {
+        app.claims.let_through.contains(&Pass { area: *area, what: *what })
+    };
+    if changes.iter().all(|c| passed(app, c)) {
+        app.claims.let_through.clear();
+        return Ok(());
     }
-    Ok(())
+    app.claims.protected_ask = Some(ProtectedAsk { changes, then: Action::Apply(cmd.clone()) });
+    app.claims.held = true;
+    Err(EditError::Invalid {
+        key: ResKey::new(area, ResType::ARE),
+        message: format!("not changed yet: {}'s {} is kept: asked first", area, what.noun()),
+    })
 }
 
 impl Protected {
@@ -271,13 +283,13 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
     };
     let key = crate::references::main_key(key);
     if key.restype != ResType::ARE
-        || app.claims.let_through == Some(Pass { area: key.resref, what })
+        || app.claims.let_through.contains(&Pass { area: key.resref, what })
     {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
-    app.claims.protected_ask =
-        Some(ProtectedAsk { area: key.resref, why, what, then: action.clone() });
+    let changes = vec![(key.resref, why, what)];
+    app.claims.protected_ask = Some(ProtectedAsk { changes, then: action.clone() });
     true
 }
 
@@ -716,8 +728,10 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
 /// (or never opened), or an action that ran without making it, takes it
 /// away, so that the area's next change is asked about again.
 fn end_pass(app: &mut Moonglow) {
-    let Some(pass) = app.claims.let_through else { return };
-    let open = match pass.what {
+    if app.claims.let_through.is_empty() {
+        return;
+    }
+    let open = app.claims.let_through.iter().any(|pass| match pass.what {
         Protected::ResRef => app
             .rename
             .as_ref()
@@ -727,9 +741,9 @@ fn end_pass(app: &mut Moonglow) {
             app.confirm_delete.as_ref().is_some_and(|keys| keys.iter().any(asked))
         }
         Protected::Tag => false,
-    };
+    });
     if !open && app.actions.is_empty() {
-        app.claims.let_through = None;
+        app.claims.let_through.clear();
     }
 }
 
@@ -794,27 +808,63 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.set_max_width(460.0);
-            let change = match ask.what {
+            let doing = |what: Protected| match what {
                 Protected::Tag => "Changing its Tag",
                 Protected::ResRef => "Renaming it",
                 Protected::Deleted => "Deleting it",
             };
-            ui.label(format!("{}.", ask.why));
+            match ask.changes.as_slice() {
+                [(_, why, what)] => {
+                    ui.label(format!("{why}."));
+                    ui.add_space(4.0);
+                    ui.label(format!(
+                        "{} loses what the game keeps of it: a character's position is kept by \
+                         the area's Tag, and its first visits by the area's ResRef. Players who \
+                         were there come back somewhere else, and see it as new.",
+                        doing(*what)
+                    ));
+                }
+                // (Every one named: the answer is for them all.)
+                several => {
+                    ui.label(format!("This changes {} protected areas:", several.len()));
+                    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                        for (_, why, what) in several {
+                            let done = match what {
+                                Protected::Tag => "its Tag would change",
+                                Protected::ResRef => "it would be renamed",
+                                Protected::Deleted => "it would be deleted",
+                            };
+                            ui.label(format!("• {why}: {done}"));
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.label(
+                        "That loses what the game keeps of them: a character's position is \
+                         kept by the area's Tag, and its first visits by the area's ResRef. \
+                         Players who were there come back somewhere else, and see them as new.",
+                    );
+                }
+            }
             ui.add_space(4.0);
-            ui.label(format!(
-                "{change} loses what the game keeps of it: a character's position is kept by \
-                 the area's Tag, and its first visits by the area's ResRef. Players who were \
-                 there come back somewhere else, and see it as new."
-            ));
-            ui.add_space(4.0);
-            ui.weak("A copy of it, under a new ResRef and Tag, is a new area and loses nothing.");
+            let one = ask.changes.len() == 1;
+            ui.weak(match one {
+                true => "A copy of it, under a new ResRef and Tag, is a new area and loses nothing.",
+                false => "A copy of an area, under a new ResRef and Tag, is a new area and loses nothing.",
+            });
             ui.separator();
             ui.horizontal(|ui| {
-                copy = ui.button("Make a Copy Instead…").clicked();
-                let label = match ask.what {
-                    Protected::Tag => "Change It Anyway",
-                    Protected::ResRef => "Rename It Anyway",
-                    Protected::Deleted => "Delete It Anyway",
+                if one {
+                    copy = ui.button("Make a Copy Instead…").clicked();
+                }
+                let first = ask.changes[0].2;
+                let same = ask.changes.iter().all(|c| c.2 == first);
+                let label = match (first, one) {
+                    (Protected::Tag, true) => "Change It Anyway",
+                    (Protected::ResRef, true) => "Rename It Anyway",
+                    (Protected::Deleted, true) => "Delete It Anyway",
+                    (Protected::ResRef, false) if same => "Rename Them Anyway",
+                    (Protected::Deleted, false) if same => "Delete Them Anyway",
+                    (_, false) => "Change Them Anyway",
                 };
                 anyway = ui.button(label).clicked();
                 cancel = crate::widgets::cancel(ui);
@@ -822,11 +872,12 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if anyway {
         app.claims.protected_ask = None;
-        app.claims.let_through = Some(Pass { area: ask.area, what: ask.what });
+        app.claims.let_through =
+            ask.changes.iter().map(|(area, _, what)| Pass { area: *area, what: *what }).collect();
         app.actions.push(ask.then);
     } else if copy {
         app.claims.protected_ask = None;
-        app.actions.push(Action::CopyDialog(ResKey::new(ask.area, ResType::ARE)));
+        app.actions.push(Action::CopyDialog(ResKey::new(ask.changes[0].0, ResType::ARE)));
     } else if cancel || !open {
         app.claims.protected_ask = None;
     }

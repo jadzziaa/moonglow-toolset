@@ -2329,6 +2329,78 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "deleted");
 }
 
+/// A command that changes several protected areas (a Tag set on all an
+/// Advanced Search found, a plugin's step) was asked about for the first
+/// alone, and its Anyway let the others through unnamed (the review of
+/// November 2026, D6): the window names every one, nothing goes before
+/// the answer, and the answer is for those it named.
+#[test]
+fn a_change_of_several_protected_areas_names_them_all() {
+    let dir = project_folder(
+        "ui-claims-protected-several",
+        &[("moonglow.toml", "[claims]\nprotected = [\"start\", \"mg_two\"]\n")],
+    );
+    std::fs::copy(dir.join("start.are"), dir.join("mg_two.are")).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let (a, b) = (
+        ResKey::parse("start", ResType::ARE).unwrap(),
+        ResKey::parse("mg_two", ResType::ARE).unwrap(),
+    );
+    let has =
+        |h: &Harness<'_, Moonglow>, k: &ResKey| h.state().ws.as_ref().unwrap().module.contains(k);
+    assert!(has(&h, &a) && has(&h, &b), "{:?}", h.state().log.entries);
+    // One step that sets both Tags.
+    let tag = |key: ResKey, tag: &str| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+    };
+    let both = mg_edit::Command::new("Tags", vec![tag(a, "ONE"), tag(b, "TWO")]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(both));
+    settle(&mut h);
+    h.get_by_label("This changes 2 protected areas:");
+    h.get_by_label_contains("• start is protected");
+    h.get_by_label_contains("• mg_two is protected");
+    assert!(h.query_by_label("Make a Copy Instead…").is_none(), "of which?");
+    h.get_by_label("Change Them Anyway").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Protected Area").is_none(), "{:?}", h.state().log.entries);
+    assert_eq!(area_tag(&mut h, "start"), "ONE");
+    assert_eq!(area_tag(&mut h, "mg_two"), "TWO");
+    // The answer was for that step: the next is asked about again, and
+    // one that changes one of them and deletes the other names both.
+    let gone = mg_edit::Edit::SetResource { key: b, data: None };
+    let mixed = mg_edit::Command::new("Both", vec![tag(a, "THREE"), gone]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mixed.clone()));
+    settle(&mut h);
+    h.get_by_label("This changes 2 protected areas:");
+    h.get_by_label_contains("start is protected");
+    h.get_by_label_contains("its Tag would change");
+    h.get_by_label_contains("it would be deleted");
+    assert!(has(&h, &b) && area_tag(&mut h, "start") == "ONE", "held");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(has(&h, &b) && area_tag(&mut h, "start") == "ONE", "canceled");
+    h.state_mut().actions.push(mg_ui::Action::Apply(mixed));
+    settle(&mut h);
+    h.get_by_label("Change Them Anyway").click();
+    settle(&mut h);
+    assert!(!has(&h, &b) && area_tag(&mut h, "start") == "THREE", "{:?}", h.state().log.entries);
+    // (Several chosen in the module tree and deleted: a protected area is
+    // left out of those, to be deleted alone and asked about.)
+    h.state_mut().actions.push(mg_ui::Action::DeleteResources(vec![
+        a,
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+    ]));
+    settle(&mut h);
+    assert!(has(&h, &a) && h.query_by_label("Protected Area").is_none());
+}
+
 /// The project's commands (C8): File › Project › Update… saves the
 /// module first (asked, as on closing), asks to allow the command as it
 /// reads, runs it in the project's folder with its output in the log,

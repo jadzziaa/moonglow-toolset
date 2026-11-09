@@ -1321,7 +1321,10 @@ a new area, and loses nothing. **Change It Anyway** (or Rename, or
 Delete) goes ahead, for that one change: **Rename It Anyway** opens the
 Rename window, and closed without renaming, the area's next rename or
 change of its Tag is asked about again (as is a Tag changed while the
-Rename window is open).
+Rename window is open). One step that changes several protected areas
+(Advanced Search's **Set a field** on the Tags of what it found) names
+each of them in the window, and **Change Them Anyway** is the answer
+for those it named.
 
 **Verify Module** (and `mg verify`) holds the merged areas to the table:
 
