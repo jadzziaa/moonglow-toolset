@@ -12,7 +12,7 @@ use crate::{Gff, ROOT_STRUCT_ID};
 
 /// Nesting deeper than this is treated as corruption. Real files stay well
 /// below 16.
-const MAX_DEPTH: usize = 128;
+pub(crate) const MAX_DEPTH: usize = 128;
 
 /// Why a GFF file could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

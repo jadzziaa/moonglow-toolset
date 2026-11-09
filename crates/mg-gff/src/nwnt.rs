@@ -230,13 +230,21 @@ fn nim_table_order(entries: &[(LocStringKey, Vec<u8>)]) -> Vec<(u32, &[u8])> {
         }
         slots[i] = Some(entry);
     }
-    let mut slots: Slots<'_> = vec![None; 32];
-    let mut count = 0usize;
+    // Each key once, where it was first put, with its last text (found by
+    // a map: a scan of the table for every entry is quadratic).
+    let mut unique: Vec<(u32, &[u8])> = Vec::new();
+    let mut at: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
     for (key, text) in entries {
-        if let Some(had) = slots.iter_mut().flatten().find(|(k, _)| *k == key.0) {
-            had.1 = text;
-            continue;
+        match at.entry(key.0) {
+            std::collections::hash_map::Entry::Occupied(had) => unique[*had.get()].1 = text,
+            std::collections::hash_map::Entry::Vacant(new) => {
+                new.insert(unique.len());
+                unique.push((key.0, text));
+            }
         }
+    }
+    let mut slots: Slots<'_> = vec![None; 32];
+    for (count, entry) in unique.into_iter().enumerate() {
         if slots.len() * 2 < count * 3 || slots.len() - count < 4 {
             let grown = vec![None; slots.len() * 2];
             let old = std::mem::replace(&mut slots, grown);
@@ -244,8 +252,7 @@ fn nim_table_order(entries: &[(LocStringKey, Vec<u8>)]) -> Vec<(u32, &[u8])> {
                 place(&mut slots, entry);
             }
         }
-        place(&mut slots, (key.0, text));
-        count += 1;
+        place(&mut slots, entry);
     }
     slots.into_iter().flatten().collect()
 }
@@ -296,7 +303,7 @@ pub fn from_nwnt(text: &str, codepage: Codepage) -> Result<Gff, NwntError> {
     let file_type = file_type.ok_or(NwntError { line: 1, message: "no data_type".into() })?;
     let mut gff = Gff::new(file_type);
     let mut reader = Reader { lines: &lines, next: 0, cp: codepage };
-    gff.root = reader.read_struct("", ROOT_STRUCT_ID)?;
+    gff.root = reader.read_struct("", ROOT_STRUCT_ID, 0)?;
     if let Some(l) = lines.get(reader.next) {
         return Err(NwntError {
             line: l.at,
@@ -315,9 +322,16 @@ struct Reader<'a> {
 impl Reader<'_> {
     /// The fields of the struct whose fields' names begin with `prefix`, up
     /// to the first line that isn't one.
-    fn read_struct(&mut self, prefix: &str, id: u32) -> Result<Struct, NwntError> {
+    fn read_struct(&mut self, prefix: &str, id: u32, depth: usize) -> Result<Struct, NwntError> {
         let mut s = Struct::new(id);
         let lines = self.lines;
+        if depth > crate::read::MAX_DEPTH {
+            let at = lines.get(self.next).or(lines.last()).map_or(1, |l| l.at);
+            return Err(NwntError {
+                line: at,
+                message: format!("struct nesting is deeper than {}", crate::read::MAX_DEPTH),
+            });
+        }
         while let Some(l) = lines.get(self.next) {
             let Some(rest) = l.name.strip_prefix(prefix) else { break };
             let at = l.at;
@@ -390,7 +404,7 @@ impl Reader<'_> {
                 "struct" => {
                     let label = label(rest)?;
                     let id = id()?;
-                    let child = self.read_struct(&format!("{}.", l.name), id)?;
+                    let child = self.read_struct(&format!("{}.", l.name), id, depth + 1)?;
                     s.fields.push(Field { label, value: Value::Struct(child) });
                     continue;
                 }
@@ -403,7 +417,7 @@ impl Reader<'_> {
                         None
                     } else {
                         let id = id()?;
-                        Some(self.read_struct(&format!("{}.", l.name), id)?)
+                        Some(self.read_struct(&format!("{}.", l.name), id, depth + 1)?)
                     };
                     let list = s.fields.iter_mut().rev().find_map(|f| match &mut f.value {
                         Value::List(items) if f.label == of => Some(items),
@@ -541,6 +555,34 @@ mod tests {
         let many: Vec<(LocStringKey, Vec<u8>)> =
             (0..60).map(|k| (LocStringKey(k), Vec::new())).collect();
         assert_eq!(nim_table_order(&many).len(), 60);
+    }
+
+    /// Structs nested past what the binary reader takes (128) are an
+    /// error, not a stack that runs out; a localized string of 100,000
+    /// entries (each key twice) is ordered in no time.
+    #[test]
+    fn deep_nesting_and_long_tables_are_bounded() {
+        let mut text = String::from("data_type = UTI\n");
+        for depth in 0..5000 {
+            text.push_str(&".".repeat(depth));
+            text.push_str("$Struct = 0\n");
+        }
+        let e = from_nwnt(&text, Codepage::WINDOWS_1252).unwrap_err();
+        assert!(e.message.contains("deeper than 128"), "{e}");
+        assert_eq!(e.line, 131);
+        // (As deep as the binary reader takes is read.)
+        let lines: Vec<&str> = text.lines().take(1 + 128).collect();
+        from_nwnt(&lines.join("\n"), Codepage::WINDOWS_1252).unwrap();
+
+        let entries: Vec<(LocStringKey, Vec<u8>)> = (0..200_000u32)
+            .map(|k| (LocStringKey(k % 100_000), k.to_string().into_bytes()))
+            .collect();
+        let started = std::time::Instant::now();
+        let ordered = nim_table_order(&entries);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(ordered.len(), 100_000);
+        let seven = ordered.iter().find(|e| e.0 == 7).unwrap();
+        assert_eq!(seven.1, b"100007", "a key's later text");
     }
 
     /// Read back, the file is the same but for its fields' order (sorted)
