@@ -370,7 +370,10 @@ unpacking or packing between the toolset and git.
   an `exclude` leaves out is left be). **Build › Add Left-Out Files to
   nasher.cfg** adds a line for their kinds beside the include they lie
   under (`include = "src/**/*.{jui,txt}"`), and they are read: nasher
-  packs them from then on too.
+  packs them from then on too. The line goes into the sources of the
+  target you edit (the package's, where the target has no includes of
+  its own); where it would not take the files in, nothing is written
+  and the log says so.
 - **A file that can't be read** (JSON broken by a merge's conflict
   markers, say) is left out of the module, and the log says so: the rest
   of the project opens. Mend or delete it; a save never writes over it,

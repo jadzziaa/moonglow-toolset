@@ -49,6 +49,30 @@ pub struct Project {
     spellings: HashMap<ResKey, PathBuf>,
 }
 
+/// Whether a line of `nasher.cfg` begins a target.
+fn target_header(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case("[target]")
+}
+
+/// The lines of the target named `target` in `nasher.cfg`'s lines: from
+/// its `[target]` to the next one's (or the end). `None` where no target
+/// has that name.
+fn target_block<S: AsRef<str>>(lines: &[S], target: &str) -> Option<(usize, usize)> {
+    let starts: Vec<usize> =
+        (0..lines.len()).filter(|&i| target_header(lines[i].as_ref())).collect();
+    let named = |l: &str| {
+        let t = l.trim();
+        t.strip_prefix("name")
+            .map(str::trim_start)
+            .and_then(|r| r.strip_prefix('='))
+            .is_some_and(|v| v.trim().trim_matches('"') == target)
+    };
+    starts.iter().enumerate().find_map(|(n, &s)| {
+        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
+        lines[s..end].iter().any(|l| named(l.as_ref())).then_some((s, end))
+    })
+}
+
 /// Adds the line `exclude` to the sources of the target named `target` in
 /// `nasher.cfg`'s lines: in its `[target.sources]` (made at the end of its
 /// block where it has none). A target with no excludes of its own has the
@@ -60,19 +84,7 @@ fn exclude_in_target(
     exclude: &str,
     had: &[String],
 ) -> Option<()> {
-    let header = |l: &str| l.trim().eq_ignore_ascii_case("[target]");
-    let starts: Vec<usize> = (0..lines.len()).filter(|&i| header(&lines[i])).collect();
-    let named = |l: &str| {
-        let t = l.trim();
-        t.strip_prefix("name")
-            .map(str::trim_start)
-            .and_then(|r| r.strip_prefix('='))
-            .is_some_and(|v| v.trim().trim_matches('"') == target)
-    };
-    let (start, end) = starts.iter().enumerate().find_map(|(n, &s)| {
-        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
-        lines[s..end].iter().any(|l| named(l)).then_some((s, end))
-    })?;
+    let (start, end) = target_block(lines, target)?;
     let own = lines[start..end].iter().any(|l| l.trim_start().starts_with("exclude"));
     let mut add: Vec<String> =
         if own { Vec::new() } else { had.iter().map(|e| format!("exclude = \"{e}\"")).collect() };
@@ -484,15 +496,28 @@ impl Project {
             .cloned()
             .ok_or_else(|| bad("no include of the target's looks in the files' folder".into()))?;
         let added = self.include_for(&left).expect("files under an include's folder");
-        // Beside that include's line, as indented.
+        // Beside that include's line, as indented: the line in the edited
+        // target's own block (another target may have the same pattern,
+        // and the first such line in the file was taken, which could be
+        // that one's); where the target has no includes of its own (they
+        // are the package's, or its parent's), the package's line, else
+        // the first there is.
         let lines: Vec<&str> = text.lines().collect();
-        let at = lines
-            .iter()
-            .position(|l| {
-                let t = l.trim_start();
-                t.starts_with("include") && l.contains(&format!("\"{pattern}\""))
-            })
-            .ok_or_else(|| bad(format!("include = \"{pattern}\" is not a line of it")))?;
+        let include = |l: &str| l.trim_start().starts_with("include");
+        let find = |range: std::ops::Range<usize>| {
+            range
+                .into_iter()
+                .find(|&i| include(lines[i]) && lines[i].contains(&format!("\"{pattern}\"")))
+        };
+        let block = target_block(&lines, &self.target);
+        let at = match block {
+            Some((start, end)) if lines[start..end].iter().any(|l| include(l)) => find(start..end),
+            _ => {
+                let package = lines.iter().position(|l| target_header(l)).unwrap_or(lines.len());
+                find(0..package).or_else(|| find(0..lines.len()))
+            }
+        };
+        let at = at.ok_or_else(|| bad(format!("include = \"{pattern}\" is not a line of it")))?;
         let indent: String = lines[at].chars().take_while(|c| c.is_whitespace()).collect();
         let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
         out.insert(at + 1, format!("{indent}{added}"));
@@ -502,6 +527,19 @@ impl Project {
         let mut written = out.join(newline);
         if text.ends_with('\n') {
             written.push_str(newline);
+        }
+        // Not written unless it takes files in for the target edited (a
+        // line that does not would be added again at every try).
+        let taken = Package::parse(&root, &written, &|k| std::env::var(k).ok())
+            .ok()
+            .and_then(|p| p.target(&self.target).map(|t| left_out_of(&root, t)))
+            .is_some_and(|after| after.len() < left.len());
+        if !taken {
+            return Err(bad(format!(
+                "the line {added} beside include = \"{pattern}\" would not take the files in for \
+                 the target {:?}: add an include for them by hand",
+                self.target
+            )));
         }
         let tmp = crate::sibling(&cfg, ".moonglow-tmp");
         std::fs::write(&tmp, written).map_err(io(&tmp))?;
@@ -1806,6 +1844,68 @@ mod tests {
         );
         assert!(p.uncovered(&window).is_empty() && p.left_out.is_empty());
         assert!(Module::open(&root).unwrap().contains(&window[0]));
+    }
+
+    /// Two targets with the same include, each in its own sources, and
+    /// the second edited: the line is added to that one's, not beside the
+    /// first such line in the file (the other target's, which then packed
+    /// the files while this one still left them out, at every try).
+    #[test]
+    fn left_out_files_are_taken_in_by_the_edited_target_s_own_include() {
+        let root = scratch("left-out-two-targets");
+        let target = |name: &str| {
+            format!(
+                "[target]\nname = \"{name}\"\nfile = \"{name}.mod\"\n  [target.sources]\n  \
+                 include = \"src/**/*.{{nss,json}}\"\n"
+            )
+        };
+        let first = target("demo");
+        let cfg = format!("[package]\nname = \"p\"\n\n{first}\n{}", target("m"));
+        std::fs::write(root.join("nasher.cfg"), &cfg).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let location = ModuleLocation::Project { root: root.clone(), target: "m".into() };
+        module().save_as(&location).unwrap();
+        std::fs::write(root.join("src/win.jui"), b"{}").unwrap();
+        let (mut p, _) = Project::open(&root, Some("m")).unwrap();
+        assert_eq!(p.left_out, [root.join("src/win.jui")]);
+        assert_eq!(p.take_in_left_out().unwrap().as_deref(), Some("include = \"src/**/*.jui\""));
+        assert!(p.left_out.is_empty() && p.left_out().is_empty());
+        let written = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(written.starts_with(&format!("[package]\nname = \"p\"\n\n{first}\n")), "{written}");
+        assert!(
+            written
+                .ends_with("  include = \"src/**/*.{nss,json}\"\n  include = \"src/**/*.jui\"\n"),
+            "{written}"
+        );
+        // The other target still leaves the file out, as it did.
+        let (demo, _) = Project::open(&root, Some("demo")).unwrap();
+        assert_eq!(demo.left_out, [root.join("src/win.jui")]);
+
+        // A target with no includes of its own has the package's: the
+        // line goes there.
+        let root = scratch("left-out-inherited");
+        std::fs::write(
+            root.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n\n[target]\nname \
+             = \"demo\"\nfile = \"demo.mod\"\n  [target.sources]\n  include = \
+             \"src/**/*.{nss,json}\"\n\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let location = ModuleLocation::Project { root: root.clone(), target: "m".into() };
+        module().save_as(&location).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/win.jui"), b"{}").unwrap();
+        let (mut p, _) = Project::open(&root, Some("m")).unwrap();
+        assert!(p.take_in_left_out().unwrap().is_some());
+        assert!(p.left_out.is_empty());
+        let written = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(
+            written.starts_with(
+                "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  include = \
+                 \"src/**/*.jui\"\n"
+            ),
+            "{written}"
+        );
     }
 
     #[test]
