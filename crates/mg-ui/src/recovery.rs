@@ -332,21 +332,39 @@ impl Moonglow {
             return None;
         }
         let ws = self.ws.as_ref()?;
-        if !ws.is_modified() {
+        // (Text typed in a script's editor is unsaved work too: it is in
+        // no command until the script is saved.)
+        if !ws.is_modified() && !self.scripts.values().any(|b| b.is_dirty()) {
             return None;
         }
-        let revision = ws.revision();
         let every = Duration::from_secs(60 * u64::from(self.settings.autosave_every().max(1)));
         // The first change starts the clock.
         let (since, saved) = *self.autosave.last.get_or_insert((now, u64::MAX));
         if now.saturating_duration_since(since) < every
-            || saved == revision
             || self.autosave.busy.load(Ordering::Acquire)
         {
             return Some(every);
         }
+        // (What a copy would hold, told apart: the module's revision and
+        // the scripts' unsaved text. Looked at only when a copy is due.)
+        let state = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            ws.revision().hash(&mut h);
+            let mut typed: Vec<_> = (self.scripts.iter())
+                .filter(|(_, b)| b.is_dirty())
+                .map(|(k, b)| (*k, crate::script_tools::hash(&b.text)))
+                .collect();
+            typed.sort();
+            typed.hash(&mut h);
+            // (Never the mark of "no copy yet".)
+            h.finish() & (u64::MAX >> 1)
+        };
+        if saved == state {
+            return Some(every);
+        }
         let job = self.recovery_job()?;
-        self.autosave.last = Some((now, revision));
+        self.autosave.last = Some((now, state));
         self.write_in_background(job);
         Some(every)
     }
@@ -506,6 +524,37 @@ mod tests {
         // Not again for the same revision.
         app.autosave_tick(t0 + Duration::from_secs(700));
         assert!(!app.autosave.busy.load(Ordering::Acquire));
+        // Text typed in a script's editor and nothing else: a copy too, and
+        // another when more is typed (it was in no copy until the script
+        // was saved: the review of November 2026, S4).
+        app.ws.as_mut().unwrap().save().unwrap();
+        app.forget_recovery();
+        assert_eq!(app.autosave_tick(t0), None, "saved");
+        let source = (0, 0);
+        let mut buf = crate::script_view::ScriptBuffer::read(b"// changed", source);
+        buf.text.push_str(" typed");
+        app.scripts.insert(key, buf);
+        let t1 = t0 + Duration::from_secs(2000);
+        assert_eq!(app.autosave_tick(t1), Some(Duration::from_secs(300)));
+        let wait = |app: &Moonglow| {
+            while app.autosave.busy.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let held = |dir: &Path| {
+            let copies = find(&dir.join("recovery"));
+            assert_eq!(copies.len(), 1);
+            Module::open(&copies[0].archive).unwrap().get(&key).map(<[u8]>::to_vec)
+        };
+        app.autosave_tick(t1 + Duration::from_secs(301));
+        wait(&app);
+        assert_eq!(held(&dir).as_deref(), Some(&b"// changed typed"[..]));
+        app.scripts.get_mut(&key).unwrap().text.push_str(" more");
+        app.autosave_tick(t1 + Duration::from_secs(700));
+        wait(&app);
+        assert_eq!(held(&dir).as_deref(), Some(&b"// changed typed more"[..]));
+        app.scripts.clear();
+        app.forget_recovery();
         // Saved while a copy is being written: no copy is left, whichever
         // finishes first (one was offered at the next start, of work
         // saved since).
