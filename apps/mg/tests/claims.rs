@@ -150,3 +150,36 @@ fn a_project_without_a_claims_table_says_how_to_name_one() {
     let out = run(&["claims"], &dir.join("nowhere"), &[]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("not a project's folder"));
 }
+
+/// Several areas are claimed (released, handed on, marked merged) all or
+/// none: one that is another builder's, or is no area of the module, ends
+/// the command with the table as it was, not with those named before it
+/// written and only the error said.
+#[test]
+fn several_areas_are_changed_all_or_none() {
+    let dir = claimed_folder("mg-claims-all-or-none");
+    let table = dir.join("builders/claims.2da");
+    let code = |code: &str| {
+        let out = crate::mg().arg("builder-code").arg(&dir).arg(code).output().unwrap();
+        assert!(out.status.success());
+    };
+    code("cd");
+    assert!(run(&["claims"], &dir, &["claim", "kz_gate"]).status.success());
+    code("ab");
+    let before = std::fs::read(&table).unwrap();
+    // kz_square is free, kz_gate is cd's.
+    let out = run(&["claims"], &dir, &["claim", "kz_square", "kz_gate"]);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success() && said.contains("kz_gate is claimed by cd"), "{said}");
+    assert_eq!(std::fs::read(&table).unwrap(), before, "kz_square was claimed all the same");
+    let out = run(&["claims"], &dir, &["merged", "kz_square", "kz_nowhere"]);
+    assert!(!out.status.success());
+    assert_eq!(std::fs::read(&table).unwrap(), before);
+    // Both, where both can be.
+    let out = run(&["claims"], &dir, &["claim", "kz_square", "kz_gate", "--force"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "kz_square: claimed by ab\nkz_gate: claimed by ab"
+    );
+}

@@ -43,6 +43,16 @@ fn root_of(project: &Path) -> Result<&Path> {
     Ok(root)
 }
 
+/// The claims table's text as it is (none yet: empty), to try a command's
+/// changes on before any is written.
+fn table_text(table: &Path) -> Result<String> {
+    match std::fs::read(table) {
+        Ok(bytes) => Ok(claims::decode(&bytes).0.into_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => bail!("{}: {e}", table.display()),
+    }
+}
+
 pub(crate) fn run(
     project: &Path,
     action: Action,
@@ -87,25 +97,45 @@ pub(crate) fn run(
                 }
                 _ => String::new(),
             };
+            let (how, done) = match action {
+                Action::Claim => (Change::Claim(code), format!("claimed by {code}")),
+                Action::Release => (Change::Release(code), format!("released by {code}")),
+                _ => (Change::Hand { from: code, to: &to }, format!("handed to {to}")),
+            };
+            // All of them or none: each is tried on the table's text
+            // before any is written (one held by another builder would
+            // otherwise end the command with those before it claimed, and
+            // only the error said).
+            let today = mg_core::time::today();
+            let mut tried = table_text(&table)?;
             for area in &areas {
-                let (how, done) = match action {
-                    Action::Claim => (Change::Claim(code), format!("claimed by {code}")),
-                    Action::Release => (Change::Release(code), format!("released by {code}")),
-                    _ => (Change::Hand { from: code, to: &to }, format!("handed to {to}")),
-                };
+                tried = claims::change(&tried, *area, how, &today, force)
+                    .map_err(anyhow::Error::msg)?;
+            }
+            for area in &areas {
                 claims::write_change(&table, *area, how, force).map_err(anyhow::Error::msg)?;
                 out.line(format!("{area}: {done}"));
             }
         }
         Action::Merged => {
             let m = crate::open_module(root)?;
+            // (All of them or none, as above.)
+            let mut tags = Vec::new();
             for area in &areas {
                 let key = ResKey::new(*area, ResType::ARE);
                 let Some(Ok(are)) = m.gff(&key) else {
                     bail!("{area}: the module has no such area");
                 };
                 let tag = String::from_utf8_lossy(are.root.string("Tag").unwrap_or_default());
-                claims::write_merged(&table, *area, &tag).map_err(anyhow::Error::msg)?;
+                tags.push(tag.into_owned());
+            }
+            let today = mg_core::time::today();
+            let mut tried = table_text(&table)?;
+            for (area, tag) in areas.iter().zip(&tags) {
+                tried = claims::merged(&tried, *area, tag, &today).map_err(anyhow::Error::msg)?;
+            }
+            for (area, tag) in areas.iter().zip(&tags) {
+                claims::write_merged(&table, *area, tag).map_err(anyhow::Error::msg)?;
                 out.line(format!("{area}: merged, as {tag}"));
             }
         }
