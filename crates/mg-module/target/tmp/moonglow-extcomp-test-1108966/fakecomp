@@ -1,7 +1,0 @@
-#!/bin/sh
-out=$1; shift
-for f in "$@"; do b=$(basename "$f" .nss)
-  if grep -q main "$f"; then cp "$f" "$out/$b.ncs"
-  else echo "$b.nss(1): ERROR: NO MAIN" >&2; fi
-done
-exit 1
