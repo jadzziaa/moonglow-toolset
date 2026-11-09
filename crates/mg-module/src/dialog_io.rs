@@ -710,8 +710,10 @@ pub(crate) fn csv_field(s: &str) -> String {
 }
 
 /// Reads CSV (RFC 4180: quoted fields may hold commas, quotes and line
-/// breaks).
+/// breaks). A byte order mark at its start, which a spreadsheet's "CSV
+/// UTF-8" writes, is no part of the first cell.
 pub fn read_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut rows = Vec::new();
     let mut row = Vec::new();
     let mut field = String::new();
@@ -1879,6 +1881,20 @@ mod tests {
             update_from_csv(&mut g, "id,text\r\nE99,x\r\n").unwrap_err().contains("no line E99")
         );
         assert_eq!(read_csv("a,\"b\nc\",d\r\n").unwrap(), [vec!["a", "b\nc", "d"]]);
+    }
+
+    /// A CSV a spreadsheet saved as "CSV UTF-8" begins with a byte order
+    /// mark, which is no part of the `id` header (the review's V5: Import
+    /// Lines said "no id column").
+    #[test]
+    fn a_csv_with_a_byte_order_mark_reads_back() {
+        let mut g = new_dialog();
+        add_node(&mut g, Parent::Root, "Hi");
+        assert_eq!(update_from_csv(&mut g, "\u{feff}id,text\r\nE0,Hello\r\n"), Ok(1));
+        assert_eq!(text(node(&g, Kind::Entry, 0).unwrap()), "Hello");
+        // A quoted first header too, and the mark nowhere else.
+        assert_eq!(update_from_csv(&mut g, "\u{feff}\"id\",text\r\nE0,Hello\r\n"), Ok(0));
+        assert_eq!(read_csv("\u{feff}a,\u{feff}b").unwrap(), [vec!["a", "\u{feff}b"]]);
     }
 
     /// A CSV carries a column for each language a line has text in, and
