@@ -103,6 +103,11 @@ const SETTINGS_KEY: &str = "moonglow-settings";
 struct App {
     moonglow: Moonglow,
     title: String,
+    /// The settings' file, and the settings as this window last read or
+    /// saved them with the text it wrote: what another Moonglow saved
+    /// since is kept, but for the settings changed here ([`App::save`]).
+    settings_file: Option<std::path::PathBuf>,
+    saved: (Settings, String),
     /// What is left for `main` once the window has closed (Restart with
     /// …, Restart Now; an update to install).
     again: std::sync::Arc<std::sync::Mutex<Closing>>,
@@ -174,8 +179,22 @@ impl eframe::App for App {
         }
     }
 
+    /// Saves the settings. The file is this window's and any other
+    /// Moonglow's that runs beside it, each writing it whole: where
+    /// another has written it since this one did, the settings changed
+    /// here since then go over what is there, and the rest stay as that
+    /// window saved them (`Settings::saved_over`), where this one would
+    /// have put its own older ones back.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, SETTINGS_KEY, &self.moonglow.settings);
+        let settings = &self.moonglow.settings;
+        let there = (self.settings_file.as_deref())
+            .and_then(|f| Settings::text_in_eframe_file(f, SETTINGS_KEY));
+        let text = match there {
+            Some(there) if there != self.saved.1 => settings.saved_over(&self.saved.0, &there),
+            _ => settings.saved_text(),
+        };
+        storage.set_string(SETTINGS_KEY, text.clone());
+        self.saved = (settings.clone(), text);
     }
 }
 
@@ -506,6 +525,10 @@ fn main() -> eframe::Result<()> {
         .map(|f| Settings::read_eframe(f, SETTINGS_KEY))
         .unwrap_or_default();
     let saved = &read.settings;
+    // (As they are in the file: what `App::save` tells another window's
+    // save from.)
+    let as_read = (saved.clone(), saved.saved_text());
+    let app_file = settings_file.clone();
     let wanted = saved.graphics_backend.backend();
     // (The backends recorded as drawing nothing here: Automatic passes
     // over them.)
@@ -636,7 +659,13 @@ fn main() -> eframe::Result<()> {
             if let Some(path) = &line.module {
                 moonglow.actions.push(mg_ui::Action::OpenModule(path.clone()));
             }
-            Ok(Box::new(App { moonglow, title: String::new(), again: asked_again }))
+            Ok(Box::new(App {
+                moonglow,
+                title: String::new(),
+                again: asked_again,
+                settings_file: app_file,
+                saved: as_read,
+            }))
         }),
     );
     // (After the window has closed and the settings are saved: the new

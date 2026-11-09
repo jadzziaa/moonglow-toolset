@@ -381,6 +381,37 @@ impl Default for PaintSettings {
     }
 }
 
+/// The fields of settings saved as RON text, each by its name with its
+/// value's text as written; `None` where the text is no struct.
+fn fields_of(text: &str) -> Option<Vec<(String, String)>> {
+    use ron::value::RawValue;
+    struct Fields(Vec<(String, String)>);
+    impl<'de> Deserialize<'de> for Fields {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Fields, D::Error> {
+            struct Each;
+            impl<'de> serde::de::Visitor<'de> for Each {
+                type Value = Fields;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("the settings")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Fields, A::Error> {
+                    let mut fields = Vec::new();
+                    while let Some(Name(name)) = map.next_key()? {
+                        let value: Box<RawValue> = map.next_value()?;
+                        fields.push((name, value.get_ron().trim().to_string()));
+                    }
+                    Ok(Fields(fields))
+                }
+            }
+            d.deserialize_struct("Settings", &[], Each)
+        }
+    }
+    ron::from_str::<Fields>(text).ok().map(|f| f.0)
+}
+
 /// What reading the saved settings came to ([`Settings::read_eframe`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SettingsRead {
@@ -999,43 +1030,16 @@ impl Settings {
     /// that do not (and why), which are at their defaults. An error where
     /// the text is no settings at all (cut short, not RON).
     pub fn read_fields(text: &str) -> Result<(Settings, Vec<String>), String> {
-        use ron::value::RawValue;
         let whole = match ron::from_str::<Settings>(text) {
             Ok(settings) => return Ok((settings, Vec::new())),
             Err(e) => e,
         };
-        /// The saved struct's fields, each as its text.
-        struct Fields(Vec<(String, Box<RawValue>)>);
-        impl<'de> Deserialize<'de> for Fields {
-            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Fields, D::Error> {
-                struct Each;
-                impl<'de> serde::de::Visitor<'de> for Each {
-                    type Value = Fields;
-                    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                        f.write_str("the settings")
-                    }
-                    fn visit_map<A: serde::de::MapAccess<'de>>(
-                        self,
-                        mut map: A,
-                    ) -> Result<Fields, A::Error> {
-                        let mut fields = Vec::new();
-                        while let Some(Name(name)) = map.next_key()? {
-                            fields.push((name, map.next_value()?));
-                        }
-                        Ok(Fields(fields))
-                    }
-                }
-                d.deserialize_struct("Settings", &[], Each)
-            }
-        }
         // (Why the whole did not read says more than why its fields can't
         // be told apart.)
-        let Ok(Fields(fields)) = ron::from_str::<Fields>(text) else {
-            return Err(whole.to_string());
-        };
+        let Some(fields) = fields_of(text) else { return Err(whole.to_string()) };
         let (mut read, mut unread) = (Vec::new(), Vec::new());
         for (name, value) in fields {
-            let one = format!("{name}:{}", value.get_ron());
+            let one = format!("{name}:{value}");
             match ron::from_str::<Settings>(&format!("({one})")) {
                 Ok(_) => read.push(one),
                 Err(e) => unread.push(format!("{name} ({})", e.code)),
@@ -1044,6 +1048,55 @@ impl Settings {
         match ron::from_str::<Settings>(&format!("({})", read.join(","))) {
             Ok(settings) => Ok((settings, unread)),
             Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// The settings as they are saved: RON text.
+    pub fn saved_text(&self) -> String {
+        ron::to_string(self).unwrap_or_default()
+    }
+
+    /// The settings' text as it is kept under `key` in eframe's settings
+    /// file now, if it is there.
+    pub fn text_in_eframe_file(path: &Path, key: &str) -> Option<String> {
+        let text = std::fs::read_to_string(path).ok()?;
+        ron::from_str::<std::collections::HashMap<String, String>>(&text).ok()?.remove(key)
+    }
+
+    /// These settings as this window saves them over what is in the file
+    /// now (`saved`, another Moonglow's since this one last read or wrote
+    /// it): each setting this window changed since `was` (its own, when
+    /// it last read or saved them) is this window's, every other is as it
+    /// was saved. Two Moonglows share one settings file, each writing it
+    /// whole every half minute: without this, an option changed in one
+    /// window is put back by the other's next save. Where `saved` does not
+    /// read, these settings as they are.
+    pub fn saved_over(&self, was: &Settings, saved: &str) -> String {
+        let mine = self.saved_text();
+        let by_name = |text: &str| -> Option<std::collections::HashMap<String, String>> {
+            Some(fields_of(text)?.into_iter().collect())
+        };
+        let (Some(now), Some(was), Some(theirs)) =
+            (fields_of(&mine), by_name(&was.saved_text()), by_name(saved))
+        else {
+            return mine;
+        };
+        let merged: Vec<String> = now
+            .into_iter()
+            .map(|(name, value)| {
+                let changed = was.get(&name) != Some(&value);
+                let kept = match theirs.get(&name) {
+                    Some(theirs) if !changed => theirs,
+                    _ => &value,
+                };
+                format!("{name}:{kept}")
+            })
+            .collect();
+        // (What this version reads of it: a setting of theirs it can't
+        // read is this window's own.)
+        match Settings::read_fields(&format!("({})", merged.join(","))) {
+            Ok((settings, unread)) if unread.is_empty() => settings.saved_text(),
+            _ => mine,
         }
     }
 
@@ -1545,6 +1598,45 @@ mod tests {
         assert!(said.starts_with("The saved settings could not be read ("), "{said}");
         assert_eq!(copies().len(), 2);
         assert_eq!(std::fs::read(read.kept.unwrap()).unwrap(), as_it_was[..as_it_was.len() / 2]);
+    }
+
+    /// Two Moonglows share one settings file: a window saves the settings
+    /// it changed since it last read or saved them, and leaves the others
+    /// as the other window saved them (it wrote its own, older ones back
+    /// over them all).
+    #[test]
+    fn a_window_saves_its_own_changes_over_another_window_s() {
+        let started = Settings { light_theme: false, no_grass: false, ..Default::default() };
+        // The other window: the theme, and a module opened.
+        let mut theirs = started.clone();
+        theirs.light_theme = true;
+        theirs.recent = vec![PathBuf::from("/modules/theirs.mod")];
+        let saved = theirs.saved_text();
+        // This one: the grass, since it started.
+        let mut mine = started.clone();
+        mine.no_grass = true;
+        let merged: Settings = ron::from_str(&mine.saved_over(&started, &saved)).unwrap();
+        assert!(merged.light_theme && merged.no_grass, "both windows' changes");
+        assert_eq!(merged.recent, theirs.recent);
+        // The same setting changed in both: this window's, as it saves.
+        mine.light_theme = false;
+        let mut was = started.clone();
+        was.light_theme = true;
+        let merged: Settings = ron::from_str(&mine.saved_over(&was, &saved)).unwrap();
+        assert!(!merged.light_theme);
+        // Nothing changed here: the file as the other window left it. And
+        // nothing changed there: this window's own.
+        assert_eq!(started.saved_over(&started, &saved), saved);
+        assert_eq!(mine.saved_over(&started, &started.saved_text()), mine.saved_text());
+        // What is there does not read: this window's own.
+        assert_eq!(mine.saved_over(&started, "(light_theme:tr"), mine.saved_text());
+        // And the file's text is read from where eframe keeps it.
+        let dir = mg_testkit::scratch_dir("settings-saved-over");
+        let path = dir.join("app.ron");
+        let kv = std::collections::HashMap::from([("k".to_string(), saved.clone())]);
+        std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+        assert_eq!(Settings::text_in_eframe_file(&path, "k"), Some(saved));
+        assert_eq!(Settings::text_in_eframe_file(&path, "other"), None);
     }
 
     /// A backend's failure is kept by GPU, driver and backend (one in place
