@@ -262,16 +262,22 @@ impl Shared {
         }
     }
 
-    /// A resource the job has put into a hak (the last one written, of
-    /// the hak written to last).
-    fn in_haks(&self, key: &ResKey) -> Option<Vec<u8>> {
+    /// What `read` makes of a resource the job has put into a hak (the
+    /// last one written, of the hak written to last), where it is held:
+    /// its bytes, or the file of the user's it is a copy of, which is not
+    /// read for it.
+    fn in_haks<R>(&self, key: &ResKey, read: impl FnOnce(&crate::HakData) -> R) -> Option<R> {
         let haks = self.haks.borrow();
         let found = haks.iter().rev().find_map(|h| h.files.iter().rev().find(|(k, _)| k == key))?;
         match &found.1 {
-            crate::HakData::Bytes(b) => Some(b.to_vec()),
-            crate::HakData::File(p) => std::fs::read(p).ok(),
             crate::HakData::Archive => None,
+            data => Some(read(data)),
         }
+    }
+
+    /// Whether the job has put the resource into a hak.
+    fn is_in_haks(&self, key: &ResKey) -> bool {
+        self.in_haks(key, |_| ()).is_some()
     }
 
     /// A resource's bytes: the module's (with the job's edits), or with
@@ -279,8 +285,14 @@ impl Shared {
     /// first).
     pub(crate) fn bytes(&self, key: &ResKey, game: bool) -> mlua::Result<Vec<u8>> {
         if game {
-            if let Some(bytes) = self.in_haks(key) {
-                return Ok(bytes);
+            // (A file of the user's is held to what a plugin reads of one.)
+            let put = self.in_haks(key, |data| match data {
+                crate::HakData::File(path) => crate::files::read(path),
+                crate::HakData::Bytes(bytes) => Ok(bytes.to_vec()),
+                crate::HakData::Archive => unreachable!("not handed on"),
+            });
+            if let Some(bytes) = put {
+                return bytes;
             }
             let Some(data) = &self.game else {
                 self.host.not_in_game(&key.to_string());
@@ -593,8 +605,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         lua.create_function(move |_, (_, name): (This, String)| {
             let key = key_of(&name)?;
             Ok(if game {
-                s.in_haks(&key).is_some()
-                    || s.game.as_ref().is_some_and(|g| g.resman.contains(&key))
+                s.is_in_haks(&key) || s.game.as_ref().is_some_and(|g| g.resman.contains(&key))
             } else {
                 s.ws.borrow().module.contains(&key)
             })

@@ -42,7 +42,7 @@ const MAX_LISTED: usize = 20_000;
 const MAX_PIXELS: u64 = 1 << 26;
 
 /// A file's bytes, if it is not too large for a plugin.
-fn read(path: &Path) -> mlua::Result<Vec<u8>> {
+pub(crate) fn read(path: &Path) -> mlua::Result<Vec<u8>> {
     let shown = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let size = std::fs::metadata(path).or_else(|e| fail(format!("{shown}: {e}")))?.len();
     if size > MAX_FILE {

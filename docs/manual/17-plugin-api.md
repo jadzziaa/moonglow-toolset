@@ -685,7 +685,7 @@ fails. A file of more than 64 MB is not read.
 | `folder:bytes(name)` | A file's bytes. |
 | `folder:text(name)` | A file as text: UTF-8 if it is, else from the module's codepage (Windows-1252, unless a hak of the module has an `encoding.2da`). |
 | `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |
-| `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
+| `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. It may be larger than a plugin reads (`ctx.game:has` then says it is there, and `ctx.game:bytes` fails as `folder:bytes` does). |
 
 An `image`, from `mg.image`:
 
