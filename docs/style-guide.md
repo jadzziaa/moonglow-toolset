@@ -4,11 +4,11 @@ title: Interface text style guide
 description: How Moonglow's interface text is written - which text takes title case and which sentence case, how tooltips are kept short, and the spelling - for every change that adds or changes a label, a heading, a tooltip or a message.
 tags: [style, interface, text, guide]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T07:56:44Z }
 sources:
   - id: owner
     resource: conversation with the owner, 2026-11-08
-    title: "The owner's observations: headings in title case, in American English; tooltips concise as industry tooltips are, few semicolons; a style guide for future agents"
+    title: 'The owner''s observations: headings in title case, in American English; tooltips concise as industry tooltips are, few semicolons; a style guide for future agents'
 ---
 
 # Interface text style guide
@@ -28,12 +28,16 @@ interface text: they keep their own, longer style.
 - menus and their items (**Edit › Change Tileset…**);
 - buttons, toolbar buttons and their names in tips (**Give to the
   Selection**, **Show All**, **Go to Start Location**);
+- a tool or mode with a name of its own that the manual uses, even when
+  its control is a switch or a checkbox (**📌 Exact Tile**, **All Tiles
+  (Ignore Fit)**);
 - the column headings of tables.
 
 **Sentence case** for everything that is read rather than chosen:
 field labels (`widgets::field_label`), checkboxes and radio buttons
-(**Hide empty groups in the module tree**), tooltips, the status line,
-notes under a field, the log, and messages.
+that are settings (**Hide empty groups in the module tree**), tooltips,
+the status line, notes under a field, the log, and messages. A tool's
+name keeps its capitals in them (**Exact Tile: click or drag…**).
 
 In title case, every word is capitalized except, when they are not the
 first or the last word:

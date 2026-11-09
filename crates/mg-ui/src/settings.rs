@@ -520,7 +520,8 @@ pub struct Settings {
     pub palette_gallery: bool,
     /// The tiles palette's Exact tile switch, as last left (off: a tile
     /// chosen in the Gallery is painted with the tiles around fitted to
-    /// it; on, it goes in alone, nothing around it changed: #29).
+    /// it; on, it goes in alone, nothing around it changed: #29; a group
+    /// chosen goes in as it is too).
     pub exact_tiles: bool,
     /// The palette shown last: `tiles`, `prefabs`, or a blueprint type's
     /// extension (`utc`); and whether it showed the module's blueprints.

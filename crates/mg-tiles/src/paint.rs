@@ -612,25 +612,76 @@ impl Grid {
     /// Putting tile `p` in cell (x, y) exactly as it is given, whether it
     /// fits its neighbours or not (the tiles palette's Exact tile): no
     /// other tile, corner terrain, height or crosser around it changes,
-    /// and its own corners and edges are what the tile has. `None` on a
-    /// tile of a group or feature, which changes only with it unless
-    /// [`Grid::free_groups`] is on (that group is then
-    /// [`Grid::blocked`]), or for a tile the tileset hasn't, or a cell
-    /// outside the grid.
+    /// and its own corners and edges are what the tile has. `None` where
+    /// it would leave a group or feature of more than one tile part
+    /// changed, unless [`Grid::free_groups`] is on (that group is then
+    /// [`Grid::blocked`]: a group of one tile, a staircase, is replaced),
+    /// or for a tile the tileset hasn't, or a cell outside the grid.
     pub fn set_exact(&self, index: &TileIndex, x: u32, y: u32, p: Placement) -> Option<Stroke> {
-        if !self.lattice.has_cell(x, y) {
+        self.set_exact_tiles(index, &[((x, y), p)])
+    }
+
+    /// Placing tile group `group` exactly as it is (the tiles palette's
+    /// Exact tile with a group chosen): its first tile (the south-west
+    /// one) in cell (x, y), turned `turns` quarter turns as
+    /// [`Grid::place_group`] turns it, each tile at the height of the
+    /// tile under the first, as [`Grid::set_exact`] puts one tile; the
+    /// tiles around are not fitted to it, and a cell the group leaves
+    /// empty keeps its tile. `None` when it doesn't fit inside the area,
+    /// or would leave another group of more than one tile part changed
+    /// (unless [`Grid::free_groups`] is on).
+    pub fn place_group_exact(
+        &self,
+        index: &TileIndex,
+        group: &mg_set::Group,
+        x: u32,
+        y: u32,
+        turns: u8,
+    ) -> Option<Stroke> {
+        let height = self.get_tile(x, y)?.height;
+        let (w, h) = (i64::from(self.lattice.width()), i64::from(self.lattice.height()));
+        let columns = group.columns.max(1);
+        let mut changes = Vec::new();
+        for (k, tile) in group.tiles.iter().enumerate() {
+            let (c, r) = crate::group_slot(k, columns, turns);
+            let (cx, cy) = (i64::from(x) + c, i64::from(y) + r);
+            if cx < 0 || cy < 0 || cx >= w || cy >= h {
+                return None;
+            }
+            if let Some(t) = tile {
+                let p = Placement { tile: *t, orientation: turns % 4, height };
+                changes.push(((cx as u32, cy as u32), p));
+            }
+        }
+        self.set_exact_tiles(index, &changes)
+    }
+
+    /// Cells set to their tiles exactly as given ([`Grid::set_exact`]):
+    /// refused where that leaves a group part changed.
+    fn set_exact_tiles(
+        &self,
+        index: &TileIndex,
+        changes: &[((u32, u32), Placement)],
+    ) -> Option<Stroke> {
+        if changes.iter().any(|&((x, y), _)| !self.lattice.has_cell(x, y)) {
             return None;
         }
-        if self.locked(index, x, y) {
-            *self.blocked.borrow_mut() =
-                self.group_cells(index, x, y).unwrap_or_else(|| vec![(x, y)]);
-            return None;
+        // (A group of one tile, or one these changes take whole, is not
+        // left half changed: only a larger group's tile is kept.)
+        if !self.free_groups {
+            let broken: Vec<(u32, u32)> =
+                self.groups_broken(index, changes).into_iter().flatten().collect();
+            if !broken.is_empty() {
+                *self.blocked.borrow_mut() = broken;
+                return None;
+            }
         }
         self.blocked.borrow_mut().clear();
-        let cell = index.cell(p)?;
         let mut lattice = self.lattice.clone();
-        lattice.set_cell(x, y, &cell);
-        Some(Stroke { lattice, cells: Vec::new(), fixed: vec![((x, y), p)] })
+        for &((x, y), p) in changes {
+            lattice.set_cell(x, y, &index.cell(p)?);
+        }
+        Some(Stroke { lattice, cells: Vec::new(), fixed: changes.to_vec() })
     }
 
     /// The cells that refused the stroke asked of this grid last (a brush
@@ -1190,10 +1241,25 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
             columns: 1,
             tiles: vec![Some(n)],
         });
+        // A hut of two tiles, side by side.
+        for model in ["hut_w", "hut_e"] {
+            let mut t = set.tiles[0].clone();
+            t.model = model.into();
+            set.tiles.push(t);
+        }
+        set.groups.push(mg_set::Group {
+            name: "Hut".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 2,
+            tiles: vec![Some(n + 1), Some(n + 2)],
+        });
         let index = TileIndex::new(&set);
         let mut g = grid(&index, 5);
-        let pond = set.groups[0].clone();
+        let (pond, hut) = (set.groups[0].clone(), set.groups[1].clone());
         apply(&mut g, &index, |g| g.place_group(&index, &pond, 4, 4, 0));
+        apply(&mut g, &index, |g| g.place_group(&index, &hut, 0, 3, 0));
+        assert_eq!((g.tile(0, 3).tile, g.tile(1, 3).tile), (n + 1, n + 2));
         let before = g.clone();
         // Tile 15, B at every corner, in open ground of A: it fits none of
         // its neighbours. Turned and two steps up.
@@ -1211,13 +1277,91 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         // The area read back: the tile as put, its neighbours too.
         let back = Grid::new(&index, 5, 5, g.tiles.clone()).unwrap();
         assert_eq!(back.tiles, g.tiles);
-        // Not over the pond's tile, which flashes; freed, it goes.
-        assert!(g.set_exact(&index, 4, 4, p).is_none());
-        assert_eq!(g.blocked(), [(4, 4)]);
+        // Over the pond, a group of one tile (a staircase): it goes, as
+        // nothing is left half changed.
+        let s = g.set_exact(&index, 4, 4, p).expect("over a group of one tile");
+        assert_eq!(s.fixed, [((4, 4), p)]);
+        // Not over half the hut, which flashes; freed, it goes.
+        assert!(g.set_exact(&index, 1, 3, p).is_none());
+        assert_eq!(g.blocked(), [(0, 3), (1, 3)]);
         g.free_groups = true;
-        assert!(g.set_exact(&index, 4, 4, p).is_some());
+        assert!(g.set_exact(&index, 1, 3, p).is_some());
+        g.free_groups = false;
         // A tile the tileset hasn't: refused.
         assert!(g.set_exact(&index, 0, 0, Placement { tile: 999, ..p }).is_none());
+    }
+
+    /// A group placed exactly (Exact tile with a group chosen): its tiles
+    /// as they are, turned, at the height of the tile under its first,
+    /// nothing around fitted to it; refused past the area's edge or over
+    /// part of a larger group, and over a group of one tile let through.
+    #[test]
+    fn a_group_placed_exactly_changes_its_cells_alone() {
+        let mut set = set();
+        let n = set.tiles.len() as u32;
+        for model in ["hut_w", "hut_e", "pond"] {
+            let mut t = set.tiles[15].clone();
+            t.model = model.into();
+            set.tiles.push(t);
+        }
+        let group = |name: &str, tiles: Vec<Option<u32>>| mg_set::Group {
+            name: name.into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: tiles.len() as u32,
+            tiles,
+        };
+        let hut = group("Hut", vec![Some(n), Some(n + 1)]);
+        let pond = group("Pond", vec![Some(n + 2)]);
+        set.groups.extend([hut.clone(), pond.clone()]);
+        let index = TileIndex::new(&set);
+        let mut g = grid(&index, 5);
+        // (A step up under where the hut goes.)
+        let raised = Placement { height: 1, ..g.tile(2, 2) };
+        // (Put as they are: an exact tile needn't fit, as `apply` checks.)
+        let put = |g: &mut Grid, s: Option<Stroke>| {
+            g.apply(&index, s.expect("refused"), &mut fastrand::Rng::with_seed(2));
+        };
+        let s = g.set_exact(&index, 2, 2, raised);
+        put(&mut g, s);
+        // (The pond, a group of one tile, beside it.)
+        let s = g.set_exact(&index, 3, 2, Placement { tile: n + 2, orientation: 0, height: 0 });
+        put(&mut g, s);
+        let before = g.clone();
+        // The hut, turned a quarter (its second tile north of the first),
+        // over the raised tile: both cells as the group has them, at the
+        // height of the tile under its first.
+        let s = g.place_group_exact(&index, &hut, 2, 1, 1).expect("placed");
+        assert!(s.cells.is_empty());
+        let (w, e) = (
+            Placement { tile: n, orientation: 1, height: 0 },
+            Placement { tile: n + 1, orientation: 1, height: 0 },
+        );
+        assert_eq!(s.fixed, [((2, 1), w), ((2, 2), e)]);
+        let changes = g.apply(&index, s, &mut fastrand::Rng::with_seed(3));
+        assert_eq!(changes, [((2, 1), w), ((2, 2), e)]);
+        for (i, (now, was)) in g.tiles.iter().zip(&before.tiles).enumerate() {
+            if i != 5 + 2 && i != 10 + 2 {
+                assert_eq!(now, was, "tile {i} is as it was");
+            }
+        }
+        // At the height of the tile under its first: on the raised one.
+        let g2 = before.clone();
+        let s = g2.place_group_exact(&index, &hut, 1, 2, 0).expect("placed");
+        assert!(s.fixed.iter().all(|(_, p)| p.height == 0), "(1, 2) is at 0");
+        let s = g2.place_group_exact(&index, &hut, 2, 2, 0).expect("over the pond");
+        assert_eq!(s.fixed[0].1.height, 1, "(2, 2) is a step up");
+        assert_eq!(s.fixed[1], ((3, 2), Placement { tile: n + 1, orientation: 0, height: 1 }));
+        // Past the east edge: refused.
+        assert!(before.place_group_exact(&index, &hut, 4, 0, 0).is_none());
+        // Over half of a hut: refused, the hut flashing; over all of it
+        // (the same hut put again): it goes.
+        let mut g = before.clone();
+        let s = g.place_group_exact(&index, &hut, 0, 4, 0);
+        put(&mut g, s);
+        assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
+        assert_eq!(g.blocked(), [(0, 4), (1, 4)]);
+        assert!(g.place_group_exact(&index, &hut, 0, 4, 0).is_some());
     }
 
     #[test]

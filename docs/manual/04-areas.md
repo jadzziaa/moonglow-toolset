@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T23:09:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T07:47:09Z }
 ---
 
 # Areas
@@ -1073,8 +1073,8 @@ as Aurora's Terrain tab does:
   reads **Refine Tile →** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
-- **📌 Exact tile**, beside List and Gallery (shown with the Gallery, or
-  a tile chosen from it), puts a tile chosen from the pictures in
+- **📌 Exact Tile**, beside List and Gallery (shown with the Gallery, or
+  a tile or group chosen from it), puts a tile chosen from the pictures in
   **alone**: a click (or a drag, in every tile it passes, or a picture
   dropped) puts exactly that tile there, turned as the right click
   turns it, at the height of the tile it replaces, and nothing else
@@ -1086,17 +1086,22 @@ as Aurora's Terrain tab does:
   cursor show that one tile.
   Its lights are chosen afresh, as a painted tile's, and the doors its
   hooks call for come and go as a painted tile's do (as the plugin
-  API's `set_tile` puts a tile). Over a tile of a group or a feature it
-  is refused, as any stroke is (the group flashes red), unless **Allow
-  editing tiles of groups and features** is on, when the status line
-  warns of the group left part changed. Each click, or drag, is one step
-  to undo. It is for a terrain's and a crosser's tiles: the **Features**
-  and **Groups** pictures are placed whole as ever, switch or not. The
+  API's `set_tile` puts a tile). Over a group of one tile (a staircase
+  of Fort Interior) it goes in, the group replaced; over a tile of a
+  larger group or a feature it is refused, as any stroke is (the group
+  flashes red), unless **Allow editing tiles of groups and features** is
+  on, when the status line warns of the group left part changed. Each
+  click, or drag, is one step to undo. A **Groups** or **Features**
+  picture chosen with the switch on goes in the same way, as it is: its
+  tiles in their cells, turned as the right click turns it, at the
+  height of the tile under its first, nothing around fitted to it (a
+  staircase among walls), and refused where it would leave part of
+  another larger group. The
   switch is off at first and remembered; with it off,
   painting is as above. A tile placed so is a tile like any other after:
   a terrain painted beside it chooses it again where its corners change.
   To raise or lower it, use Tile Properties' **Height**; to put in a
-  tile the Gallery doesn't show (a piece of a group), its **All tiles**
+  tile the Gallery doesn't show (a piece of a group), its **All Tiles**
   ([Tiles](#tiles)).
 - In the Gallery, **Features** and **Groups** are pictures too: each as
   it stands once placed in open ground, its tiles together with the tiles
@@ -1288,7 +1293,7 @@ out and says why (unless **Allow editing tiles of groups and
 features** is on). The minimap shows a tile's picture whatever its
 height, as the game's does.
 
-**All tiles (ignore fit)** (Moonglow's own; off each time the window
+**All Tiles (Ignore Fit)** (Moonglow's own; off each time the window
 opens) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
 ↺270°) and the same **Size** slider; only the rows in sight are drawn,
@@ -1302,13 +1307,15 @@ or not (none of them changes); each Turn chosen is one step to undo.
 The pictures show the tiles turned so. Click one and it is put in the
 tiles chosen as it is, turned so, at the height they have (and the
 window's **Height**, if it is set), whether it fits its neighbors or
-not: none of them changes (as **📌 Exact tile** puts one in). It is one
+not: none of them changes (as **📌 Exact Tile** puts one in). It is one
 step to undo, the window stays open on it, and its lights are chosen
 afresh (but for those set in the window), its doors come and go, and
 what stands on it moves with a new height, as above. Off, the variants
 are only the tiles that fit, as ever, and Next and Previous Tile
 Appearance and Rotate Tile only ever give a tile that fits. Not for a
-tile of a group or a feature, unless the option above is on. A piece
+tile of a larger group or a feature, unless the option above is on; a
+group of one tile (a staircase of Fort Interior) is changed or turned
+as any tile is. A piece
 of a group put in alone is taken, after, for what is left of a group
 (see above: only the Eraser or the option changes it).
 

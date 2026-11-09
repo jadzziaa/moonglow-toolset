@@ -2933,11 +2933,11 @@ fn an_exact_tile_goes_in_alone() {
     h.run_steps(3);
     // Not shown with the List and no tile chosen; beside the Gallery's
     // switch with it.
-    assert!(h.query_by_label("📌 Exact tile").is_none());
+    assert!(h.query_by_label("📌 Exact Tile").is_none());
     h.get_by_label("🖼").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles, "off at first");
-    h.get_by_label("📌 Exact tile").click();
+    h.get_by_label("📌 Exact Tile").click();
     h.run_steps(2);
     assert!(h.state().settings.exact_tiles, "on, and remembered");
     let picture = index_model(&h, tile);
@@ -2972,7 +2972,7 @@ fn an_exact_tile_goes_in_alone() {
     only_changed(&list, &tile_list(&mut h, area), &[5]);
     assert_eq!(
         h.state().ws.as_ref().unwrap().can_undo(),
-        Some(format!("Exact tile {picture}").as_str())
+        Some(format!("Exact Tile {picture}").as_str())
     );
     area_shots(&mut h, area, &shots.join("after"));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
@@ -3009,7 +3009,7 @@ fn an_exact_tile_goes_in_alone() {
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "the drag: one step");
     // Off: the same tile is fitted in, as before, or refused where it can't.
-    h.get_by_label("📌 Exact tile").click();
+    h.get_by_label("📌 Exact Tile").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles);
 }
@@ -3090,7 +3090,7 @@ fn tile_properties_raise_one_tile_alone() {
     assert_eq!(waypoints(&mut h), [0.0, 0.0]);
 }
 
-/// Tile Properties' All tiles (ignore fit) (#29): off at first, the
+/// Tile Properties' All Tiles (Ignore Fit) (#29): off at first, the
 /// variants that fit as ever; on, every tile of the tileset as pictures
 /// (drawn as they come into sight), and one clicked goes in the tile
 /// chosen as it is, turned as chosen, though it fits nothing there: no
@@ -3172,14 +3172,14 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     h.run_steps(3);
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let all = every.len();
-    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
+    h.get_by_label(&format!("All Tiles ({all} in the tileset)"));
     let shots = mg_testkit::scratch_dir("ui-tile-all-search");
     // A model's name, in part: those tiles alone.
     type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "a04");
     h.run_steps(20);
     let found: Vec<&(u32, String)> = every.iter().filter(|(_, m)| m.contains("a04")).collect();
     assert!(!found.is_empty() && found.len() < all, "{} of {all}", found.len());
-    h.get_by_label(&format!("All tiles ({} of {all})", found.len()));
+    h.get_by_label(&format!("All Tiles ({} of {all})", found.len()));
     let shown: Vec<String> = h
         .query_all_by_label_contains("ttr01_")
         .filter_map(|n| n.accesskit_node().label().or_else(|| n.accesskit_node().value()))
@@ -3207,12 +3207,12 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     h.run_steps(5);
     let by_number =
         every.iter().filter(|(i, m)| i.to_string().contains("117") || m.contains("117"));
-    h.get_by_label(&format!("All tiles ({} of {all})", by_number.count()));
+    h.get_by_label(&format!("All Tiles ({} of {all})", by_number.count()));
     // Escape in the field: cleared, every tile shown, the window open.
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(h.state().tile_props.as_ref().is_some_and(|p| p.find.is_empty()), "cleared, open");
-    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
+    h.get_by_label(&format!("All Tiles ({all} in the tileset)"));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list);
@@ -3290,7 +3290,7 @@ fn tile_properties_all_tiles_on_a_large_hak_tileset() {
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let found = every.iter().filter(|(_, m)| m.to_lowercase().contains("tkc02_a01")).count();
     assert!(found > 0 && found < all, "{found} of {all}");
-    h.get_by_label(&format!("All tiles ({found} of {all})"));
+    h.get_by_label(&format!("All Tiles ({found} of {all})"));
     h.render().unwrap().save(shots.join("found.png")).unwrap();
 }
 
@@ -4982,4 +4982,115 @@ fn the_tile_palette_s_headings_close_while_a_search_is_typed() {
     h.state_mut().palette.filter = "wate".into();
     h.run_steps(5);
     assert!(tiles(&h) > 0, "opened out as it is typed");
+}
+
+/// Exact Tile with a group (vicky.bat's report: in Fort Interior the
+/// staircase, a group of one tile, could be neither put in among the
+/// walls nor replaced): a group's picture chosen with the switch on goes
+/// in as it is, nothing around fitted to it, and over a staircase already
+/// there it replaces it, one step to undo each; Tile Properties offer the
+/// staircase All Tiles, as any tile.
+#[test]
+fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    // Fort Interior, the up staircase (tile 40, alone in its group) at (1, 1).
+    let Some((mut h, area)) = area_harness_on("exact-group", "twc03", Some(40)) else { return };
+    let twc03 = ResRef::from_str("twc03").unwrap();
+    let (set, index, palette) = {
+        let game = h.state().game.as_deref().unwrap();
+        let set = mg_area::tileset(game, twc03).unwrap();
+        let index = TileIndex::new(&set);
+        let palette = mg_area::terrain::TilesetPalette::read(game, twc03, &set, &index);
+        (set, index, palette)
+    };
+    // Each staircase's tile, and its picture's name in the palette.
+    let group = |name: &str| {
+        let g = set.groups.iter().position(|g| g.name == name).unwrap();
+        let label =
+            palette.brushes().into_iter().find(|(_, b)| *b == mg_area::terrain::Brush::Group(g));
+        (set.groups[g].tiles[0].unwrap(), label.expect("in the palette").0.to_string())
+    };
+    let ((up, up_name), (down, down_name)) = (group("Stairway_up"), group("Stairway_down"));
+    assert!(index.is_grouped(up) && index.is_grouped(down));
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let shots = mg_testkit::scratch_dir("ui-exact-group");
+    let before = grid(&mut h);
+    assert_eq!(before.tile(1, 1).tile, up);
+    let list = tile_list(&mut h, area);
+    area_shots(&mut h, area, &shots.join("before"));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    h.get_by_label("🖼").click();
+    h.run_steps(2);
+    h.get_by_label("📌 Exact Tile").click();
+    // (Small pictures: the palette finds three for "stairs up", and a
+    // picture out of sight is not laid out to be found.)
+    h.state_mut().settings.gallery_tile = Some(64);
+    h.run_steps(2);
+    let choose = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        open_tile_heading(h, name);
+        h.get_all_by_label(name).next().expect("its picture").scroll_to_me();
+        h.run_steps(3);
+        h.get_all_by_label(name).next().unwrap().click();
+        h.run_steps(2);
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, x: f32, y: f32| {
+        let at = screen(h, area, Vec3::new(x, y, 0.0));
+        h.hover_at(at);
+        h.run_steps(2);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    // The up staircase among the walls at (2, 0): there, as it is, and no
+    // other tile changed (without the switch the fit rules refuse it).
+    choose(&mut h, &up_name);
+    click(&mut h, 25.0, 5.0);
+    let after = grid(&mut h);
+    let height = before.tile(2, 0).height;
+    assert_eq!(after.tile(2, 0), mg_tiles::Placement { tile: up, orientation: 0, height });
+    only_changed(&list, &tile_list(&mut h, area), &[2]);
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().can_undo(),
+        Some(format!("Exact {up_name}").as_str())
+    );
+    area_shots(&mut h, area, &shots.join("placed"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "one step");
+    // The down staircase over the up one at (1, 1): it replaces it.
+    choose(&mut h, &down_name);
+    click(&mut h, 15.0, 15.0);
+    let after = grid(&mut h);
+    assert_eq!(after.tile(1, 1).tile, down);
+    only_changed(&list, &tile_list(&mut h, area), &[5]);
+    area_shots(&mut h, area, &shots.join("replaced"));
+    // Off: the group is placed by the fit rules, which refuse it here.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    h.get_by_label("📌 Exact Tile").click();
+    h.run_steps(2);
+    choose(&mut h, &up_name);
+    click(&mut h, 25.0, 5.0);
+    assert_eq!(tile_list(&mut h, area), list, "refused, as before");
+    // Tile Properties on the staircase: All Tiles offered, and its Turn
+    // turns it, as any tile's.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    assert!(!h.state().tile_props.as_ref().expect("open").grouped, "a group of one tile");
+    h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
+    h.run_steps(3);
+    h.get_by_label_contains("in the tileset)").scroll_to_me();
+    h.get_by_label("↺90°").click();
+    h.run_steps(3);
+    let turned = grid(&mut h).tile(1, 1);
+    assert_eq!((turned.tile, turned.orientation), (up, 1));
 }

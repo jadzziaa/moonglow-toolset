@@ -111,8 +111,9 @@ pub struct TileProps {
     pub written: Option<Draft>,
     /// Closed with changes: Save, Don't Save or Cancel is asked.
     pub closing: bool,
-    /// With one tile chosen, a group's or a feature's, which changes only
-    /// with its group: its variants aren't offered.
+    /// With one tile chosen, a larger group's or a feature's, which
+    /// changes only with its group: its variants aren't offered (a group
+    /// of one tile, a staircase, is not one).
     pub grouped: bool,
     /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
@@ -899,9 +900,14 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         &[(x, y)] => grid.clone().map(|g| ((x, y), g)),
         _ => None,
     };
-    // (A group's tile among them: nothing but its group changes it.)
-    let grouped =
-        grid.as_ref().is_some_and(|g| cells.iter().any(|&(x, y)| g.locked(&tools.index, x, y)));
+    // (A larger group's tile among them: nothing but its group changes
+    // it. A group of one tile, a staircase, changes as any tile.)
+    let grouped = grid.as_ref().is_some_and(|g| {
+        cells.iter().any(|&(x, y)| {
+            g.locked(&tools.index, x, y)
+                && g.group_cells(&tools.index, x, y).is_some_and(|c| c.len() > 1)
+        })
+    });
     let every =
         (tools.set.tiles.iter().enumerate()).map(|(i, t)| (i as u32, t.model.clone())).collect();
     let variants = one.filter(|_| !grouped).and_then(|((x, y), g)| {
@@ -1178,8 +1184,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 let all = props.every.len();
                 ui.horizontal(|ui| {
                     let count = match found.len() {
-                        n if n == all => format!("All tiles ({all} in the tileset)"),
-                        n => format!("All tiles ({n} of {all})"),
+                        n if n == all => format!("All Tiles ({all} in the tileset)"),
+                        n => format!("All Tiles ({n} of {all})"),
                     };
                     ui.label(count).on_hover_text(
                         "Every tile of the tileset, turned as chosen. Click one to put it here.",
@@ -1380,7 +1386,7 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
 pub const ALL_TILES_SEARCH: &str = "🔍 Search model, number";
 
 /// Tile Properties' All tiles switch's name.
-pub const ALL_TILES: &str = "All tiles (ignore fit)";
+pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
 
 /// The pictures' Size slider, beside their heading.
 fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {

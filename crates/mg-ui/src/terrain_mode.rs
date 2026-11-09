@@ -26,7 +26,9 @@
 //!   the pointer passes. With the palette's Exact tile switch on
 //!   (`Settings::exact_tiles`, issue #29) it goes in alone, at the height
 //!   of the tile it replaces, nothing around it fitted to it
-//!   (`Grid::set_exact`, as the plugin API's `set_tile`).
+//!   (`Grid::set_exact`, as the plugin API's `set_tile`), over a group of
+//!   one tile too (a staircase); a group chosen goes in as it is the same
+//!   way (`Grid::place_group_exact`).
 //! - Refine Tile steps a tile to the next that fits there (in Aurora's
 //!   order, Shift + right click's: each tile's turns, then the next tile's),
 //!   or with a tile chosen in the Gallery makes it that one where it fits.
@@ -83,7 +85,7 @@ pub struct TileBrush {
     /// Refine Tile's tile to make of those it acts on, chosen in the
     /// palette's Gallery (`None`: the next that fits).
     pub target: Option<u32>,
-    /// A tile chosen in the Gallery goes in alone, as it is: the palette's
+    /// A tile or group chosen in the Gallery goes in as it is: the palette's
     /// Exact tile switch (`Settings::exact_tiles`), which [`active`] reads
     /// as the brush is used (false as the palette keeps it).
     pub exact: bool,
@@ -342,8 +344,14 @@ fn tool_label(app: &mut Moonglow, view: &AreaView, brush: Brush) -> String {
     palette.as_ref().and_then(|p| find(&p.branches, brush)).unwrap_or("Eraser").to_string()
 }
 
+/// Whether the Exact tile switch applies to `brush`: a tile or a group
+/// chosen in the Gallery.
+fn exactable(brush: Brush) -> bool {
+    matches!(brush, Brush::Tile(_) | Brush::Group(_))
+}
+
 /// The tiles palette's Exact tile switch's name.
-pub(crate) const EXACT_TILE: &str = "📌 Exact tile";
+pub(crate) const EXACT_TILE: &str = "📌 Exact Tile";
 
 /// The tiles palette's Select Tiles row's name.
 const SELECT_TILES: &str = "Select Tiles";
@@ -451,7 +459,7 @@ pub(crate) fn active(app: &Moonglow, view: &AreaView) -> Option<TileBrush> {
     }
     let mut b = app.palette.tile_brush.clone()?;
     let tools = view.terrain.as_ref()?;
-    b.exact = app.settings.exact_tiles && matches!(b.brush, Brush::Tile(_));
+    b.exact = app.settings.exact_tiles && exactable(b.brush);
     (tools.tileset == b.tileset).then_some(b)
 }
 
@@ -581,7 +589,7 @@ fn stroke(
             let (cx, cy) = spot.cell;
             let height = grid.tile(cx, cy).height;
             let p = Placement { tile: t, orientation: turns % 4, height };
-            let label = format!("Exact tile {}", brush.label);
+            let label = format!("Exact Tile {}", brush.label);
             (grid.set_exact(&tools.index, cx, cy, p), label)
         }
         Brush::Tile(t) => {
@@ -592,6 +600,14 @@ fn stroke(
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
         Brush::Crosser(c) => {
             (grid.lay_crosser(&tools.index, &[(spot.cell, spot.edge)], &[], c).0, label)
+        }
+        // Exact tile with a group: its tiles as they are, nothing around
+        // fitted to them (a staircase among walls).
+        Brush::Group(g) if brush.exact => {
+            let group = &tools.set.groups[g];
+            let (cx, cy) = spot.cell;
+            let st = grid.place_group_exact(&tools.index, group, cx, cy, turns);
+            (st, format!("Exact {}", brush.label))
         }
         Brush::Group(g) => {
             let group = &tools.set.groups[g];
@@ -1587,12 +1603,11 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // Beside them, for the Gallery's tiles (and a tile chosen from it,
         // the List shown since): an explicit switch, not a key held, as
         // Shift, Ctrl and Alt already do things with a brush (#29).
-        let tile_chosen =
-            app.palette.tile_brush.as_ref().is_some_and(|b| matches!(b.brush, Brush::Tile(_)));
+        let tile_chosen = app.palette.tile_brush.as_ref().is_some_and(|b| exactable(b.brush));
         if gallery || tile_chosen {
             ui.toggle_value(&mut app.settings.exact_tiles, EXACT_TILE).on_hover_text(
-                "Put a tile chosen from the pictures in alone. The tiles around aren't changed to \
-                 fit.",
+                "Put a tile or group chosen from the pictures in as it is. The tiles around aren't \
+                 changed to fit.",
             );
         }
         if gallery {
@@ -1732,7 +1747,7 @@ pub(crate) fn drop_tile(
         label: dropped.label.clone(),
         brush: dropped.brush,
         target: None,
-        exact: app.settings.exact_tiles && matches!(dropped.brush, Brush::Tile(_)),
+        exact: app.settings.exact_tiles && exactable(dropped.brush),
     };
     let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
     commit(app, view, g, st, &label, None);
