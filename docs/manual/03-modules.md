@@ -825,12 +825,12 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[bake] rows` | the placeables.2da rows [Bake Walkmesh to Transform](#baked-walkmeshes) takes (`"16500-16999"`), at most 65535 (the last row the game can carry); a bake never takes a row the game's table holds already | the command isn't offered |
 | `[bake] hak` | the hak (its name; `.hak` may be left out) the baked models (`.mdl`, `.pwk`) go into, in your user folder's `hak`; the first bake puts it at the top of the module's hak list | the command isn't offered |
 | `[bake] names` | what baked models' names begin with (letters, digits and `_`, at most 12: four digits follow) | `"mgbk_"` |
-| `[bake] rows_file` | the rows file, beside the project file, which the project's build reads | `"baked_rows.toml"` |
+| `[bake] rows_file` | the rows file, beside the project file (inside the project), which the project's build reads | `"baked_rows.toml"` |
 | `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Options › Language (off by default) |
 | `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
-| `[talk] map` | `mg tlk-alloc`'s map, from the project's root: the lines it gives keys (in use or retired) are never taken | none |
+| `[talk] map` | `mg tlk-alloc`'s map, from the project's root, inside it: the lines it gives keys (in use or retired) are never taken | none |
 | `[talk.builders]` | each builder's own part of the lines, by their code (`ab = "100000-109999"`); a builder without one takes from `lines` past every builder's part | everyone takes from `lines` |
-| `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
+| `[claims] file` | the team's [claims table](#claimed-areas), from the project's root, inside it | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
@@ -849,7 +849,11 @@ Store](04-areas.md#setup-store), [claimed areas](#claimed-areas) and
 file and line, and the rest is read: a key or a section it doesn't know,
 a value of the wrong kind (`moonglow.toml:12: "colour" is not a key of
 [store]`). A file that is no TOML at all is an error, by line, and its
-rules are left out until it is mended.
+rules are left out until it is mended. A file the project file names
+(the claims table, the talk table's map, a grouping's `from`, the
+bake's rows file) is to be inside the project: an absolute path or one
+with `..` is said the same way, and that file is neither read nor
+written.
 
 **Each builder's own settings** go in `.moonglow/user.toml` in the same
 folder, never in the file the team shares. Moonglow makes the folder
@@ -957,7 +961,7 @@ order = "name"                 # its groups by name
 | `title` | the grouping's name in Group by | its id, as a title (`kind`: Kind) |
 | `types` | the blueprint types (extensions) whose palettes offer it; one it leaves out shows its categories alone | every type |
 | `words_of` | a regular expression whose first group in brackets is the part of a name its words are taken from: with names like `Tavern: Table 2 (N2E)`, the part after the colon, before the brackets (so that "after HAM", the pack a fern was made after, isn't a ham). A name it doesn't match gives its words whole | the whole name |
-| `from` | a file beside `moonglow.toml` of lists a tool writes (below), read with it and again when it changes | none |
+| `from` | a file beside `moonglow.toml` (inside the project) of lists a tool writes (below), read with it and again when it changes | none |
 | `order` | `"name"`: the groups by name, those of the rules and those of the list alike, case and accents aside, as the palettes sort names (Other still last) | `"file"`: the groups `moonglow.toml` gives first, in its order, then those only the list names, in its |
 | `group` `name` | the group's name (not `Other`, which holds the blueprints no group takes) | (a group needs one) |
 | `group` `types` | the grouping's palettes the group is offered in, narrower than the grouping's | all of the grouping's |

@@ -771,6 +771,26 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A file a section names by its path from the project file's folder
+    /// (trimmed; it may be empty). One that leaves the project (an
+    /// absolute path, a `..`) is a warning and is not taken: the file
+    /// comes with a checkout, and could otherwise have Moonglow read, or
+    /// make (the claims table), a file anywhere the builder can write.
+    pub(crate) fn file_inside(&mut self, entry: Entry) -> Option<String> {
+        let text = self.text(entry)?.trim().to_string();
+        if text.is_empty() {
+            return Some(text);
+        }
+        match crate::project_plugins::inside_problem(&text, "file") {
+            Some(problem) => {
+                let message = format!("{} \"{text}\": {problem}", entry.0.get_ref());
+                self.warn(entry.1.span().start, message);
+                None
+            }
+            None => Some(text),
+        }
+    }
+
     fn resref(&mut self, entry: Entry) -> Option<ResRef> {
         let text = self.text(entry)?;
         match ResRef::from_str(text.trim()) {
@@ -1428,9 +1448,7 @@ impl ProjectFile {
                     DeValue::Boolean(b) => rules.typed = Some(*b),
                     _ => r.warn(e.1.span().start, "typed is true or false"),
                 },
-                "map" => {
-                    rules.map = r.text(e).map(|m| m.trim().to_string()).filter(|m| !m.is_empty())
-                }
+                "map" => rules.map = r.file_inside(e).filter(|m| !m.is_empty()),
                 "builders" => {
                     for b in r.section(e) {
                         let code = b.0.get_ref().trim().to_ascii_lowercase();
@@ -1490,7 +1508,7 @@ impl ProjectFile {
                         }
                     }
                 }
-                "rows_file" => match r.text(e).map(|t| t.trim().to_string()) {
+                "rows_file" => match r.file_inside(e) {
                     Some(f) if !f.is_empty() => rules.rows_file = Some(f),
                     Some(_) => r.warn(at, "rows_file is empty"),
                     None => {}
@@ -1531,9 +1549,7 @@ impl ProjectFile {
         let mut rules = ClaimRules::default();
         for e in r.section(entry) {
             match e.0.get_ref().as_ref() {
-                "file" => {
-                    rules.file = r.text(e).map(|f| f.trim().to_string()).filter(|f| !f.is_empty())
-                }
+                "file" => rules.file = r.file_inside(e).filter(|f| !f.is_empty()),
                 "others" => match r.text(e).as_deref() {
                     Some("warn") => rules.others = Others::Warn,
                     Some("read-only") => rules.others = Others::ReadOnly,
@@ -2796,6 +2812,45 @@ keeper_variable = "tdod_store"
         m.save().unwrap();
         let m = crate::Module::open(&path).unwrap();
         assert_eq!(m.project_file.used.conversations.globs, ["chat_*"]);
+    }
+
+    /// The files the project's file names (the claims table, the talk
+    /// table's map, a grouping's lists, the bake's rows) are the
+    /// project's: one named outside it (a checkout's file could name any
+    /// the builder can write) is a warning by its line, and not taken.
+    #[test]
+    fn a_file_named_outside_the_project_is_not_taken() {
+        let mut p = ProjectFile::default();
+        p.apply(
+            FILE_NAME,
+            "[claims]\nfile = \"../x.2da\"\n[talk]\nmap = \"/etc/map.json\"\n[bake]\nrows_file = \
+             \"C:\\\\rows.toml\"\n[palette.kind]\nfrom = \"a/../../lists.toml\"\n",
+            false,
+        );
+        assert_eq!((p.claims.file.as_deref(), p.talk.map.as_deref()), (None, None));
+        assert_eq!(p.bake.rows_file, None);
+        assert!(p.palette.from_paths(Path::new("/p")).is_empty());
+        let said = p.warnings.join("\n");
+        for line in [
+            format!("{FILE_NAME}:2: file \"../x.2da\": it is to be inside the project (no ..)"),
+            format!("{FILE_NAME}:4: map \"/etc/map.json\": it is to be a file of the project"),
+            format!("{FILE_NAME}:6: rows_file \"C:\\rows.toml\": it is to be a file of the"),
+            format!("{FILE_NAME}:8: from \"a/../../lists.toml\": it is to be inside the project"),
+        ] {
+            assert!(said.contains(&line), "{line}\n{said}");
+        }
+        // Those inside it are taken as written.
+        let mut p = ProjectFile::default();
+        p.apply(
+            FILE_NAME,
+            "[claims]\nfile = \" builders/claims.2da \"\n[talk]\nmap = \"tlk\\\\map.json\"\n\
+             [palette.kind]\nfrom = \"lists.toml\"\n",
+            false,
+        );
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        assert_eq!(p.claims.file.as_deref(), Some("builders/claims.2da"));
+        assert_eq!(p.talk.map.as_deref(), Some("tlk\\map.json"));
+        assert_eq!(p.palette.from_paths(Path::new("/p")), [Path::new("/p/lists.toml")]);
     }
 
     /// A project's file that is not UTF-8 throughout (a comment typed in
