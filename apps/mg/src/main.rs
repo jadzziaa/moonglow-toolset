@@ -4269,7 +4269,8 @@ fn run(cli: &Cli) -> Result<Output> {
                     differ.join(", ")
                 );
             }
-            let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
+            // (The module first: one that can't be opened, or has no
+            // module.ifo that reads, leaves the user folder as it is.)
             let mut m = crate::open_module(module)?;
             let mut info = m.info()?;
             let haks: Vec<String> =
@@ -4283,6 +4284,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 info.root.set("Mod_CustomTlk", mg_gff::Value::String(name));
             }
             m.set_info(&info)?;
+            // (Copied last, just before the save.)
+            let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
             m.save()?;
             let mut out =
                 Output::new(json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk }));

@@ -192,3 +192,28 @@ fn a_hak_named_in_another_case_is_said_with_its_file() {
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(said.contains("hak MG_PLAIN not found") && said.contains("mg_plain.hak"), "{said}");
 }
+
+/// A module that can't be opened (its name mistyped) leaves the user
+/// folder as it is: the haks were copied there, over those of the same
+/// names with `--replace`, before the module was looked at.
+#[test]
+fn nothing_is_copied_for_a_module_that_is_not_there() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-attach-no-module");
+    let (download, user) = (dir.join("download"), dir.join("user"));
+    std::fs::create_dir_all(&download).unwrap();
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut w = ErfWriter::new(*b"HAK ");
+    w.add(ResRef::from_str("a").unwrap(), ResType::TWODA, b"2DA V2.0\n".to_vec()).unwrap();
+    std::fs::write(download.join("mg_a.hak"), w.to_bytes().unwrap()).unwrap();
+    std::fs::write(download.join("mg_b.hak"), w.to_bytes().unwrap()).unwrap();
+    std::fs::write(user.join("hak/mg_b.hak"), b"the one that was there").unwrap();
+    let (a, b) = (download.join("mg_a.hak"), download.join("mg_b.hak"));
+    let missing = dir.join("castel.mod");
+    let args = ["attach", missing.to_str().unwrap(), a.to_str().unwrap(), b.to_str().unwrap()];
+    let out =
+        crate::mg_on(&root, Some(user.as_ref())).args(args).arg("--replace").output().unwrap();
+    assert!(!out.status.success());
+    assert!(!user.join("hak/mg_a.hak").exists(), "copied before the module was opened");
+    assert_eq!(std::fs::read(user.join("hak/mg_b.hak")).unwrap(), b"the one that was there");
+}
